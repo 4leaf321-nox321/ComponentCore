@@ -26,10 +26,38 @@ def _bearer(request: Request) -> str | None:
     return header[7:].strip() or None
 
 
+#: POST 지만 아무것도 안 바꾸는 경로 — 레시피 검증 · 미리보기. 읽기 토큰으로 되어야 AI 가
+#: 그려 본다.
+_READ_ONLY_POSTS = ("/api/cad/recipe/",)
+
+
+def _is_write(request: Request) -> bool:
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return False
+    return not request.url.path.startswith(_READ_ONLY_POSTS)
+
+
 def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     token = _bearer(request)
     if token is None:
         raise AppError(code("AUTH", 100), _UNAUTHENTICATED, status=401)
+
+    if token.startswith(security.pat_prefix()):
+        found = services.resolve_pat(db, token)
+        if found is None:
+            raise AppError(code("AUTH", 101), "토큰이 유효하지 않습니다.", status=401)
+        user, pat = found
+        # **기계 자격의 쓰기는 범위로 막는다.** 사람 세션에는 안 건다 — 그 사람의 권한이 이미
+        # 한계다.
+        if _is_write(request) and "write" not in (pat.scopes or []):
+            raise Forbidden(
+                code("AUTH", 106),
+                "이 토큰에는 write 범위가 없습니다.",
+                details={"granted": list(pat.scopes or [])},
+            )
+        request.state.token_name = pat.name
+        request.scope[USER_ID_SCOPE_KEY] = user.id
+        return user
 
     payload = security.decode_access_token(token)
     if payload is None:

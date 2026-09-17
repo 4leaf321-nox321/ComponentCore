@@ -40,8 +40,8 @@ jobs:
           PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE autojig_test"
       - working-directory: backend
         run: |
-          ruff format --check . --config pyproject.toml
-          ruff check . --config pyproject.toml
+          ruff format --check . ../mcp_server --config pyproject.toml
+          ruff check . ../mcp_server --config pyproject.toml
           mypy
           python -m pytest
           alembic upgrade head
@@ -49,6 +49,17 @@ jobs:
       # 생성물 최신성 — openapi.json 이 코드와 어긋나 있으면 프론트 타입이 옛것이다.
       - working-directory: backend
         run: python scripts/export_openapi.py && git diff --exit-code openapi.json
+
+  mcp:
+    name: MCP 서버 (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version-file: '.python-version'
+      - run: pip install -r mcp_server/requirements.txt pytest
+      - run: python -m pytest mcp_server/tests
 
   frontend:
     name: 프론트 (build · test · lint)

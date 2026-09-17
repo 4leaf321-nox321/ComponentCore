@@ -47,6 +47,18 @@ def new_opaque_token() -> str:
     return secrets.token_urlsafe(48)
 
 
+def pat_prefix() -> str:
+    """PAT 평문 앞에 붙는 표식 — `<app_slug>_pat_`. 로그와 소스에서 유출을 눈으로 찾게 한다."""
+    return f"{get_settings().app_slug}_pat_"
+
+
+def new_pat() -> tuple[str, str, str]:
+    """(평문, 표시용 prefix, 해시). 평문은 발급 응답에서 한 번만 노출된다."""
+    prefix = pat_prefix()
+    raw = prefix + secrets.token_urlsafe(32)
+    return raw, raw[: len(prefix) + 6], hash_token(raw)
+
+
 def create_access_token(user_id: uuid.UUID) -> tuple[str, int]:
     """(JWT, 만료까지 초). access 는 짧게 살고 폐기하지 않는다 — 폐기는 refresh 의 몫."""
     settings = get_settings()

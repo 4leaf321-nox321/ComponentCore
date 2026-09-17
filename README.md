@@ -22,6 +22,7 @@
 | 코어 | Python 3.12 · [build123d](https://build123d.readthedocs.io/) 0.11 (OpenCascade) |
 | 백엔드 | FastAPI · SQLAlchemy 2 · Alembic · PostgreSQL 16 · PyJWT · bcrypt |
 | 프론트 | React 19 · TypeScript · Vite · Tailwind 4 · shadcn · three.js (glTF 뷰어) |
+| AI 연결 | MCP 서버(`mcp_server/`, streamable-http) — Claude Code · Desktop 이 개인 토큰으로 붙는다 |
 | 검증 | ruff · mypy(strict) · pytest / oxlint · vitest |
 
 구조와 규칙은 [AGENTS.md](AGENTS.md), 설계 결정은 [docs/adr/](docs/adr/).
@@ -65,6 +66,19 @@ npm run dev                     # http://localhost:5230 — /api 는 8061 로 �
 ```
 
 `npm run build` 를 하면 백엔드 한 프로세스가 `frontend/dist` 까지 서빙한다 — 배포 형태가 그것이다.
+
+### 4. AI 붙이기 (MCP)
+
+```bash
+cd mcp_server && python3 -m venv venv && ./venv/bin/pip install -r requirements.txt
+```
+그 뒤 `python run.py` 가 MCP 서버(8062)를 함께 띄운다. 화면 「내 정보」 에서 개인 토큰을 발급하고:
+```bash
+claude mcp add --transport http autojig http://127.0.0.1:8062/mcp \
+  --header "Authorization: Bearer autojig_pat_…"
+```
+Claude 에게 "80×50×10 판에 모서리 M6 넷, 이름은 베이스" 라고 하면 내 작업에 출처 「AI」 버전이
+생긴다. 자세한 것은 [mcp_server/README.md](mcp_server/README.md).
 
 ### 서버 없이 코어만
 

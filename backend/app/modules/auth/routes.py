@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
@@ -17,7 +19,11 @@ from app.modules.auth.schemas import (
     ChangePasswordRequest,
     LoginRequest,
     LoginResponse,
+    PatCreateRequest,
+    PatCreateResponse,
+    PatOut,
     ProfileUpdateRequest,
+    TokenScopesOut,
     UserOut,
 )
 from app.shared.auth import current_user
@@ -113,3 +119,37 @@ def change_password(
 ) -> None:
     services.change_password(db, user, payload.current_password, payload.new_password)
     _clear_refresh_cookie(response)
+
+
+# --- 개인 토큰(PAT) — 스크립트 · MCP(AI) 용 자격 증명 -----------------------------
+
+
+@router.get("/token-scopes", response_model=TokenScopesOut)
+def token_scopes(_: User = Depends(current_user)) -> TokenScopesOut:
+    return TokenScopesOut(scopes=list(services.SCOPES), descriptions=dict(services.SCOPES))
+
+
+@router.post("/tokens", response_model=PatCreateResponse, status_code=201)
+def create_token(
+    payload: PatCreateRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> PatCreateResponse:
+    raw, pat = services.create_pat(
+        db, user, payload.name, payload.expires_in_days, payload.scopes
+    )
+    return PatCreateResponse(token=raw, pat=pat)
+
+
+@router.get("/tokens", response_model=list[PatOut])
+def list_tokens(
+    user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> list[PatOut]:
+    return services.list_pats(db, user)
+
+
+@router.delete("/tokens/{pat_id}", status_code=204)
+def revoke_token(
+    pat_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> None:
+    services.revoke_pat(db, user, pat_id)

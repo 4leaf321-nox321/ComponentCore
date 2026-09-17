@@ -9,7 +9,7 @@ from __future__ import annotations
 from app.database import Base
 from app.modules.accounts.models import User
 from app.modules.audit.models import AccessLog
-from app.modules.auth.models import RefreshToken
+from app.modules.auth.models import PersonalAccessToken, RefreshToken
 from app.modules.jigs.models import Jig, JigVersion
 from app.modules.jobs.models import Artifact, Job
 from app.modules.parts.models import Part, PartVersion
@@ -24,6 +24,7 @@ __all__ = [
     "Job",
     "Part",
     "PartVersion",
+    "PersonalAccessToken",
     "RefreshToken",
     "User",
     "Work",

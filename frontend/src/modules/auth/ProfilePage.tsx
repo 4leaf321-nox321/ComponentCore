@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { TokensPanel } from '@/modules/auth/TokensPanel'
 import { ApiError, api } from '@/shared/api/client'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
@@ -35,9 +36,9 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="max-w-lg">
-      <PageHeader title="내 정보" description="화면에 보이는 이름을 바꿉니다." />
-      <form onSubmit={submit} className="space-y-4">
+    <div className="max-w-3xl space-y-8">
+      <PageHeader title="내 정보" description="표시 이름과 개인 토큰." />
+      <form onSubmit={submit} className="max-w-lg space-y-4">
         <div className="space-y-2">
           <Label>아이디</Label>
           <Input value={user?.email ?? ''} disabled />
@@ -52,6 +53,7 @@ export default function ProfilePage() {
           {busy ? '저장 중…' : '저장'}
         </Button>
       </form>
+      <TokensPanel />
     </div>
   )
 }

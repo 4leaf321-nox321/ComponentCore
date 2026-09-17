@@ -155,6 +155,17 @@ SELECT 에서 죽어 「작업이 queued 에서 안 움직인다」 가 된다(�
 띄운 것은 PID 를 들고 있다가 그것만 내린다. 포트가 잡혀 있으면 「누가 쓰나」 를 먼저 본다:
 `ss -ltnp 'sport = :8061'`.
 
+## MCP 서버
+
+- `mcp_server/` 는 **한 파일 `server.py`**, 그 폴더의 `venv`, streamable-http(백엔드 포트 +2).
+  백엔드 venv 에 `mcp` 를 깔지 않는다 — 시험의 HTTP 스택이 바뀐다(StandardPlatform 실측).
+  진짜 앱에 붙여 보는 시험은 `backend/tests/api/test_mcp_tools.py` 가 가짜 `mcp` 로 도구 함수만
+  꺼내 ASGI 로 돌린다.
+- MCP 에 규칙을 두지 않는다. 사용자의 PAT 를 백엔드에 그대로 넘기고 검증 · 권한은 백엔드가 한다.
+- **도구는 늘 dict 하나를 돌려준다.** FastMCP 는 리스트를 항목마다 다른 content 로 쪼개 클라이언트가
+  첫 항목만 읽는다(실측). 큰 것(삼각형 · 진행 로그)은 빼고 요약만.
+- 가이드(`guide/GUIDE.md`)를 서버가 쥔다. 노드 종류를 더하면 가이드의 `recipe` 절도 고친다.
+
 ## 검증
 
 고치고 나서 이것을 돌린다. **마이그레이션을 만들었으면 그 자리에서 개발 DB 에 올린다**
@@ -162,12 +173,13 @@ SELECT 에서 죽어 「작업이 queued 에서 안 움직인다」 가 된다(�
 
 ```bash
 cd backend
-.venv/bin/ruff format . --config pyproject.toml
-.venv/bin/ruff check . --config pyproject.toml
+.venv/bin/ruff format . ../mcp_server --config pyproject.toml
+.venv/bin/ruff check . ../mcp_server --config pyproject.toml
 .venv/bin/mypy
 .venv/bin/python -m pytest
 .venv/bin/python -m alembic check
 cd ../frontend && npm run build && npm test && npm run lint
+mcp_server/venv/bin/python -m pytest mcp_server/tests      # 저장소 루트에서
 ```
 
 테스트는 개발 `.env` 의 접속 정보에서 `<이름>_test` 를 파생해 쓴다. **개발 DB 를 건드리는

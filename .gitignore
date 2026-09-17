@@ -34,3 +34,4 @@ Thumbs.db
 # CAD 산출물 (시험·실험 중 만든 것)
 *.step.tmp
 *.stl.tmp
+mcp_server/venv/

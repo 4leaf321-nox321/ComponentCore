@@ -12,9 +12,9 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.modules.accounts.models import User
 from app.modules.auth import security
-from app.modules.auth.models import RefreshToken
-from app.modules.auth.schemas import UserOut
-from app.shared.errors import AppError, Forbidden, code
+from app.modules.auth.models import PersonalAccessToken, RefreshToken
+from app.modules.auth.schemas import PatOut, UserOut
+from app.shared.errors import AppError, Forbidden, NotFound, code
 
 _INVALID_LOGIN = "아이디 또는 비밀번호가 올바르지 않습니다."
 
@@ -191,3 +191,77 @@ def change_password(db: Session, user: User, current: str, new: str) -> None:
 
 def user_out(user: User) -> UserOut:
     return UserOut.model_validate(user)
+
+
+# --- PAT ---------------------------------------------------------------------
+
+#: 아는 범위와 뜻. 화면과 MCP 안내가 이것을 읽는다 — 손으로 두 벌 적지 않는다.
+SCOPES: dict[str, str] = {
+    "read": "조회 — 내 작업 · 부품 · 지그 · 작업 상태 읽기, 레시피 검증 · 미리보기",
+    "write": "만들고 고치기 — 작업 · 버전 저장 · 지그 생성 · 승격",
+}
+
+
+def create_pat(
+    db: Session, user: User, name: str, expires_in_days: int | None, scopes: list[str]
+) -> tuple[str, PatOut]:
+    granted = list(dict.fromkeys(scopes or ["read"]))
+    unknown = [one for one in granted if one not in SCOPES]
+    if unknown:
+        raise AppError(
+            code("AUTH", 107),
+            f"모르는 범위입니다: {', '.join(unknown)}",
+            status=400,
+            details={"known": list(SCOPES)},
+        )
+    raw, prefix, token_hash = security.new_pat()
+    pat = PersonalAccessToken(
+        user_id=user.id,
+        name=name.strip(),
+        prefix=prefix,
+        token_hash=token_hash,
+        scopes=granted,
+        expires_at=_now() + timedelta(days=expires_in_days) if expires_in_days else None,
+    )
+    db.add(pat)
+    db.commit()
+    db.refresh(pat)
+    return raw, PatOut.model_validate(pat)
+
+
+def list_pats(db: Session, user: User) -> list[PatOut]:
+    rows = db.scalars(
+        select(PersonalAccessToken)
+        .where(PersonalAccessToken.user_id == user.id)
+        .order_by(PersonalAccessToken.created_at.desc())
+    ).all()
+    return [PatOut.model_validate(row) for row in rows]
+
+
+def revoke_pat(db: Session, user: User, pat_id: uuid.UUID) -> None:
+    pat = db.get(PersonalAccessToken, pat_id)
+    if pat is None or pat.user_id != user.id:
+        raise NotFound(code("AUTH", 7), "토큰을 찾을 수 없습니다.")
+    if pat.revoked_at is None:
+        pat.revoked_at = _now()
+        db.commit()
+
+
+def resolve_pat(db: Session, raw: str) -> tuple[User, PersonalAccessToken] | None:
+    """PAT 평문으로 (사용자, 토큰). 유효하지 않으면 None. 토큰까지 돌려주는 이유: 부르는 쪽이
+    범위를 봐야 한다."""
+    pat = db.scalar(
+        select(PersonalAccessToken).where(
+            PersonalAccessToken.token_hash == security.hash_token(raw)
+        )
+    )
+    if pat is None or pat.revoked_at is not None:
+        return None
+    if pat.expires_at is not None and pat.expires_at <= _now():
+        return None
+    user = db.get(User, pat.user_id)
+    if user is None or not user.can_sign_in:
+        return None
+    pat.last_used_at = _now()
+    db.commit()
+    return user, pat

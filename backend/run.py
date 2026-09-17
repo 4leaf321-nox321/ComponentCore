@@ -20,10 +20,13 @@ import os
 import socket
 import subprocess
 import sys
+from pathlib import Path
 
 import uvicorn
 
 from app.config import get_settings
+
+MCP_DIR = Path(__file__).resolve().parents[1] / "mcp_server"
 
 
 def _answering(host: str, port: int) -> bool:
@@ -57,6 +60,48 @@ def _start_worker() -> subprocess.Popen[bytes] | None:
     return child
 
 
+def _start_mcp(api_port: int, mcp_port: int) -> subprocess.Popen[bytes] | None:
+    """개발용 MCP 서버를 자식으로. 못 띄우는 이유는 **말하고** 건너뛴다 — 조용히 빠지면
+    「Claude 가 안 붙는다」 를 여기서 찾을 사람이 없다."""
+    if os.environ.get("MCP_DEV") == "0":
+        return None
+    python = MCP_DIR / "venv" / "bin" / "python"
+    server = MCP_DIR / "server.py"
+    if not python.exists() or not server.exists():
+        print(
+            f"MCP 서버는 안 띄웁니다 — {python} 이 없습니다. (cd mcp_server && "
+            "python3 -m venv venv && ./venv/bin/pip install -r requirements.txt)",
+            file=sys.stderr,
+        )
+        return None
+    if _answering("127.0.0.1", mcp_port):
+        print(
+            f"MCP 서버는 안 띄웁니다 — {mcp_port} 포트에 이미 응답하는 것이 있습니다.",
+            file=sys.stderr,
+        )
+        return None
+    env = {
+        **os.environ,
+        "PLATFORM_API_BASE": f"http://127.0.0.1:{api_port}",
+        "MCP_HOST": "127.0.0.1",
+        "MCP_PORT": str(mcp_port),
+        "APP_SLUG": get_settings().app_slug,
+    }
+    child = subprocess.Popen([str(python), str(server)], cwd=MCP_DIR, env=env)
+    print(f"MCP 서버: http://127.0.0.1:{mcp_port}/mcp → 백엔드 http://127.0.0.1:{api_port}")
+    return child
+
+
+def _stop(child: subprocess.Popen[bytes] | None) -> None:
+    if child is None or child.poll() is not None:
+        return
+    child.terminate()
+    try:
+        child.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        child.kill()
+
+
 def main() -> None:
     settings = get_settings()
     development = settings.app_env == "development"
@@ -70,15 +115,12 @@ def main() -> None:
 
     if development:
         worker = _start_worker()
+        mcp = _start_mcp(port, settings.port + 2)
         try:
             uvicorn.run("app.main:app", host=settings.host, port=port, reload=True)
         finally:
-            if worker is not None and worker.poll() is None:
-                worker.terminate()
-                try:
-                    worker.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    worker.kill()
+            _stop(worker)
+            _stop(mcp)
     else:
         uvicorn.run(
             "app.main:app",
