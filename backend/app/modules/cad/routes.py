@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
@@ -15,6 +16,7 @@ from fastapi.responses import Response
 from app.core import export
 from app.core.recipe import describe
 from app.core.recipe import templates as recipe_templates
+from app.core.recipe.mesh import mesh
 from app.modules.accounts.models import User
 from app.modules.cad import services
 from app.modules.cad.schemas import (
@@ -63,6 +65,13 @@ def recipe_preview(payload: RecipeRequest, _: User = Depends(current_user)) -> R
         target = Path(folder) / "preview.glb"
         export.write_gltf(evaluation.shape, target)
         return Response(target.read_bytes(), media_type="model/gltf-binary")
+
+
+@router.post("/recipe/mesh")
+def recipe_mesh(payload: RecipeRequest, _: User = Depends(current_user)) -> dict[str, Any]:
+    """면 · 엣지 단위 메시 + 요약 — 편집기의 미리보기이자 「3D 에서 고르기」 의 근거."""
+    evaluation = services.build(payload.recipe)
+    return {"summary": evaluation.summary(), "mesh": mesh(evaluation.shape)}
 
 
 @router.post("/recipe/step")

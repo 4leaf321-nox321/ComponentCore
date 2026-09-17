@@ -1,0 +1,43 @@
+import { fireEvent, render, screen } from '@testing-library/react'
+
+import { SketchCanvas } from '@/modules/cad/SketchCanvas'
+import type { SketchShape } from '@/modules/cad/SketchCanvas'
+
+function mockBox(element: Element) {
+  element.getBoundingClientRect = () =>
+    ({ left: 0, top: 0, width: 560, height: 400, right: 560, bottom: 400, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
+}
+
+test('도구를 고르고 캔버스를 누르면 도형이 놓인다 — 격자에 맞춰', () => {
+  const shapes: SketchShape[] = [{ type: 'rect', width: 40, height: 30, at: [0, 0], rotation: 0, mode: 'add' }]
+  const onChange = vi.fn()
+  const { container } = render(<SketchCanvas shapes={shapes} onChange={onChange} />)
+  const svg = container.querySelector('svg')!
+  mockBox(svg)
+
+  fireEvent.click(screen.getByRole('button', { name: '+ 원' }))
+  // 가운데(280, 200)가 원점. 오른쪽 위로 조금 — 스냅으로 정수 mm 가 된다.
+  fireEvent.pointerDown(svg, { clientX: 300, clientY: 180, shiftKey: false })
+
+  expect(onChange).toHaveBeenCalledTimes(1)
+  const next = onChange.mock.calls[0][0] as SketchShape[]
+  expect(next).toHaveLength(2)
+  expect(next[1].type).toBe('circle')
+  const [x, y] = next[1].at as number[]
+  expect(Number.isInteger(x) && Number.isInteger(y)).toBe(true)
+  expect(x).toBeGreaterThan(0)
+  expect(y).toBeGreaterThan(0) // 화면 위쪽 = +Y
+})
+
+test('도형을 누르면 치수 폼이 뜨고 고치면 반영된다', () => {
+  const shapes: SketchShape[] = [{ type: 'circle', radius: 5, at: [0, 0], rotation: 0, mode: 'add' }]
+  const onChange = vi.fn()
+  const { container } = render(<SketchCanvas shapes={shapes} onChange={onChange} />)
+  mockBox(container.querySelector('svg')!)
+  const circle = container.querySelector('circle')!
+  fireEvent.pointerDown(circle, { clientX: 280, clientY: 200 })
+  const radius = screen.getByLabelText('반지름') as HTMLInputElement
+  fireEvent.change(radius, { target: { value: '8' } })
+  const next = onChange.mock.calls.at(-1)![0] as SketchShape[]
+  expect(next[0].radius).toBe(8)
+})

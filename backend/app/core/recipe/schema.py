@@ -66,12 +66,19 @@ PlaneName = Literal["XY", "XZ", "YZ", "YX", "ZX", "ZY"]
 
 
 class PlaneSpec(BaseModel):
-    """스케치가 놓이는 평면. 이름 + 원점 이동. 3단계에서 「어느 면 위」 가 더해진다."""
+    """스케치가 놓이는 평면 — 이름 + 원점, 또는 **어느 면 위**(법선 · x 방향).
+
+    3D 에서 면을 누르면 편집기가 그 면의 중심 · 법선으로 채운다. `normal` 이 있으면 `name` 은
+    무시된다."""
 
     model_config = ConfigDict(extra="forbid")
 
     name: PlaneName = "XY"
     origin: XYZ = (0.0, 0.0, 0.0)
+    normal: XYZ | None = None
+    """평면의 법선(= 돌출 방향). 있으면 이름 대신 이것으로 평면을 만든다."""
+    x_dir: XYZ | None = None
+    """스케치의 X 방향. 비우면 법선과 직교하는 방향 하나를 고른다."""
 
 
 # --- 노드 ---------------------------------------------------------------------
@@ -139,7 +146,17 @@ class IntersectNode(_Node):
     targets: list[str] = Field(min_length=2)
 
 
-EdgeSelect = Literal["all", "vertical", "horizontal", "top", "bottom"]
+class EdgeNear(BaseModel):
+    """**위치로 고른 엣지** — 3D 에서 누른 엣지의 중점들. 인덱스가 아니라 위치라서 형상을 조금
+    고쳐도 같은 자리의 엣지를 다시 찾는다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    near: list[XYZ] = Field(min_length=1)
+    tolerance: float = Field(default=1.0, gt=0)
+
+
+EdgeSelect = Literal["all", "vertical", "horizontal", "top", "bottom"] | EdgeNear
 
 
 class FilletNode(_Node):

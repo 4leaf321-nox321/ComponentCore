@@ -172,3 +172,60 @@ def test_옛_도형_스펙을_레시피로() -> None:
     assert evaluate(parse(recipe)).shape.volume == pytest.approx(6000)
     with pytest.raises(ValueError):
         templates.from_primitive_spec({"kind": "sphere"})
+
+
+def test_면_위_평면과_위치로_고른_엣지() -> None:
+    from app.core.recipe.mesh import mesh
+
+    base = evaluate(parse(_box()))
+    top = next(f for f in mesh(base.shape)["faces"] if f["normal"][2] > 0.9)
+    # 윗면 중심 · 법선으로 평면을 만들어 그 위에 원기둥을 세운다.
+    recipe = _box(
+        more=[
+            {
+                "id": "s2",
+                "op": "sketch",
+                "plane": {"origin": top["center"], "normal": top["normal"]},
+                "shapes": [{"type": "circle", "radius": 2}],
+            },
+            {"id": "boss", "op": "extrude", "sketch": "s2", "distance": 4},
+            {"id": "u", "op": "union", "targets": ["b", "boss"]},
+        ]
+    )
+    grown = evaluate(parse(recipe))
+    top_z = grown.shape.bounding_box().max.Z
+    assert top_z == pytest.approx(9.0)
+
+    # 수직 엣지 하나를 중점으로 골라 필렛.
+    vertical = [e for e in mesh(base.shape)["edges"] if e["vertical"]]
+    assert len(vertical) == 4
+    picked = _box(
+        more=[
+            {
+                "id": "f",
+                "op": "fillet",
+                "target": "b",
+                "edges": {"near": [vertical[0]["midpoint"]]},
+                "radius": 2,
+            }
+        ]
+    )
+    filleted = evaluate(parse(picked))
+    assert filleted.shape.volume < base.shape.volume
+    assert len(filleted.shape.faces()) == 7  # 면 하나(필렛)만 는다
+
+    # 그 자리에 엣지가 없으면 노드가 말한다.
+    gone = _box(
+        more=[
+            {
+                "id": "f",
+                "op": "fillet",
+                "target": "b",
+                "edges": {"near": [[99, 99, 99]]},
+                "radius": 1,
+            }
+        ]
+    )
+    with pytest.raises(RecipeError) as caught:
+        evaluate(parse(gone))
+    assert "찾았습니다" in caught.value.message

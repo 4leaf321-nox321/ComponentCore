@@ -30,6 +30,7 @@ from build123d import (
     Shape,
     Sketch,
     SlotOverall,
+    Vector,
     chamfer,
     extrude,
     fillet,
@@ -103,6 +104,10 @@ _AXES = {"X": Axis.X, "Y": Axis.Y, "Z": Axis.Z}
 
 
 def _plane(spec: S.PlaneSpec) -> Plane:
+    if spec.normal is not None:
+        if spec.x_dir is not None:
+            return Plane(origin=spec.origin, x_dir=spec.x_dir, z_dir=spec.normal)
+        return Plane(origin=spec.origin, z_dir=spec.normal)
     base = _PLANES[spec.name]
     return Plane(origin=spec.origin, x_dir=base.x_dir, z_dir=base.z_dir)
 
@@ -157,7 +162,20 @@ def _as_part(shape: Shape, node_id: str) -> Part:
 
 def _edges(part: Part, select: S.EdgeSelect, node_id: str) -> Any:
     edges = part.edges()
-    if select == "vertical":
+    if isinstance(select, S.EdgeNear):
+        targets = [Vector(*point) for point in select.near]
+        edges = [
+            e
+            for e in edges
+            if any((e.position_at(0.5) - t).length <= select.tolerance for t in targets)
+        ]
+        if len(edges) < len(targets):
+            raise RecipeError(
+                node_id,
+                f"고른 자리 {len(targets)} 곳 중 {len(edges)} 곳에서만 엣지를 찾았습니다 — "
+                f"형상이 바뀌어 그 자리에 엣지가 없습니다",
+            )
+    elif select == "vertical":
         edges = edges.filter_by(Axis.Z)
     elif select == "horizontal":
         edges = [e for e in edges if abs(e.tangent_at(0.5).Z) < 1e-6]
@@ -270,8 +288,9 @@ def _evaluate_node(
         return _cleaned(result)
     if isinstance(node, S.FilletNode):
         part = _as_part(made[node.target], node.id)
+        edges = _edges(part, node.edges, node.id)  # RecipeError 는 ValueError 라 try 밖에서
         try:
-            return fillet(_edges(part, node.edges, node.id), node.radius)
+            return fillet(edges, node.radius)
         except ValueError as failure:
             raise RecipeError(
                 node.id,
@@ -280,8 +299,9 @@ def _evaluate_node(
             ) from failure
     if isinstance(node, S.ChamferNode):
         part = _as_part(made[node.target], node.id)
+        edges = _edges(part, node.edges, node.id)
         try:
-            return chamfer(_edges(part, node.edges, node.id), node.length)
+            return chamfer(edges, node.length)
         except ValueError as failure:
             raise RecipeError(
                 node.id, f"길이 {node.length} 으로 모따기를 만들지 못했습니다 — 줄여 보세요"

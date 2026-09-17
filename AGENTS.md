@@ -76,6 +76,11 @@
 - **불리언 뒤에는 `clean()`.** 면이 정확히 포개진 두 덩어리(거울 · 대칭 회전체)를 합치면 OCC 가
   부피가 음수인 솔리드를 내놓는다(실측). 평가기가 결과마다 `is_valid` 와 부피를 본다.
 - `import_step` 노드의 `file` 은 작업물 id 다. 코어는 경로를 모르고 `resolve_file` 콜백으로 받는다.
+- **편집기의 노드 목록은 `frontend/src/modules/cad/recipeSpec.ts` 다.** 서버에 연산을 더하면 거기
+  한 항목을 더한다 — `recipeSpec.test.ts` 가 서버 `schema.py` 의 op 리터럴과 대조한다.
+- 3D 에서 고른 엣지는 **위치(중점)**로 적는다(`EdgeNear`). 인덱스는 형상을 조금만 고쳐도 바뀐다.
+  면을 고르면 그 면의 중심 · 법선이 `PlaneSpec.origin/normal` 이 된다. 미리보기는 `/cad/recipe/mesh`
+  (면 · 엣지 단위)이고 결과 화면은 glTF — 편집기만 고르기가 필요하다.
 
 ## 이름과 식별자
 
