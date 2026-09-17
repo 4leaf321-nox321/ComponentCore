@@ -1,0 +1,36 @@
+# 파이썬
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# 백엔드 런타임 산출물
+backend/.env
+backend/logs/
+backend/filestore/
+
+# openapi.json 은 **커밋한다.** 프론트 타입의 입력이자 "API 가 바뀌었나" 를 보는
+# 기준 파일이다. 버전 도장은 지우고 저장한다(app/version.py 의 as_baseline).
+
+# 프론트
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# **생성된 API 타입.** 커밋하지 않는다 — openapi.json 이 정본이고 이것은 그것에서 나온다.
+frontend/src/shared/api/schema.d.ts
+
+# 편집기·OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# CAD 산출물 (시험·실험 중 만든 것)
+*.step.tmp
+*.stl.tmp

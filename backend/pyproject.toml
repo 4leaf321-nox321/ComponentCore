@@ -1,0 +1,60 @@
+[project]
+name = "autojig-backend"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+
+# 의존성 정본은 requirements.txt 다. 폐쇄망 배포가 `pip wheel -r requirements.txt`
+# 로 wheel 번들을 만들므로 전이 의존성까지 고정된 파일이 하나 있어야 한다.
+
+[tool.ruff]
+line-length = 95
+target-version = "py312"
+src = [".", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI 의 의존성 주입은 기본값 자리에 Depends() 를 쓰는 것이 정식 문법이라
+# B008 이 전부 오탐이 된다.
+extend-immutable-calls = [
+  "fastapi.Depends",
+  "fastapi.Query",
+  "fastapi.Path",
+  "fastapi.Body",
+  "fastapi.Header",
+  "fastapi.File",
+  "fastapi.Form",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"migrations/versions/*" = ["E501", "I001", "UP035", "UP007"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["app", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["uvicorn.*"]
+ignore_missing_imports = true
+
+# build123d 는 타입 정보가 부분적이라(OCP 바인딩) strict 로 보면 Any 가 흘러넘친다.
+# 코어(`app/core`)는 그 경계를 감싸는 층이므로 여기서만 느슨하게 본다.
+[[tool.mypy.overrides]]
+module = ["build123d.*", "OCP.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = ["app.core.*"]
+disallow_any_unimported = false
+warn_return_any = false
+disallow_subclassing_any = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

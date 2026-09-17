@@ -1,0 +1,69 @@
+# 검증 게이트 — 백엔드와 프론트는 서로를 안 기다린다.
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  backend:
+    name: 백엔드 (ruff · mypy · pytest · alembic)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      APP_ENV: development
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/autojig
+      APP_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/autojig_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version-file: '.python-version'
+          cache: 'pip'
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      # OCP(OpenCascade) 가 쓰는 시스템 라이브러리 — 없으면 build123d import 에서 죽는다.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libglu1-mesa libxrender1 libxext1
+      - run: pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+      - run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE autojig"
+          PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE autojig_test"
+      - working-directory: backend
+        run: |
+          ruff format --check . --config pyproject.toml
+          ruff check . --config pyproject.toml
+          mypy
+          python -m pytest
+          alembic upgrade head
+          alembic check
+      # 생성물 최신성 — openapi.json 이 코드와 어긋나 있으면 프론트 타입이 옛것이다.
+      - working-directory: backend
+        run: python scripts/export_openapi.py && git diff --exit-code openapi.json
+
+  frontend:
+    name: 프론트 (build · test · lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: '.node-version'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: |
+          npm ci
+          npm run api:types
+          npm run build
+          npm test
+          npm run lint

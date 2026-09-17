@@ -1,0 +1,19 @@
+# 줄바꿈은 **저장소가 정한다.** Windows 의 core.autocrlf 에 맡기면 셸 스크립트가
+# CRLF 로 체크아웃되어 리눅스에서 `bad interpreter: bash^M` 로 죽는다.
+* text=auto eol=lf
+
+*.sh          text eol=lf
+*.env         text eol=lf
+.env.*        text eol=lf
+
+# CAD · 바이너리 — text=auto 의 추측에 맡기면 조용히 망가진다.
+*.step        binary
+*.stp         binary
+*.stl         binary
+*.glb         binary
+*.gltf        text eol=lf
+*.png         binary
+*.jpg         binary
+*.woff        binary
+*.woff2       binary
+*.pdf         binary

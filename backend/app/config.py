@@ -1,0 +1,107 @@
+"""설정 — 환경변수(.env) -> 기본값.
+
+os.getenv 가 코드에 흩어지면 값 하나를 바꾸는 데 재배포가 필요해진다. 읽는 지점은
+`get_settings()` 하나다.
+"""
+
+from __future__ import annotations
+
+import re
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic import Field, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.branding import DEFAULT_APP_NAME, DEFAULT_APP_SLUG, DEFAULT_APP_TAGLINE
+
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+REPO_DIR = BACKEND_DIR.parent
+
+
+class Settings(BaseSettings):
+    # utf-8-sig 로 읽는다. BOM 이 붙은 .env 는 **첫 줄 키만 조용히 무시된다** —
+    # 그 키가 기본값으로 떨어지므로, 운영이 development 로 떠서 reload 가 켜진 채 돈다.
+    model_config = SettingsConfigDict(
+        env_file=BACKEND_DIR / ".env", env_file_encoding="utf-8-sig", extra="ignore"
+    )
+
+    app_env: str = "development"
+    """development | production. 기동 방식과 로그 수준을 가른다."""
+
+    app_slug: str = DEFAULT_APP_SLUG
+    """기계가 읽는 이름 — DB 이름 · 리프레시 쿠키 이름이 여기서 나온다. 설치 뒤에는 바꾸지
+    않는다 — 바꾸면 쿠키가 무효가 되고 DB 이름이 어긋난다."""
+    app_name: str = DEFAULT_APP_NAME
+    """화면 제목 · API 문서 제목 · 기동 로그 · `/api/health` 의 `app`."""
+    app_tagline: str = DEFAULT_APP_TAGLINE
+
+    database_url: str = ""
+    """비우면 `postgresql+psycopg://postgres:postgres@localhost:5432/<app_slug>`.
+    시험은 이 이름에서 `_test` 를 파생해 쓴다(tests/conftest.py)."""
+
+    host: str = "0.0.0.0"
+    port: int = 8050
+    """**플랫폼마다 10씩 벌린다** — MatNexus 8010, TestScope 8020, CrossAXTF 8030,
+    StandardPlatform 8040, 이 플랫폼 8050. 개발 백엔드는 +1(8051)을 쓴다(run.py)."""
+    trust_proxy: bool = False
+    """앞에 리버스 프록시(nginx)가 있어 `X-Forwarded-*` 를 믿는다. 없으면 끈다."""
+
+    uvicorn_workers: int = 2
+    """운영에서 띄울 워커 수. **개발(reload)에서는 무시된다.** 지그 생성은 CPU 를 쓰는
+    동기 작업이라 워커 수가 곧 동시에 돌 수 있는 생성 수다."""
+
+    log_dir: Path = BACKEND_DIR / "logs"
+    log_retention_days: int = 30
+
+    filestore_dir: Path = BACKEND_DIR / "filestore"
+    """올린 제품 STEP 과 생성한 지그(STEP · glTF)가 사는 곳. DB 에는 경로만 둔다.
+    운영에서는 bind-mount 된 경로여야 한다 — 이미지 루트는 읽기 전용이다."""
+
+    frontend_dist: Path = REPO_DIR / "frontend" / "dist"
+    """존재하면 API 와 같은 프로세스가 SPA 를 서빙한다. 개발 중에는 없다."""
+
+    jwt_secret: str = "dev-only-insecure-secret-change-me"
+    """운영에서는 난수로 바꾼다. app_env=production 이면서 기본값이면 **기동을 거부한다**."""
+
+    access_token_minutes: int = 720  # 12시간
+    refresh_token_days: int = 30
+    refresh_cookie_name: str = ""
+    """비우면 `<app_slug>_refresh`. 쿠키는 포트를 구분하지 않아서 같은 서버의 두 플랫폼이
+    같은 이름을 쓰면 한쪽 로그인이 다른 쪽 세션을 덮어쓴다."""
+    refresh_cookie_secure: bool = False
+    """사내망 http 배포가 기본이라 False. https 로 서비스하면 True."""
+
+    login_delay_after: int = 5
+    """같은 계정의 로그인 실패가 이 횟수부터 응답을 늦춘다. **잠그지 않는다.**"""
+    login_delay_step_seconds: int = 2
+    login_delay_max_seconds: int = 30
+    login_failure_window_minutes: int = 15
+
+    max_upload_mb: int = 200
+    """제품 STEP 상한. 조립체 STEP 은 수백 MB 가 되기도 하지만, 그것은 먼저 부품으로 쪼개서
+    올리는 것이 맞다 — 지그는 부품 단위로 잡는다."""
+
+    cors_origins: list[str] = Field(
+        default_factory=lambda: ["http://localhost:5250", "http://127.0.0.1:5250"]
+    )
+    """개발 서버(Vite)용. 배포에서는 동일 출처라 필요 없다."""
+
+    @model_validator(mode="after")
+    def _derive_from_slug(self) -> Settings:
+        if not re.fullmatch(r"[a-z][a-z0-9]{0,31}", self.app_slug):
+            raise ValueError(
+                f"APP_SLUG 는 소문자·숫자 한 덩어리 32자 이내여야 합니다: {self.app_slug!r}"
+            )
+        if not self.database_url:
+            self.database_url = (
+                f"postgresql+psycopg://postgres:postgres@localhost:5432/{self.app_slug}"
+            )
+        if not self.refresh_cookie_name:
+            self.refresh_cookie_name = f"{self.app_slug}_refresh"
+        return self
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
