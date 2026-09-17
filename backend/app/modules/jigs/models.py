@@ -1,8 +1,8 @@
-"""지그 프로젝트와 생성 실행.
+"""지그 카탈로그 — 내 작업에서 만든 지그를 **승격**한 것. 로그인한 누구나 본다.
 
-프로젝트는 **제품 하나**다 — 올린 STEP 이 있거나(product_path), 없으면 기본 도형 스펙
-(product_spec)이 제품이다. 실행(run)은 옵션 한 벌로 파이프라인을 돌린 기록이고, 결과 파일은
-filestore 에, 요약은 JSONB 에 남는다. 같은 제품으로 옵션을 바꿔 여러 번 돌리므로 1:N 이다.
+지그 버전 = 지그 생성 작업(결과 STEP · 계획 · 간섭) + **어느 부품 버전의 지그인가**. 제품이
+부품 카탈로그에 없으면 승격할 때 함께 부품으로 승격한다 — 지그만 있고 제품이 없는 카탈로그는
+반쪽이다.
 """
 
 from __future__ import annotations
@@ -11,19 +11,16 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
-#: 실행 상태.
-RUN_STATUSES = ("running", "done", "failed")
 
-
-class JigProject(Base):
-    __tablename__ = "jig_projects"
+class Jig(Base):
+    __tablename__ = "jigs"
 
     id: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -33,15 +30,17 @@ class JigProject(Base):
     owner_id: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), index=True
     )
-
-    product_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    """올린 파일의 원래 이름. 화면에 보이는 값."""
-    product_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    """filestore 루트 기준 상대 경로. 비어 있으면 product_spec 이 제품이다."""
-    product_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    product_spec: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
-    """STEP 이 없을 때의 제품 — `core/primitives.py` 의 스펙. 둘 다 없으면 시연 제품."""
-
+    work_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("works.id", ondelete="SET NULL"), nullable=True
+    )
+    part_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("parts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    """이 지그가 잡는 부품. 버전은 `JigVersion.part_version_id` 가 정확히 가리킨다."""
+    current_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -53,32 +52,34 @@ class JigProject(Base):
     )
 
 
-class JigRun(Base):
-    __tablename__ = "jig_runs"
+class JigVersion(Base):
+    __tablename__ = "jig_versions"
+    __table_args__ = (UniqueConstraint("jig_id", "number", name="uq_jig_versions_number"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    project_id: Mapped[uuid.UUID] = mapped_column(
-        PgUUID(as_uuid=True), ForeignKey("jig_projects.id", ondelete="CASCADE"), index=True
+    jig_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("jigs.id", ondelete="CASCADE"), index=True
     )
-    requested_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        PgUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    number: Mapped[int] = mapped_column(Integer)
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
     )
-    status: Mapped[str] = mapped_column(
-        String(20), default="running", server_default="running"
+    """지그 생성 작업 — 요약(계획 · 간섭)과 STEP · glTF 작업물."""
+    part_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("part_versions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
     options: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
-    """그때 쓴 `JigOptions`. 옛 실행을 같은 옵션으로 다시 돌릴 수 있어야 한다."""
     summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
-    """`JigResult.summary()` — 기하 요약 · 특징 · 계획 · 간섭 · 파일 이름 · 단계별 시간."""
-    error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    output_dir: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    """filestore 루트 기준 상대 경로. 결과 파일이 전부 여기 있다."""
-
-    started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+    """작업 요약의 복사본 — 작업이 지워져도 계획은 남는다."""
+    note: Mapped[str] = mapped_column(Text, default="", server_default="")
+    promoted_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    finished_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
     )

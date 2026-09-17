@@ -10,6 +10,22 @@ from app.database import Base
 from app.modules.accounts.models import User
 from app.modules.audit.models import AccessLog
 from app.modules.auth.models import RefreshToken
-from app.modules.jigs.models import JigProject, JigRun
+from app.modules.jigs.models import Jig, JigVersion
+from app.modules.jobs.models import Artifact, Job
+from app.modules.parts.models import Part, PartVersion
+from app.modules.works.models import Work, WorkVersion
 
-__all__ = ["AccessLog", "Base", "JigProject", "JigRun", "RefreshToken", "User"]
+__all__ = [
+    "AccessLog",
+    "Artifact",
+    "Base",
+    "Jig",
+    "JigVersion",
+    "Job",
+    "Part",
+    "PartVersion",
+    "RefreshToken",
+    "User",
+    "Work",
+    "WorkVersion",
+]

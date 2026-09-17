@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import version
+from app import handlers, version
 from app.config import Settings, get_settings
 from app.database import SessionLocal, engine
 from app.logging_setup import setup_logging
@@ -23,7 +23,10 @@ from app.modules.accounts import routes as accounts_routes
 from app.modules.auth import routes as auth_routes
 from app.modules.cad import routes as cad_routes
 from app.modules.jigs import routes as jigs_routes
+from app.modules.jobs import routes as jobs_routes
+from app.modules.parts import routes as parts_routes
 from app.modules.server import routes as server_routes
+from app.modules.works import routes as works_routes
 from app.schema_version import warn_if_behind
 from app.shared.access_log import AccessLogMiddleware
 from app.shared.errors import NotFound, code, register_error_handlers
@@ -49,7 +52,10 @@ def _api_router(settings: Settings) -> APIRouter:
     # 모듈 라우터는 **여기서만** 모은다.
     router.include_router(auth_routes.router)
     router.include_router(accounts_routes.router)
+    router.include_router(works_routes.router)
+    router.include_router(parts_routes.router)
     router.include_router(jigs_routes.router)
+    router.include_router(jobs_routes.router)
     router.include_router(cad_routes.router)
     router.include_router(server_routes.router)
     return router
@@ -148,6 +154,9 @@ def create_app() -> FastAPI:
         )
 
     register_error_handlers(app)
+    # 작업 종류 — 워커와 같은 함수로 등록한다. 여기서 등록해야 API 가 「모르는 종류」 를 걸 때
+    # 거절한다.
+    handlers.register_all()
     app.include_router(_api_router(settings))
     _mount_spa(app, settings)  # SPA catch-all 은 반드시 API 라우터 뒤
 

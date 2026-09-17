@@ -31,6 +31,9 @@ import tempfile  # noqa: E402
 _TEMP_STORE = tempfile.mkdtemp(prefix="autojig-test-")
 os.environ["FILESTORE_DIR"] = _TEMP_STORE
 os.environ["LOG_DIR"] = os.path.join(_TEMP_STORE, "logs")
+# API 시험은 워커 없이 돈다 — 작업이 요청 안에서 끝난다. 워커 자체는 tests/api/test_jobs.py 가
+# 직접 부른다(claim → execute).
+os.environ.setdefault("JOBS_INLINE", "1")
 
 from collections.abc import Iterator  # noqa: E402
 

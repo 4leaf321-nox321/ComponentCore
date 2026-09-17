@@ -1,28 +1,6 @@
-import { api, fetchBlob } from '@/shared/api/client'
+import type { Job } from '@/modules/jobs/api'
+import { api } from '@/shared/api/client'
 import type { Page } from '@/shared/api/types'
-
-/** 서버 `modules/jigs/schemas.py` 와 짝. `npm run api:types` 뒤에는 생성 타입으로 갈아탄다. */
-export interface JigProject {
-  id: string
-  name: string
-  description: string
-  owner_id: string
-  owner_name: string
-  product_filename: string | null
-  product_size_bytes: number | null
-  product_spec: Record<string, unknown> | null
-  has_product_file: boolean
-  run_count: number
-  last_run_status: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface StageLog {
-  name: string
-  millis: number
-  detail: string
-}
 
 export interface InterferenceItem {
   a: string
@@ -31,7 +9,8 @@ export interface InterferenceItem {
   ok: boolean
 }
 
-export interface RunSummary {
+/** Job(kind="jig") 의 summary — `core/model.py` 의 `JigResult.summary()`. */
+export interface JigSummary {
   geometry: {
     bbox: { min: number[]; max: number[]; size: number[] }
     volume: number
@@ -51,47 +30,62 @@ export interface RunSummary {
   }
   interference: { ok: boolean; tolerance: number; total_volume: number; items: InterferenceItem[] }
   files: Record<string, string>
-  stages: StageLog[]
+  stages: { name: string; millis: number; detail: string }[]
 }
 
-export interface JigRun {
+export interface JigVersion {
   id: string
-  project_id: string
-  status: string
+  jig_id: string
+  number: number
+  job: Job | null
   options: Record<string, unknown>
-  summary: RunSummary | null
-  error: string | null
-  files: string[]
-  started_at: string
-  finished_at: string | null
+  summary: JigSummary | null
+  part_id: string | null
+  part_name: string | null
+  part_version: number | null
+  note: string
+  promoted_by_name: string | null
+  created_at: string
 }
 
-export interface JigOptionsOut {
-  defaults: Record<string, unknown>
-  primitive_kinds: string[]
+export interface Jig {
+  id: string
+  name: string
+  description: string
+  owner_id: string
+  owner_name: string
+  work_id: string | null
+  part_id: string | null
+  part_name: string | null
+  current_version: number
+  version_count: number
+  current: JigVersion | null
+  created_at: string
+  updated_at: string
+}
+
+export interface JigCatalogSummary {
+  id: string
+  name: string
+  description: string
+  owner_name: string
+  part_id: string | null
+  part_name: string | null
+  current_version: number
+  interference_ok: boolean | null
+  updated_at: string
 }
 
 export const jigsApi = {
-  options: () => api.get<JigOptionsOut>('/jigs/options'),
-  list: (offset = 0, limit = 50) =>
-    api.get<Page<JigProject>>(`/jigs/projects?offset=${offset}&limit=${limit}`),
-  get: (id: string) => api.get<JigProject>(`/jigs/projects/${id}`),
-  create: (body: { name: string; description: string; product_spec: Record<string, unknown> | null }) =>
-    api.post<JigProject>('/jigs/projects', body),
-  update: (id: string, body: Partial<Pick<JigProject, 'name' | 'description' | 'product_spec'>>) =>
-    api.patch<JigProject>(`/jigs/projects/${id}`, body),
-  remove: (id: string) => api.delete<void>(`/jigs/projects/${id}`),
-  uploadProduct: (id: string, file: File) => {
-    const form = new FormData()
-    form.append('file', file)
-    return api.postForm<JigProject>(`/jigs/projects/${id}/product`, form)
+  list: (params: { part_id?: string; offset?: number; limit?: number } = {}) => {
+    const query = new URLSearchParams()
+    if (params.part_id) query.set('part_id', params.part_id)
+    query.set('offset', String(params.offset ?? 0))
+    query.set('limit', String(params.limit ?? 50))
+    return api.get<Page<JigCatalogSummary>>(`/jigs?${query.toString()}`)
   },
-  removeProduct: (id: string) => api.delete<JigProject>(`/jigs/projects/${id}/product`),
-  runs: (id: string) => api.get<JigRun[]>(`/jigs/projects/${id}/runs`),
-  run: (id: string, options: Record<string, unknown>) =>
-    api.post<JigRun>(`/jigs/projects/${id}/runs`, { options }),
-  filePath: (projectId: string, runId: string, key: string) =>
-    `/jigs/projects/${projectId}/runs/${runId}/files/${key}`,
-  fileBlob: (projectId: string, runId: string, key: string) =>
-    fetchBlob(`/jigs/projects/${projectId}/runs/${runId}/files/${key}`),
+  get: (id: string) => api.get<Jig>(`/jigs/${id}`),
+  versions: (id: string) => api.get<JigVersion[]>(`/jigs/${id}/versions`),
+  update: (id: string, body: { name?: string; description?: string }) => api.patch<Jig>(`/jigs/${id}`, body),
+  remove: (id: string) => api.delete<void>(`/jigs/${id}`),
 }

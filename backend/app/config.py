@@ -41,9 +41,11 @@ class Settings(BaseSettings):
     시험은 이 이름에서 `_test` 를 파생해 쓴다(tests/conftest.py)."""
 
     host: str = "0.0.0.0"
-    port: int = 8050
+    port: int = 8060
     """**플랫폼마다 10씩 벌린다** — MatNexus 8010, TestScope 8020, CrossAXTF 8030,
-    StandardPlatform 8040, 이 플랫폼 8050. 개발 백엔드는 +1(8051)을 쓴다(run.py)."""
+    StandardPlatform 8040, (예약) PartTrace 8050, 이 플랫폼 8060. 개발 백엔드는 +1(8061)을
+    쓴다(run.py). 정본 표는 StandardPlatform/docs/새-플랫폼-만들기.md 3.6 — 새 플랫폼은 거기
+    한 줄을 더한다."""
     trust_proxy: bool = False
     """앞에 리버스 프록시(nginx)가 있어 `X-Forwarded-*` 를 믿는다. 없으면 끈다."""
 
@@ -78,12 +80,16 @@ class Settings(BaseSettings):
     login_delay_max_seconds: int = 30
     login_failure_window_minutes: int = 15
 
+    jobs_inline: bool = False
+    """작업을 워커 없이 **요청 안에서** 돌린다. 시험과 워커를 안 띄우는 작은 설치용. 켜면 지그
+    생성 요청이 끝날 때까지 응답이 안 온다 — 큰 제품이면 그 시간이 곧 타임아웃이다."""
+
     max_upload_mb: int = 200
     """제품 STEP 상한. 조립체 STEP 은 수백 MB 가 되기도 하지만, 그것은 먼저 부품으로 쪼개서
     올리는 것이 맞다 — 지그는 부품 단위로 잡는다."""
 
     cors_origins: list[str] = Field(
-        default_factory=lambda: ["http://localhost:5250", "http://127.0.0.1:5250"]
+        default_factory=lambda: ["http://localhost:5230", "http://127.0.0.1:5230"]
     )
     """개발 서버(Vite)용. 배포에서는 동일 출처라 필요 없다."""
 

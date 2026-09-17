@@ -16,12 +16,12 @@ export default defineConfig({
   define: { __APP_VERSION__: JSON.stringify(`v${pkg.version}`) },
   resolve: { alias: { '@': path.resolve(root, 'src') } },
   server: {
-    port: 5250,
+    port: 5230,
     strictPort: true,
     // 개발 중에만. 배포에서는 백엔드 한 프로세스가 SPA 까지 서빙한다.
-    // **8051 이다. 운영이 8050 을 쓴다.** 둘이 같으면 개발 백엔드를 내린 순간 프록시가
+    // **8061 이다. 운영이 8060 을 쓴다.** 둘이 같으면 개발 백엔드를 내린 순간 프록시가
     // 운영 설치본에 붙고, 화면은 그 사실을 말하지 않는다.
-    proxy: { '/api': { target: 'http://127.0.0.1:8051', changeOrigin: true } },
+    proxy: { '/api': { target: 'http://127.0.0.1:8061', changeOrigin: true } },
   },
   build: {
     outDir: 'dist',

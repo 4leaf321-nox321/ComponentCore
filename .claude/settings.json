@@ -18,8 +18,8 @@
       "Bash(npm run api:types)",
       "Bash(npm test *)",
       "Bash(npx vitest *)",
-      "Bash(curl -s http://127.0.0.1:8050/api/*)",
-      "Bash(curl -s http://127.0.0.1:8051/api/*)"
+      "Bash(curl -s http://127.0.0.1:8060/api/*)",
+      "Bash(curl -s http://127.0.0.1:8061/api/*)"
     ]
   }
 }

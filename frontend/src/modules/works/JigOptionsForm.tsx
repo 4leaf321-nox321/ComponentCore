@@ -1,9 +1,8 @@
-/** 생성 옵션 — 초깃값은 서버가 준다(`/jigs/options`). 손으로 두 벌 적지 않는다. */
+/** 지그 생성 옵션 — 초깃값은 서버(`/works/jig-options`)와 작업에 남은 마지막 옵션. */
 
 import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
 
-/** 화면에 내는 옵션과 그 이름. 서버 `JigOptions` 의 일부 — 나머지는 기본값으로 간다. */
 const FIELDS: { key: string; label: string; step?: number }[] = [
   { key: 'plate_margin', label: '판 여유 (mm)' },
   { key: 'plate_thickness', label: '판 두께 (mm)' },
@@ -15,7 +14,7 @@ const FIELDS: { key: string; label: string; step?: number }[] = [
   { key: 'locator_pin_clearance', label: '핀 틈 (mm)', step: 0.01 },
 ]
 
-export function OptionsForm({
+export function JigOptionsForm({
   values,
   onChange,
 }: {
@@ -34,9 +33,7 @@ export function OptionsForm({
             type="number"
             step={field.step ?? 0.5}
             value={String(values[field.key] ?? '')}
-            onChange={(event) =>
-              onChange({ ...values, [field.key]: Number(event.target.value) })
-            }
+            onChange={(event) => onChange({ ...values, [field.key]: Number(event.target.value) })}
           />
         </div>
       ))}

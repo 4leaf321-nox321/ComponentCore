@@ -1,94 +1,79 @@
-"""CAD 작업대 — 제품 파일 없이 기본 도형을 그려 STEP · glTF 로 받는다.
+"""CAD 라우터 — 레시피의 스키마 · 검증 · 미리보기 · 일회용 STEP. 상태가 없다.
 
-지그 파이프라인과 같은 `core/primitives` 를 쓴다. 여기서 그린 도형이 곧 프로젝트의
-`product_spec` 이 되므로, 화면에서 본 것과 지그가 잡는 제품이 같다.
+미리보기는 요청 안에서 동기로 만든다 — 편집기가 칸을 고칠 때마다 부르는 길이라 큐를 거치면
+느리다. 저장(버전)은 `modules/works` 의 일이다.
 """
 
 from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from typing import Any
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 
-from app.core import export, primitives
+from app.core import export
+from app.core.recipe import describe
+from app.core.recipe import templates as recipe_templates
 from app.modules.accounts.models import User
-from app.modules.cad.schemas import PrimitiveInfoOut, PrimitiveKindsOut, PrimitiveRequest
+from app.modules.cad import services
+from app.modules.cad.schemas import (
+    RecipeInfoOut,
+    RecipeProblemsOut,
+    RecipeRequest,
+    RecipeSchemaOut,
+)
 from app.shared.auth import current_user
-from app.shared.errors import AppError, code
 
 router = APIRouter(prefix="/cad", tags=["cad"])
 
-EXAMPLES: dict[str, dict[str, Any]] = {
-    "box": {"kind": "box", "length": 80, "width": 50, "height": 20},
-    "cylinder": {"kind": "cylinder", "radius": 25, "height": 40},
-    "plate_with_holes": {
-        "kind": "plate_with_holes",
-        "length": 100,
-        "width": 60,
-        "thickness": 12,
-        "hole_diameter": 8,
-        "hole_margin": 10,
-    },
-    "bracket": {
-        "kind": "bracket",
-        "length": 80,
-        "width": 50,
-        "height": 40,
-        "thickness": 8,
-        "hole_diameter": 6,
-    },
-}
+
+# --- 레시피 -------------------------------------------------------------------
 
 
-def _build(spec: dict[str, Any]) -> Any:
-    try:
-        return primitives.build(spec)
-    except primitives.PrimitiveError as failure:
-        raise AppError(code("CAD", 1), str(failure)) from failure
-
-
-@router.get("/primitives", response_model=PrimitiveKindsOut)
-def kinds(_: User = Depends(current_user)) -> PrimitiveKindsOut:
-    return PrimitiveKindsOut(kinds=list(primitives.KINDS), examples=EXAMPLES)
-
-
-@router.post("/primitives/info", response_model=PrimitiveInfoOut)
-def info(payload: PrimitiveRequest, _: User = Depends(current_user)) -> PrimitiveInfoOut:
-    part = _build(payload.spec)
-    size = part.bounding_box().size
-    return PrimitiveInfoOut(
-        kind=str(payload.spec.get("kind")),
-        bbox_size=(round(size.X, 3), round(size.Y, 3), round(size.Z, 3)),
-        volume=round(float(part.volume), 1),
-        face_count=len(part.faces()),
+@router.get("/recipe/schema", response_model=RecipeSchemaOut, response_model_by_alias=True)
+def recipe_schema(_: User = Depends(current_user)) -> RecipeSchemaOut:
+    """노드 종류 · 칸 · 템플릿. **화면이 목록을 손으로 들지 않는다** — 연산을 더하면 편집기가
+    따라온다."""
+    return RecipeSchemaOut(
+        schema=describe(),
+        templates=recipe_templates.all_templates(),
+        template_labels=recipe_templates.TEMPLATE_LABELS,
     )
 
 
-def _render(spec: dict[str, Any], suffix: str) -> bytes:
-    part = _build(spec)
+@router.post("/recipe/check", response_model=RecipeProblemsOut)
+def recipe_check(payload: RecipeRequest, _: User = Depends(current_user)) -> RecipeProblemsOut:
+    """모양만 본다(만들지 않는다). 편집기가 칸을 고칠 때마다 부른다."""
+    problems = services.check(payload.recipe)
+    return RecipeProblemsOut(ok=not problems, problems=problems)
+
+
+@router.post("/recipe/info", response_model=RecipeInfoOut)
+def recipe_info(payload: RecipeRequest, _: User = Depends(current_user)) -> RecipeInfoOut:
+    """만들어 본 요약(크기 · 부피 · 노드별 정보). 실패하면 어느 노드가 왜인지."""
+    return RecipeInfoOut(summary=services.build(payload.recipe).summary())
+
+
+@router.post("/recipe/preview")
+def recipe_preview(payload: RecipeRequest, _: User = Depends(current_user)) -> Response:
+    """미리보기 glTF."""
+    evaluation = services.build(payload.recipe)
     with tempfile.TemporaryDirectory() as folder:
-        target = Path(folder) / f"primitive{suffix}"
-        if suffix == ".glb":
-            export.write_gltf(part, target)
-        else:
-            export.write_step(part, target)
-        return target.read_bytes()
+        target = Path(folder) / "preview.glb"
+        export.write_gltf(evaluation.shape, target)
+        return Response(target.read_bytes(), media_type="model/gltf-binary")
 
 
-@router.post("/primitives/glb")
-def render_glb(payload: PrimitiveRequest, _: User = Depends(current_user)) -> Response:
-    """화면 미리보기용 glTF."""
-    return Response(_render(payload.spec, ".glb"), media_type="model/gltf-binary")
-
-
-@router.post("/primitives/step")
-def render_step(payload: PrimitiveRequest, _: User = Depends(current_user)) -> Response:
-    name = f"{payload.spec.get('kind', 'primitive')}.step"
-    return Response(
-        _render(payload.spec, ".step"),
-        media_type="application/step",
-        headers={"Content-Disposition": f'attachment; filename="{name}"'},
-    )
+@router.post("/recipe/step")
+def recipe_step(payload: RecipeRequest, _: User = Depends(current_user)) -> Response:
+    """저장하지 않고 STEP 만 받는다 — 한 번 쓰고 말 도형."""
+    evaluation = services.build(payload.recipe)
+    with tempfile.TemporaryDirectory() as folder:
+        target = Path(folder) / "model.step"
+        export.write_step(evaluation.shape, target)
+        return Response(
+            target.read_bytes(),
+            media_type="application/step",
+            headers={"Content-Disposition": 'attachment; filename="model.step"'},
+        )

@@ -541,21 +541,23 @@
         }
       }
     },
-    "/api/jigs/options": {
+    "/api/works/jig-options": {
       "get": {
         "tags": [
-          "jigs"
+          "works"
         ],
-        "summary": "Options",
-        "description": "기본 옵션과 그릴 수 있는 도형 종류. **화면이 목록을 손으로 들지 않는다.**",
-        "operationId": "options_api_jigs_options_get",
+        "summary": "Jig Options",
+        "description": "지그 옵션 기본값 — 화면 폼의 초깃값. 손으로 두 벌 적지 않는다.",
+        "operationId": "jig_options_api_works_jig_options_get",
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OptionsOut"
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Jig Options Api Works Jig Options Get"
                 }
               }
             }
@@ -563,13 +565,13 @@
         }
       }
     },
-    "/api/jigs/projects": {
+    "/api/works": {
       "get": {
         "tags": [
-          "jigs"
+          "works"
         ],
-        "summary": "List Projects",
-        "operationId": "list_projects_api_jigs_projects_get",
+        "summary": "List Works",
+        "operationId": "list_works_api_works_get",
         "parameters": [
           {
             "name": "limit",
@@ -606,7 +608,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Page_ProjectOut_"
+                  "$ref": "#/components/schemas/Page_WorkSummaryOut_"
                 }
               }
             }
@@ -625,16 +627,16 @@
       },
       "post": {
         "tags": [
-          "jigs"
+          "works"
         ],
-        "summary": "Create Project",
-        "operationId": "create_project_api_jigs_projects_post",
+        "summary": "Create Work",
+        "operationId": "create_work_api_works_post",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ProjectCreateRequest"
+                "$ref": "#/components/schemas/WorkCreateRequest"
               }
             }
           }
@@ -645,7 +647,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProjectOut"
+                  "$ref": "#/components/schemas/WorkOut"
                 }
               }
             }
@@ -663,22 +665,64 @@
         }
       }
     },
-    "/api/jigs/projects/{project_id}": {
+    "/api/works/from-step": {
+      "post": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Create Work From Step",
+        "description": "STEP 파일에서 작업을 시작한다 — 첫 버전이 `import_step` 노드 하나다.",
+        "operationId": "create_work_from_step_api_works_from_step_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_work_from_step_api_works_from_step_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/works/{work_id}": {
       "get": {
         "tags": [
-          "jigs"
+          "works"
         ],
-        "summary": "Get Project",
-        "operationId": "get_project_api_jigs_projects__project_id__get",
+        "summary": "Get Work",
+        "operationId": "get_work_api_works__work_id__get",
         "parameters": [
           {
-            "name": "project_id",
+            "name": "work_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid",
-              "title": "Project Id"
+              "title": "Work Id"
             }
           }
         ],
@@ -688,7 +732,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProjectOut"
+                  "$ref": "#/components/schemas/WorkOut"
                 }
               }
             }
@@ -707,19 +751,19 @@
       },
       "patch": {
         "tags": [
-          "jigs"
+          "works"
         ],
-        "summary": "Update Project",
-        "operationId": "update_project_api_jigs_projects__project_id__patch",
+        "summary": "Update Work",
+        "operationId": "update_work_api_works__work_id__patch",
         "parameters": [
           {
-            "name": "project_id",
+            "name": "work_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid",
-              "title": "Project Id"
+              "title": "Work Id"
             }
           }
         ],
@@ -728,7 +772,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ProjectUpdateRequest"
+                "$ref": "#/components/schemas/WorkUpdateRequest"
               }
             }
           }
@@ -739,7 +783,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProjectOut"
+                  "$ref": "#/components/schemas/WorkOut"
                 }
               }
             }
@@ -758,19 +802,19 @@
       },
       "delete": {
         "tags": [
-          "jigs"
+          "works"
         ],
-        "summary": "Delete Project",
-        "operationId": "delete_project_api_jigs_projects__project_id__delete",
+        "summary": "Delete Work",
+        "operationId": "delete_work_api_works__work_id__delete",
         "parameters": [
           {
-            "name": "project_id",
+            "name": "work_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid",
-              "title": "Project Id"
+              "title": "Work Id"
             }
           }
         ],
@@ -791,22 +835,226 @@
         }
       }
     },
-    "/api/jigs/projects/{project_id}/product": {
-      "post": {
+    "/api/works/{work_id}/versions": {
+      "get": {
         "tags": [
-          "jigs"
+          "works"
         ],
-        "summary": "Upload Product",
-        "operationId": "upload_product_api_jigs_projects__project_id__product_post",
+        "summary": "List Versions",
+        "operationId": "list_versions_api_works__work_id__versions_get",
         "parameters": [
           {
-            "name": "project_id",
+            "name": "work_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid",
-              "title": "Project Id"
+              "title": "Work Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/VersionOut"
+                  },
+                  "title": "Response List Versions Api Works  Work Id  Versions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Create Version",
+        "description": "새 버전 — 저장하고 평가 작업을 건다. 202: STEP · glTF 는 작업이 끝나야 있다.",
+        "operationId": "create_version_api_works__work_id__versions_post",
+        "parameters": [
+          {
+            "name": "work_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Work Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/works/{work_id}/versions/{number}": {
+      "get": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Get Version",
+        "operationId": "get_version_api_works__work_id__versions__number__get",
+        "parameters": [
+          {
+            "name": "work_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Work Id"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/works/{work_id}/versions/{number}/restore": {
+      "post": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Restore Version",
+        "operationId": "restore_version_api_works__work_id__versions__number__restore_post",
+        "parameters": [
+          {
+            "name": "work_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Work Id"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Number"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/works/{work_id}/import-step": {
+      "post": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Import Step",
+        "description": "STEP 을 올려 `import_step` 노드 하나짜리 새 버전으로.",
+        "operationId": "import_step_api_works__work_id__import_step_post",
+        "parameters": [
+          {
+            "name": "work_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Work Id"
             }
           }
         ],
@@ -815,7 +1063,369 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_upload_product_api_jigs_projects__project_id__product_post"
+                "$ref": "#/components/schemas/Body_import_step_api_works__work_id__import_step_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/works/{work_id}/jig-runs": {
+      "get": {
+        "tags": [
+          "works"
+        ],
+        "summary": "List Jig Runs",
+        "operationId": "list_jig_runs_api_works__work_id__jig_runs_get",
+        "parameters": [
+          {
+            "name": "work_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Work Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/JobOut"
+                  },
+                  "title": "Response List Jig Runs Api Works  Work Id  Jig Runs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Create Jig Run",
+        "description": "현재 형상을 제품으로 지그 생성을 **건다.** 화면은 `GET /api/jobs/{id}` 를 폴링한다.",
+        "operationId": "create_jig_run_api_works__work_id__jig_runs_post",
+        "parameters": [
+          {
+            "name": "work_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Work Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JigRunRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/works/{work_id}/promote/part": {
+      "post": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Promote Part",
+        "description": "현재 형상 버전을 부품 카탈로그에 올린다.",
+        "operationId": "promote_part_api_works__work_id__promote_part_post",
+        "parameters": [
+          {
+            "name": "work_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Work Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromotePartRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartVersionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/works/{work_id}/promote/jig": {
+      "post": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Promote Jig",
+        "description": "지그 생성 작업 하나를 지그 카탈로그에 올린다. 제품이 부품에 없으면 함께 올린다.",
+        "operationId": "promote_jig_api_works__work_id__promote_jig_post",
+        "parameters": [
+          {
+            "name": "work_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Work Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteJigRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoteJigOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/parts": {
+      "get": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "List Parts",
+        "operationId": "list_parts_api_parts_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_PartSummaryOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/parts/{part_id}": {
+      "get": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "Get Part",
+        "operationId": "get_part_api_parts__part_id__get",
+        "parameters": [
+          {
+            "name": "part_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Part Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "Update Part",
+        "operationId": "update_part_api_parts__part_id__patch",
+        "parameters": [
+          {
+            "name": "part_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Part Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartUpdateRequest"
               }
             }
           }
@@ -826,7 +1436,314 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProjectOut"
+                  "$ref": "#/components/schemas/PartOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "Delete Part",
+        "operationId": "delete_part_api_parts__part_id__delete",
+        "parameters": [
+          {
+            "name": "part_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Part Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/parts/{part_id}/versions": {
+      "get": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "List Versions",
+        "operationId": "list_versions_api_parts__part_id__versions_get",
+        "parameters": [
+          {
+            "name": "part_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Part Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PartVersionOut"
+                  },
+                  "title": "Response List Versions Api Parts  Part Id  Versions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/parts/{part_id}/copy-to-work": {
+      "post": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "Copy To Work",
+        "description": "부품의 레시피로 **내 작업**을 새로 만든다. 남의 부품을 고치는 길은 이것뿐이다.",
+        "operationId": "copy_to_work_api_parts__part_id__copy_to_work_post",
+        "parameters": [
+          {
+            "name": "part_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Part Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopyToWorkRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jigs": {
+      "get": {
+        "tags": [
+          "jigs"
+        ],
+        "summary": "List Jigs",
+        "operationId": "list_jigs_api_jigs_get",
+        "parameters": [
+          {
+            "name": "part_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Part Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_JigSummaryOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jigs/{jig_id}": {
+      "get": {
+        "tags": [
+          "jigs"
+        ],
+        "summary": "Get Jig",
+        "operationId": "get_jig_api_jigs__jig_id__get",
+        "parameters": [
+          {
+            "name": "jig_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Jig Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JigOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "jigs"
+        ],
+        "summary": "Update Jig",
+        "operationId": "update_jig_api_jigs__jig_id__patch",
+        "parameters": [
+          {
+            "name": "jig_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Jig Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JigUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JigOut"
                 }
               }
             }
@@ -847,30 +1764,23 @@
         "tags": [
           "jigs"
         ],
-        "summary": "Remove Product",
-        "operationId": "remove_product_api_jigs_projects__project_id__product_delete",
+        "summary": "Delete Jig",
+        "operationId": "delete_jig_api_jigs__jig_id__delete",
         "parameters": [
           {
-            "name": "project_id",
+            "name": "jig_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid",
-              "title": "Project Id"
+              "title": "Jig Id"
             }
           }
         ],
         "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectOut"
-                }
-              }
-            }
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -885,22 +1795,22 @@
         }
       }
     },
-    "/api/jigs/projects/{project_id}/runs": {
+    "/api/jigs/{jig_id}/versions": {
       "get": {
         "tags": [
           "jigs"
         ],
-        "summary": "List Runs",
-        "operationId": "list_runs_api_jigs_projects__project_id__runs_get",
+        "summary": "List Versions",
+        "operationId": "list_versions_api_jigs__jig_id__versions_get",
         "parameters": [
           {
-            "name": "project_id",
+            "name": "jig_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid",
-              "title": "Project Id"
+              "title": "Jig Id"
             }
           }
         ],
@@ -912,61 +1822,9 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/RunOut"
+                    "$ref": "#/components/schemas/JigVersionOut"
                   },
-                  "title": "Response List Runs Api Jigs Projects  Project Id  Runs Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "jigs"
-        ],
-        "summary": "Create Run",
-        "description": "지그를 만든다. 동기로 돌고 끝난 결과(성공 · 실패)를 돌려준다.",
-        "operationId": "create_run_api_jigs_projects__project_id__runs_post",
-        "parameters": [
-          {
-            "name": "project_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Project Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RunCreateRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunOut"
+                  "title": "Response List Versions Api Jigs  Jig Id  Versions Get"
                 }
               }
             }
@@ -984,32 +1842,127 @@
         }
       }
     },
-    "/api/jigs/projects/{project_id}/runs/{run_id}": {
+    "/api/jobs/kinds": {
       "get": {
         "tags": [
-          "jigs"
+          "jobs"
         ],
-        "summary": "Get Run",
-        "operationId": "get_run_api_jigs_projects__project_id__runs__run_id__get",
+        "summary": "Kinds",
+        "operationId": "kinds_api_jobs_kinds_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "title": "Response Kinds Api Jobs Kinds Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "List Jobs",
+        "operationId": "list_jobs_api_jobs_get",
         "parameters": [
           {
-            "name": "project_id",
-            "in": "path",
-            "required": true,
+            "name": "mine",
+            "in": "query",
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Project Id"
+              "type": "boolean",
+              "description": "내가 건 것만",
+              "default": true,
+              "title": "Mine"
+            },
+            "description": "내가 건 것만"
+          },
+          {
+            "name": "work_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Work Id"
             }
           },
           {
-            "name": "run_id",
-            "in": "path",
-            "required": true,
+            "name": "kind",
+            "in": "query",
+            "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Run Id"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(queued|running|done|failed)$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
             }
           }
         ],
@@ -1019,7 +1972,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RunOut"
+                  "$ref": "#/components/schemas/Page_JobOut_"
                 }
               }
             }
@@ -1037,41 +1990,109 @@
         }
       }
     },
-    "/api/jigs/projects/{project_id}/runs/{run_id}/files/{key}": {
+    "/api/jobs/{job_id}": {
       "get": {
         "tags": [
-          "jigs"
+          "jobs"
         ],
-        "summary": "Download Result",
-        "operationId": "download_result_api_jigs_projects__project_id__runs__run_id__files__key__get",
+        "summary": "Get Job",
+        "description": "화면이 도는 동안 이것을 폴링한다 — `progress` 가 단계마다 늘어난다.",
+        "operationId": "get_job_api_jobs__job_id__get",
         "parameters": [
           {
-            "name": "project_id",
+            "name": "job_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid",
-              "title": "Project Id"
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobOut"
+                }
+              }
             }
           },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/artifacts/{artifact_id}": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Artifact",
+        "operationId": "get_artifact_api_artifacts__artifact_id__get",
+        "parameters": [
           {
-            "name": "run_id",
+            "name": "artifact_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid",
-              "title": "Run Id"
+              "title": "Artifact Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactOut"
+                }
+              }
             }
           },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/artifacts/{artifact_id}/download": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Download Artifact",
+        "operationId": "download_artifact_api_artifacts__artifact_id__download_get",
+        "parameters": [
           {
-            "name": "key",
+            "name": "artifact_id",
             "in": "path",
             "required": true,
             "schema": {
               "type": "string",
-              "title": "Key"
+              "format": "uuid",
+              "title": "Artifact Id"
             }
           }
         ],
@@ -1092,20 +2113,21 @@
         }
       }
     },
-    "/api/cad/primitives": {
+    "/api/cad/recipe/schema": {
       "get": {
         "tags": [
           "cad"
         ],
-        "summary": "Kinds",
-        "operationId": "kinds_api_cad_primitives_get",
+        "summary": "Recipe Schema",
+        "description": "노드 종류 · 칸 · 템플릿. **화면이 목록을 손으로 들지 않는다** — 연산을 더하면 편집기가\n따라온다.",
+        "operationId": "recipe_schema_api_cad_recipe_schema_get",
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PrimitiveKindsOut"
+                  "$ref": "#/components/schemas/RecipeSchemaOut"
                 }
               }
             }
@@ -1113,18 +2135,19 @@
         }
       }
     },
-    "/api/cad/primitives/info": {
+    "/api/cad/recipe/check": {
       "post": {
         "tags": [
           "cad"
         ],
-        "summary": "Info",
-        "operationId": "info_api_cad_primitives_info_post",
+        "summary": "Recipe Check",
+        "description": "모양만 본다(만들지 않는다). 편집기가 칸을 고칠 때마다 부른다.",
+        "operationId": "recipe_check_api_cad_recipe_check_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PrimitiveRequest"
+                "$ref": "#/components/schemas/RecipeRequest"
               }
             }
           },
@@ -1136,7 +2159,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PrimitiveInfoOut"
+                  "$ref": "#/components/schemas/RecipeProblemsOut"
                 }
               }
             }
@@ -1154,19 +2177,61 @@
         }
       }
     },
-    "/api/cad/primitives/glb": {
+    "/api/cad/recipe/info": {
       "post": {
         "tags": [
           "cad"
         ],
-        "summary": "Render Glb",
-        "description": "화면 미리보기용 glTF.",
-        "operationId": "render_glb_api_cad_primitives_glb_post",
+        "summary": "Recipe Info",
+        "description": "만들어 본 요약(크기 · 부피 · 노드별 정보). 실패하면 어느 노드가 왜인지.",
+        "operationId": "recipe_info_api_cad_recipe_info_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PrimitiveRequest"
+                "$ref": "#/components/schemas/RecipeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecipeInfoOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cad/recipe/preview": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Recipe Preview",
+        "description": "미리보기 glTF.",
+        "operationId": "recipe_preview_api_cad_recipe_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecipeRequest"
               }
             }
           },
@@ -1194,18 +2259,19 @@
         }
       }
     },
-    "/api/cad/primitives/step": {
+    "/api/cad/recipe/step": {
       "post": {
         "tags": [
           "cad"
         ],
-        "summary": "Render Step",
-        "operationId": "render_step_api_cad_primitives_step_post",
+        "summary": "Recipe Step",
+        "description": "저장하지 않고 STEP 만 받는다 — 한 번 쓰고 말 도형.",
+        "operationId": "recipe_step_api_cad_recipe_step_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PrimitiveRequest"
+                "$ref": "#/components/schemas/RecipeRequest"
               }
             }
           },
@@ -1315,7 +2381,105 @@
         ],
         "title": "AccountOut"
       },
-      "Body_upload_product_api_jigs_projects__project_id__product_post": {
+      "ArtifactOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "work_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Id"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "content_type": {
+            "type": "string",
+            "title": "Content Type"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "title": "Size Bytes"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "job_id",
+          "work_id",
+          "parent_id",
+          "kind",
+          "filename",
+          "content_type",
+          "size_bytes",
+          "created_at"
+        ],
+        "title": "ArtifactOut"
+      },
+      "Body_create_work_from_step_api_works_from_step_post": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "default": ""
+          },
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_create_work_from_step_api_works_from_step_post"
+      },
+      "Body_import_step_api_works__work_id__import_step_post": {
         "properties": {
           "file": {
             "type": "string",
@@ -1327,7 +2491,7 @@
         "required": [
           "file"
         ],
-        "title": "Body_upload_product_api_jigs_projects__project_id__product_post"
+        "title": "Body_import_step_api_works__work_id__import_step_post"
       },
       "ChangePasswordRequest": {
         "properties": {
@@ -1350,6 +2514,37 @@
           "new_password"
         ],
         "title": "ChangePasswordRequest"
+      },
+      "CopyToWorkRequest": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number"
+          }
+        },
+        "type": "object",
+        "title": "CopyToWorkRequest",
+        "description": "부품(버전)의 레시피로 내 작업을 새로 만든다 — 「내 공간으로 복사」."
       },
       "CreateAccountRequest": {
         "properties": {
@@ -1420,6 +2615,499 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "JigOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "owner_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Owner Id"
+          },
+          "owner_name": {
+            "type": "string",
+            "title": "Owner Name"
+          },
+          "work_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Id"
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Id"
+          },
+          "part_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Name"
+          },
+          "current_version": {
+            "type": "integer",
+            "title": "Current Version"
+          },
+          "version_count": {
+            "type": "integer",
+            "title": "Version Count"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JigVersionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "owner_id",
+          "owner_name",
+          "work_id",
+          "part_id",
+          "part_name",
+          "current_version",
+          "version_count",
+          "current",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "JigOut"
+      },
+      "JigRunRequest": {
+        "properties": {
+          "options": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Options"
+          }
+        },
+        "type": "object",
+        "title": "JigRunRequest"
+      },
+      "JigSummaryOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "owner_name": {
+            "type": "string",
+            "title": "Owner Name"
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Id"
+          },
+          "part_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Name"
+          },
+          "current_version": {
+            "type": "integer",
+            "title": "Current Version"
+          },
+          "interference_ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interference Ok"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "owner_name",
+          "part_id",
+          "part_name",
+          "current_version",
+          "interference_ok",
+          "updated_at"
+        ],
+        "title": "JigSummaryOut"
+      },
+      "JigUpdateRequest": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          }
+        },
+        "type": "object",
+        "title": "JigUpdateRequest"
+      },
+      "JigVersionOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "jig_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Jig Id"
+          },
+          "number": {
+            "type": "integer",
+            "title": "Number"
+          },
+          "job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "options": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Options"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Id"
+          },
+          "part_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Name"
+          },
+          "part_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Version"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          },
+          "promoted_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promoted By Name"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "jig_id",
+          "number",
+          "job",
+          "options",
+          "summary",
+          "part_id",
+          "part_name",
+          "part_version",
+          "note",
+          "promoted_by_name",
+          "created_at"
+        ],
+        "title": "JigVersionOut"
+      },
+      "JobOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "requested_by_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By Id"
+          },
+          "requested_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By Name"
+          },
+          "work_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Id"
+          },
+          "work_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Name"
+          },
+          "options": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Options"
+          },
+          "progress": {
+            "items": {
+              "$ref": "#/components/schemas/StageOut"
+            },
+            "type": "array",
+            "title": "Progress"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactOut"
+            },
+            "type": "array",
+            "title": "Artifacts"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "requested_by_id",
+          "requested_by_name",
+          "work_id",
+          "work_name",
+          "options",
+          "progress",
+          "summary",
+          "error",
+          "artifacts",
+          "created_at",
+          "started_at",
+          "finished_at"
+        ],
+        "title": "JobOut"
+      },
       "LoginRequest": {
         "properties": {
           "email": {
@@ -1464,34 +3152,11 @@
         ],
         "title": "LoginResponse"
       },
-      "OptionsOut": {
-        "properties": {
-          "defaults": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Defaults"
-          },
-          "primitive_kinds": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Primitive Kinds"
-          }
-        },
-        "type": "object",
-        "required": [
-          "defaults",
-          "primitive_kinds"
-        ],
-        "title": "OptionsOut",
-        "description": "기본 옵션 — 화면이 폼의 초깃값으로 쓴다. 손으로 두 벌 적지 않는다."
-      },
-      "Page_ProjectOut_": {
+      "Page_JigSummaryOut_": {
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/ProjectOut"
+              "$ref": "#/components/schemas/JigSummaryOut"
             },
             "type": "array",
             "title": "Items"
@@ -1516,134 +3181,102 @@
           "limit",
           "offset"
         ],
-        "title": "Page[ProjectOut]"
+        "title": "Page[JigSummaryOut]"
       },
-      "PrimitiveInfoOut": {
+      "Page_JobOut_": {
         "properties": {
-          "kind": {
-            "type": "string",
-            "title": "Kind"
-          },
-          "bbox_size": {
-            "prefixItems": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "number"
-              }
-            ],
-            "type": "array",
-            "maxItems": 3,
-            "minItems": 3,
-            "title": "Bbox Size"
-          },
-          "volume": {
-            "type": "number",
-            "title": "Volume"
-          },
-          "face_count": {
-            "type": "integer",
-            "title": "Face Count"
-          }
-        },
-        "type": "object",
-        "required": [
-          "kind",
-          "bbox_size",
-          "volume",
-          "face_count"
-        ],
-        "title": "PrimitiveInfoOut"
-      },
-      "PrimitiveKindsOut": {
-        "properties": {
-          "kinds": {
+          "items": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/JobOut"
             },
             "type": "array",
-            "title": "Kinds"
+            "title": "Items"
           },
-          "examples": {
-            "additionalProperties": {
-              "additionalProperties": true,
-              "type": "object"
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[JobOut]"
+      },
+      "Page_PartSummaryOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PartSummaryOut"
             },
-            "type": "object",
-            "title": "Examples"
-          }
-        },
-        "type": "object",
-        "required": [
-          "kinds",
-          "examples"
-        ],
-        "title": "PrimitiveKindsOut"
-      },
-      "PrimitiveRequest": {
-        "properties": {
-          "spec": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Spec"
-          }
-        },
-        "type": "object",
-        "title": "PrimitiveRequest"
-      },
-      "ProfileUpdateRequest": {
-        "properties": {
-          "display_name": {
-            "type": "string",
-            "maxLength": 100,
-            "minLength": 1,
-            "title": "Display Name"
-          }
-        },
-        "type": "object",
-        "required": [
-          "display_name"
-        ],
-        "title": "ProfileUpdateRequest"
-      },
-      "ProjectCreateRequest": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "maxLength": 120,
-            "minLength": 1,
-            "title": "Name"
+            "type": "array",
+            "title": "Items"
           },
-          "description": {
-            "type": "string",
-            "maxLength": 2000,
-            "title": "Description",
-            "default": ""
+          "total": {
+            "type": "integer",
+            "title": "Total"
           },
-          "product_spec": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Product Spec"
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
           }
         },
         "type": "object",
         "required": [
-          "name"
+          "items",
+          "total",
+          "limit",
+          "offset"
         ],
-        "title": "ProjectCreateRequest"
+        "title": "Page[PartSummaryOut]"
       },
-      "ProjectOut": {
+      "Page_WorkSummaryOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkSummaryOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[WorkSummaryOut]"
+      },
+      "PartOut": {
         "properties": {
           "id": {
             "type": "string",
@@ -1667,58 +3300,39 @@
             "type": "string",
             "title": "Owner Name"
           },
-          "product_filename": {
+          "work_id": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "format": "uuid"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Product Filename"
+            "title": "Work Id"
           },
-          "product_size_bytes": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Product Size Bytes"
-          },
-          "product_spec": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Product Spec"
-          },
-          "has_product_file": {
-            "type": "boolean",
-            "title": "Has Product File"
-          },
-          "run_count": {
+          "current_version": {
             "type": "integer",
-            "title": "Run Count"
+            "title": "Current Version"
           },
-          "last_run_status": {
+          "version_count": {
+            "type": "integer",
+            "title": "Version Count"
+          },
+          "current": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/PartVersionOut"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Last Run Status"
+            ]
+          },
+          "jig_count": {
+            "type": "integer",
+            "title": "Jig Count"
           },
           "created_at": {
             "type": "string",
@@ -1738,18 +3352,62 @@
           "description",
           "owner_id",
           "owner_name",
-          "product_filename",
-          "product_size_bytes",
-          "product_spec",
-          "has_product_file",
-          "run_count",
-          "last_run_status",
+          "work_id",
+          "current_version",
+          "version_count",
+          "current",
+          "jig_count",
           "created_at",
           "updated_at"
         ],
-        "title": "ProjectOut"
+        "title": "PartOut"
       },
-      "ProjectUpdateRequest": {
+      "PartSummaryOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "owner_name": {
+            "type": "string",
+            "title": "Owner Name"
+          },
+          "current_version": {
+            "type": "integer",
+            "title": "Current Version"
+          },
+          "jig_count": {
+            "type": "integer",
+            "title": "Jig Count"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "owner_name",
+          "current_version",
+          "jig_count",
+          "updated_at"
+        ],
+        "title": "PartSummaryOut"
+      },
+      "PartUpdateRequest": {
         "properties": {
           "name": {
             "anyOf": [
@@ -1775,69 +3433,59 @@
               }
             ],
             "title": "Description"
-          },
-          "product_spec": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Product Spec"
           }
         },
         "type": "object",
-        "title": "ProjectUpdateRequest",
-        "description": "부분 수정 — 안 보낸 것과 비운 것을 구별한다."
+        "title": "PartUpdateRequest"
       },
-      "RunCreateRequest": {
-        "properties": {
-          "options": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Options"
-          }
-        },
-        "type": "object",
-        "title": "RunCreateRequest"
-      },
-      "RunOut": {
+      "PartVersionOut": {
         "properties": {
           "id": {
             "type": "string",
             "format": "uuid",
             "title": "Id"
           },
-          "project_id": {
+          "part_id": {
             "type": "string",
             "format": "uuid",
-            "title": "Project Id"
+            "title": "Part Id"
           },
-          "status": {
-            "type": "string",
-            "title": "Status"
+          "number": {
+            "type": "integer",
+            "title": "Number"
           },
-          "options": {
+          "recipe": {
             "additionalProperties": true,
             "type": "object",
-            "title": "Options"
+            "title": "Recipe"
           },
-          "summary": {
+          "job": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/JobOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          },
+          "promoted_by_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Summary"
+            "title": "Promoted By Id"
           },
-          "error": {
+          "promoted_by_name": {
             "anyOf": [
               {
                 "type": "string"
@@ -1846,46 +3494,250 @@
                 "type": "null"
               }
             ],
-            "title": "Error"
+            "title": "Promoted By Name"
           },
-          "files": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Files"
-          },
-          "started_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Started At"
-          },
-          "finished_at": {
+          "work_version_id": {
             "anyOf": [
               {
                 "type": "string",
-                "format": "date-time"
+                "format": "uuid"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Finished At"
+            "title": "Work Version Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
           }
         },
         "type": "object",
         "required": [
           "id",
-          "project_id",
-          "status",
-          "options",
-          "summary",
-          "error",
-          "files",
-          "started_at",
-          "finished_at"
+          "part_id",
+          "number",
+          "recipe",
+          "job",
+          "note",
+          "promoted_by_id",
+          "promoted_by_name",
+          "work_version_id",
+          "created_at"
         ],
-        "title": "RunOut"
+        "title": "PartVersionOut"
+      },
+      "ProfileUpdateRequest": {
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Display Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "display_name"
+        ],
+        "title": "ProfileUpdateRequest"
+      },
+      "PromoteJigOut": {
+        "properties": {
+          "jig_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Jig Id"
+          },
+          "jig_version": {
+            "type": "integer",
+            "title": "Jig Version"
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Id"
+          },
+          "part_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Version"
+          },
+          "part_promoted_now": {
+            "type": "boolean",
+            "title": "Part Promoted Now"
+          }
+        },
+        "type": "object",
+        "required": [
+          "jig_id",
+          "jig_version",
+          "part_id",
+          "part_version",
+          "part_promoted_now"
+        ],
+        "title": "PromoteJigOut"
+      },
+      "PromoteJigRequest": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Note",
+            "default": ""
+          },
+          "promote_product": {
+            "type": "boolean",
+            "title": "Promote Product",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id"
+        ],
+        "title": "PromoteJigRequest",
+        "description": "지그 생성 작업 하나를 지그로. 제품(그때의 형상 버전)이 부품에 없으면 함께 승격한다."
+      },
+      "PromotePartRequest": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "PromotePartRequest",
+        "description": "현재 버전을 부품으로. 이 작업에서 이미 승격한 부품이 있으면 거기에 다음 버전으로\n붙는다."
+      },
+      "RecipeInfoOut": {
+        "properties": {
+          "summary": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Summary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "summary"
+        ],
+        "title": "RecipeInfoOut",
+        "description": "레시피를 실제로 만들어 본 결과(요약). 화면 미리보기가 glTF 와 함께 받는다."
+      },
+      "RecipeProblemsOut": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Problems"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "problems"
+        ],
+        "title": "RecipeProblemsOut"
+      },
+      "RecipeRequest": {
+        "properties": {
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipe"
+        ],
+        "title": "RecipeRequest"
+      },
+      "RecipeSchemaOut": {
+        "properties": {
+          "schema": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Schema"
+          },
+          "templates": {
+            "additionalProperties": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Templates"
+          },
+          "template_labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Template Labels"
+          }
+        },
+        "type": "object",
+        "required": [
+          "schema",
+          "templates",
+          "template_labels"
+        ],
+        "title": "RecipeSchemaOut"
       },
       "ServerStatusOut": {
         "properties": {
@@ -1978,6 +3830,29 @@
           "started_at"
         ],
         "title": "ServerStatusOut"
+      },
+      "StageOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "millis": {
+            "type": "integer",
+            "title": "Millis"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "millis",
+          "detail"
+        ],
+        "title": "StageOut"
       },
       "SystemAdminRequest": {
         "properties": {
@@ -2105,6 +3980,438 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "VersionCreateRequest": {
+        "properties": {
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "default": "manual"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipe"
+        ],
+        "title": "VersionCreateRequest"
+      },
+      "VersionOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "work_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Work Id"
+          },
+          "number": {
+            "type": "integer",
+            "title": "Number"
+          },
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          },
+          "created_by_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Id"
+          },
+          "created_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Name"
+          },
+          "job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "promoted_part_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promoted Part Id"
+          },
+          "promoted_part_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promoted Part Version"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "work_id",
+          "number",
+          "recipe",
+          "source",
+          "note",
+          "created_by_id",
+          "created_by_name",
+          "job",
+          "promoted_part_id",
+          "promoted_part_version",
+          "created_at"
+        ],
+        "title": "VersionOut"
+      },
+      "WorkCreateRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Description",
+            "default": ""
+          },
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "default": "manual"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "recipe"
+        ],
+        "title": "WorkCreateRequest"
+      },
+      "WorkOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "owner_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Owner Id"
+          },
+          "owner_name": {
+            "type": "string",
+            "title": "Owner Name"
+          },
+          "current_version": {
+            "type": "integer",
+            "title": "Current Version"
+          },
+          "version_count": {
+            "type": "integer",
+            "title": "Version Count"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VersionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "jig_options": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Jig Options"
+          },
+          "jig_run_count": {
+            "type": "integer",
+            "title": "Jig Run Count"
+          },
+          "last_jig_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Jig Status"
+          },
+          "promoted_part_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promoted Part Id"
+          },
+          "promoted_jig_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promoted Jig Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "owner_id",
+          "owner_name",
+          "current_version",
+          "version_count",
+          "current",
+          "jig_options",
+          "jig_run_count",
+          "last_jig_status",
+          "promoted_part_id",
+          "promoted_jig_id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "WorkOut"
+      },
+      "WorkSummaryOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "owner_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Owner Id"
+          },
+          "owner_name": {
+            "type": "string",
+            "title": "Owner Name"
+          },
+          "current_version": {
+            "type": "integer",
+            "title": "Current Version"
+          },
+          "current_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Status"
+          },
+          "jig_run_count": {
+            "type": "integer",
+            "title": "Jig Run Count"
+          },
+          "last_jig_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Jig Status"
+          },
+          "promoted_part_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promoted Part Id"
+          },
+          "promoted_jig_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promoted Jig Id"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "owner_id",
+          "owner_name",
+          "current_version",
+          "current_status",
+          "jig_run_count",
+          "last_jig_status",
+          "promoted_part_id",
+          "promoted_jig_id",
+          "updated_at"
+        ],
+        "title": "WorkSummaryOut"
+      },
+      "WorkUpdateRequest": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "jig_options": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jig Options"
+          }
+        },
+        "type": "object",
+        "title": "WorkUpdateRequest"
       }
     }
   }

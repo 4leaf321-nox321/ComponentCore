@@ -21,6 +21,7 @@ const ACCOUNT: Record<string, { label: string; tone: Tone }> = {
 }
 
 const RUN: Record<string, { label: string; tone: Tone }> = {
+  queued: { label: '대기', tone: 'neutral' },
   running: { label: '생성 중', tone: 'warn' },
   done: { label: '완료', tone: 'good' },
   failed: { label: '실패', tone: 'bad' },

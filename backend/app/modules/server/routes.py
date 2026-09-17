@@ -11,10 +11,13 @@ from sqlalchemy.orm import Session
 
 from app import schema_version, version
 from app.config import get_settings
-from app.database import engine, get_db
+from app.database import Base, engine, get_db
 from app.modules.accounts.models import User
-from app.modules.jigs.models import JigProject, JigRun
+from app.modules.jigs.models import Jig
+from app.modules.jobs.models import Artifact, Job
+from app.modules.parts.models import Part
 from app.modules.server.schemas import DiskOut, ServerStatusOut, TableCountOut
+from app.modules.works.models import Work
 from app.shared.auth import require_system_admin
 
 router = APIRouter(prefix="/server", tags=["server"])
@@ -60,7 +63,7 @@ def status(
     except OSError:
         disk = None
 
-    def count(table: type[User] | type[JigProject] | type[JigRun]) -> int:
+    def count(table: type[Base]) -> int:
         return int(db.scalar(select(func.count()).select_from(table)) or 0)
 
     return ServerStatusOut(
@@ -75,8 +78,11 @@ def status(
         disk=disk,
         counts=[
             TableCountOut(label="계정", count=count(User)),
-            TableCountOut(label="지그 프로젝트", count=count(JigProject)),
-            TableCountOut(label="생성 실행", count=count(JigRun)),
+            TableCountOut(label="내 작업", count=count(Work)),
+            TableCountOut(label="부품", count=count(Part)),
+            TableCountOut(label="지그", count=count(Jig)),
+            TableCountOut(label="작업", count=count(Job)),
+            TableCountOut(label="작업물", count=count(Artifact)),
         ],
         build123d_version=_build123d_version(),
         started_at=STARTED_AT,

@@ -29,20 +29,27 @@ from app.core.options import JigOptions
 T = TypeVar("T")
 
 
+#: 단계가 끝날 때마다 불린다 — (이름, 걸린 ms, 한 줄 설명). 서버는 이것으로 진행을 DB 에
+#: 적는다.
+OnStage = Callable[[str, int, str], None]
+
+
 class _Clock:
-    def __init__(self) -> None:
+    def __init__(self, on_stage: OnStage | None) -> None:
         self.stages: list[StageLog] = []
+        self._on_stage = on_stage
 
     def run(self, name: str, work: Callable[[], T], detail: Callable[[T], str]) -> T:
         started = time.perf_counter()
         result = work()
-        self.stages.append(
-            StageLog(
-                name=name,
-                millis=int((time.perf_counter() - started) * 1000),
-                detail=detail(result),
-            )
+        stage = StageLog(
+            name=name,
+            millis=int((time.perf_counter() - started) * 1000),
+            detail=detail(result),
         )
+        self.stages.append(stage)
+        if self._on_stage is not None:
+            self._on_stage(stage.name, stage.millis, stage.detail)
         return result
 
 
@@ -63,8 +70,9 @@ def run(
     out_dir: Path,
     *,
     basename: str = "jig",
+    on_stage: OnStage | None = None,
 ) -> JigResult:
-    clock = _Clock()
+    clock = _Clock(on_stage)
 
     raw = clock.run(
         "load", lambda: resolve_product(source), lambda s: f"솔리드 {len(s.solids())}"

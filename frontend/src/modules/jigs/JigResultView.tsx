@@ -1,9 +1,15 @@
-/** 실행 결과 — 단계별 시간 · 계획 · 간섭 · 3D · 내려받기. */
+/**
+ * 지그 생성 작업 하나 — 도는 동안은 단계 진행을, 끝나면 3D · 계획 · 간섭 · 내려받기를.
+ *
+ * 내 작업의 지그 탭과 지그 카탈로그가 같은 것을 보여 주므로 여기 하나다.
+ */
 
 import { lazy, Suspense, useEffect, useState } from 'react'
 
-import { jigsApi } from '@/modules/jigs/api'
-import type { JigRun } from '@/modules/jigs/api'
+import type { JigSummary } from '@/modules/jigs/api'
+import { isFinished, jobsApi } from '@/modules/jobs/api'
+import type { Job } from '@/modules/jobs/api'
+import { useJobPolling } from '@/modules/jobs/useJobPolling'
 import { downloadFile } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { StatusBadge } from '@/shared/components/StatusBadge'
@@ -22,41 +28,44 @@ import { VIEWER_COLORS } from '@/shared/viewer/colors'
 
 const ModelViewer = lazy(() => import('@/shared/viewer/ModelViewer'))
 
-const STAGE_LABELS: Record<string, string> = {
-  load: '제품 읽기',
-  geometry: 'Geometry Understanding',
-  features: 'Feature Recognition',
-  planning: 'Fixture Planning',
-  elements: 'Support · Locator · Clamp',
-  assembly: 'Jig 생성',
-  interference: '간섭 검사',
-  export: 'STEP 내보내기',
-}
+const STAGES = [
+  ['load', '제품 읽기'],
+  ['geometry', 'Geometry Understanding'],
+  ['features', 'Feature Recognition'],
+  ['planning', 'Fixture Planning'],
+  ['elements', 'Support · Locator · Clamp'],
+  ['assembly', 'Jig 생성'],
+  ['interference', '간섭 검사'],
+  ['export', 'STEP 내보내기'],
+] as const
 
-const FILE_LABELS: Record<string, string> = {
+const STAGE_LABELS: Record<string, string> = Object.fromEntries(STAGES)
+
+const ARTIFACT_LABELS: Record<string, string> = {
   jig_step: '지그 STEP',
   assembly_step: '지그 + 제품 STEP',
   jig_stl: '지그 STL',
 }
 
 /** 결과 glTF 를 Blob URL 로 받는다 — 토큰이 있어야 하므로 주소를 바로 뷰어에 줄 수 없다. */
-function useModelUrls(run: JigRun) {
+function useModelUrls(job: Job) {
   const [urls, setUrls] = useState<{ product: string; jig: string } | null>(null)
   const [error, setError] = useState<Error | null>(null)
+  const product = job.artifacts.find((one) => one.kind === 'product_glb')
+  const jig = job.artifacts.find((one) => one.kind === 'jig_glb')
+  const productId = product?.id
+  const jigId = jig?.id
   useEffect(() => {
-    let cancelled = false
-    const made: string[] = []
-    if (!run.files.includes('jig_glb') || !run.files.includes('product_glb')) {
+    if (!productId || !jigId) {
       setUrls(null)
       return
     }
-    Promise.all([
-      jigsApi.fileBlob(run.project_id, run.id, 'product_glb'),
-      jigsApi.fileBlob(run.project_id, run.id, 'jig_glb'),
-    ])
-      .then(([product, jig]) => {
+    let cancelled = false
+    const made: string[] = []
+    Promise.all([jobsApi.artifactBlob(productId), jobsApi.artifactBlob(jigId)])
+      .then(([p, j]) => {
         if (cancelled) return
-        const pair = { product: URL.createObjectURL(product), jig: URL.createObjectURL(jig) }
+        const pair = { product: URL.createObjectURL(p), jig: URL.createObjectURL(j) }
         made.push(pair.product, pair.jig)
         setUrls(pair)
       })
@@ -67,15 +76,78 @@ function useModelUrls(run: JigRun) {
       cancelled = true
       made.forEach((url) => URL.revokeObjectURL(url))
     }
-  }, [run])
+  }, [productId, jigId])
   return { urls, error }
 }
 
-export function RunResult({ run }: { run: JigRun }) {
-  const { urls, error } = useModelUrls(run)
-  const s = run.summary
+/** 도는 동안 — 끝난 단계는 시간, 지금 단계는 점, 남은 단계는 흐리게. */
+function Progress({ job }: { job: Job }) {
+  const done = new Map(job.progress.map((one) => [one.name, one]))
+  const current = STAGES.find(([name]) => !done.has(name))?.[0]
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          {job.status === 'queued' ? '대기 중' : '만드는 중'} <StatusBadge kind="run" value={job.status} />
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ul className="space-y-1 text-sm">
+          {STAGES.map(([name, label]) => {
+            const stage = done.get(name)
+            const active = name === current && job.status === 'running'
+            return (
+              <li
+                key={name}
+                className={
+                  stage ? '' : active ? 'font-medium' : 'text-muted-foreground/60'
+                }
+              >
+                <span className="inline-block w-5">{stage ? '✓' : active ? '…' : ''}</span>
+                {label}
+                {stage && (
+                  <span className="text-muted-foreground ml-2 text-xs">
+                    {stage.detail} · {stage.millis} ms
+                  </span>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+        {job.status === 'queued' && (
+          <p className="text-muted-foreground mt-3 text-xs">
+            워커가 집어 가기를 기다립니다. 오래 이 상태면 워커(`python -m app.worker`)가 안 떠 있는
+            것입니다.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
 
-  if (run.status === 'failed') {
+export function JigResultView({
+  job: initial,
+  onFinished,
+  actions,
+}: {
+  job: Job
+  /** 폴링하던 작업이 끝났을 때 — 목록의 상태 배지를 새로 그릴 자리. */
+  onFinished?: (job: Job) => void
+  /** 결과 위 오른쪽에 둘 단추(승격 같은 것). */
+  actions?: React.ReactNode
+}) {
+  const job = useJobPolling(initial) ?? initial
+  const { urls, error } = useModelUrls(job)
+
+  useEffect(() => {
+    if (isFinished(job) && !isFinished(initial)) onFinished?.(job)
+    // initial 이 바뀌면 새 작업이다 — onFinished 는 그 작업이 끝날 때 한 번이면 된다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job.status])
+
+  if (!isFinished(job)) return <Progress job={job} />
+
+  if (job.status === 'failed') {
     return (
       <Card>
         <CardHeader>
@@ -84,11 +156,13 @@ export function RunResult({ run }: { run: JigRun }) {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-destructive text-sm">{run.error}</p>
+          <p className="text-destructive text-sm">{job.error}</p>
         </CardContent>
       </Card>
     )
   }
+
+  const s = job.summary as JigSummary | null
   if (!s) return null
 
   const models = urls
@@ -101,24 +175,23 @@ export function RunResult({ run }: { run: JigRun }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <StatusBadge kind="run" value={run.status} />
+        <StatusBadge kind="run" value={job.status} />
         <StatusBadge kind="interference" value={s.interference.ok ? 'ok' : 'bad'} />
         <span className="text-muted-foreground text-xs">
           {s.stages.reduce((sum, one) => sum + one.millis, 0)} ms
         </span>
         <div className="flex-1" />
-        {run.files
-          .filter((key) => key in FILE_LABELS)
-          .map((key) => (
+        {actions}
+        {job.artifacts
+          .filter((one) => one.kind in ARTIFACT_LABELS)
+          .map((one) => (
             <Button
-              key={key}
+              key={one.id}
               size="sm"
               variant="outline"
-              onClick={() =>
-                downloadFile(jigsApi.filePath(run.project_id, run.id, key), `${key}.step`)
-              }
+              onClick={() => downloadFile(jobsApi.artifactPath(one.id), one.filename)}
             >
-              {FILE_LABELS[key]}
+              {ARTIFACT_LABELS[one.kind]}
             </Button>
           ))}
       </div>

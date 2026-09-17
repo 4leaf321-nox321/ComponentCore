@@ -46,13 +46,46 @@
 - OCP 는 mypy 에 타입이 없다. `pyproject.toml` 이 `app.core.*` 만 느슨하게 본다 — 그 경계
   밖(`modules`)은 strict 그대로다.
 
+## 내 공간과 승격
+
+- **내 작업(Work)이 곧 공간이다.** 작업 · 그 버전 · 그 작업이 건 job · 작업물은 소유자와 관리자만
+  본다(`works.require_owner` · `jobs.require_visible`). 목록도 내 것만 나온다.
+- 남에게 내놓는 유일한 길은 **승격**(`works.promote_part` · `promote_jig`)이다. 카탈로그 버전은
+  레시피 · 요약을 **복사**해 들고, 작업물은 job 을 그대로 가리킨다 — 그래서 승격된 job 의 작업물은
+  누구나 받는다. 작업이 지워져도 카탈로그는 남는다.
+- 카탈로그 버전은 고치지 않는다. 고치려면 「내 공간으로 복사」(`parts.copy_to_work`) → 고침 →
+  다시 승격(v2).
+- 지그 승격은 **어느 부품 버전의 지그인가**를 고정한다. 제품(그때의 형상 버전)이 부품에 없으면
+  함께 올린다(`promote_product`). 지그의 제품이 현재 버전이 아니면 거절한다 — 옛 버전을 올리려면
+  되돌린 뒤.
+- 올린 STEP 은 작업물(`kind="import_step"`) + `import_step` 노드 하나짜리 버전이다. 제품 경로 ·
+  도형 스펙 같은 다른 길은 없다 — 제품은 늘 「이 작업의 형상」 하나다.
+
+## CAD 레시피
+
+- **모델은 레시피(연산 트리 JSON)다** — `core/recipe/schema.py` 가 노드 종류 · 칸의 정본이고,
+  `describe()` 가 그것을 JSON Schema 로 내보내 편집기와 AI 프롬프트가 읽는다. 연산을 더하면
+  `schema.py` 에 노드 클래스, `evaluate.py` 에 가지 하나 — 화면은 안 고친다.
+- **버전은 고치지 않는다.** 새 버전을 만든다. 되돌리기도 옛 레시피로 새 버전이다. 그래야 이력이
+  한 줄로 남고 AI 의 제안이 「후보 버전」 으로 들어갈 자리가 있다.
+- 평가는 두 길: 미리보기(요청 안, 동기 — 편집기가 칸을 고칠 때마다)와 버전 평가(`Job(kind="cad")`,
+  STEP · glTF 작업물). 같은 `core.recipe.evaluate` 를 지난다.
+- 검증 메시지는 **어느 노드 · 어느 칸이 왜** 인지 말한다(`RecipeValidationError.problems`,
+  `RecipeError(node_id, message)`). 그것이 AI 에게 돌려주는 말이고 편집기가 빨간 줄을 긋는 근거다.
+  OCC 의 말("BRep_API: command not done")은 사람에게 뜻이 없으니 노드 종류에 맞게 바꾼다.
+- **불리언 뒤에는 `clean()`.** 면이 정확히 포개진 두 덩어리(거울 · 대칭 회전체)를 합치면 OCC 가
+  부피가 음수인 솔리드를 내놓는다(실측). 평가기가 결과마다 `is_valid` 와 부피를 본다.
+- `import_step` 노드의 `file` 은 작업물 id 다. 코어는 경로를 모르고 `resolve_file` 콜백으로 받는다.
+
 ## 이름과 식별자
 
 - 설치 이름은 `.env` 가 덮을 수 있다(`APP_NAME` · `APP_SLUG`). 코드는 `get_settings().app_name`
   으로 읽고 `branding.py` 에서 import 하지 않는다 — `config.py` 만 예외.
 - `APP_SLUG` 에서 DB 이름과 refresh 쿠키 이름이 나온다. 같은 서버의 다른 플랫폼과 겹치면
   **번갈아 로그아웃**되고 그 원인은 코드 어디에도 없다. 기본값 `autojig`.
-- **포트는 8050 (개발 8051 · Vite 5250).** 플랫폼마다 10씩 벌린다 — StandardPlatform 8040.
+- **포트는 8060 (개발 8061 · Vite 5230).** 플랫폼마다 10씩 벌린다. 정본 표는
+  `StandardPlatform/docs/새-플랫폼-만들기.md` 3.6 이고 이 플랫폼도 거기 적혀 있다 — 8050 은
+  그 표에서 PartTrace 예약 자리라 비켜 갔다.
 - 오류 코드는 `errors.code("MODULE", n)` 로만 만든다(`AJG-JIGS-0003`). 손으로 이으면
   시험이 잡는다.
 
@@ -75,10 +108,20 @@
 - 목록은 서버가 상한을 강제한다(`shared/pagination.py`).
 - 폴링 경로를 만들면 `shared/access_log.py` 의 `_SKIP` 에 더한다.
 - 스키마를 바꿨으면 `python scripts/export_openapi.py` 와 `npm run api:types` 를 함께 돌린다.
-- **지그 생성은 지금 동기다**(`jigs/services.execute_run`). 요청 스레드에서 파이프라인이 다
-  돈다. 큰 조립체를 받기 시작하면 워커로 옮기고 화면은 폴링으로 — 그때도 API 모양은 안 바뀐다.
-- 결과 파일(glTF · STEP)은 토큰이 있어야 받는다. 화면은 `fetchBlob` 으로 받아 Blob URL 을
-  뷰어에 준다 — `<a href>` 나 `<img src>` 에는 access 토큰이 실리지 않는다.
+- **만드는 일은 전부 작업(Job)이다.** 지그 생성은 `POST /works/{id}/jig-runs` 가 `Job(kind="jig")`
+  을 걸고 202 로 돌아온다. 워커(`python -m app.worker`)가 DB 큐에서 집어 돌리고, 화면은 `GET /api/jobs/{id}`
+  를 폴링한다([ADR 0003](docs/adr/0003-DB-를-큐로-쓴다.md)).
+  - 새 종류는 `app/handlers.py` 에서 등록한다 — 서버와 워커가 같은 함수를 부른다. 실행 함수는
+    `(input, options, out_dir, progress) → Outcome` 이고 **웹 · DB 를 모른다.**
+  - 사람이 읽고 고칠 수 있는 실패는 `registry.UserFacingError` 로 던진다 — 메시지가 그대로 화면에
+    간다. 다른 예외는 코어의 버그로 보고 트레이스백을 남긴다.
+  - 작업의 `input` 은 **스냅숏**이다(지그면 그때의 형상 레시피). 작업(work)의 형상이 나중에 바뀌어도
+    그 job 이 무엇으로 돌았는지 남아야 한다.
+  - `JOBS_INLINE=1` 이면 워커 없이 요청 안에서 돈다. 시험이 그 길을 쓴다. 워커 경로 자체는
+    `tests/api/test_jobs.py` 가 `claim_next → execute` 를 직접 부른다.
+- 결과 파일은 `artifacts` 행이고 `GET /api/artifacts/{id}/download` 로 받는다. 토큰이 있어야 한다.
+  화면은 `fetchBlob` 으로 받아 Blob URL 을 뷰어에 준다 — `<a href>` 나 `<img src>` 에는 access
+  토큰이 실리지 않는다.
 
 ## 프론트
 
@@ -92,6 +135,20 @@
   `shared/viewer/colors.ts` 가 정한다(제품 파랑 · 지그 회색) — 뷰어와 범례가 같은 값을 쓴다.
 - 빈 목록은 이유를 말한다(`EmptyState`). 되돌릴 수 없는 일은 무엇이 사라지는지 적는다
   (`ConfirmDialog`). 본문은 오류 경계 안에 있다(`ErrorBoundary`).
+
+## 개발 서버와 워커
+
+`run.py` 는 개발에서 워커를 **watchfiles 로** 띄운다 — `app/` 이 바뀌면 워커가 다시 뜬다. uvicorn 의
+reload 는 API 만 새로 띄우기 때문에, 워커를 그냥 자식으로 두면 모델을 바꾼 뒤 옛 워커가 매 루프
+SELECT 에서 죽어 「작업이 queued 에서 안 움직인다」 가 된다(실측, 2026-09-18). **마이그레이션을
+돌렸으면 서버를 다시 띄운다** — 그 전에 뜬 워커는 watchfiles 가 없는 옛 run.py 일 수 있다.
+
+## 다른 사람의 프로세스
+
+**`pkill -f` 로 서버를 내리지 않는다.** 개발 PC 에는 사용자가 직접 띄운 `run.py` 가 떠 있을 수
+있고, 이름으로 죽이면 그것이 죽는다(실측 — 2026-09-18 에 그렇게 사용자의 서버를 내렸다). 자기가
+띄운 것은 PID 를 들고 있다가 그것만 내린다. 포트가 잡혀 있으면 「누가 쓰나」 를 먼저 본다:
+`ss -ltnp 'sport = :8061'`.
 
 ## 검증
 
