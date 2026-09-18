@@ -83,6 +83,10 @@ from app.core.recipe import schema as S
 
 #: `import_step` 의 `file` 열쇠 → 실제 경로. 없으면 import_step 노드가 실패한다.
 FileResolver = Callable[[str], Path]
+#: `component` 의 `source` → 그 도면의 레시피(JSON). 조립이 쓴다 — 코어는 DB 를 모른다.
+ComponentResolver = Callable[[str], dict[str, Any]]
+#: 조립 안의 조립 안의 조립… 어딘가에서 멈춘다. 고리를 만들면 여기서 걸린다.
+MAX_COMPONENT_DEPTH = 5
 
 
 class RecipeError(ValueError):
@@ -551,6 +555,8 @@ def _evaluate_node(
     node: S.Node,
     made: dict[str, Shape],
     resolve_file: FileResolver | None,
+    resolve_component: ComponentResolver | None = None,
+    depth: int = 0,
 ) -> Shape:
     if isinstance(node, S.SketchNode):
         return _sketch(node)
@@ -805,6 +811,40 @@ def _evaluate_node(
         if not node.keep_original:
             return mirrored
         return _cleaned(_to_part(source) + _to_part(mirrored))
+    if isinstance(node, S.GroupNode):
+        parts = [made[one] for one in node.targets]
+        # **붙이지 않는다.** 자식으로 담아야 부품 · 지그가 따로 남는다(복사본으로 — Compound 는
+        # 자식을 옮겨 가 원본을 비운다).
+        return Compound(children=[copy.copy(one) for one in parts])
+    if isinstance(node, S.ComponentNode):
+        if resolve_component is None:
+            raise RecipeError(node.id, "이 자리에서는 다른 도면을 가져올 수 없습니다")
+        if depth >= MAX_COMPONENT_DEPTH:
+            raise RecipeError(
+                node.id, "조립이 너무 깊습니다 — 서로를 가져오고 있지 않은지 보세요"
+            )
+        try:
+            source = resolve_component(node.source)
+        except Exception as failure:
+            raise RecipeError(
+                node.id, f"가져올 도면을 찾지 못했습니다: {failure}"
+            ) from failure
+        # 가져온 쪽의 변수를 덮어쓴다 — 조립의 변수가 구성품 치수로 흘러가는 길.
+        merged = {**source, "params": {**(source.get("params") or {}), **node.params}}
+        try:
+            inner = S.parse(merged)
+        except Exception as failure:
+            raise RecipeError(
+                node.id, f"가져온 도면이 올바르지 않습니다: {failure}"
+            ) from failure
+        sub = _evaluate_recipe(
+            inner,
+            resolve_file=resolve_file,
+            resolve_component=resolve_component,
+            depth=depth + 1,
+        )
+        rx, ry, rz = node.rotate
+        return Pos(*node.translate) * Rot(rx, ry, rz) * sub.shape
     if isinstance(node, S.ImportStepNode):
         if resolve_file is None:
             raise RecipeError(node.id, "이 자리에서는 STEP 을 불러올 수 없습니다")
@@ -834,15 +874,37 @@ def _info(node: S.Node, shape: Shape) -> NodeInfo:
 
 
 def evaluate(
-    recipe: S.Recipe, *, resolve_file: FileResolver | None = None, allow_sketch: bool = False
+    recipe: S.Recipe,
+    *,
+    resolve_file: FileResolver | None = None,
+    resolve_component: ComponentResolver | None = None,
+    allow_sketch: bool = False,
 ) -> Evaluation:
     """레시피를 만든다. `allow_sketch` 는 **미리보기용** — 스케치까지만 그린 상태도 면으로
-    보여 준다. 저장 · 지그는 입체여야 하므로 기본은 거절이다."""
+    보여 준다. 저장 · 지그는 입체여야 하므로 기본은 거절이다.
+
+    `resolve_component` 는 조립이 쓴다 — `component` 가 가리키는 도면의 레시피를 주는 함수."""
+    return _evaluate_recipe(
+        recipe,
+        resolve_file=resolve_file,
+        resolve_component=resolve_component,
+        allow_sketch=allow_sketch,
+    )
+
+
+def _evaluate_recipe(
+    recipe: S.Recipe,
+    *,
+    resolve_file: FileResolver | None = None,
+    resolve_component: ComponentResolver | None = None,
+    allow_sketch: bool = False,
+    depth: int = 0,
+) -> Evaluation:
     made: dict[str, Shape] = {}
     infos: list[NodeInfo] = []
     for node in recipe.nodes:
         try:
-            shape = _evaluate_node(node, made, resolve_file)
+            shape = _evaluate_node(node, made, resolve_file, resolve_component, depth)
         except RecipeError:
             raise
         except Exception as failure:

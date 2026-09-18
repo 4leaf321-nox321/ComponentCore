@@ -21,7 +21,7 @@ from app.core.recipe import RecipeError, evaluate, parse
 from app.core.recipe.digest import digest
 from app.core.recipe.schema import RecipeValidationError
 from app.modules.accounts.models import User
-from app.modules.cad.services import resolve_import
+from app.modules.cad.services import resolve_component, resolve_import
 from app.modules.doe import export as files
 from app.modules.doe.models import DoePoint, DoeStudy
 from app.modules.jobs import registry
@@ -244,7 +244,11 @@ def run_job(
                 "params": {**(study.recipe.get("params") or {}), **point.params},
             }
             try:
-                evaluation = evaluate(parse(recipe), resolve_file=resolve_import)
+                evaluation = evaluate(
+                    parse(recipe),
+                    resolve_file=resolve_import,
+                    resolve_component=resolve_component,
+                )
                 got = digest(evaluation.shape, material=study.material)
                 name = f"p{point.number:04d}.step"
                 shapes.write_step(evaluation.shape, folder / "points" / name)

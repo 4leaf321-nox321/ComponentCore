@@ -601,6 +601,37 @@ class MirrorNode(_Node):
     keep_original: bool = True
 
 
+class GroupNode(_Node):
+    """여럿을 **붙이지 않고 한 묶음으로** — 조립의 마지막 줄.
+
+    `union` 은 하나로 녹여 붙인다. 조립은 그러면 안 된다 — 부품과 지그는 **서로 다른 덩어리**로
+    남아야 따로 보고, 따로 빼고, 간섭을 잴 수 있다."""
+
+    op: Literal["group"]
+    targets: list[str] = Field(min_length=1)
+
+
+class ComponentNode(_Node):
+    """**다른 도면을 그대로 가져다 놓는다** — 조립의 한 칸.
+
+    STEP 을 가져오는 `import_step` 과 다른 점: 가져오는 것이 **레시피**라 살아 있다. 가져온
+    쪽의 변수를 `params` 로 덮어쓸 수 있고, 그 값에 조립의 변수를 넘길 수 있다:
+
+        {"op": "component", "source": "part:3f9a…", "params": {"두께": "=지그_두께"},
+         "translate": [0, 0, 12]}
+
+    그래서 조립을 실험계획으로 훑으면 **구성품의 치수까지 따라 바뀐다.** `source` 는 호출자가
+    푸는 열쇠다(부품 · 지그 · 내 작업의 버전) — 코어는 그것이 무엇인지 모른다."""
+
+    op: Literal["component"]
+    source: str = Field(min_length=1)
+    params: dict[str, float] = Field(default_factory=dict)
+    """가져온 도면의 변수를 덮어쓴다. 없는 이름을 주면 그 도면이 거절한다."""
+    translate: XYZ = (0.0, 0.0, 0.0)
+    rotate: XYZ = (0.0, 0.0, 0.0)
+    """X · Y · Z 축 회전(도). 회전 뒤 이동 — `transform` 과 같은 규칙."""
+
+
 class ImportStepNode(_Node):
     """외부 CAD 에서 온 형상 — 레시피의 뿌리. `file` 은 호출자가 경로로 푸는 열쇠(작업물
     id)."""
@@ -634,6 +665,8 @@ Node = Annotated[
     | TransformNode
     | MirrorNode
     | SplitNode
+    | ComponentNode
+    | GroupNode
     | DraftNode
     | SectionNode
     | OffsetNode
@@ -694,6 +727,7 @@ _REFERENCE_FIELDS: dict[str, tuple[str, ...]] = {
     "pattern": ("source",),
     "transform": ("target",),
     "mirror": ("target",),
+    "group": ("targets",),
     "split": ("target",),
     "draft": ("target",),
     "section": ("target",),

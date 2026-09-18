@@ -14,8 +14,11 @@ from app.modules.jobs.schemas import JobOut
 class WorkCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=2000)
-    recipe: dict[str, Any]
-    """첫 버전의 레시피(템플릿 · 직접 그린 것 · 부품에서 복사)."""
+    recipe: dict[str, Any] | None = None
+    """첫 버전의 레시피(템플릿 · 직접 그린 것 · 부품에서 복사).
+
+    **비워도 된다** — 조립처럼 「빈 채로 만들어 놓고 채우는」 것이 있다. 그러면 버전 없이
+    작업만 생기고, 화면이 첫 버전을 만들 때까지 기다린다."""
     kind: str = "part"
     """part | jig — **무엇을 그리는가.** 그리는 방법은 같고, 승격할 곳과 덤으로 쓰는 도구가
     다르다(부품 작업에는 지그 생성기, 지그 작업에는 잡는 부품)."""

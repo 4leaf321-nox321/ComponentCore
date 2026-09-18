@@ -42,13 +42,10 @@ test('지그 작업은 그림 탭이 「지그」 이고, 승격이 지그 카�
       </Routes>
     </MemoryRouter>,
   )
-  // 그림 탭의 이름이 「지그」 다 — 부품 작업이면 「부품」.
-  await waitFor(() => expect(screen.getByRole('tab', { name: /^지그 v2/ })).toBeInTheDocument())
+  // 그림 탭 이름은 종류와 상관없이 「도면」 — 지그 작업에는 생성기 탭이 아예 없다.
+  await waitFor(() => expect(screen.getByRole('tab', { name: /^도면 v2/ })).toBeInTheDocument())
+  expect(screen.queryByRole('tab', { name: /지그 만들어 주기/ })).toBeNull()
   expect(await screen.findByRole('button', { name: '지그 카탈로그로 승격' })).toBeInTheDocument()
-  // 지그 작업에는 생성기 대신 「잡는 부품」 이 붙는다.
-  fireEventMouseDown(screen.getByRole('tab', { name: '잡는 부품' }))
-  expect(await screen.findByText('잡는 부품')).toBeInTheDocument()
-  expect(screen.queryByText(/지그 생성기/)).toBeNull()
 })
 
 function fireEventMouseDown(element: Element) {
@@ -77,8 +74,8 @@ test('부품 작업의 지그 탭 — 옵션은 접혀 있고 「지그 만들�
       </Routes>
     </MemoryRouter>,
   )
-  await waitFor(() => expect(screen.getByRole('tab', { name: /지그 만들기/ })).toBeInTheDocument())
-  fireEventMouseDown(screen.getByRole('tab', { name: /지그 만들기/ }))
+  await waitFor(() => expect(screen.getByRole('tab', { name: /지그 만들어 주기/ })).toBeInTheDocument())
+  fireEventMouseDown(screen.getByRole('tab', { name: /지그 만들어 주기/ }))
   // 큰 단추가 먼저, 옵션은 접혀 있다.
   expect(await screen.findByRole('button', { name: '지그 만들어 보기' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '세부 옵션 펴기' })).toBeInTheDocument()

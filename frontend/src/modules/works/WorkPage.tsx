@@ -16,7 +16,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import type { Recipe } from '@/modules/cad/api'
 import { WorkDoeTab } from '@/modules/doe/WorkDoeTab'
-import { JigForPartCard } from '@/modules/works/JigForPartCard'
+import { AssemblyEditor } from '@/modules/works/AssemblyEditor'
 import { GeometryJobView } from '@/modules/cad/GeometryJobView'
 import { RecipeEditor } from '@/modules/cad/RecipeEditor'
 import { saveRecipeAs } from '@/modules/cad/download'
@@ -183,8 +183,9 @@ export default function WorkPage() {
   if (work.error) return <ErrorNotice error={work.error} />
   if (!w) return null
 
-  /** 이 작업이 그리는 것 — 화면의 말과 갈 곳이 여기서 갈린다. */
+  /** 이 작업이 만드는 것 — 화면의 말과 갈 곳이 여기서 갈린다. */
   const isJig = w.kind === 'jig'
+  const isAssembly = w.kind === 'assembly'
 
   const currentPromoted = w.current?.promoted_part_id != null
 
@@ -217,11 +218,12 @@ export default function WorkPage() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="geometry">
-            {isJig ? '지그' : '부품'} {w.current_version > 0 && `v${w.current_version}`}
+            {isAssembly ? '조립' : '도면'} {w.current_version > 0 && `v${w.current_version}`}
           </TabsTrigger>
-          <TabsTrigger value="jig">
-            {isJig ? '잡는 부품' : '지그 만들기'} {!isJig && w.jig_run_count > 0 && `(${w.jig_run_count})`}
-          </TabsTrigger>
+          {/* 지그 생성기는 **부품 도면의 덤**이다 — 지그 · 조립 작업에는 나오지 않는다. */}
+          {!isJig && !isAssembly && (
+            <TabsTrigger value="jig">지그 만들어 주기 {w.jig_run_count > 0 && `(${w.jig_run_count})`}</TabsTrigger>
+          )}
           <TabsTrigger value="doe">실험계획</TabsTrigger>
         </TabsList>
 
@@ -240,6 +242,9 @@ export default function WorkPage() {
                 </div>
               </CardHeader>
               <CardContent>
+                {isAssembly ? (
+                  <AssemblyEditor value={draft} onChange={setDraft} />
+                ) : (
                 <RecipeEditor
                   value={draft}
                   onChange={setDraft}
@@ -255,6 +260,15 @@ export default function WorkPage() {
                     currentWorkId: id,
                   }}
                 />
+                )}
+                {isAssembly && (
+                  <div className="mt-3 flex items-center gap-2">
+                    <Button size="sm" onClick={() => void saveVersion()} disabled={busy}>
+                      새 버전으로 저장
+                    </Button>
+                    <span className="text-muted-foreground text-xs">저장해야 3D 와 실험계획에 반영됩니다.</span>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ) : (
@@ -287,6 +301,7 @@ export default function WorkPage() {
                   {selectedVersion && selectedVersion.number !== w.current_version ? ` (v${selectedVersion.number})` : ''}
                 </Button>
                 <div className="flex-1" />
+                {!isAssembly && (
                 <Button
                   variant="outline"
                   disabled={busy || w.current_version === 0 || (!isJig && currentPromoted)}
@@ -309,9 +324,25 @@ export default function WorkPage() {
                       ? `부품 v${w.current?.promoted_part_version} 으로 올라감`
                       : '부품 카탈로그로 승격'}
                 </Button>
+                )}
               </div>
 
-              {w.current_version === 0 ? (
+              {w.current_version === 0 && isAssembly ? (
+                <EmptyState
+                  title="빈 조립입니다"
+                  hint="「구성품 놓기」 를 누르면 왼쪽 라이브러리에서 부품 · 지그를 가져와 놓을 수 있습니다."
+                  action={
+                    <Button
+                      onClick={() => {
+                        setDraft({ version: 1, nodes: [] })
+                        setEditing(true)
+                      }}
+                    >
+                      구성품 놓기
+                    </Button>
+                  }
+                />
+              ) : w.current_version === 0 ? (
                 <EmptyState
                   title="부품이 없습니다"
                   hint="이 작업은 옛 지그 프로젝트에서 옮겨 와 부품이 없습니다. STEP 을 올리거나 새로 그리세요."
@@ -386,11 +417,7 @@ export default function WorkPage() {
 
         {/* ---------------- 지그 ---------------- */}
         <TabsContent value="jig" className="space-y-4 pt-4">
-          {isJig ? (
-            /* 지그 작업의 덤 — **어느 부품을 잡는가.** 이어 두면 승격할 때 그대로 따라간다. */
-            <JigForPartCard work={w} onSaved={reloadAll} />
-          ) : null}
-          {isJig ? null : (
+          {isJig || isAssembly ? null : (
           <Card>
             <CardHeader>
               <CardTitle>지그 생성기</CardTitle>

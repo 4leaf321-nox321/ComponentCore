@@ -14,6 +14,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import select
+
 from app.core import export
 from app.core.recipe import Evaluation, RecipeError, evaluate, parse
 from app.core.recipe.digest import digest
@@ -46,6 +48,66 @@ def resolve_import(key: str) -> Path:
         db.close()
 
 
+def resolve_component(key: str) -> dict[str, Any]:
+    """`component` 의 `source` → 그 도면의 **레시피**.
+
+    열쇠는 `part:<id>` · `jig:<id>` · `work:<id>`, `@<번호>` 로 버전을 집는다(없으면 현재).
+    조립은 **살아 있는 레시피**를 가져온다 — STEP 을 박아 넣는 것과 달라서, 가져온 쪽의 변수를
+    덮어써 조립의 변수로 움직일 수 있다."""
+    from app.database import SessionLocal
+    from app.modules.jigs.models import Jig, JigVersion
+    from app.modules.parts.models import Part, PartVersion
+    from app.modules.works.models import Work, WorkVersion
+
+    kind, _, rest = key.partition(":")
+    name, _, raw_number = rest.partition("@")
+    number = int(raw_number) if raw_number else None
+    db = SessionLocal()
+    try:
+        identifier = uuid.UUID(name)
+        version: Any = None
+        if kind == "part":
+            part = db.get(Part, identifier)
+            if part is None:
+                raise ValueError(f"부품이 없습니다: {name}")
+            version = db.scalar(
+                select(PartVersion).where(
+                    PartVersion.part_id == part.id,
+                    PartVersion.number == (number or part.current_version),
+                )
+            )
+        elif kind == "jig":
+            jig = db.get(Jig, identifier)
+            if jig is None:
+                raise ValueError(f"지그가 없습니다: {name}")
+            version = db.scalar(
+                select(JigVersion).where(
+                    JigVersion.jig_id == jig.id,
+                    JigVersion.number == (number or jig.current_version),
+                )
+            )
+            if version is not None and not getattr(version, "recipe", None):
+                # 지그 카탈로그의 버전은 레시피 대신 생성 작업을 들고 있을 수 있다.
+                raise ValueError("이 지그 버전에는 레시피가 없습니다 — 그린 지그만 가져옵니다")
+        elif kind == "work":
+            work = db.get(Work, identifier)
+            if work is None:
+                raise ValueError(f"작업이 없습니다: {name}")
+            version = db.scalar(
+                select(WorkVersion).where(
+                    WorkVersion.work_id == work.id,
+                    WorkVersion.number == (number or work.current_version),
+                )
+            )
+        else:
+            raise ValueError(f"모르는 열쇠입니다: {key} (part: · jig: · work:)")
+        if version is None:
+            raise ValueError(f"버전을 찾지 못했습니다: {key}")
+        return dict(version.recipe)
+    finally:
+        db.close()
+
+
 def check(raw: dict[str, Any]) -> list[str]:
     """만들지 않고 모양만 본다. 비어 있으면 통과."""
     try:
@@ -67,7 +129,12 @@ def build(raw: dict[str, Any], *, allow_sketch: bool = False) -> Evaluation:
             details={"problems": failure.problems},
         ) from failure
     try:
-        return evaluate(recipe, resolve_file=resolve_import, allow_sketch=allow_sketch)
+        return evaluate(
+            recipe,
+            resolve_file=resolve_import,
+            resolve_component=resolve_component,
+            allow_sketch=allow_sketch,
+        )
     except RecipeError as failure:
         raise AppError(
             code("CAD", 3),
@@ -127,7 +194,9 @@ def run_job(
     except RecipeValidationError as failure:
         raise registry.UserFacingError(" / ".join(failure.problems)) from failure
     try:
-        evaluation = evaluate(recipe, resolve_file=resolve_import)
+        evaluation = evaluate(
+            recipe, resolve_file=resolve_import, resolve_component=resolve_component
+        )
     except RecipeError as failure:
         raise registry.UserFacingError(f"{failure.node_id}: {failure.message}") from failure
     progress(

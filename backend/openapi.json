@@ -6376,8 +6376,15 @@
             "default": ""
           },
           "recipe": {
-            "additionalProperties": true,
-            "type": "object",
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Recipe"
           },
           "kind": {
@@ -6411,8 +6418,7 @@
         },
         "type": "object",
         "required": [
-          "name",
-          "recipe"
+          "name"
         ],
         "title": "WorkCreateRequest"
       },

@@ -18,8 +18,13 @@ export interface WorkVersion {
   created_at: string
 }
 
-/** 무엇을 그리는 작업인가 — 그리는 방법은 같고, 올라갈 곳과 덤으로 쓰는 도구가 다르다. */
-export type WorkKind = 'part' | 'jig'
+/**
+ * 이 작업이 만드는 것.
+ *
+ * - `part` · `jig` 는 **그리는 것**이다. 둘은 서로 아무 관계가 없다 — 각자 제 도면이다.
+ * - `assembly` 는 **놓는 것**이다. 부품 · 지그를 가져다 서로 위치시킨다.
+ */
+export type WorkKind = 'part' | 'jig' | 'assembly'
 
 export interface Work {
   id: string
@@ -73,7 +78,8 @@ export const worksApi = {
   create: (body: {
     name: string
     description?: string
-    recipe: Recipe
+    /** 비우면 **버전 없이** 작업만 생긴다 — 조립처럼 만들어 놓고 채우는 것. */
+    recipe?: Recipe | null
     source?: string
     note?: string
     kind?: WorkKind

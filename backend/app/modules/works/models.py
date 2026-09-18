@@ -30,8 +30,11 @@ from app.database import Base
 
 #: 버전이 어디서 왔나.
 VERSION_SOURCES = ("template", "manual", "ai", "import", "restore", "copy")
-#: 이 작업이 그리는 것. 그리는 방법은 같고, 승격할 곳과 덤으로 쓰는 도구가 다르다.
-WORK_KINDS = ("part", "jig")
+#: 이 작업이 만드는 것.
+#:
+#: - `part` · `jig` 는 **그리는 것**이다. 둘은 서로 아무 관계가 없다 — 각자 제 도면이다.
+#: - `assembly` 는 **놓는 것**이다. 부품 · 지그를 가져다 서로 위치시킨다(`component` 피처).
+WORK_KINDS = ("part", "jig", "assembly")
 
 
 class Work(Base):

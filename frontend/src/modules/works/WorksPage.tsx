@@ -30,7 +30,23 @@ export default function WorksPage() {
   const [offset, setOffset] = useState(0)
   /** 「내 지그가 어디 있지」 를 한 번에 — 종류로 가려 본다. */
   const [kind, setKind] = useState<'all' | WorkKind>('all')
+  const [starting, setStarting] = useState(false)
   const page = useResource(() => worksApi.list(offset, PAGE), [offset])
+
+  /** 빈 조립 하나를 만들고 바로 연다 — 조립은 그릴 것이 없어 그리기 화면을 거치지 않는다. */
+  async function startAssembly() {
+    setStarting(true)
+    try {
+      const made = await worksApi.create({
+        name: '새 조립',
+        kind: 'assembly',
+        note: '빈 조립',
+      })
+      navigate(`/works/${made.id}`)
+    } finally {
+      setStarting(false)
+    }
+  }
   const all = page.data?.items ?? []
   const rows = kind === 'all' ? all : all.filter((one) => one.kind === kind)
 
@@ -39,7 +55,15 @@ export default function WorksPage() {
       <PageHeader
         title="내 작업"
         description="그리고 있는 것들. 나만 봅니다 — 남에게 보이려면 부품이나 지그로 승격합니다."
-        actions={<Button onClick={() => navigate('/draw')}>새로 그리기</Button>}
+        actions={
+          <>
+            {/* 조립은 그리는 것이 아니라 **놓는 것**이라 그리기를 거치지 않는다. */}
+            <Button variant="outline" onClick={() => void startAssembly()} disabled={starting}>
+              {starting ? '만드는 중…' : '새 조립'}
+            </Button>
+            <Button onClick={() => navigate('/draw')}>새로 그리기</Button>
+          </>
+        }
       />
       <div className="mb-4 flex items-center gap-1">
         {(
@@ -47,6 +71,7 @@ export default function WorksPage() {
             { value: 'all', label: '전체' },
             { value: 'part', label: '부품' },
             { value: 'jig', label: '지그' },
+            { value: 'assembly', label: '조립' },
           ] as const
         ).map((one) => (
           <button
@@ -97,8 +122,8 @@ export default function WorksPage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={row.kind === 'jig' ? 'secondary' : 'outline'}>
-                      {row.kind === 'jig' ? '지그' : '부품'}
+                    <Badge variant={row.kind === 'part' ? 'outline' : 'secondary'}>
+                      {row.kind === 'jig' ? '지그' : row.kind === 'assembly' ? '조립' : '부품'}
                     </Badge>
                   </TableCell>
                   <TableCell>

@@ -264,13 +264,14 @@ def create_work(
     owner: User,
     name: str,
     description: str,
-    recipe: dict[str, Any],
+    recipe: dict[str, Any] | None,
     source: str,
     note: str,
     kind: str = "part",
     jig_for_part_id: uuid.UUID | None = None,
 ) -> Work:
-    _validated(recipe)
+    if recipe is not None:
+        _validated(recipe)
     if kind not in WORK_KINDS:
         raise AppError(code("WORKS", 23), f"모르는 종류입니다: {kind} (part · jig)")
     work = Work(
@@ -282,7 +283,8 @@ def create_work(
     )
     db.add(work)
     db.flush()
-    add_version(db, work, recipe=recipe, source=source, note=note or "첫 버전", by=owner)
+    if recipe is not None:
+        add_version(db, work, recipe=recipe, source=source, note=note or "첫 버전", by=owner)
     db.refresh(work)
     return work
 
@@ -408,7 +410,11 @@ def _product_from_input(input: dict[str, Any]) -> Shape | Path | None:
     if input.get("product_recipe"):
         try:
             recipe = parse(dict(input["product_recipe"]))
-            return evaluate(recipe, resolve_file=cad.resolve_import).shape
+            return evaluate(
+                recipe,
+                resolve_file=cad.resolve_import,
+                resolve_component=cad.resolve_component,
+            ).shape
         except RecipeValidationError as failure:
             raise registry.UserFacingError(
                 "제품 레시피가 올바르지 않습니다: " + " / ".join(failure.problems)

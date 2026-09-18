@@ -117,33 +117,6 @@ export default function DrawPage() {
       <PageHeader
         title="그리기"
         description="빈 화면에서 그리거나 「파일」 탭에서 템플릿 · 기존 작업 · STEP 을 엽니다. 저장하기 전에는 아무것도 남지 않습니다."
-        actions={
-          /* **무엇을 그리는지 먼저 고른다.** 저장할 때 물으면 늦다 — 그리는 내내 어디로 갈지
-             모르고, 저장 대화상자 안에 숨겨 두면 아무도 못 찾는다(실측). */
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground text-xs">지금 그리는 것</span>
-            <div className="flex gap-1">
-              {(
-                [
-                  { value: 'part', label: '부품' },
-                  { value: 'jig', label: '지그' },
-                ] as const
-              ).map((one) => (
-                <button
-                  key={one.value}
-                  type="button"
-                  onClick={() => setKind(one.value)}
-                  aria-pressed={kind === one.value}
-                  className={`rounded-md border px-3 py-1.5 text-sm ${
-                    kind === one.value ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-accent'
-                  }`}
-                >
-                  {one.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        }
       />
       <ErrorNotice error={error} />
 
@@ -152,7 +125,7 @@ export default function DrawPage() {
           value={recipe}
           onChange={setRecipe}
           file={{
-            save: { label: kind === 'jig' ? '지그로 저장' : '부품으로 저장', run: () => setSaving(true) },
+            save: { label: '저장', run: () => setSaving(true) },
             saveTemplate: () => setSavingTemplate(true),
             download: (format) => void download(format),
             importStep: { label: 'STEP 열기', run: (picked) => void startFromStep(picked), busy },
@@ -173,7 +146,7 @@ export default function DrawPage() {
             className="space-y-4"
           >
             <DialogHeader>
-              <DialogTitle>{kind === 'jig' ? '지그로 저장' : '부품으로 저장'}</DialogTitle>
+              <DialogTitle>저장</DialogTitle>
               <DialogDescription>내 공간에 작업이 생기고 버전 1 이 평가됩니다. 남에게는 승격해야 보입니다.</DialogDescription>
             </DialogHeader>
             <div className="space-y-2">
@@ -184,8 +157,8 @@ export default function DrawPage() {
                 <div className="flex gap-1">
                   {(
                     [
-                      { value: 'part', label: '부품 · 제품', hint: '덤으로 지그 생성기를 쓸 수 있습니다' },
-                      { value: 'jig', label: '지그', hint: '잡는 부품을 이어 둘 수 있습니다' },
+                      { value: 'part', label: '부품 · 제품' },
+                      { value: 'jig', label: '지그' },
                     ] as const
                   ).map((one) => (
                     <button
@@ -202,10 +175,7 @@ export default function DrawPage() {
                   ))}
                 </div>
                 <p className="text-muted-foreground text-xs">
-                  {kind === 'jig'
-                    ? '지그 작업으로 저장됩니다 — 잡는 부품을 이어 두고, 다 되면 지그 카탈로그로 올립니다.'
-                    : '부품 작업으로 저장됩니다 — 덤으로 지그 생성기를 쓸 수 있습니다.'}{' '}
-                  나중에 바꿀 수 있습니다.
+                  부품과 지그는 <b>서로 관계없는 각자의 도면</b>입니다. 둘을 함께 놓아 보려면 「조립」 에서 가져다 씁니다. 종류는 나중에 바꿀 수 있습니다.
                 </p>
               </div>
             </div>
