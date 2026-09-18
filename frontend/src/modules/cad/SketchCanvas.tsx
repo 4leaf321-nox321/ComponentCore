@@ -34,6 +34,9 @@ function extent(shapes: SketchShape[]): number {
       Number(s.height ?? 0),
       Number(s.length ?? 0),
       Number(s.radius ?? 0) * 2,
+      Number(s.x_radius ?? 0) * 2,
+      Number(s.y_radius ?? 0) * 2,
+      s.type === 'text' ? String(s.text ?? '').length * Number(s.size ?? 0) * 0.7 : 0,
       ...(((s.points as number[][]) ?? []).flat().map((v) => Math.abs(v) * 2)),
       ...polylinePoints(s).flat().map((v) => Math.abs(v) * 2),
     )
@@ -118,6 +121,26 @@ function ShapeSvg({ shape, selected, onPointerDown }: { shape: SketchShape; sele
     }
     case 'polyline':
       return <path d={polylinePath(shape)} transform={transform} {...common} />
+    case 'ellipse':
+      return <ellipse rx={Number(shape.x_radius)} ry={Number(shape.y_radius)} transform={transform} {...common} />
+    case 'text': {
+      // 바깥 <g> 가 y 를 뒤집으니 글자는 다시 뒤집는다. 실제 글꼴 모양은 서버가 정한다 — 자리만.
+      const size = Number(shape.size)
+      return (
+        <text
+          transform={`${transform} scale(1 -1)`}
+          fontSize={size}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fontWeight={shape.bold ? 700 : 400}
+          fontFamily="sans-serif"
+          {...common}
+          fill={cut ? 'rgba(239,68,68,0.5)' : 'rgba(59,130,246,0.6)'}
+        >
+          {String(shape.text ?? '')}
+        </text>
+      )
+    }
     default:
       return null
   }
@@ -364,6 +387,27 @@ function ShapeForm({
           <>
             {numberField('radius', '외접 반지름')}
             {numberField('sides', '변 수', 1)}
+          </>
+        )}
+        {shape.type === 'ellipse' && (
+          <>
+            {numberField('x_radius', 'X 반지름')}
+            {numberField('y_radius', 'Y 반지름')}
+          </>
+        )}
+        {shape.type === 'text' && (
+          <>
+            <div className="col-span-2 space-y-1">
+              <Label htmlFor="shape-text" className="text-xs">
+                글자
+              </Label>
+              <Input id="shape-text" value={String(shape.text ?? '')} onChange={(e) => onChange({ text: e.target.value })} className="h-8" />
+            </div>
+            {numberField('size', '글자 높이 (mm)')}
+            <label className="flex items-end gap-1 pb-2 text-xs">
+              <input type="checkbox" checked={Boolean(shape.bold)} onChange={(e) => onChange({ bold: e.target.checked })} />
+              굵게
+            </label>
           </>
         )}
         {shape.type !== 'circle' && numberField('rotation', '회전 (°)', 1)}

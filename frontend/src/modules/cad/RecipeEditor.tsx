@@ -22,7 +22,7 @@ import { SketchCanvas } from '@/modules/cad/SketchCanvas'
 import type { SketchShape } from '@/modules/cad/SketchCanvas'
 import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
-import { Braces, BookmarkPlus, Download, FilePlus, FolderOpen, Files, Maximize2, Minimize2, Ruler, Save, SquareDashedMousePointer } from 'lucide-react'
+import { Braces, BookmarkPlus, Download, FilePlus, FolderOpen, Files, Maximize2, Minimize2, Redo2, Ruler, Save, SquareDashedMousePointer, Undo2 } from 'lucide-react'
 
 import { useFullscreen } from '@/shared/viewer/FullscreenFrame'
 import type { MeasurePick, MeshData, MeshEdge, MeshFace, PickMode } from '@/shared/viewer/PickViewer'
@@ -74,6 +74,66 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
   const lastDrawn = useRef<string>('')
 
   const selected = nodes.find((n) => n.id === selectedId) ?? null
+
+  // --- 실행 취소 ------------------------------------------------------------------
+  // value 는 호출부 것이라 여기서는 지나간 값을 쌓아 두기만 한다. 1초 안에 잇단 변화(칸에
+  // 숫자를 치는 것)는 한 걸음으로 묶는다.
+  const history = useRef<{ past: Recipe[]; future: Recipe[]; last: Recipe; at: number; skip: boolean }>({
+    past: [],
+    future: [],
+    last: value,
+    at: 0,
+    skip: false,
+  })
+  const [, bump] = useState(0)
+  useEffect(() => {
+    const h = history.current
+    if (h.last === value) return
+    if (!h.skip) {
+      const now = Date.now()
+      if (now - h.at > 1000) h.past = [...h.past.slice(-49), h.last]
+      h.future = []
+      h.at = now
+    }
+    h.skip = false
+    h.last = value
+    bump((n) => n + 1)
+  }, [value])
+  function undo() {
+    const h = history.current
+    const previous = h.past.pop()
+    if (!previous) return
+    h.future.push(value)
+    h.skip = true
+    h.at = 0
+    onChange(previous)
+  }
+  function redo() {
+    const h = history.current
+    const next = h.future.pop()
+    if (!next) return
+    h.past.push(value)
+    h.skip = true
+    h.at = 0
+    onChange(next)
+  }
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey)) return
+      const target = event.target as HTMLElement | null
+      if (target && target.closest('input, textarea, select, [contenteditable]')) return
+      const key = event.key.toLowerCase()
+      if (key === 'z' && !event.shiftKey) {
+        event.preventDefault()
+        undo()
+      } else if (key === 'y' || (key === 'z' && event.shiftKey)) {
+        event.preventDefault()
+        redo()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 
   // --- 레시피 바꾸기 ------------------------------------------------------------
 
@@ -190,7 +250,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
       updateNode({ ...selected, open: { near, tolerance: 1 } })
       return
     }
-    if (faceTarget === 'hole-plane' && selected?.op === 'hole') {
+    if (faceTarget === 'hole-plane' && selected && OP_BY_NAME[selected.op]?.fields.some((f) => f.key === 'plane')) {
       updateNode({
         ...selected,
         plane: { name: 'XY', origin: face.center, normal: face.normal },
@@ -258,6 +318,14 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
             ))}
             <TabsTrigger value="view">보기 · 측정</TabsTrigger>
           </TabsList>
+          <div className="flex gap-1">
+            <Button size="sm" variant="outline" onClick={undo} disabled={history.current.past.length === 0} title="실행 취소 (Ctrl+Z)" aria-label="실행 취소">
+              <Undo2 className="size-4" />
+            </Button>
+            <Button size="sm" variant="outline" onClick={redo} disabled={history.current.future.length === 0} title="다시 실행 (Ctrl+Y)" aria-label="다시 실행">
+              <Redo2 className="size-4" />
+            </Button>
+          </div>
           <span className="text-muted-foreground text-xs">
             {drawing ? '그리는 중…' : nodes.length === 0 ? '' : valid ? '미리보기가 자동으로 따라옵니다.' : '고칠 것이 있습니다.'}
           </span>
@@ -418,7 +486,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                 ? faceTarget === 'sketch'
                   ? '3D 에서 면을 누르면 그 면 위에 스케치가 생깁니다.'
                   : faceTarget === 'hole-plane'
-                    ? '구멍을 뚫을 면을 누르세요.'
+                    ? '면을 누르면 그 면이 이 피처의 평면이 됩니다.'
                     : '뚫을 면을 누르세요. 다시 누르면 뺍니다. 끝나면 피처를 다시 열어 확인하세요.'
                 : pickMode === 'edge'
                   ? `엣지를 눌러 고릅니다 (${(selected?.edges as { near?: number[][] })?.near?.length ?? 0} 개). 다시 누르면 뺍니다.`

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useState } from 'react'
 
 import type { Recipe } from '@/modules/cad/api'
 import { RecipeEditor } from '@/modules/cad/RecipeEditor'
@@ -72,4 +73,24 @@ test('리본 — 탭이 종류를 가르고, 「파일」 탭 단추가 호출�
   expect(save).toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: /STEP/ }))
   expect(downloadStep).toHaveBeenCalled()
+})
+
+test('실행 취소 · 다시 실행 — 호출부가 value 를 되돌려 주면 한 걸음씩 오간다', async () => {
+  function Host() {
+    const [recipe, setRecipe] = useState<Recipe>(BOX)
+    return <RecipeEditor value={recipe} onChange={setRecipe} />
+  }
+  render(<Host />)
+  fireEvent.mouseDown(screen.getByRole('tab', { name: '입체' }))
+  fireEvent.click(screen.getByRole('button', { name: /^블록/ }))
+  await waitFor(() => expect(screen.getAllByText('box-1').length).toBeGreaterThan(0))
+  // 새 피처의 모달이 열려 있다 — 닫아야 뒤의 단추가 접근 가능하다.
+  fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  const undo = screen.getByRole('button', { name: '실행 취소' })
+  await waitFor(() => expect(undo).toBeEnabled())
+  fireEvent.click(undo)
+  await waitFor(() => expect(screen.queryAllByText('box-1')).toHaveLength(0))
+  fireEvent.click(screen.getByRole('button', { name: '다시 실행' }))
+  await waitFor(() => expect(screen.getAllByText('box-1').length).toBeGreaterThan(0))
 })

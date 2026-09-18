@@ -11,6 +11,7 @@ import copy
 import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -22,13 +23,18 @@ from build123d import (
     Compound,
     Cone,
     Cylinder,
+    Ellipse,
     Face,
+    FontStyle,
     GeomType,
+    Keep,
+    Kind,
     Line,
     Location,
     Part,
     Plane,
     Polygon,
+    Polyline,
     Pos,
     Rectangle,
     RegularPolygon,
@@ -37,8 +43,11 @@ from build123d import (
     Sketch,
     SlotOverall,
     Sphere,
+    Spline,
+    Text,
     ThreePointArc,
     Torus,
+    Transition,
     Vector,
     Wire,
     chamfer,
@@ -49,6 +58,9 @@ from build123d import (
     mirror,
     offset,
     revolve,
+    scale,
+    split,
+    sweep,
 )
 
 from app.core.recipe import schema as S
@@ -144,6 +156,15 @@ def _shape2d(one: S.SketchShape) -> Sketch:
         face = RegularPolygon(one.radius, one.sides, rotation=one.rotation)
     elif isinstance(one, S.PolylineShape):
         face = _polyline(one)
+    elif isinstance(one, S.EllipseShape):
+        face = Ellipse(one.x_radius, one.y_radius, rotation=one.rotation)
+    elif isinstance(one, S.TextShape):
+        face = Text(
+            one.text,
+            one.size,
+            font_style=FontStyle.BOLD if one.bold else FontStyle.REGULAR,
+            rotation=one.rotation,
+        )
     else:
         face = SlotOverall(one.length, one.width, rotation=one.rotation)
     return Pos(one.at[0], one.at[1]) * face
@@ -378,9 +399,25 @@ def _evaluate_node(
         if not isinstance(sketch, Sketch):
             raise RecipeError(node.id, f"'{node.sketch}' 는 스케치가 아닙니다")
         if node.direction == "both":
-            return extrude(sketch, node.distance / 2, both=True)
+            return extrude(sketch, node.distance / 2, both=True, taper=node.taper)
         amount = node.distance if node.direction == "normal" else -node.distance
-        return extrude(sketch, amount)
+        return extrude(sketch, amount, taper=node.taper)
+    if isinstance(node, S.SweepNode):
+        sketch = made[node.sketch]
+        if not isinstance(sketch, Sketch):
+            raise RecipeError(node.id, f"'{node.sketch}' 는 스케치가 아닙니다")
+        points = [Vector(*p) for p in node.path]
+        if any((b - a).length < 1e-6 for a, b in pairwise(points)):
+            raise RecipeError(node.id, "경로에 같은 점이 잇달아 있습니다")
+        path = Wire(Spline(*points)) if node.smooth else Wire(Polyline(*points))
+        try:
+            return sweep(sketch, path, transition=Transition.ROUND)
+        except Exception as failure:
+            raise RecipeError(
+                node.id,
+                "경로를 따라 밀지 못했습니다 — 단면이 경로 시작점에 놓였는지, 모서리가 "
+                "단면보다 급하지 않은지 보세요",
+            ) from failure
     if isinstance(node, S.RevolveNode):
         sketch = made[node.sketch]
         if not isinstance(sketch, Sketch):
@@ -420,7 +457,7 @@ def _evaluate_node(
         except ValueError as failure:
             raise RecipeError(
                 node.id,
-                f"반지름 {node.radius} 으로 필렛을 만들지 못했습니다 — "
+                f"반지름 {node.radius} 으로 블렌드(필렛)를 만들지 못했습니다 — "
                 f"인접한 면보다 작게 줄이거나 edges 를 좁히세요",
             ) from failure
     if isinstance(node, S.ChamferNode):
@@ -430,7 +467,7 @@ def _evaluate_node(
             return chamfer(edges, node.length)
         except ValueError as failure:
             raise RecipeError(
-                node.id, f"길이 {node.length} 으로 모따기를 만들지 못했습니다 — 줄여 보세요"
+                node.id, f"길이 {node.length} 으로 챔퍼를 만들지 못했습니다 — 줄여 보세요"
             ) from failure
     if isinstance(node, S.HoleNode):
         return _hole(_as_part(made[node.target], node.id), node)
@@ -476,7 +513,31 @@ def _evaluate_node(
         return Compound(children=copies)
     if isinstance(node, S.TransformNode):
         rx, ry, rz = node.rotate
-        return Pos(*node.translate) * Rot(rx, ry, rz) * made[node.target]
+        source = made[node.target]
+        if node.scale != 1.0:
+            source = scale(source, node.scale)
+        return Pos(*node.translate) * Rot(rx, ry, rz) * source
+    if isinstance(node, S.SplitNode):
+        part = _as_part(made[node.target], node.id)
+        keep = {"top": Keep.TOP, "bottom": Keep.BOTTOM, "both": Keep.BOTH}[node.keep]
+        result = split(part, bisect_by=_plane(node.plane), keep=keep)
+        if not result.solids():
+            raise RecipeError(
+                node.id, "자른 쪽에 남는 것이 없습니다 — 평면이 입체를 지나야 합니다"
+            )
+        return _to_part(result)
+    if isinstance(node, S.OffsetNode):
+        part = _as_part(made[node.target], node.id)
+        kind = Kind.ARC if node.corners == "round" else Kind.INTERSECTION
+        try:
+            result = offset(part, node.amount, kind=kind)
+        except Exception as failure:
+            raise RecipeError(
+                node.id, f"{node.amount} 만큼 키우거나 줄이지 못했습니다 — 얇은 곳보다 작게"
+            ) from failure
+        if not result.solids() or result.volume <= 0:
+            raise RecipeError(node.id, "줄이고 남은 것이 없습니다")
+        return _to_part(result)
     if isinstance(node, S.MirrorNode):
         source = made[node.target]
         mirrored = mirror(source, about=_PLANES[node.plane])

@@ -240,13 +240,13 @@ export function NodeForm({
                 {candidatesFor(field).length === 0 && <p className="text-muted-foreground text-xs">앞에 고를 피처가 없습니다.</p>}
               </div>
             )}
-            {field.kind === 'points' && (
+            {(field.kind === 'points' || field.kind === 'points3') && (
               <div className="space-y-1">
                 {((node[field.key] as number[][]) ?? []).map((point, i) => (
                   <div key={i} className="flex items-center gap-1">
                     <VectorInput
                       value={point}
-                      size={2}
+                      size={field.kind === 'points3' ? 3 : 2}
                       onChange={(v) => {
                         const next = [...(node[field.key] as number[][])]
                         next[i] = v
@@ -266,9 +266,9 @@ export function NodeForm({
                 <button
                   type="button"
                   className="text-muted-foreground text-xs hover:underline"
-                  onClick={() => set(field.key, [...((node[field.key] as number[][]) ?? []), [0, 0]])}
+                  onClick={() => set(field.key, [...((node[field.key] as number[][]) ?? []), field.kind === 'points3' ? [0, 0, 0] : [0, 0]])}
                 >
-                  + 위치 추가
+                  + {field.kind === 'points3' ? '점' : '위치'} 추가
                 </button>
               </div>
             )}
@@ -359,6 +359,11 @@ export function NodeForm({
                   size={3}
                   onChange={(v) => set('plane', { ...(node.plane as object), origin: v })}
                 />
+                {onPickFaces && (
+                  <button type="button" className="text-muted-foreground text-xs underline" onClick={() => onPickFaces('plane')}>
+                    3D 에서 면 고르기 — 그 면이 평면이 됩니다
+                  </button>
+                )}
               </div>
             )}
           </div>

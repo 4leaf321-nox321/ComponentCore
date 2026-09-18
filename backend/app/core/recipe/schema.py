@@ -77,8 +77,32 @@ class PolylineShape(_Shape):
     segments: list[Segment] = Field(min_length=2)
 
 
+class EllipseShape(_Shape):
+    type: Literal["ellipse"]
+    x_radius: Positive
+    y_radius: Positive
+
+
+class TextShape(_Shape):
+    """글자 — 각인(cut) · 양각(add). 폰트는 서버의 것이라 글꼴 모양은 기기마다 조금 다를 수
+    있다. 획이 얇으면 돌출이 깨지니 크기 5mm 이상을 권한다."""
+
+    type: Literal["text"]
+    text: str = Field(min_length=1, max_length=80)
+    size: Positive
+    """글자 높이(mm)."""
+    bold: bool = False
+
+
 SketchShape = Annotated[
-    Rect | CircleShape | PolygonShape | RegularPolygonShape | Slot | PolylineShape,
+    Rect
+    | CircleShape
+    | PolygonShape
+    | RegularPolygonShape
+    | Slot
+    | PolylineShape
+    | EllipseShape
+    | TextShape,
     Field(discriminator="type"),
 ]
 
@@ -124,6 +148,19 @@ class ExtrudeNode(_Node):
     distance: Positive
     direction: Literal["normal", "reverse", "both"] = "normal"
     """평면 법선 쪽(normal) · 반대(reverse) · 양쪽(both, 절반씩)."""
+    taper: float = Field(default=0.0, ge=-60, le=60)
+    """구배(도). 양수면 갈수록 좁아진다 — 금형 빼기 · 위치 결정 핀의 안내 경사."""
+
+
+class SweepNode(_Node):
+    """스케치를 경로를 따라 밀어 입체로 — 파이프 · 손잡이 · 케이블 홈. 경로는 3D 점들이며
+    스케치는 첫 점에 놓여 있어야 자연스럽다(스케치 평면의 원점 = 경로 시작)."""
+
+    op: Literal["sweep"]
+    sketch: str
+    path: list[XYZ] = Field(min_length=2)
+    smooth: bool = False
+    """점들을 매끄러운 곡선(스플라인)으로 잇는다. 끄면 직선 구간과 둥근 모서리."""
 
 
 class RevolveNode(_Node):
@@ -316,6 +353,35 @@ class TransformNode(_Node):
     translate: XYZ = (0.0, 0.0, 0.0)
     rotate: XYZ = (0.0, 0.0, 0.0)
     """X · Y · Z 축 회전(도). 회전 뒤 이동."""
+    scale: float = Field(default=1.0, gt=0)
+    """원점 기준 배율. 크기 · 회전 · 이동 순."""
+
+
+class SplitNode(_Node):
+    """평면으로 자른다 — 반쪽 지그 · 단면 확인. `keep` 은 평면 법선 쪽(top)인가 반대(bottom)
+    인가. both 면 두 조각 다(묶음)."""
+
+    op: Literal["split"]
+    target: str
+    plane: PlaneSpec = Field(default_factory=PlaneSpec)
+    keep: Literal["top", "bottom", "both"] = "top"
+
+
+class OffsetNode(_Node):
+    """전체를 두껍게(양수) · 얇게(음수) — 제품 형상에 **여유(클리어런스)** 를 주거나 수축을
+    반영한다. 지그 포켓은 제품을 이걸로 키운 뒤 빼서 만든다."""
+
+    op: Literal["offset"]
+    target: str
+    amount: float
+    corners: Literal["round", "sharp"] = "round"
+    """밖으로 키울 때 모서리를 둥글릴지(round) 뾰족하게 이을지(sharp)."""
+
+    @model_validator(mode="after")
+    def _nonzero(self) -> OffsetNode:
+        if self.amount == 0:
+            raise ValueError("amount: 0 이면 아무것도 안 바뀝니다")
+        return self
 
 
 class MirrorNode(_Node):
@@ -337,6 +403,7 @@ Node = Annotated[
     SketchNode
     | ExtrudeNode
     | RevolveNode
+    | SweepNode
     | BoxNode
     | CylinderNode
     | SphereNode
@@ -353,6 +420,8 @@ Node = Annotated[
     | PatternNode
     | TransformNode
     | MirrorNode
+    | SplitNode
+    | OffsetNode
     | ImportStepNode,
     Field(discriminator="op"),
 ]
@@ -395,6 +464,7 @@ class Recipe(BaseModel):
 _REFERENCE_FIELDS: dict[str, tuple[str, ...]] = {
     "extrude": ("sketch",),
     "revolve": ("sketch",),
+    "sweep": ("sketch",),
     "loft": ("sketches",),
     "shell": ("target",),
     "union": ("targets",),
@@ -406,6 +476,8 @@ _REFERENCE_FIELDS: dict[str, tuple[str, ...]] = {
     "pattern": ("source",),
     "transform": ("target",),
     "mirror": ("target",),
+    "split": ("target",),
+    "offset": ("target",),
 }
 
 

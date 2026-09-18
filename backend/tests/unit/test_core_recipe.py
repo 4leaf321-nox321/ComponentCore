@@ -410,3 +410,125 @@ def test_격자_패턴_로프트_기본_입체() -> None:
         [{"id": "s", "op": "cone", "bottom_radius": 10, "top_radius": 0, "height": 30}]
     ) == pytest.approx(3.14159 * 100 * 30 / 3, rel=0.01)
     assert _vol([{"id": "s", "op": "torus", "major_radius": 20, "minor_radius": 4}]) > 0
+
+
+def test_구배_스윕_타원_글자() -> None:
+    tapered = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "s",
+                        "op": "sketch",
+                        "shapes": [{"type": "rect", "width": 40, "height": 30}],
+                    },
+                    {"id": "e", "op": "extrude", "sketch": "s", "distance": 20, "taper": 10},
+                ]
+            }
+        )
+    )
+    assert tapered.shape.volume < 40 * 30 * 20  # 갈수록 좁아진다
+    swept = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {"id": "c", "op": "sketch", "shapes": [{"type": "circle", "radius": 3}]},
+                    {
+                        "id": "w",
+                        "op": "sweep",
+                        "sketch": "c",
+                        "path": [[0, 0, 0], [0, 0, 30], [30, 0, 60]],
+                    },
+                ]
+            }
+        )
+    )
+    assert swept.summary()["solid_count"] == 1
+    assert swept.shape.bounding_box().max.Z > 59
+    engraved = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "s",
+                        "op": "sketch",
+                        "shapes": [{"type": "ellipse", "x_radius": 30, "y_radius": 20}],
+                    },
+                    {"id": "e", "op": "extrude", "sketch": "s", "distance": 10},
+                    {
+                        "id": "t",
+                        "op": "sketch",
+                        "plane": {"origin": [0, 0, 10]},
+                        "shapes": [{"type": "text", "text": "AJ", "size": 8}],
+                    },
+                    {
+                        "id": "te",
+                        "op": "extrude",
+                        "sketch": "t",
+                        "distance": 1,
+                        "direction": "reverse",
+                    },
+                    {"id": "cut", "op": "cut", "target": "e", "tools": ["te"]},
+                ]
+            }
+        )
+    )
+    assert engraved.shape.volume < 3.14159 * 30 * 20 * 10 - 1
+
+
+def test_자르기_여유_배율() -> None:
+    box = {"id": "b", "op": "box", "length": 20, "width": 20, "height": 20}
+    half = evaluate(
+        parse(
+            {
+                "nodes": [
+                    box,
+                    {
+                        "id": "h",
+                        "op": "split",
+                        "target": "b",
+                        "plane": {"name": "XY", "origin": [0, 0, 5]},
+                        "keep": "top",
+                    },
+                ]
+            }
+        )
+    )
+    assert half.shape.volume == pytest.approx(20 * 20 * 5)
+    with pytest.raises(RecipeError, match="지나야"):
+        evaluate(
+            parse(
+                {
+                    "nodes": [
+                        box,
+                        {
+                            "id": "h",
+                            "op": "split",
+                            "target": "b",
+                            "plane": {"name": "XY", "origin": [0, 0, 50]},
+                        },
+                    ]
+                }
+            )
+        )
+    grown = evaluate(
+        parse({"nodes": [box, {"id": "o", "op": "offset", "target": "b", "amount": 2}]})
+    )
+    assert tuple(grown.summary()["bbox"]["size"]) == (24.0, 24.0, 24.0)
+    with pytest.raises(RecipeError, match="얇은"):
+        evaluate(
+            parse({"nodes": [box, {"id": "o", "op": "offset", "target": "b", "amount": -11}]})
+        )
+    with pytest.raises(RecipeValidationError, match="0 이면"):
+        parse({"nodes": [box, {"id": "o", "op": "offset", "target": "b", "amount": 0}]})
+    scaled = evaluate(
+        parse(
+            {
+                "nodes": [
+                    box,
+                    {"id": "t", "op": "transform", "target": "b", "scale": 0.5},
+                ]
+            }
+        )
+    )
+    assert scaled.shape.volume == pytest.approx(1000)

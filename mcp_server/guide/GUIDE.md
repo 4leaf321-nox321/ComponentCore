@@ -37,22 +37,26 @@
 - 스케치 `sketch` — `plane` {name: XY|XZ|YZ|…, origin, (normal, x_dir)} 위의 2D 윤곽. `shapes` 는
   순서대로 더하거나(add) 빼는(cut) 도형: `rect`(width, height) · `circle`(radius) · `slot`(length,
   width) · `regular_polygon`(radius, sides) · `polygon`(points) · **`polyline`**(start, segments
-  [{to, via?}] — 임의 윤곽, `via` 가 있으면 그 점을 지나는 호). 각 도형은 `at` [x, y] · `rotation`.
-- 입체 `extrude`(sketch, distance, direction normal|reverse|both) · `revolve`(sketch, axis, angle) ·
-  `loft`(sketches [2개 이상], ruled) · `box`(length, width, height, at) · `cylinder`(radius, height,
+  [{to, via?}] — 임의 윤곽, `via` 가 있으면 그 점을 지나는 호) · `ellipse`(x_radius, y_radius) ·
+  `text`(text, size, bold — 각인은 cut 으로 얕게 돌출해서 뺀다). 각 도형은 `at` [x, y] · `rotation`.
+- 입체 `extrude`(sketch, distance, direction normal|reverse|both, taper — 구배 도, 양수면 좁아짐) ·
+  `revolve`(sketch, axis, angle) · `sweep`(sketch, path [[x,y,z]…], smooth — 단면 스케치의 원점을
+  경로 첫 점에 두라) · `loft`(sketches [2개 이상], ruled) · `box`(length, width, height, at) · `cylinder`(radius, height,
   axis, at) · `sphere`(radius, at) · `cone`(bottom_radius, top_radius, height, at) · `torus`
   (major_radius, minor_radius) · `import_step`(file — 사용자가 올린 STEP, 직접 만들지 않는다)
-- 조합 `union`(targets) · `cut`(target, tools) · `intersect`(targets)
-- 마감 `fillet`(target, edges, radius) · `chamfer`(target, edges, length) · `shell`(target,
-  thickness, open top|bottom|none|{near}) · `hole`(target, at [[x, y]…], kind simple|counterbore|
+- 조합 `union`(targets) · `cut`(target, tools) · `intersect`(targets) · `split`(target, plane
+  {name, origin | origin, normal}, keep top|bottom|both — 평면으로 자르기)
+- 마감 `fillet`(target, edges, radius — 화면에서는 「블렌드」) · `chamfer`(target, edges, length —
+  「챔퍼」) · `shell`(target, thickness, open top|bottom|none|{near}) · `offset`(target, amount,
+  corners round|sharp — 전체를 두껍게/얇게. **제품에 여유를 주어 지그 포켓을 만들 때**) · `hole`(target, at [[x, y]…], kind simple|counterbore|
   countersink|tap, thread M3~M12 — 주면 지름 · 카운터 치수를 표에서, diameter, depth — 비우면 관통,
   counter_diameter, counter_depth, plane — 뚫을 면 {origin, normal}; 안 주면 윗면 +Z 에서 아래로)
   - `edges` 는 `all` · `vertical` · `horizontal` · `top` · `bottom` 또는 `{"near": [[x,y,z]…]}`
     (엣지 중점 위치로 고르기 — 사람이 3D 에서 누른 것. AI 는 이름 있는 선택자를 쓰는 편이 안전)
 - 배치 `pattern`(source, kind linear|grid|circular, count, spacing | count_y+spacing_y | axis+angle)
   — 결과는 **복사본 묶음**
-  이라 `cut` 의 tools 나 `union` 의 targets 로 쓴다 · `transform`(target, translate, rotate) ·
-  `mirror`(target, plane, keep_original)
+  이라 `cut` 의 tools 나 `union` 의 targets 로 쓴다 · `transform`(target, translate, rotate,
+  scale) · `mirror`(target, plane, keep_original)
 
 자주 하는 실수:
 - 결과가 스케치다 → `extrude` · `revolve` 로 입체를 만들어야 한다.

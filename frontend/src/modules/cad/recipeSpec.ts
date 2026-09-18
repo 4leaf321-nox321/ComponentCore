@@ -19,6 +19,9 @@ import {
   Grid3x3,
   Import,
   Layers,
+  Expand,
+  Route,
+  SquareSplitHorizontal,
   Move3d,
   Package,
   PenTool,
@@ -38,7 +41,21 @@ export type RecipeNode = Record<string, unknown> & {
   label?: string
 }
 
-export type FieldKind = 'number' | 'text' | 'select' | 'xy' | 'xyz' | 'ref' | 'refs' | 'points' | 'plane' | 'shapes' | 'checkbox' | 'faceselect' | 'holeplane'
+export type FieldKind =
+  | 'number'
+  | 'text'
+  | 'select'
+  | 'xy'
+  | 'xyz'
+  | 'ref'
+  | 'refs'
+  | 'points'
+  | 'points3'
+  | 'plane'
+  | 'shapes'
+  | 'checkbox'
+  | 'faceselect'
+  | 'holeplane'
 
 export interface FieldSpec {
   key: string
@@ -121,8 +138,30 @@ export const OP_SPECS: OpSpec[] = [
           { value: 'both', label: '양쪽' },
         ],
       },
+      { key: 'taper', label: '구배 (°, 양수면 갈수록 좁게)', kind: 'number', step: 1 },
     ],
-    defaults: { sketch: '', distance: 10, direction: 'normal' },
+    defaults: { sketch: '', distance: 10, direction: 'normal', taper: 0 },
+  },
+  {
+    op: 'sweep',
+    icon: Route,
+    label: '스윕',
+    group: '입체',
+    help: '스케치(단면)를 경로를 따라 밀어 입체로 — 파이프 · 손잡이 · 홈. 스케치 평면의 원점이 경로 첫 점에 오게 두세요.',
+    fields: [
+      { key: 'sketch', label: '단면 스케치', kind: 'ref', refKind: 'sketch' },
+      { key: 'path', label: '경로 점 (X, Y, Z)', kind: 'points3' },
+      { key: 'smooth', label: '매끄러운 곡선으로 잇기', kind: 'checkbox' },
+    ],
+    defaults: {
+      sketch: '',
+      path: [
+        [0, 0, 0],
+        [0, 0, 30],
+        [30, 0, 60],
+      ],
+      smooth: false,
+    },
   },
   {
     op: 'revolve',
@@ -140,9 +179,9 @@ export const OP_SPECS: OpSpec[] = [
   {
     op: 'box',
     icon: Box,
-    label: '상자',
+    label: '블록',
     group: '입체',
-    help: '중심이 at 인 상자.',
+    help: '중심이 at 인 직육면체(블록).',
     fields: [
       { key: 'length', label: '길이 X (mm)', kind: 'number' },
       { key: 'width', label: '너비 Y (mm)', kind: 'number' },
@@ -154,9 +193,9 @@ export const OP_SPECS: OpSpec[] = [
   {
     op: 'cylinder',
     icon: Cylinder,
-    label: '원기둥',
+    label: '원통',
     group: '입체',
-    help: '중심이 at 인 원기둥.',
+    help: '중심이 at 인 원통.',
     fields: [
       { key: 'radius', label: '반지름 (mm)', kind: 'number' },
       { key: 'height', label: '높이 (mm)', kind: 'number' },
@@ -232,9 +271,9 @@ export const OP_SPECS: OpSpec[] = [
   {
     op: 'union',
     icon: Combine,
-    label: '합치기',
+    label: '결합',
     group: '조합',
-    help: '여러 입체를 하나로.',
+    help: '여러 입체를 하나로(합집합).',
     fields: [{ key: 'targets', label: '대상', kind: 'refs', refKind: 'solid' }],
     defaults: { targets: [] },
   },
@@ -253,18 +292,18 @@ export const OP_SPECS: OpSpec[] = [
   {
     op: 'intersect',
     icon: Shapes,
-    label: '교집합',
+    label: '교차',
     group: '조합',
-    help: '겹치는 부분만 남긴다.',
+    help: '겹치는 부분만 남긴다(교집합).',
     fields: [{ key: 'targets', label: '대상', kind: 'refs', refKind: 'solid' }],
     defaults: { targets: [] },
   },
   {
     op: 'fillet',
     icon: Radius,
-    label: '필렛',
+    label: '블렌드',
     group: '마감',
-    help: '엣지를 둥글린다. 인접 면보다 작게.',
+    help: '엣지를 둥글린다(필렛 · 라운드). 반지름은 인접 면보다 작게.',
     fields: [
       { key: 'target', label: '대상', kind: 'ref', refKind: 'solid' },
       { key: 'edges', label: '엣지', kind: 'select', options: EDGE_OPTIONS },
@@ -273,11 +312,33 @@ export const OP_SPECS: OpSpec[] = [
     defaults: { target: '', edges: 'vertical', radius: 2 },
   },
   {
+    op: 'split',
+    icon: SquareSplitHorizontal,
+    label: '자르기',
+    group: '조합',
+    help: '평면으로 자른다 — 반쪽 지그 · 단면 보기. 「위」 는 평면 법선 쪽.',
+    fields: [
+      { key: 'target', label: '대상', kind: 'ref', refKind: 'solid' },
+      { key: 'plane', label: '자르는 평면', kind: 'plane' },
+      {
+        key: 'keep',
+        label: '남길 쪽',
+        kind: 'select',
+        options: [
+          { value: 'top', label: '위(법선 쪽)' },
+          { value: 'bottom', label: '아래' },
+          { value: 'both', label: '둘 다' },
+        ],
+      },
+    ],
+    defaults: { target: '', plane: { name: 'XY', origin: [0, 0, 0] }, keep: 'top' },
+  },
+  {
     op: 'chamfer',
     icon: Diamond,
-    label: '모따기',
+    label: '챔퍼',
     group: '마감',
-    help: '엣지를 깎는다.',
+    help: '엣지를 비스듬히 깎는다(모따기).',
     fields: [
       { key: 'target', label: '대상', kind: 'ref', refKind: 'solid' },
       { key: 'edges', label: '엣지', kind: 'select', options: EDGE_OPTIONS },
@@ -360,6 +421,27 @@ export const OP_SPECS: OpSpec[] = [
     defaults: { target: '', thickness: 2, open: 'top' },
   },
   {
+    op: 'offset',
+    icon: Expand,
+    label: '여유',
+    group: '마감',
+    help: '전체를 두껍게(+) · 얇게(−). 제품 형상을 여유만큼 키워서 빼면 지그 포켓이 된다.',
+    fields: [
+      { key: 'target', label: '대상', kind: 'ref', refKind: 'solid' },
+      { key: 'amount', label: '여유 (mm, 음수면 줄임)', kind: 'number', step: 0.1 },
+      {
+        key: 'corners',
+        label: '모서리',
+        kind: 'select',
+        options: [
+          { value: 'round', label: '둥글게' },
+          { value: 'sharp', label: '뾰족하게' },
+        ],
+      },
+    ],
+    defaults: { target: '', amount: 0.5, corners: 'round' },
+  },
+  {
     op: 'pattern',
     icon: Grid3x3,
     label: '패턴',
@@ -403,27 +485,28 @@ export const OP_SPECS: OpSpec[] = [
   {
     op: 'transform',
     icon: Move3d,
-    label: '이동 · 회전',
+    label: '이동',
     group: '배치',
-    help: '회전한 뒤 이동한다.',
+    help: '크기를 바꾸고(원점 기준) 회전한 뒤 이동한다.',
     fields: [
       { key: 'target', label: '대상', kind: 'ref', refKind: 'any' },
       { key: 'translate', label: '이동', kind: 'xyz' },
       { key: 'rotate', label: '회전 (°)', kind: 'xyz' },
+      { key: 'scale', label: '배율 (1 = 그대로)', kind: 'number', step: 0.1 },
     ],
-    defaults: { target: '', translate: [0, 0, 0], rotate: [0, 0, 0] },
+    defaults: { target: '', translate: [0, 0, 0], rotate: [0, 0, 0], scale: 1 },
   },
   {
     op: 'mirror',
     icon: FlipHorizontal,
-    label: '거울',
+    label: '미러',
     group: '배치',
-    help: '평면에 비춘다.',
+    help: '평면에 비춘다(대칭 복사).',
     fields: [
       { key: 'target', label: '대상', kind: 'ref', refKind: 'any' },
       {
         key: 'plane',
-        label: '거울 평면',
+        label: '대칭 평면',
         kind: 'select',
         options: PLANE_OPTIONS,
       },
@@ -451,6 +534,8 @@ export const SHAPE_TYPES = [
   { value: 'regular_polygon', label: '정다각형' },
   { value: 'polygon', label: '다각형' },
   { value: 'polyline', label: '임의 윤곽' },
+  { value: 'ellipse', label: '타원' },
+  { value: 'text', label: '글자' },
 ]
 
 export function defaultShape(type: string): Record<string, unknown> {
@@ -472,6 +557,10 @@ export function defaultShape(type: string): Record<string, unknown> {
         ],
         ...base,
       }
+    case 'ellipse':
+      return { type, x_radius: 15, y_radius: 8, ...base }
+    case 'text':
+      return { type, text: 'AJ', size: 8, bold: false, ...base }
     case 'polyline':
       return {
         type,
