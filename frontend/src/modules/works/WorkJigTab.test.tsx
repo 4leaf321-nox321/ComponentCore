@@ -7,6 +7,9 @@ const WORK = {
   id: 'w1',
   name: '튜닝 지그',
   description: '',
+  kind: 'jig',
+  jig_for_part_id: null,
+  jig_for_part_name: null,
   current_version: 2,
   jig_run_count: 0,
   current: { number: 2, recipe: { params: { 두께: 6 }, nodes: [] }, job: { status: 'done', artifacts: [], progress: [] } },
@@ -31,7 +34,7 @@ beforeEach(() => {
   })
 })
 
-test('지그 탭에서 「그린 지그로 승격」 이 보인다 — 지그 일은 지그 탭에 있다', async () => {
+test('지그 작업은 그림 탭이 「지그」 이고, 승격이 지그 카탈로그로 간다', async () => {
   render(
     <MemoryRouter initialEntries={['/works/w1']}>
       <Routes>
@@ -39,10 +42,13 @@ test('지그 탭에서 「그린 지그로 승격」 이 보인다 — 지그 �
       </Routes>
     </MemoryRouter>,
   )
-  await waitFor(() => expect(screen.getByRole('tab', { name: /지그/ })).toBeInTheDocument())
-  fireEventMouseDown(screen.getByRole('tab', { name: /^지그/ }))
-  expect(await screen.findByRole('button', { name: /그린 지그로 승격/ })).toBeInTheDocument()
-  expect(screen.getByText(/생성기가 만들 수 없는 지그/)).toBeInTheDocument()
+  // 그림 탭의 이름이 「지그」 다 — 부품 작업이면 「부품」.
+  await waitFor(() => expect(screen.getByRole('tab', { name: /^지그 v2/ })).toBeInTheDocument())
+  expect(await screen.findByRole('button', { name: '지그 카탈로그로 승격' })).toBeInTheDocument()
+  // 지그 작업에는 생성기 대신 「잡는 부품」 이 붙는다.
+  fireEventMouseDown(screen.getByRole('tab', { name: '잡는 부품' }))
+  expect(await screen.findByText('잡는 부품')).toBeInTheDocument()
+  expect(screen.queryByText(/지그 생성기/)).toBeNull()
 })
 
 function fireEventMouseDown(element: Element) {

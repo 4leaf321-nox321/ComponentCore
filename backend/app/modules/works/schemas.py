@@ -16,6 +16,10 @@ class WorkCreateRequest(BaseModel):
     description: str = Field(default="", max_length=2000)
     recipe: dict[str, Any]
     """첫 버전의 레시피(템플릿 · 직접 그린 것 · 부품에서 복사)."""
+    kind: str = "part"
+    """part | jig — **무엇을 그리는가.** 그리는 방법은 같고, 승격할 곳과 덤으로 쓰는 도구가
+    다르다(부품 작업에는 지그 생성기, 지그 작업에는 잡는 부품)."""
+    jig_for_part_id: uuid.UUID | None = None
     source: str = "manual"
     note: str = Field(default="", max_length=2000)
 
@@ -24,6 +28,9 @@ class WorkUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=2000)
     jig_options: dict[str, Any] | None = None
+    kind: str | None = None
+    """그리다 보니 지그였을 수 있다 — 종류는 바꿀 수 있다."""
+    jig_for_part_id: uuid.UUID | None = None
 
 
 class VersionCreateRequest(BaseModel):
@@ -59,6 +66,9 @@ class WorkOut(BaseModel):
     description: str
     owner_id: uuid.UUID
     owner_name: str
+    kind: str
+    jig_for_part_id: uuid.UUID | None
+    jig_for_part_name: str | None
     current_version: int
     version_count: int
     current: VersionOut | None
@@ -80,6 +90,7 @@ class WorkSummaryOut(BaseModel):
     description: str
     owner_id: uuid.UUID
     owner_name: str
+    kind: str
     current_version: int
     current_status: str | None
     jig_run_count: int

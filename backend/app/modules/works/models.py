@@ -1,8 +1,15 @@
 """내 작업(Work) — 사람이 그리고 있는 문서. **내 공간**의 것이라 소유자(와 관리자)만 본다.
 
-작업 하나 = 형상(레시피 버전들) + 그 형상을 제품으로 한 지그 생성(옵션 · 실행 기록). 저장은 늘
-여기로만 되고, 남에게 내놓는 것은 **승격**이다 — 부품(parts) 이나 지그(jigs) 카탈로그에 불변
-버전으로 복사된다.
+**부품이든 지그든 그리는 방법은 같다** — 레시피(연산 트리) 하나다. 다른 것은 작업의 `kind`
+뿐이고, 그것이 「이 그림이 무엇인가」 와 「어느 카탈로그로 올라가나」 를 정한다:
+
+- `part`  제품 · 부품을 그린다. 덤으로 **지그 생성기**를 쓸 수 있다(이 부품을 잡는 지그를
+  규칙으로 만들어 준다 — `jig_options`).
+- `jig`   지그를 그린다. 생성기가 만들 수 없는 것(공진 시험 지그 · 특수 치구)이 이쪽이다.
+  덤으로 **어느 부품을 잡는지**(`jig_for_part_id`)를 이어 둘 수 있다.
+
+승격은 종류를 따라간다 — 부품 작업은 부품으로, 지그 작업은 지그로. 그래서 「이 레시피를
+무엇으로 올릴까」 를 물을 일이 없다.
 
 **버전은 고치지 않는다.** 새 버전을 만든다. 되돌리기도 옛 레시피로 새 버전. 올린 STEP 도
 `import_step` 노드 하나짜리 버전이다 — 그래서 제품은 늘 「이 작업의 형상」 하나로 통일된다.
@@ -23,6 +30,8 @@ from app.database import Base
 
 #: 버전이 어디서 왔나.
 VERSION_SOURCES = ("template", "manual", "ai", "import", "restore", "copy")
+#: 이 작업이 그리는 것. 그리는 방법은 같고, 승격할 곳과 덤으로 쓰는 도구가 다르다.
+WORK_KINDS = ("part", "jig")
 
 
 class Work(Base):
@@ -36,11 +45,19 @@ class Work(Base):
     owner_id: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), index=True
     )
+    kind: Mapped[str] = mapped_column(
+        String(10), default="part", server_default="part", index=True
+    )
+    """part | jig — 무엇을 그리는 작업인가. 그리는 방법은 같다."""
+    jig_for_part_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("parts.id", ondelete="SET NULL"), nullable=True
+    )
+    """지그 작업일 때 — 이 지그가 잡는 부품. 승격할 때 그대로 이어진다."""
     current_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     jig_options: Mapped[dict[str, Any]] = mapped_column(
         JSONB, default=dict, server_default="{}"
     )
-    """마지막으로 쓴 지그 옵션 — 다음에 열면 그대로 있다."""
+    """부품 작업일 때 — 마지막으로 쓴 **지그 생성기** 옵션. 다음에 열면 그대로 있다."""
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

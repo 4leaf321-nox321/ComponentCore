@@ -18,12 +18,18 @@ export interface WorkVersion {
   created_at: string
 }
 
+/** 무엇을 그리는 작업인가 — 그리는 방법은 같고, 올라갈 곳과 덤으로 쓰는 도구가 다르다. */
+export type WorkKind = 'part' | 'jig'
+
 export interface Work {
   id: string
   name: string
   description: string
   owner_id: string
   owner_name: string
+  kind: WorkKind
+  jig_for_part_id: string | null
+  jig_for_part_name: string | null
   current_version: number
   version_count: number
   current: WorkVersion | null
@@ -40,6 +46,7 @@ export interface WorkSummary {
   id: string
   name: string
   description: string
+  kind: WorkKind
   owner_id: string
   owner_name: string
   current_version: number
@@ -63,9 +70,20 @@ export const worksApi = {
   jigOptions: () => api.get<Record<string, unknown>>('/works/jig-options'),
   list: (offset = 0, limit = 50) => api.get<Page<WorkSummary>>(`/works?offset=${offset}&limit=${limit}`),
   get: (id: string) => api.get<Work>(`/works/${id}`),
-  create: (body: { name: string; description?: string; recipe: Recipe; source?: string; note?: string }) =>
+  create: (body: {
+    name: string
+    description?: string
+    recipe: Recipe
+    source?: string
+    note?: string
+    kind?: WorkKind
+    jig_for_part_id?: string | null
+  }) =>
     api.post<Work>('/works', body),
-  update: (id: string, body: { name?: string; description?: string; jig_options?: Record<string, unknown> }) =>
+  update: (
+    id: string,
+    body: { name?: string; description?: string; jig_options?: Record<string, unknown>; kind?: WorkKind; jig_for_part_id?: string | null },
+  ) =>
     api.patch<Work>(`/works/${id}`, body),
   remove: (id: string) => api.delete<void>(`/works/${id}`),
   createFromStep: (file: File, name?: string) => {

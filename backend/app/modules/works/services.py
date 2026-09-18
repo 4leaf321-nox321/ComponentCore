@@ -30,7 +30,7 @@ from app.modules.jobs import registry
 from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Artifact, Job
 from app.modules.parts.models import Part, PartVersion
-from app.modules.works.models import VERSION_SOURCES, Work, WorkVersion
+from app.modules.works.models import VERSION_SOURCES, WORK_KINDS, Work, WorkVersion
 from app.modules.works.schemas import PromoteJigOut, VersionOut, WorkOut, WorkSummaryOut
 from app.shared import filestore
 from app.shared.errors import AppError, Forbidden, NotFound, code
@@ -143,6 +143,9 @@ def work_out(db: Session, work: Work) -> WorkOut:
         description=work.description,
         owner_id=work.owner_id,
         owner_name=owner.display_name if owner else "(삭제된 계정)",
+        kind=work.kind,
+        jig_for_part_id=work.jig_for_part_id,
+        jig_for_part_name=_part_name(db, work.jig_for_part_id),
         current_version=work.current_version,
         version_count=count,
         current=version_out(db, current) if current else None,
@@ -154,6 +157,13 @@ def work_out(db: Session, work: Work) -> WorkOut:
         created_at=work.created_at,
         updated_at=work.updated_at,
     )
+
+
+def _part_name(db: Session, part_id: uuid.UUID | None) -> str | None:
+    if part_id is None:
+        return None
+    part = db.get(Part, part_id)
+    return part.name if part else None
 
 
 def work_summary(db: Session, work: Work) -> WorkSummaryOut:
@@ -168,6 +178,7 @@ def work_summary(db: Session, work: Work) -> WorkSummaryOut:
         description=work.description,
         owner_id=work.owner_id,
         owner_name=owner.display_name if owner else "(삭제된 계정)",
+        kind=work.kind,
         current_version=work.current_version,
         current_status=job.status if job else None,
         jig_run_count=runs,
@@ -256,9 +267,19 @@ def create_work(
     recipe: dict[str, Any],
     source: str,
     note: str,
+    kind: str = "part",
+    jig_for_part_id: uuid.UUID | None = None,
 ) -> Work:
     _validated(recipe)
-    work = Work(name=name.strip(), description=description.strip(), owner_id=owner.id)
+    if kind not in WORK_KINDS:
+        raise AppError(code("WORKS", 23), f"모르는 종류입니다: {kind} (part · jig)")
+    work = Work(
+        name=name.strip(),
+        description=description.strip(),
+        owner_id=owner.id,
+        kind=kind,
+        jig_for_part_id=jig_for_part_id,
+    )
     db.add(work)
     db.flush()
     add_version(db, work, recipe=recipe, source=source, note=note or "첫 버전", by=owner)
@@ -269,6 +290,8 @@ def create_work(
 def update_work(db: Session, work: Work, *, fields: dict[str, Any]) -> Work:
     if "jig_options" in fields and fields["jig_options"] is not None:
         fields["jig_options"] = JigOptions.from_dict(fields["jig_options"]).to_dict()
+    if fields.get("kind") is not None and fields["kind"] not in WORK_KINDS:
+        raise AppError(code("WORKS", 23), f"모르는 종류입니다: {fields['kind']} (part · jig)")
     for key, value in fields.items():
         if value is None:
             continue
@@ -509,6 +532,7 @@ def promote_jig_recipe(
             "이 버전의 평가가 끝나지 않았습니다 — 형상이 만들어져야 지그로 올립니다.",
         )
     part_version: PartVersion | None = None
+    part_id = part_id or work.jig_for_part_id  # 작업에 이어 둔 부품이 기본
     if part_id is not None:
         part = db.get(Part, part_id)
         if part is None or part.deleted_at is not None:

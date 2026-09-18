@@ -14,6 +14,7 @@ import { templatesApi } from '@/modules/templates/api'
 import { RecipeEditor } from '@/modules/cad/RecipeEditor'
 import { SaveTemplateDialog } from '@/modules/templates/SaveTemplateDialog'
 import { worksApi } from '@/modules/works/api'
+import type { WorkKind } from '@/modules/works/api'
 import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { PageHeader } from '@/shared/components/PageHeader'
@@ -32,6 +33,8 @@ export default function DrawPage() {
     source: 'manual',
     label: '처음부터 그림',
   })
+  /** 부품을 그린 것인지 지그를 그린 것인지 — 저장할 때 고른다. 그리는 방법은 같다. */
+  const [kind, setKind] = useState<WorkKind>('part')
   const [recipe, setRecipe] = useState<Recipe | null>({
     version: 1,
     nodes: [],
@@ -84,6 +87,7 @@ export default function DrawPage() {
       const made = await worksApi.create({
         name,
         recipe,
+        kind,
         source: origin.source,
         note: origin.label,
       })
@@ -148,6 +152,32 @@ export default function DrawPage() {
             <div className="space-y-2">
               <Label htmlFor="work-name">작업 이름</Label>
               <Input id="work-name" value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
+              <div className="space-y-1 pt-2">
+                <Label>무엇을 그린 것입니까</Label>
+                <div className="flex gap-1">
+                  {(
+                    [
+                      { value: 'part', label: '부품 · 제품', hint: '덤으로 지그 생성기를 쓸 수 있습니다' },
+                      { value: 'jig', label: '지그', hint: '잡는 부품을 이어 둘 수 있습니다' },
+                    ] as const
+                  ).map((one) => (
+                    <button
+                      key={one.value}
+                      type="button"
+                      onClick={() => setKind(one.value)}
+                      aria-pressed={kind === one.value}
+                      className={`flex-1 rounded-md border px-2 py-1.5 text-sm ${
+                        kind === one.value ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-accent'
+                      }`}
+                    >
+                      {one.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-muted-foreground text-xs">
+                  그리는 방법은 같습니다 — 종류는 <b>어느 카탈로그로 올라가는지</b>와 덤으로 쓰는 도구를 정합니다. 나중에 바꿀 수 있습니다.
+                </p>
+              </div>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setSaving(false)} disabled={busy}>

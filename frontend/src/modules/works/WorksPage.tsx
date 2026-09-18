@@ -9,6 +9,7 @@ import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { Pagination } from '@/shared/components/Pagination'
 import { StatusBadge } from '@/shared/components/StatusBadge'
+import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
 import {
   Table,
@@ -49,7 +50,8 @@ export default function WorksPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>이름</TableHead>
-                <TableHead>부품</TableHead>
+                <TableHead>종류</TableHead>
+                <TableHead>버전</TableHead>
                 <TableHead>지그 생성</TableHead>
                 <TableHead>승격</TableHead>
                 <TableHead>수정</TableHead>
@@ -65,6 +67,11 @@ export default function WorksPage() {
                     {row.description && (
                       <p className="text-muted-foreground max-w-md truncate text-xs">{row.description}</p>
                     )}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={row.kind === 'jig' ? 'secondary' : 'outline'}>
+                      {row.kind === 'jig' ? '지그' : '부품'}
+                    </Badge>
                   </TableCell>
                   <TableCell>
                     {row.current_version > 0 ? (

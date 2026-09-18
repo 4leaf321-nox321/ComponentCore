@@ -1,9 +1,14 @@
 /**
- * 내 작업 하나 — 부품(버전) 과 지그(생성 · 결과) 두 탭, 그리고 승격. 카탈로그와 같은 말을
- * 쓴다 — 내 작업의 부품과 카탈로그의 부품은 같은 것이고 다른 건 공개 여부뿐이다.
+ * 내 작업 하나.
  *
- * 부품 탭: 현재 버전 3D · 레시피 고쳐 새 버전 · STEP 올리기 · 버전 이력 · 되돌리기 · 부품으로 승격.
- * 지그 탭: 옵션 · 지그 생성(작업을 걸고 폴링) · 실행 기록 · 결과 · 지그로 승격.
+ * **부품이든 지그든 그리는 방법은 같다** — 레시피 한 줄기다. 다른 것은 작업의 **종류**뿐이고,
+ * 그것이 「그림 탭의 이름」 「어느 카탈로그로 올라가나」 「덤으로 무엇을 쓸 수 있나」 를 정한다:
+ *
+ * - 부품 작업: 그림 탭 = 「부품」, 승격 = 부품 카탈로그, 덤 = **지그 생성기**(이 부품을 잡는
+ *   지그를 규칙으로 만들어 준다).
+ * - 지그 작업: 그림 탭 = 「지그」, 승격 = 지그 카탈로그, 덤 = **잡는 부품**을 이어 두기.
+ *
+ * 그래서 「이 레시피를 무엇으로 올릴까」 를 물을 일이 없다 — 종류가 이미 답이다.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -11,6 +16,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import type { Recipe } from '@/modules/cad/api'
 import { WorkDoeTab } from '@/modules/doe/WorkDoeTab'
+import { JigForPartCard } from '@/modules/works/JigForPartCard'
 import { GeometryJobView } from '@/modules/cad/GeometryJobView'
 import { RecipeEditor } from '@/modules/cad/RecipeEditor'
 import { saveRecipeAs } from '@/modules/cad/download'
@@ -175,6 +181,9 @@ export default function WorkPage() {
   if (work.error) return <ErrorNotice error={work.error} />
   if (!w) return null
 
+  /** 이 작업이 그리는 것 — 화면의 말과 갈 곳이 여기서 갈린다. */
+  const isJig = w.kind === 'jig'
+
   const currentPromoted = w.current?.promoted_part_id != null
 
   return (
@@ -205,8 +214,12 @@ export default function WorkPage() {
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="geometry">부품 {w.current_version > 0 && `v${w.current_version}`}</TabsTrigger>
-          <TabsTrigger value="jig">지그 {w.jig_run_count > 0 && `(${w.jig_run_count})`}</TabsTrigger>
+          <TabsTrigger value="geometry">
+            {isJig ? '지그' : '부품'} {w.current_version > 0 && `v${w.current_version}`}
+          </TabsTrigger>
+          <TabsTrigger value="jig">
+            {isJig ? '잡는 부품' : '지그 만들기'} {!isJig && w.jig_run_count > 0 && `(${w.jig_run_count})`}
+          </TabsTrigger>
           <TabsTrigger value="doe">실험계획</TabsTrigger>
         </TabsList>
 
@@ -274,15 +287,25 @@ export default function WorkPage() {
                 <div className="flex-1" />
                 <Button
                   variant="outline"
-                  disabled={busy || w.current_version === 0 || currentPromoted}
+                  disabled={busy || w.current_version === 0 || (!isJig && currentPromoted)}
                   onClick={() => {
                     setPromoteName(w.name)
                     setPromoteNote('')
-                    setPromoting('part')
+                    setPromoting(isJig ? 'jig-recipe' : 'part')
                   }}
-                  title={currentPromoted ? '현재 버전은 이미 부품에 올라가 있습니다' : undefined}
+                  title={
+                    isJig
+                      ? '이 지그 그림을 지그 카탈로그에 올립니다'
+                      : currentPromoted
+                        ? '현재 버전은 이미 부품에 올라가 있습니다'
+                        : undefined
+                  }
                 >
-                  {currentPromoted ? `부품 v${w.current?.promoted_part_version} 으로 올라감` : '부품으로 승격'}
+                  {isJig
+                    ? '지그 카탈로그로 승격'
+                    : currentPromoted
+                      ? `부품 v${w.current?.promoted_part_version} 으로 올라감`
+                      : '부품 카탈로그로 승격'}
                 </Button>
               </div>
 
@@ -361,36 +384,14 @@ export default function WorkPage() {
 
         {/* ---------------- 지그 ---------------- */}
         <TabsContent value="jig" className="space-y-4 pt-4">
-          {/*
-            지그는 **두 길**로 생긴다. 생성기는 제품에서 받침 · 핀 · 클램프를 규칙으로 배치하고,
-            손잡이는 아래 옵션뿐이다 — 레시피가 아니라 변수를 못 심는다. 생성기가 만들 수 없는
-            지그(공진을 맞추는 시험 지그 같은 것)는 **부품 탭에서 레시피로 그리고** 여기서 올린다.
-          */}
+          {isJig ? (
+            /* 지그 작업의 덤 — **어느 부품을 잡는가.** 이어 두면 승격할 때 그대로 따라간다. */
+            <JigForPartCard work={w} onSaved={reloadAll} />
+          ) : null}
+          {isJig ? null : (
           <Card>
             <CardHeader>
-              <CardTitle>이 작업의 레시피를 지그로</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-wrap items-center gap-3">
-              <p className="text-muted-foreground min-w-0 flex-1 text-sm">
-                생성기가 만들 수 없는 지그(공진을 맞추는 시험 지그 · 특수 치구)는 <b>부품 탭에서 그립니다</b>. 그린 것이니 변수 · 실험계획이 그대로 따라오고, 여기서 그대로 지그 카탈로그에 올립니다 — 계획 · 간섭 검사는 없습니다.
-              </p>
-              <Button
-                variant="outline"
-                disabled={busy || w.current_version === 0}
-                onClick={() => {
-                  setPromoteName(w.name)
-                  setPromoteNote('')
-                  setPromoting('jig-recipe')
-                }}
-              >
-                그린 지그로 승격 (v{w.current_version})
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>생성 옵션 — 제품에서 만들어 주기</CardTitle>
+              <CardTitle>지그 생성기 — 이 부품을 잡는 지그를 만들어 준다</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {options && <JigOptionsForm values={options} onChange={setOptions} />}
@@ -405,7 +406,9 @@ export default function WorkPage() {
               </div>
             </CardContent>
           </Card>
+          )}
 
+          {!isJig && (
           <div className="grid gap-4 lg:grid-cols-4">
             <Card className="lg:col-span-1">
               <CardHeader>
@@ -465,6 +468,7 @@ export default function WorkPage() {
               )}
             </div>
           </div>
+          )}
         </TabsContent>
 
         {/* ---------------- 실험계획 ---------------- */}

@@ -294,3 +294,87 @@ def test_손으로_그린_지그도_지그_카탈로그로(client: TestClient, m
     )
     assert again.status_code == 201 and again.json()["jig_version"] == 2
     assert again.json()["jig_id"] == promoted.json()["jig_id"]
+
+
+def test_부품이든_지그든_그리는_법은_같고_종류만_다르다(
+    client: TestClient, member: Signed
+) -> None:
+    """종류는 **무엇을 그렸나**를 말할 뿐이다 — 그리기 · 변수 · 실험계획은 똑같이 쓰고,
+    승격할 곳과 덤으로 쓰는 도구만 갈린다."""
+    box = {
+        "nodes": [
+            {
+                "id": "s",
+                "op": "sketch",
+                "shapes": [{"type": "rect", "width": 20, "height": 10}],
+            },
+            {"id": "b", "op": "extrude", "sketch": "s", "distance": 5},
+        ]
+    }
+    part = client.post(
+        "/api/works", json={"name": "브래킷", "recipe": box}, headers=member.headers
+    ).json()
+    assert part["kind"] == "part"  # 기본은 부품
+
+    jig = client.post(
+        "/api/works",
+        json={"name": "튜닝 지그", "recipe": box, "kind": "jig"},
+        headers=member.headers,
+    ).json()
+    assert jig["kind"] == "jig" and jig["current"]["job"]["status"] == "done"
+
+    # 지그 작업은 지그 카탈로그로 간다 — 「무엇으로 올릴까」 를 묻지 않는다.
+    promoted = client.post(
+        f"/api/works/{jig['id']}/promote/jig-recipe", json={}, headers=member.headers
+    )
+    assert promoted.status_code == 201
+
+    # 그리다 보니 지그였으면 종류를 바꾼다.
+    changed = client.patch(
+        f"/api/works/{part['id']}", json={"kind": "jig"}, headers=member.headers
+    )
+    assert changed.status_code == 200 and changed.json()["kind"] == "jig"
+    bad = client.patch(
+        f"/api/works/{part['id']}", json={"kind": "치구"}, headers=member.headers
+    )
+    assert bad.status_code == 400 and "모르는 종류" in bad.json()["error"]["message"]
+
+
+def test_지그_작업에_이어_둔_부품이_승격까지_따라간다(
+    client: TestClient, member: Signed
+) -> None:
+    box = {
+        "nodes": [
+            {
+                "id": "s",
+                "op": "sketch",
+                "shapes": [{"type": "rect", "width": 20, "height": 10}],
+            },
+            {"id": "b", "op": "extrude", "sketch": "s", "distance": 5},
+        ]
+    }
+    product = client.post(
+        "/api/works", json={"name": "제품", "recipe": box}, headers=member.headers
+    ).json()
+    part = client.post(
+        f"/api/works/{product['id']}/promote/part", json={}, headers=member.headers
+    ).json()
+
+    jig = client.post(
+        "/api/works",
+        json={
+            "name": "지그",
+            "recipe": box,
+            "kind": "jig",
+            "jig_for_part_id": part["part_id"],
+        },
+        headers=member.headers,
+    ).json()
+    assert jig["jig_for_part_id"] == part["part_id"]
+    assert jig["jig_for_part_name"] == "제품"
+
+    promoted = client.post(
+        f"/api/works/{jig['id']}/promote/jig-recipe", json={}, headers=member.headers
+    ).json()
+    # 따로 고르지 않아도 어느 부품의 지그인지 이어진다.
+    assert promoted["part_id"] == part["part_id"]

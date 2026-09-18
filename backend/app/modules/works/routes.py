@@ -79,6 +79,8 @@ def create_work(
         recipe=payload.recipe,
         source=payload.source,
         note=payload.note,
+        kind=payload.kind,
+        jig_for_part_id=payload.jig_for_part_id,
     )
     return services.work_out(db, work)
 

@@ -592,10 +592,21 @@ async def get_version(ctx: Context, work_id: str, number: int) -> Any:
 
 @mcp.tool()
 async def create_work(
-    ctx: Context, name: str, recipe: dict[str, Any], description: str = "", note: str = ""
+    ctx: Context,
+    name: str,
+    recipe: dict[str, Any],
+    description: str = "",
+    note: str = "",
+    kind: str = "part",
+    jig_for_part_id: str | None = None,
 ) -> Any:
     """새 작업을 만든다(첫 버전 = 이 레시피, 출처 "ai"). 평가가 끝날 때까지 기다려 요약을
-    돌려준다. **`recipe_check` 를 통과한 레시피만 넣는다.**"""
+    돌려준다. **`recipe_check` 를 통과한 레시피만 넣는다.**
+
+    `kind` 는 **무엇을 그렸나**다: `part`(제품 · 부품) 또는 `jig`(지그). 그리는 방법은 같고,
+    종류가 **어느 카탈로그로 올라가는지**와 덤으로 쓰는 도구를 정한다(부품엔 지그 생성기,
+    지그엔 잡는 부품). 지그를 그렸으면 `kind="jig"` 로 만들고 `jig_for_part_id` 로 어느 부품을
+    잡는지 이어 둔다 — 승격할 때 그대로 따라간다."""
     work = await _post(
         ctx,
         "/api/works",
@@ -605,6 +616,8 @@ async def create_work(
             "recipe": recipe,
             "source": "ai",
             "note": note or "AI 가 만듦",
+            "kind": kind,
+            "jig_for_part_id": jig_for_part_id,
         },
     )
     if not isinstance(work, dict) or "error" in work:

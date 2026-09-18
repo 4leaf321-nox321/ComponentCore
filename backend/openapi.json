@@ -6310,6 +6310,23 @@
             "type": "object",
             "title": "Recipe"
           },
+          "kind": {
+            "type": "string",
+            "title": "Kind",
+            "default": "part"
+          },
+          "jig_for_part_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jig For Part Id"
+          },
           "source": {
             "type": "string",
             "title": "Source",
@@ -6352,6 +6369,33 @@
           "owner_name": {
             "type": "string",
             "title": "Owner Name"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "jig_for_part_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jig For Part Id"
+          },
+          "jig_for_part_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jig For Part Name"
           },
           "current_version": {
             "type": "integer",
@@ -6433,6 +6477,9 @@
           "description",
           "owner_id",
           "owner_name",
+          "kind",
+          "jig_for_part_id",
+          "jig_for_part_name",
           "current_version",
           "version_count",
           "current",
@@ -6469,6 +6516,10 @@
           "owner_name": {
             "type": "string",
             "title": "Owner Name"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
           },
           "current_version": {
             "type": "integer",
@@ -6537,6 +6588,7 @@
           "description",
           "owner_id",
           "owner_name",
+          "kind",
           "current_version",
           "current_status",
           "jig_run_count",
@@ -6585,6 +6637,29 @@
               }
             ],
             "title": "Jig Options"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "jig_for_part_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jig For Part Id"
           }
         },
         "type": "object",
