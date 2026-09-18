@@ -5,7 +5,7 @@
  * 거기서 계속 고치고, 지그를 만들고, 부품 · 지그로 승격한다.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import type { Recipe } from '@/modules/cad/api'
@@ -40,7 +40,6 @@ export default function DrawPage() {
   const [name, setName] = useState('')
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [busy, setBusy] = useState(false)
-  const fileInput = useRef<HTMLInputElement | null>(null)
   const [params, setParams] = useSearchParams()
 
   // 템플릿 공간에서 「그리기에서 열기」 로 왔을 때 — 주소의 id 를 받아 한 번만 싣는다.
@@ -113,25 +112,7 @@ export default function DrawPage() {
     <div className="space-y-4">
       <PageHeader
         title="그리기"
-        description="빈 화면에서 그리거나 「파일」 탭에서 템플릿 · 기존 작업을 불러옵니다. 저장하기 전에는 아무것도 남지 않습니다."
-        actions={
-          <>
-            <input
-              ref={fileInput}
-              type="file"
-              accept=".step,.stp"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0]
-                if (file) void startFromStep(file)
-                event.target.value = ''
-              }}
-            />
-            <Button variant="outline" onClick={() => fileInput.current?.click()} disabled={busy}>
-              {busy ? '올리는 중…' : 'STEP 파일에서 시작'}
-            </Button>
-          </>
-        }
+        description="빈 화면에서 그리거나 「파일」 탭에서 템플릿 · 기존 작업 · STEP 을 엽니다. 저장하기 전에는 아무것도 남지 않습니다."
       />
       <ErrorNotice error={error} />
 
@@ -143,6 +124,7 @@ export default function DrawPage() {
             save: { label: '내 작업으로', run: () => setSaving(true) },
             saveTemplate: () => setSavingTemplate(true),
             download: (format) => void download(format),
+            importStep: { label: 'STEP 열기', run: (picked) => void startFromStep(picked), busy },
             onLoaded: (label, source) => setOrigin(source === 'copy' ? { source, label: `${label} 에서 복사` } : { source, label: `${label} 템플릿에서` }),
           }}
         />

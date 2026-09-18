@@ -23,7 +23,7 @@ import { SketchCanvas } from '@/modules/cad/SketchCanvas'
 import type { SketchShape } from '@/modules/cad/SketchCanvas'
 import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
-import { Boxes, Braces, BookmarkPlus, Download, FileAxis3d, GripVertical, Image, FilePlus, FolderOpen, Files, Maximize2, Minimize2, Pencil, Redo2, Ruler, Save, SquareDashedMousePointer, Trash2, Undo2 } from 'lucide-react'
+import { Boxes, Braces, BookmarkPlus, Download, FileAxis3d, FileUp, GripVertical, Image, FilePlus, FolderOpen, Files, Maximize2, Minimize2, Pencil, Redo2, Ruler, Save, SquareDashedMousePointer, Trash2, Undo2 } from 'lucide-react'
 
 import { useFullscreen } from '@/shared/viewer/FullscreenFrame'
 import type { MeasurePick, MeshData, MeshEdge, MeshFace, PickMode } from '@/shared/viewer/PickViewer'
@@ -46,6 +46,8 @@ export interface FileActions {
   /** 「저장」 — 그리기에서는 내 작업으로, 내 작업에서는 새 버전으로. */
   save?: { label: string; run: () => void; disabled?: boolean }
   saveTemplate?: () => void
+  /** STEP 파일에서 시작 — 고른 파일을 호출부가 올린다(작업이 생기고 그 화면으로 간다). */
+  importStep?: { label: string; run: (file: File) => void; busy?: boolean }
   /** 형식별 내려받기 — 호출부가 blob 을 받아 저장한다. */
   download?: (format: 'step' | 'stl' | 'dxf' | 'svg') => void
   /** 불러온 뒤 알린다(출처 표시용). */
@@ -76,6 +78,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [drawing, setDrawing] = useState(false)
   const lastDrawn = useRef<string>('')
+  const stepInput = useRef<HTMLInputElement | null>(null)
 
   const selected = nodes.find((n) => n.id === selectedId) ?? null
 
@@ -336,17 +339,22 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
             ))}
             <TabsTrigger value="view">보기 · 측정</TabsTrigger>
           </TabsList>
-          <div className="flex gap-1">
+          <span className="text-muted-foreground text-xs">
+            {drawing ? '그리는 중…' : nodes.length === 0 ? '' : valid ? '미리보기가 자동으로 따라옵니다.' : '고칠 것이 있습니다.'}
+          </span>
+          <div className="ml-auto flex gap-1">
             <Button size="sm" variant="outline" onClick={undo} disabled={history.current.past.length === 0} title="실행 취소 (Ctrl+Z)" aria-label="실행 취소">
               <Undo2 className="size-4" />
             </Button>
             <Button size="sm" variant="outline" onClick={redo} disabled={history.current.future.length === 0} title="다시 실행 (Ctrl+Y)" aria-label="다시 실행">
               <Redo2 className="size-4" />
             </Button>
+            {/* 전체 화면은 탭이 아니라 **늘 오른쪽 위**에 — 어느 탭에 있든 한 번에 키우고 끈다. */}
+            <Button size="sm" variant={fullscreen ? 'default' : 'outline'} onClick={() => void toggleFullscreen()} title={fullscreen ? '전체 화면 끝내기 (Esc)' : '전체 화면'}>
+              {fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+              <span className="ml-1 hidden sm:inline">{fullscreen ? '끝내기' : '전체 화면'}</span>
+            </Button>
           </div>
-          <span className="text-muted-foreground text-xs">
-            {drawing ? '그리는 중…' : nodes.length === 0 ? '' : valid ? '미리보기가 자동으로 따라옵니다.' : '고칠 것이 있습니다.'}
-          </span>
         </div>
         <div className="mt-2 flex flex-wrap gap-2 rounded-md border p-2">
           {tab === 'file' && (
@@ -364,6 +372,28 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                 />
                 <RibbonButton icon={FolderOpen} label="레시피" title="레시피 불러오기 — 내장 · 저장 템플릿" onClick={() => setLoading('recipe')} />
                 <RibbonButton icon={Files} label="기존 작업" title="기존 작업 불러오기" onClick={() => setLoading('work')} />
+                {file?.importStep && (
+                  <>
+                    <input
+                      ref={stepInput}
+                      type="file"
+                      accept=".step,.stp"
+                      className="hidden"
+                      onChange={(event) => {
+                        const picked = event.target.files?.[0]
+                        if (picked) file.importStep?.run(picked)
+                        event.target.value = '' // 같은 파일을 다시 골라도 열리게
+                      }}
+                    />
+                    <RibbonButton
+                      icon={FileUp}
+                      label={file.importStep.busy ? '올리는 중…' : file.importStep.label}
+                      title="STEP 파일에서 시작 — 올린 형상이 레시피의 첫 피처가 됩니다"
+                      disabled={file.importStep.busy}
+                      onClick={() => stepInput.current?.click()}
+                    />
+                  </>
+                )}
               </RibbonGroup>
               <RibbonGroup title="저장">
                 {file?.save && <RibbonButton icon={Save} label={file.save.label} onClick={file.save.run} disabled={file.save.disabled || nodes.length === 0} />}
@@ -432,9 +462,6 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                   }}
                 />
                 <RibbonButton icon={Ruler} label="측정" active={pickMode === 'measure'} disabled={!mesh} onClick={() => setPickMode(pickMode === 'measure' ? 'none' : 'measure')} />
-              </RibbonGroup>
-              <RibbonGroup title="화면">
-                <RibbonButton icon={fullscreen ? Minimize2 : Maximize2} label={fullscreen ? '끝내기' : '전체 화면'} active={fullscreen} onClick={() => void toggleFullscreen()} />
               </RibbonGroup>
             </>
           )}

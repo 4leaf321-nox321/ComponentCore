@@ -153,3 +153,21 @@ test('끌어서 순서를 바꾸되, 선후관계가 있으면 놓지 못한다'
   const next = onChange.mock.calls.at(-1)![0] as Recipe
   expect(next.nodes.map((n) => n.id)).toEqual(['s', 'plate', 'e'])
 })
+
+test('STEP 열기는 「파일」 탭에 있고, 전체 화면은 어느 탭에서나 오른쪽 위에 있다', () => {
+  const importStep = vi.fn()
+  const { container } = render(<RecipeEditor value={BOX} onChange={() => {}} file={{ importStep: { label: 'STEP 열기', run: importStep } }} />)
+  // 전체 화면은 탭 밖 — 지금 탭(스케치)에서도 보인다.
+  expect(screen.getByRole('button', { name: /전체 화면/ })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'STEP 열기' })).toBeNull()
+
+  fireEvent.mouseDown(screen.getByRole('tab', { name: '파일' }))
+  fireEvent.click(screen.getByRole('button', { name: 'STEP 열기' }))
+  // 감춰 둔 파일 칸이 열리고, 고른 파일이 호출부로 간다.
+  const input = container.querySelector('input[type=file]') as HTMLInputElement
+  const picked = new File(['ISO-10303-21;'], 'part.step')
+  Object.defineProperty(input, 'files', { value: [picked] })
+  fireEvent.change(input)
+  expect(importStep).toHaveBeenCalledWith(picked)
+  expect(screen.getByRole('button', { name: /전체 화면/ })).toBeInTheDocument()
+})
