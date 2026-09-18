@@ -3,7 +3,7 @@
 
 ## overview
 
-이 플랫폼에서 형상은 **레시피**(연산 트리 JSON)다. STEP 이 아니라 만드는 법을 저장하므로 치수를
+이 플랫폼에서 부품은 **레시피**(연산 트리 JSON)로 그린다. STEP 이 아니라 만드는 법을 저장하므로 치수를
 바꿔 다시 만들 수 있고, 사람이 손으로 그린 것을 AI 가 고치고 그 반대도 된다.
 
 하려는 일 → 부를 도구:
@@ -12,8 +12,8 @@
 | --- | --- |
 | 무엇을 만들 수 있나 | `recipe_schema` (노드 종류 · 칸 · 템플릿 넷) |
 | 레시피가 맞나, 만들어지나 | `recipe_check` — **저장 전에 반드시** |
-| 새 형상 시작 | `create_work(name, recipe)` |
-| 있는 형상 고치기 | `get_work` 로 레시피를 받아 고쳐 `save_version` |
+| 새 부품 시작 | `create_work(name, recipe)` |
+| 있는 부품 고치기 | `get_work` 로 레시피를 받아 고쳐 `save_version` |
 | 되돌리기 | `list_versions` → `restore_version` |
 | 지그 만들기 | `run_jig(work_id, options)` → 계획 · 간섭이 돌아온다 |
 | 남에게 내놓기 | `promote_part` · `promote_jig` — **사용자가 시킬 때만** |
@@ -77,7 +77,7 @@
 3. `recipe_check(recipe)` — 통과할 때까지. 요약의 bbox · volume 이 의도와 맞는지 본다.
 4. `save_version(work_id, recipe, note)` — 평가가 끝나면 요약이 돌아온다.
 5. 지그가 필요하면 `run_jig(work_id, options)`. 간섭이 있으면 결과의 `plan.notes` 와
-   `interference.items` 를 읽고 (a) 옵션(판 여유 · 받침 수 · 클램프 수) 또는 (b) 형상을 고쳐 다시.
+   `interference.items` 를 읽고 (a) 옵션(판 여유 · 받침 수 · 클램프 수) 또는 (b) 부품을 고쳐 다시.
 6. 사용자가 시키면 `promote_part` / `promote_jig`.
 
 ## jig
@@ -92,5 +92,5 @@
 - `interference.ok` 와 `items` — 겹친 부품 쌍과 부피(mm³). 0 이어야 정상.
 - `stages` 단계별 시간.
 
-지그가 잘 잡히는 형상: 평평한 바닥, 바닥으로 열린 수직 구멍 둘(핀 로케이터), 평평한 윗면(클램프
+지그가 잘 잡히는 부품: 평평한 바닥, 바닥으로 열린 수직 구멍 둘(핀 로케이터), 평평한 윗면(클램프
 패드). 바닥이 곡면이면 계획이 실패한다.

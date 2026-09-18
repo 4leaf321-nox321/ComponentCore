@@ -1,5 +1,5 @@
 /**
- * 형상 평가 작업(kind="cad") 하나의 3D — 끝날 때까지 폴링하고 glTF 를 그린다.
+ * 부품 평가 작업(kind="cad") 하나의 3D — 끝날 때까지 폴링하고 glTF 를 그린다.
  *
  * 내 작업의 버전, 부품 카탈로그의 버전이 같은 것을 보여 주므로 여기 하나다.
  */
@@ -61,7 +61,7 @@ export function GeometryJobView({
   if (!job) {
     return (
       <div className={`text-muted-foreground flex ${height} items-center justify-center rounded-md border border-dashed text-sm`}>
-        아직 형상이 없습니다.
+        아직 부품이 없습니다.
       </div>
     )
   }

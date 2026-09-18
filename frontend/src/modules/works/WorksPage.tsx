@@ -49,7 +49,7 @@ export default function WorksPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>이름</TableHead>
-                <TableHead>형상</TableHead>
+                <TableHead>부품</TableHead>
                 <TableHead>지그 생성</TableHead>
                 <TableHead>승격</TableHead>
                 <TableHead>수정</TableHead>

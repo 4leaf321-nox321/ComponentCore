@@ -39,14 +39,14 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: '그리기', icon: DraftingCompass, to: '/draw', summary: '템플릿이나 STEP 에서 새 작업을 시작한다.' },
       { label: '내 작업', icon: FolderPen, to: '/works', summary: '그리고 있는 것. 나만 본다. 여기서 부품 · 지그로 승격한다.' },
-      { label: '실행 기록', icon: ListChecks, to: '/jobs', summary: '내가 건 작업(형상 평가 · 지그 생성)과 산출물.' },
+      { label: '실행 기록', icon: ListChecks, to: '/jobs', summary: '내가 건 작업(부품 평가 · 지그 생성)과 산출물.' },
       { label: '내 정보', icon: UserCog, to: '/me' },
     ],
   },
   {
     title: '공용',
     items: [
-      { label: '부품', icon: Layers, to: '/parts', summary: '승격된 형상. 누구나 보고 내 공간으로 복사한다.' },
+      { label: '부품', icon: Layers, to: '/parts', summary: '승격된 부품. 누구나 보고 내 공간으로 복사한다.' },
       { label: '지그', icon: Boxes, to: '/jigs', summary: '승격된 지그. 어느 부품 버전의 지그인지 함께.' },
     ],
   },

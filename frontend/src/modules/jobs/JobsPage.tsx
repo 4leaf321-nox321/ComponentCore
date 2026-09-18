@@ -25,13 +25,13 @@ import { shownDateTime } from '@/shared/lib/datetime'
 
 const PAGE = 20
 
-const KIND_LABELS: Record<string, string> = { jig: '지그 생성', cad: '형상 평가' }
+const KIND_LABELS: Record<string, string> = { jig: '지그 생성', cad: '부품 평가' }
 
 const ARTIFACT_LABELS: Record<string, string> = {
   jig_step: '지그 STEP',
   assembly_step: '지그+제품 STEP',
   jig_stl: '지그 STL',
-  model_step: '형상 STEP',
+  model_step: '부품 STEP',
 }
 
 function elapsed(job: Job): string {
@@ -49,14 +49,14 @@ export default function JobsPage() {
     <div>
       <PageHeader
         title="실행 기록"
-        description="내가 건 작업 전부 — 형상 평가 · 지그 생성. 앞으로 AI 편집도 여기 온다."
+        description="내가 건 작업 전부 — 부품 평가 · 지그 생성. 앞으로 AI 편집도 여기 온다."
       />
       <ErrorNotice error={page.error} className="mb-4" />
 
       {rows.length === 0 && !page.loading ? (
         <EmptyState
           title="아직 건 작업이 없습니다"
-          hint="내 작업에서 형상을 저장하거나 지그를 만들면 여기 쌓입니다."
+          hint="내 작업에서 부품을 저장하거나 지그를 만들면 여기 쌓입니다."
         />
       ) : (
         <>

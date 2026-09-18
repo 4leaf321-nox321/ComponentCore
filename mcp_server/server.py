@@ -1,4 +1,4 @@
-"""AutoJigGenerator MCP 서버 — AI 가 **내 작업**에서 형상을 그리고 지그를 만들게 하는 도구.
+"""AutoJigGenerator MCP 서버 — AI 가 **내 작업**에서 부품을 그리고 지그를 만들게 하는 도구.
 
 플랫폼이 AI 를 부르지 않는다. AI(Claude Code · Claude Desktop · 다른 클라이언트)가 이 서버를
 도구로 물고, 사용자의 **개인 토큰(PAT)** 으로 백엔드에 붙는다 — 검증도 권한도 백엔드가 한다.
@@ -45,7 +45,7 @@ mcp = FastMCP(
     os.environ.get("APP_SLUG", "autojig"),
     json_response=_JSON_RESPONSE,
     instructions=(
-        "제품 형상을 레시피(연산 트리 JSON)로 그리고 지그를 만드는 플랫폼. "
+        "부품을 레시피(연산 트리 JSON)로 그리고 지그를 만드는 플랫폼. "
         "**`get_guide` 를 먼저 부른다** — 레시피의 규칙과 작업 순서가 거기 있다. "
         "레시피는 `recipe_check` 로 만들어 본 뒤에만 `save_version` 으로 저장한다. "
         "저장은 사용자의 내 작업에 새 버전으로 들어가고, 승격(부품 · 지그 카탈로그)은 "
@@ -387,9 +387,9 @@ async def jig_options(ctx: Context) -> Any:
 
 @mcp.tool()
 async def run_jig(ctx: Context, work_id: str, options: dict[str, Any] | None = None) -> Any:
-    """작업의 **현재 형상**을 제품으로 지그를 만든다. 끝날 때까지 기다려 계획(받침 · 로케이터
-    · 클램프) · 간섭 검사 · 단계별 시간을 돌려준다. 간섭이 있으면 계획의 notes 와
-    interference.items 를 읽고 형상이나 옵션을 고쳐 다시 만든다."""
+    """작업의 **현재 부품(버전)**을 제품으로 지그를 만든다. 끝날 때까지 기다려 계획(받침 ·
+    로케이터 · 클램프) · 간섭 검사 · 단계별 시간을 돌려준다. 간섭이 있으면 계획의 notes 와
+    interference.items 를 읽고 부품이나 옵션을 고쳐 다시 만든다."""
     job = await _post(ctx, f"/api/works/{work_id}/jig-runs", {"options": options or {}})
     return _slim_job(await _wait_job(ctx, job))
 
@@ -429,7 +429,7 @@ async def get_job(ctx: Context, job_id: str) -> Any:
 async def promote_part(
     ctx: Context, work_id: str, name: str | None = None, note: str = ""
 ) -> Any:
-    """현재 형상 버전을 **부품 카탈로그**에 올린다(누구나 본다, 불변). **사용자가 시킬
+    """현재 부품 버전을 **부품 카탈로그**에 올린다(누구나 본다, 불변). **사용자가 시킬
     때만.**"""
     return await _post(ctx, f"/api/works/{work_id}/promote/part", {"name": name, "note": note})
 
@@ -438,8 +438,8 @@ async def promote_part(
 async def promote_jig(
     ctx: Context, work_id: str, job_id: str, name: str | None = None, note: str = ""
 ) -> Any:
-    """지그 생성 결과 하나를 **지그 카탈로그**에 올린다. 제품(그때의 형상 버전)이 부품에 없으면
-    함께 올린다. **사용자가 시킬 때만.**"""
+    """지그 생성 결과 하나를 **지그 카탈로그**에 올린다. 제품(그때의 부품 버전)이 카탈로그에
+    없으면 함께 올린다. **사용자가 시킬 때만.**"""
     return await _post(
         ctx,
         f"/api/works/{work_id}/promote/jig",

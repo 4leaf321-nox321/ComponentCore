@@ -1,6 +1,6 @@
 # AutoJigGenerator MCP 서버
 
-AI(Claude Code · Claude Desktop · 다른 MCP 클라이언트)가 **내 작업**에서 형상을 그리고 지그를
+AI(Claude Code · Claude Desktop · 다른 MCP 클라이언트)가 **내 작업**에서 부품을 그리고 지그를
 만들게 하는 도구. 플랫폼이 AI 를 부르지 않는다 — AI 가 이 서버를 도구로 물고, 사용자의 개인
 토큰으로 백엔드에 붙는다.
 
@@ -35,7 +35,7 @@ PLATFORM_API_BASE=http://127.0.0.1:8061 ./venv/bin/python server.py
 | `recipe_schema` | 노드 종류 · 칸(JSON Schema) · 템플릿 넷 |
 | `recipe_check(recipe)` | 만들어 본다 — 통과하면 요약, 실패하면 어느 노드가 왜 |
 | `list_works` · `get_work` · `list_versions` · `get_version` | 내 작업 읽기 |
-| `create_work` · `save_version` · `restore_version` | 새 작업 · 새 버전(출처 ai) · 되돌리기 |
+| `create_work` · `save_version` · `restore_version` | 새 작업(부품) · 새 버전(출처 ai) · 되돌리기 |
 | `jig_options` · `run_jig` · `list_jig_runs` · `get_job` | 지그 생성과 결과 |
 | `promote_part` · `promote_jig` | 카탈로그에 올리기 — 사용자가 시킬 때만 |
 | `list_parts` · `get_part` · `copy_part_to_work` · `list_jigs` · `get_jig` | 카탈로그 |

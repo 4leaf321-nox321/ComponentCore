@@ -1,7 +1,8 @@
 /**
- * 내 작업 하나 — 형상(버전) 과 지그(생성 · 결과) 두 탭, 그리고 승격.
+ * 내 작업 하나 — 부품(버전) 과 지그(생성 · 결과) 두 탭, 그리고 승격. 카탈로그와 같은 말을
+ * 쓴다 — 내 작업의 부품과 카탈로그의 부품은 같은 것이고 다른 건 공개 여부뿐이다.
  *
- * 형상 탭: 현재 버전 3D · 레시피 고쳐 새 버전 · STEP 올리기 · 버전 이력 · 되돌리기 · 부품으로 승격.
+ * 부품 탭: 현재 버전 3D · 레시피 고쳐 새 버전 · STEP 올리기 · 버전 이력 · 되돌리기 · 부품으로 승격.
  * 지그 탭: 옵션 · 지그 생성(작업을 걸고 폴링) · 실행 기록 · 결과 · 지그로 승격.
  */
 
@@ -182,11 +183,11 @@ export default function WorkPage() {
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="geometry">형상 {w.current_version > 0 && `v${w.current_version}`}</TabsTrigger>
+          <TabsTrigger value="geometry">부품 {w.current_version > 0 && `v${w.current_version}`}</TabsTrigger>
           <TabsTrigger value="jig">지그 {w.jig_run_count > 0 && `(${w.jig_run_count})`}</TabsTrigger>
         </TabsList>
 
-        {/* ---------------- 형상 ---------------- */}
+        {/* ---------------- 부품 ---------------- */}
         <TabsContent value="geometry" className="space-y-4 pt-4">
           {editing && draft ? (
             <Card>
@@ -253,8 +254,8 @@ export default function WorkPage() {
 
               {w.current_version === 0 ? (
                 <EmptyState
-                  title="형상이 없습니다"
-                  hint="이 작업은 옛 지그 프로젝트에서 옮겨 와 형상이 없습니다. STEP 을 올리거나 새로 그리세요."
+                  title="부품이 없습니다"
+                  hint="이 작업은 옛 지그 프로젝트에서 옮겨 와 부품이 없습니다. STEP 을 올리거나 새로 그리세요."
                   action={<Button onClick={() => navigate('/draw')}>그리러 가기</Button>}
                 />
               ) : (
@@ -340,13 +341,13 @@ export default function WorkPage() {
               {options && <JigOptionsForm values={options} onChange={setOptions} />}
               <div className="flex items-center gap-2">
                 <Button onClick={() => void runJig()} disabled={busy || !options || w.current_version === 0}>
-                  {busy ? '거는 중…' : `지그 생성 (형상 v${w.current_version})`}
+                  {busy ? '거는 중…' : `지그 생성 (부품 v${w.current_version})`}
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => defaults.data && setOptions(defaults.data)}>
                   기본값으로
                 </Button>
                 {w.current_version === 0 && (
-                  <span className="text-muted-foreground text-xs">형상이 있어야 지그를 만들 수 있습니다.</span>
+                  <span className="text-muted-foreground text-xs">부품이 있어야 지그를 만들 수 있습니다.</span>
                 )}
               </div>
             </CardContent>
@@ -427,7 +428,7 @@ export default function WorkPage() {
               <DialogTitle>{promoting === 'part' ? '부품으로 승격' : '지그로 승격'}</DialogTitle>
               <DialogDescription>
                 {promoting === 'part'
-                  ? `형상 v${w.current_version} 이 부품 카탈로그에 올라갑니다. 올라간 버전은 바뀌지 않습니다 — 고치려면 여기서 고쳐 다시 승격합니다.`
+                  ? `부품 v${w.current_version} 이 부품 카탈로그에 올라갑니다. 올라간 버전은 바뀌지 않습니다 — 고치려면 여기서 고쳐 다시 승격합니다.`
                   : '이 지그 생성 결과가 지그 카탈로그에 올라갑니다. 어느 부품 버전의 지그인지 함께 고정됩니다.'}
               </DialogDescription>
             </DialogHeader>
@@ -444,7 +445,7 @@ export default function WorkPage() {
             {promoting === 'jig' && !currentPromoted && (
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={promoteProduct} onChange={(e) => setPromoteProduct(e.target.checked)} />
-                제품(형상 v{w.current_version})도 부품으로 함께 올린다
+                제품(부품 v{w.current_version})도 카탈로그에 함께 올린다
               </label>
             )}
             <DialogFooter>

@@ -1,4 +1,4 @@
-/** 부품 카탈로그 — 승격된 형상. 로그인한 누구나 본다. */
+/** 부품 카탈로그 — 승격된 부품. 로그인한 누구나 본다. */
 
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -28,10 +28,10 @@ export default function PartsPage() {
 
   return (
     <div>
-      <PageHeader title="부품" description="내 작업에서 승격된 형상. 버전은 바뀌지 않고, 고치려면 내 공간으로 복사합니다." />
+      <PageHeader title="부품" description="내 작업에서 승격된 부품. 버전은 바뀌지 않고, 고치려면 내 공간으로 복사합니다." />
       <ErrorNotice error={page.error} className="mb-4" />
       {rows.length === 0 && !page.loading ? (
-        <EmptyState title="아직 올라온 부품이 없습니다" hint="내 작업의 형상 탭에서 「부품으로 승격」 하면 여기 뜹니다." />
+        <EmptyState title="아직 올라온 부품이 없습니다" hint="내 작업의 부품 탭에서 「부품으로 승격」 하면 여기 뜹니다." />
       ) : (
         <>
           <Table>
