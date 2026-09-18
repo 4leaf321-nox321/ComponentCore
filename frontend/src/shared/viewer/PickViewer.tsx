@@ -8,6 +8,9 @@
 import { useCallback, useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { Line2 } from 'three/examples/jsm/lines/Line2.js'
+import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js'
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 
 export interface MeshFace {
   index: number
@@ -45,10 +48,11 @@ export type PickMode = 'none' | 'face' | 'edge' | 'measure'
 /** 측정이 3D 에 그려 달라고 넘기는 것 — 점 · 치수선 · 글자 · 강조할 엣지/면. */
 export interface MeasureMarks {
   points: number[][]
-  segments: number[][][]
+  /** 잰 두 자리 — **자(치수선)** 로 그린다. `text` 가 있으면 자 위에 값이 붙는다. */
+  segments: { from: number[]; to: number[]; text?: string; tone?: 'live' | 'kept' }[]
   labels: { at: number[]; text: string; tone: 'distance' | 'entity' }[]
-  edges: number[][]
-  faces: { vertices: number[]; triangles: number[] }[]
+  edges: { points: number[]; tone?: 'live' | 'kept' }[]
+  faces: { vertices: number[]; triangles: number[]; tone?: 'live' | 'kept' }[]
 }
 
 /** 측정으로 고른 것 하나 — 점(꼭짓점 · 중점 · 원 중심에 스냅) · 엣지 · 면. */
@@ -81,6 +85,8 @@ const EDGE_COLOR = 0x1f2937
 const PICKED_COLOR = 0xf59e0b
 const MEASURE_COLOR = 0xef4444
 const DOT_COLOR = 0x2563eb
+/** 담아 둔 측정 — 지금 재는 것(빨강)보다 옅게. */
+const KEPT_COLOR = 0x9ca3af
 
 /** 글자를 캔버스에 그려 스프라이트로 — 언제나 카메라를 본다. 3D 안에서 값을 읽게. */
 function makeLabel(text: string, tone: 'distance' | 'entity'): THREE.Sprite {
@@ -107,6 +113,81 @@ function makeLabel(text: string, tone: 'distance' | 'entity'): THREE.Sprite {
   sprite.renderOrder = 10
   sprite.userData.aspect = canvas.width / canvas.height
   return sprite
+}
+
+/**
+ * 굵은 선. `THREE.Line` 의 굵기는 대부분의 브라우저에서 **무시된다**(언제나 1px) — 고른 선이
+ * 안 고른 선과 똑같아 보이던 까닭이다. Line2 는 화면 픽셀 단위로 굵기를 준다.
+ */
+function fatLine(points: number[], color: number, width: number, size: THREE.Vector2): Line2 {
+  const geometry = new LineGeometry()
+  geometry.setPositions(points)
+  const material = new LineMaterial({ color, linewidth: width, transparent: true, depthTest: false })
+  material.resolution.copy(size)
+  const line = new Line2(geometry, material)
+  line.computeLineDistances()
+  line.renderOrder = 9
+  return line
+}
+
+/**
+ * **자(치수선)** — 잰 두 자리에서 보조선을 빼고, 그 끝을 잇는 선 양끝에 화살표를 세운다.
+ * 도면에서 치수를 읽는 그림 그대로라, 어디서 어디를 쟀는지 형상에 가리지 않고 보인다.
+ *
+ * 자는 잰 자리 **옆으로 비켜** 세운다(형상 가운데에서 멀어지는 쪽) — 선 위에 겹치면 못 읽는다.
+ */
+function dimensionLine(
+  from: THREE.Vector3,
+  to: THREE.Vector3,
+  center: THREE.Vector3,
+  size: number,
+  color: number,
+  resolution: THREE.Vector2,
+): { group: THREE.Group; labelAt: THREE.Vector3 } {
+  const group = new THREE.Group()
+  const direction = new THREE.Vector3().subVectors(to, from)
+  const span = direction.length()
+  const middle = new THREE.Vector3().addVectors(from, to).multiplyScalar(0.5)
+  if (span < 1e-6) return { group, labelAt: middle }
+  direction.normalize()
+
+  // 비켜설 쪽: 형상 중심에서 멀어지는 방향을 선과 직각으로 뽑는다.
+  const away = new THREE.Vector3().subVectors(middle, center)
+  let side = away.clone().sub(direction.clone().multiplyScalar(away.dot(direction)))
+  if (side.lengthSq() < 1e-9) {
+    side = new THREE.Vector3(0, 0, 1).cross(direction)
+    if (side.lengthSq() < 1e-9) side = new THREE.Vector3(1, 0, 0).cross(direction)
+  }
+  side.normalize().multiplyScalar(Math.max(size / 14, span / 8))
+
+  const a = from.clone().add(side)
+  const b = to.clone().add(side)
+  // 보조선 — 잰 자리에서 자까지. 자보다 조금 더 나가게 그린다(도면의 버릇).
+  const overshoot = side.clone().setLength(side.length() * 1.12)
+  for (const [origin, end] of [
+    [from, from.clone().add(overshoot)],
+    [to, to.clone().add(overshoot)],
+  ] as [THREE.Vector3, THREE.Vector3][]) {
+    group.add(fatLine([origin.x, origin.y, origin.z, end.x, end.y, end.z], color, 1.5, resolution))
+  }
+  group.add(fatLine([a.x, a.y, a.z, b.x, b.y, b.z], color, 3, resolution))
+
+  // 화살표 — 자의 양 끝에서 안쪽을 본다.
+  const head = Math.min(size / 45, span / 6) || size / 45
+  for (const [tip, towards] of [
+    [a, direction.clone()],
+    [b, direction.clone().negate()],
+  ] as [THREE.Vector3, THREE.Vector3][]) {
+    const cone = new THREE.Mesh(
+      new THREE.ConeGeometry(head * 0.45, head * 1.6, 12),
+      new THREE.MeshBasicMaterial({ color, depthTest: false }),
+    )
+    cone.position.copy(tip).add(towards.clone().multiplyScalar(head * 0.8))
+    cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), towards.clone().negate())
+    cone.renderOrder = 9
+    group.add(cone)
+  }
+  return { group, labelAt: new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5) }
 }
 
 /** 동그란 점 무늬 — 네모난 기본 점은 꼭짓점처럼 안 보인다. */
@@ -193,6 +274,12 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     edges: THREE.Line[]
     /** 잡을 점 — 꼭짓점 · 엣지 중점 · 원 중심. 측정에서 「점」 을 켰을 때만 보인다. */
     dots: { object: THREE.Points | null; at: number[][]; kinds: string[] }
+    /** 손이 올라간 선을 덧그리는 굵은 선 — 원본 선은 그대로 두고 위에 얹는다. */
+    hoverLine: Line2 | null
+    /** 손이 올라간 점을 감싸는 고리 — 어느 점을 잡는지 눈으로 확인하고 누른다. */
+    hoverDot: THREE.Mesh | null
+    /** 굵은 선이 화면 크기를 알아야 픽셀 굵기를 지킨다. */
+    resolution: THREE.Vector2
     marks: THREE.Group
     fitted: boolean
   } | null>(null)
@@ -248,6 +335,9 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       faces: [],
       edges: [],
       dots: { object: null, at: [], kinds: [] },
+      hoverLine: null,
+      hoverDot: null,
+      resolution: new THREE.Vector2(1, 1),
       marks,
       fitted: false,
     }
@@ -257,6 +347,12 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       renderer.setSize(w, h, false)
       camera.aspect = w / Math.max(h, 1)
       camera.updateProjectionMatrix()
+      const s = state.current
+      if (!s) return
+      s.resolution.set(w, h)
+      s.group.traverse((one) => {
+        if (one instanceof Line2) one.material.resolution.set(w, h)
+      })
     }
     resize()
     const observer = new ResizeObserver(resize)
@@ -325,25 +421,56 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       }
       return best
     }
-    /** 점 위에 있을 때는 그 점만 크게 — 어느 점을 잡는지 눈으로 확인하고 누른다. */
+    /** 점 위에 있을 때는 그 점만 키우고 **주황 고리**를 씌운다 — 골라 놓고도 못 보면 소용없다. */
     function setHoverDot(index: number | null) {
       const s = state.current
       if (!s?.dots.object) return
       const sizes = s.dots.object.geometry.getAttribute('size') as THREE.BufferAttribute
       const base = s.dots.object.userData.base as number
-      for (let i = 0; i < sizes.count; i += 1) sizes.setX(i, i === index ? base * 2.2 : base)
+      for (let i = 0; i < sizes.count; i += 1) sizes.setX(i, i === index ? base * 2.4 : base)
       sizes.needsUpdate = true
-      renderer.domElement.style.cursor = index === null ? renderer.domElement.style.cursor : 'crosshair'
+      if (s.hoverDot) {
+        s.group.remove(s.hoverDot)
+        s.hoverDot.geometry.dispose()
+        ;(s.hoverDot.material as THREE.Material).dispose()
+        s.hoverDot = null
+      }
+      if (index === null) return
+      const at = s.dots.at[index]
+      const ring = new THREE.Mesh(
+        new THREE.SphereGeometry(Math.max(0.05, (s.group.userData.size as number) / 70), 16, 16),
+        new THREE.MeshBasicMaterial({ color: HOVER_COLOR, transparent: true, opacity: 0.45, depthTest: false }),
+      )
+      ring.position.set(at[0], at[1], at[2])
+      ring.renderOrder = 8
+      s.group.add(ring)
+      s.hoverDot = ring
+      renderer.domElement.style.cursor = 'crosshair'
     }
 
     function setHover(object: THREE.Mesh | THREE.Line | null) {
       if (hovered === object) return
+      const s = state.current
       if (hovered) {
         const mat = hovered.material as THREE.MeshStandardMaterial | THREE.LineBasicMaterial
         mat.color.set(hovered.userData.picked ? PICKED_COLOR : (hovered.userData.base as number))
       }
+      if (s?.hoverLine) {
+        s.group.remove(s.hoverLine)
+        s.hoverLine.geometry.dispose()
+        s.hoverLine.material.dispose()
+        s.hoverLine = null
+      }
       hovered = object
-      if (hovered) (hovered.material as THREE.MeshStandardMaterial | THREE.LineBasicMaterial).color.set(HOVER_COLOR)
+      if (hovered) {
+        ;(hovered.material as THREE.MeshStandardMaterial | THREE.LineBasicMaterial).color.set(HOVER_COLOR)
+        // 선은 색만 바꿔서는 **눈에 띄지 않는다**(1px). 굵은 선을 위에 얹어 준다.
+        const edge = hovered.userData.edge as MeshEdge | undefined
+        if (edge && s) {
+          s.hoverLine = fatLine(edge.points, HOVER_COLOR, 6, s.resolution)
+          s.group.add(s.hoverLine)
+        }
+      }
       renderer.domElement.style.cursor = hovered ? 'pointer' : 'default'
     }
     const onDown = (e: PointerEvent) => {
@@ -469,6 +596,21 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     }
   }, [mesh, highlightEdgesNear])
 
+  // 모드를 끄면 손이 올라가 있던 표시도 함께 걷는다 — 다음에 마우스를 움직일 때까지 남으면
+  // 「아직 측정 중인가?」 싶다.
+  useEffect(() => {
+    const s = state.current
+    if (!s || mode !== 'none') return
+    for (const stale of [s.hoverLine, s.hoverDot]) {
+      if (!stale) continue
+      s.group.remove(stale)
+      stale.geometry.dispose()
+      ;(stale.material as THREE.Material).dispose()
+    }
+    s.hoverLine = null
+    s.hoverDot = null
+  }, [mode])
+
   // 잡을 점 — 「점」 을 켠 측정에서만 띄운다. 늘 띄우면 형상이 점으로 덮인다.
   const wantsDots = mode === 'measure' && (measureKinds?.point ?? true)
   useEffect(() => {
@@ -502,43 +644,66 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     s.marks.clear()
     if (!measureMarks) return
     const size = (s.group.userData.size as number) || 50
-    const r = size / 110
-    const pointMat = new THREE.MeshBasicMaterial({ color: MEASURE_COLOR, depthTest: false })
+    const box = new THREE.Box3().setFromObject(s.shapes)
+    const center = box.isEmpty() ? new THREE.Vector3() : box.getCenter(new THREE.Vector3())
+    const toneColor = (tone?: 'live' | 'kept') => (tone === 'kept' ? KEPT_COLOR : MEASURE_COLOR)
+
+    // 고른 점 — 흰 테를 두른 구. 잡을 점(파랑)과 한눈에 구별된다.
+    const r = size / 90
     for (const p of measureMarks.points) {
-      const m = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 12), pointMat)
-      m.position.set(p[0], p[1], p[2])
-      m.renderOrder = 6
-      s.marks.add(m)
+      const halo = new THREE.Mesh(
+        new THREE.SphereGeometry(r * 1.7, 12, 12),
+        new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false }),
+      )
+      halo.position.set(p[0], p[1], p[2])
+      halo.renderOrder = 6
+      const dot = new THREE.Mesh(
+        new THREE.SphereGeometry(r, 14, 14),
+        new THREE.MeshBasicMaterial({ color: MEASURE_COLOR, depthTest: false }),
+      )
+      dot.position.copy(halo.position)
+      dot.renderOrder = 7
+      s.marks.add(halo, dot)
     }
-    // 고른 엣지 — 원래 엣지 위에 빨간 선을 덧그린다(가려져도 보이게 depthTest 끈다).
-    for (const points of measureMarks.edges ?? []) {
-      const g = new THREE.BufferGeometry()
-      g.setAttribute('position', new THREE.Float32BufferAttribute(points, 3))
-      const line = new THREE.Line(g, new THREE.LineBasicMaterial({ color: MEASURE_COLOR, depthTest: false }))
-      line.renderOrder = 5
-      s.marks.add(line)
+    // 고른 선 — 굵게 덧그린다(1px 선은 골라도 티가 안 난다).
+    for (const edge of measureMarks.edges) {
+      s.marks.add(fatLine(edge.points, toneColor(edge.tone), edge.tone === 'kept' ? 3 : 6, s.resolution))
     }
-    // 고른 면 — 반투명 빨강.
-    for (const face of measureMarks.faces ?? []) {
+    // 고른 면 — 반투명으로 덮고 테두리도 함께.
+    for (const face of measureMarks.faces) {
       const g = new THREE.BufferGeometry()
       g.setAttribute('position', new THREE.Float32BufferAttribute(face.vertices, 3))
       g.setIndex(face.triangles)
       g.computeVertexNormals()
       const m = new THREE.Mesh(
         g,
-        new THREE.MeshBasicMaterial({ color: MEASURE_COLOR, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }),
+        new THREE.MeshBasicMaterial({
+          color: toneColor(face.tone),
+          transparent: true,
+          opacity: face.tone === 'kept' ? 0.2 : 0.35,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        }),
       )
       m.renderOrder = 4
       s.marks.add(m)
     }
+    // 잰 자리 — 자로 그린다.
     for (const seg of measureMarks.segments) {
-      const g = new THREE.BufferGeometry().setFromPoints(seg.map((p) => new THREE.Vector3(p[0], p[1], p[2])))
-      const line = new THREE.Line(g, new THREE.LineDashedMaterial({ color: MEASURE_COLOR, dashSize: size / 40, gapSize: size / 80, depthTest: false }))
-      line.computeLineDistances()
-      line.renderOrder = 5
-      s.marks.add(line)
+      const from = new THREE.Vector3(...(seg.from as [number, number, number]))
+      const to = new THREE.Vector3(...(seg.to as [number, number, number]))
+      const drawn = dimensionLine(from, to, center, size, toneColor(seg.tone), s.resolution)
+      s.marks.add(drawn.group)
+      if (seg.text) {
+        // 값은 자 **위**에 — 잰 자리 한가운데에 두면 형상에 파묻힌다.
+        const sprite = makeLabel(seg.text, seg.tone === 'kept' ? 'entity' : 'distance')
+        const height = size / 13
+        sprite.scale.set(height * (sprite.userData.aspect as number), height, 1)
+        sprite.position.copy(drawn.labelAt)
+        s.marks.add(sprite)
+      }
     }
-    for (const label of measureMarks.labels ?? []) {
+    for (const label of measureMarks.labels) {
       const sprite = makeLabel(label.text, label.tone)
       const height = size / 14
       sprite.scale.set(height * (sprite.userData.aspect as number), height, 1)

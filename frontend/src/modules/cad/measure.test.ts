@@ -95,3 +95,20 @@ test('꼬인 두 선분의 최단 거리', () => {
   expect(got.distance).toBe(4)
   expect(got.from).toEqual([5, 0, 0])
 })
+
+test('마크는 자 하나에 값을 실어 보낸다 — 어디서 어디를 쟀는지 3D 가 그린다', async () => {
+  const { measureMarks } = await import('@/modules/cad/measureMarks')
+  const a: Pick = { kind: 'point', at: [0, 0, 0] }
+  const b: Pick = { kind: 'point', at: [40, 0, 0] }
+  const marks = measureMarks([a, b])
+  expect(marks.segments).toHaveLength(1)
+  expect(marks.segments[0]).toMatchObject({ from: [0, 0, 0], to: [40, 0, 0], text: '40 mm', tone: 'live' })
+  expect(marks.points).toHaveLength(2)
+  // 값은 자 위에 붙으므로 따로 떠 있는 거리 글자는 없다.
+  expect(marks.labels.filter((one) => one.tone === 'distance')).toHaveLength(0)
+
+  // 담아 둔 것은 옅게 — 지금 재는 것과 구별된다.
+  const kept = measureMarks([], [{ id: 'k', picks: [a, b], label: '' }])
+  expect(kept.segments[0].tone).toBe('kept')
+  expect(kept.labels).toHaveLength(0)
+})

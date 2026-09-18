@@ -17,18 +17,17 @@ function one(picks: Pick[], tone: 'live' | 'kept', marks: MeasureMarks) {
       marks.points.push(pick.at)
       if (tone === 'live') marks.labels.push({ at: pick.at, text: String(index + 1), tone: 'entity' })
     } else if (pick.kind === 'edge') {
-      marks.edges.push(pick.edge.points)
+      marks.edges.push({ points: pick.edge.points, tone })
       if (tone === 'live') marks.labels.push({ at: anchor(pick), text: title(pick, index + 1), tone: 'entity' })
     } else {
-      marks.faces.push({ vertices: pick.face.vertices, triangles: pick.face.triangles })
+      marks.faces.push({ vertices: pick.face.vertices, triangles: pick.face.triangles, tone })
       if (tone === 'live') marks.labels.push({ at: anchor(pick), text: title(pick, index + 1), tone: 'entity' })
     }
   }
   const text = headline(rows)
   if (from && to) {
-    marks.segments.push([from, to])
-    const middle = [(from[0] + to[0]) / 2, (from[1] + to[1]) / 2, (from[2] + to[2]) / 2]
-    if (text) marks.labels.push({ at: middle, text, tone: 'distance' })
+    // 값은 뷰어가 **자 위에** 붙인다 — 자를 어디로 비켜 세울지는 형상을 아는 쪽이 정한다.
+    marks.segments.push({ from, to, text, tone })
   } else if (text && picks.length === 1) {
     marks.labels.push({ at: anchor(picks[0]), text, tone: 'distance' })
   }
