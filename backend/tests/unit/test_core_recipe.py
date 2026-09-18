@@ -1057,3 +1057,40 @@ def test_판금_절곡() -> None:
         )
     )
     assert with_hole.shape.volume < bracket.shape.volume
+
+
+def test_메시가_측정에_필요한_값을_준다() -> None:
+    """화면의 측정은 이 값들로 잰다 — 구멍 지름 · 원 중심 · 면 법선. 없으면 사람이 점을 찍어
+    어림해야 한다."""
+    from app.core.recipe.mesh import mesh
+
+    got = mesh(
+        evaluate(
+            parse(
+                {
+                    "nodes": [
+                        {"id": "b", "op": "box", "length": 80, "width": 50, "height": 10},
+                        {
+                            "id": "h",
+                            "op": "hole",
+                            "target": "b",
+                            "at": [[-25, 0], [25, 0]],
+                            "diameter": 6,
+                        },
+                    ]
+                }
+            )
+        ).shape
+    )
+    circles = [e for e in got["edges"] if e.get("radius")]
+    assert len(circles) == 4  # 구멍 둘, 위아래로 하나씩
+    assert {round(e["radius"] * 2, 3) for e in circles} == {6.0}
+    tops = [tuple(e["center"]) for e in circles if e["center"][2] > 0]
+    assert sorted(tops) == [(-25.0, 0.0, 5.0), (25.0, 0.0, 5.0)]  # 피치 50 을 그대로 잰다
+
+    barrels = [f for f in got["faces"] if f.get("radius")]
+    assert barrels and barrels[0]["axis"]["direction"] == [0.0, 0.0, 1.0]
+    planes = [f for f in got["faces"] if f["kind"] == "plane"]
+    up = next(f for f in planes if f["normal"][2] > 0.9)
+    down = next(f for f in planes if f["normal"][2] < -0.9)
+    assert up["center"][2] - down["center"][2] == 10.0  # 나란한 두 면 = 두께

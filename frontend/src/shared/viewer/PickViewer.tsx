@@ -17,6 +17,9 @@ export interface MeshFace {
   area: number
   vertices: number[]
   triangles: number[]
+  /** 원통 · 구일 때만 — 측정이 지름을 바로 보여 준다. */
+  radius?: number
+  axis?: { origin: number[]; direction: number[] }
 }
 
 export interface MeshEdge {
@@ -26,6 +29,9 @@ export interface MeshEdge {
   length: number
   vertical: boolean
   points: number[]
+  /** 원 · 호일 때만 — 구멍 지름은 가장 자주 재는 값이다. */
+  radius?: number
+  center?: number[]
 }
 
 export interface MeshData {
@@ -36,9 +42,18 @@ export interface MeshData {
 
 export type PickMode = 'none' | 'face' | 'edge' | 'measure'
 
-/** 측정으로 고른 것 하나 — 점(꼭짓점에 스냅) · 엣지 · 면. */
+/** 측정이 3D 에 그려 달라고 넘기는 것 — 점 · 치수선 · 글자 · 강조할 엣지/면. */
+export interface MeasureMarks {
+  points: number[][]
+  segments: number[][][]
+  labels: { at: number[]; text: string; tone: 'distance' | 'entity' }[]
+  edges: number[][]
+  faces: { vertices: number[]; triangles: number[] }[]
+}
+
+/** 측정으로 고른 것 하나 — 점(꼭짓점 · 중점 · 원 중심에 스냅) · 엣지 · 면. */
 export type MeasurePick =
-  | { kind: 'point'; at: number[] }
+  | { kind: 'point'; at: [number, number, number] }
   | { kind: 'edge'; edge: MeshEdge }
   | { kind: 'face'; face: MeshFace }
 
@@ -51,13 +66,12 @@ export interface PickViewerProps {
   onPickEdge?: (edge: MeshEdge) => void
   /** measure 모드: 누른 것을 알려 준다. 표시(점 · 선 · 글자)는 `measureMarks` 로 돌려준다. */
   onMeasure?: (pick: MeasurePick) => void
-  measureMarks?: {
-    points: number[][]
-    segments: number[][][]
-    labels?: { at: number[]; text: string; tone: 'distance' | 'entity' }[]
-    edges?: number[][]
-    faces?: { vertices: number[]; triangles: number[] }[]
-  }
+  /**
+   * measure 모드에서 **고를 수 있는 종류** — 없으면 셋 다. 끄면 그 종류는 레이캐스트에서
+   * 빠진다: 면만 켜면 빽빽한 모서리 사이에서도 면이 잡힌다.
+   */
+  measureKinds?: { point: boolean; edge: boolean; face: boolean }
+  measureMarks?: MeasureMarks
   className?: string
 }
 
@@ -102,7 +116,7 @@ const VIEWS: { key: string; label: string; dir: [number, number, number] }[] = [
   { key: 'right', label: '우측', dir: [1, 0, 0] },
 ]
 
-export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, measureMarks, className }: PickViewerProps) {
+export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, measureKinds, measureMarks, className }: PickViewerProps) {
   const mount = useRef<HTMLDivElement | null>(null)
   const state = useRef<{
     scene: THREE.Scene
@@ -115,8 +129,8 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     marks: THREE.Group
     fitted: boolean
   } | null>(null)
-  const callbacks = useRef({ mode, onPickFace, onPickEdge, onMeasure })
-  callbacks.current = { mode, onPickFace, onPickEdge, onMeasure }
+  const callbacks = useRef({ mode, onPickFace, onPickEdge, onMeasure, measureKinds })
+  callbacks.current = { mode, onPickFace, onPickEdge, onMeasure, measureKinds }
 
   /** 표준 뷰 — 형상을 가운데 두고 그 방향에서 본다. CAD 의 Z 는 three 의 Y 다(group 이 눕혀 있다). */
   const look = useCallback((dir: [number, number, number]) => {
@@ -186,29 +200,42 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
         return raycaster.intersectObjects(s.edges, false)[0] ?? null
       }
       if (m === 'measure') {
+        const kinds = callbacks.current.measureKinds ?? { point: true, edge: true, face: true }
         raycaster.params.Line = { threshold: Math.max(0.3, (s.group.userData.size as number) / 200) }
-        return raycaster.intersectObjects(s.edges, false)[0] ?? raycaster.intersectObjects(s.faces, false)[0] ?? null
+        // 점은 엣지의 끝점에 붙으므로 엣지를 함께 쏜다 — 「점만」 켜도 꼭짓점을 잡을 수 있게.
+        const wantsLines = kinds.edge || kinds.point
+        const onEdge = wantsLines ? raycaster.intersectObjects(s.edges, false)[0] : undefined
+        const onFace = kinds.face ? raycaster.intersectObjects(s.faces, false)[0] : undefined
+        if (onEdge && onFace) return onEdge.distance <= onFace.distance + (s.group.userData.size as number) / 50 ? onEdge : onFace
+        return onEdge ?? onFace ?? null
       }
       return null
     }
-    /** 누른 자리에서 가장 가까운 꼭짓점(엣지 끝점)에 스냅 — 충분히 가까울 때만. */
-    function snapVertex(point: THREE.Vector3): number[] | null {
+    /**
+     * 누른 자리에서 가장 가까운 **잡을 점** — 엣지의 끝점 · 중점, 원의 중심. 충분히 가까울
+     * 때만 붙는다. 중심을 주는 이유: 구멍 사이 거리는 중심으로 재는 값이다.
+     */
+    function snapVertex(point: THREE.Vector3): [number, number, number] | null {
       const s = state.current
       if (!s) return null
       const local = s.group.worldToLocal(point.clone())
       const radius = Math.max(0.5, (s.group.userData.size as number) / 60)
-      let best: number[] | null = null
+      let best: [number, number, number] | null = null
       let bestD = radius
+      const consider = (v: number[]) => {
+        const d = Math.hypot(v[0] - local.x, v[1] - local.y, v[2] - local.z)
+        if (d < bestD) {
+          bestD = d
+          best = [v[0], v[1], v[2]]
+        }
+      }
       for (const l of s.edges) {
         const edge = l.userData.edge as MeshEdge
-        for (const i of [0, edge.points.length - 3]) {
-          const v = [edge.points[i], edge.points[i + 1], edge.points[i + 2]]
-          const d = Math.hypot(v[0] - local.x, v[1] - local.y, v[2] - local.z)
-          if (d < bestD) {
-            bestD = d
-            best = v
-          }
-        }
+        consider([edge.points[0], edge.points[1], edge.points[2]])
+        const last = edge.points.length - 3
+        consider([edge.points[last], edge.points[last + 1], edge.points[last + 2]])
+        consider(edge.midpoint)
+        if (edge.center) consider(edge.center)
       }
       return best
     }
@@ -241,10 +268,11 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       if (callbacks.current.mode === 'face' && data.face) callbacks.current.onPickFace?.(data.face as MeshFace)
       if (callbacks.current.mode === 'edge' && data.edge) callbacks.current.onPickEdge?.(data.edge as MeshEdge)
       if (callbacks.current.mode === 'measure') {
-        const snapped = snapVertex(hit.point)
+        const kinds = callbacks.current.measureKinds ?? { point: true, edge: true, face: true }
+        const snapped = kinds.point ? snapVertex(hit.point) : null
         if (snapped) callbacks.current.onMeasure?.({ kind: 'point', at: snapped })
-        else if (data.edge) callbacks.current.onMeasure?.({ kind: 'edge', edge: data.edge as MeshEdge })
-        else if (data.face) {
+        else if (data.edge && kinds.edge) callbacks.current.onMeasure?.({ kind: 'edge', edge: data.edge as MeshEdge })
+        else if (data.face && kinds.face) {
           const local = state.current!.group.worldToLocal(hit.point.clone())
           // 면을 눌렀으면 그 면 자체와 누른 점 둘 다 뜻이 있다 — 면(넓이 · 법선)을 준다.
           callbacks.current.onMeasure?.({ kind: 'face', face: { ...(data.face as MeshFace), center: [local.x, local.y, local.z] } })

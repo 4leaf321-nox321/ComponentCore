@@ -13,7 +13,9 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { cadApi } from '@/modules/cad/api'
 import type { Recipe, RecipeSummary } from '@/modules/cad/api'
 import { LoadRecipeDialog, LoadWorkDialog } from '@/modules/cad/LoadDialogs'
-import { MeasurePanel, measureMarks } from '@/modules/cad/MeasurePanel'
+import { keptLabel, MeasureDialog } from '@/modules/cad/MeasureDialog'
+import type { KeptMeasure, PickKind } from '@/modules/cad/MeasureDialog'
+import { measureMarks } from '@/modules/cad/measureMarks'
 import { RibbonButton, RibbonGroup } from '@/modules/cad/Ribbon'
 import { NodeForm } from '@/modules/cad/NodeForm'
 import { allowedDrops, dropProblem, moveTo } from '@/modules/cad/reorder'
@@ -70,6 +72,9 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
   /** 면을 골라 어디에 쓰나 — 새 스케치 · 쉘의 open · 구멍의 plane. */
   const [faceTarget, setFaceTarget] = useState<'sketch' | 'shell-open' | 'hole-plane'>('sketch')
   const [measures, setMeasures] = useState<MeasurePick[]>([])
+  /** 담아 둔 측정 — 3D 에 남아 여러 곳을 한 화면에서 비교한다. */
+  const [kept, setKept] = useState<KeptMeasure[]>([])
+  const [measureKinds, setMeasureKinds] = useState<Set<PickKind>>(new Set<PickKind>(['point', 'edge', 'face']))
   const { frame, active: fullscreen, toggle: toggleFullscreen } = useFullscreen()
   const [tab, setTab] = useState<string>(nodes.length === 0 ? 'file' : '스케치')
   const [loading, setLoading] = useState<'recipe' | 'work' | null>(null)
@@ -461,12 +466,36 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                     setPickMode(pickMode === 'face' ? 'none' : 'face')
                   }}
                 />
-                <RibbonButton icon={Ruler} label="측정" active={pickMode === 'measure'} disabled={!mesh} onClick={() => setPickMode(pickMode === 'measure' ? 'none' : 'measure')} />
+                <RibbonButton
+                  icon={Ruler}
+                  label="측정"
+                  title="거리 · 각도 · 지름 — 창이 뜬 채로 3D 를 계속 누릅니다"
+                  active={pickMode === 'measure'}
+                  disabled={!mesh}
+                  onClick={() => setPickMode(pickMode === 'measure' ? 'none' : 'measure')}
+                />
               </RibbonGroup>
             </>
           )}
         </div>
       </Tabs>
+
+      <MeasureDialog
+        open={pickMode === 'measure'}
+        picks={measures}
+        kept={kept}
+        kinds={measureKinds}
+        onKinds={setMeasureKinds}
+        onUndo={() => setMeasures((m) => m.slice(0, -1))}
+        onClear={() => setMeasures([])}
+        onKeep={() => {
+          if (measures.length === 0) return
+          setKept((list) => [...list, { id: `m-${Date.now()}`, picks: measures, label: keptLabel(measures) }])
+          setMeasures([])
+        }}
+        onDropKept={(id) => setKept((list) => list.filter((one) => one.id !== id))}
+        onClose={() => setPickMode('none')}
+      />
 
       <LoadRecipeDialog
         open={loading === 'recipe'}
@@ -654,7 +683,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                 : pickMode === 'edge'
                   ? `엣지를 눌러 고릅니다 (${(selected?.edges as { near?: number[][] })?.near?.length ?? 0} 개). 다시 누르면 뺍니다.`
                   : pickMode === 'measure'
-                    ? '측정: 꼭짓점 근처를 누르면 점, 엣지를 누르면 길이, 면을 누르면 넓이.'
+                    ? '측정 중 — 3D 에서 점 · 선 · 면을 누르세요. 값은 오른쪽 창에 나옵니다.'
                     : '끌어서 돌리고, 굴려서 확대합니다. 왼쪽 피처를 누르면 고칩니다.'}
               {edgePicking && pickMode === 'edge' && (
                 <button type="button" className="ml-2 underline" onClick={() => setEditing(true)}>
@@ -662,11 +691,6 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                 </button>
               )}
             </p>
-            {pickMode === 'measure' && (
-              <div className="mb-1">
-                <MeasurePanel picks={measures} onClear={() => setMeasures([])} onUndo={() => setMeasures((m) => m.slice(0, -1))} />
-              </div>
-            )}
             {mesh ? (
               <Suspense fallback={<Skeleton className={`${viewerHeight} w-full`} />}>
                 <PickViewer
@@ -675,8 +699,9 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                   highlightEdgesNear={isNear(selected?.edges) ? (selected!.edges as { near: number[][] }).near : undefined}
                   onPickFace={onFacePicked}
                   onPickEdge={toggleEdge}
-                  onMeasure={(pick) => setMeasures((m) => [...m, pick])}
-                  measureMarks={pickMode === 'measure' ? measureMarks(measures) : undefined}
+                  onMeasure={(pick) => setMeasures((m) => (m.length >= 3 ? [pick] : [...m, pick]))}
+                  measureKinds={{ point: measureKinds.has('point'), edge: measureKinds.has('edge'), face: measureKinds.has('face') }}
+                  measureMarks={pickMode === 'measure' || kept.length > 0 ? measureMarks(measures, kept) : undefined}
                   className={`${viewerHeight} w-full rounded-md border`}
                 />
               </Suspense>

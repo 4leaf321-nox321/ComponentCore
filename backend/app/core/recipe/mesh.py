@@ -7,6 +7,7 @@ glTF 는 형상 하나를 한 덩어리로 주므로 어느 면을 눌렀는지 
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 from build123d import Axis, Edge, Face, GeomType, Shape
@@ -22,6 +23,16 @@ def _xyz(v: Any) -> list[float]:
     return [round(v.X, 4), round(v.Y, 4), round(v.Z, 4)]
 
 
+def _radius(shape: Any) -> float | None:
+    """원 · 원통의 반지름. 아닌 것은 None — 화면이 「지름 ⌀16」 을 그때만 보여 준다.
+
+    `radius` 는 원으로 줄일 수 없는 모양에서 예외를 던진다(직선 엣지 · 평면). 값으로 묻는다."""
+    try:
+        return round(float(shape.radius), 4)
+    except Exception:
+        return None
+
+
 def _face(index: int, face: Face) -> dict[str, Any]:
     vertices, triangles = face.tessellate(_LINEAR, _ANGULAR)
     center = face.center()
@@ -29,7 +40,7 @@ def _face(index: int, face: Face) -> dict[str, Any]:
         normal = face.normal_at(center)
     except Exception:
         normal = face.normal_at()
-    return {
+    out = {
         "index": index,
         "kind": face.geom_type.name.lower(),
         "center": _xyz(center),
@@ -38,6 +49,16 @@ def _face(index: int, face: Face) -> dict[str, Any]:
         "vertices": [c for v in vertices for c in _xyz(v)],
         "triangles": [i for tri in triangles for i in tri],
     }
+    radius = _radius(face)
+    if radius is not None:
+        # 원통 · 구는 **축 위의 중심**이 뜻을 갖는다 — 면 중심은 껍질 위의 한 점이다.
+        out["radius"] = radius
+        with contextlib.suppress(Exception):
+            out["axis"] = {
+                "origin": _xyz(face.axis_of_rotation.position),
+                "direction": _xyz(face.axis_of_rotation.direction),
+            }
+    return out
 
 
 def _edge(index: int, edge: Edge) -> dict[str, Any]:
@@ -45,7 +66,7 @@ def _edge(index: int, edge: Edge) -> dict[str, Any]:
     count = 2 if straight else _CURVE_POINTS
     points = [edge.position_at(i / (count - 1)) for i in range(count)]
     tangent = edge.tangent_at(0.5)
-    return {
+    out = {
         "index": index,
         "kind": edge.geom_type.name.lower(),
         "midpoint": _xyz(edge.position_at(0.5)),
@@ -53,6 +74,13 @@ def _edge(index: int, edge: Edge) -> dict[str, Any]:
         "vertical": abs(tangent.dot(Axis.Z.direction)) > 0.95,
         "points": [c for p in points for c in _xyz(p)],
     }
+    radius = _radius(edge)
+    if radius is not None:
+        # 구멍 지름은 가장 자주 재는 값이다 — 점을 찍어 재게 하지 않는다.
+        out["radius"] = radius
+        with contextlib.suppress(Exception):
+            out["center"] = _xyz(edge.arc_center)
+    return out
 
 
 def mesh(shape: Shape) -> dict[str, Any]:

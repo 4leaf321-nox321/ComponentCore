@@ -151,15 +151,22 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  overlay = true,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
+  /**
+   * 뒤를 덮는 막. **끄면 뒤를 그대로 쓸 수 있다** — 측정처럼 모달을 띄운 채 3D 를 계속
+   * 눌러야 하는 창이 그렇다. 끌 때는 `<Dialog modal={false}>` 도 함께 꺼야 한다(안 그러면
+   * Radix 가 바깥 클릭을 삼킨다).
+   */
+  overlay?: boolean
 }) {
   const drag = useDragOffset()
   const pinned = usePinnedLayout(children, drag.onPointerDown)
   return (
     <DialogPortal>
-      <DialogOverlay />
+      {overlay && <DialogOverlay />}
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
