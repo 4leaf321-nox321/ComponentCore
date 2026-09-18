@@ -354,6 +354,104 @@ async def beam_frequency(
 
 
 @mcp.tool()
+async def doe_preview(
+    ctx: Context,
+    factors: list[dict[str, Any]],
+    method: str = "factorial",
+    samples: int = 20,
+    seed: int = 1,
+) -> Any:
+    """**만들기 전에** 설계점이 몇 개인지 센다. 격자는 곱으로 늘어난다 — 인자 넷에 5단계면 625개.
+
+    인자 하나는 `{"name": "두께", "mode": "range", "start": 4, "end": 12, "steps": 5}` 또는
+    `{"mode": "list", "values": [4, 8, 12]}` 또는 `{"mode": "fixed", "value": 6}`."""
+    return await _post(
+        ctx,
+        "/api/doe/preview",
+        {"factors": factors, "method": method, "samples": samples, "seed": seed},
+    )
+
+
+@mcp.tool()
+async def doe_create(
+    ctx: Context,
+    name: str,
+    recipe: dict[str, Any],
+    factors: list[dict[str, Any]],
+    description: str = "",
+    method: str = "factorial",
+    samples: int = 20,
+    seed: int = 1,
+    material: str = "aluminum",
+    work_id: str | None = None,
+) -> Any:
+    """치수를 훑어 **형상 여러 벌**을 만든다 — 점마다 STEP 을 공유 폴더에 쓴다(해석이 읽는 곳).
+
+    인자로 쓴 치수만 바뀐다. **연결부처럼 고정돼야 하는 자리는 그 치수를 쓰지 않으면 된다.**
+    LHS 는 `seed` 를 적어 두면 같은 표를 다시 만든다 — 해석 결과와 형상을 잇는 열쇠다.
+    먼저 `doe_preview` 로 개수를 확인하고 부른다(한 번에 200점까지)."""
+    return await _post(
+        ctx,
+        "/api/doe",
+        {
+            "name": name,
+            "description": description,
+            "recipe": recipe,
+            "factors": factors,
+            "method": method,
+            "samples": samples,
+            "seed": seed,
+            "material": material,
+            "work_id": work_id,
+        },
+    )
+
+
+@mcp.tool()
+async def doe_points(ctx: Context, study_id: str) -> Any:
+    """만들어진 설계점 표 — 치수 값 · 질량 · 크기 · STEP 파일 이름 · 실패 사유, 그리고 **공유
+    폴더 경로**. 결과를 보고 다음 범위를 좁힐 때 쓴다."""
+    got = await _get(ctx, f"/api/doe/{study_id}")
+    if not isinstance(got, dict) or "error" in got:
+        return got
+    return {
+        "study_id": got["id"],
+        "name": got["name"],
+        "folder": got["export_dir_windows"],
+        "method": got["method"],
+        "seed": got["seed"],
+        "material": got["material"],
+        "points_total": got["point_count"],
+        "done": got["done"],
+        "failed": got["failed"],
+        "job": _slim_job(got.get("job")),
+        "points": [
+            {
+                "number": one["number"],
+                "params": one["params"],
+                "status": one["status"],
+                "metrics": one["metrics"],
+                "step_file": one["step_file"],
+                "error": one["error"],
+            }
+            for one in got.get("points", [])
+        ],
+    }
+
+
+@mcp.tool()
+async def doe_studies(ctx: Context, work_id: str | None = None, limit: int = 20) -> Any:
+    """실험계획 목록 — 무엇을 언제 훑었나."""
+    query: dict[str, Any] = {"limit": limit}
+    if work_id:
+        query["work_id"] = work_id
+    page = await _get(ctx, "/api/doe", query)
+    if isinstance(page, dict) and "items" in page:
+        return {"total": page["total"], "studies": page["items"]}
+    return page
+
+
+@mcp.tool()
 async def work_geometry(ctx: Context, work_id: str, number: int | None = None) -> Any:
     """내 작업(제품)의 치수표와 레시피, 그리고 **STEP 작업물 id**.
 

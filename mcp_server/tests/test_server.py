@@ -49,6 +49,9 @@ def test_사람이_손으로_하는_일이_도구로_다_있다() -> None:
         "promote_jig",
         "sweep_parameter",  # 치수를 훑어 고르기
         "beam_frequency",  # 공진 가늠값
+        "doe_preview",  # 형상 여러 벌
+        "doe_create",
+        "doe_points",
     }
     assert needed <= tools, f"빠진 도구: {sorted(needed - tools)}"
 
@@ -65,6 +68,8 @@ def test_가이드가_파라메트릭과_지그_시작을_알려준다() -> None
         "beam_frequency",
         "sweep_parameter",
         "모달 해석이 없다",  # 못 하는 것을 숨기지 않는다
+        "doe_create",
+        "공유 폴더",
     ):
         assert word in recipe, word
 

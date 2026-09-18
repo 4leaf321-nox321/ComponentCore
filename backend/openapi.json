@@ -3014,6 +3014,351 @@
         }
       }
     },
+    "/api/doe/preview": {
+      "post": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Preview",
+        "description": "**만들기 전에** 설계점이 몇 개인지와 앞 스무 줄. 격자는 곱으로 늘어난다.",
+        "operationId": "preview_api_doe_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Preview Api Doe Preview Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/doe": {
+      "get": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "List Studies",
+        "operationId": "list_studies_api_doe_get",
+        "parameters": [
+          {
+            "name": "work_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Work Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_StudySummaryOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Create Study",
+        "description": "스터디를 만들고 **바로 작업을 건다** — 점마다 형상을 만들어 공유 폴더에 STEP 을 쓴다.",
+        "operationId": "create_study_api_doe_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudyCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/doe/{study_id}": {
+      "get": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Get Study",
+        "operationId": "get_study_api_doe__study_id__get",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Delete Study",
+        "description": "DB 에서만 지운다 — 공유 폴더의 파일은 남는다(해석이 보고 있을 수 있다).",
+        "operationId": "delete_study_api_doe__study_id__delete",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/doe/{study_id}/manifest.csv": {
+      "get": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Manifest",
+        "description": "공유 폴더에 있는 것과 같은 표 — 화면에서 바로 받을 때.",
+        "operationId": "manifest_api_doe__study_id__manifest_csv_get",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/doe/{study_id}/filter": {
+      "post": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Filter Points",
+        "description": "설계 조건(부등식)을 만족하는 점만. 값이 없는 점은 **만족하지 않은 것**으로 센다.",
+        "operationId": "filter_points_api_doe__study_id__filter_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "title": "Conditions"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PointOut"
+                  },
+                  "title": "Response Filter Points Api Doe  Study Id  Filter Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/server/status": {
       "get": {
         "tags": [
@@ -3377,6 +3722,72 @@
           "used_percent"
         ],
         "title": "DiskOut"
+      },
+      "FactorIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode",
+            "default": "fixed"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "steps": {
+            "type": "integer",
+            "title": "Steps",
+            "default": 5
+          },
+          "values": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Values"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "FactorIn",
+        "description": "인자 하나 — 고정이거나, 구간이거나, 값 목록."
       },
       "GeometryRequest": {
         "properties": {
@@ -4046,6 +4457,37 @@
         ],
         "title": "Page[PartSummaryOut]"
       },
+      "Page_StudySummaryOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StudySummaryOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[StudySummaryOut]"
+      },
       "Page_TemplateSummaryOut_": {
         "properties": {
           "items": {
@@ -4490,6 +4932,92 @@
         ],
         "title": "PatOut"
       },
+      "PointOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "number": {
+            "type": "integer",
+            "title": "Number"
+          },
+          "params": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Params"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "error": {
+            "type": "string",
+            "title": "Error"
+          },
+          "metrics": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metrics"
+          },
+          "step_file": {
+            "type": "string",
+            "title": "Step File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "number",
+          "params",
+          "status",
+          "error",
+          "metrics",
+          "step_file"
+        ],
+        "title": "PointOut"
+      },
+      "PreviewRequest": {
+        "properties": {
+          "factors": {
+            "items": {
+              "$ref": "#/components/schemas/FactorIn"
+            },
+            "type": "array",
+            "title": "Factors"
+          },
+          "method": {
+            "type": "string",
+            "title": "Method",
+            "default": "factorial"
+          },
+          "samples": {
+            "type": "integer",
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Samples",
+            "default": 20
+          },
+          "seed": {
+            "type": "integer",
+            "title": "Seed",
+            "default": 1
+          }
+        },
+        "type": "object",
+        "required": [
+          "factors"
+        ],
+        "title": "PreviewRequest"
+      },
       "ProfileUpdateRequest": {
         "properties": {
           "display_name": {
@@ -4814,6 +5342,260 @@
           "detail"
         ],
         "title": "StageOut"
+      },
+      "StudyCreateRequest": {
+        "properties": {
+          "factors": {
+            "items": {
+              "$ref": "#/components/schemas/FactorIn"
+            },
+            "type": "array",
+            "title": "Factors"
+          },
+          "method": {
+            "type": "string",
+            "title": "Method",
+            "default": "factorial"
+          },
+          "samples": {
+            "type": "integer",
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Samples",
+            "default": 20
+          },
+          "seed": {
+            "type": "integer",
+            "title": "Seed",
+            "default": 1
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Description",
+            "default": ""
+          },
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "material": {
+            "type": "string",
+            "title": "Material",
+            "default": "aluminum"
+          },
+          "work_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "factors",
+          "name",
+          "recipe"
+        ],
+        "title": "StudyCreateRequest"
+      },
+      "StudyOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "work_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Id"
+          },
+          "method": {
+            "type": "string",
+            "title": "Method"
+          },
+          "samples": {
+            "type": "integer",
+            "title": "Samples"
+          },
+          "seed": {
+            "type": "integer",
+            "title": "Seed"
+          },
+          "material": {
+            "type": "string",
+            "title": "Material"
+          },
+          "point_count": {
+            "type": "integer",
+            "title": "Point Count"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "factors": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Factors"
+          },
+          "export_dir_windows": {
+            "type": "string",
+            "title": "Export Dir Windows"
+          },
+          "job": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/PointOut"
+            },
+            "type": "array",
+            "title": "Points"
+          },
+          "done": {
+            "type": "integer",
+            "title": "Done",
+            "default": 0
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "work_id",
+          "method",
+          "samples",
+          "seed",
+          "material",
+          "point_count",
+          "created_at",
+          "recipe",
+          "factors",
+          "export_dir_windows"
+        ],
+        "title": "StudyOut"
+      },
+      "StudySummaryOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "work_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Id"
+          },
+          "method": {
+            "type": "string",
+            "title": "Method"
+          },
+          "samples": {
+            "type": "integer",
+            "title": "Samples"
+          },
+          "seed": {
+            "type": "integer",
+            "title": "Seed"
+          },
+          "material": {
+            "type": "string",
+            "title": "Material"
+          },
+          "point_count": {
+            "type": "integer",
+            "title": "Point Count"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "work_id",
+          "method",
+          "samples",
+          "seed",
+          "material",
+          "point_count",
+          "created_at"
+        ],
+        "title": "StudySummaryOut"
       },
       "SweepRequest": {
         "properties": {

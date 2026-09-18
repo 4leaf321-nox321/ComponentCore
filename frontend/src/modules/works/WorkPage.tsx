@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import type { Recipe } from '@/modules/cad/api'
+import { WorkDoeTab } from '@/modules/doe/WorkDoeTab'
 import { GeometryJobView } from '@/modules/cad/GeometryJobView'
 import { RecipeEditor } from '@/modules/cad/RecipeEditor'
 import { saveRecipeAs } from '@/modules/cad/download'
@@ -198,6 +199,7 @@ export default function WorkPage() {
         <TabsList>
           <TabsTrigger value="geometry">부품 {w.current_version > 0 && `v${w.current_version}`}</TabsTrigger>
           <TabsTrigger value="jig">지그 {w.jig_run_count > 0 && `(${w.jig_run_count})`}</TabsTrigger>
+          <TabsTrigger value="doe">실험계획</TabsTrigger>
         </TabsList>
 
         {/* ---------------- 부품 ---------------- */}
@@ -428,6 +430,11 @@ export default function WorkPage() {
               )}
             </div>
           </div>
+        </TabsContent>
+
+        {/* ---------------- 실험계획 ---------------- */}
+        <TabsContent value="doe" className="space-y-4 pt-4">
+          <WorkDoeTab workId={id} work={w} />
         </TabsContent>
       </Tabs>
 

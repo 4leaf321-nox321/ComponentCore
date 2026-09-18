@@ -1,0 +1,223 @@
+/**
+ * 실험계획 만들기 — 레시피의 **치수**를 인자로 고르고, 범위를 주고, 개수를 확인하고 실행한다.
+ *
+ * 실행 전에 **몇 개인지 먼저 보여 준다.** 격자는 곱으로 늘어나서, 인자 넷에 5단계면 625개다 —
+ * 누르고 나서 아는 것과 누르기 전에 아는 것은 다르다.
+ */
+
+import { useEffect, useState } from 'react'
+
+import type { Recipe } from '@/modules/cad/api'
+import { doeApi } from '@/modules/doe/api'
+import type { Factor, Preview } from '@/modules/doe/api'
+import { ApiError } from '@/shared/api/client'
+import { ErrorNotice } from '@/shared/components/ErrorNotice'
+import { Button } from '@/shared/components/ui/button'
+import { Input } from '@/shared/components/ui/input'
+import { Label } from '@/shared/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select'
+import { Textarea } from '@/shared/components/ui/textarea'
+
+const MATERIALS = ['aluminum', 'steel', 'stainless', 'brass', 'abs', 'pla', 'nylon', 'pom']
+
+export function DoeForm({
+  recipe,
+  workId,
+  defaultName,
+  onCreated,
+}: {
+  recipe: Recipe
+  workId?: string
+  defaultName?: string
+  onCreated: (id: string) => void
+}) {
+  const params = Object.entries((recipe.params ?? {}) as Record<string, number>)
+  const [name, setName] = useState(defaultName ?? '')
+  const [description, setDescription] = useState('')
+  const [method, setMethod] = useState<'factorial' | 'lhs'>('factorial')
+  const [samples, setSamples] = useState(20)
+  const [seed, setSeed] = useState(1)
+  const [material, setMaterial] = useState('aluminum')
+  const [factors, setFactors] = useState<Record<string, Factor>>(() =>
+    Object.fromEntries(params.map(([key, value]) => [key, { name: key, mode: 'fixed', value }])),
+  )
+  const [preview, setPreview] = useState<Preview | null>(null)
+  const [error, setError] = useState<ApiError | Error | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const list = Object.values(factors)
+  const varying = list.filter((one) => one.mode !== 'fixed')
+
+  useEffect(() => {
+    if (varying.length === 0) {
+      setPreview(null)
+      return
+    }
+    let alive = true
+    void doeApi
+      .preview({ factors: list, method, samples, seed })
+      .then((got) => alive && setPreview(got))
+      .catch(() => alive && setPreview(null))
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(list), method, samples, seed])
+
+  function set(key: string, patch: Partial<Factor>) {
+    setFactors((all) => ({ ...all, [key]: { ...all[key], ...patch } }))
+  }
+
+  async function run() {
+    setBusy(true)
+    setError(null)
+    try {
+      const made = await doeApi.create({
+        name,
+        description,
+        recipe,
+        factors: list,
+        method,
+        samples,
+        seed,
+        material,
+        work_id: workId ?? null,
+      })
+      onCreated(made.id)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (params.length === 0) {
+    return (
+      <div className="text-muted-foreground rounded-md border border-dashed p-4 text-sm">
+        이 레시피에는 이름 붙인 치수가 없습니다. 편집기 왼쪽 「치수」 에서 「판_길이」 같은 이름을 두고 칸에 「=판_길이」 로 쓰면, 그 치수를 여기서 훑을 수 있습니다.
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1">
+          <Label htmlFor="doe-name">이름</Label>
+          <Input id="doe-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="브래킷 두께 훑기" />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="doe-material">재료 (질량 · 관성 계산용)</Label>
+          <Select value={material} onValueChange={setMaterial}>
+            <SelectTrigger id="doe-material">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {MATERIALS.map((one) => (
+                <SelectItem key={one} value={one}>
+                  {one}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor="doe-desc">무엇을 찾는가</Label>
+        <Textarea id="doe-desc" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="세트 공진 440 Hz 에 맞는 두께를 찾는다" />
+      </div>
+
+      <div className="rounded-md border">
+        <div className="bg-muted/40 grid grid-cols-[1fr_auto_2fr] items-center gap-2 border-b px-3 py-2 text-xs font-medium">
+          <span>치수</span>
+          <span>방식</span>
+          <span>값</span>
+        </div>
+        {params.map(([key]) => {
+          const factor = factors[key]
+          return (
+            <div key={key} className="grid grid-cols-[1fr_auto_2fr] items-center gap-2 border-b px-3 py-2 last:border-b-0">
+              <span className="truncate font-mono text-xs">{key}</span>
+              <Select value={factor.mode} onValueChange={(mode) => set(key, { mode: mode as Factor['mode'] })}>
+                <SelectTrigger className="h-8 w-28 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="fixed">고정</SelectItem>
+                  <SelectItem value="range">구간</SelectItem>
+                  <SelectItem value="list">값 목록</SelectItem>
+                </SelectContent>
+              </Select>
+              {factor.mode === 'fixed' && (
+                <Input type="number" step={0.5} value={String(factor.value ?? 0)} onChange={(e) => set(key, { value: Number(e.target.value) })} className="h-8" aria-label={`${key} 고정값`} />
+              )}
+              {factor.mode === 'range' && (
+                <div className="flex items-center gap-1">
+                  <Input type="number" step={0.5} value={String(factor.start ?? factor.value ?? 0)} onChange={(e) => set(key, { start: Number(e.target.value) })} className="h-8" aria-label={`${key} 시작`} />
+                  <span className="text-muted-foreground text-xs">~</span>
+                  <Input type="number" step={0.5} value={String(factor.end ?? (factor.value ?? 0) * 2)} onChange={(e) => set(key, { end: Number(e.target.value) })} className="h-8" aria-label={`${key} 끝`} />
+                  <Input type="number" min={1} value={String(factor.steps ?? 5)} onChange={(e) => set(key, { steps: Math.max(1, Number(e.target.value)) })} className="h-8 w-16" aria-label={`${key} 단계`} />
+                  <span className="text-muted-foreground text-xs">단계</span>
+                </div>
+              )}
+              {factor.mode === 'list' && (
+                <Input
+                  value={(factor.values ?? []).join(', ')}
+                  onChange={(e) => set(key, { values: e.target.value.split(/[,\s]+/).map(Number).filter((v) => Number.isFinite(v)) })}
+                  placeholder="4, 8, 12"
+                  className="h-8 font-mono text-xs"
+                  aria-label={`${key} 값 목록`}
+                />
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <Label htmlFor="doe-method">방법</Label>
+          <Select value={method} onValueChange={(v) => setMethod(v as 'factorial' | 'lhs')}>
+            <SelectTrigger id="doe-method" className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="factorial">전체 조합 (격자)</SelectItem>
+              <SelectItem value="lhs">라틴 하이퍼큐브 (LHS)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {method === 'lhs' && (
+          <>
+            <div className="space-y-1">
+              <Label htmlFor="doe-samples">표본 수</Label>
+              <Input id="doe-samples" type="number" min={1} value={String(samples)} onChange={(e) => setSamples(Math.max(1, Number(e.target.value)))} className="w-24" />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="doe-seed">시드</Label>
+              <Input id="doe-seed" type="number" value={String(seed)} onChange={(e) => setSeed(Number(e.target.value))} className="w-24" />
+            </div>
+          </>
+        )}
+        <div className="text-muted-foreground text-xs">
+          {varying.length === 0 ? (
+            '바꿀 치수를 하나는 고르세요 — 「구간」 이나 「값 목록」 으로.'
+          ) : preview ? (
+            <span className={preview.too_many ? 'text-destructive' : ''}>
+              설계점 <b>{preview.count}</b> 개 {preview.too_many && `— ${preview.max} 개까지만 만듭니다. 단계를 줄이세요.`}
+            </span>
+          ) : (
+            '세는 중…'
+          )}
+        </div>
+        <Button className="ml-auto" disabled={busy || !name.trim() || varying.length === 0 || !!preview?.too_many} onClick={() => void run()}>
+          {busy ? '만드는 중…' : '만들기'}
+        </Button>
+      </div>
+      {method === 'lhs' && (
+        <p className="text-muted-foreground text-xs">시드를 적어 두면 **같은 표**를 다시 만들 수 있습니다 — 해석 결과와 형상을 잇는 열쇠입니다.</p>
+      )}
+      <ErrorNotice error={error} />
+    </div>
+  )
+}

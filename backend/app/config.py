@@ -84,6 +84,11 @@ class Settings(BaseSettings):
     """작업을 워커 없이 **요청 안에서** 돌린다. 시험과 워커를 안 띄우는 작은 설치용. 켜면 지그
     생성 요청이 끝날 때까지 응답이 안 온다 — 큰 제품이면 그 시간이 곧 타임아웃이다."""
 
+    doe_export_root: Path = Path("/mnt/f/data/0_Program/73_AutoJigGenerator")
+    """실험계획(DOE)이 STEP · manifest 를 쏟아 놓는 **공유 폴더**. 해석(ANSYS)을 도는 쪽이 이
+    폴더를 그대로 읽는다. 서버가 WSL 이면 `/mnt/f/...`, 화면에는 `F:\...` 로 보여 준다.
+    폴더가 없거나 못 쓰면 DOE 를 만들 때 그 사실을 말한다 — 조용히 로컬에 쓰지 않는다."""
+
     max_upload_mb: int = 200
     """제품 STEP 상한. 조립체 STEP 은 수백 MB 가 되기도 하지만, 그것은 먼저 부품으로 쪼개서
     올리는 것이 맞다 — 지그는 부품 단위로 잡는다."""

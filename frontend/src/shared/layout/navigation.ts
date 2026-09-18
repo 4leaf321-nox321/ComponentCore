@@ -9,6 +9,7 @@ import {
   Boxes,
   DraftingCompass,
   FileStack,
+  FlaskConical,
   FolderPen,
   Layers,
   ListChecks,
@@ -41,6 +42,12 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: '그리기', icon: DraftingCompass, to: '/draw', summary: '템플릿이나 STEP 에서 새 작업을 시작한다.' },
       { label: '내 작업', icon: FolderPen, to: '/works', summary: '그리고 있는 것. 나만 본다. 여기서 부품 · 지그로 승격한다.' },
+      {
+        label: '실험계획',
+        icon: FlaskConical,
+        to: '/doe',
+        summary: '치수를 훑어 형상 여러 벌 — 해석으로 넘길 STEP 을 공유 폴더에 쏟는다.',
+      },
       { label: '실행 기록', icon: ListChecks, to: '/jobs', summary: '내가 건 작업(부품 평가 · 지그 생성)과 산출물.' },
       { label: '내 정보', icon: UserCog, to: '/me' },
     ],
