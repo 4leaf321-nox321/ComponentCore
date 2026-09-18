@@ -119,7 +119,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
     h.future.push(value)
     h.skip = true
     h.at = 0
-    onChange(previous)
+    emit(() => previous)
   }
   function redo() {
     const h = history.current
@@ -128,7 +128,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
     h.past.push(value)
     h.skip = true
     h.at = 0
-    onChange(next)
+    emit(() => next)
   }
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -150,15 +150,34 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
 
   // --- 레시피 바꾸기 ------------------------------------------------------------
 
+  /**
+   * 레시피를 고치는 **하나뿐인 길**.
+   *
+   * 한 동작이 레시피를 두 번 고치는 일이 있다 — 「이 칸의 값을 변수로」 는 (1) 변수를 만들고
+   * (2) 칸을 `=이름` 으로 바꾼다. 둘 다 `value` 프롭에서 새 레시피를 만들면, 두 번째가 **아직
+   * 다시 그려지기 전의 낡은 값** 위에서 만들어져 첫 번째를 덮는다 — 변수가 만들어졌다가 곧바로
+   * 사라졌다(실측). 그래서 **방금 내보낸 것**을 여기 들고, 이어지는 갱신은 그 위에 쌓는다.
+   */
+  const latest = useRef(value)
+  latest.current = value
+  const emit = useCallback(
+    (change: (current: Recipe) => Recipe) => {
+      const next = change(latest.current)
+      latest.current = next
+      onChange(next)
+    },
+    [onChange],
+  )
+
   const replaceNodes = useCallback(
     (next: RecipeNode[], result?: string | null) => {
-      onChange({
-        ...value,
+      emit((current) => ({
+        ...current,
         nodes: next,
-        result: result === undefined ? value.result : result,
-      })
+        result: result === undefined ? current.result : result,
+      }))
     },
-    [onChange, value],
+    [emit],
   )
 
   function updateNode(next: RecipeNode) {
@@ -174,9 +193,10 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
 
   /** 칸에서 만든 변수를 레시피에 담는다 — 같은 이름이 있으면 그대로 둔다(값을 덮지 않는다). */
   function createParam(name: string, seed: number) {
-    const params = (value.params ?? {}) as Record<string, number>
-    if (name in params) return
-    onChange({ ...value, params: { ...params, [name]: seed } })
+    emit((current) => {
+      const params = (current.params ?? {}) as Record<string, number>
+      return name in params ? current : { ...current, params: { ...params, [name]: seed } }
+    })
   }
 
   function addNode(op: string) {
@@ -325,7 +345,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
     try {
       const parsed = JSON.parse(text) as Recipe
       setJsonError(null)
-      onChange(parsed)
+      emit(() => parsed)
       setMode('form')
       setSelectedId(nodesOf(parsed)[nodesOf(parsed).length - 1]?.id ?? null)
     } catch (caught) {
@@ -378,7 +398,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                   label="새로"
                   onClick={() => {
                     if (nodes.length > 0 && !window.confirm('지금 그린 것을 지우고 빈 레시피에서 시작합니까?')) return
-                    onChange({ version: 1, nodes: [] })
+                    emit(() => ({ version: 1, nodes: [] }))
                     setSelectedId(null)
                     setTab('스케치')
                   }}
@@ -510,7 +530,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
         onClose={() => setLoading(null)}
         onLoad={(loaded) => {
           if (nodes.length > 0 && !window.confirm('지금 그린 것을 지우고 불러옵니까?')) return
-          onChange(loaded.recipe)
+          emit(() => loaded.recipe)
           setSelectedId(nodesOf(loaded.recipe)[nodesOf(loaded.recipe).length - 1]?.id ?? null)
           setLoading(null)
           setTab('스케치')
@@ -523,7 +543,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
         onClose={() => setLoading(null)}
         onLoad={(loaded) => {
           if (nodes.length > 0 && !window.confirm('지금 그린 것을 지우고 불러옵니까?')) return
-          onChange(loaded.recipe)
+          emit(() => loaded.recipe)
           setSelectedId(nodesOf(loaded.recipe)[nodesOf(loaded.recipe).length - 1]?.id ?? null)
           setLoading(null)
           setTab('스케치')

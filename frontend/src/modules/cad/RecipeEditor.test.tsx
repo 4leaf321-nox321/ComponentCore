@@ -171,3 +171,48 @@ test('STEP 열기는 「파일」 탭에 있고, 전체 화면은 어느 탭에�
   expect(importStep).toHaveBeenCalledWith(picked)
   expect(screen.getByRole('button', { name: /전체 화면/ })).toBeInTheDocument()
 })
+
+test('칸에서 만든 변수가 사라지지 않는다 — 한 동작이 레시피를 두 번 고칠 때', async () => {
+  function Host() {
+    const [recipe, setRecipe] = useState<Recipe>(BOX)
+    return (
+      <>
+        <RecipeEditor value={recipe} onChange={setRecipe} />
+        <pre data-testid="recipe">{JSON.stringify(recipe)}</pre>
+      </>
+    )
+  }
+  render(<Host />)
+  // 돌출 피처를 열어 「거리」 칸을 변수로 바꾼다.
+  fireEvent.click(screen.getByRole('button', { name: 'b 고치기' }))
+  fireEvent.click(await screen.findByRole('button', { name: '거리 (mm) 변수로' }))
+  fireEvent.change(screen.getByLabelText('새 변수 이름'), { target: { value: '두께' } })
+  fireEvent.click(screen.getByRole('button', { name: '만들기' }))
+
+  const recipe = JSON.parse(screen.getByTestId('recipe').textContent!) as Recipe
+  // 변수가 남아 있고(예전에는 두 번째 갱신이 덮어 지웠다), 칸이 그것을 가리킨다.
+  expect(recipe.params).toEqual({ 두께: 10 })
+  expect(recipe.nodes[1].distance).toBe('=두께')
+})
+
+test('스케치 도형 칸에서 만든 변수도 남는다', async () => {
+  function Host() {
+    const [recipe, setRecipe] = useState<Recipe>(BOX)
+    return (
+      <>
+        <RecipeEditor value={recipe} onChange={setRecipe} />
+        <pre data-testid="recipe">{JSON.stringify(recipe)}</pre>
+      </>
+    )
+  }
+  render(<Host />)
+  fireEvent.click(screen.getByRole('button', { name: 's 고치기' })) // 스케치 피처(id: s)
+  // 스케치 모달의 사각형 「너비」 칸.
+  fireEvent.click(await screen.findByRole('button', { name: '너비 변수로' }))
+  fireEvent.change(screen.getByLabelText('새 변수 이름'), { target: { value: '판_폭' } })
+  fireEvent.click(screen.getByRole('button', { name: '만들기' }))
+
+  const recipe = JSON.parse(screen.getByTestId('recipe').textContent!) as Recipe
+  expect(recipe.params).toEqual({ 판_폭: 40 })
+  expect((recipe.nodes[0].shapes as { width: unknown }[])[0].width).toBe('=판_폭')
+})

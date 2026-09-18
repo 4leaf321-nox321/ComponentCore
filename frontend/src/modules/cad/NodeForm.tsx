@@ -82,6 +82,7 @@ function VectorInput({
           <NumberInput
             params={params}
             onCreateParam={onCreateParam}
+            aria-label={labels[i]}
             value={current[i] ?? 0}
             onChange={(v) => {
               const next = [...current]
@@ -182,6 +183,7 @@ export function NodeForm({
             {field.kind === 'number' && (
               <NumberInput
                 id={`node-${field.key}`}
+                aria-label={field.label}
                 params={params}
                 onCreateParam={onCreateParam}
                 value={node[field.key]}

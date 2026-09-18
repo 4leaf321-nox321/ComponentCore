@@ -527,6 +527,7 @@ function ShapeForm({
       </Label>
       <NumberField
         id={`shape-${key}`}
+        aria-label={label}
         params={params}
         onCreateParam={onCreateParam}
         step={step}
