@@ -437,9 +437,12 @@ export default function WorkPage() {
           <WorkDoeTab
             workId={id}
             work={w}
+            // 저장하지 않은 고침이 있으면 DOE 는 그것을 못 본다 — 탭이 그 사실을 말하게 한다.
+            pendingDraft={editing && draft !== null && JSON.stringify(draft) !== JSON.stringify(w.current?.recipe)}
             onEditRecipe={() => {
               setTab('geometry')
-              startEditing()
+              // 이미 고치는 중이면 **다시 시작하지 않는다** — 적어 둔 것이 날아간다.
+              if (!editing) startEditing()
             }}
           />
         </TabsContent>

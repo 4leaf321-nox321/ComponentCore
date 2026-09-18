@@ -22,10 +22,13 @@ import { shownDateTime } from '@/shared/lib/datetime'
 export function WorkDoeTab({
   workId,
   work,
+  pendingDraft = false,
   onEditRecipe,
 }: {
   workId: string
   work: Work
+  /** 편집기에 **저장하지 않은** 고침이 있나. DOE 는 저장된 버전만 본다. */
+  pendingDraft?: boolean
   /** 부품 탭으로 옮겨 편집기를 연다 — 변수를 만들러 갈 때. */
   onEditRecipe?: () => void
 }) {
@@ -84,8 +87,32 @@ export function WorkDoeTab({
   }
 
   const rows = studies.data?.items ?? []
+  const names = Object.keys((work.current?.recipe.params ?? {}) as Record<string, number>)
   return (
     <div className="space-y-3">
+      {/* **무엇을 기준으로 훑는지** 먼저 말한다 — 여기서 어긋나면 「왜 안 되지」 가 된다. */}
+      <div className="bg-muted/40 flex flex-wrap items-center gap-2 rounded-md border p-2 text-xs">
+        <span className="font-medium">기준</span>
+        <span>
+          저장된 <b>v{work.current_version}</b>
+          {names.length > 0 ? ` · 변수 ${names.length}개 (${names.join(', ')})` : ' · 변수 없음'}
+        </span>
+        <Button size="sm" variant="ghost" className="ml-auto h-6 px-2 text-xs" onClick={() => studies.reload()}>
+          새로 고침
+        </Button>
+      </div>
+      {pendingDraft && (
+        <div className="border-destructive/40 bg-destructive/5 flex flex-wrap items-center gap-2 rounded-md border p-2 text-xs">
+          <span>
+            편집기에 <b>저장하지 않은 고침</b>이 있습니다 — DOE 는 저장된 버전만 봅니다. 부품 탭에서 「파일 › 새 버전으로」 저장하세요.
+          </span>
+          {onEditRecipe && (
+            <Button size="sm" variant="outline" className="ml-auto h-6 px-2 text-xs" onClick={onEditRecipe}>
+              부품 탭으로
+            </Button>
+          )}
+        </div>
+      )}
       <div className="flex items-center gap-2">
         <p className="text-muted-foreground text-sm">
           변수에 범위를 주면 형상을 여러 벌 만들어 **공유 폴더**에 STEP 으로 쏟습니다 — 해석으로 넘길 묶음입니다.
@@ -100,7 +127,7 @@ export function WorkDoeTab({
           title="아직 없습니다"
           hint="「새 실험계획」 을 누르고 바꿀 변수를 고르세요. 레시피에 변수가 먼저 있어야 합니다."
           action={
-            Object.keys((work.current?.recipe.params ?? {}) as Record<string, number>).length === 0 && onEditRecipe ? (
+            names.length === 0 && onEditRecipe ? (
               <Button variant="outline" onClick={onEditRecipe}>
                 레시피에 변수 만들러 가기
               </Button>
