@@ -1,8 +1,8 @@
 /**
- * 레시피 편집기가 아는 노드 종류와 칸 — **서버 `core/recipe/schema.py` 와 짝.**
+ * 레시피 편집기가 아는 피처 종류와 칸 — **서버 `core/recipe/schema.py` 와 짝.**
  *
  * 서버가 JSON Schema 를 주지만(`/cad/recipe/schema`) 폼의 말 · 순서 · 도움말은 사람이 정한다.
- * 연산을 더할 때 여기 한 항목과 서버의 노드 클래스를 함께 더한다 — `router.test` 처럼 어긋남을
+ * 연산을 더할 때 여기 한 항목과 서버의 피처 클래스를 함께 더한다 — `router.test` 처럼 어긋남을
  * 잡는 시험은 `recipeSpec.test.ts` 가 서버 스키마와 대조한다.
  */
 
@@ -30,7 +30,7 @@ export interface FieldSpec {
   options?: { value: string; label: string }[]
   step?: number
   help?: string
-  /** 어떤 종류의 앞 노드를 가리키나 — ref/refs 에서 고를 목록을 좁힌다. */
+  /** 어떤 종류의 앞 피처를 가리키나 — ref/refs 에서 고를 목록을 좁힌다. */
   refKind?: 'sketch' | 'solid' | 'any'
 }
 
@@ -40,7 +40,7 @@ export interface OpSpec {
   group: '스케치' | '입체' | '조합' | '마감' | '배치'
   help: string
   fields: FieldSpec[]
-  /** 새 노드의 기본값. id · label 은 만들 때 붙인다. */
+  /** 새 피처의 기본값. id · label 은 만들 때 붙인다. */
   defaults: Record<string, unknown>
 }
 
@@ -193,7 +193,7 @@ export const OP_SPECS: OpSpec[] = [
     op: 'pattern',
     label: '패턴',
     group: '배치',
-    help: '노드를 여러 벌 복제한다. 결과는 묶음이라 빼기의 도구나 합치기의 대상으로 쓴다.',
+    help: '피처를 여러 벌 복제한다. 결과는 묶음이라 빼기의 도구나 합치기의 대상으로 쓴다.',
     fields: [
       { key: 'source', label: '원본', kind: 'ref', refKind: 'any' },
       {
@@ -272,7 +272,7 @@ export function defaultShape(type: string): Record<string, unknown> {
   }
 }
 
-/** 새 노드 id — `<op>-<n>`, 안 겹치게. */
+/** 새 피처 id — `<op>-<n>`, 안 겹치게. */
 export function newNodeId(op: string, nodes: RecipeNode[]): string {
   const taken = new Set(nodes.map((n) => n.id))
   for (let n = 1; ; n += 1) {
@@ -286,7 +286,7 @@ export function makeNode(op: string, nodes: RecipeNode[]): RecipeNode {
   return { id: newNodeId(op, nodes), op, label: '', ...structuredClone(spec.defaults) }
 }
 
-/** 이 노드가 만드는 것이 스케치인가 입체인가 — ref 목록을 좁힐 때 쓴다. */
+/** 이 피처가 만드는 것이 스케치인가 입체인가 — ref 목록을 좁힐 때 쓴다. */
 export function nodeKind(node: RecipeNode, nodes: RecipeNode[]): 'sketch' | 'solid' {
   if (node.op === 'sketch') return 'sketch'
   if (node.op === 'pattern' || node.op === 'transform' || node.op === 'mirror') {
@@ -296,7 +296,7 @@ export function nodeKind(node: RecipeNode, nodes: RecipeNode[]): 'sketch' | 'sol
   return 'solid'
 }
 
-/** 노드가 가리키는 앞 노드 id 들. */
+/** 피처가 가리키는 앞 피처 id 들. */
 export function referencesOf(node: RecipeNode): string[] {
   const out: string[] = []
   for (const key of ['sketch', 'target', 'source']) {

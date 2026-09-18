@@ -32,8 +32,8 @@ PLATFORM_API_BASE=http://127.0.0.1:8061 ./venv/bin/python server.py
 | 도구 | 하는 일 |
 | --- | --- |
 | `get_guide(topic?)` | 레시피 규칙 · 작업 순서 · 지그 읽는 법 — **먼저 부른다** |
-| `recipe_schema` | 노드 종류 · 칸(JSON Schema) · 템플릿 넷 |
-| `recipe_check(recipe)` | 만들어 본다 — 통과하면 요약, 실패하면 어느 노드가 왜 |
+| `recipe_schema` | 피처 종류 · 칸(JSON Schema) · 템플릿 넷 |
+| `recipe_check(recipe)` | 만들어 본다 — 통과하면 요약, 실패하면 어느 피처가 왜 |
 | `list_works` · `get_work` · `list_versions` · `get_version` | 내 작업 읽기 |
 | `create_work` · `save_version` · `restore_version` | 새 작업(부품) · 새 버전(출처 ai) · 되돌리기 |
 | `jig_options` · `run_jig` · `list_jig_runs` · `get_job` | 지그 생성과 결과 |

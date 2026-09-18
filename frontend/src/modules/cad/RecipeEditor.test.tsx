@@ -22,7 +22,7 @@ beforeEach(() => {
 test('피처 트리를 그리고, 칸을 고치면 레시피가 바뀐다', async () => {
   const onChange = vi.fn()
   render(<RecipeEditor value={BOX} onChange={onChange} />)
-  // 트리에 두 노드 — 이름이 있으면 이름, 없으면 연산 이름. 누르면 모달이 뜬다.
+  // 트리에 두 피처 — 이름이 있으면 이름, 없으면 연산 이름. 누르면 모달이 뜬다.
   expect(screen.getByText('바닥')).toBeInTheDocument()
   fireEvent.click(screen.getAllByText('돌출')[0])
   const distance = screen.getByLabelText('거리 (mm)') as HTMLInputElement
@@ -34,14 +34,14 @@ test('피처 트리를 그리고, 칸을 고치면 레시피가 바뀐다', asyn
   expect(next.nodes[0]).toEqual(BOX.nodes[0])
 })
 
-test('스케치 노드를 고르면 캔버스가 뜬다', () => {
+test('스케치 피처를 고르면 캔버스가 뜬다', () => {
   render(<RecipeEditor value={BOX} onChange={() => {}} />)
   fireEvent.click(screen.getByText('바닥'))
   expect(screen.getByRole('button', { name: '선택 · 이동' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '+ 원' })).toBeInTheDocument()
 })
 
-test('id 를 바꾸면 그것을 가리키는 뒤 노드도 따라간다', async () => {
+test('id 를 바꾸면 그것을 가리키는 뒤 피처도 따라간다', async () => {
   const onChange = vi.fn()
   render(<RecipeEditor value={BOX} onChange={onChange} />)
   fireEvent.click(screen.getByText('바닥'))

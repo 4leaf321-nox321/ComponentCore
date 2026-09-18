@@ -8,12 +8,12 @@
 ## 도구가 몇 개뿐인 이유
 
 도구 목록이 길수록 모델은 엉뚱한 것을 고른다. 도구는 「작업 흐름」 단위로 고정하고, **무엇을
-만들 수 있는가**(노드 종류 · 칸)는 `recipe_schema` 와 `get_guide` 가 말한다 — 동적인 것은
+만들 수 있는가**(피처 종류 · 칸)는 `recipe_schema` 와 `get_guide` 가 말한다 — 동적인 것은
 도구가 아니라 스키마다.
 
 ## AI 의 자기 수정 루프
 
-`recipe_check` 가 레시피를 **실제로 만들어 본다.** 실패하면 어느 노드가 왜인지가 돌아오고,
+`recipe_check` 가 레시피를 **실제로 만들어 본다.** 실패하면 어느 피처가 왜인지가 돌아오고,
 AI 는 그것을 읽고 고쳐 다시 부른다. 통과한 레시피만 `save_version` 으로 저장한다 — 저장은 늘
 **내 작업의 새 버전**(출처 "ai")이고, 사람이 화면에서 보고 승격한다.
 
@@ -195,7 +195,7 @@ async def get_guide(ctx: Context, topic: str | None = None) -> dict[str, Any]:
     """**시작하기 전에 먼저 부른다.** 레시피가 무엇이고 어떤 순서로 도구를 쓰는지가 여기 있다.
 
     `topic` 없이 부르면 overview. 세부가 필요하면 그때 주제를 지정한다:
-      - `recipe`   노드 종류 · 좌표계 · 자주 하는 실수
+      - `recipe`   피처 종류 · 좌표계 · 자주 하는 실수
       - `workflow` 그리기 → 검증 → 저장 → 지그 → 승격의 순서
       - `jig`      지그 생성 옵션과 결과 읽는 법"""
     del ctx
@@ -222,7 +222,7 @@ async def get_guide(ctx: Context, topic: str | None = None) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 @mcp.tool()
 async def recipe_schema(ctx: Context) -> Any:
-    """레시피의 **노드 종류와 칸**(JSON Schema), 내장 템플릿 넷(상자 · 원기둥 · 구멍판 · L
+    """레시피의 **피처 종류와 칸**(JSON Schema), 내장 템플릿 넷(상자 · 원기둥 · 구멍판 · L
     브래킷), 그리고 사용자가 저장한 템플릿(`saved_templates`). 새로 그릴 때는 템플릿에서 시작해
     고치는 것이 빠르다."""
     schema = await _get(ctx, "/api/cad/recipe/schema")
@@ -243,7 +243,7 @@ async def recipe_schema(ctx: Context) -> Any:
 @mcp.tool()
 async def recipe_check(ctx: Context, recipe: dict[str, Any]) -> Any:
     """레시피를 **실제로 만들어 본다.** 통과하면 크기 · 부피 · 면 수 · 노드별 요약이, 실패하면
-    어느 노드가 왜인지가 돌아온다. **저장 전에 반드시 이것을 통과시킨다** — 실패 메시지를 읽고
+    어느 피처가 왜인지가 돌아온다. **저장 전에 반드시 이것을 통과시킨다** — 실패 메시지를 읽고
     고쳐 다시 부른다(필렛이 크다 · 앞에 없는 노드 · 스케치가 결과 등)."""
     problems = await _post(ctx, "/api/cad/recipe/check", {"recipe": recipe})
     if isinstance(problems, dict) and problems.get("problems"):

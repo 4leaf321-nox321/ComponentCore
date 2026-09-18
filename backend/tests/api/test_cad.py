@@ -32,7 +32,7 @@ def test_검증_미리보기_STEP(client: TestClient, member: Signed) -> None:
         },
         headers=member.headers,
     )
-    assert bad.json()["ok"] is False and "앞에 없는 노드" in bad.json()["problems"][0]
+    assert bad.json()["ok"] is False and "앞에 없는 피처" in bad.json()["problems"][0]
 
     info = client.post("/api/cad/recipe/info", json={"recipe": BOX}, headers=member.headers)
     assert info.status_code == 200, info.text

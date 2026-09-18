@@ -1,5 +1,5 @@
 /**
- * 편집기의 노드 목록이 서버 스키마와 어긋나지 않는지 — 서버가 연산을 더하면 여기서 드러난다.
+ * 편집기의 피처 목록이 서버 스키마와 어긋나지 않는지 — 서버가 연산을 더하면 여기서 드러난다.
  *
  * openapi.json 이 아니라 서버가 export 한 JSON Schema 를 읽고 싶지만 시험은 서버 없이 돈다.
  * 대신 백엔드 `core/recipe/schema.py` 의 op 리터럴을 파일에서 긁는다.
@@ -19,7 +19,7 @@ test('서버의 모든 연산이 편집기에 있다', () => {
   for (const spec of OP_SPECS) expect(ops, spec.op).toContain(spec.op)
 })
 
-test('새 노드의 기본값은 스키마의 칸만 쓴다', () => {
+test('새 피처의 기본값은 스키마의 칸만 쓴다', () => {
   for (const spec of OP_SPECS) {
     const node = makeNode(spec.op, [])
     expect(node.id).toBe(`${spec.op}-1`)

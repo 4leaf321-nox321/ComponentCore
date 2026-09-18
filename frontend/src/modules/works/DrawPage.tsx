@@ -36,7 +36,7 @@ import {
 } from '@/shared/components/ui/select'
 import { useResource } from '@/shared/hooks/useResource'
 
-/** 템플릿 없이 — 노드를 하나씩 더해 처음부터 그린다. */
+/** 템플릿 없이 — 피처를 하나씩 더해 처음부터 그린다. */
 const EMPTY = '__empty__'
 
 export default function DrawPage() {
@@ -178,7 +178,7 @@ export default function DrawPage() {
           </Button>
         )}
         <span className="text-muted-foreground text-xs">
-          {template === EMPTY ? '「+ 노드」 로 스케치를 놓고 돌출하면 입체가 됩니다.' : '템플릿의 치수를 고쳐 쓰세요. 고르면 지금 것은 사라집니다.'}
+          {template === EMPTY ? '「+ 피처」 로 스케치를 놓고 돌출하면 입체가 됩니다.' : '템플릿의 치수를 고쳐 쓰세요. 고르면 지금 것은 사라집니다.'}
         </span>
       </div>
 

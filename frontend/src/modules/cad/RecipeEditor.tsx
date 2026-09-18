@@ -1,5 +1,5 @@
 /**
- * 레시피 편집기 — 피처 트리(왼쪽) · 3D(넓게). 노드를 누르면 **모달**에서 칸 · 스케치 캔버스를
+ * 레시피 편집기 — 피처 트리(왼쪽) · 3D(넓게). 피처를 누르면 **모달**에서 칸 · 스케치 캔버스를
  * 고친다 — 도면이 넓어야 보이고, 칸은 잠깐만 필요하다.
  *
  * 계약: 레시피 in → 레시피 out. 칸을 고칠 때마다 서버에 모양을 묻고(`check`), 맞으면 자동으로
@@ -86,7 +86,7 @@ export function RecipeEditor({
   function updateNode(next: RecipeNode) {
     const before = nodes.find((n) => n.id === selectedId)
     let list = nodes.map((n) => (n.id === selectedId ? next : n))
-    // id 를 바꿨으면 그것을 가리키는 뒤 노드도 따라 바꾼다.
+    // id 를 바꿨으면 그것을 가리키는 뒤 피처도 따라 바꾼다.
     if (before && before.id !== next.id) {
       list = list.map((n) => renameRef(n, before.id, next.id))
       setSelectedId(next.id)
@@ -96,7 +96,7 @@ export function RecipeEditor({
 
   function addNode(op: string) {
     const made = makeNode(op, nodes)
-    // 참조 칸은 바로 앞의 알맞은 노드로 미리 채운다 — 「돌출」 을 누르면 방금 그린 스케치가 들어간다.
+    // 참조 칸은 바로 앞의 알맞은 피처로 미리 채운다 — 「돌출」 을 누르면 방금 그린 스케치가 들어간다.
     const spec = OP_BY_NAME[op]
     for (const field of spec.fields) {
       if (field.kind === 'ref') {
@@ -111,7 +111,7 @@ export function RecipeEditor({
 
   function removeNode(id: string) {
     const dependents = nodes.filter((n) => referencesOf(n).includes(id))
-    if (dependents.length > 0 && !window.confirm(`${dependents.map((d) => d.id).join(', ')} 이(가) 이 노드를 씁니다. 함께 지웁니까?`)) return
+    if (dependents.length > 0 && !window.confirm(`${dependents.map((d) => d.id).join(', ')} 이(가) 이 피처를 씁니다. 함께 지웁니까?`)) return
     const doomed = new Set([id, ...closure(id, nodes)])
     const list = nodes.filter((n) => !doomed.has(n.id))
     replaceNodes(list, value.result && doomed.has(value.result) ? null : undefined)
@@ -215,7 +215,7 @@ export function RecipeEditor({
       <div className="flex flex-wrap items-center gap-2">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="sm">+ 노드</Button>
+            <Button size="sm">+ 피처</Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-56">
             {GROUPS.map((group, gi) => (
@@ -258,7 +258,7 @@ export function RecipeEditor({
           <div className="lg:col-span-3">
             {nodes.length === 0 ? (
               <div className="text-muted-foreground rounded-md border border-dashed p-3 text-xs">
-                빈 레시피입니다. 「+ 노드」 → 스케치부터 시작하세요. 스케치를 그리고 「돌출」 을 더하면
+                빈 레시피입니다. 「+ 피처」 → 스케치부터 시작하세요. 스케치를 그리고 「돌출」 을 더하면
                 입체가 됩니다.
               </div>
             ) : (
@@ -288,7 +288,7 @@ export function RecipeEditor({
               </ol>
             )}
             {value.result && value.result !== nodes[nodes.length - 1]?.id && (
-              <p className="text-muted-foreground mt-2 text-xs">결과 노드: {value.result}</p>
+              <p className="text-muted-foreground mt-2 text-xs">결과 피처: {value.result}</p>
             )}
             {problems.length > 0 && (
               <ul className="text-destructive mt-2 list-inside list-disc text-xs">
@@ -308,7 +308,7 @@ export function RecipeEditor({
               </Button>
               {edgePicking && (
                 <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-                  엣지 고르는 중 — 노드 열기
+                  엣지 고르는 중 — 피처 열기
                 </Button>
               )}
               <span className="text-muted-foreground text-xs">
@@ -316,7 +316,7 @@ export function RecipeEditor({
                   ? '3D 에서 면을 누르면 그 면 위에 스케치가 생깁니다.'
                   : pickMode === 'edge'
                     ? `엣지를 눌러 고릅니다 (${(selected?.edges as { near?: number[][] })?.near?.length ?? 0} 개). 다시 누르면 뺍니다.`
-                    : '끌어서 돌리고, 굴려서 확대합니다. 왼쪽 노드를 누르면 고칩니다.'}
+                    : '끌어서 돌리고, 굴려서 확대합니다. 왼쪽 피처를 누르면 고칩니다.'}
               </span>
             </div>
             {mesh ? (
@@ -332,7 +332,7 @@ export function RecipeEditor({
               </Suspense>
             ) : (
               <div className="text-muted-foreground flex h-[600px] items-center justify-center rounded-md border border-dashed text-sm">
-                {nodes.length === 0 ? '노드를 더하면 여기에 그려집니다.' : valid ? '그리는 중…' : '레시피가 맞으면 여기에 그려집니다.'}
+                {nodes.length === 0 ? '피처를 더하면 여기에 그려집니다.' : valid ? '그리는 중…' : '레시피가 맞으면 여기에 그려집니다.'}
               </div>
             )}
             {summary?.is_sketch && (
@@ -350,7 +350,7 @@ export function RecipeEditor({
             {summary && (
               <p className="text-muted-foreground mt-1 text-xs">
                 {summary.bbox.size.map((v) => v.toFixed(1)).join(' × ')} mm
-                {!summary.is_sketch && ` · 부피 ${summary.volume.toLocaleString()} mm³`} · 면 {summary.face_count} · 노드{' '}
+                {!summary.is_sketch && ` · 부피 ${summary.volume.toLocaleString()} mm³`} · 면 {summary.face_count} · 피처{' '}
                 {summary.nodes.length}
               </p>
             )}
@@ -358,7 +358,7 @@ export function RecipeEditor({
         </div>
       )}
 
-      {/* 노드 편집 모달 — 머리글 · 바닥글은 붙박이, 가운데만 굴러서 화면 밖으로 안 나간다(DialogContent). */}
+      {/* 피처 편집 모달 — 머리글 · 바닥글은 붙박이, 가운데만 굴러서 화면 밖으로 안 나간다(DialogContent). */}
       <Dialog open={editing && selected !== null} onOpenChange={(open) => !open && setEditing(false)}>
         <DialogContent className={selected?.op === 'sketch' ? 'sm:max-w-5xl' : 'sm:max-w-xl'}>
           {selected && (
@@ -423,7 +423,7 @@ function renameRef(node: RecipeNode, from: string, to: string): RecipeNode {
   return next
 }
 
-/** id 를 (직접이든 건너서든) 쓰는 뒤 노드 전부. */
+/** id 를 (직접이든 건너서든) 쓰는 뒤 피처 전부. */
 function closure(id: string, nodes: RecipeNode[]): string[] {
   const out = new Set<string>()
   let changed = true

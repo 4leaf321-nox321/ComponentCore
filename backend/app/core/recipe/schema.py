@@ -264,11 +264,11 @@ class Recipe(BaseModel):
                     if name not in seen:
                         raise ValueError(
                             f"nodes[{index}] ({node.id}).{key}: "
-                            f"'{name}' 은 앞에 없는 노드입니다"
+                            f"'{name}' 은 앞에 없는 피처입니다"
                         )
             seen.add(node.id)
         if self.result is not None and self.result not in seen:
-            raise ValueError(f"result: '{self.result}' 노드가 없습니다")
+            raise ValueError(f"result: '{self.result}' 피처가 없습니다")
         return self
 
     @property
@@ -315,7 +315,7 @@ _MESSAGES: dict[str, str] = {
     "string_pattern_mismatch": "쓸 수 없는 문자가 있습니다",
     "string_too_short": "값이 필요합니다",
     "string_too_long": "너무 깁니다",
-    "extra_forbidden": "이 노드에는 없는 칸입니다",
+    "extra_forbidden": "이 피처에는 없는 칸입니다",
     "int_parsing": "정수여야 합니다",
     "float_parsing": "숫자여야 합니다",
     "bool_parsing": "예/아니오 값이어야 합니다",

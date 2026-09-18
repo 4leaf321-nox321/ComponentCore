@@ -162,7 +162,7 @@ def _as_part(shape: Shape, node_id: str) -> Part:
         return shape
     if isinstance(shape, Sketch):
         raise RecipeError(
-            node_id, "스케치는 여기 쓸 수 없습니다 — 먼저 extrude · revolve 하세요"
+            node_id, "스케치는 여기 쓸 수 없습니다 — 먼저 돌출(extrude) · 회전(revolve) 하세요"
         )
     return Part(shape.wrapped)
 

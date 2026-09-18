@@ -1,4 +1,4 @@
-/** 노드 하나의 칸들 — `recipeSpec` 의 FieldSpec 을 그린다. 스케치의 도형은 SketchCanvas 가 맡는다. */
+/** 피처 하나의 칸들 — `recipeSpec` 의 FieldSpec 을 그린다. 스케치의 도형은 SketchCanvas 가 맡는다. */
 
 import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
@@ -109,7 +109,7 @@ export function NodeForm({
   onChange,
 }: {
   node: RecipeNode
-  /** 레시피 전체 — 이 노드보다 **앞의** 것만 참조 후보가 된다. */
+  /** 레시피 전체 — 이 피처보다 **앞의** 것만 참조 후보가 된다. */
   nodes: RecipeNode[]
   onChange: (next: RecipeNode) => void
 }) {
@@ -222,7 +222,7 @@ export function NodeForm({
                     </label>
                   )
                 })}
-                {candidatesFor(field).length === 0 && <p className="text-muted-foreground text-xs">앞에 고를 노드가 없습니다.</p>}
+                {candidatesFor(field).length === 0 && <p className="text-muted-foreground text-xs">앞에 고를 피처가 없습니다.</p>}
               </div>
             )}
             {field.kind === 'points' && (

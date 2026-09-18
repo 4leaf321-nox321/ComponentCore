@@ -55,7 +55,7 @@ def test_상자_하나() -> None:
 def test_앞에_없는_노드를_가리키면_거절() -> None:
     with pytest.raises(RecipeValidationError) as caught:
         parse({"nodes": [{"id": "b", "op": "extrude", "sketch": "s", "distance": 5}]})
-    assert "앞에 없는 노드" in caught.value.problems[0]
+    assert "앞에 없는 피처" in caught.value.problems[0]
 
 
 def test_id_가_겹치면_거절() -> None:
