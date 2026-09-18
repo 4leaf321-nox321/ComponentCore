@@ -259,24 +259,68 @@ def _post_hits_rest(px: float, py: float, post: float, rests: list[LocatorSpec])
     return False
 
 
+def _arm_clear(
+    geometry: ProductGeometry,
+    pad: tuple[float, float, float],
+    post: tuple[float, float],
+    opts: JigOptions,
+) -> bool:
+    """팔이 기둥에서 패드까지 가는 길 위에 제품이 없나 — 팔 높이에서 제품 안을 지나면 관통이다.
+
+    실측: 벽 앞의 바닥판을 누르려는 클램프의 기둥이 벽 **뒤** 에 서서 팔이 벽을 뚫고 갔다. 간섭
+    검사가 잡았지만 계획이 먼저 피해야 사람이 고칠 일이 안 된다."""
+    x, y, z = pad
+    px, py = post
+    arm_z = z + opts.clamp_clearance_above + opts.clamp_arm_thickness / 2
+    steps = 12
+    for k in range(1, steps):
+        t = k / steps
+        sx, sy = px + (x - px) * t, py + (y - py) * t
+        if geometry.shape.is_inside((sx, sy, arm_z)):
+            return False
+    return True
+
+
 def _place_post(
-    x: float,
-    y: float,
+    geometry: ProductGeometry,
+    pad: tuple[float, float, float],
     half_x: float,
     half_y: float,
     margin: float,
-    post: float,
+    opts: JigOptions,
     rests: list[LocatorSpec],
-) -> tuple[float, float]:
-    """패드에서 가장 가까운 제품 바깥 변에 기둥을 세운다. 레스트와 겹치면 다른 변, 그래도
-    겹치면 그 변을 따라 옮긴다 — 겹치는 채로 두면 간섭 검사가 잡지만 사람이 고칠 일이 된다."""
+) -> tuple[float, float] | None:
+    """패드에서 가장 가까운 제품 바깥 변에 기둥을 세운다. 레스트와 겹치거나 팔이 제품을 지나면
+    다른 변, 그래도 안 되면 변을 따라 옮긴다. 어디도 안 되면 None — 그 패드 자리는 버린다."""
+    x, y, _ = pad
+    post = opts.clamp_post_size
     dx, dy = half_x - abs(x), half_y - abs(y)
     on_x_edge = (math.copysign(half_x + margin / 2, x or 1), y)
     on_y_edge = (x, math.copysign(half_y + margin / 2, y or 1))
-    candidates = [on_x_edge, on_y_edge] if dx <= dy else [on_y_edge, on_x_edge]
+    near = [on_x_edge, on_y_edge] if dx <= dy else [on_y_edge, on_x_edge]
+    candidates = [*near, (-on_x_edge[0], y), (x, -on_y_edge[1])]
+
+    def ok(px: float, py: float) -> bool:
+        return not _post_hits_rest(px, py, post, rests) and _arm_clear(
+            geometry, pad, (px, py), opts
+        )
+
     for px, py in candidates:
-        if not _post_hits_rest(px, py, post, rests):
+        if ok(px, py):
             return px, py
+    # 판 모서리(여유 폭의 절반)까지는 나가도 된다 — 기둥은 제품이 아니라 판 위에 선다.
+    limit_y, limit_x = half_y + margin / 2, half_x + margin / 2
+    for px, py in candidates:
+        along_y = abs(px) > half_x  # X 쪽 변에 섰으면 Y 를 따라 옮긴다
+        for k in range(1, 12):
+            for sign in (1, -1):
+                shift = sign * k * post / 2
+                nx, ny = (px, py + shift) if along_y else (px + shift, py)
+                if (abs(ny) > limit_y) if along_y else (abs(nx) > limit_x):
+                    continue
+                if ok(nx, ny):
+                    return nx, ny
+    return None
     # 변을 따라 옮긴다.
     px, py = candidates[0]
     along_y = abs(px) > half_x  # X 쪽 변에 섰으면 Y 를 따라 옮긴다
@@ -304,12 +348,24 @@ def _pick_clamps(
     size_x, size_y = geometry.bbox.size[0], geometry.bbox.size[1]
     half_x, half_y = size_x / 2, size_y / 2
 
-    # 후보: 가장 넓은 윗면들의 들여 놓은 모서리 · 중심. 패드가 면 안에 온전히 들어가야 한다.
+    # 후보: 가장 넓은 윗면들의 들여 놓은 모서리 · 변의 중점 · 중심. 패드가 면 안에 온전히
+    # 들어가야 한다. 모서리만 보면 모서리마다 구멍이 있는 부품에서 후보가 하나도 안 남는다
+    # (실측).
     candidates: list[tuple[float, float, float]] = []
     for face in tops[:3]:
         z = face.center().Z
-        for x, y in [*_inset_rectangle(face, pad_r + 2), (face.center().X, face.center().Y)]:
-            if _on_face(face, x, y, pad_r):
+        corners = _inset_rectangle(face, pad_r + 2)
+        points = [*corners, (face.center().X, face.center().Y)]
+        if len(corners) == 4:
+            (x0, y0), (x1, _), (_, y1), _ = corners
+            points += [
+                ((x0 + x1) / 2, y0),
+                ((x0 + x1) / 2, y1),
+                (x0, (y0 + y1) / 2),
+                (x1, (y0 + y1) / 2),
+            ]
+        for x, y in points:
+            if _on_face(face, x, y, pad_r) and (x, y, z) not in candidates:
                 candidates.append((x, y, z))
     if not candidates:
         notes.append("클램프 패드가 온전히 놓일 윗면이 없습니다.")
@@ -329,15 +385,27 @@ def _pick_clamps(
             break
         chosen.append(best)
 
+    if len(chosen) < opts.clamp_count and not any("클램프를" in n for n in notes):
+        notes.append(
+            f"클램프를 {opts.clamp_count} 개 시켰지만 패드가 놓일 자리가 {len(chosen)} "
+            f"곳뿐입니다 — 구멍과 가장자리를 피한 자리가 그만큼입니다."
+        )
     margin = opts.plate_margin
     post = opts.clamp_post_size
     rests = [one for one in locators if one.kind == "rest"]
     if margin / 2 < post / 2 + 1:
         notes.append("판 여유(plate_margin)가 좁아 클램프 기둥이 제품에 닿을 수 있습니다.")
     out: list[ClampSpec] = []
-    for index, (x, y, z) in enumerate(chosen):
+    for x, y, z in chosen:
         # 기둥은 패드에서 가장 가까운 제품 바깥 변에, 판 여유의 한가운데 선다.
-        px, py = _place_post(x, y, half_x, half_y, margin, post, rests)
+        placed = _place_post(geometry, (x, y, z), half_x, half_y, margin, opts, rests)
+        if placed is None:
+            notes.append(
+                f"({x:.0f}, {y:.0f}) 자리는 팔이 제품을 지나야 해서 클램프를 두지 않았습니다."
+            )
+            continue
+        px, py = placed
+        index = len(out)
         out.append(
             ClampSpec(
                 label=f"clamp-{index + 1}",

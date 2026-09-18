@@ -19,6 +19,7 @@ from build123d import (
     Circle,
     Compound,
     Cylinder,
+    GeomType,
     Location,
     Part,
     Plane,
@@ -160,6 +161,19 @@ def _as_part(shape: Shape, node_id: str) -> Part:
     return Part(shape.wrapped)
 
 
+def _seam_edges(part: Part) -> list[Any]:
+    """곡면(원기둥 · 원뿔 …)의 이음선 — 한 면에만 속한 엣지. 필렛하면 OCC 가 터진다.
+
+    `vertical` 로 고르면 구멍의 이음선이 수직선이라 함께 잡힌다(실측 — AI 가 첫 시도에서
+    걸렸다). 이름 있는 선택자는 **평면 사이의 진짜 모서리**만 뜻하게 한다."""
+    seams: list[Any] = []
+    for face in part.faces():
+        if face.geom_type == GeomType.PLANE:
+            continue
+        seams.extend(face.edges())
+    return seams
+
+
 def _edges(part: Part, select: S.EdgeSelect, node_id: str) -> Any:
     edges = part.edges()
     if isinstance(select, S.EdgeNear):
@@ -175,10 +189,15 @@ def _edges(part: Part, select: S.EdgeSelect, node_id: str) -> Any:
                 f"고른 자리 {len(targets)} 곳 중 {len(edges)} 곳에서만 엣지를 찾았습니다 — "
                 f"형상이 바뀌어 그 자리에 엣지가 없습니다",
             )
-    elif select == "vertical":
-        edges = edges.filter_by(Axis.Z)
-    elif select == "horizontal":
-        edges = [e for e in edges if abs(e.tangent_at(0.5).Z) < 1e-6]
+    elif select in ("vertical", "horizontal"):
+        seams = _seam_edges(part)
+        straight = [e for e in edges if e.geom_type == GeomType.LINE]
+        picked = (
+            [e for e in straight if abs(e.tangent_at(0.5).Z) > 1 - 1e-6]
+            if select == "vertical"
+            else [e for e in straight if abs(e.tangent_at(0.5).Z) < 1e-6]
+        )
+        edges = [e for e in picked if not any(e.is_same(seam) for seam in seams)]
     elif select == "top":
         edges = part.faces().sort_by(Axis.Z)[-1].edges()
     elif select == "bottom":

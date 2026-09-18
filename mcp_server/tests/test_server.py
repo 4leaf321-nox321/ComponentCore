@@ -50,3 +50,38 @@ def test_작업_요약은_큰_것을_뺀다() -> None:
     slim = server._slim_job(job)
     assert slim["job_id"] == "j" and "progress" not in slim
     assert slim["artifacts"] == [{"kind": "jig_step", "id": "a", "filename": "jig.step"}]
+
+
+def test_폴링은_error_null_을_오류로_읽지_않는다(monkeypatch) -> None:
+    """작업 응답은 `"error": null` 을 늘 든다 — 그것을 오류 봉투로 보면 running 인 채로
+    돌아온다."""
+    states = iter(
+        [
+            {"id": "j", "kind": "jig", "status": "running", "error": None},
+            {
+                "id": "j",
+                "kind": "jig",
+                "status": "done",
+                "error": None,
+                "summary": {"ok": 1},
+                "artifacts": [],
+            },
+        ]
+    )
+
+    async def fake_get(ctx, path, params=None):
+        return next(states)
+
+    real_sleep = asyncio.sleep
+
+    async def no_sleep(_seconds: float) -> None:
+        await real_sleep(0)
+
+    monkeypatch.setattr(server, "_get", fake_get)
+    monkeypatch.setattr(server.asyncio, "sleep", no_sleep)
+    got = asyncio.run(
+        server._wait_job(
+            SimpleNamespace(), {"id": "j", "kind": "jig", "status": "queued", "error": None}
+        )
+    )
+    assert got["status"] == "done" and got["summary"] == {"ok": 1}

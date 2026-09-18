@@ -77,3 +77,46 @@ def test_옵션은_모르는_키를_버린다() -> None:
     opts = JigOptions.from_dict({"support_count": 3, "nonsense": 1})
     assert opts.support_count == 3
     assert "nonsense" not in opts.to_dict()
+
+
+def test_모서리마다_구멍이_있어도_클램프_자리를_찾는다(tmp_path: Path) -> None:
+    """모서리 후보가 전부 구멍에 걸리면 변의 중점이 받는다. 적게 놓이면 말한다."""
+    result = pipeline.run(
+        {
+            "kind": "plate_with_holes",
+            "length": 100,
+            "width": 60,
+            "thickness": 12,
+            "hole_margin": 12,
+        },
+        JigOptions(export_gltf=False, clamp_count=2),
+        tmp_path,
+    )
+    assert len(result.plan.clamps) == 2, result.plan.notes
+    tiny = pipeline.run(
+        {
+            "kind": "plate_with_holes",
+            "length": 50,
+            "width": 40,
+            "thickness": 8,
+            "hole_margin": 10,
+        },
+        JigOptions(export_gltf=False, clamp_count=2),
+        tmp_path / "tiny",
+    )
+    if len(tiny.plan.clamps) < 2:
+        assert any("클램프를" in n for n in tiny.plan.notes)  # 어느 쪽이든 이유를 말한다
+
+
+def test_클램프_팔은_벽을_지나지_않는다(tmp_path: Path) -> None:
+    """벽 앞의 바닥판을 누르는 클램프 — 기둥이 벽 뒤에 서면 팔이 벽을 뚫는다(실측)."""
+    result = pipeline.run(
+        {"kind": "bracket", "length": 90, "width": 60, "height": 45, "thickness": 8},
+        JigOptions(export_gltf=False, clamp_count=2),
+        tmp_path,
+    )
+    assert result.interference.ok, result.interference.summary()
+    for clamp in result.plan.clamps:
+        # 벽은 -Y 쪽(y < -22). 패드가 벽 앞(y > -22)이면 기둥도 벽 뒤(-Y 변)에 서면 안 된다.
+        if clamp.pad_position[1] > -22:
+            assert clamp.post_position[1] > -30, clamp

@@ -229,3 +229,21 @@ def test_면_위_평면과_위치로_고른_엣지() -> None:
     with pytest.raises(RecipeError) as caught:
         evaluate(parse(gone))
     assert "찾았습니다" in caught.value.message
+
+
+def test_vertical_은_구멍_이음선을_빼고_고른다() -> None:
+    """구멍이 있는 판에 `vertical` 필렛 — 원기둥면의 이음선을 함께 잡으면 OCC 가 터진다."""
+    recipe = {
+        "nodes": [
+            {
+                "id": "s",
+                "op": "sketch",
+                "shapes": [{"type": "rect", "width": 60, "height": 40}],
+            },
+            {"id": "b", "op": "extrude", "sketch": "s", "distance": 10},
+            {"id": "h", "op": "hole", "target": "b", "at": [[-20, 0], [20, 0]], "diameter": 6},
+            {"id": "f", "op": "fillet", "target": "h", "edges": "vertical", "radius": 5},
+        ]
+    }
+    evaluation = evaluate(parse(recipe))
+    assert len(evaluation.shape.faces()) == 6 + 2 + 4  # 구멍 둘 + 필렛 넷

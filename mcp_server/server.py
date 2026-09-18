@@ -123,7 +123,9 @@ async def _wait_job(ctx: Context, job: Any) -> Any:
             return current
         await asyncio.sleep(1.0)
         current = await _get(ctx, f"/api/jobs/{job['id']}")
-        if "error" in current:
+        # 오류 봉투는 {"error": "..."} 뿐이고 작업 응답은 `"error": null` 칸을 **늘** 든다 —
+        # `"error" in current` 로 가르면 running 인 작업을 오류로 잘못 읽는다(실측).
+        if not isinstance(current, dict) or "kind" not in current:
             return current
     return current
 
