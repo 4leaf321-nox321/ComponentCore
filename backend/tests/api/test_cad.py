@@ -60,7 +60,7 @@ def test_만들지_못하는_레시피는_노드를_말한다(client: TestClient
 def test_템플릿_저장_공용_삭제(client: TestClient, member: Signed, admin: Signed) -> None:
     made = client.post(
         "/api/cad/templates",
-        json={"name": "내 상자", "recipe": BOX, "description": "40×30×10"},
+        json={"name": "내 상자", "recipe": BOX, "description": "40x30x10"},
         headers=member.headers,
     )
     assert made.status_code == 201, made.text
@@ -90,3 +90,44 @@ def test_템플릿_저장_공용_삭제(client: TestClient, member: Signed, admi
         == 204
     )
     assert client.get("/api/cad/templates", headers=member.headers).json() == []
+
+
+def test_스케치만_있어도_미리보기는_보이고_저장은_거절(
+    client: TestClient, member: Signed
+) -> None:
+    """처음부터 그리면 반드시 「스케치만 있는」 순간을 지난다 — 그때 빨간 오류가 뜨면 안
+    된다."""
+    sketch_only = {
+        "nodes": [
+            {
+                "id": "s",
+                "op": "sketch",
+                "shapes": [{"type": "rect", "width": 40, "height": 30}],
+            }
+        ]
+    }
+    info = client.post(
+        "/api/cad/recipe/info", json={"recipe": sketch_only}, headers=member.headers
+    )
+    assert info.status_code == 200, info.text
+    summary = info.json()["summary"]
+    assert (
+        summary["is_sketch"] is True and summary["solid_count"] == 0 and summary["volume"] == 0
+    )
+    assert summary["warnings"] and "돌출" in summary["warnings"][0]
+    mesh = client.post(
+        "/api/cad/recipe/mesh", json={"recipe": sketch_only}, headers=member.headers
+    )
+    assert mesh.status_code == 200 and len(mesh.json()["mesh"]["faces"]) == 1
+    # STEP 과 저장은 입체여야 한다.
+    step = client.post(
+        "/api/cad/recipe/step", json={"recipe": sketch_only}, headers=member.headers
+    )
+    assert step.status_code == 400 and step.json()["error"]["details"]["node_id"] == "s"
+    work = client.post(
+        "/api/works", json={"name": "2D", "recipe": sketch_only}, headers=member.headers
+    )
+    assert work.status_code == 201  # 모양은 맞으니 저장은 되고
+    assert (
+        work.json()["current"]["job"]["status"] == "failed"
+    )  # 평가가 「입체를 만드세요」 로 실패한다

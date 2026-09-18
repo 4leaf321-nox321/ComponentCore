@@ -2346,7 +2346,7 @@
           "cad"
         ],
         "summary": "Recipe Preview",
-        "description": "미리보기 glTF.",
+        "description": "미리보기 glTF. 스케치까지만 그렸으면 면으로 보인다.",
         "operationId": "recipe_preview_api_cad_recipe_preview_post",
         "requestBody": {
           "content": {
@@ -2386,7 +2386,7 @@
           "cad"
         ],
         "summary": "Recipe Mesh",
-        "description": "면 · 엣지 단위 메시 + 요약 — 편집기의 미리보기이자 「3D 에서 고르기」 의 근거.",
+        "description": "면 · 엣지 단위 메시 + 요약 — 편집기의 미리보기이자 「3D 에서 고르기」 의 근거.\n스케치까지만 그렸으면 면으로 보인다.",
         "operationId": "recipe_mesh_api_cad_recipe_mesh_post",
         "requestBody": {
           "content": {

@@ -11,6 +11,8 @@ export interface RecipeSchema {
 }
 
 export interface RecipeSummary {
+  /** 아직 2D — 스케치까지만 그렸다. 저장 · 지그는 입체여야 한다. */
+  is_sketch: boolean
   bbox: { min: number[]; max: number[]; size: number[] }
   volume: number
   surface_area: number

@@ -60,13 +60,13 @@ def recipe_check(payload: RecipeRequest, _: User = Depends(current_user)) -> Rec
 @router.post("/recipe/info", response_model=RecipeInfoOut)
 def recipe_info(payload: RecipeRequest, _: User = Depends(current_user)) -> RecipeInfoOut:
     """만들어 본 요약(크기 · 부피 · 노드별 정보). 실패하면 어느 노드가 왜인지."""
-    return RecipeInfoOut(summary=services.build(payload.recipe).summary())
+    return RecipeInfoOut(summary=services.build(payload.recipe, allow_sketch=True).summary())
 
 
 @router.post("/recipe/preview")
 def recipe_preview(payload: RecipeRequest, _: User = Depends(current_user)) -> Response:
-    """미리보기 glTF."""
-    evaluation = services.build(payload.recipe)
+    """미리보기 glTF. 스케치까지만 그렸으면 면으로 보인다."""
+    evaluation = services.build(payload.recipe, allow_sketch=True)
     with tempfile.TemporaryDirectory() as folder:
         target = Path(folder) / "preview.glb"
         export.write_gltf(evaluation.shape, target)
@@ -75,8 +75,9 @@ def recipe_preview(payload: RecipeRequest, _: User = Depends(current_user)) -> R
 
 @router.post("/recipe/mesh")
 def recipe_mesh(payload: RecipeRequest, _: User = Depends(current_user)) -> dict[str, Any]:
-    """면 · 엣지 단위 메시 + 요약 — 편집기의 미리보기이자 「3D 에서 고르기」 의 근거."""
-    evaluation = services.build(payload.recipe)
+    """면 · 엣지 단위 메시 + 요약 — 편집기의 미리보기이자 「3D 에서 고르기」 의 근거.
+    스케치까지만 그렸으면 면으로 보인다."""
+    evaluation = services.build(payload.recipe, allow_sketch=True)
     return {"summary": evaluation.summary(), "mesh": mesh(evaluation.shape)}
 
 

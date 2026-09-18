@@ -60,8 +60,9 @@ def check(raw: dict[str, Any]) -> list[str]:
     return []
 
 
-def build(raw: dict[str, Any]) -> Evaluation:
-    """만들어 본다. 실패는 AppError — 메시지가 그대로 화면 · AI 에 간다."""
+def build(raw: dict[str, Any], *, allow_sketch: bool = False) -> Evaluation:
+    """만들어 본다. 실패는 AppError — 메시지가 그대로 화면 · AI 에 간다. `allow_sketch` 는
+    미리보기(info · preview · mesh)만 — 그리는 도중의 2D 도 보여 줘야 한다."""
     try:
         recipe = parse(raw)
     except RecipeValidationError as failure:
@@ -71,7 +72,7 @@ def build(raw: dict[str, Any]) -> Evaluation:
             details={"problems": failure.problems},
         ) from failure
     try:
-        return evaluate(recipe, resolve_file=resolve_import)
+        return evaluate(recipe, resolve_file=resolve_import, allow_sketch=allow_sketch)
     except RecipeError as failure:
         raise AppError(
             code("CAD", 3),

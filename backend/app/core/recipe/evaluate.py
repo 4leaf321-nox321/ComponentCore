@@ -67,19 +67,25 @@ class NodeInfo:
 
 @dataclass
 class Evaluation:
-    shape: Part
+    shape: Shape
+    """보통 Part(입체). `allow_sketch` 로 평가했을 때만 Sketch(면)일 수 있다 — `is_sketch`."""
     nodes: list[NodeInfo] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+
+    @property
+    def is_sketch(self) -> bool:
+        return isinstance(self.shape, Sketch)
 
     def summary(self) -> dict[str, Any]:
         box = self.shape.bounding_box()
         return {
+            "is_sketch": self.is_sketch,
             "bbox": {
                 "min": _xyz(box.min),
                 "max": _xyz(box.max),
                 "size": _xyz(box.size),
             },
-            "volume": round(float(self.shape.volume), 1),
+            "volume": 0.0 if self.is_sketch else round(float(self.shape.volume), 1),
             "surface_area": round(float(self.shape.area), 1),
             "solid_count": len(self.shape.solids()),
             "face_count": len(self.shape.faces()),
@@ -369,7 +375,11 @@ def _info(node: S.Node, shape: Shape) -> NodeInfo:
     )
 
 
-def evaluate(recipe: S.Recipe, *, resolve_file: FileResolver | None = None) -> Evaluation:
+def evaluate(
+    recipe: S.Recipe, *, resolve_file: FileResolver | None = None, allow_sketch: bool = False
+) -> Evaluation:
+    """레시피를 만든다. `allow_sketch` 는 **미리보기용** — 스케치까지만 그린 상태도 면으로
+    보여 준다. 저장 · 지그는 입체여야 하므로 기본은 거절이다."""
     made: dict[str, Shape] = {}
     infos: list[NodeInfo] = []
     for node in recipe.nodes:
@@ -394,6 +404,13 @@ def evaluate(recipe: S.Recipe, *, resolve_file: FileResolver | None = None) -> E
 
     result = made[recipe.result_id]
     if isinstance(result, Sketch):
+        if allow_sketch:
+            result.label = "sketch"
+            return Evaluation(
+                shape=result,
+                nodes=infos,
+                warnings=["아직 스케치(2D)입니다 — 돌출 · 회전을 더하면 입체가 됩니다."],
+            )
         raise RecipeError(
             recipe.result_id, "결과가 스케치입니다 — extrude · revolve 로 입체를 만드세요"
         )

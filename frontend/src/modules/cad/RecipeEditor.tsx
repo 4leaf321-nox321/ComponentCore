@@ -327,10 +327,23 @@ export function RecipeEditor({
                 {nodes.length === 0 ? '노드를 더하면 여기에 그려집니다.' : valid ? '그리는 중…' : '레시피가 맞으면 여기에 그려집니다.'}
               </div>
             )}
+            {summary?.is_sketch && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs">
+                <span>아직 스케치(2D)입니다. 입체로 만들려면:</span>
+                <Button size="sm" variant="outline" className="h-7" onClick={() => addNode('extrude')}>
+                  돌출 더하기
+                </Button>
+                <Button size="sm" variant="outline" className="h-7" onClick={() => addNode('revolve')}>
+                  회전 더하기
+                </Button>
+                <span className="text-muted-foreground">저장 · 지그는 입체여야 합니다.</span>
+              </div>
+            )}
             {summary && (
               <p className="text-muted-foreground mt-1 text-xs">
-                {summary.bbox.size.map((v) => v.toFixed(1)).join(' × ')} mm · 부피 {summary.volume.toLocaleString()} mm³ · 면{' '}
-                {summary.face_count} · 노드 {summary.nodes.length}
+                {summary.bbox.size.map((v) => v.toFixed(1)).join(' × ')} mm
+                {!summary.is_sketch && ` · 부피 ${summary.volume.toLocaleString()} mm³`} · 면 {summary.face_count} · 노드{' '}
+                {summary.nodes.length}
               </p>
             )}
           </div>
