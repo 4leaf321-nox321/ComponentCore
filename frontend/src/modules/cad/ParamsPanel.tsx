@@ -47,14 +47,14 @@ export function ParamsPanel({ value, onChange }: { value: Recipe; onChange: (nex
       <div className="mb-1 flex items-center gap-1">
         <Ruler className="text-muted-foreground size-3.5" />
         <span className="text-xs font-medium">변수</span>
-        <span className="text-muted-foreground truncate text-[11px]">칸의 fx 를 눌러 「=이름」</span>
+        <span className="text-muted-foreground truncate text-[11px]">칸의 fx 로 만들거나 고른다</span>
         <Button size="sm" variant="ghost" className="ml-auto h-6 px-1" onClick={() => setAdding(true)} aria-label="변수 만들기">
           <Plus className="size-3.5" />
         </Button>
       </div>
       {names.length === 0 && !adding && (
         <p className="text-muted-foreground text-[11px]">
-          없습니다. <b>+</b> 로 「판_길이」 처럼 이름을 만들고, 피처(또는 스케치 도형)의 숫자 칸에서 <b>fx</b> 를 눌러 <code>=판_길이</code> 라고 쓰면 그 값 하나로 모델이 따라옵니다.
+          없습니다. 피처(또는 스케치 도형)를 열어 바꿀 숫자 칸의 <b>fx</b> 를 누르고 <b>이름만</b> 적으면 그 값이 변수가 됩니다 — 여기 <b>+</b> 로 먼저 만들어 둘 수도 있습니다.
         </p>
       )}
       <ul className="space-y-1">
@@ -132,7 +132,7 @@ export function ParamsPanel({ value, onChange }: { value: Recipe; onChange: (nex
             </button>
           </div>
           <p className="text-muted-foreground text-[10px]">
-            만든 뒤 <b>피처를 열어</b> 바꿀 숫자 칸의 <b>fx</b> 를 누르고 <code>={name.trim() || '이름'}</code> 이라고 씁니다.
+            만든 뒤 <b>피처를 열어</b> 바꿀 숫자 칸의 <b>fx</b> 를 누르고 목록에서 <code>={name.trim() || '이름'}</code> 을 고릅니다.
           </p>
         </form>
       )}

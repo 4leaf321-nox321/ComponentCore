@@ -63,10 +63,12 @@ function VectorInput({
   size,
   onChange,
   params,
+  onCreateParam,
 }: {
   value: unknown
   size: 2 | 3
   params?: Record<string, number>
+  onCreateParam?: (name: string, value: number) => void
   /** 변수 식(`"=L - 15"`)이 섞일 수 있다 — 자리도 변수로 잡는다. */
   onChange: (next: (number | string)[]) => void
 }) {
@@ -79,6 +81,7 @@ function VectorInput({
           <span className="text-muted-foreground w-3 text-xs">{labels[i]}</span>
           <NumberInput
             params={params}
+            onCreateParam={onCreateParam}
             value={current[i] ?? 0}
             onChange={(v) => {
               const next = [...current]
@@ -126,6 +129,7 @@ export function NodeForm({
   onChange,
   onPickFaces,
   params,
+  onCreateParam,
 }: {
   node: RecipeNode
   /** 레시피 전체 — 이 피처보다 **앞의** 것만 참조 후보가 된다. */
@@ -135,6 +139,8 @@ export function NodeForm({
   onPickFaces?: (fieldKey: string) => void
   /** 레시피의 변수 — 칸에 쓴 식의 **지금 값**을 옆에 보여 준다. */
   params?: Record<string, number>
+  /** 칸에서 바로 변수를 만든다 — 변수 상자까지 가지 않아도 되게. */
+  onCreateParam?: (name: string, value: number) => void
 }) {
   const spec = OP_BY_NAME[node.op]
   const index = nodes.findIndex((n) => n.id === node.id)
@@ -177,6 +183,7 @@ export function NodeForm({
               <NumberInput
                 id={`node-${field.key}`}
                 params={params}
+                onCreateParam={onCreateParam}
                 value={node[field.key]}
                 step={field.step}
                 nullable={NULLABLE.has(field.key)}
@@ -239,8 +246,12 @@ export function NodeForm({
                 </SelectContent>
               </Select>
             )}
-            {field.kind === 'xy' && <VectorInput params={params} value={node[field.key]} size={2} onChange={(v) => set(field.key, v)} />}
-            {field.kind === 'xyz' && <VectorInput params={params} value={node[field.key]} size={3} onChange={(v) => set(field.key, v)} />}
+            {field.kind === 'xy' && (
+              <VectorInput params={params} onCreateParam={onCreateParam} value={node[field.key]} size={2} onChange={(v) => set(field.key, v)} />
+            )}
+            {field.kind === 'xyz' && (
+              <VectorInput params={params} onCreateParam={onCreateParam} value={node[field.key]} size={3} onChange={(v) => set(field.key, v)} />
+            )}
             {field.kind === 'ref' && (
               <RefSelect
                 value={String(node[field.key] ?? '')}
@@ -276,6 +287,7 @@ export function NodeForm({
                   <div key={i} className="flex items-center gap-1">
                     <VectorInput
                       params={params}
+                      onCreateParam={onCreateParam}
                       value={point}
                       size={field.kind === 'points3' ? 3 : 2}
                       onChange={(v) => {

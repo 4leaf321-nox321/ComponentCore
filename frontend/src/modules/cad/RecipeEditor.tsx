@@ -172,6 +172,13 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
     replaceNodes(list, value.result === before?.id ? next.id : undefined)
   }
 
+  /** 칸에서 만든 변수를 레시피에 담는다 — 같은 이름이 있으면 그대로 둔다(값을 덮지 않는다). */
+  function createParam(name: string, seed: number) {
+    const params = (value.params ?? {}) as Record<string, number>
+    if (name in params) return
+    onChange({ ...value, params: { ...params, [name]: seed } })
+  }
+
   function addNode(op: string) {
     const made = makeNode(op, nodes)
     // 참조 칸은 바로 앞의 알맞은 피처로 미리 채운다 — 「돌출」 을 누르면 방금 그린 스케치가 들어간다.
@@ -750,6 +757,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                   <SketchCanvas
                     shapes={(selected.shapes as SketchShape[]) ?? []}
                     params={(value.params ?? {}) as Record<string, number>}
+                    onCreateParam={createParam}
                     onChange={(shapes) => updateNode({ ...selected, shapes })}
                   />
                 )}
@@ -757,6 +765,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                   node={selected}
                   nodes={nodes}
                   params={(value.params ?? {}) as Record<string, number>}
+                  onCreateParam={createParam}
                   onChange={updateNode}
                   onPickFaces={pickFacesFor}
                 />

@@ -312,11 +312,13 @@ export function SketchCanvas({
   shapes,
   onChange,
   params = {},
+  onCreateParam,
 }: {
   shapes: SketchShape[]
   onChange: (next: SketchShape[]) => void
   /** 레시피의 변수 — 그림의 치수에 `=이름` 을 쓸 수 있게. */
   params?: Record<string, number>
+  onCreateParam?: (name: string, value: number) => void
 }) {
   // 그리기 함수들이 읽는 자리에 지금 값을 담는다(그려 주기 직전, 렌더마다).
   drawParams = params
@@ -478,6 +480,7 @@ export function SketchCanvas({
         {current ? (
           <ShapeForm
             params={params}
+            onCreateParam={onCreateParam}
             shape={current}
             onChange={(patch) => update(selected!, patch)}
             onDelete={() => {
@@ -507,9 +510,11 @@ function ShapeForm({
   onDelete,
   onMove,
   params,
+  onCreateParam,
 }: {
   shape: SketchShape
   params: Record<string, number>
+  onCreateParam?: (name: string, value: number) => void
   onChange: (patch: Record<string, unknown>) => void
   onDelete: () => void
   onMove: (dir: -1 | 1) => void
@@ -523,6 +528,7 @@ function ShapeForm({
       <NumberField
         id={`shape-${key}`}
         params={params}
+        onCreateParam={onCreateParam}
         step={step}
         value={shape[key]}
         onChange={(v) => onChange({ [key]: v })}
@@ -547,11 +553,11 @@ function ShapeForm({
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
           <Label className="text-xs">X</Label>
-          <NumberField params={params} value={at[0]} aria-label="도형 X" onChange={(v) => onChange({ at: [v ?? 0, at[1]] })} />
+          <NumberField params={params} onCreateParam={onCreateParam} value={at[0]} aria-label="도형 X" onChange={(v) => onChange({ at: [v ?? 0, at[1]] })} />
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Y</Label>
-          <NumberField params={params} value={at[1]} aria-label="도형 Y" onChange={(v) => onChange({ at: [at[0], v ?? 0] })} />
+          <NumberField params={params} onCreateParam={onCreateParam} value={at[1]} aria-label="도형 Y" onChange={(v) => onChange({ at: [at[0], v ?? 0] })} />
         </div>
         {shape.type === 'rect' && (
           <>
