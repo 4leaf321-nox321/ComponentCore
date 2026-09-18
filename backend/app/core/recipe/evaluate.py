@@ -38,20 +38,25 @@ from build123d import (
     Polygon,
     Polyline,
     Pos,
+    RadiusArc,
     Rectangle,
     RectangleRounded,
     RegularPolygon,
     Rot,
     Shape,
+    Side,
     Sketch,
+    SlotCenterToCenter,
     SlotOverall,
     Sphere,
     Spline,
+    TangentArc,
     Text,
     ThreePointArc,
     Torus,
     Transition,
     Trapezoid,
+    Triangle,
     Until,
     Vector,
     Wedge,
@@ -62,6 +67,7 @@ from build123d import (
     fillet,
     import_step,
     loft,
+    make_brake_formed,
     make_face,
     make_hull,
     mirror,
@@ -172,6 +178,15 @@ def _shape2d(one: S.SketchShape) -> Sketch:
         if one.radius >= min(one.width, one.height) / 2:
             raise ValueError("모서리 반지름이 너비 · 높이의 절반보다 작아야 합니다")
         face = RectangleRounded(one.width, one.height, one.radius, rotation=one.rotation)
+    elif isinstance(one, S.TriangleShape):
+        try:
+            face = Triangle(
+                a=one.a, b=one.b, c=one.c, A=one.A, B=one.B, C=one.C, rotation=one.rotation
+            )
+        except Exception as failure:
+            raise ValueError(
+                f"그 변 · 각으로는 삼각형이 되지 않습니다 ({failure})"
+            ) from failure
     elif isinstance(one, S.TrapezoidShape):
         face = Trapezoid(
             one.width,
@@ -190,19 +205,37 @@ def _shape2d(one: S.SketchShape) -> Sketch:
             rotation=one.rotation,
         )
     else:
-        face = SlotOverall(one.length, one.width, rotation=one.rotation)
+        face = (
+            SlotCenterToCenter(one.length, one.width, rotation=one.rotation)
+            if one.measure == "centers"
+            else SlotOverall(one.length, one.width, rotation=one.rotation)
+        )
     return Pos(one.at[0], one.at[1]) * face
 
 
 def _centerline(start: S.XY, segments: list[S.Segment]) -> list[Any]:
-    """점을 이은 엣지들 — 직선, `via` 가 있으면 호. 겹치는 점은 건너뛴다."""
+    """점을 이은 엣지들 — 직선 · 반지름 호 · 접선 호 · 지나는 점 호. 겹치는 점은 건너뛴다."""
     edges: list[Any] = []
     cursor = Vector(start[0], start[1], 0)
-    for segment in segments:
+    for index, segment in enumerate(segments):
         target = Vector(segment.to[0], segment.to[1], 0)
         if (target - cursor).length < 1e-6:
             continue
-        if segment.via is not None:
+        if segment.tangent:
+            if not edges:
+                raise ValueError(
+                    f"구간 {index + 1}: 접선 호는 앞 구간이 있어야 방향이 정해집니다"
+                )
+            edges.append(TangentArc(cursor, target, tangent=edges[-1] % 1))
+        elif segment.radius is not None:
+            span = (target - cursor).length
+            if abs(segment.radius) < span / 2 - 1e-9:
+                raise ValueError(
+                    f"구간 {index + 1}: 반지름 {abs(segment.radius)} 이 두 점 사이 "
+                    f"{round(span, 2)} 의 절반보다 작습니다"
+                )
+            edges.append(RadiusArc(cursor, target, segment.radius))
+        elif segment.via is not None:
             edges.append(
                 ThreePointArc(cursor, Vector(segment.via[0], segment.via[1], 0), target)
             )
@@ -520,6 +553,31 @@ def _evaluate_node(
             return extrude(sketch, node.distance / 2, both=True, taper=node.taper)
         amount = node.distance if node.direction == "normal" else -node.distance
         return extrude(sketch, amount, taper=node.taper)
+    if isinstance(node, S.SheetMetalNode):
+        points = [Vector(x, y, 0) for x, y in node.path]
+        flat = (
+            FilletPolyline(*points, radius=node.bend_radius)
+            if node.bend_radius > 0 and len(points) > 2
+            else Polyline(*points)
+        )
+        plane = _plane(node.plane)
+        line = Wire((plane * flat).edges())
+        try:
+            formed = make_brake_formed(
+                thickness=node.thickness,
+                station_widths=node.width,
+                line=line,
+                side=Side.LEFT if node.side == "left" else Side.RIGHT,
+            )
+        except Exception as failure:
+            raise RecipeError(
+                node.id,
+                "판을 접지 못했습니다 — 굽힘 반지름을 줄이거나 꺾은선의 짧은 구간을 늘리세요",
+            ) from failure
+        # 판은 평면의 한쪽으로만 자란다(실측) — 꺾은선이 **폭의 가운데**에 오게 되돌린다.
+        # 그래야 구멍 자리를 평면 좌표 그대로 주고 좌우 대칭도 그대로다.
+        shift = plane.z_dir * (-node.width / 2)
+        return _to_part(formed.moved(Location(shift.to_tuple())))
     if isinstance(node, S.HelixNode):
         sketch = made[node.sketch]
         if not isinstance(sketch, Sketch):

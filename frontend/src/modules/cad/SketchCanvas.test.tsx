@@ -57,3 +57,28 @@ test('선(두께) — 점을 찍고 「선 끝내기」 하면 중심선과 폭�
   expect(next[0].width).toBe(3)
   expect((next[0].segments as { to: number[] }[])).toHaveLength(1)
 })
+
+test('삼각형 · 호(반지름 · 접선)를 캔버스가 서버와 같게 그린다', () => {
+  const shapes: SketchShape[] = [
+    { type: 'triangle', a: 30, b: 40, C: 90, at: [0, 0], rotation: 0, mode: 'add' },
+    {
+      type: 'polyline',
+      start: [0, 0],
+      segments: [{ to: [40, 0] }, { to: [40, 30], radius: 25 }, { to: [0, 30] }],
+      at: [0, 0],
+      rotation: 0,
+      mode: 'add',
+    },
+  ]
+  const { container } = render(<SketchCanvas shapes={shapes} onChange={() => {}} />)
+  // 삼각형 — 무게중심이 원점, 변 길이 30 · 40 · 50 (서버 Triangle 과 같은 배치).
+  const points = container.querySelector('polygon')!.getAttribute('points')!.split(' ').map((p) => p.split(',').map(Number))
+  const sides = points.map(([x, y], i) => {
+    const [nx, ny] = points[(i + 1) % 3]
+    return Math.round(Math.hypot(nx - x, ny - y))
+  })
+  expect(sides.sort((p, q) => p - q)).toEqual([30, 40, 50])
+  expect(Math.abs(points.reduce((sum, [x]) => sum + x, 0))).toBeLessThan(0.01)
+  // 반지름 호는 A 명령으로 그려진다(직선 L 이 아니라).
+  expect(container.querySelector('path')!.getAttribute('d')).toMatch(/A /)
+})

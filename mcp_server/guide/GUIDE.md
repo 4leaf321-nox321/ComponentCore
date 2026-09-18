@@ -36,11 +36,18 @@
 피처 종류(자세한 칸은 `recipe_schema`):
 - 스케치 `sketch` — `plane` {name: XY|XZ|YZ|…, origin, (normal, x_dir)} 위의 2D 윤곽. `shapes` 는
   순서대로 더하거나(add) 빼는(cut) 도형: `rect`(width, height) · `circle`(radius) · `slot`(length,
-  width) · `regular_polygon`(radius, sides) · `polygon`(points) · **`polyline`**(start, segments
-  [{to, via?}] — 임의 윤곽, `via` 가 있으면 그 점을 지나는 호) · `path`(start, segments, width,
+  width, measure overall|centers — **도면이 주는 「중심 사이」 값이면 centers**) ·
+  `regular_polygon`(radius, sides) · `polygon`(points) · `triangle`(a · b · c 와 A · B · C 중 셋,
+  변은 하나 이상 — 「빗변 50 인 직각삼각형」 처럼 말로 주는 치수 그대로) · **`polyline`**(start,
+  segments — 임의 윤곽) · `path`(start, segments, width,
   corners — 두께 있는 선: 리브 · 얇은 벽, 양 끝 둥글게) · `rounded_rect`(width, height, radius) ·
   `trapezoid`(width, height, left_angle, right_angle) · `ellipse`(x_radius, y_radius) ·
   `text`(text, size, bold — 각인은 cut 으로 얕게 돌출해서 뺀다). 각 도형은 `at` [x, y] · `rotation`.
+  **구간(`segments`)의 한 칸은 다음 점 `to` 까지 어떻게 가는지다** — 아무것도 없으면 직선,
+  `radius: R` 이면 그 반지름의 호(부호가 휘는 쪽: 양수 = 가는 방향의 **왼쪽**), `tangent: true` 면
+  앞 구간에 **매끄럽게 이어지는 호**, `via: [x, y]` 면 그 점을 지나는 호.
+  **글로 치수를 받았으면 `radius` · `tangent` 를 써라** — `via` 는 호 위의 점을 미리 계산해야 하고
+  조금만 틀려도 엉뚱한 곡률이 된다(사람이 캔버스에서 찍을 때 쓰는 칸이다).
   `polyline` 의 `corner_radius` 는 모든 모서리를 둥글린다(호 `via` 와 함께는 못 쓴다).
   스케치의 `hull: true` 는 도형들을 **감싸는 볼록 윤곽** 하나로 만든다(흩어진 자리를 덮는 베이스
   판). 스케치의 `offset` 은 합친 윤곽을 밖(+)/안(−)으로 띄운다(2D 여유). `section`(target, plane,
@@ -52,7 +59,11 @@
   단면은 XY 원점에 그리면 자동으로 시작점에 놓인다) · `loft`(sketches [2개 이상], ruled) · `box`(length, width, height, at) · `cylinder`(radius, height,
   axis, at) · `sphere`(radius, at) · `cone`(bottom_radius, top_radius, height, at) · `torus`
   (major_radius, minor_radius) · `wedge`(length, width, height, top_x_min/max, top_z_min/max —
-  경사 블록) · `import_step`(file — 사용자가 올린 STEP, 직접 만들지 않는다)
+  경사 블록) · `sheet_metal`(thickness, width, path [[x, y]…], plane, bend_radius, side left|right
+  — **판금 절곡**: 옆에서 본 꺾은선대로 판을 접는다. 「2t 판, 30 올라가 20 꺾임, 폭 40, 굽힘 R3」
+  이 그대로 칸이 된다. 꺾은선이 **폭의 가운데**에 오므로 구멍 자리는 평면 좌표 그대로 주면 된다.
+  브래킷 · ㄱ자 앵글 · 덮개는 블록을 깎지 말고 이것으로) ·
+  `import_step`(file — 사용자가 올린 STEP, 직접 만들지 않는다)
 - 조합 `union`(targets) · `cut`(target, tools) · `intersect`(targets) · `split`(target, plane
   {name, origin | origin, normal}, keep top|bottom|both — 평면으로 자르기)
 - 마감 `fillet`(target, edges, radius — 화면에서는 「블렌드」) · `chamfer`(target, edges, length —
@@ -67,6 +78,12 @@
   — 결과는 **복사본 묶음**
   이라 `cut` 의 tools 나 `union` 의 targets 로 쓴다 · `transform`(target, translate, rotate,
   scale) · `mirror`(target, plane, keep_original)
+
+말로 받은 치수를 옮길 때:
+- 호는 `radius` · `tangent`, 장공은 `slot.measure: "centers"`, 삼각형은 변 · 각 — **도면이 주는
+  값을 그대로** 넣어라. 좌표로 환산하면서 틀리는 일이 제일 많다.
+- 접어 만드는 것은 `sheet_metal`, 살을 붙이는 리브는 `path`(두께 있는 선), 감싸는 판은
+  `sketch.hull`, 제품에 맞춘 포켓은 `section`(단면) + `offset`(여유) 또는 `offset` 뒤 `cut`.
 
 자주 하는 실수:
 - 결과가 스케치다 → `extrude` · `revolve` 로 입체를 만들어야 한다.

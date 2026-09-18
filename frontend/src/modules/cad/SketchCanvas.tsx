@@ -35,6 +35,7 @@ function extent(shapes: SketchShape[]): number {
       Number(s.length ?? 0),
       Number(s.radius ?? 0) * 2,
       Number(s.x_radius ?? 0) * 2,
+      s.type === 'triangle' ? Math.max(Number(s.a ?? 0), Number(s.b ?? 0), Number(s.c ?? 0)) * 2 : 0,
       Number(s.y_radius ?? 0) * 2,
       s.type === 'text' ? String(s.text ?? '').length * Number(s.size ?? 0) * 0.7 : 0,
       ...(((s.points as number[][]) ?? []).flat().map((v) => Math.abs(v) * 2)),
@@ -45,13 +46,110 @@ function extent(shapes: SketchShape[]): number {
   return r
 }
 
-type Segment = { to: number[]; via?: number[] | null }
+type Segment = { to: number[]; via?: number[] | null; radius?: number | null; tangent?: boolean }
+
+/**
+ * 변 · 각 셋으로 삼각형을 푼다 — 캔버스에 그리려고. 서버(build123d Triangle)와 같은 규칙:
+ * 변 a 의 맞은편이 각 A 이고, 무게중심이 원점에 온다. 못 풀면 null(3D 미리보기로 확인).
+ */
+function solveTriangle(shape: SketchShape): number[][] | null {
+  const v: Record<string, number | null> = {}
+  for (const key of ['a', 'b', 'c', 'A', 'B', 'C']) {
+    const raw = shape[key]
+    v[key] = raw === null || raw === undefined || raw === '' ? null : Number(raw)
+  }
+  const rad = (deg: number) => (deg * Math.PI) / 180
+  for (let round = 0; round < 4; round += 1) {
+    const angles = (['A', 'B', 'C'] as const).filter((k) => v[k] != null)
+    if (angles.length === 2) {
+      const missing = (['A', 'B', 'C'] as const).find((k) => v[k] == null)!
+      v[missing] = 180 - angles.reduce((sum, k) => sum + (v[k] as number), 0)
+    }
+    // 사인 법칙 — 마주 보는 변 · 각 한 쌍을 알면 나머지를 뽑는다.
+    const pair = (['a', 'b', 'c'] as const).find((side, i) => v[side] != null && v[['A', 'B', 'C'][i]] != null)
+    if (pair) {
+      const angleKey = { a: 'A', b: 'B', c: 'C' }[pair]
+      const k = (v[pair] as number) / Math.sin(rad(v[angleKey] as number))
+      for (const [side, angle] of [['a', 'A'], ['b', 'B'], ['c', 'C']]) {
+        if (v[side] == null && v[angle] != null) v[side] = k * Math.sin(rad(v[angle] as number))
+        if (v[angle] == null && v[side] != null) v[angle] = (Math.asin(Math.min(1, (v[side] as number) / k)) * 180) / Math.PI
+      }
+    }
+    // 코사인 법칙 — 두 변과 낀각, 또는 세 변.
+    if (v.a != null && v.b != null && v.C != null && v.c == null) {
+      v.c = Math.sqrt(v.a ** 2 + v.b ** 2 - 2 * v.a * v.b * Math.cos(rad(v.C)))
+    }
+    if (v.a != null && v.b != null && v.c != null && v.C == null) {
+      v.C = (Math.acos((v.a ** 2 + v.b ** 2 - v.c ** 2) / (2 * v.a * v.b)) * 180) / Math.PI
+    }
+    if (v.a != null && v.b != null && v.C != null) break
+  }
+  const { a, b, C } = v
+  if (a == null || b == null || C == null || !Number.isFinite(a + b + C)) return null
+  // v0 →(a)→ v1 →(b, 낀각 C)→ v2. 무게중심을 원점으로 옮긴다.
+  const points = [
+    [0, 0],
+    [a, 0],
+    [a + b * Math.cos(Math.PI - rad(C)), b * Math.sin(Math.PI - rad(C))],
+  ]
+  const cx = (points[0][0] + points[1][0] + points[2][0]) / 3
+  const cy = (points[0][1] + points[1][1] + points[2][1]) / 3
+  return points.map(([x, y]) => [x - cx, y - cy])
+}
+
+/** 구간의 「지나는 점」 — 서버와 같은 호를 그리려고 반지름 · 접선을 via 로 바꿔 계산한다. */
+function viaOf(from: number[], segment: Segment, direction: number[] | null): number[] | null {
+  if (segment.via) return segment.via
+  const [dx, dy] = [segment.to[0] - from[0], segment.to[1] - from[1]]
+  const span = Math.hypot(dx, dy)
+  if (span < 1e-6) return null
+  const mid = [(from[0] + segment.to[0]) / 2, (from[1] + segment.to[1]) / 2]
+  if (segment.radius) {
+    const r = Math.abs(segment.radius)
+    if (r < span / 2) return null
+    // 현의 왼쪽(진행 방향 기준)이 양수 반지름 — build123d 의 RadiusArc 와 같다.
+    const sagitta = r - Math.sqrt(Math.max(r * r - (span / 2) * (span / 2), 0))
+    const left = [-dy / span, dx / span]
+    const sign = segment.radius > 0 ? 1 : -1
+    return [mid[0] + left[0] * sagitta * sign, mid[1] + left[1] * sagitta * sign]
+  }
+  if (segment.tangent && direction) {
+    // 시작에서 direction 에 접하고 to 를 지나는 원 — 중심은 시작점의 법선 위에 있다.
+    const len = Math.hypot(direction[0], direction[1]) || 1
+    const t = [direction[0] / len, direction[1] / len]
+    const n = [-t[1], t[0]]
+    const denominator = 2 * (dx * n[0] + dy * n[1])
+    if (Math.abs(denominator) < 1e-9) return null // 직선과 다름없다
+    const r = (dx * dx + dy * dy) / denominator
+    const center = [from[0] + n[0] * r, from[1] + n[1] * r]
+    const toMid = [mid[0] - center[0], mid[1] - center[1]]
+    const toMidLen = Math.hypot(toMid[0], toMid[1]) || 1
+    return [center[0] + (toMid[0] / toMidLen) * Math.abs(r), center[1] + (toMid[1] / toMidLen) * Math.abs(r)]
+  }
+  return null
+}
+
+/** 구간이 끝나는 방향 — 다음 접선 호가 쓴다. */
+function directionAt(from: number[], segment: Segment, via: number[] | null): number[] {
+  if (!via) return [segment.to[0] - from[0], segment.to[1] - from[1]]
+  return [segment.to[0] - via[0], segment.to[1] - via[1]]
+}
 
 function polylinePoints(s: SketchShape): number[][] {
   if (s.type !== 'polyline' && s.type !== 'path') return []
   const start = (s.start as number[]) ?? [0, 0]
   const segs = (s.segments as Segment[]) ?? []
-  return [start, ...segs.flatMap((g) => (g.via ? [g.via, g.to] : [g.to]))]
+  const out = [start]
+  let cursor = start
+  let direction: number[] | null = null
+  for (const g of segs) {
+    const via = viaOf(cursor, g, direction)
+    if (via) out.push(via)
+    out.push(g.to)
+    direction = directionAt(cursor, g, via)
+    cursor = g.to
+  }
+  return out
 }
 
 /** 세 점을 지나는 호의 SVG path 조각. 세 점이 한 직선이면 그냥 선. */
@@ -74,9 +172,12 @@ function polylinePath(s: SketchShape, close = true): string {
   const start = (s.start as number[]) ?? [0, 0]
   const segs = (s.segments as Segment[]) ?? []
   let cursor = start
+  let direction: number[] | null = null
   let d = `M ${start[0]} ${start[1]}`
   for (const g of segs) {
-    d += g.via ? ' ' + arcTo(cursor, g.via, g.to) : ` L ${g.to[0]} ${g.to[1]}`
+    const via = viaOf(cursor, g, direction)
+    d += via ? ' ' + arcTo(cursor, via, g.to) : ` L ${g.to[0]} ${g.to[1]}`
+    direction = directionAt(cursor, g, via)
     cursor = g.to
   }
   return close ? d + ' Z' : d
@@ -104,7 +205,9 @@ function ShapeSvg({ shape, selected, onPointerDown }: { shape: SketchShape; sele
       return <rect x={-w / 2} y={-h / 2} width={w} height={h} transform={transform} {...common} />
     }
     case 'slot': {
-      const l = Number(shape.length), w = Number(shape.width)
+      const w = Number(shape.width)
+      // 중심 사이 기준이면 양 끝 반원이 더 붙는다 — 서버(SlotCenterToCenter)와 같게.
+      const l = Number(shape.length) + (shape.measure === 'centers' ? w : 0)
       return <rect x={-l / 2} y={-w / 2} width={l} height={w} rx={w / 2} transform={transform} {...common} />
     }
     case 'regular_polygon': {
@@ -142,6 +245,11 @@ function ShapeSvg({ shape, selected, onPointerDown }: { shape: SketchShape; sele
     case 'rounded_rect': {
       const w = Number(shape.width), h = Number(shape.height)
       return <rect x={-w / 2} y={-h / 2} width={w} height={h} rx={Number(shape.radius)} transform={transform} {...common} />
+    }
+    case 'triangle': {
+      const pts = solveTriangle(shape)
+      if (!pts) return null
+      return <polygon points={pts.map(([px, py]) => `${px},${py}`).join(' ')} transform={transform} {...common} />
     }
     case 'trapezoid': {
       // 밑변이 width, 빗변 각도만큼 윗변이 좁아진다 — 서버(Trapezoid)와 같은 규칙.
@@ -419,8 +527,31 @@ function ShapeForm({
         {shape.type === 'circle' && numberField('radius', '반지름')}
         {shape.type === 'slot' && (
           <>
-            {numberField('length', '전체 길이')}
+            {numberField('length', shape.measure === 'centers' ? '중심 사이 거리' : '전체 길이')}
             {numberField('width', '폭')}
+            <div className="space-y-1">
+              <Label className="text-xs">길이 기준</Label>
+              <Select value={String(shape.measure ?? 'overall')} onValueChange={(v) => onChange({ measure: v })}>
+                <SelectTrigger className="h-8">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="overall">전체 길이</SelectItem>
+                  <SelectItem value="centers">중심 사이</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </>
+        )}
+        {shape.type === 'triangle' && (
+          <>
+            {numberField('a', '변 a (A 의 맞은편)')}
+            {numberField('b', '변 b')}
+            {numberField('c', '변 c')}
+            {numberField('A', '각 A (°)', 1)}
+            {numberField('B', '각 B (°)', 1)}
+            {numberField('C', '각 C (°)', 1)}
+            <p className="text-muted-foreground col-span-2 text-[11px]">셋을 주면 정해집니다. 비운 칸은 빈 채로 두세요 — 변은 하나 이상.</p>
           </>
         )}
         {shape.type === 'regular_polygon' && (
@@ -487,32 +618,56 @@ function ShapeForm({
       </div>
       {(shape.type === 'polyline' || shape.type === 'path') && (
         <div className="space-y-1">
-          <Label className="text-xs">구간 (시작 {((shape.start as number[]) ?? [0, 0]).join(', ')}) — 「호」 를 켜면 지나는 점(via)이 생깁니다</Label>
+          <Label className="text-xs">
+            구간 (시작 {((shape.start as number[]) ?? [0, 0]).join(', ')}) — 호는 **반지름** 이나 **접선** 으로 주는 것이 쉽습니다
+          </Label>
           {((shape.segments as Segment[]) ?? []).map((g, i) => {
             const segs = shape.segments as Segment[]
             const prev = i === 0 ? ((shape.start as number[]) ?? [0, 0]) : segs[i - 1].to
             const update = (patch: Partial<Segment>) => onChange({ segments: segs.map((q, j) => (j === i ? { ...q, ...patch } : q)) })
+            const kind = g.tangent ? 'tangent' : g.radius ? 'radius' : g.via ? 'via' : 'line'
+            function setKind(next: string) {
+              if (next === 'line') return update({ via: null, radius: null, tangent: false })
+              if (next === 'tangent') return update({ via: null, radius: null, tangent: true })
+              if (next === 'radius') {
+                // 두 점 사이 거리의 0.8 배 — 너무 작으면 호가 닿지 않는다.
+                const span = Math.hypot(g.to[0] - prev[0], g.to[1] - prev[1]) || 10
+                return update({ via: null, tangent: false, radius: Math.round(span * 0.8 * 10) / 10 })
+              }
+              // 현의 중점에서 수직으로 20% 띄운 점 — 그 뒤 손으로 고친다.
+              const mx = (prev[0] + g.to[0]) / 2, my = (prev[1] + g.to[1]) / 2
+              const dx = g.to[0] - prev[0], dy = g.to[1] - prev[1]
+              const len = Math.hypot(dx, dy) || 1
+              update({ radius: null, tangent: false, via: [Math.round((mx - (dy / len) * len * 0.2) * 10) / 10, Math.round((my + (dx / len) * len * 0.2) * 10) / 10] })
+            }
             return (
               <div key={i} className="flex items-center gap-1">
                 <span className="text-muted-foreground w-4 text-[10px]">{i + 1}</span>
                 <Input type="number" step={0.5} value={String(g.to[0])} onChange={(e) => update({ to: [Number(e.target.value), g.to[1]] })} className="h-7" />
                 <Input type="number" step={0.5} value={String(g.to[1])} onChange={(e) => update({ to: [g.to[0], Number(e.target.value)] })} className="h-7" />
-                <label className="flex items-center gap-1 text-[11px]">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(g.via)}
-                    onChange={(e) => {
-                      if (!e.target.checked) return update({ via: null })
-                      // 현의 중점에서 수직으로 20% 띄운 점 — 그 뒤 손으로 고친다.
-                      const mx = (prev[0] + g.to[0]) / 2, my = (prev[1] + g.to[1]) / 2
-                      const dx = g.to[0] - prev[0], dy = g.to[1] - prev[1]
-                      const len = Math.hypot(dx, dy) || 1
-                      update({ via: [Math.round((mx - (dy / len) * len * 0.2) * 10) / 10, Math.round((my + (dx / len) * len * 0.2) * 10) / 10] })
-                    }}
+                <Select value={kind} onValueChange={setKind}>
+                  <SelectTrigger className="h-7 w-24 text-[11px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="line">직선</SelectItem>
+                    <SelectItem value="radius">호 · 반지름</SelectItem>
+                    <SelectItem value="tangent">호 · 접선</SelectItem>
+                    <SelectItem value="via">호 · 지나는 점</SelectItem>
+                  </SelectContent>
+                </Select>
+                {kind === 'radius' && (
+                  <Input
+                    type="number"
+                    step={0.5}
+                    value={String(g.radius ?? 0)}
+                    onChange={(e) => update({ radius: Number(e.target.value) })}
+                    className="h-7 w-20"
+                    aria-label={`구간 ${i + 1} 반지름`}
+                    title="부호가 휘는 쪽 — 양수는 가는 방향의 왼쪽"
                   />
-                  호
-                </label>
-                {g.via && (
+                )}
+                {kind === 'via' && g.via && (
                   <>
                     <Input type="number" step={0.5} value={String(g.via[0])} onChange={(e) => update({ via: [Number(e.target.value), g.via![1]] })} className="h-7 w-16" />
                     <Input type="number" step={0.5} value={String(g.via[1])} onChange={(e) => update({ via: [g.via![0], Number(e.target.value)] })} className="h-7 w-16" />

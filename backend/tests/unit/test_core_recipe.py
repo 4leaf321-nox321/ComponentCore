@@ -869,3 +869,191 @@ def test_모서리_둥근_윤곽() -> None:
                 }
             )
         )
+
+
+def test_말로_받은_치수_그대로_호_장공_삼각형() -> None:
+    """AI 가 글로 받은 치수를 옮기는 칸들 — 좌표로 환산하지 않고 그대로 넣는다."""
+    # 「R25 로 둥글게 이어라」 — 호 위의 점을 계산하지 않는다.
+    by_radius = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "s",
+                        "op": "sketch",
+                        "shapes": [
+                            {
+                                "type": "polyline",
+                                "start": [0, 0],
+                                "segments": [
+                                    {"to": [40, 0]},
+                                    {"to": [40, 30], "radius": 25},
+                                    {"to": [0, 30]},
+                                ],
+                            }
+                        ],
+                    },
+                    {"id": "e", "op": "extrude", "sketch": "s", "distance": 5},
+                ]
+            }
+        )
+    )
+    # 반지름의 부호가 휘는 쪽을 정한다 — 왼쪽(안으로)이면 부피가 줄고 오른쪽이면 는다.
+    assert by_radius.shape.volume < 40 * 30 * 5
+    with pytest.raises(RecipeError, match="절반보다 작습니다"):
+        evaluate(
+            parse(
+                {
+                    "nodes": [
+                        {
+                            "id": "s",
+                            "op": "sketch",
+                            "shapes": [
+                                {
+                                    "type": "polyline",
+                                    "start": [0, 0],
+                                    "segments": [
+                                        {"to": [40, 0]},
+                                        {"to": [40, 30], "radius": 5},
+                                        {"to": [0, 30]},
+                                    ],
+                                }
+                            ],
+                        },
+                        {"id": "e", "op": "extrude", "sketch": "s", "distance": 5},
+                    ]
+                }
+            )
+        )
+    # 접선 호 — 앞 구간에 매끄럽게. 첫 구간이면 방향이 없다.
+    tangent = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "s",
+                        "op": "sketch",
+                        "shapes": [
+                            {
+                                "type": "path",
+                                "start": [0, 0],
+                                "segments": [
+                                    {"to": [30, 0]},
+                                    {"to": [45, 15], "tangent": True},
+                                ],
+                                "width": 4,
+                            }
+                        ],
+                    },
+                    {"id": "e", "op": "extrude", "sketch": "s", "distance": 5},
+                ]
+            }
+        )
+    )
+    assert tangent.summary()["solid_count"] == 1
+    with pytest.raises(RecipeValidationError, match="하나만"):
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "s",
+                        "op": "sketch",
+                        "shapes": [
+                            {
+                                "type": "path",
+                                "start": [0, 0],
+                                "segments": [{"to": [30, 0], "radius": 20, "tangent": True}],
+                                "width": 4,
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+    # 장공은 도면이 「중심 사이 30」 을 준다 — 전체 길이는 폭만큼 더 길다.
+    centers = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "s",
+                        "op": "sketch",
+                        "shapes": [
+                            {"type": "slot", "length": 30, "width": 8, "measure": "centers"}
+                        ],
+                    },
+                    {"id": "e", "op": "extrude", "sketch": "s", "distance": 5},
+                ]
+            }
+        )
+    )
+    assert centers.summary()["bbox"]["size"][0] == 38.0
+    # 삼각형은 변 · 각 셋으로.
+    triangle = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "s",
+                        "op": "sketch",
+                        "shapes": [{"type": "triangle", "a": 30, "b": 40, "C": 90}],
+                    },
+                    {"id": "e", "op": "extrude", "sketch": "s", "distance": 5},
+                ]
+            }
+        )
+    )
+    assert triangle.shape.volume == pytest.approx(30 * 40 / 2 * 5)
+    with pytest.raises(RecipeValidationError, match="변을 적어도"):
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "s",
+                        "op": "sketch",
+                        "shapes": [{"type": "triangle", "A": 30, "B": 60, "C": 90}],
+                    }
+                ]
+            }
+        )
+
+
+def test_판금_절곡() -> None:
+    bracket = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "m",
+                        "op": "sheet_metal",
+                        "thickness": 2,
+                        "width": 40,
+                        "path": [[0, 0], [0, 30], [20, 30]],
+                        "bend_radius": 3,
+                    }
+                ]
+            }
+        )
+    )
+    box = bracket.summary()["bbox"]
+    assert box["size"][1] == 40.0  # 폭만큼 밀렸고
+    assert box["min"][1] == -20.0 and box["max"][1] == 20.0  # 꺾은선이 폭의 가운데다
+    # 접은 판에도 구멍은 뚫린다 — 지그 브래킷은 결국 볼트로 붙는다.
+    with_hole = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "m",
+                        "op": "sheet_metal",
+                        "thickness": 2,
+                        "width": 40,
+                        "path": [[0, 0], [0, 30], [20, 30]],
+                        "bend_radius": 3,
+                    },
+                    {"id": "h", "op": "hole", "target": "m", "at": [[10, 0]], "thread": "M5"},
+                ]
+            }
+        )
+    )
+    assert with_hole.shape.volume < bracket.shape.volume

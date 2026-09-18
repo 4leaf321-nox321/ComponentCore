@@ -19,6 +19,15 @@ def test_가이드에_주제가_있다() -> None:
     assert "error" in bad
 
 
+def test_말로_받은_치수를_넣을_칸을_가이드가_알려준다() -> None:
+    """AI 는 이 가이드만 읽고 레시피를 쓴다 — 좌표로 환산하지 않아도 되는 칸이 적혀 있어야 한다."""
+    _, sections = server._guide_sections()
+    recipe = sections["recipe"]
+    for word in ('radius', 'tangent', 'measure overall|centers', 'triangle', 'sheet_metal'):
+        assert word in recipe, word
+    assert "via" in recipe and "사람이 캔버스에서 찍을 때" in recipe
+
+
 def test_오류_봉투를_그대로_전한다() -> None:
     response = httpx.Response(
         400,

@@ -55,17 +55,38 @@ class RegularPolygonShape(_Shape):
 class Slot(_Shape):
     type: Literal["slot"]
     length: Positive
-    """양 끝 반원을 포함한 전체 길이."""
+    """`measure` 에 따라 전체 길이이거나 양 끝 **중심 사이** 거리."""
     width: Positive
+    measure: Literal["overall", "centers"] = "overall"
+    """overall = 반원까지 포함한 전체 길이 · centers = 두 끝 원의 중심 사이(도면이 쓰는 값)."""
 
 
 class Segment(BaseModel):
-    """임의 윤곽의 한 구간 — 다음 점까지 직선, `via` 가 있으면 그 점을 지나는 호."""
+    """한 구간 — 다음 점(`to`)까지 어떻게 가나.
+
+    - 아무것도 없으면 **직선**
+    - `radius` 면 그 반지름의 **호**. 부호가 휘는 쪽(양수 = 가는 방향의 왼쪽)
+    - `tangent` 면 **앞 구간 끝 방향으로 매끄럽게 이어지는 호**(반지름은 저절로 정해진다)
+    - `via` 면 그 점을 **지나는 호**(사람이 3D · 캔버스에서 찍은 자리)
+
+    글로 지시할 때는 `radius` · `tangent` 가 낫다 — `via` 는 호 위의 점을 미리 계산해야 한다.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     to: XY
     via: XY | None = None
+    radius: float | None = None
+    tangent: bool = False
+
+    @model_validator(mode="after")
+    def _one_way(self) -> Segment:
+        chosen = [self.via is not None, self.radius is not None, self.tangent]
+        if sum(chosen) > 1:
+            raise ValueError("via · radius · tangent 중 하나만 씁니다")
+        if self.radius is not None and self.radius == 0:
+            raise ValueError("radius: 0 은 호가 되지 않습니다 — 빼면 직선입니다")
+        return self
 
 
 class PolylineShape(_Shape):
@@ -109,6 +130,28 @@ class PathShape(_Shape):
     corners: Literal["round", "sharp"] = "round"
 
 
+class TriangleShape(_Shape):
+    """변과 각으로 만드는 삼각형 — 세 값이면 정해진다(예: a · b 와 낀각 C, 또는 a · B · C).
+    변은 소문자, 마주 보는 각은 대문자다."""
+
+    type: Literal["triangle"]
+    a: Positive | None = None
+    b: Positive | None = None
+    c: Positive | None = None
+    A: float | None = Field(default=None, gt=0, lt=180)
+    B: float | None = Field(default=None, gt=0, lt=180)
+    C: float | None = Field(default=None, gt=0, lt=180)
+
+    @model_validator(mode="after")
+    def _enough(self) -> TriangleShape:
+        given = [v for v in (self.a, self.b, self.c, self.A, self.B, self.C) if v is not None]
+        if len(given) < 3:
+            raise ValueError("변 · 각을 셋은 주어야 삼각형이 정해집니다")
+        if all(v is None for v in (self.a, self.b, self.c)):
+            raise ValueError("변을 적어도 하나는 주어야 크기가 정해집니다")
+        return self
+
+
 class EllipseShape(_Shape):
     type: Literal["ellipse"]
     x_radius: Positive
@@ -136,6 +179,7 @@ SketchShape = Annotated[
     | PathShape
     | RoundedRect
     | TrapezoidShape
+    | TriangleShape
     | EllipseShape
     | TextShape,
     Field(discriminator="type"),
@@ -205,6 +249,26 @@ class ExtrudeNode(_Node):
             if self.direction == "both":
                 raise ValueError("direction: 면까지 돌출은 한쪽 방향만 됩니다")
         return self
+
+
+class SheetMetalNode(_Node):
+    """판금 절곡 — 옆에서 본 꺾은선(`path`)을 따라 `thickness` 두께의 판을 세우고 `width` 만큼
+    민다. 브래킷 · ㄱ자 앵글 · 덮개처럼 「판을 접어 만드는」 것.
+
+    치수를 말로 주기 좋다: 「2t 판, 30 올라갔다 20 꺾임, 폭 40, 굽힘 R4」."""
+
+    op: Literal["sheet_metal"]
+    thickness: Positive
+    width: Positive
+    """꺾은선을 민 길이 — 판의 폭. 꺾은선이 폭의 **가운데**에 온다(양쪽으로 절반씩)."""
+    path: list[XY] = Field(min_length=2)
+    """평면 위의 꺾은선. 점 사이는 직선이고 꺾이는 곳이 굽힘이다."""
+    plane: PlaneSpec = Field(default_factory=lambda: PlaneSpec(name="XZ"))
+    """꺾은선이 놓이는 평면. 기본 XZ — 옆에서 본 모습을 그리고 Y 로 민다."""
+    bend_radius: float = Field(default=0.0, ge=0)
+    """굽힘 안쪽 반지름. 0 이면 각지게."""
+    side: Literal["left", "right"] = "left"
+    """두께가 붙는 쪽 — 꺾은선이 안쪽인가(left) 바깥쪽인가(right)."""
 
 
 class HelixNode(_Node):
@@ -524,6 +588,7 @@ Node = Annotated[
     | RevolveNode
     | SweepNode
     | HelixNode
+    | SheetMetalNode
     | BoxNode
     | WedgeNode
     | CylinderNode

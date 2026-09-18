@@ -25,6 +25,7 @@ import {
   Spline,
   Triangle,
   Waves,
+  Fence,
   SquareSplitHorizontal,
   Move3d,
   Package,
@@ -180,6 +181,41 @@ export const OP_SPECS: OpSpec[] = [
         [30, 0, 60],
       ],
       smooth: false,
+    },
+  },
+  {
+    op: 'sheet_metal',
+    icon: Fence,
+    label: '판금',
+    group: '입체',
+    help: '옆에서 본 꺾은선을 따라 판을 접는다 — 브래킷 · ㄱ자 앵글 · 덮개. 「2t 판, 30 올라가 20 꺾임, 폭 40, 굽힘 R4」.',
+    fields: [
+      { key: 'thickness', label: '판 두께 (mm)', kind: 'number', step: 0.5 },
+      { key: 'width', label: '폭 (mm, 미는 길이)', kind: 'number' },
+      { key: 'path', label: '꺾은선 (평면 위 X, Y)', kind: 'points' },
+      { key: 'plane', label: '꺾은선 평면', kind: 'plane' },
+      { key: 'bend_radius', label: '굽힘 반지름 (mm, 0 = 각지게)', kind: 'number', step: 0.5 },
+      {
+        key: 'side',
+        label: '두께가 붙는 쪽',
+        kind: 'select',
+        options: [
+          { value: 'left', label: '꺾은선이 안쪽' },
+          { value: 'right', label: '꺾은선이 바깥쪽' },
+        ],
+      },
+    ],
+    defaults: {
+      thickness: 2,
+      width: 40,
+      path: [
+        [0, 0],
+        [0, 30],
+        [20, 30],
+      ],
+      plane: { name: 'XZ', origin: [0, 0, 0] },
+      bend_radius: 3,
+      side: 'left',
     },
   },
   {
@@ -628,6 +664,7 @@ export const SHAPE_TYPES = [
   { value: 'path', label: '선 (두께)' },
   { value: 'rounded_rect', label: '둥근 사각형' },
   { value: 'trapezoid', label: '사다리꼴' },
+  { value: 'triangle', label: '삼각형 (변 · 각)' },
   { value: 'ellipse', label: '타원' },
   { value: 'text', label: '글자' },
 ]
@@ -655,6 +692,8 @@ export function defaultShape(type: string): Record<string, unknown> {
       return { type, width: 40, height: 30, radius: 5, ...base }
     case 'trapezoid':
       return { type, width: 40, height: 20, left_angle: 75, right_angle: null, ...base }
+    case 'triangle':
+      return { type, a: 30, b: 40, C: 90, ...base }
     case 'ellipse':
       return { type, x_radius: 15, y_radius: 8, ...base }
     case 'text':
