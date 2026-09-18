@@ -223,21 +223,51 @@ async def get_guide(ctx: Context, topic: str | None = None) -> dict[str, Any]:
 @mcp.tool()
 async def recipe_schema(ctx: Context) -> Any:
     """레시피의 **피처 종류와 칸**(JSON Schema), 내장 템플릿 넷(상자 · 원기둥 · 구멍판 · L
-    브래킷), 그리고 사용자가 저장한 템플릿(`saved_templates`). 새로 그릴 때는 템플릿에서 시작해
-    고치는 것이 빠르다."""
+    브래킷), 그리고 사람이 저장해 둔 템플릿 목록(`saved_templates` — 내 것과 공용). 새로 그릴 때는
+    템플릿에서 시작해 고치는 것이 빠르다.
+
+    저장 템플릿의 **레시피 본문은 여기 없다**(목록이 무거워진다) — `template_recipe(id)` 로
+    받는다."""
     schema = await _get(ctx, "/api/cad/recipe/schema")
-    saved = await _get(ctx, "/api/cad/templates")
-    if isinstance(schema, dict) and isinstance(saved, list):
+    saved = await _get(ctx, "/api/templates?limit=50")
+    if isinstance(schema, dict) and isinstance(saved, dict):
         schema["saved_templates"] = [
             {
+                "id": t["id"],
                 "name": t["name"],
                 "description": t["description"],
-                "shared": t["is_shared"],
-                "recipe": t["recipe"],
+                "where": "내 것" if t["mine"] else f"공용 · {t['owner_name']}",
+                "node_count": t["node_count"],
             }
-            for t in saved
+            for t in saved.get("items", [])
         ]
     return schema
+
+
+@mcp.tool()
+async def template_recipe(ctx: Context, template_id: str) -> Any:
+    """저장된 템플릿의 **레시피 본문**. `recipe_schema` 의 `saved_templates` 에서 고른 id 로
+    받아서, 치수를 고쳐 `create_work` · `save_version` 에 넣는다."""
+    return await _get(ctx, f"/api/templates/{template_id}")
+
+
+@mcp.tool()
+async def save_template(
+    ctx: Context,
+    name: str,
+    recipe: dict[str, Any],
+    description: str = "",
+    shared: bool = False,
+) -> Any:
+    """지금 레시피를 **템플릿으로 저장**한다 — 다음에 그릴 때의 출발점. `shared` 를 켜면 공용
+    자리에 놓여 누구나 고른다(고치는 것은 만든 사람뿐).
+
+    한 번 쓰고 말 것은 저장하지 않는다. 치수만 바꿔 되풀이해 쓸 모양일 때만."""
+    return await _post(
+        ctx,
+        "/api/templates",
+        {"name": name, "description": description, "recipe": recipe, "is_shared": shared},
+    )
 
 
 @mcp.tool()

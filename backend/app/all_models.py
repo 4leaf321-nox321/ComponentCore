@@ -10,10 +10,10 @@ from app.database import Base
 from app.modules.accounts.models import User
 from app.modules.audit.models import AccessLog
 from app.modules.auth.models import PersonalAccessToken, RefreshToken
-from app.modules.cad.models import RecipeTemplate
 from app.modules.jigs.models import Jig, JigVersion
 from app.modules.jobs.models import Artifact, Job
 from app.modules.parts.models import Part, PartVersion
+from app.modules.templates.models import RecipeTemplate
 from app.modules.works.models import Work, WorkVersion
 
 __all__ = [

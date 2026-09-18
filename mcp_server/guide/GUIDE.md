@@ -10,7 +10,8 @@
 
 | 하려는 일 | 도구 |
 | --- | --- |
-| 무엇을 만들 수 있나 | `recipe_schema` (피처 종류 · 칸 · 내장 템플릿 넷 · 사용자가 저장한 템플릿) |
+| 무엇을 만들 수 있나 | `recipe_schema` (피처 종류 · 칸 · 내장 템플릿 넷 · 저장 템플릿 목록) |
+| 저장 템플릿의 본문 | `template_recipe(id)` · 되풀이해 쓸 모양은 `save_template` 로 남긴다 |
 | 레시피가 맞나, 만들어지나 | `recipe_check` — **저장 전에 반드시** |
 | 새 부품 시작 | `create_work(name, recipe)` |
 | 있는 부품 고치기 | `get_work` 로 레시피를 받아 고쳐 `save_version` |
@@ -92,7 +93,8 @@
 - 면이 정확히 포개진 두 덩어리를 합쳤다 → 조금 겹치게 하라(예: 벽을 바닥판에 1mm 묻기).
 - `cut` 이 전부를 지웠다 → 도구 위치를 확인하라.
 
-템플릿(`recipe_schema` 의 templates)에서 시작해 고치는 것이 가장 빠르다. 예 — 80×50×10 판에
+템플릿에서 시작해 고치는 것이 가장 빠르다(내장은 `recipe_schema` 의 `templates`, 사람이 저장한
+것은 `saved_templates` 의 id 로 `template_recipe`). 예 — 80×50×10 판에
 모서리 Ø6 구멍 넷:
 
 ```json
@@ -107,7 +109,8 @@
 ## workflow
 
 1. `get_work(work_id)` 로 지금 레시피와 평가 요약(크기 · 부피 · 면 수)을 받는다. 새로 만들 때는
-   `recipe_schema` 의 템플릿에서.
+   `recipe_schema` 의 템플릿에서. 치수만 바꿔 되풀이해 쓸 모양이면 `save_template` 로 남긴다
+   (`shared: true` 면 공용 자리).
 2. 레시피를 고친다 — **바꾸는 피처만** 손대고 나머지는 그대로 둔다. 새 피처는 끝에 붙이고 앞 피처를
    가리킨다.
 3. `recipe_check(recipe)` — 통과할 때까지. 요약의 bbox · volume 이 의도와 맞는지 본다.

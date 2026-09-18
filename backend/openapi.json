@@ -2584,25 +2584,84 @@
         }
       }
     },
-    "/api/cad/templates": {
+    "/api/templates": {
       "get": {
         "tags": [
-          "cad"
+          "templates"
         ],
         "summary": "List Templates",
-        "description": "내 템플릿 + 공용 템플릿. 내장 넷은 `recipe/schema` 의 templates 에 있다.",
-        "operationId": "list_templates_api_cad_templates_get",
+        "description": "내 템플릿 · 공용 템플릿. 내장 넷은 `cad/recipe/schema` 의 templates 에 있다.",
+        "operationId": "list_templates_api_templates_get",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "mine · shared · all",
+              "default": "all",
+              "title": "Scope"
+            },
+            "description": "mine · shared · all"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 120,
+              "default": "",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/TemplateOut"
-                  },
-                  "type": "array",
-                  "title": "Response List Templates Api Cad Templates Get"
+                  "$ref": "#/components/schemas/Page_TemplateSummaryOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -2611,19 +2670,19 @@
       },
       "post": {
         "tags": [
-          "cad"
+          "templates"
         ],
         "summary": "Create Template",
-        "operationId": "create_template_api_cad_templates_post",
+        "operationId": "create_template_api_templates_post",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/TemplateCreateRequest"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -2649,13 +2708,56 @@
         }
       }
     },
-    "/api/cad/templates/{template_id}": {
+    "/api/templates/{template_id}": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "Get Template",
+        "description": "레시피 본문까지 — 「그리기에서 열기」 가 이것을 받는다.",
+        "operationId": "get_template_api_templates__template_id__get",
+        "parameters": [
+          {
+            "name": "template_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Template Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "patch": {
         "tags": [
-          "cad"
+          "templates"
         ],
         "summary": "Update Template",
-        "operationId": "update_template_api_cad_templates__template_id__patch",
+        "description": "이름 · 설명 · 레시피 · **공용 여부**. 공용으로 내놓는 것도 거두는 것도 소유자 몫이다.",
+        "operationId": "update_template_api_templates__template_id__patch",
         "parameters": [
           {
             "name": "template_id",
@@ -2703,10 +2805,10 @@
       },
       "delete": {
         "tags": [
-          "cad"
+          "templates"
         ],
         "summary": "Delete Template",
-        "operationId": "delete_template_api_cad_templates__template_id__delete",
+        "operationId": "delete_template_api_templates__template_id__delete",
         "parameters": [
           {
             "name": "template_id",
@@ -2722,6 +2824,50 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/templates/{template_id}/copy": {
+      "post": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "Copy Template",
+        "description": "공용 템플릿을 내 것으로 복사한다 — 남의 것은 고칠 수 없으니.",
+        "operationId": "copy_template_api_templates__template_id__copy_post",
+        "parameters": [
+          {
+            "name": "template_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Template Id"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateOut"
+                }
+              }
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -3682,6 +3828,37 @@
         ],
         "title": "Page[PartSummaryOut]"
       },
+      "Page_TemplateSummaryOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TemplateSummaryOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[TemplateSummaryOut]"
+      },
       "Page_WorkSummaryOut_": {
         "properties": {
           "items": {
@@ -4507,10 +4684,67 @@
             "type": "string",
             "title": "Owner Name"
           },
+          "is_shared": {
+            "type": "boolean",
+            "title": "Is Shared"
+          },
+          "mine": {
+            "type": "boolean",
+            "title": "Mine"
+          },
+          "node_count": {
+            "type": "integer",
+            "title": "Node Count"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
           "recipe": {
             "additionalProperties": true,
             "type": "object",
             "title": "Recipe"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "owner_id",
+          "owner_name",
+          "is_shared",
+          "mine",
+          "node_count",
+          "updated_at",
+          "recipe"
+        ],
+        "title": "TemplateOut"
+      },
+      "TemplateSummaryOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "owner_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Owner Id"
+          },
+          "owner_name": {
+            "type": "string",
+            "title": "Owner Name"
           },
           "is_shared": {
             "type": "boolean",
@@ -4519,6 +4753,10 @@
           "mine": {
             "type": "boolean",
             "title": "Mine"
+          },
+          "node_count": {
+            "type": "integer",
+            "title": "Node Count"
           },
           "updated_at": {
             "type": "string",
@@ -4533,12 +4771,13 @@
           "description",
           "owner_id",
           "owner_name",
-          "recipe",
           "is_shared",
           "mine",
+          "node_count",
           "updated_at"
         ],
-        "title": "TemplateOut"
+        "title": "TemplateSummaryOut",
+        "description": "목록용 — 레시피 본문은 빼고 크기만. 목록에서 수십 개의 레시피를 내려보내지 않는다."
       },
       "TemplateUpdateRequest": {
         "properties": {

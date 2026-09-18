@@ -5,13 +5,14 @@
  * 거기서 계속 고치고, 지그를 만들고, 부품 · 지그로 승격한다.
  */
 
-import { useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import type { Recipe } from '@/modules/cad/api'
 import { saveRecipeAs } from '@/modules/cad/download'
+import { templatesApi } from '@/modules/templates/api'
 import { RecipeEditor } from '@/modules/cad/RecipeEditor'
-import { SaveTemplateDialog } from '@/modules/cad/SaveTemplateDialog'
+import { SaveTemplateDialog } from '@/modules/templates/SaveTemplateDialog'
 import { worksApi } from '@/modules/works/api'
 import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
@@ -40,6 +41,31 @@ export default function DrawPage() {
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [busy, setBusy] = useState(false)
   const fileInput = useRef<HTMLInputElement | null>(null)
+  const [params, setParams] = useSearchParams()
+
+  // 템플릿 공간에서 「그리기에서 열기」 로 왔을 때 — 주소의 id 를 받아 한 번만 싣는다.
+  const wanted = params.get('template')
+  useEffect(() => {
+    if (!wanted) return
+    let alive = true
+    void (async () => {
+      try {
+        const template = await templatesApi.get(wanted)
+        if (!alive) return
+        setRecipe(template.recipe)
+        setName(template.name)
+        setOrigin({ source: 'template', label: `${template.name} 템플릿에서` })
+      } catch (caught) {
+        if (alive) setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      } finally {
+        // 주소를 비워 둔다 — 새로고침이나 「새로」 뒤에 다시 실리면 사람이 놀란다.
+        if (alive) setParams({}, { replace: true })
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [wanted, setParams])
 
   async function download(format: 'step' | 'stl' | 'dxf' | 'svg') {
     if (!recipe) return

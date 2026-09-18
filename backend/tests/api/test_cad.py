@@ -85,41 +85,6 @@ def test_만들지_못하는_레시피는_노드를_말한다(client: TestClient
     assert got.json()["error"]["details"]["node_id"] == "f"
 
 
-def test_템플릿_저장_공용_삭제(client: TestClient, member: Signed, admin: Signed) -> None:
-    made = client.post(
-        "/api/cad/templates",
-        json={"name": "내 상자", "recipe": BOX, "description": "40x30x10"},
-        headers=member.headers,
-    )
-    assert made.status_code == 201, made.text
-    mine = client.get("/api/cad/templates", headers=member.headers).json()
-    assert [t["name"] for t in mine] == ["내 상자"] and mine[0]["mine"] is True
-    # 남은 못 본다 — 공용으로 바꾸면 본다.
-    assert client.get("/api/cad/templates", headers=admin.headers).json() == []
-    shared = client.patch(
-        f"/api/cad/templates/{made.json()['id']}",
-        json={"is_shared": True},
-        headers=member.headers,
-    )
-    assert shared.status_code == 200 and shared.json()["is_shared"] is True
-    seen = client.get("/api/cad/templates", headers=admin.headers).json()
-    assert [t["name"] for t in seen] == ["내 상자"] and seen[0]["mine"] is False
-    # 틀린 레시피는 저장에서 거절.
-    bad = client.post(
-        "/api/cad/templates",
-        json={"name": "x", "recipe": {"nodes": [{"id": "a", "op": "nope"}]}},
-        headers=member.headers,
-    )
-    assert bad.status_code == 400
-    assert (
-        client.delete(
-            f"/api/cad/templates/{made.json()['id']}", headers=member.headers
-        ).status_code
-        == 204
-    )
-    assert client.get("/api/cad/templates", headers=member.headers).json() == []
-
-
 def test_스케치만_있어도_미리보기는_보이고_저장은_거절(
     client: TestClient, member: Signed
 ) -> None:

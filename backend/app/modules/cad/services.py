@@ -14,19 +14,13 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import or_, select
-from sqlalchemy.orm import Session
-
 from app.core import export
 from app.core.recipe import Evaluation, RecipeError, evaluate, parse
 from app.core.recipe.schema import RecipeValidationError
-from app.modules.accounts.models import User
-from app.modules.cad.models import RecipeTemplate
-from app.modules.cad.schemas import TemplateOut
 from app.modules.jobs import registry
 from app.modules.jobs.models import Artifact
 from app.shared import filestore
-from app.shared.errors import AppError, Forbidden, NotFound, code
+from app.shared.errors import AppError, code
 
 logger = logging.getLogger(__name__)
 
@@ -125,93 +119,3 @@ def run_job(
             ),
         ],
     )
-
-
-# --- 템플릿 -------------------------------------------------------------------
-
-
-def template_out(db: Session, template: RecipeTemplate, viewer: User) -> TemplateOut:
-    owner = db.get(User, template.owner_id)
-    return TemplateOut(
-        id=template.id,
-        name=template.name,
-        description=template.description,
-        owner_id=template.owner_id,
-        owner_name=owner.display_name if owner else "(삭제된 계정)",
-        recipe=template.recipe,
-        is_shared=template.is_shared,
-        mine=template.owner_id == viewer.id,
-        updated_at=template.updated_at,
-    )
-
-
-def list_templates(db: Session, viewer: User) -> list[RecipeTemplate]:
-    """내 것 전부 + 남이 공용으로 둔 것. 내 것이 먼저."""
-    rows = db.scalars(
-        select(RecipeTemplate)
-        .where(or_(RecipeTemplate.owner_id == viewer.id, RecipeTemplate.is_shared.is_(True)))
-        .order_by(RecipeTemplate.updated_at.desc())
-    ).all()
-    return sorted(rows, key=lambda t: (t.owner_id != viewer.id, t.name))
-
-
-def get_template(db: Session, template_id: uuid.UUID, viewer: User) -> RecipeTemplate:
-    template = db.get(RecipeTemplate, template_id)
-    if template is None or (template.owner_id != viewer.id and not template.is_shared):
-        raise NotFound(code("CAD", 8), "템플릿을 찾을 수 없습니다.")
-    return template
-
-
-def require_template_owner(template: RecipeTemplate, user: User) -> None:
-    if template.owner_id != user.id and not user.is_system_admin:
-        raise Forbidden(code("CAD", 9), "이 템플릿을 고칠 권한이 없습니다.")
-
-
-def create_template(
-    db: Session,
-    *,
-    owner: User,
-    name: str,
-    description: str,
-    recipe: dict[str, Any],
-    is_shared: bool,
-) -> RecipeTemplate:
-    problems = check(recipe)
-    if problems:
-        raise AppError(
-            code("CAD", 2), "레시피가 올바르지 않습니다", details={"problems": problems}
-        )
-    template = RecipeTemplate(
-        name=name.strip(),
-        description=description.strip(),
-        owner_id=owner.id,
-        recipe=recipe,
-        is_shared=is_shared,
-    )
-    db.add(template)
-    db.commit()
-    db.refresh(template)
-    return template
-
-
-def update_template(
-    db: Session, template: RecipeTemplate, *, fields: dict[str, Any]
-) -> RecipeTemplate:
-    if fields.get("recipe") is not None:
-        problems = check(fields["recipe"])
-        if problems:
-            raise AppError(
-                code("CAD", 2), "레시피가 올바르지 않습니다", details={"problems": problems}
-            )
-    for key, value in fields.items():
-        if value is None:
-            continue
-        setattr(template, key, value.strip() if isinstance(value, str) else value)
-    db.commit()
-    db.refresh(template)
-    return template
-
-
-def delete_template(db: Session, template: RecipeTemplate) -> None:
-    db.delete(template)
-    db.commit()

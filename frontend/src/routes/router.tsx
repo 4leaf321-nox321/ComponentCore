@@ -17,6 +17,7 @@ import { AppShell } from '@/shared/layout/AppShell'
 const DrawPage = lazy(() => import('@/modules/works/DrawPage'))
 const WorksPage = lazy(() => import('@/modules/works/WorksPage'))
 const WorkPage = lazy(() => import('@/modules/works/WorkPage'))
+const TemplatesPage = lazy(() => import('@/modules/templates/TemplatesPage'))
 const PartsPage = lazy(() => import('@/modules/parts/PartsPage'))
 const PartPage = lazy(() => import('@/modules/parts/PartPage'))
 const JigsPage = lazy(() => import('@/modules/jigs/JigsPage'))
@@ -41,6 +42,7 @@ export const router = createBrowserRouter(
             { path: 'draw', element: <DrawPage /> },
             { path: 'works', element: <WorksPage /> },
             { path: 'works/:id', element: <WorkPage /> },
+            { path: 'templates', element: <TemplatesPage /> },
             { path: 'parts', element: <PartsPage /> },
             { path: 'parts/:id', element: <PartPage /> },
             { path: 'jigs', element: <JigsPage /> },

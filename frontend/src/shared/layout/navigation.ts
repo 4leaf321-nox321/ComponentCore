@@ -1,12 +1,14 @@
 /**
  * 사이드바 메뉴 정의 — **화면 목록의 정본이다.** `router.test.tsx` 가 라우터와 맞는지 검사한다.
  *
- * 순서가 곧 동선이다: 내 활동(그리기 → 내 작업 → 실행 기록) → 공용(부품 · 지그) → 관리.
+ * 순서가 곧 동선이다: 내 활동(그리기 → 내 작업 → 실행 기록) → 모아 둔 것(템플릿 · 부품 · 지그)
+ * → 관리. 템플릿은 시작점, 부품 · 지그는 승격된 결과다.
  */
 
 import {
   Boxes,
   DraftingCompass,
+  FileStack,
   FolderPen,
   Layers,
   ListChecks,
@@ -44,8 +46,14 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    title: '공용',
+    title: '모아 둔 것',
     items: [
+      {
+        label: '템플릿',
+        icon: FileStack,
+        to: '/templates',
+        summary: '그리기의 출발점. 내 것과 공용 두 자리가 있다.',
+      },
       { label: '부품', icon: Layers, to: '/parts', summary: '승격된 부품. 누구나 보고 내 공간으로 복사한다.' },
       { label: '지그', icon: Boxes, to: '/jigs', summary: '승격된 지그. 어느 부품 버전의 지그인지 함께.' },
     ],

@@ -8,6 +8,7 @@ import { Link } from 'react-router-dom'
 
 import { cadApi } from '@/modules/cad/api'
 import type { Recipe } from '@/modules/cad/api'
+import { templatesApi } from '@/modules/templates/api'
 import { worksApi } from '@/modules/works/api'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { Button } from '@/shared/components/ui/button'
@@ -31,7 +32,7 @@ function Row({ title, hint, action }: { title: React.ReactNode; hint?: React.Rea
 
 export function LoadRecipeDialog({ open, onClose, onLoad }: { open: boolean; onClose: () => void; onLoad: (loaded: Loaded) => void }) {
   const schema = useResource(() => cadApi.schema(), [open])
-  const saved = useResource(() => cadApi.templates(), [open])
+  const saved = useResource(() => templatesApi.list({ limit: 50 }), [open])
   const [busy, setBusy] = useState<string | null>(null)
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -65,9 +66,15 @@ export function LoadRecipeDialog({ open, onClose, onLoad }: { open: boolean; onC
             ))}
           </div>
           <div className="space-y-1">
-            <p className="text-muted-foreground text-xs">저장한 템플릿</p>
-            {(saved.data ?? []).length === 0 && <p className="text-muted-foreground text-xs">아직 없습니다 — 「템플릿으로 저장」 으로 만듭니다.</p>}
-            {(saved.data ?? []).map((t) => (
+            <p className="text-muted-foreground text-xs">
+              저장한 템플릿 —{' '}
+              <Link to="/templates" className="underline" onClick={onClose}>
+                템플릿 공간
+              </Link>{' '}
+              에서 관리합니다.
+            </p>
+            {(saved.data?.items ?? []).length === 0 && <p className="text-muted-foreground text-xs">아직 없습니다 — 「템플릿으로 저장」 으로 만듭니다.</p>}
+            {(saved.data?.items ?? []).map((t) => (
               <Row
                 key={t.id}
                 title={
@@ -86,7 +93,7 @@ export function LoadRecipeDialog({ open, onClose, onLoad }: { open: boolean; onC
                         onClick={async () => {
                           if (!window.confirm(`템플릿 「${t.name}」 을 지웁니까?`)) return
                           setBusy(t.id)
-                          await cadApi.removeTemplate(t.id)
+                          await templatesApi.remove(t.id)
                           setBusy(null)
                           saved.reload()
                         }}
@@ -96,13 +103,14 @@ export function LoadRecipeDialog({ open, onClose, onLoad }: { open: boolean; onC
                     )}
                     <Button
                       size="sm"
-                      onClick={() =>
-                        onLoad({
-                          recipe: structuredClone(t.recipe),
-                          label: t.name,
-                          source: 'template',
-                        })
-                      }
+                      disabled={busy === t.id}
+                      onClick={async () => {
+                        // 목록은 레시피 본문을 싣지 않는다 — 고른 것만 받아 온다.
+                        setBusy(t.id)
+                        const full = await templatesApi.get(t.id)
+                        setBusy(null)
+                        onLoad({ recipe: structuredClone(full.recipe), label: t.name, source: 'template' })
+                      }}
                     >
                       불러오기
                     </Button>

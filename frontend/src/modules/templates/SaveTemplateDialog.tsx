@@ -1,10 +1,10 @@
-/** 지금 레시피를 템플릿으로 — 「그리기」 의 시작 목록에 들어간다. 공용으로 두면 누구나 고른다. */
+/** 지금 레시피를 템플릿으로 — 「템플릿」 공간의 내 자리에 들어간다. 공용으로 두면 누구나 고른다. */
 
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 
-import { cadApi } from '@/modules/cad/api'
 import type { Recipe } from '@/modules/cad/api'
+import { templatesApi } from '@/modules/templates/api'
 import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { Button } from '@/shared/components/ui/button'
@@ -43,7 +43,7 @@ export function SaveTemplateDialog({
     setBusy(true)
     setError(null)
     try {
-      await cadApi.createTemplate({ name, description, recipe, is_shared: shared })
+      await templatesApi.create({ name, description, recipe, is_shared: shared })
       onSaved?.()
       onClose()
     } catch (caught) {
