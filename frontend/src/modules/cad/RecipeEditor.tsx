@@ -22,7 +22,7 @@ import { SketchCanvas } from '@/modules/cad/SketchCanvas'
 import type { SketchShape } from '@/modules/cad/SketchCanvas'
 import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
-import { Braces, BookmarkPlus, Download, FilePlus, FolderOpen, Files, Maximize2, Minimize2, Redo2, Ruler, Save, SquareDashedMousePointer, Undo2 } from 'lucide-react'
+import { Boxes, Braces, BookmarkPlus, Download, FileAxis3d, Image, FilePlus, FolderOpen, Files, Maximize2, Minimize2, Redo2, Ruler, Save, SquareDashedMousePointer, Undo2 } from 'lucide-react'
 
 import { useFullscreen } from '@/shared/viewer/FullscreenFrame'
 import type { MeasurePick, MeshData, MeshEdge, MeshFace, PickMode } from '@/shared/viewer/PickViewer'
@@ -45,7 +45,8 @@ export interface FileActions {
   /** 「저장」 — 그리기에서는 내 작업으로, 내 작업에서는 새 버전으로. */
   save?: { label: string; run: () => void; disabled?: boolean }
   saveTemplate?: () => void
-  downloadStep?: () => void
+  /** 형식별 내려받기 — 호출부가 blob 을 받아 저장한다. */
+  download?: (format: 'step' | 'stl' | 'dxf' | 'svg') => void
   /** 불러온 뒤 알린다(출처 표시용). */
   onLoaded?: (label: string, source: 'template' | 'copy') => void
   /** 지금 작업 id — 작업 불러오기 목록에서 자기 자신은 뺀다. */
@@ -350,8 +351,37 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
               <RibbonGroup title="저장">
                 {file?.save && <RibbonButton icon={Save} label={file.save.label} onClick={file.save.run} disabled={file.save.disabled || nodes.length === 0} />}
                 {file?.saveTemplate && <RibbonButton icon={BookmarkPlus} label="템플릿" title="템플릿으로 저장" onClick={file.saveTemplate} disabled={nodes.length === 0} />}
-                {file?.downloadStep && (
-                  <RibbonButton icon={Download} label="STEP" title="STEP 받기" onClick={file.downloadStep} disabled={nodes.length === 0 || !!summary?.is_sketch} />
+                {file?.download && (
+                  <>
+                    <RibbonButton
+                      icon={Download}
+                      label="STEP"
+                      title="STEP 받기 — 다른 CAD 로"
+                      onClick={() => file.download?.('step')}
+                      disabled={nodes.length === 0 || !!summary?.is_sketch}
+                    />
+                    <RibbonButton
+                      icon={Boxes}
+                      label="STL"
+                      title="STL 받기 — 3D 프린터로 뽑을 때"
+                      onClick={() => file.download?.('stl')}
+                      disabled={nodes.length === 0 || !!summary?.is_sketch}
+                    />
+                    <RibbonButton
+                      icon={FileAxis3d}
+                      label="DXF"
+                      title="DXF 받기 — 2D 도면(레이저 · 가공). 입체면 높이 절반의 단면을 낸다"
+                      onClick={() => file.download?.('dxf')}
+                      disabled={nodes.length === 0}
+                    />
+                    <RibbonButton
+                      icon={Image}
+                      label="SVG"
+                      title="SVG 받기 — 문서에 붙이는 2D 그림"
+                      onClick={() => file.download?.('svg')}
+                      disabled={nodes.length === 0}
+                    />
+                  </>
                 )}
               </RibbonGroup>
               <RibbonGroup title="고급">

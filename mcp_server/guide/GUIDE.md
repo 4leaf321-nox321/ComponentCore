@@ -38,9 +38,12 @@
   순서대로 더하거나(add) 빼는(cut) 도형: `rect`(width, height) · `circle`(radius) · `slot`(length,
   width) · `regular_polygon`(radius, sides) · `polygon`(points) · **`polyline`**(start, segments
   [{to, via?}] — 임의 윤곽, `via` 가 있으면 그 점을 지나는 호) · `path`(start, segments, width,
-  corners — 두께 있는 선: 리브 · 얇은 벽, 양 끝 둥글게) · `ellipse`(x_radius, y_radius) ·
+  corners — 두께 있는 선: 리브 · 얇은 벽, 양 끝 둥글게) · `rounded_rect`(width, height, radius) ·
+  `trapezoid`(width, height, left_angle, right_angle) · `ellipse`(x_radius, y_radius) ·
   `text`(text, size, bold — 각인은 cut 으로 얕게 돌출해서 뺀다). 각 도형은 `at` [x, y] · `rotation`.
-  스케치의 `offset` 은 합친 윤곽을 밖(+)/안(−)으로 띄운다(2D 여유). `section`(target, plane,
+  `polyline` 의 `corner_radius` 는 모든 모서리를 둥글린다(호 `via` 와 함께는 못 쓴다).
+  스케치의 `hull: true` 는 도형들을 **감싸는 볼록 윤곽** 하나로 만든다(흩어진 자리를 덮는 베이스
+  판). 스케치의 `offset` 은 합친 윤곽을 밖(+)/안(−)으로 띄운다(2D 여유). `section`(target, plane,
   offset) 은 입체를 평면으로 자른 단면을 **스케치로** 준다 — 여유를 주고 돌출하면 포켓 윤곽.
 - 입체 `extrude`(sketch, distance, direction normal|reverse|both, taper — 구배 도, 양수면 좁아짐,
   until distance|next|last + target — 대상의 다음/마지막 면까지; 관통 구멍은 last) ·
@@ -48,12 +51,14 @@
   경로 첫 점에 두라) · `helix`(sketch, radius, pitch, height, axis, at, lefthand — 스프링 · 나사산;
   단면은 XY 원점에 그리면 자동으로 시작점에 놓인다) · `loft`(sketches [2개 이상], ruled) · `box`(length, width, height, at) · `cylinder`(radius, height,
   axis, at) · `sphere`(radius, at) · `cone`(bottom_radius, top_radius, height, at) · `torus`
-  (major_radius, minor_radius) · `import_step`(file — 사용자가 올린 STEP, 직접 만들지 않는다)
+  (major_radius, minor_radius) · `wedge`(length, width, height, top_x_min/max, top_z_min/max —
+  경사 블록) · `import_step`(file — 사용자가 올린 STEP, 직접 만들지 않는다)
 - 조합 `union`(targets) · `cut`(target, tools) · `intersect`(targets) · `split`(target, plane
   {name, origin | origin, normal}, keep top|bottom|both — 평면으로 자르기)
 - 마감 `fillet`(target, edges, radius — 화면에서는 「블렌드」) · `chamfer`(target, edges, length —
   「챔퍼」) · `shell`(target, thickness, open top|bottom|none|{near}) · `offset`(target, amount,
-  corners round|sharp — 전체를 두껍게/얇게. **제품에 여유를 주어 지그 포켓을 만들 때**) · `hole`(target, at [[x, y]…], kind simple|counterbore|
+  corners round|sharp — 전체를 두껍게/얇게. **제품에 여유를 주어 지그 포켓을 만들 때**) ·
+  `draft`(target, faces sides|top|bottom|all|{near}, angle, neutral — 면을 기울여 구배) · `hole`(target, at [[x, y]…], kind simple|counterbore|
   countersink|tap, thread M3~M12 — 주면 지름 · 카운터 치수를 표에서, diameter, depth — 비우면 관통,
   counter_diameter, counter_depth, plane — 뚫을 면 {origin, normal}; 안 주면 윗면 +Z 에서 아래로)
   - `edges` 는 `all` · `vertical` · `horizontal` · `top` · `bottom` 또는 `{"near": [[x,y,z]…]}`

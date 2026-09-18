@@ -5,7 +5,7 @@
  * 눌렀는지 안다. 편집기 전용이다 — 결과 화면은 가벼운 glTF 를 쓴다.
  */
 
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
@@ -49,9 +49,15 @@ export interface PickViewerProps {
   highlightEdgesNear?: number[][]
   onPickFace?: (face: MeshFace) => void
   onPickEdge?: (edge: MeshEdge) => void
-  /** measure 모드: 누른 것을 알려 준다. 표시(점 · 선)는 `measureMarks` 로 돌려준다. */
+  /** measure 모드: 누른 것을 알려 준다. 표시(점 · 선 · 글자)는 `measureMarks` 로 돌려준다. */
   onMeasure?: (pick: MeasurePick) => void
-  measureMarks?: { points: number[][]; segments: number[][][] }
+  measureMarks?: {
+    points: number[][]
+    segments: number[][][]
+    labels?: { at: number[]; text: string; tone: 'distance' | 'entity' }[]
+    edges?: number[][]
+    faces?: { vertices: number[]; triangles: number[] }[]
+  }
   className?: string
 }
 
@@ -59,6 +65,42 @@ const FACE_COLOR = 0x3b82f6
 const HOVER_COLOR = 0xf59e0b
 const EDGE_COLOR = 0x1f2937
 const PICKED_COLOR = 0xf59e0b
+const MEASURE_COLOR = 0xef4444
+
+/** 글자를 캔버스에 그려 스프라이트로 — 언제나 카메라를 본다. 3D 안에서 값을 읽게. */
+function makeLabel(text: string, tone: 'distance' | 'entity'): THREE.Sprite {
+  const pad = 10
+  const font = 40
+  const canvas = document.createElement('canvas')
+  const ctx = canvas.getContext('2d')!
+  ctx.font = `bold ${font}px sans-serif`
+  const width = Math.ceil(ctx.measureText(text).width) + pad * 2
+  canvas.width = width
+  canvas.height = font + pad * 2
+  const draw = canvas.getContext('2d')!
+  draw.font = `bold ${font}px sans-serif`
+  draw.fillStyle = tone === 'distance' ? 'rgba(239,68,68,0.92)' : 'rgba(24,24,27,0.85)'
+  draw.beginPath()
+  draw.roundRect(0, 0, canvas.width, canvas.height, 10)
+  draw.fill()
+  draw.fillStyle = '#ffffff'
+  draw.textBaseline = 'middle'
+  draw.fillText(text, pad, canvas.height / 2)
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.minFilter = THREE.LinearFilter
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true }))
+  sprite.renderOrder = 10
+  sprite.userData.aspect = canvas.width / canvas.height
+  return sprite
+}
+
+/** 표준 방향 — 뒤에서 카메라가 설 자리(중심 기준 단위 벡터, CAD Z-up 기준). */
+const VIEWS: { key: string; label: string; dir: [number, number, number] }[] = [
+  { key: 'iso', label: '등각', dir: [1, -1, 0.8] },
+  { key: 'front', label: '정면', dir: [0, -1, 0] },
+  { key: 'top', label: '윗면', dir: [0, 0, 1] },
+  { key: 'right', label: '우측', dir: [1, 0, 0] },
+]
 
 export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, measureMarks, className }: PickViewerProps) {
   const mount = useRef<HTMLDivElement | null>(null)
@@ -75,6 +117,21 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
   } | null>(null)
   const callbacks = useRef({ mode, onPickFace, onPickEdge, onMeasure })
   callbacks.current = { mode, onPickFace, onPickEdge, onMeasure }
+
+  /** 표준 뷰 — 형상을 가운데 두고 그 방향에서 본다. CAD 의 Z 는 three 의 Y 다(group 이 눕혀 있다). */
+  const look = useCallback((dir: [number, number, number]) => {
+    const s = state.current
+    if (!s) return
+    const box = new THREE.Box3().setFromObject(s.group)
+    if (box.isEmpty()) return
+    const center = box.getCenter(new THREE.Vector3())
+    const radius = Math.max(...box.getSize(new THREE.Vector3()).toArray()) || 1
+    const world = new THREE.Vector3(dir[0], dir[2], -dir[1]).normalize() // CAD → three
+    s.camera.position.copy(center.clone().add(world.multiplyScalar(radius * 2)))
+    s.camera.up.set(0, 1, 0)
+    s.controls.target.copy(center)
+    s.controls.update()
+  }, [])
 
   // 한 번만: 장면 · 카메라 · 렌더러.
   useEffect(() => {
@@ -277,25 +334,73 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     }
   }, [mesh, highlightEdgesNear])
 
-  // 측정 표시 — 점은 작은 구, 두 점 사이는 선.
+  // 측정 표시 — 점 · 치수선 · **값 글자** · 고른 엣지/면 강조. 무엇을 어디서 쟀는지 3D 에서 보인다.
   useEffect(() => {
     const s = state.current
     if (!s) return
     s.marks.clear()
     if (!measureMarks) return
     const size = (s.group.userData.size as number) || 50
-    const r = size / 120
-    const pointMat = new THREE.MeshBasicMaterial({ color: 0xef4444 })
+    const r = size / 110
+    const pointMat = new THREE.MeshBasicMaterial({ color: MEASURE_COLOR, depthTest: false })
     for (const p of measureMarks.points) {
       const m = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 12), pointMat)
       m.position.set(p[0], p[1], p[2])
+      m.renderOrder = 6
+      s.marks.add(m)
+    }
+    // 고른 엣지 — 원래 엣지 위에 빨간 선을 덧그린다(가려져도 보이게 depthTest 끈다).
+    for (const points of measureMarks.edges ?? []) {
+      const g = new THREE.BufferGeometry()
+      g.setAttribute('position', new THREE.Float32BufferAttribute(points, 3))
+      const line = new THREE.Line(g, new THREE.LineBasicMaterial({ color: MEASURE_COLOR, depthTest: false }))
+      line.renderOrder = 5
+      s.marks.add(line)
+    }
+    // 고른 면 — 반투명 빨강.
+    for (const face of measureMarks.faces ?? []) {
+      const g = new THREE.BufferGeometry()
+      g.setAttribute('position', new THREE.Float32BufferAttribute(face.vertices, 3))
+      g.setIndex(face.triangles)
+      g.computeVertexNormals()
+      const m = new THREE.Mesh(
+        g,
+        new THREE.MeshBasicMaterial({ color: MEASURE_COLOR, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }),
+      )
+      m.renderOrder = 4
       s.marks.add(m)
     }
     for (const seg of measureMarks.segments) {
       const g = new THREE.BufferGeometry().setFromPoints(seg.map((p) => new THREE.Vector3(p[0], p[1], p[2])))
-      s.marks.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xef4444 })))
+      const line = new THREE.Line(g, new THREE.LineDashedMaterial({ color: MEASURE_COLOR, dashSize: size / 40, gapSize: size / 80, depthTest: false }))
+      line.computeLineDistances()
+      line.renderOrder = 5
+      s.marks.add(line)
+    }
+    for (const label of measureMarks.labels ?? []) {
+      const sprite = makeLabel(label.text, label.tone)
+      const height = size / 14
+      sprite.scale.set(height * (sprite.userData.aspect as number), height, 1)
+      sprite.position.set(label.at[0], label.at[1], label.at[2] + height * 0.7)
+      s.marks.add(sprite)
     }
   }, [measureMarks])
 
-  return <div ref={mount} className={className ?? 'h-[480px] w-full rounded-md border'} />
+  return (
+    <div className={`relative ${className ?? 'h-[480px] w-full rounded-md border'}`}>
+      <div ref={mount} className="h-full w-full" />
+      <div className="absolute top-2 right-2 flex gap-1">
+        {VIEWS.map((view) => (
+          <button
+            key={view.key}
+            type="button"
+            onClick={() => look(view.dir)}
+            className="bg-background/80 hover:bg-accent rounded border px-2 py-1 text-[11px] shadow-sm"
+          >
+            {view.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
 }

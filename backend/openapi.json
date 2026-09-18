@@ -2464,6 +2464,126 @@
         }
       }
     },
+    "/api/cad/recipe/stl": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Recipe Stl",
+        "description": "STL — 3D 프린터로 지그를 뽑을 때.",
+        "operationId": "recipe_stl_api_cad_recipe_stl_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecipeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cad/recipe/dxf": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Recipe Dxf",
+        "description": "DXF — 2D 도면. 스케치 · 단면이면 그대로, 입체면 **높이 절반의 단면**을 낸다.",
+        "operationId": "recipe_dxf_api_cad_recipe_dxf_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecipeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cad/recipe/svg": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Recipe Svg",
+        "description": "SVG — 문서에 붙이는 2D 그림. 잘라 내는 규칙은 DXF 와 같다.",
+        "operationId": "recipe_svg_api_cad_recipe_svg_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecipeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/cad/templates": {
       "get": {
         "tags": [

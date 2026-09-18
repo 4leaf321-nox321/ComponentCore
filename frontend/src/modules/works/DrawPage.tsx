@@ -8,8 +8,8 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { cadApi } from '@/modules/cad/api'
 import type { Recipe } from '@/modules/cad/api'
+import { saveRecipeAs } from '@/modules/cad/download'
 import { RecipeEditor } from '@/modules/cad/RecipeEditor'
 import { SaveTemplateDialog } from '@/modules/cad/SaveTemplateDialog'
 import { worksApi } from '@/modules/works/api'
@@ -41,17 +41,11 @@ export default function DrawPage() {
   const [busy, setBusy] = useState(false)
   const fileInput = useRef<HTMLInputElement | null>(null)
 
-  async function downloadStep() {
+  async function download(format: 'step' | 'stl' | 'dxf' | 'svg') {
     if (!recipe) return
     setError(null)
     try {
-      const blob = await cadApi.step(recipe)
-      const href = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = href
-      anchor.download = 'model.step'
-      anchor.click()
-      setTimeout(() => URL.revokeObjectURL(href), 10_000)
+      await saveRecipeAs(recipe, format, name || 'model')
     } catch (caught) {
       setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
     }
@@ -122,7 +116,7 @@ export default function DrawPage() {
           file={{
             save: { label: '내 작업으로', run: () => setSaving(true) },
             saveTemplate: () => setSavingTemplate(true),
-            downloadStep: () => void downloadStep(),
+            download: (format) => void download(format),
             onLoaded: (label, source) => setOrigin(source === 'copy' ? { source, label: `${label} 에서 복사` } : { source, label: `${label} 템플릿에서` }),
           }}
         />

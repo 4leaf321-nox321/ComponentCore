@@ -12,7 +12,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { Recipe } from '@/modules/cad/api'
 import { GeometryJobView } from '@/modules/cad/GeometryJobView'
 import { RecipeEditor } from '@/modules/cad/RecipeEditor'
-import { cadApi } from '@/modules/cad/api'
+import { saveRecipeAs } from '@/modules/cad/download'
 import { SaveTemplateDialog } from '@/modules/cad/SaveTemplateDialog'
 import { JigResultView } from '@/modules/jigs/JigResultView'
 import type { Job } from '@/modules/jobs/api'
@@ -105,17 +105,11 @@ export default function WorkPage() {
     setEditing(true)
   }
 
-  async function downloadDraftStep() {
+  async function downloadDraft(format: 'step' | 'stl' | 'dxf' | 'svg') {
     if (!draft) return
     setError(null)
     try {
-      const blob = await cadApi.step(draft)
-      const href = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = href
-      anchor.download = `${w?.name ?? 'model'}.step`
-      anchor.click()
-      setTimeout(() => URL.revokeObjectURL(href), 10_000)
+      await saveRecipeAs(draft, format, w?.name ?? 'model')
     } catch (caught) {
       setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
     }
@@ -231,7 +225,7 @@ export default function WorkPage() {
                       disabled: busy,
                     },
                     saveTemplate: () => setSavingTemplate(true),
-                    downloadStep: () => void downloadDraftStep(),
+                    download: (format) => void downloadDraft(format),
                     onLoaded: (label, source) => setNote(source === 'copy' ? `${label} 에서 복사` : `${label} 템플릿에서`),
                     currentWorkId: id,
                   }}

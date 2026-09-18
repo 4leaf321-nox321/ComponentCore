@@ -58,8 +58,8 @@ test('id 를 바꾸면 그것을 가리키는 뒤 피처도 따라간다', async
 test('리본 — 탭이 종류를 가르고, 「파일」 탭 단추가 호출부의 일을 부른다', async () => {
   const onChange = vi.fn()
   const save = vi.fn()
-  const downloadStep = vi.fn()
-  render(<RecipeEditor value={BOX} onChange={onChange} file={{ save: { label: '내 작업으로', run: save }, downloadStep }} />)
+  const download = vi.fn()
+  render(<RecipeEditor value={BOX} onChange={onChange} file={{ save: { label: '내 작업으로', run: save }, download }} />)
   // 피처가 있으면 스케치 탭에서 시작. 입체 탭으로 가면 돌출 단추가 보인다(radix 탭은 mouseDown 에 바뀐다).
   expect(screen.getByRole('button', { name: /^스케치$/ })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /^돌출/ })).toBeNull()
@@ -72,7 +72,9 @@ test('리본 — 탭이 종류를 가르고, 「파일」 탭 단추가 호출�
   fireEvent.click(screen.getByRole('button', { name: /내 작업으로/ }))
   expect(save).toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: /STEP/ }))
-  expect(downloadStep).toHaveBeenCalled()
+  expect(download).toHaveBeenCalledWith('step')
+  fireEvent.click(screen.getByRole('button', { name: /DXF/ }))
+  expect(download).toHaveBeenCalledWith('dxf')
 })
 
 test('실행 취소 · 다시 실행 — 호출부가 value 를 되돌려 주면 한 걸음씩 오간다', async () => {

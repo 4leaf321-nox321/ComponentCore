@@ -49,4 +49,7 @@ export const cadApi = {
   preview: (recipe: Recipe) => postForBlob('/cad/recipe/preview', { recipe }),
   mesh: (recipe: Recipe) => api.post<{ summary: RecipeSummary; mesh: MeshData }>('/cad/recipe/mesh', { recipe }),
   step: (recipe: Recipe) => postForBlob('/cad/recipe/step', { recipe }),
+  stl: (recipe: Recipe) => postForBlob('/cad/recipe/stl', { recipe }),
+  dxf: (recipe: Recipe) => postForBlob('/cad/recipe/dxf', { recipe }),
+  svg: (recipe: Recipe) => postForBlob('/cad/recipe/svg', { recipe }),
 }

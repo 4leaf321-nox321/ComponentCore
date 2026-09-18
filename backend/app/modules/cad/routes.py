@@ -95,6 +95,48 @@ def recipe_step(payload: RecipeRequest, _: User = Depends(current_user)) -> Resp
         )
 
 
+@router.post("/recipe/stl")
+def recipe_stl(payload: RecipeRequest, _: User = Depends(current_user)) -> Response:
+    """STL — 3D 프린터로 지그를 뽑을 때."""
+    evaluation = services.build(payload.recipe)
+    with tempfile.TemporaryDirectory() as folder:
+        target = Path(folder) / "model.stl"
+        export.write_stl(evaluation.shape, target)
+        return Response(
+            target.read_bytes(),
+            media_type="model/stl",
+            headers={"Content-Disposition": 'attachment; filename="model.stl"'},
+        )
+
+
+@router.post("/recipe/dxf")
+def recipe_dxf(payload: RecipeRequest, _: User = Depends(current_user)) -> Response:
+    """DXF — 2D 도면. 스케치 · 단면이면 그대로, 입체면 **높이 절반의 단면**을 낸다."""
+    evaluation = services.build(payload.recipe, allow_sketch=True)
+    with tempfile.TemporaryDirectory() as folder:
+        target = Path(folder) / "model.dxf"
+        export.write_dxf(evaluation.shape, target)
+        return Response(
+            target.read_bytes(),
+            media_type="application/dxf",
+            headers={"Content-Disposition": 'attachment; filename="model.dxf"'},
+        )
+
+
+@router.post("/recipe/svg")
+def recipe_svg(payload: RecipeRequest, _: User = Depends(current_user)) -> Response:
+    """SVG — 문서에 붙이는 2D 그림. 잘라 내는 규칙은 DXF 와 같다."""
+    evaluation = services.build(payload.recipe, allow_sketch=True)
+    with tempfile.TemporaryDirectory() as folder:
+        target = Path(folder) / "model.svg"
+        export.write_svg(evaluation.shape, target)
+        return Response(
+            target.read_bytes(),
+            media_type="image/svg+xml",
+            headers={"Content-Disposition": 'attachment; filename="model.svg"'},
+        )
+
+
 # --- 템플릿 — 사람이 저장한 출발점 ---------------------------------------------
 
 

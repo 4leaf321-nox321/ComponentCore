@@ -44,6 +44,34 @@ def test_검증_미리보기_STEP(client: TestClient, member: Signed) -> None:
     assert step.status_code == 200 and step.content.startswith(b"ISO-10303-21")
 
 
+def test_STL_과_2D_도면으로도_받는다(client: TestClient, member: Signed) -> None:
+    stl = client.post("/api/cad/recipe/stl", json={"recipe": BOX}, headers=member.headers)
+    assert stl.status_code == 200 and stl.content.startswith(b"STL Exported")  # 바이너리 STL
+
+    # 입체는 높이 절반에서 자른 단면이 2D 가 된다.
+    dxf = client.post("/api/cad/recipe/dxf", json={"recipe": BOX}, headers=member.headers)
+    assert dxf.status_code == 200 and b"SECTION" in dxf.content[:4000]
+
+    svg = client.post("/api/cad/recipe/svg", json={"recipe": BOX}, headers=member.headers)
+    assert svg.status_code == 200 and svg.content.lstrip().startswith(b"<?xml")
+    assert b"mm" in svg.content[:400]
+
+    # 스케치만 있어도 2D 는 나온다 — 도면은 원래 2D 다.
+    sketch_only = {
+        "nodes": [
+            {
+                "id": "s",
+                "op": "sketch",
+                "shapes": [{"type": "rounded_rect", "width": 40, "height": 30, "radius": 5}],
+            }
+        ]
+    }
+    flat = client.post(
+        "/api/cad/recipe/dxf", json={"recipe": sketch_only}, headers=member.headers
+    )
+    assert flat.status_code == 200 and len(flat.content) > 1000
+
+
 def test_만들지_못하는_레시피는_노드를_말한다(client: TestClient, member: Signed) -> None:
     recipe = {
         "nodes": [

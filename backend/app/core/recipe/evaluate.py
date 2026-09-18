@@ -25,6 +25,7 @@ from build123d import (
     Cylinder,
     Ellipse,
     Face,
+    FilletPolyline,
     FontStyle,
     GeomType,
     Helix,
@@ -38,6 +39,7 @@ from build123d import (
     Polyline,
     Pos,
     Rectangle,
+    RectangleRounded,
     RegularPolygon,
     Rot,
     Shape,
@@ -49,15 +51,19 @@ from build123d import (
     ThreePointArc,
     Torus,
     Transition,
+    Trapezoid,
     Until,
     Vector,
+    Wedge,
     Wire,
     chamfer,
+    draft,
     extrude,
     fillet,
     import_step,
     loft,
     make_face,
+    make_hull,
     mirror,
     offset,
     revolve,
@@ -162,6 +168,18 @@ def _shape2d(one: S.SketchShape) -> Sketch:
         face = _polyline(one)
     elif isinstance(one, S.PathShape):
         face = _path(one)
+    elif isinstance(one, S.RoundedRect):
+        if one.radius >= min(one.width, one.height) / 2:
+            raise ValueError("모서리 반지름이 너비 · 높이의 절반보다 작아야 합니다")
+        face = RectangleRounded(one.width, one.height, one.radius, rotation=one.rotation)
+    elif isinstance(one, S.TrapezoidShape):
+        face = Trapezoid(
+            one.width,
+            one.height,
+            one.left_angle,
+            one.right_angle,
+            rotation=one.rotation,
+        )
     elif isinstance(one, S.EllipseShape):
         face = Ellipse(one.x_radius, one.y_radius, rotation=one.rotation)
     elif isinstance(one, S.TextShape):
@@ -216,6 +234,18 @@ def _path(shape: S.PathShape) -> Sketch:
 
 def _polyline(shape: S.PolylineShape) -> Sketch:
     """점을 이어 닫힌 윤곽으로. 구간에 `via` 가 있으면 그 점을 지나는 호."""
+    if shape.corner_radius > 0:
+        if any(segment.via is not None for segment in shape.segments):
+            raise ValueError("모서리 둥글리기는 호(via)와 함께 쓸 수 없습니다")
+        points = [shape.start, *[segment.to for segment in shape.segments]]
+        if points[-1] == points[0]:
+            points = points[:-1]
+        rounded = FilletPolyline(*points, radius=shape.corner_radius, close=True)
+        face = make_face(rounded.wires()[0])
+        if not face.is_valid or face.area < 1e-6:
+            raise ValueError("모서리 반지름이 너무 큽니다 — 줄이세요")
+        sketch = Sketch(face.wrapped)
+        return sketch.rotate(Axis.Z, shape.rotation) if shape.rotation else sketch
     edges = _centerline(shape.start, shape.segments)
     cursor = edges[-1] @ 1 if edges else Vector(shape.start[0], shape.start[1], 0)
     start = Vector(shape.start[0], shape.start[1], 0)
@@ -247,6 +277,8 @@ def _sketch(node: S.SketchNode) -> Sketch:
     assert result is not None
     if not result.faces():
         raise RecipeError(node.id, "스케치에 남은 면이 없습니다 — cut 이 전부를 지웠습니다")
+    if node.hull:
+        result = make_hull(result.edges())
     return _plane(node.plane) * _offset2d(result, node.offset, node.id)
 
 
@@ -318,6 +350,13 @@ def _faces(part: Part, select: S.FaceSelect, node_id: str) -> list[Any]:
         return picked
     if select == "none":
         return []
+    if select == "all":
+        return list(faces)
+    if select == "sides":
+        picked = [f for f in faces if abs(f.normal_at().Z) < 0.1]
+        if not picked:
+            raise RecipeError(node_id, "옆면이 없습니다")
+        return picked
     ordered = faces.sort_by(Axis.Z)
     return [ordered[-1] if select == "top" else ordered[0]]
 
@@ -618,6 +657,29 @@ def _evaluate_node(
         if node.scale != 1.0:
             source = scale(source, node.scale)
         return Pos(*node.translate) * Rot(rx, ry, rz) * source
+    if isinstance(node, S.WedgeNode):
+        return Pos(*node.at) * Wedge(
+            node.length,
+            node.width,
+            node.height,
+            xmin=node.top_x_min,
+            zmin=node.top_z_min,
+            xmax=node.length if node.top_x_max is None else node.top_x_max,
+            zmax=node.height if node.top_z_max is None else node.top_z_max,
+        )
+    if isinstance(node, S.DraftNode):
+        part = _as_part(made[node.target], node.id)
+        chosen = _faces(part, node.faces, node.id)
+        if not chosen:
+            raise RecipeError(node.id, "구배를 줄 면을 고르지 않았습니다")
+        try:
+            result = draft(chosen, neutral_plane=_plane(node.neutral), angle=node.angle)
+        except Exception as failure:
+            raise RecipeError(
+                node.id,
+                f"{node.angle}° 로 구배를 주지 못했습니다 — 각도를 줄이거나 면을 좁히세요",
+            ) from failure
+        return _to_part(result)
     if isinstance(node, S.SplitNode):
         part = _as_part(made[node.target], node.id)
         keep = {"top": Keep.TOP, "bottom": Keep.BOTTOM, "both": Keep.BOTH}[node.keep]

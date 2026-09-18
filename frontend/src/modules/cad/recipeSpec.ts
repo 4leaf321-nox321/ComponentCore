@@ -23,6 +23,8 @@ import {
   Route,
   Scan,
   Spline,
+  Triangle,
+  Waves,
   SquareSplitHorizontal,
   Move3d,
   Package,
@@ -108,6 +110,7 @@ export const OP_SPECS: OpSpec[] = [
     fields: [
       { key: 'plane', label: '평면', kind: 'plane' },
       { key: 'shapes', label: '도형', kind: 'shapes' },
+      { key: 'hull', label: '도형들을 감싸는 볼록 윤곽으로', kind: 'checkbox' },
       { key: 'offset', label: '윤곽 여유 (mm, 0 = 없음, 음수면 안쪽)', kind: 'number', step: 0.1 },
     ],
     defaults: {
@@ -222,6 +225,24 @@ export const OP_SPECS: OpSpec[] = [
       { key: 'at', label: '중심', kind: 'xyz' },
     ],
     defaults: { length: 40, width: 30, height: 20, at: [0, 0, 0] },
+  },
+  {
+    op: 'wedge',
+    icon: Triangle,
+    label: '쐐기',
+    group: '입체',
+    help: '경사 블록 — 밑면은 길이·너비, 윗면은 좁아진다. 지그의 경사 받침 · 고임.',
+    fields: [
+      { key: 'length', label: '길이 X (mm)', kind: 'number' },
+      { key: 'width', label: '너비 Y (mm)', kind: 'number' },
+      { key: 'height', label: '높이 Z (mm)', kind: 'number' },
+      { key: 'top_x_min', label: '윗면 X 시작 (mm)', kind: 'number' },
+      { key: 'top_x_max', label: '윗면 X 끝 (비우면 안 줄임)', kind: 'number' },
+      { key: 'top_z_min', label: '윗면 Z 시작 (mm)', kind: 'number' },
+      { key: 'top_z_max', label: '윗면 Z 끝 (비우면 안 줄임)', kind: 'number' },
+      { key: 'at', label: '중심', kind: 'xyz' },
+    ],
+    defaults: { length: 40, width: 30, height: 20, top_x_min: 10, top_x_max: 30, top_z_min: 0, top_z_max: null, at: [0, 0, 0] },
   },
   {
     op: 'cylinder',
@@ -488,6 +509,30 @@ export const OP_SPECS: OpSpec[] = [
     defaults: { target: '', amount: 0.5, corners: 'round' },
   },
   {
+    op: 'draft',
+    icon: Waves,
+    label: '구배',
+    group: '마감',
+    help: '고른 면을 기울인다 — 기준 평면에 닿는 자리는 치수 그대로. 빼기 쉬운 포켓 · 금형.',
+    fields: [
+      { key: 'target', label: '대상', kind: 'ref', refKind: 'solid' },
+      {
+        key: 'faces',
+        label: '면',
+        kind: 'select',
+        options: [
+          { value: 'sides', label: '옆면 전부' },
+          { value: 'top', label: '윗면' },
+          { value: 'bottom', label: '바닥' },
+          { value: 'all', label: '모든 면' },
+        ],
+      },
+      { key: 'angle', label: '각도 (°)', kind: 'number', step: 0.5 },
+      { key: 'neutral', label: '기준 평면 (치수가 그대로인 자리)', kind: 'plane' },
+    ],
+    defaults: { target: '', faces: 'sides', angle: 3, neutral: { name: 'XY', origin: [0, 0, 0] } },
+  },
+  {
     op: 'pattern',
     icon: Grid3x3,
     label: '패턴',
@@ -581,6 +626,8 @@ export const SHAPE_TYPES = [
   { value: 'polygon', label: '다각형' },
   { value: 'polyline', label: '임의 윤곽' },
   { value: 'path', label: '선 (두께)' },
+  { value: 'rounded_rect', label: '둥근 사각형' },
+  { value: 'trapezoid', label: '사다리꼴' },
   { value: 'ellipse', label: '타원' },
   { value: 'text', label: '글자' },
 ]
@@ -604,6 +651,10 @@ export function defaultShape(type: string): Record<string, unknown> {
         ],
         ...base,
       }
+    case 'rounded_rect':
+      return { type, width: 40, height: 30, radius: 5, ...base }
+    case 'trapezoid':
+      return { type, width: 40, height: 20, left_angle: 75, right_angle: null, ...base }
     case 'ellipse':
       return { type, x_radius: 15, y_radius: 8, ...base }
     case 'text':

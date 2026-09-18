@@ -23,11 +23,61 @@ function vec(p: number[]): string {
   return `(${p.map(fmt).join(', ')})`
 }
 
-export function measureMarks(picks: MeasurePick[]): { points: number[][]; segments: number[][][] } {
+/** 3D 에 그릴 것 — 점 · 치수선 · 글자 · 고른 엣지/면 강조. 뷰어는 이대로 그리기만 한다. */
+export interface MeasureMarks {
+  points: number[][]
+  segments: number[][][]
+  /** 치수 · 길이 · 넓이를 그 자리에 띄운다. */
+  labels: { at: number[]; text: string; tone: 'distance' | 'entity' }[]
+  /** 고른 엣지의 꺾은선(점 좌표 평평하게) — 빨갛게 덧그린다. */
+  edges: number[][]
+  /** 고른 면의 삼각형 — 반투명 빨강으로 덧그린다. */
+  faces: { vertices: number[]; triangles: number[] }[]
+}
+
+function middle(a: number[], b: number[]): number[] {
+  return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2]
+}
+
+export function distanceOf(a: number[], b: number[]): number {
+  return Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2])
+}
+
+export function angleOf(a: number[], b: number[], c: number[]): number {
+  const u = [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+  const v = [c[0] - b[0], c[1] - b[1], c[2] - b[2]]
+  const dot = u[0] * v[0] + u[1] * v[1] + u[2] * v[2]
+  const cos = dot / (Math.hypot(...u) * Math.hypot(...v) || 1)
+  return (Math.acos(Math.max(-1, Math.min(1, cos))) * 180) / Math.PI
+}
+
+export function measureMarks(picks: MeasurePick[]): MeasureMarks {
   const points = picks.map(representative)
   const segments: number[][][] = []
-  for (let i = 1; i < points.length; i += 1) segments.push([points[i - 1], points[i]])
-  return { points, segments }
+  const labels: MeasureMarks['labels'] = []
+  const edges: number[][] = []
+  const faces: MeasureMarks['faces'] = []
+  picks.forEach((pick, i) => {
+    if (pick.kind === 'edge') {
+      edges.push(pick.edge.points)
+      labels.push({ at: pick.edge.midpoint, text: `${i + 1}  길이 ${fmt(pick.edge.length)}`, tone: 'entity' })
+    } else if (pick.kind === 'face') {
+      faces.push({ vertices: pick.face.vertices, triangles: pick.face.triangles })
+      labels.push({ at: pick.face.center, text: `${i + 1}  넓이 ${fmt(pick.face.area)} mm²`, tone: 'entity' })
+    } else {
+      labels.push({ at: pick.at, text: `${i + 1}`, tone: 'entity' })
+    }
+  })
+  for (let i = 1; i < points.length; i += 1) {
+    const [a, b] = [points[i - 1], points[i]]
+    segments.push([a, b])
+    labels.push({ at: middle(a, b), text: `${fmt(distanceOf(a, b))} mm`, tone: 'distance' })
+  }
+  if (points.length >= 3) {
+    const [a, b, c] = points.slice(-3)
+    labels.push({ at: b, text: `${fmt(angleOf(a, b, c))}°`, tone: 'distance' })
+  }
+  return { points, segments, labels, edges, faces }
 }
 
 export function MeasurePanel({ picks, onClear, onUndo }: { picks: MeasurePick[]; onClear: () => void; onUndo: () => void }) {
@@ -41,21 +91,17 @@ export function MeasurePanel({ picks, onClear, onUndo }: { picks: MeasurePick[];
   if (points.length >= 2) {
     const [a, b] = points.slice(-2)
     const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
-    lines.push(`거리 ${fmt(Math.hypot(...d))} mm  (ΔX ${fmt(d[0])} · ΔY ${fmt(d[1])} · ΔZ ${fmt(d[2])})`)
+    lines.push(`거리 ${fmt(distanceOf(a, b))} mm  (ΔX ${fmt(d[0])} · ΔY ${fmt(d[1])} · ΔZ ${fmt(d[2])})`)
   }
   if (points.length >= 3) {
     const [a, b, c] = points.slice(-3)
-    const u = [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-    const v = [c[0] - b[0], c[1] - b[1], c[2] - b[2]]
-    const dot = u[0] * v[0] + u[1] * v[1] + u[2] * v[2]
-    const cos = dot / ((Math.hypot(...u) * Math.hypot(...v)) || 1)
-    lines.push(`각도 ${fmt((Math.acos(Math.max(-1, Math.min(1, cos))) * 180) / Math.PI)}° (가운데 점 기준)`)
+    lines.push(`각도 ${fmt(angleOf(a, b, c))}° (가운데 점 기준)`)
   }
   return (
     <div className="rounded-md border border-red-500/40 bg-red-500/5 p-2 text-xs">
       <div className="mb-1 flex items-center gap-2">
         <span className="font-medium">측정</span>
-        <span className="text-muted-foreground">점(꼭짓점 근처) · 엣지 · 면을 누르세요. 둘이면 거리, 셋이면 각도.</span>
+        <span className="text-muted-foreground">점(꼭짓점 근처) · 엣지 · 면을 누르세요. 둘이면 거리, 셋이면 각도. 3D 에 번호 · 치수가 함께 뜹니다.</span>
         <div className="flex-1" />
         <Button size="sm" variant="ghost" className="h-6 px-2" onClick={onUndo} disabled={picks.length === 0}>
           하나 빼기

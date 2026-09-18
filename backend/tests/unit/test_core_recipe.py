@@ -683,3 +683,189 @@ def test_두께_있는_선_리브와_가르기() -> None:
         )
     )
     assert halves.summary()["solid_count"] == 2
+
+
+def test_둥근_사각형_사다리꼴_볼록윤곽_쐐기_구배() -> None:
+    rounded = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "s",
+                        "op": "sketch",
+                        "shapes": [
+                            {"type": "rounded_rect", "width": 40, "height": 30, "radius": 5}
+                        ],
+                    },
+                    {"id": "e", "op": "extrude", "sketch": "s", "distance": 5},
+                ]
+            }
+        )
+    )
+    assert rounded.shape.volume < 40 * 30 * 5  # 모서리가 깎였다
+    with pytest.raises(RecipeError, match="절반"):
+        evaluate(
+            parse(
+                {
+                    "nodes": [
+                        {
+                            "id": "s",
+                            "op": "sketch",
+                            "shapes": [
+                                {
+                                    "type": "rounded_rect",
+                                    "width": 40,
+                                    "height": 30,
+                                    "radius": 20,
+                                }
+                            ],
+                        },
+                        {"id": "e", "op": "extrude", "sketch": "s", "distance": 5},
+                    ]
+                }
+            )
+        )
+    # 흩어진 원을 감싸는 볼록 윤곽 하나 — 베이스 판.
+    plate = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "s",
+                        "op": "sketch",
+                        "hull": True,
+                        "shapes": [
+                            {"type": "circle", "radius": 6, "at": [-30, 0]},
+                            {"type": "circle", "radius": 6, "at": [30, 0]},
+                            {"type": "circle", "radius": 6, "at": [0, 25]},
+                        ],
+                    },
+                    {"id": "e", "op": "extrude", "sketch": "s", "distance": 8},
+                ]
+            }
+        )
+    )
+    assert plate.summary()["solid_count"] == 1
+    assert plate.shape.volume > 3 * 3.14159 * 36 * 8  # 원 셋보다 넓다
+    wedge = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "w",
+                        "op": "wedge",
+                        "length": 40,
+                        "width": 30,
+                        "height": 20,
+                        "top_x_min": 10,
+                        "top_x_max": 30,
+                    }
+                ]
+            }
+        )
+    )
+    assert wedge.shape.volume < 40 * 30 * 20
+    drafted = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "b",
+                        "op": "box",
+                        "length": 40,
+                        "width": 30,
+                        "height": 20,
+                        "at": [0, 0, 10],
+                    },
+                    {
+                        "id": "d",
+                        "op": "draft",
+                        "target": "b",
+                        "faces": "sides",
+                        "angle": 5,
+                        "neutral": {"name": "XY", "origin": [0, 0, 0]},
+                    },
+                ]
+            }
+        )
+    )
+    assert drafted.shape.volume < 40 * 30 * 20  # 위로 갈수록 좁아진다
+    with pytest.raises(RecipeError, match="구배"):
+        evaluate(
+            parse(
+                {
+                    "nodes": [
+                        {
+                            "id": "b",
+                            "op": "box",
+                            "length": 40,
+                            "width": 30,
+                            "height": 20,
+                            "at": [0, 0, 10],
+                        },
+                        {
+                            "id": "d",
+                            "op": "draft",
+                            "target": "b",
+                            "faces": "sides",
+                            "angle": 44,
+                        },
+                    ]
+                }
+            )
+        )
+
+
+def test_모서리_둥근_윤곽() -> None:
+    rounded = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "s",
+                        "op": "sketch",
+                        "shapes": [
+                            {
+                                "type": "polyline",
+                                "start": [0, 0],
+                                "segments": [
+                                    {"to": [40, 0]},
+                                    {"to": [40, 25]},
+                                    {"to": [0, 25]},
+                                ],
+                                "corner_radius": 6,
+                            }
+                        ],
+                    },
+                    {"id": "e", "op": "extrude", "sketch": "s", "distance": 5},
+                ]
+            }
+        )
+    )
+    assert rounded.shape.volume < 40 * 25 * 5
+    with pytest.raises(RecipeError, match="호"):
+        evaluate(
+            parse(
+                {
+                    "nodes": [
+                        {
+                            "id": "s",
+                            "op": "sketch",
+                            "shapes": [
+                                {
+                                    "type": "polyline",
+                                    "start": [0, 0],
+                                    "segments": [
+                                        {"to": [40, 0]},
+                                        {"to": [40, 25], "via": [46, 12]},
+                                        {"to": [0, 25]},
+                                    ],
+                                    "corner_radius": 6,
+                                }
+                            ],
+                        },
+                        {"id": "e", "op": "extrude", "sketch": "s", "distance": 5},
+                    ]
+                }
+            )
+        )

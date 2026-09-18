@@ -75,6 +75,27 @@ class PolylineShape(_Shape):
     type: Literal["polyline"]
     start: XY
     segments: list[Segment] = Field(min_length=2)
+    corner_radius: float = Field(default=0.0, ge=0)
+    """모든 모서리를 이 반지름으로 둥글린다(0 이면 각지게). 호(`via`)가 있으면 쓸 수 없다."""
+
+
+class RoundedRect(_Shape):
+    type: Literal["rounded_rect"]
+    width: Positive
+    height: Positive
+    radius: Positive
+    """모서리 반지름 — 너비 · 높이의 절반보다 작아야 한다."""
+
+
+class TrapezoidShape(_Shape):
+    """사다리꼴 — 밑변 너비와 양쪽 빗변 각도. 90° 면 직각."""
+
+    type: Literal["trapezoid"]
+    width: Positive
+    height: Positive
+    left_angle: float = Field(default=75.0, gt=0, lt=180)
+    right_angle: float | None = Field(default=None, gt=0, lt=180)
+    """비우면 왼쪽과 같다(좌우 대칭)."""
 
 
 class PathShape(_Shape):
@@ -113,6 +134,8 @@ SketchShape = Annotated[
     | Slot
     | PolylineShape
     | PathShape
+    | RoundedRect
+    | TrapezoidShape
     | EllipseShape
     | TextShape,
     Field(discriminator="type"),
@@ -152,6 +175,8 @@ class SketchNode(_Node):
     op: Literal["sketch"]
     plane: PlaneSpec = Field(default_factory=PlaneSpec)
     shapes: list[SketchShape] = Field(min_length=1)
+    hull: bool = False
+    """도형들을 **감싸는 볼록 윤곽** 하나로 — 흩어진 자리를 덮는 베이스 판을 만들 때."""
     offset: float = 0.0
     """도형을 다 합친 뒤 윤곽을 밖(양수) · 안(음수)으로 띄운다 — 2D 여유."""
 
@@ -359,7 +384,7 @@ class HoleNode(_Node):
         return self
 
 
-FaceSelect = Literal["top", "bottom", "none"] | EdgeNear
+FaceSelect = Literal["top", "bottom", "sides", "all", "none"] | EdgeNear
 
 
 class ShellNode(_Node):
@@ -400,6 +425,44 @@ class TransformNode(_Node):
     """X · Y · Z 축 회전(도). 회전 뒤 이동."""
     scale: float = Field(default=1.0, gt=0)
     """원점 기준 배율. 크기 · 회전 · 이동 순."""
+
+
+class WedgeNode(_Node):
+    """쐐기 — 밑면은 length · width, 윗면은 (top_x_min…top_x_max) · (top_z_min…top_z_max) 로
+    좁아지는 경사 블록. 지그의 경사 받침 · 쐐기 고임."""
+
+    op: Literal["wedge"]
+    length: Positive
+    """X."""
+    width: Positive
+    """Y."""
+    height: Positive
+    """Z."""
+    top_x_min: float = 0.0
+    top_x_max: float | None = None
+    """비우면 length — 윗면이 X 로 안 줄어든다."""
+    top_z_min: float = 0.0
+    top_z_max: float | None = None
+    at: XYZ = (0.0, 0.0, 0.0)
+
+    @model_validator(mode="after")
+    def _top_order(self) -> WedgeNode:
+        if self.top_x_max is not None and self.top_x_max <= self.top_x_min:
+            raise ValueError("top_x_max: top_x_min 보다 커야 합니다")
+        if self.top_z_max is not None and self.top_z_max <= self.top_z_min:
+            raise ValueError("top_z_max: top_z_min 보다 커야 합니다")
+        return self
+
+
+class DraftNode(_Node):
+    """고른 면에 구배를 준다 — 기준 평면은 그대로 두고 면을 기울인다. 금형 · 빼기 편한 포켓."""
+
+    op: Literal["draft"]
+    target: str
+    faces: FaceSelect = "sides"
+    angle: float = Field(default=3.0, gt=0, lt=45)
+    neutral: PlaneSpec = Field(default_factory=PlaneSpec)
+    """이 평면에 닿는 자리는 치수가 그대로다."""
 
 
 class SplitNode(_Node):
@@ -462,6 +525,7 @@ Node = Annotated[
     | SweepNode
     | HelixNode
     | BoxNode
+    | WedgeNode
     | CylinderNode
     | SphereNode
     | ConeNode
@@ -478,6 +542,7 @@ Node = Annotated[
     | TransformNode
     | MirrorNode
     | SplitNode
+    | DraftNode
     | SectionNode
     | OffsetNode
     | ImportStepNode,
@@ -536,6 +601,7 @@ _REFERENCE_FIELDS: dict[str, tuple[str, ...]] = {
     "transform": ("target",),
     "mirror": ("target",),
     "split": ("target",),
+    "draft": ("target",),
     "section": ("target",),
     "offset": ("target",),
 }

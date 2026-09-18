@@ -139,6 +139,24 @@ function ShapeSvg({ shape, selected, onPointerDown }: { shape: SketchShape; sele
       )
     case 'ellipse':
       return <ellipse rx={Number(shape.x_radius)} ry={Number(shape.y_radius)} transform={transform} {...common} />
+    case 'rounded_rect': {
+      const w = Number(shape.width), h = Number(shape.height)
+      return <rect x={-w / 2} y={-h / 2} width={w} height={h} rx={Number(shape.radius)} transform={transform} {...common} />
+    }
+    case 'trapezoid': {
+      // 밑변이 width, 빗변 각도만큼 윗변이 좁아진다 — 서버(Trapezoid)와 같은 규칙.
+      const w = Number(shape.width), h = Number(shape.height)
+      const left = (Number(shape.left_angle ?? 75) * Math.PI) / 180
+      const right = ((Number(shape.right_angle ?? shape.left_angle ?? 75)) * Math.PI) / 180
+      const dl = h / Math.tan(left), dr = h / Math.tan(right)
+      const pts = [
+        [-w / 2, -h / 2],
+        [w / 2, -h / 2],
+        [w / 2 - dr, h / 2],
+        [-w / 2 + dl, h / 2],
+      ]
+      return <polygon points={pts.map(([px, py]) => `${px},${py}`).join(' ')} transform={transform} {...common} />
+    }
     case 'text': {
       // 바깥 <g> 가 y 를 뒤집으니 글자는 다시 뒤집는다. 실제 글꼴 모양은 서버가 정한다 — 자리만.
       const size = Number(shape.size)
@@ -411,6 +429,21 @@ function ShapeForm({
             {numberField('sides', '변 수', 1)}
           </>
         )}
+        {shape.type === 'rounded_rect' && (
+          <>
+            {numberField('width', '너비')}
+            {numberField('height', '높이')}
+            {numberField('radius', '모서리 반지름')}
+          </>
+        )}
+        {shape.type === 'trapezoid' && (
+          <>
+            {numberField('width', '밑변 너비')}
+            {numberField('height', '높이')}
+            {numberField('left_angle', '왼쪽 각 (°)', 1)}
+            {numberField('right_angle', '오른쪽 각 (°, 비우면 대칭)', 1)}
+          </>
+        )}
         {shape.type === 'ellipse' && (
           <>
             {numberField('x_radius', 'X 반지름')}
@@ -432,6 +465,7 @@ function ShapeForm({
             </label>
           </>
         )}
+        {shape.type === 'polyline' && numberField('corner_radius', '모서리 둥글리기 (mm, 0 = 각지게)')}
         {shape.type === 'path' && (
           <>
             {numberField('width', '폭 (mm)')}
