@@ -222,9 +222,22 @@ async def get_guide(ctx: Context, topic: str | None = None) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 @mcp.tool()
 async def recipe_schema(ctx: Context) -> Any:
-    """레시피의 **노드 종류와 칸**(JSON Schema)과 템플릿 넷(상자 · 원기둥 · 구멍판 · L 브래킷).
-    새로 그릴 때는 템플릿에서 시작해 고치는 것이 빠르다."""
-    return await _get(ctx, "/api/cad/recipe/schema")
+    """레시피의 **노드 종류와 칸**(JSON Schema), 내장 템플릿 넷(상자 · 원기둥 · 구멍판 · L
+    브래킷), 그리고 사용자가 저장한 템플릿(`saved_templates`). 새로 그릴 때는 템플릿에서 시작해
+    고치는 것이 빠르다."""
+    schema = await _get(ctx, "/api/cad/recipe/schema")
+    saved = await _get(ctx, "/api/cad/templates")
+    if isinstance(schema, dict) and isinstance(saved, list):
+        schema["saved_templates"] = [
+            {
+                "name": t["name"],
+                "description": t["description"],
+                "shared": t["is_shared"],
+                "recipe": t["recipe"],
+            }
+            for t in saved
+        ]
+    return schema
 
 
 @mcp.tool()

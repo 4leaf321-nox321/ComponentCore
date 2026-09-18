@@ -22,11 +22,9 @@ beforeEach(() => {
 test('피처 트리를 그리고, 칸을 고치면 레시피가 바뀐다', async () => {
   const onChange = vi.fn()
   render(<RecipeEditor value={BOX} onChange={onChange} />)
-  // 트리에 두 노드 — 이름이 있으면 이름, 없으면 연산 이름.
+  // 트리에 두 노드 — 이름이 있으면 이름, 없으면 연산 이름. 누르면 모달이 뜬다.
   expect(screen.getByText('바닥')).toBeInTheDocument()
-  expect(screen.getAllByText('돌출').length).toBeGreaterThan(0)
-
-  // 마지막 노드(돌출)가 골라져 있다 — 거리 칸을 고친다.
+  fireEvent.click(screen.getAllByText('돌출')[0])
   const distance = screen.getByLabelText('거리 (mm)') as HTMLInputElement
   expect(distance.value).toBe('10')
   fireEvent.change(distance, { target: { value: '25' } })

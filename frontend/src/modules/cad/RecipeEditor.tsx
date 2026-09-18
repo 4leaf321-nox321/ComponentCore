@@ -1,5 +1,6 @@
 /**
- * 레시피 편집기 — 피처 트리(왼쪽) · 고르는 노드의 칸 또는 스케치 캔버스(가운데) · 3D(오른쪽).
+ * 레시피 편집기 — 피처 트리(왼쪽) · 3D(넓게). 노드를 누르면 **모달**에서 칸 · 스케치 캔버스를
+ * 고친다 — 도면이 넓어야 보이고, 칸은 잠깐만 필요하다.
  *
  * 계약: 레시피 in → 레시피 out. 칸을 고칠 때마다 서버에 모양을 묻고(`check`), 맞으면 자동으로
  * 미리보기를 다시 그린다. AI(4단계)도 같은 레시피를 만지므로 이 화면이 그 결과를 그대로 받는다.
@@ -20,6 +21,14 @@ import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import type { MeshData, MeshEdge, MeshFace, PickMode } from '@/shared/viewer/PickViewer'
 import { Button } from '@/shared/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/shared/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,6 +60,7 @@ export function RecipeEditor({
 }) {
   const nodes = useMemo(() => nodesOf(value), [value])
   const [selectedId, setSelectedId] = useState<string | null>(nodes[nodes.length - 1]?.id ?? null)
+  const [editing, setEditing] = useState(false)
   const [mode, setMode] = useState<'form' | 'json'>('form')
   const [text, setText] = useState(() => pretty(value))
   const [jsonError, setJsonError] = useState<string | null>(null)
@@ -96,6 +106,7 @@ export function RecipeEditor({
     }
     replaceNodes([...nodes, made], null)
     setSelectedId(made.id)
+    setEditing(true)
   }
 
   function removeNode(id: string) {
@@ -105,6 +116,7 @@ export function RecipeEditor({
     const list = nodes.filter((n) => !doomed.has(n.id))
     replaceNodes(list, value.result && doomed.has(value.result) ? null : undefined)
     setSelectedId(list[list.length - 1]?.id ?? null)
+    setEditing(false)
   }
 
   function moveNode(id: string, dir: -1 | 1) {
@@ -164,6 +176,7 @@ export function RecipeEditor({
     replaceNodes([...nodes, made], null)
     setSelectedId(made.id)
     setPickMode('none')
+    setEditing(true)
   }
 
   function toggleEdge(edge: MeshEdge) {
@@ -233,63 +246,41 @@ export function RecipeEditor({
         </div>
       ) : (
         <div className="grid gap-3 lg:grid-cols-12">
-          {/* 피처 트리 */}
-          <div className="lg:col-span-2">
-            <ol className="space-y-0.5">
-              {nodes.map((node, i) => {
-                const spec = OP_BY_NAME[node.op]
-                const broken = problems.some((p) => p.includes(`nodes.${i}`) || p.includes(`nodes[${i}]`)) || failedNode === node.id
-                return (
-                  <li key={node.id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(node.id)}
-                      className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-left text-sm ${
-                        node.id === selectedId ? 'bg-accent' : 'hover:bg-accent/60'
-                      } ${broken ? 'text-destructive' : ''}`}
-                    >
-                      <span className="text-muted-foreground w-4 text-[10px]">{i + 1}</span>
-                      <span className="truncate">{node.label || spec?.label || node.op}</span>
-                      <span className="text-muted-foreground ml-auto font-mono text-[10px]">{node.id}</span>
-                    </button>
-                  </li>
-                )
-              })}
-            </ol>
-            {value.result && value.result !== nodes[nodes.length - 1]?.id && (
-              <p className="text-muted-foreground mt-2 text-xs">결과 노드: {value.result}</p>
-            )}
-          </div>
-
-          {/* 칸 / 캔버스 */}
-          <div className="lg:col-span-5">
-            {selected ? (
-              <div className="space-y-3 rounded-md border p-3">
-                <div className="flex items-center gap-1">
-                  <span className="font-medium">{OP_BY_NAME[selected.op]?.label ?? selected.op}</span>
-                  <div className="flex-1" />
-                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => moveNode(selected.id, -1)}>
-                    ↑
-                  </Button>
-                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => moveNode(selected.id, 1)}>
-                    ↓
-                  </Button>
-                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => removeNode(selected.id)}>
-                    지우기
-                  </Button>
-                </div>
-                {selected.op === 'sketch' && (
-                  <SketchCanvas
-                    shapes={(selected.shapes as SketchShape[]) ?? []}
-                    onChange={(shapes) => updateNode({ ...selected, shapes })}
-                  />
-                )}
-                <NodeForm node={selected} nodes={nodes} onChange={updateNode} />
+          {/* 피처 트리 — 누르면 모달에서 고친다 */}
+          <div className="lg:col-span-3">
+            {nodes.length === 0 ? (
+              <div className="text-muted-foreground rounded-md border border-dashed p-3 text-xs">
+                빈 레시피입니다. 「+ 노드」 → 스케치부터 시작하세요. 스케치를 그리고 「돌출」 을 더하면
+                입체가 됩니다.
               </div>
             ) : (
-              <div className="text-muted-foreground flex h-40 items-center justify-center rounded-md border border-dashed text-sm">
-                왼쪽에서 노드를 고르거나 「+ 노드」 로 더하세요.
-              </div>
+              <ol className="space-y-0.5">
+                {nodes.map((node, i) => {
+                  const spec = OP_BY_NAME[node.op]
+                  const broken = problems.some((p) => p.includes(`nodes.${i}`) || p.includes(`nodes[${i}]`)) || failedNode === node.id
+                  return (
+                    <li key={node.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedId(node.id)
+                          setEditing(true)
+                        }}
+                        className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-left text-sm ${
+                          node.id === selectedId ? 'bg-accent' : 'hover:bg-accent/60'
+                        } ${broken ? 'text-destructive' : ''}`}
+                      >
+                        <span className="text-muted-foreground w-4 text-[10px]">{i + 1}</span>
+                        <span className="truncate">{node.label || spec?.label || node.op}</span>
+                        <span className="text-muted-foreground ml-auto font-mono text-[10px]">{node.id}</span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ol>
+            )}
+            {value.result && value.result !== nodes[nodes.length - 1]?.id && (
+              <p className="text-muted-foreground mt-2 text-xs">결과 노드: {value.result}</p>
             )}
             {problems.length > 0 && (
               <ul className="text-destructive mt-2 list-inside list-disc text-xs">
@@ -301,33 +292,39 @@ export function RecipeEditor({
             <ErrorNotice error={error} className="mt-2" />
           </div>
 
-          {/* 3D */}
-          <div className="lg:col-span-5">
+          {/* 3D — 넓게 */}
+          <div className="lg:col-span-9">
             <div className="mb-1 flex items-center gap-1">
               <Button size="sm" variant={pickMode === 'face' ? 'default' : 'outline'} onClick={() => setPickMode(pickMode === 'face' ? 'none' : 'face')} disabled={!mesh}>
                 면에 스케치
               </Button>
+              {edgePicking && (
+                <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+                  엣지 고르는 중 — 노드 열기
+                </Button>
+              )}
               <span className="text-muted-foreground text-xs">
                 {pickMode === 'face'
                   ? '3D 에서 면을 누르면 그 면 위에 스케치가 생깁니다.'
                   : pickMode === 'edge'
                     ? `엣지를 눌러 고릅니다 (${(selected?.edges as { near?: number[][] })?.near?.length ?? 0} 개). 다시 누르면 뺍니다.`
-                    : '끌어서 돌리고, 굴려서 확대합니다.'}
+                    : '끌어서 돌리고, 굴려서 확대합니다. 왼쪽 노드를 누르면 고칩니다.'}
               </span>
             </div>
             {mesh ? (
-              <Suspense fallback={<Skeleton className="h-[480px] w-full" />}>
+              <Suspense fallback={<Skeleton className="h-[600px] w-full" />}>
                 <PickViewer
                   mesh={mesh}
                   mode={pickMode}
                   highlightEdgesNear={isNear(selected?.edges) ? (selected!.edges as { near: number[][] }).near : undefined}
                   onPickFace={sketchOnFace}
                   onPickEdge={toggleEdge}
+                  className="h-[600px] w-full rounded-md border"
                 />
               </Suspense>
             ) : (
-              <div className="text-muted-foreground flex h-[480px] items-center justify-center rounded-md border border-dashed text-sm">
-                {valid ? '그리는 중…' : '레시피가 맞으면 여기에 그려집니다.'}
+              <div className="text-muted-foreground flex h-[600px] items-center justify-center rounded-md border border-dashed text-sm">
+                {nodes.length === 0 ? '노드를 더하면 여기에 그려집니다.' : valid ? '그리는 중…' : '레시피가 맞으면 여기에 그려집니다.'}
               </div>
             )}
             {summary && (
@@ -339,6 +336,53 @@ export function RecipeEditor({
           </div>
         </div>
       )}
+
+      {/* 노드 편집 모달 — 머리글 · 바닥글은 붙박이, 가운데만 굴러서 화면 밖으로 안 나간다(DialogContent). */}
+      <Dialog open={editing && selected !== null} onOpenChange={(open) => !open && setEditing(false)}>
+        <DialogContent className={selected?.op === 'sketch' ? 'sm:max-w-5xl' : 'sm:max-w-xl'}>
+          {selected && (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  {OP_BY_NAME[selected.op]?.label ?? selected.op}{' '}
+                  <span className="text-muted-foreground font-mono text-xs">{selected.id}</span>
+                </DialogTitle>
+                <DialogDescription>{OP_BY_NAME[selected.op]?.help}</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                {selected.op === 'sketch' && (
+                  <SketchCanvas
+                    shapes={(selected.shapes as SketchShape[]) ?? []}
+                    onChange={(shapes) => updateNode({ ...selected, shapes })}
+                  />
+                )}
+                <NodeForm node={selected} nodes={nodes} onChange={updateNode} />
+                {edgePicking && (
+                  <p className="text-muted-foreground text-xs">
+                    엣지는 3D 에서 고릅니다 — 이 창을 닫고 3D 의 엣지를 누르세요. 고른 것은 남습니다.
+                  </p>
+                )}
+              </div>
+              <DialogFooter className="sm:justify-between">
+                <div className="flex gap-1">
+                  <Button size="sm" variant="ghost" onClick={() => moveNode(selected.id, -1)}>
+                    ↑ 앞으로
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => moveNode(selected.id, 1)}>
+                    ↓ 뒤로
+                  </Button>
+                  <Button size="sm" variant="ghost" className="text-destructive" onClick={() => removeNode(selected.id)}>
+                    지우기
+                  </Button>
+                </div>
+                <Button size="sm" onClick={() => setEditing(false)}>
+                  닫기
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

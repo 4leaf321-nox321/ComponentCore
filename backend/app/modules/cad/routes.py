@@ -7,16 +7,19 @@
 from __future__ import annotations
 
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
+from sqlalchemy.orm import Session
 
 from app.core import export
 from app.core.recipe import describe
 from app.core.recipe import templates as recipe_templates
 from app.core.recipe.mesh import mesh
+from app.database import get_db
 from app.modules.accounts.models import User
 from app.modules.cad import services
 from app.modules.cad.schemas import (
@@ -24,6 +27,9 @@ from app.modules.cad.schemas import (
     RecipeProblemsOut,
     RecipeRequest,
     RecipeSchemaOut,
+    TemplateCreateRequest,
+    TemplateOut,
+    TemplateUpdateRequest,
 )
 from app.shared.auth import current_user
 
@@ -86,3 +92,55 @@ def recipe_step(payload: RecipeRequest, _: User = Depends(current_user)) -> Resp
             media_type="application/step",
             headers={"Content-Disposition": 'attachment; filename="model.step"'},
         )
+
+
+# --- 템플릿 — 사람이 저장한 출발점 ---------------------------------------------
+
+
+@router.get("/templates", response_model=list[TemplateOut])
+def list_templates(
+    user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> list[TemplateOut]:
+    """내 템플릿 + 공용 템플릿. 내장 넷은 `recipe/schema` 의 templates 에 있다."""
+    return [services.template_out(db, one, user) for one in services.list_templates(db, user)]
+
+
+@router.post("/templates", response_model=TemplateOut, status_code=201)
+def create_template(
+    payload: TemplateCreateRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> TemplateOut:
+    made = services.create_template(
+        db,
+        owner=user,
+        name=payload.name,
+        description=payload.description,
+        recipe=payload.recipe,
+        is_shared=payload.is_shared,
+    )
+    return services.template_out(db, made, user)
+
+
+@router.patch("/templates/{template_id}", response_model=TemplateOut)
+def update_template(
+    template_id: uuid.UUID,
+    payload: TemplateUpdateRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> TemplateOut:
+    template = services.get_template(db, template_id, user)
+    services.require_template_owner(template, user)
+    fields = payload.model_dump(exclude_unset=True)
+    return services.template_out(
+        db, services.update_template(db, template, fields=fields), user
+    )
+
+
+@router.delete("/templates/{template_id}", status_code=204)
+def delete_template(
+    template_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> None:
+    template = services.get_template(db, template_id, user)
+    services.require_template_owner(template, user)
+    services.delete_template(db, template)

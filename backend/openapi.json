@@ -2464,6 +2464,158 @@
         }
       }
     },
+    "/api/cad/templates": {
+      "get": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "List Templates",
+        "description": "내 템플릿 + 공용 템플릿. 내장 넷은 `recipe/schema` 의 templates 에 있다.",
+        "operationId": "list_templates_api_cad_templates_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TemplateOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Templates Api Cad Templates Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Create Template",
+        "operationId": "create_template_api_cad_templates_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cad/templates/{template_id}": {
+      "patch": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Update Template",
+        "operationId": "update_template_api_cad_templates__template_id__patch",
+        "parameters": [
+          {
+            "name": "template_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Template Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Delete Template",
+        "operationId": "delete_template_api_cad_templates__template_id__delete",
+        "parameters": [
+          {
+            "name": "template_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Template Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/server/status": {
       "get": {
         "tags": [
@@ -4178,6 +4330,149 @@
           "count"
         ],
         "title": "TableCountOut"
+      },
+      "TemplateCreateRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Description",
+            "default": ""
+          },
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "is_shared": {
+            "type": "boolean",
+            "title": "Is Shared",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "recipe"
+        ],
+        "title": "TemplateCreateRequest"
+      },
+      "TemplateOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "owner_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Owner Id"
+          },
+          "owner_name": {
+            "type": "string",
+            "title": "Owner Name"
+          },
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "is_shared": {
+            "type": "boolean",
+            "title": "Is Shared"
+          },
+          "mine": {
+            "type": "boolean",
+            "title": "Mine"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "owner_id",
+          "owner_name",
+          "recipe",
+          "is_shared",
+          "mine",
+          "updated_at"
+        ],
+        "title": "TemplateOut"
+      },
+      "TemplateUpdateRequest": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "recipe": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipe"
+          },
+          "is_shared": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Shared"
+          }
+        },
+        "type": "object",
+        "title": "TemplateUpdateRequest"
       },
       "TemporaryPasswordResponse": {
         "properties": {

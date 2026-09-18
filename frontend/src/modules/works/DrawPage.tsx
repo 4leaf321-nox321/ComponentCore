@@ -5,12 +5,13 @@
  * 거기서 계속 고치고, 지그를 만들고, 부품 · 지그로 승격한다.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { cadApi } from '@/modules/cad/api'
 import type { Recipe } from '@/modules/cad/api'
 import { RecipeEditor } from '@/modules/cad/RecipeEditor'
+import { SaveTemplateDialog } from '@/modules/cad/SaveTemplateDialog'
 import { worksApi } from '@/modules/works/api'
 import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
@@ -35,26 +36,38 @@ import {
 } from '@/shared/components/ui/select'
 import { useResource } from '@/shared/hooks/useResource'
 
+/** 템플릿 없이 — 노드를 하나씩 더해 처음부터 그린다. */
+const EMPTY = '__empty__'
+
 export default function DrawPage() {
   const navigate = useNavigate()
   const schema = useResource(() => cadApi.schema(), [])
-  const [template, setTemplate] = useState('bracket')
-  const [recipe, setRecipe] = useState<Recipe | null>(null)
+  const saved = useResource(() => cadApi.templates(), [])
+  const [savingTemplate, setSavingTemplate] = useState(false)
+  const [template, setTemplate] = useState(EMPTY)
+  const [recipe, setRecipe] = useState<Recipe | null>({ version: 1, nodes: [] })
   const [saving, setSaving] = useState(false)
   const [name, setName] = useState('')
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [busy, setBusy] = useState(false)
   const fileInput = useRef<HTMLInputElement | null>(null)
 
-  useEffect(() => {
-    if (schema.data && !recipe) setRecipe(schema.data.templates[template] ?? null)
-  }, [schema.data, recipe, template])
-
   function pickTemplate(kind: string) {
     setTemplate(kind)
+    if (kind === EMPTY) {
+      setRecipe({ version: 1, nodes: [] })
+      return
+    }
+    if (kind.startsWith('saved:')) {
+      const found = saved.data?.find((t) => t.id === kind.slice(6))
+      if (found) setRecipe(structuredClone(found.recipe))
+      return
+    }
     const next = schema.data?.templates[kind]
     if (next) setRecipe(structuredClone(next))
   }
+
+  const pickedSaved = template.startsWith('saved:') ? saved.data?.find((t) => t.id === template.slice(6)) : undefined
 
   async function downloadStep() {
     if (!recipe) return
@@ -77,7 +90,12 @@ export default function DrawPage() {
     setBusy(true)
     setError(null)
     try {
-      const made = await worksApi.create({ name, recipe, source: 'template', note: `${template} 템플릿에서` })
+      const made = await worksApi.create({
+        name,
+        recipe,
+        source: template === EMPTY ? 'manual' : 'template',
+        note: template === EMPTY ? '처음부터 그림' : `${template} 템플릿에서`,
+      })
       navigate(`/works/${made.id}`)
     } catch (caught) {
       setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
@@ -126,20 +144,42 @@ export default function DrawPage() {
       <ErrorNotice error={error ?? schema.error} />
 
       <div className="flex items-center gap-2">
-        <Label className="text-xs">템플릿</Label>
+        <Label className="text-xs">시작</Label>
         <Select value={template} onValueChange={pickTemplate}>
-          <SelectTrigger className="w-48">
+          <SelectTrigger className="w-56">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value={EMPTY}>빈 레시피에서 — 처음부터 그리기</SelectItem>
             {Object.entries(schema.data?.template_labels ?? {}).map(([kind, label]) => (
               <SelectItem key={kind} value={kind}>
-                {label}
+                기본: {label}
+              </SelectItem>
+            ))}
+            {(saved.data ?? []).map((t) => (
+              <SelectItem key={t.id} value={`saved:${t.id}`}>
+                {t.mine ? '내 템플릿' : `공용 (${t.owner_name})`}: {t.name}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-        <span className="text-muted-foreground text-xs">고르면 레시피가 바뀝니다. 치수를 고치고 「그리기」.</span>
+        {pickedSaved?.mine && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={async () => {
+              if (!window.confirm(`템플릿 「${pickedSaved.name}」 을 지웁니까? 시작 목록에서만 사라집니다.`)) return
+              await cadApi.removeTemplate(pickedSaved.id)
+              saved.reload()
+              pickTemplate(EMPTY)
+            }}
+          >
+            이 템플릿 지우기
+          </Button>
+        )}
+        <span className="text-muted-foreground text-xs">
+          {template === EMPTY ? '「+ 노드」 로 스케치를 놓고 돌출하면 입체가 됩니다.' : '템플릿의 치수를 고쳐 쓰세요. 고르면 지금 것은 사라집니다.'}
+        </span>
       </div>
 
       {recipe && (
@@ -148,14 +188,28 @@ export default function DrawPage() {
           onChange={setRecipe}
           actions={
             <>
-              <Button size="sm" variant="outline" onClick={() => void downloadStep()}>
+              <Button size="sm" variant="outline" onClick={() => void downloadStep()} disabled={recipe.nodes.length === 0}>
                 STEP 받기
               </Button>
-              <Button size="sm" onClick={() => setSaving(true)}>
+              <Button size="sm" variant="outline" onClick={() => setSavingTemplate(true)} disabled={recipe.nodes.length === 0}>
+                템플릿으로 저장
+              </Button>
+              <Button size="sm" onClick={() => setSaving(true)} disabled={recipe.nodes.length === 0}>
                 내 작업으로 저장
               </Button>
             </>
           }
+        />
+      )}
+
+      {recipe && (
+        <SaveTemplateDialog
+          key={String(savingTemplate)}
+          open={savingTemplate}
+          recipe={recipe}
+          defaultName={pickedSaved?.name}
+          onClose={() => setSavingTemplate(false)}
+          onSaved={() => saved.reload()}
         />
       )}
 

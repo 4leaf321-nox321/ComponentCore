@@ -12,6 +12,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { Recipe } from '@/modules/cad/api'
 import { GeometryJobView } from '@/modules/cad/GeometryJobView'
 import { RecipeEditor } from '@/modules/cad/RecipeEditor'
+import { SaveTemplateDialog } from '@/modules/cad/SaveTemplateDialog'
 import { JigResultView } from '@/modules/jigs/JigResultView'
 import type { Job } from '@/modules/jobs/api'
 import { worksApi } from '@/modules/works/api'
@@ -68,6 +69,7 @@ export default function WorkPage() {
   const [promoteNote, setPromoteNote] = useState('')
   const [promoteProduct, setPromoteProduct] = useState(true)
   const [deleting, setDeleting] = useState(false)
+  const [savingTemplate, setSavingTemplate] = useState(false)
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [busy, setBusy] = useState(false)
   const fileInput = useRef<HTMLInputElement | null>(null)
@@ -236,6 +238,9 @@ export default function WorkPage() {
                 />
                 <Button variant="outline" onClick={() => fileInput.current?.click()} disabled={busy}>
                   STEP 올리기
+                </Button>
+                <Button variant="outline" onClick={() => setSavingTemplate(true)} disabled={busy || !selectedVersion}>
+                  템플릿으로 저장{selectedVersion && selectedVersion.number !== w.current_version ? ` (v${selectedVersion.number})` : ''}
                 </Button>
                 <div className="flex-1" />
                 <Button
@@ -459,6 +464,16 @@ export default function WorkPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {selectedVersion && (
+        <SaveTemplateDialog
+          key={String(savingTemplate)}
+          open={savingTemplate}
+          recipe={selectedVersion.recipe}
+          defaultName={w.name}
+          onClose={() => setSavingTemplate(false)}
+        />
+      )}
 
       <ConfirmDialog
         open={deleting}

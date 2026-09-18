@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -30,3 +32,34 @@ class RecipeSchemaOut(BaseModel):
     template_labels: dict[str, str]
 
     model_config = ConfigDict(populate_by_name=True)
+
+
+# --- 템플릿 -------------------------------------------------------------------
+
+
+class TemplateCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=2000)
+    recipe: dict[str, Any]
+    is_shared: bool = False
+
+
+class TemplateUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=2000)
+    recipe: dict[str, Any] | None = None
+    is_shared: bool | None = None
+
+
+class TemplateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    description: str
+    owner_id: uuid.UUID
+    owner_name: str
+    recipe: dict[str, Any]
+    is_shared: bool
+    mine: bool
+    updated_at: datetime
