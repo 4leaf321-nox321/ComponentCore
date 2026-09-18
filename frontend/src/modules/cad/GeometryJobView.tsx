@@ -13,6 +13,7 @@ import { downloadFile } from '@/shared/api/client'
 import { StatusBadge } from '@/shared/components/StatusBadge'
 import { Button } from '@/shared/components/ui/button'
 import { Skeleton } from '@/shared/components/ui/skeleton'
+import { FullscreenButton, frameClass, useFullscreen } from '@/shared/viewer/FullscreenFrame'
 import { VIEWER_COLORS } from '@/shared/viewer/colors'
 
 const ModelViewer = lazy(() => import('@/shared/viewer/ModelViewer'))
@@ -32,6 +33,7 @@ export function GeometryJobView({
 }) {
   const job = useJobPolling(initial)
   const [url, setUrl] = useState<string | null>(null)
+  const full = useFullscreen()
   const glb = job?.artifacts.find((one) => one.kind === 'model_glb')
   const step = job?.artifacts.find((one) => one.kind === 'model_step')
 
@@ -66,8 +68,9 @@ export function GeometryJobView({
     )
   }
   const summary = job.summary as { volume?: number; bbox?: { size: number[] }; face_count?: number } | null
+  const box = full.active ? 'h-[calc(100vh-4rem)]' : height
   return (
-    <div className="space-y-2">
+    <div ref={full.frame} className={frameClass(full.active) || 'space-y-2'}>
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{title}</span>
         <StatusBadge kind="run" value={job.status} />
@@ -78,6 +81,7 @@ export function GeometryJobView({
           </span>
         )}
         <div className="flex-1" />
+        <FullscreenButton active={full.active} onToggle={() => void full.toggle()} />
         {step && (
           <Button size="sm" variant="outline" onClick={() => downloadFile(jobsApi.artifactPath(step.id), stepName)}>
             STEP 받기
@@ -86,11 +90,11 @@ export function GeometryJobView({
       </div>
       {job.status === 'failed' && <p className="text-destructive text-sm">{job.error}</p>}
       {url ? (
-        <Suspense fallback={<Skeleton className={`${height} w-full`} />}>
-          <ModelViewer models={[{ url, color: VIEWER_COLORS.product }]} className={`${height} w-full rounded-md border`} />
+        <Suspense fallback={<Skeleton className={`${box} w-full`} />}>
+          <ModelViewer models={[{ url, color: VIEWER_COLORS.product }]} className={`${box} w-full rounded-md border`} />
         </Suspense>
       ) : (
-        !isFinished(job) && <Skeleton className={`${height} w-full`} />
+        !isFinished(job) && <Skeleton className={`${box} w-full`} />
       )}
     </div>
   )

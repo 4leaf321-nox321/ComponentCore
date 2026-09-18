@@ -20,6 +20,7 @@ import { SketchCanvas } from '@/modules/cad/SketchCanvas'
 import type { SketchShape } from '@/modules/cad/SketchCanvas'
 import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
+import { FullscreenButton, useFullscreen } from '@/shared/viewer/FullscreenFrame'
 import type { MeasurePick, MeshData, MeshEdge, MeshFace, PickMode } from '@/shared/viewer/PickViewer'
 import { Button } from '@/shared/components/ui/button'
 import {
@@ -67,8 +68,7 @@ export function RecipeEditor({
   /** 면을 골라 어디에 쓰나 — 새 스케치 · 쉘의 open · 구멍의 plane. */
   const [faceTarget, setFaceTarget] = useState<'sketch' | 'shell-open' | 'hole-plane'>('sketch')
   const [measures, setMeasures] = useState<MeasurePick[]>([])
-  const [fullscreen, setFullscreen] = useState(false)
-  const frame = useRef<HTMLDivElement | null>(null)
+  const { frame, active: fullscreen, toggle: toggleFullscreen } = useFullscreen()
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [drawing, setDrawing] = useState(false)
   const lastDrawn = useRef<string>('')
@@ -209,25 +209,6 @@ export function RecipeEditor({
     setEditing(false)
   }
 
-  // --- 전체 화면 — 브라우저 밖으로(Fullscreen API). Esc 로 나오면 상태도 따라온다. ------------
-
-  useEffect(() => {
-    const sync = () => setFullscreen(document.fullscreenElement === frame.current && frame.current !== null)
-    document.addEventListener('fullscreenchange', sync)
-    return () => document.removeEventListener('fullscreenchange', sync)
-  }, [])
-
-  async function toggleFullscreen() {
-    if (document.fullscreenElement) {
-      await document.exitFullscreen()
-      return
-    }
-    try {
-      await frame.current?.requestFullscreen()
-    } catch {
-      setFullscreen((v) => !v) // 브라우저가 막으면 화면 안에서라도 덮는다
-    }
-  }
 
   function toggleEdge(edge: MeshEdge) {
     if (!selected || !isNear(selected.edges)) return
@@ -299,9 +280,7 @@ export function RecipeEditor({
           >
             측정
           </Button>
-          <Button size="sm" variant={fullscreen ? 'default' : 'ghost'} className="h-7 px-2 text-xs" onClick={() => void toggleFullscreen()}>
-            {fullscreen ? '전체 화면 끝' : '전체 화면'}
-          </Button>
+          <FullscreenButton active={fullscreen} onToggle={() => void toggleFullscreen()} className="h-7 px-2 text-xs" />
           <Button size="sm" variant={mode === 'json' ? 'default' : 'ghost'} className="h-7 px-2 text-xs" onClick={() => (mode === 'json' ? applyJson() : setMode('json'))}>
             {mode === 'json' ? 'JSON 적용' : 'JSON'}
           </Button>

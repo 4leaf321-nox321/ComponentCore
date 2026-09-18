@@ -25,6 +25,7 @@ import {
   TableRow,
 } from '@/shared/components/ui/table'
 import { VIEWER_COLORS } from '@/shared/viewer/colors'
+import { FullscreenButton, frameClass, useFullscreen } from '@/shared/viewer/FullscreenFrame'
 
 const ModelViewer = lazy(() => import('@/shared/viewer/ModelViewer'))
 
@@ -138,6 +139,7 @@ export function JigResultView({
 }) {
   const job = useJobPolling(initial) ?? initial
   const { urls, error } = useModelUrls(job)
+  const full = useFullscreen()
 
   useEffect(() => {
     if (isFinished(job) && !isFinished(initial)) onFinished?.(job)
@@ -172,6 +174,7 @@ export function JigResultView({
       ]
     : []
 
+  const box = full.active ? 'h-[calc(100vh-5rem)]' : 'h-[480px]'
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -196,16 +199,22 @@ export function JigResultView({
           ))}
       </div>
 
-      {urls && (
-        <Suspense fallback={<Skeleton className="h-[480px] w-full" />}>
-          <ModelViewer models={models} />
-        </Suspense>
-      )}
-      <ErrorNotice error={error} />
-      <p className="text-muted-foreground text-xs">
-        <span style={{ color: VIEWER_COLORS.product }}>■</span> 제품{' '}
-        <span style={{ color: VIEWER_COLORS.jig }}>■</span> 지그 — 끌어서 돌리고, 굴려서 확대합니다.
-      </p>
+      <div ref={full.frame} className={frameClass(full.active) || 'space-y-1'}>
+        <div className="flex items-center gap-2">
+          <p className="text-muted-foreground text-xs">
+            <span style={{ color: VIEWER_COLORS.product }}>■</span> 제품{' '}
+            <span style={{ color: VIEWER_COLORS.jig }}>■</span> 지그 — 끌어서 돌리고, 굴려서 확대합니다.
+          </p>
+          <div className="flex-1" />
+          {urls && <FullscreenButton active={full.active} onToggle={() => void full.toggle()} />}
+        </div>
+        {urls && (
+          <Suspense fallback={<Skeleton className={`${box} w-full`} />}>
+            <ModelViewer models={models} className={`${box} w-full rounded-md border`} />
+          </Suspense>
+        )}
+        <ErrorNotice error={error} />
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
