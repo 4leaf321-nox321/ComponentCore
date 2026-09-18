@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 
 import type { Recipe } from '@/modules/cad/api'
@@ -95,4 +95,61 @@ test('실행 취소 · 다시 실행 — 호출부가 value 를 되돌려 주면
   await waitFor(() => expect(screen.queryAllByText('box-1')).toHaveLength(0))
   fireEvent.click(screen.getByRole('button', { name: '다시 실행' }))
   await waitFor(() => expect(screen.getAllByText('box-1').length).toBeGreaterThan(0))
+})
+
+const THREE: Recipe = {
+  nodes: [
+    { id: 'plate', op: 'box', length: 40, width: 30, height: 10, at: [0, 0, 0] },
+    { id: 's', op: 'sketch', label: '바닥', shapes: [{ type: 'rect', width: 40, height: 30, at: [0, 0], rotation: 0, mode: 'add' }] },
+    { id: 'e', op: 'extrude', sketch: 's', distance: 10, direction: 'normal' },
+  ],
+}
+
+/** happy-dom 은 크기를 0 으로 준다 — 칸의 위/아래 절반을 가르려면 실제 값이 필요하다. */
+function withBox(element: Element, top: number) {
+  element.getBoundingClientRect = () => ({ top, height: 20, bottom: top + 20, left: 0, right: 100, width: 100, x: 0, y: top, toJSON: () => ({}) }) as DOMRect
+}
+function dragData() {
+  return { effectAllowed: '', dropEffect: '', setData: vi.fn(), getData: () => '' }
+}
+
+/** 이 시험 환경의 드래그 이벤트에는 마우스 좌표가 없다 — 칸의 위/아래를 가르려면 직접 얹는다. */
+function dragOverAt(row: Element, clientY: number) {
+  const event = createEvent.dragOver(row, { dataTransfer: dragData() })
+  Object.defineProperty(event, 'clientY', { value: clientY })
+  fireEvent(row, event)
+}
+
+test('목록의 고치기 · 지우기는 손을 올렸을 때 쓰고, 지우면 그 피처가 빠진다', () => {
+  const onChange = vi.fn()
+  render(<RecipeEditor value={THREE} onChange={onChange} />)
+  fireEvent.click(screen.getByRole('button', { name: 'plate 고치기' }))
+  expect(screen.getByRole('dialog')).toBeInTheDocument()
+  fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+
+  fireEvent.click(screen.getByRole('button', { name: 'plate 지우기' }))
+  const next = onChange.mock.calls.at(-1)![0] as Recipe
+  expect(next.nodes.map((n) => n.id)).toEqual(['s', 'e'])
+})
+
+test('끌어서 순서를 바꾸되, 선후관계가 있으면 놓지 못한다', () => {
+  const onChange = vi.fn()
+  const { container } = render(<RecipeEditor value={THREE} onChange={onChange} />)
+  const rows = container.querySelectorAll('ol > li')
+  rows.forEach((row, i) => withBox(row, i * 20))
+
+  // 돌출(e)을 스케치(s) 앞으로 → 막힌다. onChange 가 없고 이유가 뜬다.
+  fireEvent.dragStart(rows[2], { dataTransfer: dragData() })
+  dragOverAt(rows[1], 21) // 칸의 위 절반 = 이 앞에 놓기
+  fireEvent.drop(rows[1], { dataTransfer: dragData() })
+  expect(onChange).not.toHaveBeenCalled()
+  expect(screen.getByText(/먼저 올 수 없습니다/)).toBeInTheDocument()
+  fireEvent.dragEnd(rows[2])
+
+  // 상자(plate)는 아무도 안 쓰니 스케치 뒤로 갈 수 있다.
+  fireEvent.dragStart(rows[0], { dataTransfer: dragData() })
+  dragOverAt(rows[2], 41)
+  fireEvent.drop(rows[2], { dataTransfer: dragData() })
+  const next = onChange.mock.calls.at(-1)![0] as Recipe
+  expect(next.nodes.map((n) => n.id)).toEqual(['s', 'plate', 'e'])
 })

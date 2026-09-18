@@ -16,13 +16,14 @@ import { LoadRecipeDialog, LoadWorkDialog } from '@/modules/cad/LoadDialogs'
 import { MeasurePanel, measureMarks } from '@/modules/cad/MeasurePanel'
 import { RibbonButton, RibbonGroup } from '@/modules/cad/Ribbon'
 import { NodeForm } from '@/modules/cad/NodeForm'
+import { allowedDrops, dropProblem, moveTo } from '@/modules/cad/reorder'
 import { OP_BY_NAME, OP_SPECS, makeNode, nodesOf, referencesOf } from '@/modules/cad/recipeSpec'
 import type { RecipeNode } from '@/modules/cad/recipeSpec'
 import { SketchCanvas } from '@/modules/cad/SketchCanvas'
 import type { SketchShape } from '@/modules/cad/SketchCanvas'
 import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
-import { Boxes, Braces, BookmarkPlus, Download, FileAxis3d, Image, FilePlus, FolderOpen, Files, Maximize2, Minimize2, Redo2, Ruler, Save, SquareDashedMousePointer, Undo2 } from 'lucide-react'
+import { Boxes, Braces, BookmarkPlus, Download, FileAxis3d, GripVertical, Image, FilePlus, FolderOpen, Files, Maximize2, Minimize2, Pencil, Redo2, Ruler, Save, SquareDashedMousePointer, Trash2, Undo2 } from 'lucide-react'
 
 import { useFullscreen } from '@/shared/viewer/FullscreenFrame'
 import type { MeasurePick, MeshData, MeshEdge, MeshFace, PickMode } from '@/shared/viewer/PickViewer'
@@ -70,6 +71,8 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
   const { frame, active: fullscreen, toggle: toggleFullscreen } = useFullscreen()
   const [tab, setTab] = useState<string>(nodes.length === 0 ? 'file' : '스케치')
   const [loading, setLoading] = useState<'recipe' | 'work' | null>(null)
+  /** 끌고 있는 피처의 자리 · 놓을 수 있는 칸들 · 지금 가리키는 칸 · 막힌 이유. */
+  const [drag, setDrag] = useState<{ from: number; allowed: Set<number>; at: number | null; refused: string | null } | null>(null)
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [drawing, setDrawing] = useState(false)
   const lastDrawn = useRef<string>('')
@@ -185,13 +188,27 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
     setEditing(false)
   }
 
-  function moveNode(id: string, dir: -1 | 1) {
+  /** 한 칸 옮길 수 없는 이유 — 끝이거나 선후관계가 걸리거나. 옮길 수 있으면 null. */
+  function moveRefusal(id: string, dir: -1 | 1): string | null {
     const i = nodes.findIndex((n) => n.id === id)
     const j = i + dir
-    if (i < 0 || j < 0 || j >= nodes.length) return
-    const list = [...nodes]
-    ;[list[i], list[j]] = [list[j], list[i]]
-    replaceNodes(list)
+    if (i < 0 || j < 0 || j >= nodes.length) return dir === -1 ? '맨 앞입니다' : '맨 뒤입니다'
+    // 끌어 옮기기와 같은 규칙 — 쓰는 피처가 쓰이는 피처보다 앞설 수 없다.
+    return dropProblem(nodes, i, dir === 1 ? i + 2 : i - 1)
+  }
+
+  function moveNode(id: string, dir: -1 | 1) {
+    if (moveRefusal(id, dir)) return
+    const i = nodes.findIndex((n) => n.id === id)
+    replaceNodes(moveTo(nodes, i, dir === 1 ? i + 2 : i - 1))
+  }
+
+  /** 끌어 놓기 — 놓을 수 있는 자리는 끌기 시작할 때 미리 세어 둔다(칸마다 다시 계산하지 않게). */
+  function dropNode(to: number) {
+    if (!drag) return
+    if (!drag.allowed.has(to)) return
+    replaceNodes(moveTo(nodes, drag.from, to))
+    setDrag(null)
   }
 
   // --- 검증 · 미리보기 ----------------------------------------------------------
@@ -473,30 +490,119 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                 됩니다.
               </div>
             ) : (
-              <ol className="space-y-0.5">
+              <ol className="space-y-0.5" onDragLeave={(event) => event.currentTarget === event.target && setDrag((d) => (d ? { ...d, at: null } : d))}>
                 {nodes.map((node, i) => {
                   const spec = OP_BY_NAME[node.op]
                   const broken = problems.some((p) => p.includes(`nodes.${i}`) || p.includes(`nodes[${i}]`)) || failedNode === node.id
+                  const Icon = spec?.icon
                   return (
-                    <li key={node.id}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedId(node.id)
-                          setEditing(true)
-                        }}
-                        className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-left text-sm ${
+                    <li
+                      key={node.id}
+                      draggable
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = 'move'
+                        event.dataTransfer.setData('text/plain', node.id)
+                        setDrag({ from: i, allowed: allowedDrops(nodes, i), at: null, refused: null })
+                      }}
+                      onDragEnd={() => setDrag(null)}
+                      onDragOver={(event) => {
+                        if (!drag) return
+                        event.preventDefault()
+                        // 칸의 위 절반이면 이 앞, 아래 절반이면 이 뒤.
+                        const box = event.currentTarget.getBoundingClientRect()
+                        const to = event.clientY < box.top + box.height / 2 ? i : i + 1
+                        const refused = drag.allowed.has(to) ? null : dropProblem(nodes, drag.from, to)
+                        event.dataTransfer.dropEffect = refused ? 'none' : 'move'
+                        setDrag({ ...drag, at: to, refused })
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault()
+                        if (drag?.at !== null && drag?.at !== undefined) dropNode(drag.at)
+                      }}
+                      className={`group relative rounded-md ${drag?.from === i ? 'opacity-40' : ''}`}
+                    >
+                      {/* 놓일 자리 — 막힌 곳은 빨갛게, 되는 곳은 파랗게 */}
+                      {drag && drag.at === i && (
+                        <span className={`absolute -top-px right-0 left-0 h-0.5 rounded ${drag.refused ? 'bg-destructive' : 'bg-primary'}`} />
+                      )}
+                      {drag && drag.at === i + 1 && (
+                        <span className={`absolute right-0 -bottom-px left-0 h-0.5 rounded ${drag.refused ? 'bg-destructive' : 'bg-primary'}`} />
+                      )}
+                      <div
+                        className={`flex w-full items-center gap-1 rounded-md px-1 py-1 text-sm ${
                           node.id === selectedId ? 'bg-accent' : 'hover:bg-accent/60'
                         } ${broken ? 'text-destructive' : ''}`}
                       >
-                        <span className="text-muted-foreground w-4 text-[10px]">{i + 1}</span>
-                        <span className="truncate">{node.label || spec?.label || node.op}</span>
-                        <span className="text-muted-foreground ml-auto font-mono text-[10px]">{node.id}</span>
-                      </button>
+                        <GripVertical className="text-muted-foreground/40 group-hover:text-muted-foreground size-3.5 shrink-0 cursor-grab" aria-hidden />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedId(node.id)
+                            setEditing(true)
+                          }}
+                          className="flex min-w-0 flex-1 items-center gap-1 text-left"
+                          title={`${spec?.label ?? node.op} — 눌러서 고칩니다`}
+                        >
+                          <span className="text-muted-foreground w-4 shrink-0 text-[10px]">{i + 1}</span>
+                          {Icon && <Icon className="text-muted-foreground size-3.5 shrink-0" aria-hidden />}
+                          <span className="truncate">{node.label || spec?.label || node.op}</span>
+                          <span className="text-muted-foreground ml-auto truncate font-mono text-[10px] group-hover:hidden">{node.id}</span>
+                        </button>
+                        {/* 손을 올렸을 때만 — 늘 보이면 목록이 단추 밭이 된다 */}
+                        <span className="ml-auto hidden shrink-0 gap-0.5 group-hover:flex">
+                          <button
+                            type="button"
+                            className="hover:bg-background rounded p-1"
+                            aria-label={`${node.id} 고치기`}
+                            title="고치기"
+                            onClick={() => {
+                              setSelectedId(node.id)
+                              setEditing(true)
+                            }}
+                          >
+                            <Pencil className="size-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            className="hover:bg-destructive/10 text-destructive rounded p-1"
+                            aria-label={`${node.id} 지우기`}
+                            title="지우기"
+                            onClick={() => removeNode(node.id)}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </span>
+                      </div>
                     </li>
                   )
                 })}
+                {/* 맨 끝에 놓기 */}
+                <li
+                  aria-hidden
+                  className="relative h-3"
+                  onDragOver={(event) => {
+                    if (!drag) return
+                    event.preventDefault()
+                    const to = nodes.length
+                    const refused = drag.allowed.has(to) ? null : dropProblem(nodes, drag.from, to)
+                    event.dataTransfer.dropEffect = refused ? 'none' : 'move'
+                    setDrag({ ...drag, at: to, refused })
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    dropNode(nodes.length)
+                  }}
+                >
+                  {drag?.at === nodes.length && (
+                    <span className={`absolute top-0 right-0 left-0 h-0.5 rounded ${drag.refused ? 'bg-destructive' : 'bg-primary'}`} />
+                  )}
+                </li>
               </ol>
+            )}
+            {drag?.refused ? (
+              <p className="text-destructive mt-1 text-xs">{drag.refused}</p>
+            ) : (
+              nodes.length > 1 && <p className="text-muted-foreground mt-1 text-xs">끌어서 순서를 바꿉니다. 쓰는 피처는 쓰이는 피처보다 앞설 수 없습니다.</p>
             )}
             {value.result && value.result !== nodes[nodes.length - 1]?.id && <p className="text-muted-foreground mt-2 text-xs">결과 피처: {value.result}</p>}
             {problems.length > 0 && (
@@ -592,10 +698,11 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
               </div>
               <DialogFooter className="sm:justify-between">
                 <div className="flex gap-1">
-                  <Button size="sm" variant="ghost" onClick={() => moveNode(selected.id, -1)}>
+                  {/* 못 옮기는 방향은 아예 눌리지 않게 하고, 왜인지 말풍선에 적는다. */}
+                  <Button size="sm" variant="ghost" disabled={!!moveRefusal(selected.id, -1)} title={moveRefusal(selected.id, -1) ?? '앞으로'} onClick={() => moveNode(selected.id, -1)}>
                     ↑ 앞으로
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => moveNode(selected.id, 1)}>
+                  <Button size="sm" variant="ghost" disabled={!!moveRefusal(selected.id, 1)} title={moveRefusal(selected.id, 1) ?? '뒤로'} onClick={() => moveNode(selected.id, 1)}>
                     ↓ 뒤로
                   </Button>
                   <Button size="sm" variant="ghost" className="text-destructive" onClick={() => removeNode(selected.id)}>
