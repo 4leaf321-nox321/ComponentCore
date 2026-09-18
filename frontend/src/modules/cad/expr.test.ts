@@ -28,3 +28,18 @@ test('못 푸는 식은 NaN — 틀린 값을 그럴듯하게 그리지 않는�
   expect(resolvedText('=없는이름', PARAMS)).toBe('')
   expect(resolvedText('=판_길이 / 2', PARAMS)).toBe('40')
 })
+
+test('못 푼 까닭을 나눠서 말한다 — 「아직 안 썼다」 는 틀린 것이 아니다', async () => {
+  const { explain } = await import('@/modules/cad/expr')
+  expect(explain('=판_길이', PARAMS)).toBeNull()
+  expect(explain(40, PARAMS)).toBeNull()
+  expect(explain('=', PARAMS)).toEqual({ kind: 'empty', message: expect.stringContaining('식을 쓰세요') })
+  expect(explain('=  ', PARAMS)?.kind).toBe('empty')
+  expect(explain('=두께2', PARAMS)).toEqual({
+    kind: 'unknown',
+    name: '두께2',
+    message: expect.stringContaining('두께2'),
+  })
+  expect(explain('=(판_길이 + 1', PARAMS)?.kind).toBe('syntax')
+  expect(explain('=판_길이 *', PARAMS)?.kind).toBe('syntax')
+})

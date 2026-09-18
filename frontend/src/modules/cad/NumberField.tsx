@@ -12,7 +12,7 @@
 import { Check, Plus } from 'lucide-react'
 import { useState } from 'react'
 
-import { evalNumber, isExpression, resolvedText } from '@/modules/cad/expr'
+import { explain, isExpression, resolvedText } from '@/modules/cad/expr'
 import { Button } from '@/shared/components/ui/button'
 import { Input } from '@/shared/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/shared/components/ui/popover'
@@ -42,13 +42,21 @@ export function NumberField({
 }) {
   const expression = isExpression(value)
   const resolved = expression ? resolvedText(value, params) : ''
-  const broken = expression && !Number.isFinite(evalNumber(value, params))
+  // **왜 안 풀렸는지**까지 안다. 「아직 안 썼다」 를 틀린 것처럼 빨갛게 보여 주지 않으려고.
+  const trouble = explain(value, params)
   const names = Object.keys(params)
   const [open, setOpen] = useState(false)
   const [newName, setNewName] = useState('')
+  const [newValue, setNewValue] = useState('')
 
   /** 새 변수의 값 — 지금 칸에 있는 수. 「이 값을 변수로」 가 되려면 값이 따라가야 한다. */
   const current = expression ? (Number(resolved) || 0) : Number(value) || 0
+
+  function openCreate(name: string, seed: number) {
+    setNewName(name)
+    setNewValue(String(seed))
+    setOpen(true)
+  }
 
   function use(name: string) {
     onChange(`=${name}`)
@@ -58,21 +66,24 @@ export function NumberField({
   function create() {
     const name = newName.trim()
     if (!name || !onCreateParam) return
-    onCreateParam(name, current)
+    const seed = newValue.trim() === '' ? current : Number(newValue)
+    onCreateParam(name, Number.isFinite(seed) ? seed : 0)
     onChange(`=${name}`)
     setNewName('')
+    setNewValue('')
     setOpen(false)
   }
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
       <div className="relative min-w-0 flex-1">
         {expression ? (
           <Input
             id={id}
             value={String(value)}
             onChange={(event) => onChange(event.target.value)}
-            className={`h-8 pr-12 font-mono text-xs ${broken ? 'border-destructive' : ''} ${className ?? ''}`}
+            className={`h-8 pr-12 font-mono text-xs ${trouble && trouble.kind !== 'empty' ? 'border-destructive' : ''} ${className ?? ''}`}
             placeholder="=두께 * 2"
             aria-label={ariaLabel}
           />
@@ -93,10 +104,12 @@ export function NumberField({
         )}
         {expression && (
           <span
-            className={`pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 font-mono text-[10px] ${broken ? 'text-destructive' : 'text-muted-foreground'}`}
-            title={broken ? '이 식을 풀 수 없습니다 — 없는 변수 이름일 수 있습니다' : '지금 값'}
+            className={`pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 font-mono text-[10px] ${
+              trouble && trouble.kind !== 'empty' ? 'text-destructive' : 'text-muted-foreground'
+            }`}
+            title={trouble ? trouble.message : '지금 값'}
           >
-            {broken ? '?' : resolved}
+            {trouble ? (trouble.kind === 'empty' ? '…' : '?') : resolved}
           </span>
         )}
       </div>
@@ -135,9 +148,7 @@ export function NumberField({
 
           {onCreateParam && (
             <div className="space-y-1 border-t pt-2">
-              <p className="text-[11px]">
-                이 값(<span className="font-mono">{current}</span>)을 새 변수로
-              </p>
+              <p className="text-[11px]">새 변수 만들기 — 값은 지금 이 칸의 수가 기본입니다</p>
               <div className="flex items-center gap-1">
                 <Input
                   value={newName}
@@ -151,6 +162,13 @@ export function NumberField({
                   placeholder="이름 — 예: 두께"
                   className="h-7 flex-1 font-mono text-xs"
                   aria-label="새 변수 이름"
+                />
+                <Input
+                  type="number"
+                  value={newValue === '' ? String(current) : newValue}
+                  onChange={(event) => setNewValue(event.target.value)}
+                  className="h-7 w-20"
+                  aria-label="새 변수 값"
                 />
                 <Button size="sm" className="h-7 px-2 text-xs" disabled={!newName.trim() || newName.trim() in params} onClick={create}>
                   <Plus className="size-3" /> 만들기
@@ -176,6 +194,23 @@ export function NumberField({
           </div>
         </PopoverContent>
       </Popover>
+      </div>
+
+      {/* **무엇을 고치면 되는지** 한 줄로. 물음표만 띄우면 사람은 자기가 뭘 틀렸는지 모른다. */}
+      {trouble && (
+        <p className={`text-[11px] ${trouble.kind === 'empty' ? 'text-muted-foreground' : 'text-destructive'}`}>
+          {trouble.message}
+          {trouble.kind === 'unknown' && onCreateParam && (
+            <button
+              type="button"
+              className="ml-1 underline"
+              onClick={() => openCreate(trouble.name, current)}
+            >
+              이 이름으로 만들기
+            </button>
+          )}
+        </p>
+      )}
     </div>
   )
 }
