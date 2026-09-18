@@ -12,7 +12,9 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 
 import { cadApi } from '@/modules/cad/api'
 import type { Recipe, RecipeSummary } from '@/modules/cad/api'
+import { LoadRecipeDialog, LoadWorkDialog } from '@/modules/cad/LoadDialogs'
 import { MeasurePanel, measureMarks } from '@/modules/cad/MeasurePanel'
+import { RibbonButton, RibbonGroup } from '@/modules/cad/Ribbon'
 import { NodeForm } from '@/modules/cad/NodeForm'
 import { OP_BY_NAME, OP_SPECS, makeNode, nodesOf, referencesOf } from '@/modules/cad/recipeSpec'
 import type { RecipeNode } from '@/modules/cad/recipeSpec'
@@ -20,18 +22,14 @@ import { SketchCanvas } from '@/modules/cad/SketchCanvas'
 import type { SketchShape } from '@/modules/cad/SketchCanvas'
 import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
-import { FullscreenButton, useFullscreen } from '@/shared/viewer/FullscreenFrame'
+import { Braces, BookmarkPlus, Download, FilePlus, FolderOpen, Files, Maximize2, Minimize2, Ruler, Save, SquareDashedMousePointer } from 'lucide-react'
+
+import { useFullscreen } from '@/shared/viewer/FullscreenFrame'
 import type { MeasurePick, MeshData, MeshEdge, MeshFace, PickMode } from '@/shared/viewer/PickViewer'
 import { Button } from '@/shared/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/shared/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog'
 import { Skeleton } from '@/shared/components/ui/skeleton'
+import { Tabs, TabsList, TabsTrigger } from '@/shared/components/ui/tabs'
 import { Textarea } from '@/shared/components/ui/textarea'
 
 const PickViewer = lazy(() => import('@/shared/viewer/PickViewer'))
@@ -42,19 +40,19 @@ export function pretty(recipe: Recipe): string {
 
 const GROUPS = ['스케치', '입체', '조합', '마감', '배치'] as const
 
-export function RecipeEditor({
-  value,
-  onChange,
-  actions,
-  header,
-}: {
-  value: Recipe
-  onChange: (recipe: Recipe) => void
-  /** 편집기 위 오른쪽 — 저장 · 내려받기 같은 단추를 호출부가 준다. */
-  actions?: React.ReactNode
-  /** 툴바 왼쪽 — 템플릿 고르기 같은 것. 전체 화면에서도 함께 나온다. */
-  header?: React.ReactNode
-}) {
+/** 「파일」 탭이 부르는 것들 — 호출부(그리기 · 내 작업)가 준다. 없는 것은 단추가 안 뜬다. */
+export interface FileActions {
+  /** 「저장」 — 그리기에서는 내 작업으로, 내 작업에서는 새 버전으로. */
+  save?: { label: string; run: () => void; disabled?: boolean }
+  saveTemplate?: () => void
+  downloadStep?: () => void
+  /** 불러온 뒤 알린다(출처 표시용). */
+  onLoaded?: (label: string, source: 'template' | 'copy') => void
+  /** 지금 작업 id — 작업 불러오기 목록에서 자기 자신은 뺀다. */
+  currentWorkId?: string
+}
+
+export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChange: (recipe: Recipe) => void; file?: FileActions }) {
   const nodes = useMemo(() => nodesOf(value), [value])
   const [selectedId, setSelectedId] = useState<string | null>(nodes[nodes.length - 1]?.id ?? null)
   const [editing, setEditing] = useState(false)
@@ -69,6 +67,8 @@ export function RecipeEditor({
   const [faceTarget, setFaceTarget] = useState<'sketch' | 'shell-open' | 'hole-plane'>('sketch')
   const [measures, setMeasures] = useState<MeasurePick[]>([])
   const { frame, active: fullscreen, toggle: toggleFullscreen } = useFullscreen()
+  const [tab, setTab] = useState<string>(nodes.length === 0 ? 'file' : '스케치')
+  const [loading, setLoading] = useState<'recipe' | 'work' | null>(null)
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [drawing, setDrawing] = useState(false)
   const lastDrawn = useRef<string>('')
@@ -79,7 +79,11 @@ export function RecipeEditor({
 
   const replaceNodes = useCallback(
     (next: RecipeNode[], result?: string | null) => {
-      onChange({ ...value, nodes: next, result: result === undefined ? value.result : result })
+      onChange({
+        ...value,
+        nodes: next,
+        result: result === undefined ? value.result : result,
+      })
     },
     [onChange, value],
   )
@@ -187,7 +191,10 @@ export function RecipeEditor({
       return
     }
     if (faceTarget === 'hole-plane' && selected?.op === 'hole') {
-      updateNode({ ...selected, plane: { name: 'XY', origin: face.center, normal: face.normal } })
+      updateNode({
+        ...selected,
+        plane: { name: 'XY', origin: face.center, normal: face.normal },
+      })
       setPickMode('none')
       setFaceTarget('sketch')
       setEditing(true)
@@ -209,13 +216,15 @@ export function RecipeEditor({
     setEditing(false)
   }
 
-
   function toggleEdge(edge: MeshEdge) {
     if (!selected || !isNear(selected.edges)) return
     const current = selected.edges as { near: number[][]; tolerance?: number }
     const same = (p: number[]) => Math.hypot(p[0] - edge.midpoint[0], p[1] - edge.midpoint[1], p[2] - edge.midpoint[2]) <= 0.5
     const near = current.near.some(same) ? current.near.filter((p) => !same(p)) : [...current.near, edge.midpoint]
-    updateNode({ ...selected, edges: { near, tolerance: current.tolerance ?? 1 } })
+    updateNode({
+      ...selected,
+      edges: { near, tolerance: current.tolerance ?? 1 },
+    })
   }
 
   function applyJson() {
@@ -233,83 +242,137 @@ export function RecipeEditor({
   const valid = problems.length === 0
   const failedNode = error instanceof ApiError ? (error.details.node_id as string | undefined) : undefined
 
-  const viewerHeight = fullscreen ? 'h-[calc(100vh-7.5rem)]' : 'h-[600px]'
+  const viewerHeight = fullscreen ? 'h-[calc(100vh-11rem)]' : 'h-[600px]'
 
   return (
-    <div
-      ref={frame}
-      className={
-        fullscreen
-          ? 'bg-background fixed inset-0 z-50 flex flex-col gap-2 overflow-hidden p-3'
-          : 'space-y-2'
-      }
-    >
-      {/* 툴바 — 피처를 종류별로 가로로. 드롭다운 하나에 열여섯을 넣으면 매번 찾는다. */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {header}
-        {GROUPS.map((group) => (
-          <div key={group} className="flex items-center gap-0.5 rounded-md border px-1 py-0.5">
-            <span className="text-muted-foreground px-1 text-[10px]">{group}</span>
-            {OP_SPECS.filter((o) => o.group === group && o.op !== 'import_step').map((o) => (
-              <Button key={o.op} size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => addNode(o.op)} title={o.help}>
-                {o.short ?? o.label}
-              </Button>
+    <div ref={frame} className={fullscreen ? 'bg-background fixed inset-0 z-50 flex flex-col gap-2 overflow-hidden p-3' : 'space-y-2'}>
+      {/* 리본 — 탭이 종류를 가르고 단추는 아이콘. 새 종류가 늘어도 한 줄이 넘치지 않는다. */}
+      <Tabs value={tab} onValueChange={setTab}>
+        <div className="flex flex-wrap items-center gap-2">
+          <TabsList>
+            <TabsTrigger value="file">파일</TabsTrigger>
+            {GROUPS.map((group) => (
+              <TabsTrigger key={group} value={group}>
+                {group}
+              </TabsTrigger>
             ))}
-          </div>
-        ))}
-        <div className="flex items-center gap-0.5 rounded-md border px-1 py-0.5">
-          <span className="text-muted-foreground px-1 text-[10px]">3D</span>
-          <Button
-            size="sm"
-            variant={pickMode === 'face' && faceTarget === 'sketch' ? 'default' : 'ghost'}
-            className="h-7 px-2 text-xs"
-            onClick={() => {
-              setFaceTarget('sketch')
-              setPickMode(pickMode === 'face' ? 'none' : 'face')
-            }}
-            disabled={!mesh}
-          >
-            면에 스케치
-          </Button>
-          <Button
-            size="sm"
-            variant={pickMode === 'measure' ? 'default' : 'ghost'}
-            className="h-7 px-2 text-xs"
-            onClick={() => setPickMode(pickMode === 'measure' ? 'none' : 'measure')}
-            disabled={!mesh}
-          >
-            측정
-          </Button>
-          <FullscreenButton active={fullscreen} onToggle={() => void toggleFullscreen()} className="h-7 px-2 text-xs" />
-          <Button size="sm" variant={mode === 'json' ? 'default' : 'ghost'} className="h-7 px-2 text-xs" onClick={() => (mode === 'json' ? applyJson() : setMode('json'))}>
-            {mode === 'json' ? 'JSON 적용' : 'JSON'}
-          </Button>
-          {mode === 'json' && (
-            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setMode('form')}>
-              취소
-            </Button>
+            <TabsTrigger value="view">보기 · 측정</TabsTrigger>
+          </TabsList>
+          <span className="text-muted-foreground text-xs">
+            {drawing ? '그리는 중…' : nodes.length === 0 ? '' : valid ? '미리보기가 자동으로 따라옵니다.' : '고칠 것이 있습니다.'}
+          </span>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-2 rounded-md border p-2">
+          {tab === 'file' && (
+            <>
+              <RibbonGroup title="시작">
+                <RibbonButton
+                  icon={FilePlus}
+                  label="새로"
+                  onClick={() => {
+                    if (nodes.length > 0 && !window.confirm('지금 그린 것을 지우고 빈 레시피에서 시작합니까?')) return
+                    onChange({ version: 1, nodes: [] })
+                    setSelectedId(null)
+                    setTab('스케치')
+                  }}
+                />
+                <RibbonButton icon={FolderOpen} label="레시피" title="레시피 불러오기 — 내장 · 저장 템플릿" onClick={() => setLoading('recipe')} />
+                <RibbonButton icon={Files} label="기존 작업" title="기존 작업 불러오기" onClick={() => setLoading('work')} />
+              </RibbonGroup>
+              <RibbonGroup title="저장">
+                {file?.save && <RibbonButton icon={Save} label={file.save.label} onClick={file.save.run} disabled={file.save.disabled || nodes.length === 0} />}
+                {file?.saveTemplate && <RibbonButton icon={BookmarkPlus} label="템플릿" title="템플릿으로 저장" onClick={file.saveTemplate} disabled={nodes.length === 0} />}
+                {file?.downloadStep && (
+                  <RibbonButton icon={Download} label="STEP" title="STEP 받기" onClick={file.downloadStep} disabled={nodes.length === 0 || !!summary?.is_sketch} />
+                )}
+              </RibbonGroup>
+              <RibbonGroup title="고급">
+                <RibbonButton
+                  icon={Braces}
+                  label={mode === 'json' ? 'JSON 적용' : 'JSON'}
+                  active={mode === 'json'}
+                  onClick={() => (mode === 'json' ? applyJson() : setMode('json'))}
+                />
+              </RibbonGroup>
+            </>
+          )}
+          {GROUPS.filter((g) => g === tab).map((group) => (
+            <RibbonGroup key={group}>
+              {OP_SPECS.filter((o) => o.group === group && o.op !== 'import_step').map((o) => (
+                <RibbonButton key={o.op} icon={o.icon} label={o.short ?? o.label} title={o.help} onClick={() => addNode(o.op)} />
+              ))}
+            </RibbonGroup>
+          ))}
+          {tab === 'view' && (
+            <>
+              <RibbonGroup title="3D 에서">
+                <RibbonButton
+                  icon={SquareDashedMousePointer}
+                  label="면에 스케치"
+                  active={pickMode === 'face' && faceTarget === 'sketch'}
+                  disabled={!mesh}
+                  onClick={() => {
+                    setFaceTarget('sketch')
+                    setPickMode(pickMode === 'face' ? 'none' : 'face')
+                  }}
+                />
+                <RibbonButton icon={Ruler} label="측정" active={pickMode === 'measure'} disabled={!mesh} onClick={() => setPickMode(pickMode === 'measure' ? 'none' : 'measure')} />
+              </RibbonGroup>
+              <RibbonGroup title="화면">
+                <RibbonButton icon={fullscreen ? Minimize2 : Maximize2} label={fullscreen ? '끝내기' : '전체 화면'} active={fullscreen} onClick={() => void toggleFullscreen()} />
+              </RibbonGroup>
+            </>
           )}
         </div>
-        <span className="text-muted-foreground text-xs">
-          {drawing ? '그리는 중…' : valid ? '미리보기가 자동으로 따라옵니다.' : '고칠 것이 있습니다.'}
-        </span>
-        <div className="flex-1" />
-        {actions}
-      </div>
+      </Tabs>
+
+      <LoadRecipeDialog
+        open={loading === 'recipe'}
+        onClose={() => setLoading(null)}
+        onLoad={(loaded) => {
+          if (nodes.length > 0 && !window.confirm('지금 그린 것을 지우고 불러옵니까?')) return
+          onChange(loaded.recipe)
+          setSelectedId(nodesOf(loaded.recipe)[nodesOf(loaded.recipe).length - 1]?.id ?? null)
+          setLoading(null)
+          setTab('스케치')
+          file?.onLoaded?.(loaded.label, loaded.source)
+        }}
+      />
+      <LoadWorkDialog
+        open={loading === 'work'}
+        currentWorkId={file?.currentWorkId}
+        onClose={() => setLoading(null)}
+        onLoad={(loaded) => {
+          if (nodes.length > 0 && !window.confirm('지금 그린 것을 지우고 불러옵니까?')) return
+          onChange(loaded.recipe)
+          setSelectedId(nodesOf(loaded.recipe)[nodesOf(loaded.recipe).length - 1]?.id ?? null)
+          setLoading(null)
+          setTab('스케치')
+          file?.onLoaded?.(loaded.label, loaded.source)
+        }}
+      />
 
       {mode === 'json' ? (
         <div className="space-y-1">
           <Textarea value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} className="min-h-[420px] font-mono text-xs" />
           {jsonError && <p className="text-destructive text-xs">JSON: {jsonError}</p>}
+          <div className="flex gap-1">
+            <Button size="sm" onClick={applyJson}>
+              JSON 적용
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setMode('form')}>
+              취소
+            </Button>
+          </div>
         </div>
       ) : (
         <div className={`grid gap-3 lg:grid-cols-12 ${fullscreen ? 'min-h-0 flex-1' : ''}`}>
           {/* 피처 트리 — 누르면 모달에서 고친다 */}
-          <div className={`lg:col-span-3 ${fullscreen ? 'max-h-[calc(100vh-7rem)] overflow-y-auto' : ''}`}>
+          <div className={`lg:col-span-3 ${fullscreen ? 'max-h-[calc(100vh-10rem)] overflow-y-auto' : ''}`}>
             {nodes.length === 0 ? (
               <div className="text-muted-foreground rounded-md border border-dashed p-3 text-xs">
-                빈 레시피입니다. 위 툴바에서 「스케치」 부터 누르세요. 스케치를 그리고 「돌출」 을 더하면
-                입체가 됩니다.
+                빈 레시피입니다. 「스케치」 탭의 스케치 단추부터 누르세요. 「파일」 탭에서 템플릿이나 기존 작업을 불러올 수도 있습니다. 스케치를 그리고 「돌출」 을 더하면 입체가
+                됩니다.
               </div>
             ) : (
               <ol className="space-y-0.5">
@@ -337,9 +400,7 @@ export function RecipeEditor({
                 })}
               </ol>
             )}
-            {value.result && value.result !== nodes[nodes.length - 1]?.id && (
-              <p className="text-muted-foreground mt-2 text-xs">결과 피처: {value.result}</p>
-            )}
+            {value.result && value.result !== nodes[nodes.length - 1]?.id && <p className="text-muted-foreground mt-2 text-xs">결과 피처: {value.result}</p>}
             {problems.length > 0 && (
               <ul className="text-destructive mt-2 list-inside list-disc text-xs">
                 {problems.map((one) => (
@@ -408,8 +469,7 @@ export function RecipeEditor({
             {summary && (
               <p className="text-muted-foreground mt-1 text-xs">
                 {summary.bbox.size.map((v) => v.toFixed(1)).join(' × ')} mm
-                {!summary.is_sketch && ` · 부피 ${summary.volume.toLocaleString()} mm³`} · 면 {summary.face_count} · 피처{' '}
-                {summary.nodes.length}
+                {!summary.is_sketch && ` · 부피 ${summary.volume.toLocaleString()} mm³`} · 면 {summary.face_count} · 피처 {summary.nodes.length}
               </p>
             )}
           </div>
@@ -423,24 +483,14 @@ export function RecipeEditor({
             <>
               <DialogHeader>
                 <DialogTitle>
-                  {OP_BY_NAME[selected.op]?.label ?? selected.op}{' '}
-                  <span className="text-muted-foreground font-mono text-xs">{selected.id}</span>
+                  {OP_BY_NAME[selected.op]?.label ?? selected.op} <span className="text-muted-foreground font-mono text-xs">{selected.id}</span>
                 </DialogTitle>
                 <DialogDescription>{OP_BY_NAME[selected.op]?.help}</DialogDescription>
               </DialogHeader>
               <div className="space-y-4">
-                {selected.op === 'sketch' && (
-                  <SketchCanvas
-                    shapes={(selected.shapes as SketchShape[]) ?? []}
-                    onChange={(shapes) => updateNode({ ...selected, shapes })}
-                  />
-                )}
+                {selected.op === 'sketch' && <SketchCanvas shapes={(selected.shapes as SketchShape[]) ?? []} onChange={(shapes) => updateNode({ ...selected, shapes })} />}
                 <NodeForm node={selected} nodes={nodes} onChange={updateNode} onPickFaces={pickFacesFor} />
-                {edgePicking && (
-                  <p className="text-muted-foreground text-xs">
-                    엣지는 3D 에서 고릅니다 — 이 창을 닫고 3D 의 엣지를 누르세요. 고른 것은 남습니다.
-                  </p>
-                )}
+                {edgePicking && <p className="text-muted-foreground text-xs">엣지는 3D 에서 고릅니다 — 이 창을 닫고 3D 의 엣지를 누르세요. 고른 것은 남습니다.</p>}
               </div>
               <DialogFooter className="sm:justify-between">
                 <div className="flex gap-1">

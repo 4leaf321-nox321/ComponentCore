@@ -6,24 +6,39 @@
  * 잡는 시험은 `recipeSpec.test.ts` 가 서버 스키마와 대조한다.
  */
 
+import {
+  ArrowUpFromLine,
+  Box,
+  Circle,
+  CircleDot,
+  Combine,
+  Cone,
+  Cylinder,
+  Diamond,
+  FlipHorizontal,
+  Grid3x3,
+  Import,
+  Layers,
+  Move3d,
+  Package,
+  PenTool,
+  Radius,
+  RotateCw,
+  Scissors,
+  Shapes,
+  Torus,
+} from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
+
 import type { Recipe } from '@/modules/cad/api'
 
-export type RecipeNode = Record<string, unknown> & { id: string; op: string; label?: string }
+export type RecipeNode = Record<string, unknown> & {
+  id: string
+  op: string
+  label?: string
+}
 
-export type FieldKind =
-  | 'number'
-  | 'text'
-  | 'select'
-  | 'xy'
-  | 'xyz'
-  | 'ref'
-  | 'refs'
-  | 'points'
-  | 'plane'
-  | 'shapes'
-  | 'checkbox'
-  | 'faceselect'
-  | 'holeplane'
+export type FieldKind = 'number' | 'text' | 'select' | 'xy' | 'xyz' | 'ref' | 'refs' | 'points' | 'plane' | 'shapes' | 'checkbox' | 'faceselect' | 'holeplane'
 
 export interface FieldSpec {
   key: string
@@ -42,6 +57,7 @@ export interface OpSpec {
   group: '스케치' | '입체' | '조합' | '마감' | '배치'
   /** 툴바에 보일 짧은 이름. 없으면 label. */
   short?: string
+  icon: LucideIcon
   help: string
   fields: FieldSpec[]
   /** 새 피처의 기본값. id · label 은 만들 때 붙인다. */
@@ -56,11 +72,15 @@ const EDGE_OPTIONS = [
   { value: 'bottom', label: '바닥 둘레' },
 ]
 const AXIS_OPTIONS = ['X', 'Y', 'Z'].map((a) => ({ value: a, label: a }))
-export const PLANE_OPTIONS = ['XY', 'XZ', 'YZ', 'YX', 'ZX', 'ZY'].map((p) => ({ value: p, label: p }))
+export const PLANE_OPTIONS = ['XY', 'XZ', 'YZ', 'YX', 'ZX', 'ZY'].map((p) => ({
+  value: p,
+  label: p,
+}))
 
 export const OP_SPECS: OpSpec[] = [
   {
     op: 'sketch',
+    icon: PenTool,
     label: '스케치',
     group: '스케치',
     help: '평면 위의 2D 윤곽. 도형을 더하거나(add) 빼서(cut) 만든다.',
@@ -68,10 +88,23 @@ export const OP_SPECS: OpSpec[] = [
       { key: 'plane', label: '평면', kind: 'plane' },
       { key: 'shapes', label: '도형', kind: 'shapes' },
     ],
-    defaults: { plane: { name: 'XY', origin: [0, 0, 0] }, shapes: [{ type: 'rect', width: 40, height: 30, at: [0, 0], rotation: 0, mode: 'add' }] },
+    defaults: {
+      plane: { name: 'XY', origin: [0, 0, 0] },
+      shapes: [
+        {
+          type: 'rect',
+          width: 40,
+          height: 30,
+          at: [0, 0],
+          rotation: 0,
+          mode: 'add',
+        },
+      ],
+    },
   },
   {
     op: 'extrude',
+    icon: ArrowUpFromLine,
     label: '돌출',
     group: '입체',
     help: '스케치를 평면 법선 방향으로 밀어 입체로.',
@@ -93,6 +126,7 @@ export const OP_SPECS: OpSpec[] = [
   },
   {
     op: 'revolve',
+    icon: RotateCw,
     label: '회전',
     group: '입체',
     help: '스케치를 축 둘레로 돌려 입체로.',
@@ -105,6 +139,7 @@ export const OP_SPECS: OpSpec[] = [
   },
   {
     op: 'box',
+    icon: Box,
     label: '상자',
     group: '입체',
     help: '중심이 at 인 상자.',
@@ -118,6 +153,7 @@ export const OP_SPECS: OpSpec[] = [
   },
   {
     op: 'cylinder',
+    icon: Cylinder,
     label: '원기둥',
     group: '입체',
     help: '중심이 at 인 원기둥.',
@@ -131,6 +167,7 @@ export const OP_SPECS: OpSpec[] = [
   },
   {
     op: 'sphere',
+    icon: Circle,
     label: '구',
     group: '입체',
     help: '중심이 at 인 구.',
@@ -142,6 +179,7 @@ export const OP_SPECS: OpSpec[] = [
   },
   {
     op: 'cone',
+    icon: Cone,
     label: '원뿔',
     group: '입체',
     help: '밑면 중심이 at. 윗반지름 0 이면 뾰족.',
@@ -152,10 +190,17 @@ export const OP_SPECS: OpSpec[] = [
       { key: 'axis', label: '축', kind: 'select', options: AXIS_OPTIONS },
       { key: 'at', label: '밑면 중심', kind: 'xyz' },
     ],
-    defaults: { bottom_radius: 10, top_radius: 4, height: 20, axis: 'Z', at: [0, 0, 0] },
+    defaults: {
+      bottom_radius: 10,
+      top_radius: 4,
+      height: 20,
+      axis: 'Z',
+      at: [0, 0, 0],
+    },
   },
   {
     op: 'torus',
+    icon: Torus,
     label: '토러스',
     group: '입체',
     help: '도넛. 큰 반지름(중심선)과 작은 반지름(관 굵기).',
@@ -169,17 +214,24 @@ export const OP_SPECS: OpSpec[] = [
   },
   {
     op: 'loft',
+    icon: Layers,
     label: '로프트',
     group: '입체',
     help: '두 개 이상의 스케치를 이어 입체로. 다른 높이의 평면에 스케치를 두고 순서대로 고른다.',
     fields: [
-      { key: 'sketches', label: '스케치들 (순서대로)', kind: 'refs', refKind: 'sketch' },
+      {
+        key: 'sketches',
+        label: '스케치들 (순서대로)',
+        kind: 'refs',
+        refKind: 'sketch',
+      },
       { key: 'ruled', label: '직선으로 잇기(각진 전이)', kind: 'checkbox' },
     ],
     defaults: { sketches: [], ruled: false },
   },
   {
     op: 'union',
+    icon: Combine,
     label: '합치기',
     group: '조합',
     help: '여러 입체를 하나로.',
@@ -188,6 +240,7 @@ export const OP_SPECS: OpSpec[] = [
   },
   {
     op: 'cut',
+    icon: Scissors,
     label: '빼기',
     group: '조합',
     help: '대상에서 도구를 뺀다.',
@@ -199,6 +252,7 @@ export const OP_SPECS: OpSpec[] = [
   },
   {
     op: 'intersect',
+    icon: Shapes,
     label: '교집합',
     group: '조합',
     help: '겹치는 부분만 남긴다.',
@@ -207,6 +261,7 @@ export const OP_SPECS: OpSpec[] = [
   },
   {
     op: 'fillet',
+    icon: Radius,
     label: '필렛',
     group: '마감',
     help: '엣지를 둥글린다. 인접 면보다 작게.',
@@ -219,6 +274,7 @@ export const OP_SPECS: OpSpec[] = [
   },
   {
     op: 'chamfer',
+    icon: Diamond,
     label: '모따기',
     group: '마감',
     help: '엣지를 깎는다.',
@@ -231,6 +287,7 @@ export const OP_SPECS: OpSpec[] = [
   },
   {
     op: 'hole',
+    icon: CircleDot,
     label: '구멍',
     group: '마감',
     help: '단순 · 카운터보어 · 카운터싱크 · 탭. 나사(M3~M12)를 고르면 치수를 표에서 채운다. 면을 안 주면 윗면(+Z)에서 아래로.',
@@ -253,21 +310,45 @@ export const OP_SPECS: OpSpec[] = [
         kind: 'select',
         options: [
           { value: '__none__', label: '(직접 입력)' },
-          ...['M3', 'M4', 'M5', 'M6', 'M8', 'M10', 'M12'].map((m) => ({ value: m, label: m })),
+          ...['M3', 'M4', 'M5', 'M6', 'M8', 'M10', 'M12'].map((m) => ({
+            value: m,
+            label: m,
+          })),
         ],
       },
-      { key: 'diameter', label: '지름 (mm, 나사를 고르면 비워도 됨)', kind: 'number' },
+      {
+        key: 'diameter',
+        label: '지름 (mm, 나사를 고르면 비워도 됨)',
+        kind: 'number',
+      },
       { key: 'depth', label: '깊이 (mm, 비우면 관통)', kind: 'number' },
       { key: 'counter_diameter', label: '카운터 지름 (mm)', kind: 'number' },
       { key: 'counter_depth', label: '카운터보어 깊이 (mm)', kind: 'number' },
-      { key: 'countersink_angle', label: '카운터싱크 각도 (°)', kind: 'number', step: 1 },
+      {
+        key: 'countersink_angle',
+        label: '카운터싱크 각도 (°)',
+        kind: 'number',
+        step: 1,
+      },
       { key: 'plane', label: '뚫는 면', kind: 'holeplane' },
       { key: 'at', label: '위치들 (면 위 X, Y)', kind: 'points' },
     ],
-    defaults: { target: '', kind: 'simple', thread: null, diameter: 6, depth: null, counter_diameter: null, counter_depth: null, countersink_angle: 90, plane: null, at: [[0, 0]] },
+    defaults: {
+      target: '',
+      kind: 'simple',
+      thread: null,
+      diameter: 6,
+      depth: null,
+      counter_diameter: null,
+      counter_depth: null,
+      countersink_angle: 90,
+      plane: null,
+      at: [[0, 0]],
+    },
   },
   {
     op: 'shell',
+    icon: Package,
     label: '쉘',
     group: '마감',
     help: '속을 비운다. 뚫을 면을 고르면 그 면이 열리고 나머지가 껍질이 된다.',
@@ -280,6 +361,7 @@ export const OP_SPECS: OpSpec[] = [
   },
   {
     op: 'pattern',
+    icon: Grid3x3,
     label: '패턴',
     group: '배치',
     help: '피처를 여러 벌 복제한다. 결과는 묶음이라 빼기의 도구나 합치기의 대상으로 쓴다.',
@@ -299,13 +381,28 @@ export const OP_SPECS: OpSpec[] = [
       { key: 'spacing', label: '간격 (직선 · 격자 X)', kind: 'xyz' },
       { key: 'count_y', label: '격자 Y 개수', kind: 'number', step: 1 },
       { key: 'spacing_y', label: '격자 Y 간격', kind: 'xyz' },
-      { key: 'axis', label: '축 (원형)', kind: 'select', options: AXIS_OPTIONS },
+      {
+        key: 'axis',
+        label: '축 (원형)',
+        kind: 'select',
+        options: AXIS_OPTIONS,
+      },
       { key: 'angle', label: '전체 각도 (원형)', kind: 'number', step: 1 },
     ],
-    defaults: { source: '', kind: 'linear', count: 4, spacing: [10, 0, 0], count_y: 1, spacing_y: [0, 10, 0], axis: 'Z', angle: 360 },
+    defaults: {
+      source: '',
+      kind: 'linear',
+      count: 4,
+      spacing: [10, 0, 0],
+      count_y: 1,
+      spacing_y: [0, 10, 0],
+      axis: 'Z',
+      angle: 360,
+    },
   },
   {
     op: 'transform',
+    icon: Move3d,
     label: '이동 · 회전',
     group: '배치',
     help: '회전한 뒤 이동한다.',
@@ -318,18 +415,25 @@ export const OP_SPECS: OpSpec[] = [
   },
   {
     op: 'mirror',
+    icon: FlipHorizontal,
     label: '거울',
     group: '배치',
     help: '평면에 비춘다.',
     fields: [
       { key: 'target', label: '대상', kind: 'ref', refKind: 'any' },
-      { key: 'plane', label: '거울 평면', kind: 'select', options: PLANE_OPTIONS },
+      {
+        key: 'plane',
+        label: '거울 평면',
+        kind: 'select',
+        options: PLANE_OPTIONS,
+      },
       { key: 'keep_original', label: '원본도 남긴다', kind: 'checkbox' },
     ],
     defaults: { target: '', plane: 'YZ', keep_original: true },
   },
   {
     op: 'import_step',
+    icon: Import,
     label: 'STEP 가져오기',
     group: '입체',
     help: '올린 STEP(작업물 id). 「STEP 올리기」 가 만든다 — 직접 넣지 않는다.',
@@ -359,9 +463,22 @@ export function defaultShape(type: string): Record<string, unknown> {
     case 'regular_polygon':
       return { type, radius: 10, sides: 6, ...base }
     case 'polygon':
-      return { type, points: [[-10, -10], [10, -10], [0, 10]], ...base }
+      return {
+        type,
+        points: [
+          [-10, -10],
+          [10, -10],
+          [0, 10],
+        ],
+        ...base,
+      }
     case 'polyline':
-      return { type, start: [0, 0], segments: [{ to: [30, 0] }, { to: [30, 20], via: [36, 10] }, { to: [0, 20] }], ...base }
+      return {
+        type,
+        start: [0, 0],
+        segments: [{ to: [30, 0] }, { to: [30, 20], via: [36, 10] }, { to: [0, 20] }],
+        ...base,
+      }
     default:
       return { type: 'rect', width: 20, height: 10, ...base }
   }
@@ -378,7 +495,12 @@ export function newNodeId(op: string, nodes: RecipeNode[]): string {
 
 export function makeNode(op: string, nodes: RecipeNode[]): RecipeNode {
   const spec = OP_BY_NAME[op]
-  return { id: newNodeId(op, nodes), op, label: '', ...structuredClone(spec.defaults) }
+  return {
+    id: newNodeId(op, nodes),
+    op,
+    label: '',
+    ...structuredClone(spec.defaults),
+  }
 }
 
 /** 이 피처가 만드는 것이 스케치인가 입체인가 — ref 목록을 좁힐 때 쓴다. */

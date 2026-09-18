@@ -17,57 +17,29 @@ import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { Button } from '@/shared/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/shared/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog'
 import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/shared/components/ui/select'
-import { useResource } from '@/shared/hooks/useResource'
 
-/** 템플릿 없이 — 피처를 하나씩 더해 처음부터 그린다. */
-const EMPTY = '__empty__'
+/** 어디서 왔는지 — 저장할 때 버전 메모가 된다. */
+type Origin = { source: 'manual' | 'template' | 'copy'; label: string }
 
 export default function DrawPage() {
   const navigate = useNavigate()
-  const schema = useResource(() => cadApi.schema(), [])
-  const saved = useResource(() => cadApi.templates(), [])
   const [savingTemplate, setSavingTemplate] = useState(false)
-  const [template, setTemplate] = useState(EMPTY)
-  const [recipe, setRecipe] = useState<Recipe | null>({ version: 1, nodes: [] })
+  const [origin, setOrigin] = useState<Origin>({
+    source: 'manual',
+    label: '처음부터 그림',
+  })
+  const [recipe, setRecipe] = useState<Recipe | null>({
+    version: 1,
+    nodes: [],
+  })
   const [saving, setSaving] = useState(false)
   const [name, setName] = useState('')
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [busy, setBusy] = useState(false)
   const fileInput = useRef<HTMLInputElement | null>(null)
-
-  function pickTemplate(kind: string) {
-    setTemplate(kind)
-    if (kind === EMPTY) {
-      setRecipe({ version: 1, nodes: [] })
-      return
-    }
-    if (kind.startsWith('saved:')) {
-      const found = saved.data?.find((t) => t.id === kind.slice(6))
-      if (found) setRecipe(structuredClone(found.recipe))
-      return
-    }
-    const next = schema.data?.templates[kind]
-    if (next) setRecipe(structuredClone(next))
-  }
-
-  const pickedSaved = template.startsWith('saved:') ? saved.data?.find((t) => t.id === template.slice(6)) : undefined
 
   async function downloadStep() {
     if (!recipe) return
@@ -93,8 +65,8 @@ export default function DrawPage() {
       const made = await worksApi.create({
         name,
         recipe,
-        source: template === EMPTY ? 'manual' : 'template',
-        note: template === EMPTY ? '처음부터 그림' : `${template} 템플릿에서`,
+        source: origin.source,
+        note: origin.label,
       })
       navigate(`/works/${made.id}`)
     } catch (caught) {
@@ -117,52 +89,11 @@ export default function DrawPage() {
     }
   }
 
-  const header = (
-    <div className="flex items-center gap-2">
-      <Label className="text-xs">시작</Label>
-      <Select value={template} onValueChange={pickTemplate}>
-        <SelectTrigger className="w-56">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={EMPTY}>빈 레시피에서 — 처음부터 그리기</SelectItem>
-          {Object.entries(schema.data?.template_labels ?? {}).map(([kind, label]) => (
-            <SelectItem key={kind} value={kind}>
-              기본: {label}
-            </SelectItem>
-          ))}
-          {(saved.data ?? []).map((t) => (
-            <SelectItem key={t.id} value={`saved:${t.id}`}>
-              {t.mine ? '내 템플릿' : `공용 (${t.owner_name})`}: {t.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      {pickedSaved?.mine && (
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={async () => {
-            if (!window.confirm(`템플릿 「${pickedSaved.name}」 을 지웁니까? 시작 목록에서만 사라집니다.`)) return
-            await cadApi.removeTemplate(pickedSaved.id)
-            saved.reload()
-            pickTemplate(EMPTY)
-          }}
-        >
-          이 템플릿 지우기
-        </Button>
-      )}
-      <span className="text-muted-foreground text-xs">
-        {template === EMPTY ? '툴바의 「스케치」 를 눌러 놓고 「돌출」 하면 입체가 됩니다.' : '템플릿의 치수를 고쳐 쓰세요. 고르면 지금 것은 사라집니다.'}
-      </span>
-    </div>
-  )
-
   return (
     <div className="space-y-4">
       <PageHeader
         title="그리기"
-        description="템플릿에서 그리거나 STEP 을 올립니다. 「내 작업으로 저장」 하기 전에는 아무것도 남지 않습니다."
+        description="빈 화면에서 그리거나 「파일」 탭에서 템플릿 · 기존 작업을 불러옵니다. 저장하기 전에는 아무것도 남지 않습니다."
         actions={
           <>
             <input
@@ -182,39 +113,22 @@ export default function DrawPage() {
           </>
         }
       />
-      <ErrorNotice error={error ?? schema.error} />
+      <ErrorNotice error={error} />
 
       {recipe && (
         <RecipeEditor
           value={recipe}
           onChange={setRecipe}
-          header={header}
-          actions={
-            <>
-              <Button size="sm" variant="outline" onClick={() => void downloadStep()} disabled={recipe.nodes.length === 0}>
-                STEP 받기
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => setSavingTemplate(true)} disabled={recipe.nodes.length === 0}>
-                템플릿으로 저장
-              </Button>
-              <Button size="sm" onClick={() => setSaving(true)} disabled={recipe.nodes.length === 0}>
-                내 작업으로 저장
-              </Button>
-            </>
-          }
+          file={{
+            save: { label: '내 작업으로', run: () => setSaving(true) },
+            saveTemplate: () => setSavingTemplate(true),
+            downloadStep: () => void downloadStep(),
+            onLoaded: (label, source) => setOrigin(source === 'copy' ? { source, label: `${label} 에서 복사` } : { source, label: `${label} 템플릿에서` }),
+          }}
         />
       )}
 
-      {recipe && (
-        <SaveTemplateDialog
-          key={String(savingTemplate)}
-          open={savingTemplate}
-          recipe={recipe}
-          defaultName={pickedSaved?.name}
-          onClose={() => setSavingTemplate(false)}
-          onSaved={() => saved.reload()}
-        />
-      )}
+      {recipe && <SaveTemplateDialog key={String(savingTemplate)} open={savingTemplate} recipe={recipe} onClose={() => setSavingTemplate(false)} />}
 
       <Dialog open={saving} onOpenChange={(open) => !open && !busy && setSaving(false)}>
         <DialogContent>

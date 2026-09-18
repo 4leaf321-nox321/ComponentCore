@@ -12,6 +12,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { Recipe } from '@/modules/cad/api'
 import { GeometryJobView } from '@/modules/cad/GeometryJobView'
 import { RecipeEditor } from '@/modules/cad/RecipeEditor'
+import { cadApi } from '@/modules/cad/api'
 import { SaveTemplateDialog } from '@/modules/cad/SaveTemplateDialog'
 import { JigResultView } from '@/modules/jigs/JigResultView'
 import type { Job } from '@/modules/jobs/api'
@@ -26,14 +27,7 @@ import { PageHeader } from '@/shared/components/PageHeader'
 import { StatusBadge } from '@/shared/components/StatusBadge'
 import { Button } from '@/shared/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/shared/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog'
 import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/components/ui/tabs'
@@ -111,10 +105,30 @@ export default function WorkPage() {
     setEditing(true)
   }
 
+  async function downloadDraftStep() {
+    if (!draft) return
+    setError(null)
+    try {
+      const blob = await cadApi.step(draft)
+      const href = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = href
+      anchor.download = `${w?.name ?? 'model'}.step`
+      anchor.click()
+      setTimeout(() => URL.revokeObjectURL(href), 10_000)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+    }
+  }
+
   async function saveVersion() {
     if (!draft) return
     await act(async () => {
-      const made = await worksApi.addVersion(id, { recipe: draft, source: 'manual', note })
+      const made = await worksApi.addVersion(id, {
+        recipe: draft,
+        source: 'manual',
+        note,
+      })
       setEditing(false)
       setNote('')
       setSelectedVersion(made)
@@ -134,7 +148,10 @@ export default function WorkPage() {
   async function promote() {
     await act(async () => {
       if (promoting === 'part') {
-        const made = await worksApi.promotePart(id, { name: promoteName || undefined, note: promoteNote })
+        const made = await worksApi.promotePart(id, {
+          name: promoteName || undefined,
+          note: promoteNote,
+        })
         setPromoting(null)
         reloadAll()
         navigate(`/parts/${made.part_id}`)
@@ -194,23 +211,30 @@ export default function WorkPage() {
           {editing && draft ? (
             <Card>
               <CardHeader>
-                <CardTitle>새 버전 (v{w.current_version + 1})</CardTitle>
+                <div className="flex flex-wrap items-center gap-2">
+                  <CardTitle>새 버전 (v{w.current_version + 1})</CardTitle>
+                  <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="무엇을 바꿨나" className="h-8 w-56" />
+                  <span className="text-muted-foreground text-xs">저장은 「파일」 탭에서.</span>
+                  <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setEditing(false)} disabled={busy}>
+                    고치기 취소
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 <RecipeEditor
                   value={draft}
                   onChange={setDraft}
-                  actions={
-                    <>
-                      <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="무엇을 바꿨나" className="h-8 w-56" />
-                      <Button size="sm" onClick={() => void saveVersion()} disabled={busy}>
-                        새 버전으로 저장
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={busy}>
-                        취소
-                      </Button>
-                    </>
-                  }
+                  file={{
+                    save: {
+                      label: '새 버전으로',
+                      run: () => void saveVersion(),
+                      disabled: busy,
+                    },
+                    saveTemplate: () => setSavingTemplate(true),
+                    downloadStep: () => void downloadDraftStep(),
+                    onLoaded: (label, source) => setNote(source === 'copy' ? `${label} 에서 복사` : `${label} 템플릿에서`),
+                    currentWorkId: id,
+                  }}
                 />
               </CardContent>
             </Card>
@@ -240,7 +264,8 @@ export default function WorkPage() {
                   STEP 올리기
                 </Button>
                 <Button variant="outline" onClick={() => setSavingTemplate(true)} disabled={busy || !selectedVersion}>
-                  템플릿으로 저장{selectedVersion && selectedVersion.number !== w.current_version ? ` (v${selectedVersion.number})` : ''}
+                  템플릿으로 저장
+                  {selectedVersion && selectedVersion.number !== w.current_version ? ` (v${selectedVersion.number})` : ''}
                 </Button>
                 <div className="flex-1" />
                 <Button
@@ -276,19 +301,13 @@ export default function WorkPage() {
                             <button
                               type="button"
                               onClick={() => setSelectedVersion(one)}
-                              className={`w-full rounded-md px-2 py-1.5 text-left text-sm ${
-                                selectedVersion?.id === one.id ? 'bg-accent' : 'hover:bg-accent/60'
-                              }`}
+                              className={`w-full rounded-md px-2 py-1.5 text-left text-sm ${selectedVersion?.id === one.id ? 'bg-accent' : 'hover:bg-accent/60'}`}
                             >
                               <div className="flex items-center justify-between">
                                 <span className="font-medium">
                                   v{one.number}
-                                  {one.number === w.current_version && (
-                                    <span className="text-muted-foreground ml-1 text-xs">현재</span>
-                                  )}
-                                  {one.promoted_part_id && (
-                                    <span className="ml-1 rounded border px-1 text-[10px]">부품 v{one.promoted_part_version}</span>
-                                  )}
+                                  {one.number === w.current_version && <span className="text-muted-foreground ml-1 text-xs">현재</span>}
+                                  {one.promoted_part_id && <span className="ml-1 rounded border px-1 text-[10px]">부품 v{one.promoted_part_version}</span>}
                                 </span>
                                 {one.job && <StatusBadge kind="run" value={one.job.status} />}
                               </div>
@@ -351,9 +370,7 @@ export default function WorkPage() {
                 <Button variant="ghost" size="sm" onClick={() => defaults.data && setOptions(defaults.data)}>
                   기본값으로
                 </Button>
-                {w.current_version === 0 && (
-                  <span className="text-muted-foreground text-xs">부품이 있어야 지그를 만들 수 있습니다.</span>
-                )}
+                {w.current_version === 0 && <span className="text-muted-foreground text-xs">부품이 있어야 지그를 만들 수 있습니다.</span>}
               </div>
             </CardContent>
           </Card>
@@ -469,7 +486,7 @@ export default function WorkPage() {
         <SaveTemplateDialog
           key={String(savingTemplate)}
           open={savingTemplate}
-          recipe={selectedVersion.recipe}
+          recipe={editing && draft ? draft : selectedVersion.recipe}
           defaultName={w.name}
           onClose={() => setSavingTemplate(false)}
         />

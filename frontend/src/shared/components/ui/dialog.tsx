@@ -6,7 +6,7 @@ import { Dialog as DialogPrimitive } from "radix-ui"
 import { portalContainer } from "@/shared/lib/portal"
 import { cn } from "@/shared/lib/utils"
 import { Button } from "@/shared/components/ui/button"
-import { XIcon } from "lucide-react"
+import { GripHorizontal, XIcon } from "lucide-react"
 
 function Dialog({
   ...props
@@ -24,7 +24,13 @@ function DialogPortal({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Portal>) {
   // 전체 화면 안이면 그 안에 붙인다 — body 는 화면 밖이다(shared/lib/portal).
-  return <DialogPrimitive.Portal data-slot="dialog-portal" container={portalContainer()} {...props} />
+  return (
+    <DialogPrimitive.Portal
+      data-slot="dialog-portal"
+      container={portalContainer()}
+      {...props}
+    />
+  )
 }
 
 function DialogClose({
@@ -79,15 +85,24 @@ function useDragOffset(): {
     (event: React.PointerEvent) => {
       // 머리글 안의 단추·입력에서 시작한 것은 드래그가 아니다 — 닫기 단추를
       // 누르려다 모달이 따라오면 그 단추는 못 누른다.
-      if ((event.target as HTMLElement).closest("button, a, input, textarea, select")) {
+      if (
+        (event.target as HTMLElement).closest(
+          "button, a, input, textarea, select"
+        )
+      ) {
         return
       }
       if (event.button !== 0) return
       event.preventDefault()
-      from.current = { x: event.clientX, y: event.clientY, ox: offset.x, oy: offset.y }
+      from.current = {
+        x: event.clientX,
+        y: event.clientY,
+        ox: offset.x,
+        oy: offset.y,
+      }
       setDragging(true)
     },
-    [offset.x, offset.y],
+    [offset.x, offset.y]
   )
 
   React.useEffect(() => {
@@ -170,6 +185,12 @@ function DialogContent({
           ...(drag.dragging ? { userSelect: "none" } : {}),
           ...props.style,
         }}
+        // **여백 어디서든 끈다.** 머리글만 손잡이면 사람은 모를 수 있다 — 내용(글 · 입력)이 아닌
+        // 모달 자체를 잡았을 때만 드래그로 본다. 전체 화면 안에서도 같다(포털이 그 안에 붙는다).
+        onPointerDown={(event) => {
+          if (event.target === event.currentTarget) drag.onPointerDown(event)
+          props.onPointerDown?.(event)
+        }}
         {...props}
       >
         {pinned}
@@ -180,8 +201,7 @@ function DialogContent({
               className="absolute top-2 right-2"
               size="icon-sm"
             >
-              <XIcon
-              />
+              <XIcon />
               <span className="sr-only">Close</span>
             </Button>
           </DialogPrimitive.Close>
@@ -248,12 +268,23 @@ function usePinnedLayout(
       React.isValidElement<React.ComponentProps<"div">>(one)
         ? React.cloneElement(one, {
             onPointerDown,
-            className: cn("cursor-move touch-none select-none", one.props.className),
+            className: cn(
+              "cursor-move touch-none select-none",
+              one.props.className
+            ),
           })
         : one
     )
     return (
       <>
+        {/* 손잡이 표시 — 머리글이 끌린다는 것을 눈으로 알린다. 전체 화면에서도 같은 손잡이다. */}
+        <div
+          className="text-muted-foreground/60 -mt-2 -mb-3 flex cursor-move justify-center touch-none select-none"
+          onPointerDown={onPointerDown}
+          aria-hidden
+        >
+          <GripHorizontal className="size-4" />
+        </div>
         {handle}
         {/* `-mx-4 px-4` 는 굴리는 영역이 모달의 좌우 여백까지 쓰게 한다 —
             안 그러면 스크롤바가 안쪽으로 들어와 내용과 겹쳐 보인다. */}
@@ -269,7 +300,8 @@ function usePinnedLayout(
   const direct = split(items)
   if (direct.head.length || direct.foot.length) return build(direct)
 
-  const only = items.length === 1 && React.isValidElement(items[0]) ? items[0] : null
+  const only =
+    items.length === 1 && React.isValidElement(items[0]) ? items[0] : null
   if (only) {
     const wrapper = only as React.ReactElement<{ children?: React.ReactNode }>
     const inner = split(flatten(wrapper.props.children))
