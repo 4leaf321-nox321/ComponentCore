@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { worksApi } from '@/modules/works/api'
+import type { WorkKind } from '@/modules/works/api'
 import { EmptyState } from '@/shared/components/EmptyState'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { PageHeader } from '@/shared/components/PageHeader'
@@ -27,8 +28,11 @@ const PAGE = 20
 export default function WorksPage() {
   const navigate = useNavigate()
   const [offset, setOffset] = useState(0)
+  /** 「내 지그가 어디 있지」 를 한 번에 — 종류로 가려 본다. */
+  const [kind, setKind] = useState<'all' | WorkKind>('all')
   const page = useResource(() => worksApi.list(offset, PAGE), [offset])
-  const rows = page.data?.items ?? []
+  const all = page.data?.items ?? []
+  const rows = kind === 'all' ? all : all.filter((one) => one.kind === kind)
 
   return (
     <div>
@@ -37,6 +41,30 @@ export default function WorksPage() {
         description="그리고 있는 것들. 나만 봅니다 — 남에게 보이려면 부품이나 지그로 승격합니다."
         actions={<Button onClick={() => navigate('/draw')}>새로 그리기</Button>}
       />
+      <div className="mb-4 flex items-center gap-1">
+        {(
+          [
+            { value: 'all', label: '전체' },
+            { value: 'part', label: '부품' },
+            { value: 'jig', label: '지그' },
+          ] as const
+        ).map((one) => (
+          <button
+            key={one.value}
+            type="button"
+            onClick={() => setKind(one.value)}
+            aria-pressed={kind === one.value}
+            className={`rounded-md border px-3 py-1 text-sm ${
+              kind === one.value ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-accent'
+            }`}
+          >
+            {one.label}
+            {one.value !== 'all' && (
+              <span className="ml-1 text-xs opacity-70">{all.filter((row) => row.kind === one.value).length}</span>
+            )}
+          </button>
+        ))}
+      </div>
       <ErrorNotice error={page.error} className="mb-4" />
       {rows.length === 0 && !page.loading ? (
         <EmptyState

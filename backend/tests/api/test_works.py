@@ -378,3 +378,34 @@ def test_지그_작업에_이어_둔_부품이_승격까지_따라간다(
     ).json()
     # 따로 고르지 않아도 어느 부품의 지그인지 이어진다.
     assert promoted["part_id"] == part["part_id"]
+
+
+def test_생성된_지그를_작업으로_가져오면_그때부터_그린다(
+    client: TestClient, member: Signed
+) -> None:
+    """생성기는 출발점만 만들어 준다 — 받침을 옮기고 튜닝부를 붙이는 일은 사람이 한다."""
+    product = client.post(
+        "/api/works",
+        json={
+            "name": "판",
+            "recipe": {
+                "nodes": [
+                    {"id": "b", "op": "box", "length": 80, "width": 50, "height": 10},
+                ]
+            },
+        },
+        headers=member.headers,
+    ).json()
+    run = client.post(
+        f"/api/works/{product['id']}/jig-runs", json={"options": {}}, headers=member.headers
+    ).json()
+    assert run["status"] == "done", run.get("error")
+
+    made = client.post(
+        f"/api/works/{product['id']}/jig-runs/{run['id']}/to-work", headers=member.headers
+    )
+    assert made.status_code == 201, made.text
+    got = made.json()
+    assert got["kind"] == "jig"  # 지그 작업으로 온다
+    assert got["current"]["recipe"]["nodes"][0]["op"] == "import_step"
+    assert got["current"]["job"]["status"] == "done"  # 그대로 평가된다 — 이어서 그릴 수 있다

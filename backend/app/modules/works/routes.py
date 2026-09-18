@@ -234,6 +234,21 @@ def promote_part(
     return parts.version_out(db, promoted)
 
 
+@router.post("/{work_id}/jig-runs/{job_id}/to-work", response_model=WorkOut, status_code=201)
+def jig_work_from_run(
+    work_id: uuid.UUID,
+    job_id: uuid.UUID,
+    name: str | None = None,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> WorkOut:
+    """생성기가 만든 지그를 **지그 작업으로** — 그 다음부터는 그냥 그린다(변수 · 실험계획)."""
+    work = services.get_work(db, work_id)
+    services.require_owner(work, user)
+    made = services.jig_work_from_run(db, work, by=user, job_id=job_id, name=name)
+    return services.work_out(db, made)
+
+
 @router.post("/{work_id}/promote/jig-recipe", response_model=PromoteJigOut, status_code=201)
 def promote_jig_recipe(
     work_id: uuid.UUID,

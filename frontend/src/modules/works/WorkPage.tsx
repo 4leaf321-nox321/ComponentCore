@@ -71,6 +71,8 @@ export default function WorkPage() {
   const [promoteProduct, setPromoteProduct] = useState(true)
   const [deleting, setDeleting] = useState(false)
   const [savingTemplate, setSavingTemplate] = useState(false)
+  /** 생성기 옵션은 접어 둔다 — 서른 개를 펼쳐 두면 무엇을 해야 할지 안 보인다. */
+  const [showOptions, setShowOptions] = useState(false)
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [busy, setBusy] = useState(false)
   const fileInput = useRef<HTMLInputElement | null>(null)
@@ -391,19 +393,28 @@ export default function WorkPage() {
           {isJig ? null : (
           <Card>
             <CardHeader>
-              <CardTitle>지그 생성기 — 이 부품을 잡는 지그를 만들어 준다</CardTitle>
+              <CardTitle>지그 생성기</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {options && <JigOptionsForm values={options} onChange={setOptions} />}
-              <div className="flex items-center gap-2">
+            <CardContent className="space-y-3">
+              {/* **무엇을 해 주는지 한 줄로.** 옵션 서른 개를 먼저 보여 주면 아무도 안 누른다. */}
+              <p className="text-muted-foreground text-sm">
+                이 부품(v{w.current_version})을 올려놓고 잡는 지그를 규칙으로 만들어 줍니다 — <b>바닥판 · 받침 · 위치 핀 · 클램프</b>를 놓고 간섭을 검사합니다. 기본값 그대로 눌러 보고, 결과를 보며 고치면 됩니다.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
                 <Button onClick={() => void runJig()} disabled={busy || !options || w.current_version === 0}>
-                  {busy ? '거는 중…' : `지그 생성 (부품 v${w.current_version})`}
+                  {busy ? '거는 중…' : '지그 만들어 보기'}
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => defaults.data && setOptions(defaults.data)}>
-                  기본값으로
+                <Button variant="outline" size="sm" onClick={() => setShowOptions(!showOptions)}>
+                  {showOptions ? '세부 옵션 접기' : '세부 옵션 펴기'}
                 </Button>
+                {showOptions && (
+                  <Button variant="ghost" size="sm" onClick={() => defaults.data && setOptions(defaults.data)}>
+                    기본값으로
+                  </Button>
+                )}
                 {w.current_version === 0 && <span className="text-muted-foreground text-xs">부품이 있어야 지그를 만들 수 있습니다.</span>}
               </div>
+              {showOptions && options && <JigOptionsForm values={options} onChange={setOptions} />}
             </CardContent>
           </Card>
           )}
@@ -448,23 +459,40 @@ export default function WorkPage() {
                   }}
                   actions={
                     selectedRun.status === 'done' && (
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          setPromoteName(`${w.name} 지그`)
-                          setPromoteNote('')
-                          setPromoteProduct(true)
-                          setPromoting('jig')
-                        }}
-                        disabled={busy}
-                      >
-                        지그로 승격
-                      </Button>
+                      <>
+                        {/* 생성기는 **출발점**이다 — 이어서 그리려면 지그 작업으로 가져간다. */}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busy}
+                          title="결과를 지그 작업으로 가져옵니다 — 거기서 고치고 변수 · 실험계획을 씁니다"
+                          onClick={() =>
+                            void act(async () => {
+                              const made = await worksApi.jigRunToWork(id, selectedRun.id)
+                              navigate(`/works/${made.id}`)
+                            })
+                          }
+                        >
+                          이어서 그리기 (지그 작업으로)
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setPromoteName(`${w.name} 지그`)
+                            setPromoteNote('')
+                            setPromoteProduct(true)
+                            setPromoting('jig')
+                          }}
+                          disabled={busy}
+                        >
+                          지그 카탈로그로 승격
+                        </Button>
+                      </>
                     )
                   }
                 />
               ) : (
-                <EmptyState title="결과가 없습니다" hint="「지그 생성」 을 누르면 여기에 3D 와 계획이 뜹니다." />
+                <EmptyState title="아직 만든 지그가 없습니다" hint="위의 「지그 만들어 보기」 를 누르면 여기에 3D 와 배치 계획이 뜹니다. 기본값으로 한 번 만들어 보고 고치는 편이 빠릅니다." />
               )}
             </div>
           </div>

@@ -504,6 +504,47 @@ def promote_part(
     return promoted
 
 
+def jig_work_from_run(
+    db: Session, work: Work, *, by: User, job_id: uuid.UUID, name: str | None
+) -> Work:
+    """생성기가 만든 지그를 **지그 작업으로 가져온다** — 그 다음부터는 그냥 그린다.
+
+    생성기는 규칙으로 출발점을 만들어 줄 뿐이다. 받침을 옮기거나 튜닝부를 붙이는 일은 결국
+    사람이 한다. 결과 STEP 을 `import_step` 한 줄짜리 지그 작업으로 만들어 주면, 거기서부터
+    **변수 · 실험계획 · 편집**이 그대로 된다 — 지금까지는 결과를 받아 내려받는 것으로 끝이었다.
+    """
+    job = _done_job(db, job_id, "지그 생성")
+    if job.work_id != work.id or job.kind != JIG_JOB_KIND:
+        raise NotFound(code("WORKS", 24), "이 작업의 지그 생성이 아닙니다.")
+    artifact = db.scalar(
+        select(Artifact).where(Artifact.job_id == job.id, Artifact.kind == "jig_step")
+    )
+    if artifact is None:
+        raise AppError(code("WORKS", 25), "이 생성 결과에 STEP 이 없습니다.")
+    part_id, _jig_id = _promoted_ids(db, work.id)
+    made = Work(
+        name=(name or f"{work.name} 지그").strip(),
+        description=f"{work.name} 의 지그 생성 결과에서 가져옴",
+        owner_id=by.id,
+        kind="jig",
+        jig_for_part_id=part_id,
+    )
+    db.add(made)
+    db.flush()
+    add_version(
+        db,
+        made,
+        recipe={
+            "nodes": [{"id": "생성된_지그", "op": "import_step", "file": str(artifact.id)}]
+        },
+        source="copy",
+        note="지그 생성기 결과",
+        by=by,
+    )
+    db.refresh(made)
+    return made
+
+
 def promote_jig_recipe(
     db: Session,
     work: Work,

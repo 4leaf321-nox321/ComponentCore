@@ -54,3 +54,33 @@ test('지그 작업은 그림 탭이 「지그」 이고, 승격이 지그 카�
 function fireEventMouseDown(element: Element) {
   element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
 }
+
+test('부품 작업의 지그 탭 — 옵션은 접혀 있고 「지그 만들어 보기」 가 먼저다', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = String(input)
+    const part = { ...WORK, kind: 'part' }
+    const body = url.includes('/works/w1/versions')
+      ? [WORK.current]
+      : url.includes('/works/w1/jig-runs')
+        ? []
+        : url.includes('/works/jig-options')
+          ? { plate_thickness: 15 }
+          : url.includes('/works/w1')
+            ? part
+            : { items: [], total: 0, limit: 50, offset: 0 }
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  })
+  render(
+    <MemoryRouter initialEntries={['/works/w1']}>
+      <Routes>
+        <Route path="/works/:id" element={<WorkPage />} />
+      </Routes>
+    </MemoryRouter>,
+  )
+  await waitFor(() => expect(screen.getByRole('tab', { name: /지그 만들기/ })).toBeInTheDocument())
+  fireEventMouseDown(screen.getByRole('tab', { name: /지그 만들기/ }))
+  // 큰 단추가 먼저, 옵션은 접혀 있다.
+  expect(await screen.findByRole('button', { name: '지그 만들어 보기' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '세부 옵션 펴기' })).toBeInTheDocument()
+  expect(screen.getByText(/바닥판 · 받침 · 위치 핀 · 클램프/)).toBeInTheDocument()
+})

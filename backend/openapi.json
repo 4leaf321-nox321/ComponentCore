@@ -1366,6 +1366,76 @@
         }
       }
     },
+    "/api/works/{work_id}/jig-runs/{job_id}/to-work": {
+      "post": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Jig Work From Run",
+        "description": "생성기가 만든 지그를 **지그 작업으로** — 그 다음부터는 그냥 그린다(변수 · 실험계획).",
+        "operationId": "jig_work_from_run_api_works__work_id__jig_runs__job_id__to_work_post",
+        "parameters": [
+          {
+            "name": "work_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Work Id"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/works/{work_id}/promote/jig-recipe": {
       "post": {
         "tags": [
