@@ -2380,6 +2380,50 @@
         }
       }
     },
+    "/api/cad/recipe/geometry": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Recipe Geometry",
+        "description": "**AI 가 읽는 치수표** — 크기 · 평면(법선 · 넓이) · 원통 · 구멍(지름 · 중심 · 깊이).\n\n사람은 3D 에서 면을 눌러 재지만 AI 는 못 본다. 메시 전체는 너무 크므로 설계에 쓰는 값만\n추려 준다 — 제품을 기준으로 지그를 그릴 때 이것을 먼저 본다.",
+        "operationId": "recipe_geometry_api_cad_recipe_geometry_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecipeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Recipe Geometry Api Cad Recipe Geometry Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/cad/recipe/mesh": {
       "post": {
         "tags": [

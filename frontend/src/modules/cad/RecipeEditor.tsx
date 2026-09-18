@@ -18,6 +18,7 @@ import type { KeptMeasure, PickKind } from '@/modules/cad/MeasureDialog'
 import { measureMarks } from '@/modules/cad/measureMarks'
 import { RibbonButton, RibbonGroup } from '@/modules/cad/Ribbon'
 import { NodeForm } from '@/modules/cad/NodeForm'
+import { ParamsPanel } from '@/modules/cad/ParamsPanel'
 import { allowedDrops, dropProblem, moveTo } from '@/modules/cad/reorder'
 import { OP_BY_NAME, OP_SPECS, makeNode, nodesOf, referencesOf } from '@/modules/cad/recipeSpec'
 import type { RecipeNode } from '@/modules/cad/recipeSpec'
@@ -540,6 +541,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
         <div className={`grid gap-3 lg:grid-cols-12 ${fullscreen ? 'min-h-0 flex-1' : ''}`}>
           {/* 피처 트리 — 누르면 모달에서 고친다 */}
           <div className={`lg:col-span-3 ${fullscreen ? 'max-h-[calc(100vh-10rem)] overflow-y-auto' : ''}`}>
+            {nodes.length > 0 && <ParamsPanel value={value} onChange={onChange} />}
             {nodes.length === 0 ? (
               <div className="text-muted-foreground rounded-md border border-dashed p-3 text-xs">
                 빈 레시피입니다. 「스케치」 탭의 스케치 단추부터 누르세요. 「파일」 탭에서 템플릿이나 기존 작업을 불러올 수도 있습니다. 스케치를 그리고 「돌출」 을 더하면 입체가

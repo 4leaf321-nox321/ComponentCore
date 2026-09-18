@@ -2,7 +2,13 @@ import { api, postForBlob } from '@/shared/api/client'
 import type { MeshData } from '@/shared/viewer/PickViewer'
 
 /** 레시피 — 서버 `core/recipe/schema.py` 가 정본. 화면은 JSON 으로만 다룬다. */
-export type Recipe = { version?: number; nodes: Record<string, unknown>[]; result?: string | null }
+export type Recipe = {
+  version?: number
+  /** 이름 붙인 치수 — 칸에 `"=이름 * 2"` 로 쓰면 하나를 고칠 때 다 따라온다. */
+  params?: Record<string, number>
+  nodes: Record<string, unknown>[]
+  result?: string | null
+}
 
 export interface RecipeSchema {
   schema: Record<string, unknown>

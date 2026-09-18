@@ -28,6 +28,36 @@ def test_말로_받은_치수를_넣을_칸을_가이드가_알려준다() -> No
     assert "via" in recipe and "사람이 캔버스에서 찍을 때" in recipe
 
 
+def test_사람이_손으로_하는_일이_도구로_다_있다() -> None:
+    """화면에서 되는 것은 AI 도 돼야 한다 — 그리기 · 치수 확인 · 저장 · 지그 · 승격 · 템플릿."""
+    tools = {name for name in dir(server) if not name.startswith("_")}
+    needed = {
+        "recipe_schema",  # 무엇을 만들 수 있나
+        "recipe_check",  # 만들어 보기
+        "recipe_geometry",  # 잰다 — 사람의 측정 창에 해당
+        "template_recipe",
+        "save_template",
+        "create_work",
+        "save_version",
+        "restore_version",
+        "work_geometry",
+        "part_geometry",  # 제품을 기준으로 지그 그리기
+        "copy_part_to_work",
+        "jig_options",
+        "run_jig",
+        "promote_part",
+        "promote_jig",
+    }
+    assert needed <= tools, f"빠진 도구: {sorted(needed - tools)}"
+
+
+def test_가이드가_파라메트릭과_지그_시작을_알려준다() -> None:
+    _, sections = server._guide_sections()
+    recipe = sections["recipe"]
+    for word in ("params", "align", "part_geometry", "step_artifact_id", "recipe_geometry"):
+        assert word in recipe, word
+
+
 def test_오류_봉투를_그대로_전한다() -> None:
     response = httpx.Response(
         400,

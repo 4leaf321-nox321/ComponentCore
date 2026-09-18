@@ -284,6 +284,68 @@ async def recipe_check(ctx: Context, recipe: dict[str, Any]) -> Any:
     return {"ok": True, "summary": info.get("summary") if isinstance(info, dict) else info}
 
 
+@mcp.tool()
+async def recipe_geometry(ctx: Context, recipe: dict[str, Any]) -> Any:
+    """만든 형상의 **치수표** — 크기 · 평면(법선 · 넓이) · 원통 · **구멍(지름 · 중심 · 깊이)**.
+
+    사람은 3D 를 보고 자를 대지만 너는 못 본다. 그러니 **그린 뒤에는 이것으로 확인한다**:
+    구멍이 뜻한 자리에 뚫렸나, 바닥이 평평한가, 두께가 맞나. 제품을 기준으로 지그를 그릴 때도
+    먼저 제품의 치수표를 본다(`part_geometry` · `work_geometry`)."""
+    return await _post(ctx, "/api/cad/recipe/geometry", {"recipe": recipe})
+
+
+@mcp.tool()
+async def work_geometry(ctx: Context, work_id: str, number: int | None = None) -> Any:
+    """내 작업(제품)의 치수표와 레시피, 그리고 **STEP 작업물 id**.
+
+    그 id 를 `{"op": "import_step", "file": "<id>"}` 에 넣으면 **제품 형상 자체를 지그 레시피
+    안에 불러올 수 있다** — 제품을 여유만큼 키워(`offset`) 블록에서 빼면 곧 포켓이다."""
+    path = f"/api/works/{work_id}" if number is None else f"/api/works/{work_id}/versions/{number}"
+    got = await _get(ctx, path)
+    if not isinstance(got, dict) or "error" in got:
+        return got
+    version = got if number is not None else got.get("current")
+    return await _with_geometry(ctx, version, {"work_id": work_id})
+
+
+@mcp.tool()
+async def part_geometry(ctx: Context, part_id: str, number: int | None = None) -> Any:
+    """부품 카탈로그의 제품 — 치수표 · 레시피 · **STEP 작업물 id**.
+
+    **지그 설계는 보통 여기서 시작한다**: 부품을 고르고 치수표를 읽어 받침 · 핀 · 클램프 자리를
+    정한다. 자동 설계는 `copy_part_to_work` → `run_jig`, 손으로 그리려면 STEP 을 불러와
+    (`import_step`) 빼고 더한다."""
+    path = f"/api/parts/{part_id}" if number is None else f"/api/parts/{part_id}/versions"
+    got = await _get(ctx, path)
+    if not isinstance(got, dict) or "error" in got:
+        return got
+    version = got.get("current")
+    if number is not None and isinstance(got, list):  # pragma: no cover - 방어
+        version = next((v for v in got if v.get("number") == number), None)
+    return await _with_geometry(ctx, version, {"part_id": part_id, "name": got.get("name")})
+
+
+async def _with_geometry(ctx: Context, version: Any, head: dict[str, Any]) -> Any:
+    """버전 하나를 레시피 · 치수표 · STEP id 로 묶는다."""
+    if not isinstance(version, dict) or "recipe" not in version:
+        return {**head, "error": "평가된 버전이 없습니다 — 먼저 저장하고 평가를 기다리세요."}
+    geometry = await _post(ctx, "/api/cad/recipe/geometry", {"recipe": version["recipe"]})
+    job = _slim_job(version.get("job"))
+    artifacts = job.get("artifacts", []) if isinstance(job, dict) else []
+    step = next((a["id"] for a in artifacts if a.get("kind") == "model_step"), None)
+    return {
+        **head,
+        "number": version.get("number"),
+        "recipe": version["recipe"],
+        "geometry": geometry,
+        "step_artifact_id": step,
+        "how_to_use_step": (
+            '{"op": "import_step", "file": "<step_artifact_id>"} 로 이 형상을 다른 레시피에서 '
+            "불러온다 — 제품을 지그 안에 두고 빼는 방식."
+        ),
+    }
+
+
 # --------------------------------------------------------------------------- #
 # 내 작업
 # --------------------------------------------------------------------------- #

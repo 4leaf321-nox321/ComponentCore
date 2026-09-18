@@ -13,11 +13,20 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from app.core.recipe.params import ExpressionError, resolve
+
 XY = tuple[float, float]
 XYZ = tuple[float, float, float]
 Positive = Annotated[float, Field(gt=0)]
 
 # --- 스케치 도형 ---------------------------------------------------------------
+
+
+#: 치수를 어느 자리에 맞출 것인가 — **한쪽을 고정하고 반대쪽을 늘릴 때** 쓴다.
+#: min = 작은 쪽 끝을 `at` 에 두고 키운다 · center = 가운데 · max = 큰 쪽 끝.
+AlignName = Literal["min", "center", "max"]
+Align2 = tuple[AlignName, AlignName]
+Align3 = tuple[AlignName, AlignName, AlignName]
 
 
 class _Shape(BaseModel):
@@ -30,13 +39,23 @@ class _Shape(BaseModel):
     """cut 이면 앞의 도형에서 뺀다(구멍 · 노치)."""
 
 
-class Rect(_Shape):
+class _Aligned(BaseModel):
+    """`at` 을 도형의 어디로 볼 것인가. 기본은 가운데.
+
+    「왼쪽 끝을 고정하고 오른쪽으로 늘린다」 는 `align: ["min", "center"]` 로 한다 — 폭을
+    키워도 왼쪽 끝은 `at` 에 그대로 있다. 매개변수(`params`)와 함께 쓰면 치수 하나를 고쳐
+    한쪽으로만 자라는 판을 만들 수 있다."""
+
+    align: Align2 = ("center", "center")
+
+
+class Rect(_Shape, _Aligned):
     type: Literal["rect"]
     width: Positive
     height: Positive
 
 
-class CircleShape(_Shape):
+class CircleShape(_Shape, _Aligned):
     type: Literal["circle"]
     radius: Positive
 
@@ -46,13 +65,13 @@ class PolygonShape(_Shape):
     points: list[XY] = Field(min_length=3)
 
 
-class RegularPolygonShape(_Shape):
+class RegularPolygonShape(_Shape, _Aligned):
     type: Literal["regular_polygon"]
     radius: Positive
     sides: int = Field(ge=3, le=64)
 
 
-class Slot(_Shape):
+class Slot(_Shape, _Aligned):
     type: Literal["slot"]
     length: Positive
     """`measure` 에 따라 전체 길이이거나 양 끝 **중심 사이** 거리."""
@@ -100,7 +119,7 @@ class PolylineShape(_Shape):
     """모든 모서리를 이 반지름으로 둥글린다(0 이면 각지게). 호(`via`)가 있으면 쓸 수 없다."""
 
 
-class RoundedRect(_Shape):
+class RoundedRect(_Shape, _Aligned):
     type: Literal["rounded_rect"]
     width: Positive
     height: Positive
@@ -108,7 +127,7 @@ class RoundedRect(_Shape):
     """모서리 반지름 — 너비 · 높이의 절반보다 작아야 한다."""
 
 
-class TrapezoidShape(_Shape):
+class TrapezoidShape(_Shape, _Aligned):
     """사다리꼴 — 밑변 너비와 양쪽 빗변 각도. 90° 면 직각."""
 
     type: Literal["trapezoid"]
@@ -130,7 +149,7 @@ class PathShape(_Shape):
     corners: Literal["round", "sharp"] = "round"
 
 
-class TriangleShape(_Shape):
+class TriangleShape(_Shape, _Aligned):
     """변과 각으로 만드는 삼각형 — 세 값이면 정해진다(예: a · b 와 낀각 C, 또는 a · B · C).
     변은 소문자, 마주 보는 각은 대문자다."""
 
@@ -152,13 +171,13 @@ class TriangleShape(_Shape):
         return self
 
 
-class EllipseShape(_Shape):
+class EllipseShape(_Shape, _Aligned):
     type: Literal["ellipse"]
     x_radius: Positive
     y_radius: Positive
 
 
-class TextShape(_Shape):
+class TextShape(_Shape, _Aligned):
     """글자 — 각인(cut) · 양각(add). 폰트는 서버의 것이라 글꼴 모양은 기기마다 조금 다를 수
     있다. 획이 얇으면 돌출이 깨지니 크기 5mm 이상을 권한다."""
 
@@ -210,7 +229,9 @@ class PlaneSpec(BaseModel):
 class _Node(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    id: str = Field(min_length=1, max_length=40, pattern=r"^[A-Za-z_][A-Za-z0-9_-]*$")
+    id: str = Field(min_length=1, max_length=40, pattern=r"^[^\W\d][\w-]*$")
+    """피처 이름. 글자 · 숫자 · `_` · `-` 만 쓰고 숫자로 시작하지 않는다. **한글도 된다** —
+    「베이스」 「핀1」 처럼 쓰면 레시피를 읽기가 훨씬 낫다(치수 이름도 마찬가지)."""
     label: str = ""
     """사람이 붙이는 이름 — 편집기의 피처 트리에 보인다."""
 
@@ -310,7 +331,9 @@ class BoxNode(_Node):
     width: Positive
     height: Positive
     at: XYZ = (0.0, 0.0, 0.0)
-    """중심."""
+    """`align` 이 가리키는 자리. 기본은 중심."""
+    align: Align3 = ("center", "center", "center")
+    """축마다 min · center · max. 바닥을 바닥판에 붙이려면 Z 를 min 으로."""
 
 
 class CylinderNode(_Node):
@@ -319,12 +342,15 @@ class CylinderNode(_Node):
     height: Positive
     at: XYZ = (0.0, 0.0, 0.0)
     axis: Literal["X", "Y", "Z"] = "Z"
+    align: Align3 = ("center", "center", "center")
+    """축 방향(보통 Z)을 min 으로 두면 `at` 이 **밑면 중심**이 된다 — 핀 · 보스에 쓴다."""
 
 
 class SphereNode(_Node):
     op: Literal["sphere"]
     radius: Positive
     at: XYZ = (0.0, 0.0, 0.0)
+    align: Align3 = ("center", "center", "center")
 
 
 class ConeNode(_Node):
@@ -508,6 +534,7 @@ class WedgeNode(_Node):
     top_z_min: float = 0.0
     top_z_max: float | None = None
     at: XYZ = (0.0, 0.0, 0.0)
+    align: Align3 = ("center", "center", "center")
 
     @model_validator(mode="after")
     def _top_order(self) -> WedgeNode:
@@ -620,6 +647,8 @@ class Recipe(BaseModel):
 
     version: Literal[1] = 1
     units: Literal["mm"] = "mm"
+    params: dict[str, float] = Field(default_factory=dict)
+    """이름 붙인 치수. 어느 숫자 칸에든 `"=이름 * 2"` 로 쓴다 — 하나를 고치면 다 따라온다."""
     nodes: list[Node] = Field(min_length=1, max_length=500)
     result: str | None = None
     """결과로 삼을 노드. 비우면 마지막 노드."""
@@ -724,8 +753,13 @@ def _humanize(error: Mapping[str, Any]) -> str:
 
 
 def parse(raw: dict[str, Any]) -> Recipe:
+    """치수 식(`"=이름*2"`)을 먼저 숫자로 풀고 나서 모양을 본다 — 식이 틀렸으면 그 말부터."""
     try:
-        return Recipe.model_validate(raw)
+        resolved = resolve(raw)
+    except ExpressionError as failure:
+        raise RecipeValidationError([str(failure)]) from failure
+    try:
+        return Recipe.model_validate(resolved)
     except ValidationError as failure:
         problems: list[str] = []
         for error in failure.errors()[:8]:

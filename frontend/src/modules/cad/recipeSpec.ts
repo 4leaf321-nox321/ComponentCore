@@ -47,6 +47,8 @@ export type RecipeNode = Record<string, unknown> & {
 }
 
 export type FieldKind =
+  | 'align2'
+  | 'align3'
   | 'number'
   | 'text'
   | 'select'
@@ -258,9 +260,10 @@ export const OP_SPECS: OpSpec[] = [
       { key: 'length', label: '길이 X (mm)', kind: 'number' },
       { key: 'width', label: '너비 Y (mm)', kind: 'number' },
       { key: 'height', label: '높이 Z (mm)', kind: 'number' },
-      { key: 'at', label: '중심', kind: 'xyz' },
+      { key: 'at', label: '기준 자리', kind: 'xyz' },
+      { key: 'align', label: '기준 (치수를 어디에 맞추나)', kind: 'align3' },
     ],
-    defaults: { length: 40, width: 30, height: 20, at: [0, 0, 0] },
+    defaults: { length: 40, width: 30, height: 20, at: [0, 0, 0], align: ['center', 'center', 'center'] },
   },
   {
     op: 'wedge',
@@ -276,9 +279,20 @@ export const OP_SPECS: OpSpec[] = [
       { key: 'top_x_max', label: '윗면 X 끝 (비우면 안 줄임)', kind: 'number' },
       { key: 'top_z_min', label: '윗면 Z 시작 (mm)', kind: 'number' },
       { key: 'top_z_max', label: '윗면 Z 끝 (비우면 안 줄임)', kind: 'number' },
-      { key: 'at', label: '중심', kind: 'xyz' },
+      { key: 'at', label: '기준 자리', kind: 'xyz' },
+      { key: 'align', label: '기준', kind: 'align3' },
     ],
-    defaults: { length: 40, width: 30, height: 20, top_x_min: 10, top_x_max: 30, top_z_min: 0, top_z_max: null, at: [0, 0, 0] },
+    defaults: {
+      length: 40,
+      width: 30,
+      height: 20,
+      top_x_min: 10,
+      top_x_max: 30,
+      top_z_min: 0,
+      top_z_max: null,
+      at: [0, 0, 0],
+      align: ['center', 'center', 'center'],
+    },
   },
   {
     op: 'cylinder',

@@ -16,6 +16,7 @@ from fastapi.responses import Response
 from app.core import export
 from app.core.recipe import describe
 from app.core.recipe import templates as recipe_templates
+from app.core.recipe.digest import digest
 from app.core.recipe.mesh import mesh
 from app.modules.accounts.models import User
 from app.modules.cad import services
@@ -65,6 +66,16 @@ def recipe_preview(payload: RecipeRequest, _: User = Depends(current_user)) -> R
         target = Path(folder) / "preview.glb"
         export.write_gltf(evaluation.shape, target)
         return Response(target.read_bytes(), media_type="model/gltf-binary")
+
+
+@router.post("/recipe/geometry")
+def recipe_geometry(payload: RecipeRequest, _: User = Depends(current_user)) -> dict[str, Any]:
+    """**AI 가 읽는 치수표** — 크기 · 평면(법선 · 넓이) · 원통 · 구멍(지름 · 중심 · 깊이).
+
+    사람은 3D 에서 면을 눌러 재지만 AI 는 못 본다. 메시 전체는 너무 크므로 설계에 쓰는 값만
+    추려 준다 — 제품을 기준으로 지그를 그릴 때 이것을 먼저 본다."""
+    evaluation = services.build(payload.recipe)
+    return digest(evaluation.shape)
 
 
 @router.post("/recipe/mesh")

@@ -161,15 +161,27 @@ def _plane(spec: S.PlaneSpec) -> Plane:
 # --- 스케치 -------------------------------------------------------------------
 
 
+#: 스키마의 자리 이름 → build123d 의 Align.
+_ALIGN = {"min": Align.MIN, "center": Align.CENTER, "max": Align.MAX}
+
+
+def _align(names: tuple[str, ...]) -> tuple[Any, ...]:
+    return tuple(_ALIGN[name] for name in names)
+
+
 def _shape2d(one: S.SketchShape) -> Sketch:
     if isinstance(one, S.Rect):
-        face: Sketch = Rectangle(one.width, one.height, rotation=one.rotation)
+        face: Sketch = Rectangle(
+            one.width, one.height, rotation=one.rotation, align=_align(one.align)
+        )
     elif isinstance(one, S.CircleShape):
-        face = Circle(one.radius)
+        face = Circle(one.radius, align=_align(one.align))
     elif isinstance(one, S.PolygonShape):
         face = Polygon(*one.points, rotation=one.rotation)
     elif isinstance(one, S.RegularPolygonShape):
-        face = RegularPolygon(one.radius, one.sides, rotation=one.rotation)
+        face = RegularPolygon(
+            one.radius, one.sides, rotation=one.rotation, align=_align(one.align)
+        )
     elif isinstance(one, S.PolylineShape):
         face = _polyline(one)
     elif isinstance(one, S.PathShape):
@@ -177,11 +189,20 @@ def _shape2d(one: S.SketchShape) -> Sketch:
     elif isinstance(one, S.RoundedRect):
         if one.radius >= min(one.width, one.height) / 2:
             raise ValueError("모서리 반지름이 너비 · 높이의 절반보다 작아야 합니다")
-        face = RectangleRounded(one.width, one.height, one.radius, rotation=one.rotation)
+        face = RectangleRounded(
+            one.width, one.height, one.radius, rotation=one.rotation, align=_align(one.align)
+        )
     elif isinstance(one, S.TriangleShape):
         try:
             face = Triangle(
-                a=one.a, b=one.b, c=one.c, A=one.A, B=one.B, C=one.C, rotation=one.rotation
+                a=one.a,
+                b=one.b,
+                c=one.c,
+                A=one.A,
+                B=one.B,
+                C=one.C,
+                rotation=one.rotation,
+                align=_align(one.align),
             )
         except Exception as failure:
             raise ValueError(
@@ -194,21 +215,27 @@ def _shape2d(one: S.SketchShape) -> Sketch:
             one.left_angle,
             one.right_angle,
             rotation=one.rotation,
+            align=_align(one.align),
         )
     elif isinstance(one, S.EllipseShape):
-        face = Ellipse(one.x_radius, one.y_radius, rotation=one.rotation)
+        face = Ellipse(
+            one.x_radius, one.y_radius, rotation=one.rotation, align=_align(one.align)
+        )
     elif isinstance(one, S.TextShape):
         face = Text(
             one.text,
             one.size,
             font_style=FontStyle.BOLD if one.bold else FontStyle.REGULAR,
             rotation=one.rotation,
+            align=_align(one.align),
         )
     else:
         face = (
             SlotCenterToCenter(one.length, one.width, rotation=one.rotation)
             if one.measure == "centers"
-            else SlotOverall(one.length, one.width, rotation=one.rotation)
+            else SlotOverall(
+                one.length, one.width, rotation=one.rotation, align=_align(one.align)
+            )
         )
     return Pos(one.at[0], one.at[1]) * face
 
@@ -622,10 +649,14 @@ def _evaluate_node(
             raise RecipeError(node.id, f"'{node.sketch}' 는 스케치가 아닙니다")
         return revolve(sketch, _AXES[node.axis], node.angle)
     if isinstance(node, S.BoxNode):
-        return Pos(*node.at) * Box(node.length, node.width, node.height)
+        return Pos(*node.at) * Box(
+            node.length, node.width, node.height, align=_align(node.align)
+        )
     if isinstance(node, S.CylinderNode):
         rot = {"Z": Rot(0, 0, 0), "X": Rot(0, 90, 0), "Y": Rot(90, 0, 0)}[node.axis]
-        return Pos(*node.at) * rot * Cylinder(node.radius, node.height)
+        return (
+            Pos(*node.at) * rot * Cylinder(node.radius, node.height, align=_align(node.align))
+        )
     if isinstance(node, S.UnionNode):
         parts = [_to_part(made[t]) for t in node.targets]
         result = parts[0]
@@ -691,7 +722,7 @@ def _evaluate_node(
             sections.append(piece)
         return loft(sections, ruled=node.ruled)
     if isinstance(node, S.SphereNode):
-        return Pos(*node.at) * Sphere(node.radius)
+        return Pos(*node.at) * Sphere(node.radius, align=_align(node.align))
     if isinstance(node, S.ConeNode):
         rot = {"Z": Rot(0, 0, 0), "X": Rot(0, 90, 0), "Y": Rot(-90, 0, 0)}[node.axis]
         cone = Cone(
@@ -720,6 +751,7 @@ def _evaluate_node(
             node.length,
             node.width,
             node.height,
+            align=_align(node.align),
             xmin=node.top_x_min,
             zmin=node.top_z_min,
             xmax=node.length if node.top_x_max is None else node.top_x_max,

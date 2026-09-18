@@ -12,6 +12,8 @@
 | --- | --- |
 | 무엇을 만들 수 있나 | `recipe_schema` (피처 종류 · 칸 · 내장 템플릿 넷 · 저장 템플릿 목록) |
 | 저장 템플릿의 본문 | `template_recipe(id)` · 되풀이해 쓸 모양은 `save_template` 로 남긴다 |
+| **내가 그린 것의 치수** | `recipe_geometry(recipe)` — 구멍 지름 · 중심 · 깊이, 면의 법선 · 넓이 |
+| **제품을 기준으로 지그 그리기** | `part_geometry(part_id)` · `work_geometry(work_id)` — 치수표 + STEP id |
 | 레시피가 맞나, 만들어지나 | `recipe_check` — **저장 전에 반드시** |
 | 새 부품 시작 | `create_work(name, recipe)` |
 | 있는 부품 고치기 | `get_work` 로 레시피를 받아 고쳐 `save_version` |
@@ -79,6 +81,29 @@
   — 결과는 **복사본 묶음**
   이라 `cut` 의 tools 나 `union` 의 targets 로 쓴다 · `transform`(target, translate, rotate,
   scale) · `mirror`(target, plane, keep_original)
+
+치수를 **이름으로** 두고 싶을 때(파라메트릭):
+- 레시피에 `"params": {"판_길이": 80, "두께": 10}` 을 두고, 어느 숫자 칸에든 `"=판_길이 - 15"`
+  처럼 쓴다. 하나를 고치면 그것을 쓰는 곳이 모두 따라온다 — 제품 치수가 바뀌면 지그도 따라 큰다.
+  식에는 이름 · 숫자 · `+ - * / % **` · 괄호 · `abs min max round sqrt sin cos tan hypot` · `pi`
+  만 쓴다(각도는 도 단위).
+- **한쪽을 고정하고 반대쪽만 늘리려면** `align` 을 쓴다. 도형(`rect` · `circle` · `rounded_rect`
+  · `slot` · `trapezoid` · `triangle` · `ellipse` · `text` · `regular_polygon`)은 `["min",
+  "center"]` 처럼 두 축, 기본 입체(`box` · `cylinder` · `sphere` · `wedge`)는 세 축이다.
+  `min` 이면 그 축의 **작은 쪽 끝이 `at` 에 고정**되고 커질 때 반대쪽으로만 자란다.
+  예 — 왼쪽 끝과 바닥을 고정한 판: `{"op":"box","length":"=판_길이","width":50,"height":"=두께",
+  "align":["min","center","min"]}`. (스케치 구속 솔버는 없다. 치수 이름 + 기준 자리로 푼다.)
+
+제품을 기준으로 **지그**를 그릴 때:
+1. `list_parts` → `part_geometry(part_id)` — 크기 · 바닥 평면 · **구멍(지름 · 중심 · 깊이)** 을
+   읽는다. 내 작업이라면 `work_geometry(work_id)`.
+2. 자동으로 뽑으려면 `copy_part_to_work` → `run_jig`(옵션은 `jig_options`).
+3. 손으로 그리려면 받은 `step_artifact_id` 로 제품을 불러와 쓴다:
+   `{"op":"import_step","file":"<step_artifact_id>","id":"제품"}` →
+   `{"op":"offset","target":"제품","amount":0.3,"id":"여유"}` →
+   블록에서 `cut` 하면 **제품이 앉는 포켓**이 된다. 제품 구멍 자리에는 `cylinder`(align z=min)로
+   핀을 세운다.
+4. 그린 뒤 `recipe_geometry` 로 **확인한다** — 포켓 깊이 · 핀 지름이 뜻대로인지.
 
 말로 받은 치수를 옮길 때:
 - 호는 `radius` · `tangent`, 장공은 `slot.measure: "centers"`, 삼각형은 변 · 각 — **도면이 주는
