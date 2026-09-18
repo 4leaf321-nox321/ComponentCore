@@ -114,6 +114,18 @@ class PromoteJigRequest(BaseModel):
     올라간다."""
 
 
+class PromoteJigRecipeRequest(BaseModel):
+    """**손으로 그린 지그**(레시피 버전)를 지그로. 자동 생성기가 만들 수 없는 지그 — 공진을
+    맞추는 시험 지그처럼 우리가 형상을 정하는 것들이다."""
+
+    number: int | None = None
+    """올릴 버전. 비우면 현재 버전."""
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    note: str = Field(default="", max_length=2000)
+    part_id: uuid.UUID | None = None
+    """이 지그가 잡는 부품(카탈로그). 안 고르면 홀로 선 지그로 올라간다."""
+
+
 class PromoteJigOut(BaseModel):
     jig_id: uuid.UUID
     jig_version: int

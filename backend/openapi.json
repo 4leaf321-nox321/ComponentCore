@@ -1366,6 +1366,60 @@
         }
       }
     },
+    "/api/works/{work_id}/promote/jig-recipe": {
+      "post": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Promote Jig Recipe",
+        "description": "레시피로 그린 지그를 지그 카탈로그로 — 생성기를 거치지 않는 길.\n\n부품은 그리고(레시피), 지그는 만들어 준다(생성기)는 것이 기본 흐름이다. 그런데 생성기가\n만들 수 없는 지그가 있다 — 그런 것은 **그린다**. 그리는 것이니 변수를 심고 DOE 로 훑을 수\n있다.",
+        "operationId": "promote_jig_recipe_api_works__work_id__promote_jig_recipe_post",
+        "parameters": [
+          {
+            "name": "work_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Work Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteJigRecipeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoteJigOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/works/{work_id}/promote/jig": {
       "post": {
         "tags": [
@@ -5142,6 +5196,55 @@
           "part_promoted_now"
         ],
         "title": "PromoteJigOut"
+      },
+      "PromoteJigRecipeRequest": {
+        "properties": {
+          "number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Note",
+            "default": ""
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Id"
+          }
+        },
+        "type": "object",
+        "title": "PromoteJigRecipeRequest",
+        "description": "**손으로 그린 지그**(레시피 버전)를 지그로. 자동 생성기가 만들 수 없는 지그 — 공진을\n맞추는 시험 지그처럼 우리가 형상을 정하는 것들이다."
       },
       "PromoteJigRequest": {
         "properties": {

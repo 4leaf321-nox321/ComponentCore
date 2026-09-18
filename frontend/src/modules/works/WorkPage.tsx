@@ -59,7 +59,7 @@ export default function WorkPage() {
   const [note, setNote] = useState('')
   const [options, setOptions] = useState<Record<string, unknown> | null>(null)
   const [selectedRun, setSelectedRun] = useState<Job | null>(null)
-  const [promoting, setPromoting] = useState<'part' | 'jig' | null>(null)
+  const [promoting, setPromoting] = useState<'part' | 'jig' | 'jig-recipe' | null>(null)
   const [promoteName, setPromoteName] = useState('')
   const [promoteNote, setPromoteNote] = useState('')
   const [promoteProduct, setPromoteProduct] = useState(true)
@@ -150,6 +150,14 @@ export default function WorkPage() {
         setPromoting(null)
         reloadAll()
         navigate(`/parts/${made.part_id}`)
+      } else if (promoting === 'jig-recipe') {
+        const made = await worksApi.promoteJigRecipe(id, {
+          name: promoteName || undefined,
+          note: promoteNote,
+        })
+        setPromoting(null)
+        reloadAll()
+        navigate(`/jigs/${made.jig_id}`)
       } else if (promoting === 'jig' && selectedRun) {
         const made = await worksApi.promoteJig(id, {
           job_id: selectedRun.id,
@@ -275,6 +283,19 @@ export default function WorkPage() {
                   title={currentPromoted ? '현재 버전은 이미 부품에 올라가 있습니다' : undefined}
                 >
                   {currentPromoted ? `부품 v${w.current?.promoted_part_version} 으로 올라감` : '부품으로 승격'}
+                </Button>
+                {/* 이 작업이 **지그를 그린 것**일 때 — 생성기를 거치지 않고 그대로 올린다. */}
+                <Button
+                  variant="outline"
+                  disabled={busy || w.current_version === 0}
+                  title="이 레시피가 지그일 때 — 생성기를 거치지 않고 지그 카탈로그로 올립니다"
+                  onClick={() => {
+                    setPromoteName(w.name)
+                    setPromoteNote('')
+                    setPromoting('jig-recipe')
+                  }}
+                >
+                  그린 지그로 승격
                 </Button>
               </div>
 
@@ -462,10 +483,12 @@ export default function WorkPage() {
               <DialogDescription>
                 {promoting === 'part'
                   ? `부품 v${w.current_version} 이 부품 카탈로그에 올라갑니다. 올라간 버전은 바뀌지 않습니다 — 고치려면 여기서 고쳐 다시 승격합니다.`
-                  : '이 지그 생성 결과가 지그 카탈로그에 올라갑니다. 어느 부품 버전의 지그인지 함께 고정됩니다.'}
+                  : promoting === 'jig-recipe'
+                    ? `지금 레시피(v${w.current_version})를 **그린 지그**로 올립니다. 생성기를 거치지 않으므로 계획 · 간섭 검사는 없고, 형상과 STEP 만 올라갑니다.`
+                    : '이 지그 생성 결과가 지그 카탈로그에 올라갑니다. 어느 부품 버전의 지그인지 함께 고정됩니다.'}
               </DialogDescription>
             </DialogHeader>
-            {!(promoting === 'part' ? w.promoted_part_id : w.promoted_jig_id) && (
+            {!(promoting === 'part' ? w.promoted_part_id : promoting === 'jig' ? w.promoted_jig_id : false) && (
               <div className="space-y-2">
                 <Label htmlFor="promote-name">카탈로그 이름</Label>
                 <Input id="promote-name" value={promoteName} onChange={(e) => setPromoteName(e.target.value)} />

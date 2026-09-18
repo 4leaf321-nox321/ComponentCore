@@ -481,6 +481,89 @@ def promote_part(
     return promoted
 
 
+def promote_jig_recipe(
+    db: Session,
+    work: Work,
+    *,
+    by: User,
+    number: int | None,
+    name: str | None,
+    note: str,
+    part_id: uuid.UUID | None,
+) -> PromoteJigOut:
+    """**손으로 그린 지그**(레시피 버전)를 지그 카탈로그로.
+
+    자동 생성기(`run_jig`)가 만들 수 없는 지그가 있다 — 공진을 맞추는 시험 지그처럼 「연결부는
+    제품에 맞추고 나머지는 우리가 정하는」 것들이다. 그런 지그는 레시피로 그리고, 그리는 것이니
+    **변수를 심을 수 있다**(그래야 DOE 로 훑는다). 그 레시피 버전을 그대로 지그로 올린다.
+
+    생성 작업이 없으므로 `options` 는 비고, 형상 · STEP 은 그 버전의 **평가 작업**에서 온다.
+    어느 부품의 지그인지는 골라서 잇는다(안 고르면 홀로 선 지그다)."""
+    version = current_version(db, work) if number is None else get_version(db, work, number)
+    if version is None:
+        raise AppError(code("WORKS", 20), "올릴 버전이 없습니다.")
+    job = db.get(Job, version.job_id) if version.job_id else None
+    if job is None or job.status != "done":
+        raise AppError(
+            code("WORKS", 21),
+            "이 버전의 평가가 끝나지 않았습니다 — 형상이 만들어져야 지그로 올립니다.",
+        )
+    part_version: PartVersion | None = None
+    if part_id is not None:
+        part = db.get(Part, part_id)
+        if part is None or part.deleted_at is not None:
+            raise NotFound(code("WORKS", 22), "고른 부품을 찾을 수 없습니다.")
+        part_version = db.scalar(
+            select(PartVersion).where(
+                PartVersion.part_id == part.id, PartVersion.number == part.current_version
+            )
+        )
+
+    jig = _jig_for(db, work, by=by, name=name, part_version=part_version)
+    promoted = JigVersion(
+        jig_id=jig.id,
+        number=jig.current_version + 1,
+        job_id=job.id,
+        part_version_id=part_version.id if part_version else None,
+        options={},
+        summary=job.summary,
+        note=note.strip() or f"v{version.number} 레시피에서",
+        promoted_by_id=by.id,
+    )
+    db.add(promoted)
+    jig.current_version = promoted.number
+    db.commit()
+    return PromoteJigOut(
+        jig_id=jig.id,
+        jig_version=promoted.number,
+        part_id=part_version.part_id if part_version else None,
+        part_version=part_version.number if part_version else None,
+        part_promoted_now=False,
+    )
+
+
+def _jig_for(
+    db: Session, work: Work, *, by: User, name: str | None, part_version: PartVersion | None
+) -> Jig:
+    """이 작업의 지그를 찾거나 만든다 — 두 승격 길이 같은 지그에 버전을 쌓게."""
+    jig = db.scalar(select(Jig).where(Jig.work_id == work.id, Jig.deleted_at.is_(None)))
+    if jig is None:
+        jig = Jig(
+            name=(name or f"{work.name} 지그").strip(),
+            description=work.description,
+            owner_id=by.id,
+            work_id=work.id,
+            part_id=part_version.part_id if part_version else None,
+        )
+        db.add(jig)
+        db.flush()
+    elif jig.owner_id != by.id and not by.is_system_admin:
+        raise Forbidden(code("WORKS", 15), "이 지그에 버전을 올릴 권한이 없습니다.")
+    if part_version is not None:
+        jig.part_id = part_version.part_id
+    return jig
+
+
 def promote_jig(
     db: Session,
     work: Work,
@@ -519,21 +602,7 @@ def promote_jig(
                 part_version = promote_part(db, work, by=by, name=None, note="지그와 함께")
                 part_promoted_now = True
 
-    jig = db.scalar(select(Jig).where(Jig.work_id == work.id, Jig.deleted_at.is_(None)))
-    if jig is None:
-        jig = Jig(
-            name=(name or f"{work.name} 지그").strip(),
-            description=work.description,
-            owner_id=by.id,
-            work_id=work.id,
-            part_id=part_version.part_id if part_version else None,
-        )
-        db.add(jig)
-        db.flush()
-    elif jig.owner_id != by.id and not by.is_system_admin:
-        raise Forbidden(code("WORKS", 15), "이 지그에 버전을 올릴 권한이 없습니다.")
-    if part_version is not None:
-        jig.part_id = part_version.part_id
+    jig = _jig_for(db, work, by=by, name=name, part_version=part_version)
 
     promoted = JigVersion(
         jig_id=jig.id,

@@ -251,3 +251,46 @@ def test_STEP_에서_작업_시작(client: TestClient, member: Signed, tmp_path:
     assert work["name"] == "peg" and work["current_version"] == 1
     assert work["current"]["source"] == "import"
     assert work["current"]["job"]["status"] == "done", work["current"]["job"]["error"]
+
+
+def test_손으로_그린_지그도_지그_카탈로그로(client: TestClient, member: Signed) -> None:
+    """생성기가 만들 수 없는 지그(공진 튜닝 시험 지그 같은 것)는 **그린다** — 그린 것이니
+    변수를 심을 수 있고, 그대로 지그로 올라가야 한다."""
+    jig = {
+        "params": {"튜닝_두께": 6.0},
+        "nodes": [
+            {"id": "연결판", "op": "box", "length": 60, "width": 60, "height": 12},
+            {
+                "id": "튜닝보",
+                "op": "box",
+                "length": 90,
+                "width": 40,
+                "height": "=튜닝_두께",
+                "at": [75, 0, 0],
+            },
+            {"id": "지그", "op": "union", "targets": ["연결판", "튜닝보"]},
+        ],
+    }
+    work = client.post(
+        "/api/works", json={"name": "튜닝 지그", "recipe": jig}, headers=member.headers
+    ).json()
+    assert work["current"]["job"]["status"] == "done"
+
+    promoted = client.post(
+        f"/api/works/{work['id']}/promote/jig-recipe",
+        json={"note": "1차 시제"},
+        headers=member.headers,
+    )
+    assert promoted.status_code == 201, promoted.text
+    assert promoted.json()["jig_version"] == 1
+    assert promoted.json()["part_id"] is None  # 홀로 선 지그 — 부품은 나중에 이어도 된다
+
+    listed = client.get("/api/jigs", headers=member.headers).json()
+    assert any(one["name"] == "튜닝 지그 지그" for one in listed["items"])
+
+    # 두 번째 버전도 같은 지그에 쌓인다.
+    again = client.post(
+        f"/api/works/{work['id']}/promote/jig-recipe", json={}, headers=member.headers
+    )
+    assert again.status_code == 201 and again.json()["jig_version"] == 2
+    assert again.json()["jig_id"] == promoted.json()["jig_id"]

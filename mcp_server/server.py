@@ -723,6 +723,26 @@ async def promote_jig(
 
 
 @mcp.tool()
+async def promote_jig_recipe(
+    ctx: Context,
+    work_id: str,
+    name: str | None = None,
+    note: str = "",
+    part_id: str | None = None,
+) -> Any:
+    """**손으로 그린 지그**(레시피 버전)를 지그 카탈로그로 — 생성기(`run_jig`)를 거치지 않는 길.
+
+    지그는 두 길로 생긴다: (1) `run_jig` 가 제품에서 만들어 주는 것, (2) 사람 · AI 가 **그리는**
+    것. 공진을 맞추는 시험 지그처럼 생성기가 만들 수 없는 것은 그린다 — 그리는 것이니 `params`
+    로 변수를 심고 DOE 로 훑을 수 있다. `part_id` 를 주면 어느 부품의 지그인지 이어진다."""
+    return await _post(
+        ctx,
+        f"/api/works/{work_id}/promote/jig-recipe",
+        {"name": name, "note": note, "part_id": part_id},
+    )
+
+
+@mcp.tool()
 async def list_parts(ctx: Context, limit: int = 50) -> Any:
     """부품 카탈로그(누구나 보는 것). 고치려면 `copy_part_to_work` 로 내 공간에 복사한다."""
     page = await _get(ctx, "/api/parts", {"limit": limit})

@@ -18,6 +18,7 @@ from app.modules.works.models import Work
 from app.modules.works.schemas import (
     JigRunRequest,
     PromoteJigOut,
+    PromoteJigRecipeRequest,
     PromoteJigRequest,
     PromotePartRequest,
     VersionCreateRequest,
@@ -229,6 +230,31 @@ def promote_part(
     work = _mine(db, work_id, user)
     promoted = services.promote_part(db, work, by=user, name=payload.name, note=payload.note)
     return parts.version_out(db, promoted)
+
+
+@router.post("/{work_id}/promote/jig-recipe", response_model=PromoteJigOut, status_code=201)
+def promote_jig_recipe(
+    work_id: uuid.UUID,
+    payload: PromoteJigRecipeRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> PromoteJigOut:
+    """레시피로 그린 지그를 지그 카탈로그로 — 생성기를 거치지 않는 길.
+
+    부품은 그리고(레시피), 지그는 만들어 준다(생성기)는 것이 기본 흐름이다. 그런데 생성기가
+    만들 수 없는 지그가 있다 — 그런 것은 **그린다**. 그리는 것이니 변수를 심고 DOE 로 훑을 수
+    있다."""
+    work = services.get_work(db, work_id)
+    services.require_owner(work, user)
+    return services.promote_jig_recipe(
+        db,
+        work,
+        by=user,
+        number=payload.number,
+        name=payload.name,
+        note=payload.note,
+        part_id=payload.part_id,
+    )
 
 
 @router.post("/{work_id}/promote/jig", response_model=PromoteJigOut, status_code=201)

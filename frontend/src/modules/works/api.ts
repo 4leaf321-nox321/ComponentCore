@@ -87,6 +87,9 @@ export const worksApi = {
   runJig: (id: string, options: Record<string, unknown>) => api.post<Job>(`/works/${id}/jig-runs`, { options }),
   promotePart: (id: string, body: { name?: string; note?: string }) =>
     api.post<{ part_id: string; number: number }>(`/works/${id}/promote/part`, body),
+  /** 손으로 그린 지그(레시피 버전)를 지그 카탈로그로 — 생성기를 거치지 않는 길. */
+  promoteJigRecipe: (id: string, body: { number?: number; name?: string; note?: string; part_id?: string | null }) =>
+    api.post<{ jig_id: string; jig_version: number }>(`/works/${id}/promote/jig-recipe`, body),
   promoteJig: (id: string, body: { job_id: string; name?: string; note?: string; promote_product?: boolean }) =>
     api.post<PromoteJigResult>(`/works/${id}/promote/jig`, body),
 }

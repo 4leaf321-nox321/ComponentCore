@@ -53,6 +53,7 @@ def test_사람이_손으로_하는_일이_도구로_다_있다() -> None:
         "doe_create",
         "doe_points",
         "doe_tradeoff",  # 목표가 맞설 때
+        "promote_jig_recipe",  # 손으로 그린 지그
     }
     assert needed <= tools, f"빠진 도구: {sorted(needed - tools)}"
 

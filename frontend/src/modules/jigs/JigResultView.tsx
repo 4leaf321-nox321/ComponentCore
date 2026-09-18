@@ -48,26 +48,31 @@ const ARTIFACT_LABELS: Record<string, string> = {
   jig_stl: '지그 STL',
 }
 
-/** 결과 glTF 를 Blob URL 로 받는다 — 토큰이 있어야 하므로 주소를 바로 뷰어에 줄 수 없다. */
+/**
+ * 결과 glTF 를 Blob URL 로 받는다 — 토큰이 있어야 하므로 주소를 바로 뷰어에 줄 수 없다.
+ *
+ * 지그는 두 길로 생긴다: 생성기가 만든 것(`jig_glb` + `product_glb`)과 **사람이 그린 것**
+ * (레시피 평가의 `model_glb` 하나뿐 — 제품이 따로 없다). 둘 다 여기서 그린다.
+ */
 function useModelUrls(job: Job) {
-  const [urls, setUrls] = useState<{ product: string; jig: string } | null>(null)
+  const [urls, setUrls] = useState<{ product: string | null; jig: string } | null>(null)
   const [error, setError] = useState<Error | null>(null)
   const product = job.artifacts.find((one) => one.kind === 'product_glb')
-  const jig = job.artifacts.find((one) => one.kind === 'jig_glb')
+  const jig = job.artifacts.find((one) => one.kind === 'jig_glb') ?? job.artifacts.find((one) => one.kind === 'model_glb')
   const productId = product?.id
   const jigId = jig?.id
   useEffect(() => {
-    if (!productId || !jigId) {
+    if (!jigId) {
       setUrls(null)
       return
     }
     let cancelled = false
     const made: string[] = []
-    Promise.all([jobsApi.artifactBlob(productId), jobsApi.artifactBlob(jigId)])
+    Promise.all([productId ? jobsApi.artifactBlob(productId) : Promise.resolve(null), jobsApi.artifactBlob(jigId)])
       .then(([p, j]) => {
         if (cancelled) return
-        const pair = { product: URL.createObjectURL(p), jig: URL.createObjectURL(j) }
-        made.push(pair.product, pair.jig)
+        const pair = { product: p ? URL.createObjectURL(p) : null, jig: URL.createObjectURL(j) }
+        made.push(...[pair.product, pair.jig].filter((one): one is string => one !== null))
         setUrls(pair)
       })
       .catch((caught: unknown) => {
@@ -167,10 +172,11 @@ export function JigResultView({
   const s = job.summary as JigSummary | null
   if (!s) return null
 
+  // 손으로 그린 지그에는 제품이 따로 없다 — 지그 하나만 그린다.
   const models = urls
     ? [
-        { url: urls.product, color: VIEWER_COLORS.product },
-        { url: urls.jig, color: VIEWER_COLORS.jig, opacity: 0.85 },
+        ...(urls.product ? [{ url: urls.product, color: VIEWER_COLORS.product }] : []),
+        { url: urls.jig, color: VIEWER_COLORS.jig, opacity: urls.product ? 0.85 : 1 },
       ]
     : []
 
@@ -202,7 +208,11 @@ export function JigResultView({
       <div ref={full.frame} className={frameClass(full.active) || 'space-y-1'}>
         <div className="flex items-center gap-2">
           <p className="text-muted-foreground text-xs">
-            <span style={{ color: VIEWER_COLORS.product }}>■</span> 제품{' '}
+            {urls?.product && (
+              <>
+                <span style={{ color: VIEWER_COLORS.product }}>■</span> 제품{' '}
+              </>
+            )}
             <span style={{ color: VIEWER_COLORS.jig }}>■</span> 지그 — 끌어서 돌리고, 굴려서 확대합니다.
           </p>
           <div className="flex-1" />
