@@ -8,6 +8,7 @@ pydantic 으로 적는 이유: 검증 메시지가 곧 **AI 에게 돌려주는 
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -303,6 +304,40 @@ class RecipeValidationError(ValueError):
         self.problems = problems
 
 
+#: pydantic 의 영어 문구 → 사람 말. 화면과 AI 가 같은 말을 읽는다. 없는 것은 원문 그대로.
+_MESSAGES: dict[str, str] = {
+    "too_short": "적어도 {min_length}개가 있어야 합니다",
+    "too_long": "많아야 {max_length}개입니다",
+    "missing": "값이 빠졌습니다",
+    "greater_than": "{gt}보다 커야 합니다",
+    "greater_than_equal": "{ge} 이상이어야 합니다",
+    "less_than_equal": "{le} 이하여야 합니다",
+    "string_pattern_mismatch": "쓸 수 없는 문자가 있습니다",
+    "string_too_short": "값이 필요합니다",
+    "string_too_long": "너무 깁니다",
+    "extra_forbidden": "이 노드에는 없는 칸입니다",
+    "int_parsing": "정수여야 합니다",
+    "float_parsing": "숫자여야 합니다",
+    "bool_parsing": "예/아니오 값이어야 합니다",
+    "union_tag_invalid": "모르는 종류입니다: {tag} (가능: {expected_tags})",
+    "literal_error": "가능한 값: {expected}",
+    "model_type": '위치로 고르려면 {{"near": [[x, y, z], …]}} 모양이어야 합니다',
+    "dict_type": '위치로 고르려면 {{"near": [[x, y, z], …]}} 모양이어야 합니다',
+}
+
+
+def _humanize(error: Mapping[str, Any]) -> str:
+    kind = str(error.get("type", ""))
+    context = {key: str(value) for key, value in (error.get("ctx") or {}).items()}
+    template = _MESSAGES.get(kind)
+    if template is not None:
+        try:
+            return template.format(**context)
+        except KeyError:
+            return template
+    return str(error.get("msg", "")).removeprefix("Value error, ")
+
+
 def parse(raw: dict[str, Any]) -> Recipe:
     try:
         return Recipe.model_validate(raw)
@@ -310,14 +345,14 @@ def parse(raw: dict[str, Any]) -> Recipe:
         problems: list[str] = []
         for error in failure.errors()[:8]:
             where = ".".join(str(part) for part in error["loc"] if not _is_union_tag(part))
-            message = str(error["msg"]).removeprefix("Value error, ")
-            problems.append(f"{where or 'recipe'}: {message}")
+            problems.append(f"{where or 'recipe'}: {_humanize(error)}")
         raise RecipeValidationError(problems) from failure
 
 
 def _is_union_tag(part: Any) -> bool:
-    """pydantic 이 판별 유니온 경로에 끼우는 `SketchNode` 같은 이름은 사람에게 뜻이 없다."""
-    return isinstance(part, str) and part[:1].isupper()
+    """pydantic 이 유니온 경로에 끼우는 `SketchNode` · `literal[...]` 같은 조각은 사람에게 뜻이
+    없다."""
+    return isinstance(part, str) and (part[:1].isupper() or part.startswith("literal["))
 
 
 def describe() -> dict[str, Any]:

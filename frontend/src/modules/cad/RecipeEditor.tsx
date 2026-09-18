@@ -136,6 +136,14 @@ export function RecipeEditor({
   }, [value, mode])
 
   useEffect(() => {
+    // 빈 레시피는 검증할 것이 아니다 — 「적어도 1개」 는 오류가 아니라 아직 시작 전이다.
+    if (nodesOf(value).length === 0) {
+      setProblems([])
+      setSummary(null)
+      setMesh(null)
+      lastDrawn.current = ''
+      return
+    }
     const key = JSON.stringify(value)
     const timer = setTimeout(async () => {
       try {
