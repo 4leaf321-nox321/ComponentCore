@@ -1,5 +1,5 @@
 /**
- * 실험계획 만들기 — 레시피의 **치수**를 인자로 고르고, 범위를 주고, 개수를 확인하고 실행한다.
+ * 실험계획 만들기 — 레시피의 **변수**를 인자로 고르고, 범위를 주고, 개수를 확인하고 실행한다.
  *
  * 실행 전에 **몇 개인지 먼저 보여 준다.** 격자는 곱으로 늘어나서, 인자 넷에 5단계면 625개다 —
  * 누르고 나서 아는 것과 누르기 전에 아는 것은 다르다.
@@ -97,15 +97,15 @@ export function DoeForm({
   if (params.length === 0) {
     return (
       <div className="space-y-3 rounded-md border border-dashed p-4 text-sm">
-        <p className="font-medium">먼저 레시피에 「치수」 를 만들어야 합니다.</p>
-        <p className="text-muted-foreground">DOE 는 **이름 붙인 치수**만 훑습니다. 이름이 없으면 무엇을 바꿔야 할지 알 수 없습니다.</p>
+        <p className="font-medium">먼저 레시피에 「변수」 를 만들어야 합니다.</p>
+        <p className="text-muted-foreground">DOE 는 **변수**만 훑습니다 — 값에 이름이 없으면 무엇을 바꿔야 할지 알 수 없습니다.</p>
         <ol className="text-muted-foreground list-inside list-decimal space-y-1 text-xs">
           <li>「레시피 고치기」 를 눌러 편집기를 엽니다.</li>
           <li>
-            왼쪽 위 <b>치수</b> 상자의 <b>+</b> 로 이름을 만듭니다 — 예: <code>두께</code>, 값 6.
+            왼쪽 위 <b>변수</b> 상자의 <b>+</b> 로 이름과 값을 만듭니다 — 예: <code>두께</code>, 6.
           </li>
           <li>
-            바꿀 피처를 눌러 열고, 그 숫자 칸의 <b>fx</b> 를 누른 뒤 <code>=두께</code> 라고 씁니다.
+            바꿀 피처(또는 스케치 도형)를 눌러 열고, 그 숫자 칸의 <b>fx</b> 를 누른 뒤 <code>=두께</code> 라고 씁니다.
           </li>
           <li>「새 버전으로」 저장하면 여기서 그 치수를 훑을 수 있습니다.</li>
         </ol>
@@ -148,7 +148,7 @@ export function DoeForm({
 
       <div className="rounded-md border">
         <div className="bg-muted/40 grid grid-cols-[1fr_auto_2fr] items-center gap-2 border-b px-3 py-2 text-xs font-medium">
-          <span>치수</span>
+          <span>변수</span>
           <span>방식</span>
           <span>값</span>
         </div>
@@ -220,7 +220,7 @@ export function DoeForm({
         )}
         <div className="text-muted-foreground text-xs">
           {varying.length === 0 ? (
-            '바꿀 치수를 하나는 고르세요 — 「구간」 이나 「값 목록」 으로.'
+            '바꿀 변수를 하나는 고르세요 — 「구간」 이나 「값 목록」 으로.'
           ) : preview ? (
             <span className={preview.too_many ? 'text-destructive' : ''}>
               설계점 <b>{preview.count}</b> 개 {preview.too_many && `— ${preview.max} 개까지만 만듭니다. 단계를 줄이세요.`}

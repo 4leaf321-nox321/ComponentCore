@@ -22,11 +22,11 @@ function mockApi(count = 10) {
   return calls
 }
 
-test('치수에 범위를 주면 설계점 개수를 먼저 보여 준다', async () => {
+test('변수에 범위를 주면 설계점 개수를 먼저 보여 준다', async () => {
   const calls = mockApi(10)
   render(<DoeForm recipe={RECIPE} onCreated={() => {}} />)
-  // 처음에는 모두 고정 — 바꿀 치수를 고르라고 한다.
-  expect(screen.getByText(/바꿀 치수를 하나는 고르세요/)).toBeInTheDocument()
+  // 처음에는 모두 고정 — 바꿀 변수를 고르라고 한다.
+  expect(screen.getByText(/바꿀 변수를 하나는 고르세요/)).toBeInTheDocument()
 
   // [0] 재료 · [1] 두께 행의 방식 · [2] 길이 행 · [3] 방법
   fireEvent.click(screen.getAllByRole('combobox')[1])
@@ -48,10 +48,10 @@ test('설계점이 너무 많으면 만들지 못하게 막는다', async () => 
   expect(screen.getByRole('button', { name: '만들기' })).toBeDisabled()
 })
 
-test('치수가 없으면 어디서 어떻게 만드는지 알려 주고, 편집기로 보내 준다', () => {
+test('변수가 없으면 어디서 어떻게 만드는지 알려 주고, 편집기로 보내 준다', () => {
   const onEditRecipe = vi.fn()
   render(<DoeForm recipe={{ nodes: [] }} onCreated={() => {}} onEditRecipe={onEditRecipe} />)
-  expect(screen.getByText(/먼저 레시피에 「치수」 를 만들어야 합니다/)).toBeInTheDocument()
+  expect(screen.getByText(/먼저 레시피에 「변수」 를 만들어야 합니다/)).toBeInTheDocument()
   expect(screen.getByText(/fx/)).toBeInTheDocument() // 어느 단추를 누르는지까지
   fireEvent.click(screen.getByRole('button', { name: '레시피 고치러 가기' }))
   expect(onEditRecipe).toHaveBeenCalled()

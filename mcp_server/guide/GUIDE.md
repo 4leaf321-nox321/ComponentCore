@@ -83,8 +83,9 @@
   이라 `cut` 의 tools 나 `union` 의 targets 로 쓴다 · `transform`(target, translate, rotate,
   scale) · `mirror`(target, plane, keep_original)
 
-치수를 **이름으로** 두고 싶을 때(파라메트릭):
-- 레시피에 `"params": {"판_길이": 80, "두께": 10}` 을 두고, 어느 숫자 칸에든 `"=판_길이 - 15"`
+치수를 **변수로** 두고 싶을 때(파라메트릭 — 화면에서는 「변수」):
+- 레시피에 `"params": {"판_길이": 80, "두께": 10}` 을 두고, **어느 숫자 칸에든**(피처의 칸도,
+  스케치 도형의 width · radius · at 도) `"=판_길이 - 15"`
   처럼 쓴다. 하나를 고치면 그것을 쓰는 곳이 모두 따라온다 — 제품 치수가 바뀌면 지그도 따라 큰다.
   식에는 이름 · 숫자 · `+ - * / % **` · 괄호 · `abs min max round sqrt sin cos tan hypot` · `pi`
   만 쓴다(각도는 도 단위).

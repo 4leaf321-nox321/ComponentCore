@@ -26,7 +26,7 @@ export function WorkDoeTab({
 }: {
   workId: string
   work: Work
-  /** 부품 탭으로 옮겨 편집기를 연다 — 치수를 만들러 갈 때. */
+  /** 부품 탭으로 옮겨 편집기를 연다 — 변수를 만들러 갈 때. */
   onEditRecipe?: () => void
 }) {
   const studies = useResource(() => doeApi.list({ workId }), [workId])
@@ -88,7 +88,7 @@ export function WorkDoeTab({
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <p className="text-muted-foreground text-sm">
-          치수에 범위를 주면 형상을 여러 벌 만들어 **공유 폴더**에 STEP 으로 쏟습니다 — 해석으로 넘길 묶음입니다.
+          변수에 범위를 주면 형상을 여러 벌 만들어 **공유 폴더**에 STEP 으로 쏟습니다 — 해석으로 넘길 묶음입니다.
         </p>
         <Button className="ml-auto" onClick={() => setStarting(true)} disabled={!work.current}>
           새 실험계획
@@ -98,11 +98,11 @@ export function WorkDoeTab({
       {rows.length === 0 ? (
         <EmptyState
           title="아직 없습니다"
-          hint="「새 실험계획」 을 누르고 바꿀 치수를 고르세요. 레시피에 이름 붙인 치수가 먼저 있어야 합니다."
+          hint="「새 실험계획」 을 누르고 바꿀 변수를 고르세요. 레시피에 변수가 먼저 있어야 합니다."
           action={
             Object.keys((work.current?.recipe.params ?? {}) as Record<string, number>).length === 0 && onEditRecipe ? (
               <Button variant="outline" onClick={onEditRecipe}>
-                레시피에 치수 만들러 가기
+                레시피에 변수 만들러 가기
               </Button>
             ) : undefined
           }

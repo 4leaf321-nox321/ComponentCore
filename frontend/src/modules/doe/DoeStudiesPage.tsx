@@ -24,13 +24,13 @@ export default function DoeStudiesPage() {
     <div>
       <PageHeader
         title="실험계획 (DOE)"
-        description="치수 범위에서 형상을 여러 벌 만들어 공유 폴더에 쏟아 놓습니다. 해석(ANSYS)은 그 폴더를 읽습니다."
+        description="변수 범위에서 형상을 여러 벌 만들어 공유 폴더에 쏟아 놓습니다. 해석(ANSYS)은 그 폴더를 읽습니다."
       />
       <ErrorNotice error={page.error} className="mb-4" />
       {rows.length === 0 && !page.loading ? (
         <EmptyState
           title="아직 실험계획이 없습니다"
-          hint="내 작업의 「실험계획」 탭에서 치수에 범위를 주면 시작합니다. 레시피에 이름 붙인 치수가 먼저 있어야 합니다."
+          hint="내 작업의 「실험계획」 탭에서 변수에 범위를 주면 시작합니다. 레시피에 변수가 먼저 있어야 합니다."
         />
       ) : (
         <>

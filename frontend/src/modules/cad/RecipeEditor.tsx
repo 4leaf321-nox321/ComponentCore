@@ -746,8 +746,20 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                 <DialogDescription>{OP_BY_NAME[selected.op]?.help}</DialogDescription>
               </DialogHeader>
               <div className="space-y-4">
-                {selected.op === 'sketch' && <SketchCanvas shapes={(selected.shapes as SketchShape[]) ?? []} onChange={(shapes) => updateNode({ ...selected, shapes })} />}
-                <NodeForm node={selected} nodes={nodes} onChange={updateNode} onPickFaces={pickFacesFor} />
+                {selected.op === 'sketch' && (
+                  <SketchCanvas
+                    shapes={(selected.shapes as SketchShape[]) ?? []}
+                    params={(value.params ?? {}) as Record<string, number>}
+                    onChange={(shapes) => updateNode({ ...selected, shapes })}
+                  />
+                )}
+                <NodeForm
+                  node={selected}
+                  nodes={nodes}
+                  params={(value.params ?? {}) as Record<string, number>}
+                  onChange={updateNode}
+                  onPickFaces={pickFacesFor}
+                />
                 {edgePicking && <p className="text-muted-foreground text-xs">엣지는 3D 에서 고릅니다 — 이 창을 닫고 3D 의 엣지를 누르세요. 고른 것은 남습니다.</p>}
               </div>
               <DialogFooter className="sm:justify-between">

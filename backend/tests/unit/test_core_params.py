@@ -144,3 +144,37 @@ def test_한글_이름을_쓴다() -> None:
             parse(
                 {"nodes": [{"id": bad, "op": "box", "length": 10, "width": 10, "height": 10}]}
             )
+
+
+def test_스케치_그림의_치수도_변수로_쓴다() -> None:
+    """피처 칸만 되고 그림은 안 되면 「그림은 변수화가 안 되네」 가 된다 — 어느 칸이든 된다."""
+
+    def plate(width: float) -> dict[str, object]:
+        return {
+            "params": {"판_폭": width, "구멍": 6},
+            "nodes": [
+                {
+                    "id": "s",
+                    "op": "sketch",
+                    "shapes": [
+                        {"type": "rect", "width": "=판_폭", "height": "=판_폭 * 0.6"},
+                        {
+                            "type": "circle",
+                            "radius": "=구멍 / 2",
+                            "at": ["=판_폭 / 2 - 10", 0],
+                            "mode": "cut",
+                        },
+                    ],
+                },
+                {"id": "e", "op": "extrude", "sketch": "s", "distance": 5},
+            ],
+        }
+
+    small = evaluate(parse(plate(80))).summary()
+    big = evaluate(parse(plate(120))).summary()
+    assert small["bbox"]["size"] == (80.0, 48.0, 5.0)
+    assert big["bbox"]["size"] == (120.0, 72.0, 5.0)
+    # 구멍도 변수를 따라 옮겨 갔다 — 두 판의 부피 차이가 사각형 차이와 같다.
+    assert big["volume"] - small["volume"] == pytest.approx(
+        120 * 72 * 5 - 80 * 48 * 5, rel=1e-6
+    )

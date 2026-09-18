@@ -8,6 +8,8 @@
 import { useMemo, useRef, useState } from 'react'
 import type { PointerEvent } from 'react'
 
+import { evalNumber } from '@/modules/cad/expr'
+import { NumberField } from '@/modules/cad/NumberField'
 import { SHAPE_TYPES, defaultShape } from '@/modules/cad/recipeSpec'
 import { Button } from '@/shared/components/ui/button'
 import { Input } from '@/shared/components/ui/input'
@@ -20,7 +22,25 @@ import {
   SelectValue,
 } from '@/shared/components/ui/select'
 
-export type SketchShape = Record<string, unknown> & { type: string; at?: number[]; mode?: string; rotation?: number }
+export type SketchShape = Record<string, unknown> & {
+  type: string
+  /** 숫자이거나 **변수 식**(`"=두께 * 2"`)이다 — 서버가 푼다. 캔버스는 미리보기로 푼다. */
+  at?: (number | string)[]
+  mode?: string
+  rotation?: number | string
+}
+
+/**
+ * 그리는 동안 쓰는 변수 값. 캔버스의 그리기 함수는 순수 함수라 인자로 끌고 다니면 모든 줄이
+ * 지저분해진다 — 그려 주기 직전에 한 번 담고, 값을 읽을 때 `n()` 으로 푼다.
+ */
+let drawParams: Record<string, number> = {}
+
+/** 칸 값을 숫자로 — 식이면 변수로 푼다. 못 풀면 0(도형이 사라지는 것보다 낫다). */
+function n(value: unknown, fallback = 0): number {
+  const got = evalNumber(value, drawParams)
+  return Number.isFinite(got) ? got : fallback
+}
 
 const W = 560
 const H = 400
@@ -30,14 +50,14 @@ function extent(shapes: SketchShape[]): number {
   for (const s of shapes) {
     const [x, y] = (s.at as number[]) ?? [0, 0]
     const size = Math.max(
-      Number(s.width ?? 0),
-      Number(s.height ?? 0),
-      Number(s.length ?? 0),
-      Number(s.radius ?? 0) * 2,
-      Number(s.x_radius ?? 0) * 2,
-      s.type === 'triangle' ? Math.max(Number(s.a ?? 0), Number(s.b ?? 0), Number(s.c ?? 0)) * 2 : 0,
-      Number(s.y_radius ?? 0) * 2,
-      s.type === 'text' ? String(s.text ?? '').length * Number(s.size ?? 0) * 0.7 : 0,
+      n(s.width ?? 0),
+      n(s.height ?? 0),
+      n(s.length ?? 0),
+      n(s.radius ?? 0) * 2,
+      n(s.x_radius ?? 0) * 2,
+      s.type === 'triangle' ? Math.max(n(s.a ?? 0), n(s.b ?? 0), n(s.c ?? 0)) * 2 : 0,
+      n(s.y_radius ?? 0) * 2,
+      s.type === 'text' ? String(s.text ?? '').length * n(s.size, 0) * 0.7 : 0,
       ...(((s.points as number[][]) ?? []).flat().map((v) => Math.abs(v) * 2)),
       ...polylinePoints(s).flat().map((v) => Math.abs(v) * 2),
     )
@@ -185,7 +205,7 @@ function polylinePath(s: SketchShape, close = true): string {
 
 function ShapeSvg({ shape, selected, onPointerDown }: { shape: SketchShape; selected: boolean; onPointerDown: (e: PointerEvent) => void }) {
   const [x, y] = (shape.at as number[]) ?? [0, 0]
-  const rot = Number(shape.rotation ?? 0)
+  const rot = n(shape.rotation ?? 0)
   const cut = shape.mode === 'cut'
   const common = {
     fill: cut ? 'rgba(239,68,68,0.15)' : 'rgba(59,130,246,0.2)',
@@ -199,21 +219,21 @@ function ShapeSvg({ shape, selected, onPointerDown }: { shape: SketchShape; sele
   const transform = `translate(${x} ${y}) rotate(${rot})`
   switch (shape.type) {
     case 'circle':
-      return <circle cx={x} cy={y} r={Number(shape.radius)} {...common} />
+      return <circle cx={x} cy={y} r={n(shape.radius)} {...common} />
     case 'rect': {
-      const w = Number(shape.width), h = Number(shape.height)
+      const w = n(shape.width), h = n(shape.height)
       return <rect x={-w / 2} y={-h / 2} width={w} height={h} transform={transform} {...common} />
     }
     case 'slot': {
-      const w = Number(shape.width)
+      const w = n(shape.width)
       // 중심 사이 기준이면 양 끝 반원이 더 붙는다 — 서버(SlotCenterToCenter)와 같게.
-      const l = Number(shape.length) + (shape.measure === 'centers' ? w : 0)
+      const l = n(shape.length) + (shape.measure === 'centers' ? w : 0)
       return <rect x={-l / 2} y={-w / 2} width={l} height={w} rx={w / 2} transform={transform} {...common} />
     }
     case 'regular_polygon': {
-      const r = Number(shape.radius), n = Number(shape.sides)
-      const pts = Array.from({ length: n }, (_, i) => {
-        const a = (Math.PI * 2 * i) / n
+      const r = n(shape.radius), sides = n(shape.sides)
+      const pts = Array.from({ length: sides }, (_, i) => {
+        const a = (Math.PI * 2 * i) / sides
         return `${(r * Math.cos(a)).toFixed(3)},${(r * Math.sin(a)).toFixed(3)}`
       }).join(' ')
       return <polygon points={pts} transform={transform} {...common} />
@@ -233,7 +253,7 @@ function ShapeSvg({ shape, selected, onPointerDown }: { shape: SketchShape; sele
           {...common}
           fill="none"
           stroke={common.fill}
-          strokeWidth={Number(shape.width)}
+          strokeWidth={n(shape.width)}
           strokeLinecap="round"
           strokeLinejoin={shape.corners === 'sharp' ? 'miter' : 'round'}
           vectorEffect={undefined}
@@ -241,10 +261,10 @@ function ShapeSvg({ shape, selected, onPointerDown }: { shape: SketchShape; sele
         />
       )
     case 'ellipse':
-      return <ellipse rx={Number(shape.x_radius)} ry={Number(shape.y_radius)} transform={transform} {...common} />
+      return <ellipse rx={n(shape.x_radius)} ry={n(shape.y_radius)} transform={transform} {...common} />
     case 'rounded_rect': {
-      const w = Number(shape.width), h = Number(shape.height)
-      return <rect x={-w / 2} y={-h / 2} width={w} height={h} rx={Number(shape.radius)} transform={transform} {...common} />
+      const w = n(shape.width), h = n(shape.height)
+      return <rect x={-w / 2} y={-h / 2} width={w} height={h} rx={n(shape.radius)} transform={transform} {...common} />
     }
     case 'triangle': {
       const pts = solveTriangle(shape)
@@ -253,9 +273,9 @@ function ShapeSvg({ shape, selected, onPointerDown }: { shape: SketchShape; sele
     }
     case 'trapezoid': {
       // 밑변이 width, 빗변 각도만큼 윗변이 좁아진다 — 서버(Trapezoid)와 같은 규칙.
-      const w = Number(shape.width), h = Number(shape.height)
-      const left = (Number(shape.left_angle ?? 75) * Math.PI) / 180
-      const right = ((Number(shape.right_angle ?? shape.left_angle ?? 75)) * Math.PI) / 180
+      const w = n(shape.width), h = n(shape.height)
+      const left = (n(shape.left_angle ?? 75) * Math.PI) / 180
+      const right = ((n(shape.right_angle ?? shape.left_angle ?? 75)) * Math.PI) / 180
       const dl = h / Math.tan(left), dr = h / Math.tan(right)
       const pts = [
         [-w / 2, -h / 2],
@@ -267,7 +287,7 @@ function ShapeSvg({ shape, selected, onPointerDown }: { shape: SketchShape; sele
     }
     case 'text': {
       // 바깥 <g> 가 y 를 뒤집으니 글자는 다시 뒤집는다. 실제 글꼴 모양은 서버가 정한다 — 자리만.
-      const size = Number(shape.size)
+      const size = n(shape.size)
       return (
         <text
           transform={`${transform} scale(1 -1)`}
@@ -291,10 +311,15 @@ function ShapeSvg({ shape, selected, onPointerDown }: { shape: SketchShape; sele
 export function SketchCanvas({
   shapes,
   onChange,
+  params = {},
 }: {
   shapes: SketchShape[]
   onChange: (next: SketchShape[]) => void
+  /** 레시피의 변수 — 그림의 치수에 `=이름` 을 쓸 수 있게. */
+  params?: Record<string, number>
 }) {
+  // 그리기 함수들이 읽는 자리에 지금 값을 담는다(그려 주기 직전, 렌더마다).
+  drawParams = params
   const [selected, setSelected] = useState<number | null>(shapes.length ? 0 : null)
   const [tool, setTool] = useState<string>('select')
   /** 임의 윤곽을 찍는 중 — 찍은 점들(스케치 좌표). 두 번 누르거나 「닫기」 로 끝난다. */
@@ -452,6 +477,7 @@ export function SketchCanvas({
       <div className="space-y-2">
         {current ? (
           <ShapeForm
+            params={params}
             shape={current}
             onChange={(patch) => update(selected!, patch)}
             onDelete={() => {
@@ -468,7 +494,7 @@ export function SketchCanvas({
             }}
           />
         ) : (
-          <p className="text-muted-foreground text-sm">도형을 누르면 치수를 고칠 수 있습니다. 순서가 곧 더하고 빼는 순서입니다.</p>
+          <p className="text-muted-foreground text-sm">도형을 누르면 치수를 고칩니다 — 칸의 <b>fx</b> 로 변수(<code>=두께</code>)도 쓸 수 있습니다. 순서가 곧 더하고 빼는 순서입니다.</p>
         )}
       </div>
     </div>
@@ -480,21 +506,30 @@ function ShapeForm({
   onChange,
   onDelete,
   onMove,
+  params,
 }: {
   shape: SketchShape
+  params: Record<string, number>
   onChange: (patch: Record<string, unknown>) => void
   onDelete: () => void
   onMove: (dir: -1 | 1) => void
 }) {
+  // 그림의 치수도 **변수로 쓸 수 있다** — 피처 폼과 같은 칸을 쓴다.
   const numberField = (key: string, label: string, step = 0.5) => (
     <div key={key} className="space-y-1">
       <Label htmlFor={`shape-${key}`} className="text-xs">
         {label}
       </Label>
-      <Input id={`shape-${key}`} type="number" step={step} value={String(shape[key] ?? '')} onChange={(e) => onChange({ [key]: Number(e.target.value) })} className="h-8" />
+      <NumberField
+        id={`shape-${key}`}
+        params={params}
+        step={step}
+        value={shape[key]}
+        onChange={(v) => onChange({ [key]: v })}
+      />
     </div>
   )
-  const at = (shape.at as number[]) ?? [0, 0]
+  const at = (shape.at as (number | string)[]) ?? [0, 0]
   return (
     <div className="space-y-2 rounded-md border p-3">
       <div className="flex items-center justify-between">
@@ -512,11 +547,11 @@ function ShapeForm({
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
           <Label className="text-xs">X</Label>
-          <Input type="number" step={0.5} value={String(at[0])} onChange={(e) => onChange({ at: [Number(e.target.value), at[1]] })} className="h-8" />
+          <NumberField params={params} value={at[0]} aria-label="도형 X" onChange={(v) => onChange({ at: [v ?? 0, at[1]] })} />
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Y</Label>
-          <Input type="number" step={0.5} value={String(at[1])} onChange={(e) => onChange({ at: [at[0], Number(e.target.value)] })} className="h-8" />
+          <NumberField params={params} value={at[1]} aria-label="도형 Y" onChange={(v) => onChange({ at: [at[0], v ?? 0] })} />
         </div>
         {shape.type === 'rect' && (
           <>

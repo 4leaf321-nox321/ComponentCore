@@ -9,70 +9,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/shared/components/ui/select'
+import { NumberField } from '@/modules/cad/NumberField'
 import { OP_BY_NAME, PLANE_OPTIONS, nodeKind } from '@/modules/cad/recipeSpec'
 import type { FieldSpec, RecipeNode } from '@/modules/cad/recipeSpec'
 
 /** 비워도 되는 숫자 칸 — 비우면 null(관통 · 표에서 채움). */
 const NULLABLE = new Set(['depth', 'diameter', 'counter_diameter', 'counter_depth'])
 
-function num(value: unknown): string {
-  return value === null || value === undefined ? '' : String(value)
-}
-
-/**
- * 숫자 칸. **치수 식**(`=판_길이 / 2`)도 받는다 — `fx` 를 누르면 글자 칸이 되고, 거기 쓴 식은
- * 서버가 `params` 로 푼다. 치수 하나를 고치면 그것을 쓰는 칸이 모두 따라오는 길이다.
- */
-function NumberInput({
-  value,
-  onChange,
-  step = 0.5,
-  nullable = false,
-  id,
-}: {
-  value: unknown
-  onChange: (next: number | string | null) => void
-  step?: number
-  nullable?: boolean
-  id?: string
-}) {
-  const expression = typeof value === 'string' && value.startsWith('=')
-  return (
-    <div className="flex items-center gap-1">
-      {expression ? (
-        <Input
-          id={id}
-          value={String(value)}
-          onChange={(event) => onChange(event.target.value)}
-          className="h-8 font-mono text-xs"
-          placeholder="=판_길이 / 2"
-        />
-      ) : (
-        <Input
-          id={id}
-          type="number"
-          step={step}
-          value={num(value)}
-          onChange={(event) => {
-            const raw = event.target.value
-            if (raw === '') onChange(nullable ? null : 0)
-            else onChange(Number(raw))
-          }}
-          className="h-8"
-        />
-      )}
-      <button
-        type="button"
-        aria-label={expression ? '숫자로' : '치수 식으로'}
-        title={expression ? '숫자로 되돌리기' : '치수 식으로 — 「=판_길이 / 2」 처럼'}
-        onClick={() => onChange(expression ? 0 : '=')}
-        className={`h-8 shrink-0 rounded-md border px-2 font-mono text-xs ${expression ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-accent'}`}
-      >
-        fx
-      </button>
-    </div>
-  )
-}
 
 /** 치수를 어느 자리에 맞출까 — 축마다 「작은 쪽 · 가운데 · 큰 쪽」. 한쪽을 고정하고 늘릴 때. */
 const ALIGN_NAMES = ['min', 'center', 'max'] as const
@@ -111,14 +54,20 @@ function AlignInput({ value, size, onChange }: { value: unknown; size: 2 | 3; on
   )
 }
 
+function NumberInput(props: Parameters<typeof NumberField>[0]) {
+  return <NumberField {...props} />
+}
+
 function VectorInput({
   value,
   size,
   onChange,
+  params,
 }: {
   value: unknown
   size: 2 | 3
-  /** 치수 식(`"=L - 15"`)이 섞일 수 있다 — 자리도 매개변수로 잡는다. */
+  params?: Record<string, number>
+  /** 변수 식(`"=L - 15"`)이 섞일 수 있다 — 자리도 변수로 잡는다. */
   onChange: (next: (number | string)[]) => void
 }) {
   const current = Array.isArray(value) ? (value as (number | string)[]) : Array(size).fill(0)
@@ -129,6 +78,7 @@ function VectorInput({
         <div key={i} className="flex items-center gap-1">
           <span className="text-muted-foreground w-3 text-xs">{labels[i]}</span>
           <NumberInput
+            params={params}
             value={current[i] ?? 0}
             onChange={(v) => {
               const next = [...current]
@@ -175,6 +125,7 @@ export function NodeForm({
   nodes,
   onChange,
   onPickFaces,
+  params,
 }: {
   node: RecipeNode
   /** 레시피 전체 — 이 피처보다 **앞의** 것만 참조 후보가 된다. */
@@ -182,6 +133,8 @@ export function NodeForm({
   onChange: (next: RecipeNode) => void
   /** 3D 에서 면을 고르게 한다(쉘의 open · 구멍의 plane). 편집기가 모달을 닫고 3D 를 넘긴다. */
   onPickFaces?: (fieldKey: string) => void
+  /** 레시피의 변수 — 칸에 쓴 식의 **지금 값**을 옆에 보여 준다. */
+  params?: Record<string, number>
 }) {
   const spec = OP_BY_NAME[node.op]
   const index = nodes.findIndex((n) => n.id === node.id)
@@ -223,6 +176,7 @@ export function NodeForm({
             {field.kind === 'number' && (
               <NumberInput
                 id={`node-${field.key}`}
+                params={params}
                 value={node[field.key]}
                 step={field.step}
                 nullable={NULLABLE.has(field.key)}
@@ -285,8 +239,8 @@ export function NodeForm({
                 </SelectContent>
               </Select>
             )}
-            {field.kind === 'xy' && <VectorInput value={node[field.key]} size={2} onChange={(v) => set(field.key, v)} />}
-            {field.kind === 'xyz' && <VectorInput value={node[field.key]} size={3} onChange={(v) => set(field.key, v)} />}
+            {field.kind === 'xy' && <VectorInput params={params} value={node[field.key]} size={2} onChange={(v) => set(field.key, v)} />}
+            {field.kind === 'xyz' && <VectorInput params={params} value={node[field.key]} size={3} onChange={(v) => set(field.key, v)} />}
             {field.kind === 'ref' && (
               <RefSelect
                 value={String(node[field.key] ?? '')}
@@ -321,6 +275,7 @@ export function NodeForm({
                 {(((node[field.key] as (number | string)[][]) ?? []) as (number | string)[][]).map((point, i) => (
                   <div key={i} className="flex items-center gap-1">
                     <VectorInput
+                      params={params}
                       value={point}
                       size={field.kind === 'points3' ? 3 : 2}
                       onChange={(v) => {
