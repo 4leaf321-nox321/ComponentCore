@@ -25,11 +25,14 @@ export function DoeForm({
   workId,
   defaultName,
   onCreated,
+  onEditRecipe,
 }: {
   recipe: Recipe
   workId?: string
   defaultName?: string
   onCreated: (id: string) => void
+  /** 「치수가 없다」 일 때 편집기로 보내 준다 — 글로만 알려 주면 못 찾는다. */
+  onEditRecipe?: () => void
 }) {
   const params = Object.entries((recipe.params ?? {}) as Record<string, number>)
   const [name, setName] = useState(defaultName ?? '')
@@ -93,8 +96,24 @@ export function DoeForm({
 
   if (params.length === 0) {
     return (
-      <div className="text-muted-foreground rounded-md border border-dashed p-4 text-sm">
-        이 레시피에는 이름 붙인 치수가 없습니다. 편집기 왼쪽 「치수」 에서 「판_길이」 같은 이름을 두고 칸에 「=판_길이」 로 쓰면, 그 치수를 여기서 훑을 수 있습니다.
+      <div className="space-y-3 rounded-md border border-dashed p-4 text-sm">
+        <p className="font-medium">먼저 레시피에 「치수」 를 만들어야 합니다.</p>
+        <p className="text-muted-foreground">DOE 는 **이름 붙인 치수**만 훑습니다. 이름이 없으면 무엇을 바꿔야 할지 알 수 없습니다.</p>
+        <ol className="text-muted-foreground list-inside list-decimal space-y-1 text-xs">
+          <li>「레시피 고치기」 를 눌러 편집기를 엽니다.</li>
+          <li>
+            왼쪽 위 <b>치수</b> 상자의 <b>+</b> 로 이름을 만듭니다 — 예: <code>두께</code>, 값 6.
+          </li>
+          <li>
+            바꿀 피처를 눌러 열고, 그 숫자 칸의 <b>fx</b> 를 누른 뒤 <code>=두께</code> 라고 씁니다.
+          </li>
+          <li>「새 버전으로」 저장하면 여기서 그 치수를 훑을 수 있습니다.</li>
+        </ol>
+        {onEditRecipe && (
+          <Button size="sm" onClick={onEditRecipe}>
+            레시피 고치러 가기
+          </Button>
+        )}
       </div>
     )
   }

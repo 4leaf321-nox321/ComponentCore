@@ -46,3 +46,13 @@ test('치수를 더하고 지운다', () => {
   fireEvent.click(screen.getByLabelText('치수 두께 지우기'))
   expect(JSON.parse(screen.getByTestId('json').textContent!).params).toEqual({ 판_길이: 80 })
 })
+
+test('치수가 어느 칸에서 쓰이는지 세어 보여 준다 — 안 쓰이면 그렇게 말한다', () => {
+  render(<Host />)
+  // 판_길이 는 box.length 와 hole.at 두 칸에서 쓴다.
+  expect(screen.getByTitle('2 칸에서 씁니다')).toBeInTheDocument()
+  fireEvent.click(screen.getByLabelText('치수 더하기'))
+  fireEvent.change(screen.getByLabelText('새 치수 이름'), { target: { value: '안쓰는것' } })
+  fireEvent.submit(screen.getByLabelText('새 치수 이름').closest('form')!)
+  expect(screen.getByText('안 쓰임')).toBeInTheDocument()
+})

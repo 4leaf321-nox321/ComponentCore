@@ -16,6 +16,11 @@ import { Input } from '@/shared/components/ui/input'
 export function ParamsPanel({ value, onChange }: { value: Recipe; onChange: (next: Recipe) => void }) {
   const params = (value.params ?? {}) as Record<string, number>
   const names = Object.keys(params)
+  // **어디에 쓰였는지 세어 보여 준다.** 「치수를 만들었는데 아무 데도 안 쓴」 상태가 제일 헷갈린다 —
+  // 그러면 DOE 를 돌려도 형상이 하나도 안 바뀐다.
+  const recipeText = JSON.stringify(value.nodes)
+  const usage = (name: string) =>
+    (recipeText.match(new RegExp(`"=[^"]*(?<![\\w])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w])[^"]*"`, 'g')) ?? []).length
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
 
@@ -41,14 +46,14 @@ export function ParamsPanel({ value, onChange }: { value: Recipe; onChange: (nex
       <div className="mb-1 flex items-center gap-1">
         <Ruler className="text-muted-foreground size-3.5" />
         <span className="text-xs font-medium">치수</span>
-        <span className="text-muted-foreground truncate text-[11px]">칸에 「=이름」 으로 씁니다</span>
+        <span className="text-muted-foreground truncate text-[11px]">칸의 fx 를 눌러 「=이름」</span>
         <Button size="sm" variant="ghost" className="ml-auto h-6 px-1" onClick={() => setAdding(true)} aria-label="치수 더하기">
           <Plus className="size-3.5" />
         </Button>
       </div>
       {names.length === 0 && !adding && (
         <p className="text-muted-foreground text-[11px]">
-          없습니다. 「판_길이」 처럼 이름을 두면 한 값만 고쳐 모델이 따라옵니다.
+          없습니다. <b>+</b> 를 눌러 「판_길이」 처럼 이름을 두고, 피처의 숫자 칸에서 <b>fx</b> 를 눌러 <code>=판_길이</code> 라고 쓰면 그 값 하나로 모델이 따라옵니다.
         </p>
       )}
       <ul className="space-y-1">
@@ -68,6 +73,12 @@ export function ParamsPanel({ value, onChange }: { value: Recipe; onChange: (nex
               className="h-7 w-24"
               aria-label={`치수 ${key}`}
             />
+            <span
+              className={`w-14 shrink-0 text-right text-[10px] ${usage(key) === 0 ? 'text-destructive' : 'text-muted-foreground'}`}
+              title={usage(key) === 0 ? '아무 칸에서도 안 씁니다 — fx 로 =이름 을 넣으세요' : `${usage(key)} 칸에서 씁니다`}
+            >
+              {usage(key) === 0 ? '안 쓰임' : `${usage(key)} 칸`}
+            </span>
             <button
               type="button"
               className="text-muted-foreground hover:text-destructive rounded p-1"

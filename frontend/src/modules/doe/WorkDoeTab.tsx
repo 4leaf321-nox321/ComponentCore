@@ -19,7 +19,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
-export function WorkDoeTab({ workId, work }: { workId: string; work: Work }) {
+export function WorkDoeTab({
+  workId,
+  work,
+  onEditRecipe,
+}: {
+  workId: string
+  work: Work
+  /** 부품 탭으로 옮겨 편집기를 연다 — 치수를 만들러 갈 때. */
+  onEditRecipe?: () => void
+}) {
   const studies = useResource(() => doeApi.list({ workId }), [workId])
   const [openId, setOpenId] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
@@ -59,6 +68,7 @@ export function WorkDoeTab({ workId, work }: { workId: string; work: Work }) {
               recipe={work.current.recipe}
               workId={workId}
               defaultName={`${work.name} 훑기`}
+              onEditRecipe={onEditRecipe}
               onCreated={(id) => {
                 setStarting(false)
                 setOpenId(id)
@@ -86,7 +96,17 @@ export function WorkDoeTab({ workId, work }: { workId: string; work: Work }) {
       </div>
       <ErrorNotice error={studies.error} />
       {rows.length === 0 ? (
-        <EmptyState title="아직 없습니다" hint="「새 실험계획」 을 누르고 바꿀 치수를 고르세요. 레시피에 이름 붙인 치수가 먼저 있어야 합니다." />
+        <EmptyState
+          title="아직 없습니다"
+          hint="「새 실험계획」 을 누르고 바꿀 치수를 고르세요. 레시피에 이름 붙인 치수가 먼저 있어야 합니다."
+          action={
+            Object.keys((work.current?.recipe.params ?? {}) as Record<string, number>).length === 0 && onEditRecipe ? (
+              <Button variant="outline" onClick={onEditRecipe}>
+                레시피에 치수 만들러 가기
+              </Button>
+            ) : undefined
+          }
+        />
       ) : (
         <ul className="space-y-1">
           {rows.map((one) => (

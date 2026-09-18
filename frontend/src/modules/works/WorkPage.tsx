@@ -434,7 +434,14 @@ export default function WorkPage() {
 
         {/* ---------------- 실험계획 ---------------- */}
         <TabsContent value="doe" className="space-y-4 pt-4">
-          <WorkDoeTab workId={id} work={w} />
+          <WorkDoeTab
+            workId={id}
+            work={w}
+            onEditRecipe={() => {
+              setTab('geometry')
+              startEditing()
+            }}
+          />
         </TabsContent>
       </Tabs>
 
