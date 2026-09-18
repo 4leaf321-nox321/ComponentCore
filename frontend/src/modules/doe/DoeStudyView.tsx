@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react'
 import { doeApi } from '@/modules/doe/api'
 import type { Condition, DoeStudy } from '@/modules/doe/api'
 import { isFinished } from '@/modules/jobs/api'
+import { TradeoffPanel } from '@/modules/doe/TradeoffPanel'
 import { useJobPolling } from '@/modules/jobs/useJobPolling'
 import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
@@ -165,6 +166,8 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
         </Button>
         <span className="text-muted-foreground text-xs">값이 없는 점(실패)은 조건을 만족한 것으로 세지 않습니다.</span>
       </div>
+
+      {study.done > 1 && <TradeoffPanel study={study} />}
 
       <Table>
         <TableHeader>

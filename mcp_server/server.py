@@ -440,6 +440,19 @@ async def doe_points(ctx: Context, study_id: str) -> Any:
 
 
 @mcp.tool()
+async def doe_tradeoff(ctx: Context, study_id: str, objectives: list[dict[str, Any]]) -> Any:
+    """맞서는 목표에서 **아무한테도 지지 않는 점**(파레토)을 가린다.
+
+    목표 하나는 `{"key": "mass_g", "goal": "min"}` 또는 `{"key": "hz", "goal": "target",
+    "target": 440}` — `key` 는 설계점의 metrics 이름(mass_g · volume_mm3 · size_x · izz …).
+
+    **가중치로 한 값을 만들지 않는다.** 「무게 0.3, 공진 0.7」 같은 수를 네가 정하면 답이 그
+    수의 것이 된다. 지지 않는 점들을 내놓고 **고르는 것은 사람에게 맡긴다** — 표를 보여 주고
+    무엇을 더 중히 보는지 물어라."""
+    return await _post(ctx, f"/api/doe/{study_id}/tradeoff", objectives)
+
+
+@mcp.tool()
 async def doe_studies(ctx: Context, work_id: str | None = None, limit: int = 20) -> Any:
     """실험계획 목록 — 무엇을 언제 훑었나."""
     query: dict[str, Any] = {"limit": limit}

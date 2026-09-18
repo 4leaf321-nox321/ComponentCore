@@ -3359,6 +3359,67 @@
         }
       }
     },
+    "/api/doe/{study_id}/tradeoff": {
+      "post": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Tradeoff",
+        "description": "맞서는 목표에서 **아무한테도 지지 않는 점**(파레토)을 가린다.\n\n목표 하나는 `{\"key\": \"mass_g\", \"goal\": \"min\"}` 또는 `{\"key\": \"hz\", \"goal\": \"target\",\n\"target\": 440}`. 가중치로 한 값을 만들지 않는다 — 고르는 것은 사람의 몫이다.",
+        "operationId": "tradeoff_api_doe__study_id__tradeoff_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "title": "Objectives"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Tradeoff Api Doe  Study Id  Tradeoff Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/server/status": {
       "get": {
         "tags": [

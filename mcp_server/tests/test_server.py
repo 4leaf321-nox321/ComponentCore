@@ -52,6 +52,7 @@ def test_사람이_손으로_하는_일이_도구로_다_있다() -> None:
         "doe_preview",  # 형상 여러 벌
         "doe_create",
         "doe_points",
+        "doe_tradeoff",  # 목표가 맞설 때
     }
     assert needed <= tools, f"빠진 도구: {sorted(needed - tools)}"
 

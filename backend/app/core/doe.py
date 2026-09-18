@@ -231,3 +231,110 @@ def _as_number(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return None if math.isnan(number) else number
+
+
+# --- 맞서는 목표 고르기 -----------------------------------------------------------
+
+#: 목표의 방향 — 작을수록 · 클수록 · 목표값에 가까울수록.
+GOALS = ("min", "max", "target")
+
+
+class Objective:
+    """무엇을 어느 쪽으로 좋게 볼 것인가.
+
+    지그에서는 목표가 늘 맞선다: 두께를 키우면 공진은 올라가지만 질량이 는다. **한 값으로
+    합치지 않는다** — 가중치를 묻는 순간 답이 그 가중치의 것이 되고, 사람은 자기가 무엇을
+    골랐는지 모르게 된다. 대신 **아무한테도 지지 않는 점**(파레토)만 남겨 준다.
+    """
+
+    __slots__ = ("goal", "key", "target")
+
+    def __init__(self, key: str, goal: str = "min", target: float | None = None) -> None:
+        if goal not in GOALS:
+            raise DoeError(f"'{key}': 목표는 {' · '.join(GOALS)} 중 하나입니다")
+        if goal == "target" and target is None:
+            raise DoeError(f"'{key}': 「목표값에 가깝게」 는 목표값이 있어야 합니다")
+        self.key = key
+        self.goal = goal
+        self.target = target
+
+    def cost(self, value: float) -> float:
+        """**작을수록 좋은 값**으로 바꾼다 — 방향이 섞이면 견줄 수 없다."""
+        if self.goal == "max":
+            return -value
+        if self.goal == "target":
+            assert self.target is not None
+            return abs(value - self.target)
+        return value
+
+
+def parse_objectives(raw: list[dict[str, Any]]) -> list[Objective]:
+    if not raw:
+        raise DoeError("목표가 없습니다 — 무엇을 좋게 볼지 하나는 고르세요")
+    if len(raw) > 4:
+        raise DoeError("목표는 넷까지입니다 — 그보다 많으면 거의 모든 점이 파레토가 됩니다")
+    return [
+        Objective(
+            key=str(one.get("key", "")),
+            goal=str(one.get("goal", "min")),
+            target=None if one.get("target") is None else float(one["target"]),
+        )
+        for one in raw
+    ]
+
+
+def _dominates(a: list[float], b: list[float]) -> bool:
+    """a 가 b 를 이긴다 = 모든 목표에서 뒤지지 않고, 적어도 하나에서 낫다."""
+    return all(x <= y for x, y in zip(a, b, strict=True)) and any(
+        x < y for x, y in zip(a, b, strict=True)
+    )
+
+
+def pareto(rows: list[dict[str, Any]], objectives: list[Objective]) -> list[dict[str, Any]]:
+    """설계점마다 **파레토인지**와 목표별 값 · 참고 점수를 붙여 돌려준다.
+
+    파레토(비열등) = 모든 목표에서 이 점보다 나은 점이 없다. 「두께 8이 두께 10보다 가볍고
+    공진도 목표에 가깝다」 면 두께 10 은 볼 필요가 없다 — 그런 점을 걸러 내는 일이다.
+
+    값이 없는 점(계산 실패)은 견줄 수 없으므로 **파레토에 들지 않는다**(빠뜨리지도 않는다 —
+    `comparable: false` 로 남는다)."""
+    costs: list[list[float] | None] = []
+    for row in rows:
+        values = [_as_number(row.get(one.key)) for one in objectives]
+        if any(value is None for value in values):
+            costs.append(None)
+        else:
+            numbers = [value for value in values if value is not None]
+            costs.append(
+                [one.cost(value) for one, value in zip(objectives, numbers, strict=True)]
+            )
+
+    # 점수(참고용) — 목표마다 0~1 로 펴서 더한다. 순위를 **정하는** 값이 아니라 훑는 값이다.
+    spans: list[tuple[float, float]] = []
+    for index in range(len(objectives)):
+        got = [cost[index] for cost in costs if cost is not None]
+        spans.append((min(got), max(got)) if got else (0.0, 0.0))
+
+    out: list[dict[str, Any]] = []
+    for row, cost in zip(rows, costs, strict=True):
+        if cost is None:
+            out.append({**row, "comparable": False, "pareto": False, "score": None})
+            continue
+        beaten = any(
+            other is not None and _dominates(other, cost)
+            for other in costs
+            if other is not cost
+        )
+        score = 0.0
+        for index, value in enumerate(cost):
+            low, high = spans[index]
+            score += 0.0 if high == low else (value - low) / (high - low)
+        out.append(
+            {
+                **row,
+                "comparable": True,
+                "pareto": not beaten,
+                "score": round(score / len(objectives), 4),
+            }
+        )
+    return out
