@@ -59,8 +59,27 @@ class Slot(_Shape):
     width: Positive
 
 
+class Segment(BaseModel):
+    """임의 윤곽의 한 구간 — 다음 점까지 직선, `via` 가 있으면 그 점을 지나는 호."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    to: XY
+    via: XY | None = None
+
+
+class PolylineShape(_Shape):
+    """임의 윤곽 — 시작점에서 구간을 이어 닫는다(마지막 점이 시작점과 다르면 직선으로 닫는다).
+    브래킷 측면 · 계단 · 플랜지처럼 사각형으로 안 되는 모양."""
+
+    type: Literal["polyline"]
+    start: XY
+    segments: list[Segment] = Field(min_length=2)
+
+
 SketchShape = Annotated[
-    Rect | CircleShape | PolygonShape | RegularPolygonShape | Slot, Field(discriminator="type")
+    Rect | CircleShape | PolygonShape | RegularPolygonShape | Slot | PolylineShape,
+    Field(discriminator="type"),
 ]
 
 PlaneName = Literal["XY", "XZ", "YZ", "YX", "ZX", "ZY"]
@@ -131,6 +150,39 @@ class CylinderNode(_Node):
     axis: Literal["X", "Y", "Z"] = "Z"
 
 
+class SphereNode(_Node):
+    op: Literal["sphere"]
+    radius: Positive
+    at: XYZ = (0.0, 0.0, 0.0)
+
+
+class ConeNode(_Node):
+    op: Literal["cone"]
+    bottom_radius: Positive
+    top_radius: float = Field(default=0.0, ge=0)
+    height: Positive
+    at: XYZ = (0.0, 0.0, 0.0)
+    """밑면 중심."""
+    axis: Literal["X", "Y", "Z"] = "Z"
+
+
+class TorusNode(_Node):
+    op: Literal["torus"]
+    major_radius: Positive
+    minor_radius: Positive
+    at: XYZ = (0.0, 0.0, 0.0)
+    axis: Literal["X", "Y", "Z"] = "Z"
+
+
+class LoftNode(_Node):
+    """두 개 이상의 스케치를 잇는 입체 — 노즐 · 손잡이 · 덕트."""
+
+    op: Literal["loft"]
+    sketches: list[str] = Field(min_length=2)
+    ruled: bool = False
+    """직선으로 잇는다(각진 전이). 끄면 매끄럽게."""
+
+
 class UnionNode(_Node):
     op: Literal["union"]
     targets: list[str] = Field(min_length=2)
@@ -174,14 +226,68 @@ class ChamferNode(_Node):
     length: Positive
 
 
+#: 미터 나사 — (탭 드릴, 여유 구멍, 카운터보어 지름, 카운터보어 깊이, 카운터싱크 지름). mm.
+THREADS: dict[str, tuple[float, float, float, float, float]] = {
+    "M3": (2.5, 3.4, 6.5, 3.4, 6.9),
+    "M4": (3.3, 4.5, 8.0, 4.6, 8.9),
+    "M5": (4.2, 5.5, 10.0, 5.7, 10.9),
+    "M6": (5.0, 6.6, 11.0, 6.8, 12.9),
+    "M8": (6.8, 9.0, 15.0, 9.0, 17.0),
+    "M10": (8.5, 11.0, 18.0, 11.0, 21.0),
+    "M12": (10.2, 13.5, 20.0, 13.0, 25.0),
+}
+
+
 class HoleNode(_Node):
+    """구멍 — 단순 · 카운터보어 · 카운터싱크 · 탭. `plane` 을 주면 그 면에서 안쪽으로, 안 주면
+    대상의 윗면(+Z)에서 아래로. `thread` 를 주면 지름을 표에서 채운다(M3~M12)."""
+
     op: Literal["hole"]
     target: str
     at: list[XY] = Field(min_length=1)
-    """XY 위치들 — 위(+Z)에서 아래로 뚫는다."""
-    diameter: Positive
+    """평면 위의 위치들(plane 을 안 주면 XY)."""
+    kind: Literal["simple", "counterbore", "countersink", "tap"] = "simple"
+    thread: str | None = None
+    """M3 · M4 · M5 · M6 · M8 · M10 · M12. 주면 diameter 와 카운터 치수를 표에서 채운다."""
+    diameter: Positive | None = None
+    """thread 가 없으면 필수. simple 은 관통 지름, tap 은 탭 드릴 지름."""
     depth: Positive | None = None
     """비우면 관통."""
+    counter_diameter: Positive | None = None
+    """카운터보어 · 카운터싱크의 큰 지름. thread 가 있으면 표에서."""
+    counter_depth: Positive | None = None
+    """카운터보어 깊이. thread 가 있으면 표에서."""
+    countersink_angle: float = Field(default=90.0, gt=0, lt=180)
+    plane: PlaneSpec | None = None
+    """어느 면에서 뚫나. 3D 에서 면을 누르면 채워진다."""
+
+    @model_validator(mode="after")
+    def _check_dimensions(self) -> HoleNode:
+        if self.thread is not None and self.thread not in THREADS:
+            raise ValueError(
+                f"thread: 모르는 나사입니다: {self.thread} (가능: {', '.join(THREADS)})"
+            )
+        if self.thread is None and self.diameter is None:
+            raise ValueError("diameter: thread 를 안 주면 지름이 필요합니다")
+        if self.kind in ("counterbore", "countersink") and self.thread is None:
+            if self.counter_diameter is None:
+                raise ValueError("counter_diameter: 카운터 지름이 필요합니다(또는 thread)")
+            if self.kind == "counterbore" and self.counter_depth is None:
+                raise ValueError("counter_depth: 카운터보어 깊이가 필요합니다(또는 thread)")
+        return self
+
+
+FaceSelect = Literal["top", "bottom", "none"] | EdgeNear
+
+
+class ShellNode(_Node):
+    """속을 비운다 — `open` 면을 뚫고 나머지를 `thickness` 두께의 껍질로."""
+
+    op: Literal["shell"]
+    target: str
+    thickness: Positive
+    open: FaceSelect = "top"
+    """뚫을 면: top · bottom · none(닫힌 속 빈 덩어리) · {"near": [[x,y,z]]}(면 중심 위치)."""
 
 
 class PatternNode(_Node):
@@ -190,10 +296,14 @@ class PatternNode(_Node):
 
     op: Literal["pattern"]
     source: str
-    kind: Literal["linear", "circular"] = "linear"
-    count: int = Field(ge=2, le=200)
+    kind: Literal["linear", "circular", "grid"] = "linear"
+    count: int = Field(ge=1, le=200)
     spacing: XYZ = (10.0, 0.0, 0.0)
-    """linear: 복사본 사이 간격 벡터."""
+    """linear: 복사본 사이 간격 벡터. grid: X 방향 간격은 이 벡터, Y 방향은 spacing_y."""
+    count_y: int = Field(default=1, ge=1, le=200)
+    """grid: Y 방향 개수."""
+    spacing_y: XYZ = (0.0, 10.0, 0.0)
+    """grid: Y 방향 간격 벡터."""
     axis: Literal["X", "Y", "Z"] = "Z"
     """circular: 회전축(원점 통과)."""
     angle: float = Field(default=360.0, gt=0, le=360)
@@ -229,12 +339,17 @@ Node = Annotated[
     | RevolveNode
     | BoxNode
     | CylinderNode
+    | SphereNode
+    | ConeNode
+    | TorusNode
+    | LoftNode
     | UnionNode
     | CutNode
     | IntersectNode
     | FilletNode
     | ChamferNode
     | HoleNode
+    | ShellNode
     | PatternNode
     | TransformNode
     | MirrorNode
@@ -280,6 +395,8 @@ class Recipe(BaseModel):
 _REFERENCE_FIELDS: dict[str, tuple[str, ...]] = {
     "extrude": ("sketch",),
     "revolve": ("sketch",),
+    "loft": ("sketches",),
+    "shell": ("target",),
     "union": ("targets",),
     "cut": ("target", "tools"),
     "intersect": ("targets",),

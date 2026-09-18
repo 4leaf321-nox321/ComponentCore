@@ -24,7 +24,8 @@ test('피처 트리를 그리고, 칸을 고치면 레시피가 바뀐다', asyn
   render(<RecipeEditor value={BOX} onChange={onChange} />)
   // 트리에 두 피처 — 이름이 있으면 이름, 없으면 연산 이름. 누르면 모달이 뜬다.
   expect(screen.getByText('바닥')).toBeInTheDocument()
-  fireEvent.click(screen.getAllByText('돌출')[0])
+  // 툴바에도 「돌출」 단추가 있으니 트리 항목은 id 로 찾는다.
+  fireEvent.click(screen.getByText('b').closest('button')!)
   const distance = screen.getByLabelText('거리 (mm)') as HTMLInputElement
   expect(distance.value).toBe('10')
   fireEvent.change(distance, { target: { value: '25' } })

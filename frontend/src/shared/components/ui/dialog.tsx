@@ -3,6 +3,7 @@
 import * as React from "react"
 import { Dialog as DialogPrimitive } from "radix-ui"
 
+import { portalContainer } from "@/shared/lib/portal"
 import { cn } from "@/shared/lib/utils"
 import { Button } from "@/shared/components/ui/button"
 import { XIcon } from "lucide-react"
@@ -22,7 +23,8 @@ function DialogTrigger({
 function DialogPortal({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Portal>) {
-  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
+  // 전체 화면 안이면 그 안에 붙인다 — body 는 화면 밖이다(shared/lib/portal).
+  return <DialogPrimitive.Portal data-slot="dialog-portal" container={portalContainer()} {...props} />
 }
 
 function DialogClose({

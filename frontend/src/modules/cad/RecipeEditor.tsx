@@ -12,6 +12,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 
 import { cadApi } from '@/modules/cad/api'
 import type { Recipe, RecipeSummary } from '@/modules/cad/api'
+import { MeasurePanel, measureMarks } from '@/modules/cad/MeasurePanel'
 import { NodeForm } from '@/modules/cad/NodeForm'
 import { OP_BY_NAME, OP_SPECS, makeNode, nodesOf, referencesOf } from '@/modules/cad/recipeSpec'
 import type { RecipeNode } from '@/modules/cad/recipeSpec'
@@ -19,7 +20,7 @@ import { SketchCanvas } from '@/modules/cad/SketchCanvas'
 import type { SketchShape } from '@/modules/cad/SketchCanvas'
 import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
-import type { MeshData, MeshEdge, MeshFace, PickMode } from '@/shared/viewer/PickViewer'
+import type { MeasurePick, MeshData, MeshEdge, MeshFace, PickMode } from '@/shared/viewer/PickViewer'
 import { Button } from '@/shared/components/ui/button'
 import {
   Dialog,
@@ -29,14 +30,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/shared/components/ui/dialog'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/shared/components/ui/dropdown-menu'
 import { Skeleton } from '@/shared/components/ui/skeleton'
 import { Textarea } from '@/shared/components/ui/textarea'
 
@@ -52,11 +45,14 @@ export function RecipeEditor({
   value,
   onChange,
   actions,
+  header,
 }: {
   value: Recipe
   onChange: (recipe: Recipe) => void
   /** 편집기 위 오른쪽 — 저장 · 내려받기 같은 단추를 호출부가 준다. */
   actions?: React.ReactNode
+  /** 툴바 왼쪽 — 템플릿 고르기 같은 것. 전체 화면에서도 함께 나온다. */
+  header?: React.ReactNode
 }) {
   const nodes = useMemo(() => nodesOf(value), [value])
   const [selectedId, setSelectedId] = useState<string | null>(nodes[nodes.length - 1]?.id ?? null)
@@ -68,6 +64,11 @@ export function RecipeEditor({
   const [summary, setSummary] = useState<RecipeSummary | null>(null)
   const [mesh, setMesh] = useState<MeshData | null>(null)
   const [pickMode, setPickMode] = useState<PickMode>('none')
+  /** 면을 골라 어디에 쓰나 — 새 스케치 · 쉘의 open · 구멍의 plane. */
+  const [faceTarget, setFaceTarget] = useState<'sketch' | 'shell-open' | 'hole-plane'>('sketch')
+  const [measures, setMeasures] = useState<MeasurePick[]>([])
+  const [fullscreen, setFullscreen] = useState(false)
+  const frame = useRef<HTMLDivElement | null>(null)
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [drawing, setDrawing] = useState(false)
   const lastDrawn = useRef<string>('')
@@ -177,7 +178,21 @@ export function RecipeEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [edgePicking])
 
-  function sketchOnFace(face: MeshFace) {
+  function onFacePicked(face: MeshFace) {
+    if (faceTarget === 'shell-open' && selected?.op === 'shell') {
+      const current = isNear(selected.open) ? (selected.open as { near: number[][] }) : { near: [] }
+      const same = (p: number[]) => Math.hypot(p[0] - face.center[0], p[1] - face.center[1], p[2] - face.center[2]) <= 0.5
+      const near = current.near.some(same) ? current.near.filter((p) => !same(p)) : [...current.near, face.center]
+      updateNode({ ...selected, open: { near, tolerance: 1 } })
+      return
+    }
+    if (faceTarget === 'hole-plane' && selected?.op === 'hole') {
+      updateNode({ ...selected, plane: { name: 'XY', origin: face.center, normal: face.normal } })
+      setPickMode('none')
+      setFaceTarget('sketch')
+      setEditing(true)
+      return
+    }
     const made = makeNode('sketch', nodes)
     made.label = '면 위 스케치'
     made.plane = { name: 'XY', origin: face.center, normal: face.normal }
@@ -185,6 +200,33 @@ export function RecipeEditor({
     setSelectedId(made.id)
     setPickMode('none')
     setEditing(true)
+  }
+
+  /** 폼에서 「3D 에서 면 고르기」 — 모달을 닫고 3D 로 넘긴다. */
+  function pickFacesFor(fieldKey: string) {
+    setFaceTarget(fieldKey === 'plane' ? 'hole-plane' : 'shell-open')
+    setPickMode('face')
+    setEditing(false)
+  }
+
+  // --- 전체 화면 — 브라우저 밖으로(Fullscreen API). Esc 로 나오면 상태도 따라온다. ------------
+
+  useEffect(() => {
+    const sync = () => setFullscreen(document.fullscreenElement === frame.current && frame.current !== null)
+    document.addEventListener('fullscreenchange', sync)
+    return () => document.removeEventListener('fullscreenchange', sync)
+  }, [])
+
+  async function toggleFullscreen() {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen()
+      return
+    }
+    try {
+      await frame.current?.requestFullscreen()
+    } catch {
+      setFullscreen((v) => !v) // 브라우저가 막으면 화면 안에서라도 덮는다
+    }
   }
 
   function toggleEdge(edge: MeshEdge) {
@@ -210,36 +252,65 @@ export function RecipeEditor({
   const valid = problems.length === 0
   const failedNode = error instanceof ApiError ? (error.details.node_id as string | undefined) : undefined
 
+  const viewerHeight = fullscreen ? 'h-[calc(100vh-7.5rem)]' : 'h-[600px]'
+
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button size="sm">+ 피처</Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-56">
-            {GROUPS.map((group, gi) => (
-              <div key={group}>
-                {gi > 0 && <DropdownMenuSeparator />}
-                <DropdownMenuLabel className="text-xs">{group}</DropdownMenuLabel>
-                {OP_SPECS.filter((s) => s.group === group && s.op !== 'import_step').map((s) => (
-                  <DropdownMenuItem key={s.op} onClick={() => addNode(s.op)}>
-                    {s.label}
-                    <span className="text-muted-foreground ml-auto font-mono text-[10px]">{s.op}</span>
-                  </DropdownMenuItem>
-                ))}
-              </div>
+    <div
+      ref={frame}
+      className={
+        fullscreen
+          ? 'bg-background fixed inset-0 z-50 flex flex-col gap-2 overflow-hidden p-3'
+          : 'space-y-2'
+      }
+    >
+      {/* 툴바 — 피처를 종류별로 가로로. 드롭다운 하나에 열여섯을 넣으면 매번 찾는다. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {header}
+        {GROUPS.map((group) => (
+          <div key={group} className="flex items-center gap-0.5 rounded-md border px-1 py-0.5">
+            <span className="text-muted-foreground px-1 text-[10px]">{group}</span>
+            {OP_SPECS.filter((o) => o.group === group && o.op !== 'import_step').map((o) => (
+              <Button key={o.op} size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => addNode(o.op)} title={o.help}>
+                {o.short ?? o.label}
+              </Button>
             ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <Button size="sm" variant={mode === 'json' ? 'default' : 'outline'} onClick={() => (mode === 'json' ? applyJson() : setMode('json'))}>
-          {mode === 'json' ? 'JSON 적용' : 'JSON'}
-        </Button>
-        {mode === 'json' && (
-          <Button size="sm" variant="ghost" onClick={() => setMode('form')}>
-            취소
+          </div>
+        ))}
+        <div className="flex items-center gap-0.5 rounded-md border px-1 py-0.5">
+          <span className="text-muted-foreground px-1 text-[10px]">3D</span>
+          <Button
+            size="sm"
+            variant={pickMode === 'face' && faceTarget === 'sketch' ? 'default' : 'ghost'}
+            className="h-7 px-2 text-xs"
+            onClick={() => {
+              setFaceTarget('sketch')
+              setPickMode(pickMode === 'face' ? 'none' : 'face')
+            }}
+            disabled={!mesh}
+          >
+            면에 스케치
           </Button>
-        )}
+          <Button
+            size="sm"
+            variant={pickMode === 'measure' ? 'default' : 'ghost'}
+            className="h-7 px-2 text-xs"
+            onClick={() => setPickMode(pickMode === 'measure' ? 'none' : 'measure')}
+            disabled={!mesh}
+          >
+            측정
+          </Button>
+          <Button size="sm" variant={fullscreen ? 'default' : 'ghost'} className="h-7 px-2 text-xs" onClick={() => void toggleFullscreen()}>
+            {fullscreen ? '전체 화면 끝' : '전체 화면'}
+          </Button>
+          <Button size="sm" variant={mode === 'json' ? 'default' : 'ghost'} className="h-7 px-2 text-xs" onClick={() => (mode === 'json' ? applyJson() : setMode('json'))}>
+            {mode === 'json' ? 'JSON 적용' : 'JSON'}
+          </Button>
+          {mode === 'json' && (
+            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setMode('form')}>
+              취소
+            </Button>
+          )}
+        </div>
         <span className="text-muted-foreground text-xs">
           {drawing ? '그리는 중…' : valid ? '미리보기가 자동으로 따라옵니다.' : '고칠 것이 있습니다.'}
         </span>
@@ -253,12 +324,12 @@ export function RecipeEditor({
           {jsonError && <p className="text-destructive text-xs">JSON: {jsonError}</p>}
         </div>
       ) : (
-        <div className="grid gap-3 lg:grid-cols-12">
+        <div className={`grid gap-3 lg:grid-cols-12 ${fullscreen ? 'min-h-0 flex-1' : ''}`}>
           {/* 피처 트리 — 누르면 모달에서 고친다 */}
-          <div className="lg:col-span-3">
+          <div className={`lg:col-span-3 ${fullscreen ? 'max-h-[calc(100vh-7rem)] overflow-y-auto' : ''}`}>
             {nodes.length === 0 ? (
               <div className="text-muted-foreground rounded-md border border-dashed p-3 text-xs">
-                빈 레시피입니다. 「+ 피처」 → 스케치부터 시작하세요. 스케치를 그리고 「돌출」 을 더하면
+                빈 레시피입니다. 위 툴바에서 「스케치」 부터 누르세요. 스케치를 그리고 「돌출」 을 더하면
                 입체가 됩니다.
               </div>
             ) : (
@@ -302,36 +373,44 @@ export function RecipeEditor({
 
           {/* 3D — 넓게 */}
           <div className="lg:col-span-9">
-            <div className="mb-1 flex items-center gap-1">
-              <Button size="sm" variant={pickMode === 'face' ? 'default' : 'outline'} onClick={() => setPickMode(pickMode === 'face' ? 'none' : 'face')} disabled={!mesh}>
-                면에 스케치
-              </Button>
-              {edgePicking && (
-                <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-                  엣지 고르는 중 — 피처 열기
-                </Button>
-              )}
-              <span className="text-muted-foreground text-xs">
-                {pickMode === 'face'
+            <p className="text-muted-foreground mb-1 text-xs">
+              {pickMode === 'face'
+                ? faceTarget === 'sketch'
                   ? '3D 에서 면을 누르면 그 면 위에 스케치가 생깁니다.'
-                  : pickMode === 'edge'
-                    ? `엣지를 눌러 고릅니다 (${(selected?.edges as { near?: number[][] })?.near?.length ?? 0} 개). 다시 누르면 뺍니다.`
+                  : faceTarget === 'hole-plane'
+                    ? '구멍을 뚫을 면을 누르세요.'
+                    : '뚫을 면을 누르세요. 다시 누르면 뺍니다. 끝나면 피처를 다시 열어 확인하세요.'
+                : pickMode === 'edge'
+                  ? `엣지를 눌러 고릅니다 (${(selected?.edges as { near?: number[][] })?.near?.length ?? 0} 개). 다시 누르면 뺍니다.`
+                  : pickMode === 'measure'
+                    ? '측정: 꼭짓점 근처를 누르면 점, 엣지를 누르면 길이, 면을 누르면 넓이.'
                     : '끌어서 돌리고, 굴려서 확대합니다. 왼쪽 피처를 누르면 고칩니다.'}
-              </span>
-            </div>
+              {edgePicking && pickMode === 'edge' && (
+                <button type="button" className="ml-2 underline" onClick={() => setEditing(true)}>
+                  피처 열기
+                </button>
+              )}
+            </p>
+            {pickMode === 'measure' && (
+              <div className="mb-1">
+                <MeasurePanel picks={measures} onClear={() => setMeasures([])} onUndo={() => setMeasures((m) => m.slice(0, -1))} />
+              </div>
+            )}
             {mesh ? (
-              <Suspense fallback={<Skeleton className="h-[600px] w-full" />}>
+              <Suspense fallback={<Skeleton className={`${viewerHeight} w-full`} />}>
                 <PickViewer
                   mesh={mesh}
                   mode={pickMode}
                   highlightEdgesNear={isNear(selected?.edges) ? (selected!.edges as { near: number[][] }).near : undefined}
-                  onPickFace={sketchOnFace}
+                  onPickFace={onFacePicked}
                   onPickEdge={toggleEdge}
-                  className="h-[600px] w-full rounded-md border"
+                  onMeasure={(pick) => setMeasures((m) => [...m, pick])}
+                  measureMarks={pickMode === 'measure' ? measureMarks(measures) : undefined}
+                  className={`${viewerHeight} w-full rounded-md border`}
                 />
               </Suspense>
             ) : (
-              <div className="text-muted-foreground flex h-[600px] items-center justify-center rounded-md border border-dashed text-sm">
+              <div className={`text-muted-foreground flex ${viewerHeight} items-center justify-center rounded-md border border-dashed text-sm`}>
                 {nodes.length === 0 ? '피처를 더하면 여기에 그려집니다.' : valid ? '그리는 중…' : '레시피가 맞으면 여기에 그려집니다.'}
               </div>
             )}
@@ -377,7 +456,7 @@ export function RecipeEditor({
                     onChange={(shapes) => updateNode({ ...selected, shapes })}
                   />
                 )}
-                <NodeForm node={selected} nodes={nodes} onChange={updateNode} />
+                <NodeForm node={selected} nodes={nodes} onChange={updateNode} onPickFaces={pickFacesFor} />
                 {edgePicking && (
                   <p className="text-muted-foreground text-xs">
                     엣지는 3D 에서 고릅니다 — 이 창을 닫고 3D 의 엣지를 누르세요. 고른 것은 남습니다.

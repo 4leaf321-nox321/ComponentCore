@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from app.core import primitives
@@ -247,3 +249,164 @@ def test_vertical_은_구멍_이음선을_빼고_고른다() -> None:
     }
     evaluation = evaluate(parse(recipe))
     assert len(evaluation.shape.faces()) == 6 + 2 + 4  # 구멍 둘 + 필렛 넷
+
+
+BASE: list[dict[str, Any]] = [
+    {"id": "s", "op": "sketch", "shapes": [{"type": "rect", "width": 60, "height": 40}]},
+    {"id": "b", "op": "extrude", "sketch": "s", "distance": 20},
+]
+
+
+def _vol(nodes: list[dict[str, Any]]) -> float:
+    return float(evaluate(parse({"nodes": nodes})).shape.volume)
+
+
+def test_임의_윤곽_호_포함() -> None:
+    shape = {
+        "type": "polyline",
+        "start": [0, 0],
+        "segments": [{"to": [40, 0]}, {"to": [40, 20], "via": [50, 10]}, {"to": [0, 20]}],
+    }
+    ev = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {"id": "s", "op": "sketch", "shapes": [shape]},
+                    {"id": "b", "op": "extrude", "sketch": "s", "distance": 5},
+                ]
+            }
+        )
+    )
+    assert ev.summary()["bbox"]["size"][0] == pytest.approx(50)  # 호가 오른쪽으로 10 나간다
+    assert ev.shape.volume > 40 * 20 * 5
+
+
+def test_규격_구멍_네_종류() -> None:
+    plain = _vol(BASE)
+    simple = _vol(
+        [*BASE, {"id": "h", "op": "hole", "target": "b", "at": [[0, 0]], "thread": "M6"}]
+    )
+    cbore = _vol(
+        [
+            *BASE,
+            {
+                "id": "h",
+                "op": "hole",
+                "target": "b",
+                "at": [[0, 0]],
+                "kind": "counterbore",
+                "thread": "M6",
+            },
+        ]
+    )
+    csink = _vol(
+        [
+            *BASE,
+            {
+                "id": "h",
+                "op": "hole",
+                "target": "b",
+                "at": [[0, 0]],
+                "kind": "countersink",
+                "thread": "M6",
+            },
+        ]
+    )
+    tap = _vol(
+        [
+            *BASE,
+            {
+                "id": "h",
+                "op": "hole",
+                "target": "b",
+                "at": [[0, 0]],
+                "kind": "tap",
+                "thread": "M6",
+                "depth": 12,
+            },
+        ]
+    )
+    assert (
+        plain > tap > simple > csink and plain > cbore < simple
+    )  # 카운터는 더 파고, 탭은 덜 판다
+
+
+def test_임의_면에서_뚫는_구멍() -> None:
+    nodes = [
+        *BASE,
+        {
+            "id": "h",
+            "op": "hole",
+            "target": "b",
+            "at": [[0, 0]],
+            "diameter": 8,
+            "depth": 15,
+            "plane": {"origin": [30, 0, 10], "normal": [1, 0, 0]},
+        },
+    ]
+    ev = evaluate(parse({"nodes": nodes}))
+    # +X 면에서 안쪽(-X)으로 15 — 구멍 원기둥면의 축이 X.
+    from build123d import GeomType
+
+    cyl = [f for f in ev.shape.faces() if f.geom_type == GeomType.CYLINDER]
+    assert len(cyl) == 1 and abs(cyl[0].axis_of_rotation.direction.X) > 0.99
+
+
+def test_쉘_열린_것과_닫힌_것() -> None:
+    plain = _vol(BASE)
+    opened = _vol(
+        [*BASE, {"id": "sh", "op": "shell", "target": "b", "thickness": 2, "open": "top"}]
+    )
+    closed = _vol(
+        [*BASE, {"id": "sh", "op": "shell", "target": "b", "thickness": 2, "open": "none"}]
+    )
+    assert opened < plain and closed < plain
+    assert closed == pytest.approx(plain - 56 * 36 * 16, rel=0.01)  # 닫힌 껍질 = 전체 - 안쪽
+
+
+def test_격자_패턴_로프트_기본_입체() -> None:
+    grid = [
+        *BASE,
+        {"id": "peg", "op": "cylinder", "radius": 2, "height": 40, "at": [-20, -10, 0]},
+        {
+            "id": "pegs",
+            "op": "pattern",
+            "source": "peg",
+            "kind": "grid",
+            "count": 3,
+            "count_y": 2,
+            "spacing": [20, 0, 0],
+            "spacing_y": [0, 20, 0],
+        },
+        {"id": "c", "op": "cut", "target": "b", "tools": ["pegs"]},
+    ]
+    ev = evaluate(parse({"nodes": grid}))
+    assert len(ev.shape.faces()) == 6 + 6
+    lofted = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "a",
+                        "op": "sketch",
+                        "shapes": [{"type": "rect", "width": 40, "height": 30}],
+                    },
+                    {
+                        "id": "c",
+                        "op": "sketch",
+                        "plane": {"name": "XY", "origin": [0, 0, 30]},
+                        "shapes": [{"type": "circle", "radius": 10}],
+                    },
+                    {"id": "l", "op": "loft", "sketches": ["a", "c"]},
+                ]
+            }
+        )
+    )
+    assert lofted.summary()["bbox"]["size"][2] == pytest.approx(30)
+    assert _vol([{"id": "s", "op": "sphere", "radius": 10}]) == pytest.approx(
+        4 / 3 * 3.14159 * 1000, rel=0.01
+    )
+    assert _vol(
+        [{"id": "s", "op": "cone", "bottom_radius": 10, "top_radius": 0, "height": 30}]
+    ) == pytest.approx(3.14159 * 100 * 30 / 3, rel=0.01)
+    assert _vol([{"id": "s", "op": "torus", "major_radius": 20, "minor_radius": 4}]) > 0

@@ -22,6 +22,8 @@ export type FieldKind =
   | 'plane'
   | 'shapes'
   | 'checkbox'
+  | 'faceselect'
+  | 'holeplane'
 
 export interface FieldSpec {
   key: string
@@ -38,6 +40,8 @@ export interface OpSpec {
   op: string
   label: string
   group: '스케치' | '입체' | '조합' | '마감' | '배치'
+  /** 툴바에 보일 짧은 이름. 없으면 label. */
+  short?: string
   help: string
   fields: FieldSpec[]
   /** 새 피처의 기본값. id · label 은 만들 때 붙인다. */
@@ -126,6 +130,55 @@ export const OP_SPECS: OpSpec[] = [
     defaults: { radius: 10, height: 20, axis: 'Z', at: [0, 0, 0] },
   },
   {
+    op: 'sphere',
+    label: '구',
+    group: '입체',
+    help: '중심이 at 인 구.',
+    fields: [
+      { key: 'radius', label: '반지름 (mm)', kind: 'number' },
+      { key: 'at', label: '중심', kind: 'xyz' },
+    ],
+    defaults: { radius: 10, at: [0, 0, 0] },
+  },
+  {
+    op: 'cone',
+    label: '원뿔',
+    group: '입체',
+    help: '밑면 중심이 at. 윗반지름 0 이면 뾰족.',
+    fields: [
+      { key: 'bottom_radius', label: '밑 반지름 (mm)', kind: 'number' },
+      { key: 'top_radius', label: '윗 반지름 (mm)', kind: 'number' },
+      { key: 'height', label: '높이 (mm)', kind: 'number' },
+      { key: 'axis', label: '축', kind: 'select', options: AXIS_OPTIONS },
+      { key: 'at', label: '밑면 중심', kind: 'xyz' },
+    ],
+    defaults: { bottom_radius: 10, top_radius: 4, height: 20, axis: 'Z', at: [0, 0, 0] },
+  },
+  {
+    op: 'torus',
+    label: '토러스',
+    group: '입체',
+    help: '도넛. 큰 반지름(중심선)과 작은 반지름(관 굵기).',
+    fields: [
+      { key: 'major_radius', label: '큰 반지름 (mm)', kind: 'number' },
+      { key: 'minor_radius', label: '작은 반지름 (mm)', kind: 'number' },
+      { key: 'axis', label: '축', kind: 'select', options: AXIS_OPTIONS },
+      { key: 'at', label: '중심', kind: 'xyz' },
+    ],
+    defaults: { major_radius: 20, minor_radius: 4, axis: 'Z', at: [0, 0, 0] },
+  },
+  {
+    op: 'loft',
+    label: '로프트',
+    group: '입체',
+    help: '두 개 이상의 스케치를 이어 입체로. 다른 높이의 평면에 스케치를 두고 순서대로 고른다.',
+    fields: [
+      { key: 'sketches', label: '스케치들 (순서대로)', kind: 'refs', refKind: 'sketch' },
+      { key: 'ruled', label: '직선으로 잇기(각진 전이)', kind: 'checkbox' },
+    ],
+    defaults: { sketches: [], ruled: false },
+  },
+  {
     op: 'union',
     label: '합치기',
     group: '조합',
@@ -180,14 +233,50 @@ export const OP_SPECS: OpSpec[] = [
     op: 'hole',
     label: '구멍',
     group: '마감',
-    help: '위(+Z)에서 아래로 뚫는다. 깊이를 비우면 관통.',
+    help: '단순 · 카운터보어 · 카운터싱크 · 탭. 나사(M3~M12)를 고르면 치수를 표에서 채운다. 면을 안 주면 윗면(+Z)에서 아래로.',
     fields: [
       { key: 'target', label: '대상', kind: 'ref', refKind: 'solid' },
-      { key: 'at', label: '위치들 (X, Y)', kind: 'points' },
-      { key: 'diameter', label: '지름 (mm)', kind: 'number' },
+      {
+        key: 'kind',
+        label: '종류',
+        kind: 'select',
+        options: [
+          { value: 'simple', label: '단순(관통/막힘)' },
+          { value: 'counterbore', label: '카운터보어' },
+          { value: 'countersink', label: '카운터싱크' },
+          { value: 'tap', label: '탭(나사 구멍)' },
+        ],
+      },
+      {
+        key: 'thread',
+        label: '나사 규격 (비우면 지름 직접)',
+        kind: 'select',
+        options: [
+          { value: '__none__', label: '(직접 입력)' },
+          ...['M3', 'M4', 'M5', 'M6', 'M8', 'M10', 'M12'].map((m) => ({ value: m, label: m })),
+        ],
+      },
+      { key: 'diameter', label: '지름 (mm, 나사를 고르면 비워도 됨)', kind: 'number' },
       { key: 'depth', label: '깊이 (mm, 비우면 관통)', kind: 'number' },
+      { key: 'counter_diameter', label: '카운터 지름 (mm)', kind: 'number' },
+      { key: 'counter_depth', label: '카운터보어 깊이 (mm)', kind: 'number' },
+      { key: 'countersink_angle', label: '카운터싱크 각도 (°)', kind: 'number', step: 1 },
+      { key: 'plane', label: '뚫는 면', kind: 'holeplane' },
+      { key: 'at', label: '위치들 (면 위 X, Y)', kind: 'points' },
     ],
-    defaults: { target: '', at: [[0, 0]], diameter: 6, depth: null },
+    defaults: { target: '', kind: 'simple', thread: null, diameter: 6, depth: null, counter_diameter: null, counter_depth: null, countersink_angle: 90, plane: null, at: [[0, 0]] },
+  },
+  {
+    op: 'shell',
+    label: '쉘',
+    group: '마감',
+    help: '속을 비운다. 뚫을 면을 고르면 그 면이 열리고 나머지가 껍질이 된다.',
+    fields: [
+      { key: 'target', label: '대상', kind: 'ref', refKind: 'solid' },
+      { key: 'thickness', label: '두께 (mm)', kind: 'number' },
+      { key: 'open', label: '뚫을 면', kind: 'faceselect' },
+    ],
+    defaults: { target: '', thickness: 2, open: 'top' },
   },
   {
     op: 'pattern',
@@ -202,15 +291,18 @@ export const OP_SPECS: OpSpec[] = [
         kind: 'select',
         options: [
           { value: 'linear', label: '직선' },
+          { value: 'grid', label: '격자' },
           { value: 'circular', label: '원형' },
         ],
       },
-      { key: 'count', label: '개수', kind: 'number', step: 1 },
-      { key: 'spacing', label: '간격 (직선)', kind: 'xyz' },
+      { key: 'count', label: '개수 (격자: X 방향)', kind: 'number', step: 1 },
+      { key: 'spacing', label: '간격 (직선 · 격자 X)', kind: 'xyz' },
+      { key: 'count_y', label: '격자 Y 개수', kind: 'number', step: 1 },
+      { key: 'spacing_y', label: '격자 Y 간격', kind: 'xyz' },
       { key: 'axis', label: '축 (원형)', kind: 'select', options: AXIS_OPTIONS },
       { key: 'angle', label: '전체 각도 (원형)', kind: 'number', step: 1 },
     ],
-    defaults: { source: '', kind: 'linear', count: 4, spacing: [10, 0, 0], axis: 'Z', angle: 360 },
+    defaults: { source: '', kind: 'linear', count: 4, spacing: [10, 0, 0], count_y: 1, spacing_y: [0, 10, 0], axis: 'Z', angle: 360 },
   },
   {
     op: 'transform',
@@ -254,6 +346,7 @@ export const SHAPE_TYPES = [
   { value: 'slot', label: '슬롯' },
   { value: 'regular_polygon', label: '정다각형' },
   { value: 'polygon', label: '다각형' },
+  { value: 'polyline', label: '임의 윤곽' },
 ]
 
 export function defaultShape(type: string): Record<string, unknown> {
@@ -267,6 +360,8 @@ export function defaultShape(type: string): Record<string, unknown> {
       return { type, radius: 10, sides: 6, ...base }
     case 'polygon':
       return { type, points: [[-10, -10], [10, -10], [0, 10]], ...base }
+    case 'polyline':
+      return { type, start: [0, 0], segments: [{ to: [30, 0] }, { to: [30, 20], via: [36, 10] }, { to: [0, 20] }], ...base }
     default:
       return { type: 'rect', width: 20, height: 10, ...base }
   }
@@ -303,7 +398,7 @@ export function referencesOf(node: RecipeNode): string[] {
     const value = node[key]
     if (typeof value === 'string' && value) out.push(value)
   }
-  for (const key of ['targets', 'tools']) {
+  for (const key of ['targets', 'tools', 'sketches']) {
     const value = node[key]
     if (Array.isArray(value)) out.push(...(value as string[]))
   }

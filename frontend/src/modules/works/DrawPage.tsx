@@ -117,6 +117,47 @@ export default function DrawPage() {
     }
   }
 
+  const header = (
+    <div className="flex items-center gap-2">
+      <Label className="text-xs">시작</Label>
+      <Select value={template} onValueChange={pickTemplate}>
+        <SelectTrigger className="w-56">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={EMPTY}>빈 레시피에서 — 처음부터 그리기</SelectItem>
+          {Object.entries(schema.data?.template_labels ?? {}).map(([kind, label]) => (
+            <SelectItem key={kind} value={kind}>
+              기본: {label}
+            </SelectItem>
+          ))}
+          {(saved.data ?? []).map((t) => (
+            <SelectItem key={t.id} value={`saved:${t.id}`}>
+              {t.mine ? '내 템플릿' : `공용 (${t.owner_name})`}: {t.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {pickedSaved?.mine && (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={async () => {
+            if (!window.confirm(`템플릿 「${pickedSaved.name}」 을 지웁니까? 시작 목록에서만 사라집니다.`)) return
+            await cadApi.removeTemplate(pickedSaved.id)
+            saved.reload()
+            pickTemplate(EMPTY)
+          }}
+        >
+          이 템플릿 지우기
+        </Button>
+      )}
+      <span className="text-muted-foreground text-xs">
+        {template === EMPTY ? '툴바의 「스케치」 를 눌러 놓고 「돌출」 하면 입체가 됩니다.' : '템플릿의 치수를 고쳐 쓰세요. 고르면 지금 것은 사라집니다.'}
+      </span>
+    </div>
+  )
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -143,49 +184,11 @@ export default function DrawPage() {
       />
       <ErrorNotice error={error ?? schema.error} />
 
-      <div className="flex items-center gap-2">
-        <Label className="text-xs">시작</Label>
-        <Select value={template} onValueChange={pickTemplate}>
-          <SelectTrigger className="w-56">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={EMPTY}>빈 레시피에서 — 처음부터 그리기</SelectItem>
-            {Object.entries(schema.data?.template_labels ?? {}).map(([kind, label]) => (
-              <SelectItem key={kind} value={kind}>
-                기본: {label}
-              </SelectItem>
-            ))}
-            {(saved.data ?? []).map((t) => (
-              <SelectItem key={t.id} value={`saved:${t.id}`}>
-                {t.mine ? '내 템플릿' : `공용 (${t.owner_name})`}: {t.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {pickedSaved?.mine && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={async () => {
-              if (!window.confirm(`템플릿 「${pickedSaved.name}」 을 지웁니까? 시작 목록에서만 사라집니다.`)) return
-              await cadApi.removeTemplate(pickedSaved.id)
-              saved.reload()
-              pickTemplate(EMPTY)
-            }}
-          >
-            이 템플릿 지우기
-          </Button>
-        )}
-        <span className="text-muted-foreground text-xs">
-          {template === EMPTY ? '「+ 피처」 로 스케치를 놓고 돌출하면 입체가 됩니다.' : '템플릿의 치수를 고쳐 쓰세요. 고르면 지금 것은 사라집니다.'}
-        </span>
-      </div>
-
       {recipe && (
         <RecipeEditor
           value={recipe}
           onChange={setRecipe}
+          header={header}
           actions={
             <>
               <Button size="sm" variant="outline" onClick={() => void downloadStep()} disabled={recipe.nodes.length === 0}>

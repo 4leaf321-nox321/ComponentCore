@@ -8,18 +8,23 @@ done") 노드 종류에 맞는 말로 바꾼다.
 from __future__ import annotations
 
 import copy
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from build123d import (
+    Align,
     Axis,
     Box,
     Circle,
     Compound,
+    Cone,
     Cylinder,
+    Face,
     GeomType,
+    Line,
     Location,
     Part,
     Plane,
@@ -31,12 +36,18 @@ from build123d import (
     Shape,
     Sketch,
     SlotOverall,
+    Sphere,
+    ThreePointArc,
+    Torus,
     Vector,
+    Wire,
     chamfer,
     extrude,
     fillet,
     import_step,
+    loft,
     mirror,
+    offset,
     revolve,
 )
 
@@ -131,9 +142,40 @@ def _shape2d(one: S.SketchShape) -> Sketch:
         face = Polygon(*one.points, rotation=one.rotation)
     elif isinstance(one, S.RegularPolygonShape):
         face = RegularPolygon(one.radius, one.sides, rotation=one.rotation)
+    elif isinstance(one, S.PolylineShape):
+        face = _polyline(one)
     else:
         face = SlotOverall(one.length, one.width, rotation=one.rotation)
     return Pos(one.at[0], one.at[1]) * face
+
+
+def _polyline(shape: S.PolylineShape) -> Sketch:
+    """점을 이어 닫힌 윤곽으로. 구간에 `via` 가 있으면 그 점을 지나는 호."""
+    edges: list[Any] = []
+    cursor = Vector(shape.start[0], shape.start[1], 0)
+    for segment in shape.segments:
+        target = Vector(segment.to[0], segment.to[1], 0)
+        if (target - cursor).length < 1e-6:
+            continue
+        if segment.via is not None:
+            edges.append(
+                ThreePointArc(cursor, Vector(segment.via[0], segment.via[1], 0), target)
+            )
+        else:
+            edges.append(Line(cursor, target))
+        cursor = target
+    start = Vector(shape.start[0], shape.start[1], 0)
+    if (cursor - start).length > 1e-6:
+        edges.append(Line(cursor, start))
+    if len(edges) < 2:
+        raise ValueError("윤곽이 닫히지 않습니다 — 점이 둘 이상이어야 합니다")
+    face = Face(Wire(edges))
+    if not face.is_valid or face.area < 1e-6:
+        raise ValueError("윤곽이 스스로 교차하거나 면적이 없습니다")
+    sketch = Sketch(face.wrapped)
+    if shape.rotation:
+        sketch = sketch.rotate(Axis.Z, shape.rotation)
+    return sketch
 
 
 def _sketch(node: S.SketchNode) -> Sketch:
@@ -180,6 +222,24 @@ def _seam_edges(part: Part) -> list[Any]:
     return seams
 
 
+def _faces(part: Part, select: S.FaceSelect, node_id: str) -> list[Any]:
+    faces = part.faces()
+    if isinstance(select, S.EdgeNear):
+        targets = [Vector(*point) for point in select.near]
+        picked = [
+            f
+            for f in faces
+            if any((f.center() - t).length <= select.tolerance for t in targets)
+        ]
+        if len(picked) < len(targets):
+            raise RecipeError(node_id, "고른 자리에 면이 없습니다 — 형상이 바뀌었습니다")
+        return picked
+    if select == "none":
+        return []
+    ordered = faces.sort_by(Axis.Z)
+    return [ordered[-1] if select == "top" else ordered[0]]
+
+
 def _edges(part: Part, select: S.EdgeSelect, node_id: str) -> Any:
     edges = part.edges()
     if isinstance(select, S.EdgeNear):
@@ -219,6 +279,14 @@ def _copies(source: Shape, node: S.PatternNode) -> list[Shape]:
         dx, dy, dz = node.spacing
         for k in range(node.count):
             out.append(source.moved(Location((dx * k, dy * k, dz * k))))
+    elif node.kind == "grid":
+        dx, dy, dz = node.spacing
+        ex, ey, ez = node.spacing_y
+        for i in range(node.count):
+            for j in range(node.count_y):
+                out.append(
+                    source.moved(Location((dx * i + ex * j, dy * i + ey * j, dz * i + ez * j)))
+                )
     else:
         step = node.angle / (node.count if node.angle >= 360 else node.count - 1)
         axis = _AXES[node.axis]
@@ -250,18 +318,51 @@ def _cleaned(part: Part) -> Part:
         return part
 
 
+def _hole_dimensions(node: S.HoleNode) -> tuple[float, float | None, float | None]:
+    """(구멍 지름, 카운터 지름, 카운터보어 깊이) — thread 표와 직접 준 값을 합친다."""
+    table = S.THREADS.get(node.thread or "")
+    if table:
+        tap_drill, clearance, cbore_d, cbore_depth, csink_d = table
+        diameter = node.diameter or (tap_drill if node.kind == "tap" else clearance)
+        counter = node.counter_diameter or (csink_d if node.kind == "countersink" else cbore_d)
+        depth = node.counter_depth or cbore_depth
+        return diameter, counter, depth
+    assert node.diameter is not None
+    return node.diameter, node.counter_diameter, node.counter_depth
+
+
 def _hole(part: Part, node: S.HoleNode) -> Part:
+    """구멍 도구를 **평면 좌표**에서 만들어 옮긴다: 평면 원점이 표면, -Z 가 안쪽."""
     box = part.bounding_box()
-    radius = node.diameter / 2
-    if node.depth is None:
-        height = box.size.Z * 2 + 2
-        z = box.center().Z
+    diameter, counter_d, counter_depth = _hole_dimensions(node)
+    radius = diameter / 2
+    reach = box.size.length * 2 + 2  # 관통이면 이만큼
+    depth = node.depth if node.depth is not None else reach
+    if node.plane is not None:
+        plane = _plane(node.plane)
     else:
-        height = node.depth
-        z = box.max.Z - node.depth / 2
+        plane = Plane(origin=(0, 0, box.max.Z), z_dir=(0, 0, 1))
+
     result = part
     for x, y in node.at:
-        result = result - Pos(x, y, z) * Cylinder(radius, height)
+        # 표면 위로 조금 올려 시작한다(1mm) — 표면과 정확히 포개지면 불리언이 흔들린다.
+        tool: Part = Pos(x, y, -depth / 2 + 1) * Cylinder(radius, depth + 2)
+        if node.kind == "counterbore" and counter_d and counter_depth:
+            tool = tool + Pos(x, y, -counter_depth / 2 + 1) * Cylinder(
+                counter_d / 2, counter_depth + 2
+            )
+        elif node.kind == "countersink" and counter_d:
+            half_angle = math.radians(node.countersink_angle / 2)
+            sink_depth = (counter_d / 2 - radius) / math.tan(half_angle)
+            # Cone(bottom, top, height) 은 중심이 원점 — 밑(큰 쪽)이 표면에 오게 뒤집어 놓는다.
+            cone = (
+                Pos(x, y, -sink_depth / 2)
+                * Rot(180, 0, 0)
+                * Cone(counter_d / 2, radius, sink_depth)
+            )
+            cap = Pos(x, y, 1) * Cylinder(counter_d / 2, 2)
+            tool = tool + cone + cap
+        result = result - (plane * tool)
     return result
 
 
@@ -333,6 +434,41 @@ def _evaluate_node(
             ) from failure
     if isinstance(node, S.HoleNode):
         return _hole(_as_part(made[node.target], node.id), node)
+    if isinstance(node, S.ShellNode):
+        part = _as_part(made[node.target], node.id)
+        openings = _faces(part, node.open, node.id)
+        try:
+            if not openings:
+                # 뚫는 면이 없으면 offset 은 **안쪽 덩어리**를 돌려준다(실측) — 빼서 껍질을
+                # 만든다.
+                return _cleaned(part - offset(part, -node.thickness))
+            return offset(part, -node.thickness, openings=openings)
+        except Exception as failure:
+            raise RecipeError(
+                node.id, f"두께 {node.thickness} 으로 쉘을 만들지 못했습니다 — 줄여 보세요"
+            ) from failure
+    if isinstance(node, S.LoftNode):
+        sections = []
+        for name in node.sketches:
+            section = made[name]
+            if not isinstance(section, Sketch):
+                raise RecipeError(node.id, f"'{name}' 는 스케치가 아닙니다")
+            sections.append(section)
+        return loft(sections, ruled=node.ruled)
+    if isinstance(node, S.SphereNode):
+        return Pos(*node.at) * Sphere(node.radius)
+    if isinstance(node, S.ConeNode):
+        rot = {"Z": Rot(0, 0, 0), "X": Rot(0, 90, 0), "Y": Rot(-90, 0, 0)}[node.axis]
+        cone = Cone(
+            node.bottom_radius,
+            node.top_radius,
+            node.height,
+            align=(Align.CENTER, Align.CENTER, Align.MIN),
+        )
+        return Pos(*node.at) * rot * cone
+    if isinstance(node, S.TorusNode):
+        rot = {"Z": Rot(0, 0, 0), "X": Rot(0, 90, 0), "Y": Rot(90, 0, 0)}[node.axis]
+        return Pos(*node.at) * rot * Torus(node.major_radius, node.minor_radius)
     if isinstance(node, S.PatternNode):
         copies = _copies(made[node.source], node)
         if isinstance(copies[0], Sketch):

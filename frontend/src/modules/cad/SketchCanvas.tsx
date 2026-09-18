@@ -35,10 +35,48 @@ function extent(shapes: SketchShape[]): number {
       Number(s.length ?? 0),
       Number(s.radius ?? 0) * 2,
       ...(((s.points as number[][]) ?? []).flat().map((v) => Math.abs(v) * 2)),
+      ...polylinePoints(s).flat().map((v) => Math.abs(v) * 2),
     )
     r = Math.max(r, Math.abs(x) + size / 2 + 10, Math.abs(y) + size / 2 + 10)
   }
   return r
+}
+
+type Segment = { to: number[]; via?: number[] | null }
+
+function polylinePoints(s: SketchShape): number[][] {
+  if (s.type !== 'polyline') return []
+  const start = (s.start as number[]) ?? [0, 0]
+  const segs = (s.segments as Segment[]) ?? []
+  return [start, ...segs.flatMap((g) => (g.via ? [g.via, g.to] : [g.to]))]
+}
+
+/** 세 점을 지나는 호의 SVG path 조각. 세 점이 한 직선이면 그냥 선. */
+function arcTo(from: number[], via: number[], to: number[]): string {
+  const [ax, ay] = from, [bx, by] = via, [cx, cy] = to
+  const d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
+  if (Math.abs(d) < 1e-9) return `L ${cx} ${cy}`
+  const ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)) / d
+  const uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)) / d
+  const r = Math.hypot(ax - ux, ay - uy)
+  // via 가 현의 어느 쪽에 있나 → sweep. 호가 반원보다 큰가 → large-arc.
+  const cross = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+  const sweep = cross < 0 ? 1 : 0
+  const crossC = (cx - ax) * (uy - ay) - (cy - ay) * (ux - ax)
+  const large = (crossC < 0) === (cross < 0) ? 0 : 1
+  return `A ${r} ${r} 0 ${large} ${sweep} ${cx} ${cy}`
+}
+
+function polylinePath(s: SketchShape): string {
+  const start = (s.start as number[]) ?? [0, 0]
+  const segs = (s.segments as Segment[]) ?? []
+  let cursor = start
+  let d = `M ${start[0]} ${start[1]}`
+  for (const g of segs) {
+    d += g.via ? ' ' + arcTo(cursor, g.via, g.to) : ` L ${g.to[0]} ${g.to[1]}`
+    cursor = g.to
+  }
+  return d + ' Z'
 }
 
 function ShapeSvg({ shape, selected, onPointerDown }: { shape: SketchShape; selected: boolean; onPointerDown: (e: PointerEvent) => void }) {
@@ -78,6 +116,8 @@ function ShapeSvg({ shape, selected, onPointerDown }: { shape: SketchShape; sele
       const pts = ((shape.points as number[][]) ?? []).map(([px, py]) => `${px},${py}`).join(' ')
       return <polygon points={pts} transform={transform} {...common} />
     }
+    case 'polyline':
+      return <path d={polylinePath(shape)} transform={transform} {...common} />
     default:
       return null
   }
@@ -92,6 +132,8 @@ export function SketchCanvas({
 }) {
   const [selected, setSelected] = useState<number | null>(shapes.length ? 0 : null)
   const [tool, setTool] = useState<string>('select')
+  /** 임의 윤곽을 찍는 중 — 찍은 점들(스케치 좌표). 두 번 누르거나 「닫기」 로 끝난다. */
+  const [drafting, setDrafting] = useState<number[][] | null>(null)
   const svg = useRef<SVGSVGElement | null>(null)
   const drag = useRef<{ index: number; startX: number; startY: number; atX: number; atY: number } | null>(null)
   const half = useMemo(() => extent(shapes), [shapes])
@@ -109,9 +151,37 @@ export function SketchCanvas({
     onChange(shapes.map((s, i) => (i === index ? { ...s, ...patch } : s)))
   }
 
+  function finishPolyline() {
+    if (drafting && drafting.length >= 3) {
+      const [sx, sy] = drafting[0]
+      const made = {
+        ...defaultShape('polyline'),
+        type: 'polyline',
+        at: [0, 0],
+        start: [sx, sy],
+        segments: drafting.slice(1).map((pt) => ({ to: pt })),
+      } as SketchShape
+      onChange([...shapes, made])
+      setSelected(shapes.length)
+    }
+    setDrafting(null)
+    setTool('select')
+  }
+
   function onCanvasDown(event: PointerEvent) {
     if (tool === 'select') {
       setSelected(null)
+      return
+    }
+    if (tool === 'polyline') {
+      const [px, py] = toWorld(event)
+      const point = [snap(px, !event.shiftKey), snap(py, !event.shiftKey)]
+      const last = drafting?.[drafting.length - 1]
+      if (last && last[0] === point[0] && last[1] === point[1]) {
+        finishPolyline() // 같은 자리를 두 번 → 끝
+        return
+      }
+      setDrafting([...(drafting ?? []), point])
       return
     }
     const [x, y] = toWorld(event)
@@ -159,8 +229,17 @@ export function SketchCanvas({
               + {t.label}
             </Button>
           ))}
+          {tool === 'polyline' && drafting && drafting.length >= 3 && (
+            <Button size="sm" variant="secondary" onClick={finishPolyline}>
+              윤곽 닫기 ({drafting.length}점)
+            </Button>
+          )}
           <span className="text-muted-foreground ml-2 text-xs">
-            {tool === 'select' ? '도형을 끌어 옮깁니다. 격자 1mm, Shift 로 5mm.' : '캔버스를 눌러 놓습니다.'}
+            {tool === 'select'
+              ? '도형을 끌어 옮깁니다. 격자 1mm, Shift 로 5mm.'
+              : tool === 'polyline'
+                ? '점을 차례로 누릅니다. 같은 자리를 다시 누르거나 「윤곽 닫기」 로 끝. 호는 폼에서.'
+                : '캔버스를 눌러 놓습니다.'}
           </span>
         </div>
         <svg
@@ -184,6 +263,14 @@ export function SketchCanvas({
             {shapes.map((shape, i) => (
               <ShapeSvg key={i} shape={shape} selected={i === selected} onPointerDown={(e) => onShapeDown(i, e)} />
             ))}
+            {drafting && (
+              <g>
+                <polyline points={drafting.map(([x, y]) => `${x},${y}`).join(' ')} fill="none" stroke="#f59e0b" strokeWidth={0.6} vectorEffect="non-scaling-stroke" strokeDasharray="2 1" />
+                {drafting.map(([x, y], i) => (
+                  <circle key={i} cx={x} cy={y} r={1.2 / scale} fill="#f59e0b" />
+                ))}
+              </g>
+            )}
           </g>
           <text x={6} y={H - 6} fontSize={11} fill="#6b7280">
             격자 {gridStep} mm · 보이는 범위 ±{half.toFixed(0)} mm
@@ -281,6 +368,58 @@ function ShapeForm({
         )}
         {shape.type !== 'circle' && numberField('rotation', '회전 (°)', 1)}
       </div>
+      {shape.type === 'polyline' && (
+        <div className="space-y-1">
+          <Label className="text-xs">구간 (시작 {((shape.start as number[]) ?? [0, 0]).join(', ')}) — 「호」 를 켜면 지나는 점(via)이 생깁니다</Label>
+          {((shape.segments as Segment[]) ?? []).map((g, i) => {
+            const segs = shape.segments as Segment[]
+            const prev = i === 0 ? ((shape.start as number[]) ?? [0, 0]) : segs[i - 1].to
+            const update = (patch: Partial<Segment>) => onChange({ segments: segs.map((q, j) => (j === i ? { ...q, ...patch } : q)) })
+            return (
+              <div key={i} className="flex items-center gap-1">
+                <span className="text-muted-foreground w-4 text-[10px]">{i + 1}</span>
+                <Input type="number" step={0.5} value={String(g.to[0])} onChange={(e) => update({ to: [Number(e.target.value), g.to[1]] })} className="h-7" />
+                <Input type="number" step={0.5} value={String(g.to[1])} onChange={(e) => update({ to: [g.to[0], Number(e.target.value)] })} className="h-7" />
+                <label className="flex items-center gap-1 text-[11px]">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(g.via)}
+                    onChange={(e) => {
+                      if (!e.target.checked) return update({ via: null })
+                      // 현의 중점에서 수직으로 20% 띄운 점 — 그 뒤 손으로 고친다.
+                      const mx = (prev[0] + g.to[0]) / 2, my = (prev[1] + g.to[1]) / 2
+                      const dx = g.to[0] - prev[0], dy = g.to[1] - prev[1]
+                      const len = Math.hypot(dx, dy) || 1
+                      update({ via: [Math.round((mx - (dy / len) * len * 0.2) * 10) / 10, Math.round((my + (dx / len) * len * 0.2) * 10) / 10] })
+                    }}
+                  />
+                  호
+                </label>
+                {g.via && (
+                  <>
+                    <Input type="number" step={0.5} value={String(g.via[0])} onChange={(e) => update({ via: [Number(e.target.value), g.via![1]] })} className="h-7 w-16" />
+                    <Input type="number" step={0.5} value={String(g.via[1])} onChange={(e) => update({ via: [g.via![0], Number(e.target.value)] })} className="h-7 w-16" />
+                  </>
+                )}
+                <button type="button" className="text-muted-foreground px-1 text-xs" onClick={() => onChange({ segments: segs.filter((_, j) => j !== i) })}>
+                  ×
+                </button>
+              </div>
+            )
+          })}
+          <button
+            type="button"
+            className="text-muted-foreground text-xs hover:underline"
+            onClick={() => {
+              const segs = (shape.segments as Segment[]) ?? []
+              const last = segs.length ? segs[segs.length - 1].to : ((shape.start as number[]) ?? [0, 0])
+              onChange({ segments: [...segs, { to: [last[0] + 10, last[1]] }] })
+            }}
+          >
+            + 구간
+          </button>
+        </div>
+      )}
       {shape.type === 'polygon' && (
         <div className="space-y-1">
           <Label className="text-xs">꼭짓점 (중심 기준)</Label>

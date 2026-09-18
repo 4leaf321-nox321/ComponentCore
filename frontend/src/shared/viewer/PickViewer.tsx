@@ -34,7 +34,13 @@ export interface MeshData {
   edges: MeshEdge[]
 }
 
-export type PickMode = 'none' | 'face' | 'edge'
+export type PickMode = 'none' | 'face' | 'edge' | 'measure'
+
+/** 측정으로 고른 것 하나 — 점(꼭짓점에 스냅) · 엣지 · 면. */
+export type MeasurePick =
+  | { kind: 'point'; at: number[] }
+  | { kind: 'edge'; edge: MeshEdge }
+  | { kind: 'face'; face: MeshFace }
 
 export interface PickViewerProps {
   mesh: MeshData | null
@@ -43,6 +49,9 @@ export interface PickViewerProps {
   highlightEdgesNear?: number[][]
   onPickFace?: (face: MeshFace) => void
   onPickEdge?: (edge: MeshEdge) => void
+  /** measure 모드: 누른 것을 알려 준다. 표시(점 · 선)는 `measureMarks` 로 돌려준다. */
+  onMeasure?: (pick: MeasurePick) => void
+  measureMarks?: { points: number[][]; segments: number[][][] }
   className?: string
 }
 
@@ -51,7 +60,7 @@ const HOVER_COLOR = 0xf59e0b
 const EDGE_COLOR = 0x1f2937
 const PICKED_COLOR = 0xf59e0b
 
-export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, className }: PickViewerProps) {
+export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, measureMarks, className }: PickViewerProps) {
   const mount = useRef<HTMLDivElement | null>(null)
   const state = useRef<{
     scene: THREE.Scene
@@ -61,10 +70,11 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     group: THREE.Group
     faces: THREE.Mesh[]
     edges: THREE.Line[]
+    marks: THREE.Group
     fitted: boolean
   } | null>(null)
-  const callbacks = useRef({ mode, onPickFace, onPickEdge })
-  callbacks.current = { mode, onPickFace, onPickEdge }
+  const callbacks = useRef({ mode, onPickFace, onPickEdge, onMeasure })
+  callbacks.current = { mode, onPickFace, onPickEdge, onMeasure }
 
   // 한 번만: 장면 · 카메라 · 렌더러.
   useEffect(() => {
@@ -86,7 +96,9 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     const group = new THREE.Group()
     group.rotation.x = -Math.PI / 2 // CAD Z-up → three Y-up
     scene.add(group)
-    state.current = { scene, camera, renderer, controls, group, faces: [], edges: [], fitted: false }
+    const marks = new THREE.Group()
+    group.add(marks)
+    state.current = { scene, camera, renderer, controls, group, faces: [], edges: [], marks, fitted: false }
 
     function resize() {
       const { clientWidth: w, clientHeight: h } = container!
@@ -116,7 +128,32 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
         raycaster.params.Line = { threshold: Math.max(0.5, (s.group.userData.size as number) / 120) }
         return raycaster.intersectObjects(s.edges, false)[0] ?? null
       }
+      if (m === 'measure') {
+        raycaster.params.Line = { threshold: Math.max(0.3, (s.group.userData.size as number) / 200) }
+        return raycaster.intersectObjects(s.edges, false)[0] ?? raycaster.intersectObjects(s.faces, false)[0] ?? null
+      }
       return null
+    }
+    /** 누른 자리에서 가장 가까운 꼭짓점(엣지 끝점)에 스냅 — 충분히 가까울 때만. */
+    function snapVertex(point: THREE.Vector3): number[] | null {
+      const s = state.current
+      if (!s) return null
+      const local = s.group.worldToLocal(point.clone())
+      const radius = Math.max(0.5, (s.group.userData.size as number) / 60)
+      let best: number[] | null = null
+      let bestD = radius
+      for (const l of s.edges) {
+        const edge = l.userData.edge as MeshEdge
+        for (const i of [0, edge.points.length - 3]) {
+          const v = [edge.points[i], edge.points[i + 1], edge.points[i + 2]]
+          const d = Math.hypot(v[0] - local.x, v[1] - local.y, v[2] - local.z)
+          if (d < bestD) {
+            bestD = d
+            best = v
+          }
+        }
+      }
+      return best
     }
     function setHover(object: THREE.Mesh | THREE.Line | null) {
       if (hovered === object) return
@@ -146,6 +183,16 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       const data = hit.object.userData
       if (callbacks.current.mode === 'face' && data.face) callbacks.current.onPickFace?.(data.face as MeshFace)
       if (callbacks.current.mode === 'edge' && data.edge) callbacks.current.onPickEdge?.(data.edge as MeshEdge)
+      if (callbacks.current.mode === 'measure') {
+        const snapped = snapVertex(hit.point)
+        if (snapped) callbacks.current.onMeasure?.({ kind: 'point', at: snapped })
+        else if (data.edge) callbacks.current.onMeasure?.({ kind: 'edge', edge: data.edge as MeshEdge })
+        else if (data.face) {
+          const local = state.current!.group.worldToLocal(hit.point.clone())
+          // 면을 눌렀으면 그 면 자체와 누른 점 둘 다 뜻이 있다 — 면(넓이 · 법선)을 준다.
+          callbacks.current.onMeasure?.({ kind: 'face', face: { ...(data.face as MeshFace), center: [local.x, local.y, local.z] } })
+        }
+      }
     }
     renderer.domElement.addEventListener('pointerdown', onDown)
     renderer.domElement.addEventListener('pointermove', onMove)
@@ -229,6 +276,26 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       s.fitted = true
     }
   }, [mesh, highlightEdgesNear])
+
+  // 측정 표시 — 점은 작은 구, 두 점 사이는 선.
+  useEffect(() => {
+    const s = state.current
+    if (!s) return
+    s.marks.clear()
+    if (!measureMarks) return
+    const size = (s.group.userData.size as number) || 50
+    const r = size / 120
+    const pointMat = new THREE.MeshBasicMaterial({ color: 0xef4444 })
+    for (const p of measureMarks.points) {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 12), pointMat)
+      m.position.set(p[0], p[1], p[2])
+      s.marks.add(m)
+    }
+    for (const seg of measureMarks.segments) {
+      const g = new THREE.BufferGeometry().setFromPoints(seg.map((p) => new THREE.Vector3(p[0], p[1], p[2])))
+      s.marks.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xef4444 })))
+    }
+  }, [measureMarks])
 
   return <div ref={mount} className={className ?? 'h-[480px] w-full rounded-md border'} />
 }

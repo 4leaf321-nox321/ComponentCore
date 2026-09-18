@@ -12,6 +12,9 @@ import {
 import { OP_BY_NAME, PLANE_OPTIONS, nodeKind } from '@/modules/cad/recipeSpec'
 import type { FieldSpec, RecipeNode } from '@/modules/cad/recipeSpec'
 
+/** 비워도 되는 숫자 칸 — 비우면 null(관통 · 표에서 채움). */
+const NULLABLE = new Set(['depth', 'diameter', 'counter_diameter', 'counter_depth'])
+
 function num(value: unknown): string {
   return value === null || value === undefined ? '' : String(value)
 }
@@ -107,11 +110,14 @@ export function NodeForm({
   node,
   nodes,
   onChange,
+  onPickFaces,
 }: {
   node: RecipeNode
   /** 레시피 전체 — 이 피처보다 **앞의** 것만 참조 후보가 된다. */
   nodes: RecipeNode[]
   onChange: (next: RecipeNode) => void
+  /** 3D 에서 면을 고르게 한다(쉘의 open · 구멍의 plane). 편집기가 모달을 닫고 3D 를 넘긴다. */
+  onPickFaces?: (fieldKey: string) => void
 }) {
   const spec = OP_BY_NAME[node.op]
   const index = nodes.findIndex((n) => n.id === node.id)
@@ -151,7 +157,13 @@ export function NodeForm({
               {field.label}
             </Label>
             {field.kind === 'number' && (
-              <NumberInput id={`node-${field.key}`} value={node[field.key]} step={field.step} nullable={field.key === 'depth'} onChange={(v) => set(field.key, v)} />
+              <NumberInput
+                id={`node-${field.key}`}
+                value={node[field.key]}
+                step={field.step}
+                nullable={NULLABLE.has(field.key)}
+                onChange={(v) => set(field.key, v)}
+              />
             )}
             {field.kind === 'text' && (
               <Input id={`node-${field.key}`} value={String(node[field.key] ?? '')} onChange={(e) => set(field.key, e.target.value)} className="h-8 font-mono text-xs" />
@@ -186,7 +198,10 @@ export function NodeForm({
               </div>
             )}
             {field.kind === 'select' && field.key !== 'edges' && (
-              <Select value={String(node[field.key] ?? '')} onValueChange={(v) => set(field.key, v)}>
+              <Select
+                value={node[field.key] == null ? '__none__' : String(node[field.key])}
+                onValueChange={(v) => set(field.key, v === '__none__' ? null : v)}
+              >
                 <SelectTrigger className="h-8">
                   <SelectValue />
                 </SelectTrigger>
@@ -255,6 +270,54 @@ export function NodeForm({
                 >
                   + 위치 추가
                 </button>
+              </div>
+            )}
+            {field.kind === 'faceselect' && (
+              <div className="space-y-1">
+                <Select
+                  value={typeof node[field.key] === 'object' && node[field.key] !== null ? '__near__' : String(node[field.key] ?? 'top')}
+                  onValueChange={(v) => set(field.key, v === '__near__' ? { near: [], tolerance: 1 } : v)}
+                >
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="top">윗면</SelectItem>
+                    <SelectItem value="bottom">바닥면</SelectItem>
+                    <SelectItem value="none">없음 (닫힌 속 빈 덩어리)</SelectItem>
+                    <SelectItem value="__near__">3D 에서 고른 면</SelectItem>
+                  </SelectContent>
+                </Select>
+                {typeof node[field.key] === 'object' && node[field.key] !== null && (
+                  <p className="text-muted-foreground text-xs">
+                    고른 면 {((node[field.key] as { near: number[][] }).near ?? []).length} 개 — 이 창을 닫고 3D 에서 면을 누르세요.
+                    {onPickFaces && (
+                      <button type="button" className="ml-2 underline" onClick={() => onPickFaces(field.key)}>
+                        3D 에서 고르기
+                      </button>
+                    )}
+                  </p>
+                )}
+              </div>
+            )}
+            {field.kind === 'holeplane' && (
+              <div className="text-xs">
+                {(node.plane as { normal?: number[] } | null)?.normal ? (
+                  <p>
+                    면 위 — 원점 ({((node.plane as { origin: number[] }).origin ?? []).map((v) => v.toFixed(1)).join(', ')}), 법선 (
+                    {((node.plane as { normal: number[] }).normal ?? []).map((v) => v.toFixed(2)).join(', ')})
+                    <button type="button" className="ml-2 underline" onClick={() => set('plane', null)}>
+                      윗면으로 되돌리기
+                    </button>
+                  </p>
+                ) : (
+                  <p className="text-muted-foreground">윗면(+Z)에서 아래로 뚫습니다.</p>
+                )}
+                {onPickFaces && (
+                  <button type="button" className="text-muted-foreground underline" onClick={() => onPickFaces('plane')}>
+                    3D 에서 뚫을 면 고르기
+                  </button>
+                )}
               </div>
             )}
             {field.kind === 'plane' && (node.plane as { normal?: number[] })?.normal && (
