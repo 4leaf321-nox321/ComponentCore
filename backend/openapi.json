@@ -2392,7 +2392,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RecipeRequest"
+                "$ref": "#/components/schemas/GeometryRequest"
               }
             }
           },
@@ -2407,6 +2407,50 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Recipe Geometry Api Cad Recipe Geometry Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cad/recipe/sweep": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Recipe Sweep",
+        "description": "치수 하나를 값마다 바꿔 만들어 보고 치수표를 나란히 — **맞는 값을 찾아가는** 길.\n\n지그를 세트의 공진에 맞출 때처럼 「연결부는 그대로 두고 나머지를 바꿔 가며」 고르는 일에\n쓴다. 무엇이 어떻게 달라졌는지는 질량 · 관성 · 크기로 본다.",
+        "operationId": "recipe_sweep_api_cad_recipe_sweep_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SweepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Recipe Sweep Api Cad Recipe Sweep Post"
                 }
               }
             }
@@ -2612,6 +2656,50 @@
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cad/beam-frequency": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Beam Frequency",
+        "description": "튜닝부(납작한 보)의 1차 굽힘 공진 **가늠값**, 또는 목표 주파수를 내는 두께.\n\n지그를 세트의 공진에 맞출 때 **목표 근처를 좁히는** 데 쓴다 — 해석이 아니라 닫힌 식이다.\n가정과 오차는 응답의 `accuracy` · `warnings` 에 적혀 온다.",
+        "operationId": "beam_frequency_api_cad_beam_frequency_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BeamRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Beam Frequency Api Cad Beam Frequency Post"
+                }
               }
             }
           },
@@ -3087,6 +3175,67 @@
         ],
         "title": "ArtifactOut"
       },
+      "BeamRequest": {
+        "properties": {
+          "length_mm": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Length Mm"
+          },
+          "width_mm": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Width Mm"
+          },
+          "thickness_mm": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thickness Mm"
+          },
+          "target_hz": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Hz"
+          },
+          "material": {
+            "type": "string",
+            "title": "Material",
+            "default": "aluminum"
+          },
+          "support": {
+            "type": "string",
+            "title": "Support",
+            "default": "cantilever"
+          },
+          "added_mass_g": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Added Mass G",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "length_mm",
+          "width_mm"
+        ],
+        "title": "BeamRequest",
+        "description": "보 1차 공진 — 목표 주파수를 주면 **두께를 되짚고**, 두께를 주면 주파수를 낸다."
+      },
       "Body_create_work_from_step_api_works_from_step_post": {
         "properties": {
           "name": {
@@ -3228,6 +3377,31 @@
           "used_percent"
         ],
         "title": "DiskOut"
+      },
+      "GeometryRequest": {
+        "properties": {
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "material": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Material"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipe"
+        ],
+        "title": "GeometryRequest"
       },
       "HTTPValidationError": {
         "properties": {
@@ -4640,6 +4814,47 @@
           "detail"
         ],
         "title": "StageOut"
+      },
+      "SweepRequest": {
+        "properties": {
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "material": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Material"
+          },
+          "param": {
+            "type": "string",
+            "title": "Param"
+          },
+          "values": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "maxItems": 40,
+            "minItems": 1,
+            "title": "Values"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipe",
+          "param",
+          "values"
+        ],
+        "title": "SweepRequest",
+        "description": "치수 하나를 값마다 바꿔 보는 요청 — 「연결부는 그대로, 두께만 바꿔 가며」."
       },
       "SystemAdminRequest": {
         "properties": {

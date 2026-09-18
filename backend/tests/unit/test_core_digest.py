@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.core.recipe import evaluate, parse
 from app.core.recipe.digest import digest
 
@@ -51,3 +53,33 @@ def test_면을_법선과_넓이로_말한다() -> None:
     assert bottom["center"][2] == 0.0  # align min 이라 바닥이 z=0
     assert got["faces"]["curved"][0]["radius"] == 4.0  # 핀 옆면
     assert "*_total" in got["note"] or "전체는" in got["note"]
+
+
+def test_질량과_관성은_무게중심_기준으로_낸다() -> None:
+    """진동 · 무게 중심 잡기에 쓰는 값. 원점 기준이면 형상을 옮기기만 해도 값이 변한다."""
+    from app.core.recipe.digest import mass_properties
+
+    at_origin = evaluate(
+        parse({"nodes": [{"id": "b", "op": "box", "length": 80, "width": 50, "height": 10}]})
+    )
+    moved = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "b",
+                        "op": "box",
+                        "length": 80,
+                        "width": 50,
+                        "height": 10,
+                        "at": [500, 0, 0],
+                    }
+                ]
+            }
+        )
+    )
+    here = mass_properties(at_origin.shape, "aluminum")
+    there = mass_properties(moved.shape, "aluminum")
+    assert here["mass_g"] == pytest.approx(80 * 50 * 10 * 2.70 / 1000)  # 108 g
+    assert here["inertia_g_mm2_about_com"] == there["inertia_g_mm2_about_com"]
+    assert there["center_of_mass"][0] == 500.0

@@ -13,7 +13,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 
-from app.core import export
+from app.core import export, vibration
 from app.core.recipe import describe
 from app.core.recipe import templates as recipe_templates
 from app.core.recipe.digest import digest
@@ -21,12 +21,16 @@ from app.core.recipe.mesh import mesh
 from app.modules.accounts.models import User
 from app.modules.cad import services
 from app.modules.cad.schemas import (
+    BeamRequest,
+    GeometryRequest,
     RecipeInfoOut,
     RecipeProblemsOut,
     RecipeRequest,
     RecipeSchemaOut,
+    SweepRequest,
 )
 from app.shared.auth import current_user
+from app.shared.errors import AppError, code
 
 router = APIRouter(prefix="/cad", tags=["cad"])
 
@@ -69,13 +73,32 @@ def recipe_preview(payload: RecipeRequest, _: User = Depends(current_user)) -> R
 
 
 @router.post("/recipe/geometry")
-def recipe_geometry(payload: RecipeRequest, _: User = Depends(current_user)) -> dict[str, Any]:
+def recipe_geometry(
+    payload: GeometryRequest, _: User = Depends(current_user)
+) -> dict[str, Any]:
     """**AI 가 읽는 치수표** — 크기 · 평면(법선 · 넓이) · 원통 · 구멍(지름 · 중심 · 깊이).
 
     사람은 3D 에서 면을 눌러 재지만 AI 는 못 본다. 메시 전체는 너무 크므로 설계에 쓰는 값만
     추려 준다 — 제품을 기준으로 지그를 그릴 때 이것을 먼저 본다."""
     evaluation = services.build(payload.recipe)
-    return digest(evaluation.shape)
+    return digest(evaluation.shape, material=payload.material)
+
+
+@router.post("/recipe/sweep")
+def recipe_sweep(payload: SweepRequest, _: User = Depends(current_user)) -> dict[str, Any]:
+    """치수 하나를 값마다 바꿔 만들어 보고 치수표를 나란히 — **맞는 값을 찾아가는** 길.
+
+    지그를 세트의 공진에 맞출 때처럼 「연결부는 그대로 두고 나머지를 바꿔 가며」 고르는 일에
+    쓴다. 무엇이 어떻게 달라졌는지는 질량 · 관성 · 크기로 본다."""
+    return {
+        "param": payload.param,
+        "results": services.sweep(
+            payload.recipe,
+            param=payload.param,
+            values=payload.values,
+            material=payload.material,
+        ),
+    }
 
 
 @router.post("/recipe/mesh")
@@ -140,3 +163,36 @@ def recipe_svg(payload: RecipeRequest, _: User = Depends(current_user)) -> Respo
             media_type="image/svg+xml",
             headers={"Content-Disposition": 'attachment; filename="model.svg"'},
         )
+
+
+# --- 진동 — 지그를 세트의 공진에 맞출 때 -----------------------------------------
+
+
+@router.post("/beam-frequency")
+def beam_frequency(payload: BeamRequest, _: User = Depends(current_user)) -> dict[str, Any]:
+    """튜닝부(납작한 보)의 1차 굽힘 공진 **가늠값**, 또는 목표 주파수를 내는 두께.
+
+    지그를 세트의 공진에 맞출 때 **목표 근처를 좁히는** 데 쓴다 — 해석이 아니라 닫힌 식이다.
+    가정과 오차는 응답의 `accuracy` · `warnings` 에 적혀 온다."""
+    try:
+        if payload.target_hz is not None:
+            return vibration.thickness_for_frequency(
+                target_hz=payload.target_hz,
+                length_mm=payload.length_mm,
+                width_mm=payload.width_mm,
+                material=payload.material,
+                support=payload.support,
+                added_mass_g=payload.added_mass_g,
+            )
+        if payload.thickness_mm is None:
+            raise vibration.VibrationError("두께나 목표 주파수 중 하나는 주어야 합니다")
+        return vibration.beam_frequency(
+            length_mm=payload.length_mm,
+            width_mm=payload.width_mm,
+            thickness_mm=payload.thickness_mm,
+            material=payload.material,
+            support=payload.support,
+            added_mass_g=payload.added_mass_g,
+        )
+    except vibration.VibrationError as failure:
+        raise AppError(code("CAD", 12), str(failure)) from failure

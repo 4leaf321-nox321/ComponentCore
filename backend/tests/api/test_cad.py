@@ -124,3 +124,78 @@ def test_스케치만_있어도_미리보기는_보이고_저장은_거절(
     assert (
         work.json()["current"]["job"]["status"] == "failed"
     )  # 평가가 「입체를 만드세요」 로 실패한다
+
+
+def test_치수를_훑어_고르고_보_공진을_가늠한다(client: TestClient, member: Signed) -> None:
+    """지그를 세트의 공진에 맞추는 흐름 — 연결부는 그대로, 튜닝부만 바꿔 가며 고른다."""
+    jig = {
+        "params": {"튜닝_두께": 6.0},
+        "nodes": [
+            {
+                "id": "연결판",
+                "op": "box",
+                "length": 60,
+                "width": 60,
+                "height": 12,
+                "align": ["min", "center", "min"],
+            },
+            {
+                "id": "볼트",
+                "op": "hole",
+                "target": "연결판",
+                "at": [[10, -22], [50, 22]],
+                "thread": "M6",
+            },
+            {
+                "id": "튜닝보",
+                "op": "box",
+                "length": 90,
+                "width": 40,
+                "height": "=튜닝_두께",
+                "at": [60, 0, 0],
+                "align": ["min", "center", "min"],
+            },
+            {"id": "지그", "op": "union", "targets": ["볼트", "튜닝보"]},
+        ],
+    }
+    swept = client.post(
+        "/api/cad/recipe/sweep",
+        json={
+            "recipe": jig,
+            "param": "튜닝_두께",
+            "values": [4, 6, 10],
+            "material": "aluminum",
+        },
+        headers=member.headers,
+    )
+    assert swept.status_code == 200, swept.text
+    rows = swept.json()["results"]
+    assert [row["튜닝_두께"] for row in rows] == [4, 6, 10]
+    masses = [row["geometry"]["mass"]["mass_g"] for row in rows]
+    assert masses[0] < masses[1] < masses[2]  # 두꺼울수록 무겁다
+    # 연결부는 어떤 값에서도 그대로다 — 구멍 자리가 같다.
+    holes = [sorted(tuple(h["at"]) for h in row["geometry"]["holes"]) for row in rows]
+    assert holes[0] == holes[1] == holes[2]
+
+    missing = client.post(
+        "/api/cad/recipe/sweep",
+        json={"recipe": jig, "param": "없는치수", "values": [1]},
+        headers=member.headers,
+    )
+    assert missing.status_code == 400 and "없습니다" in missing.json()["error"]["message"]
+
+    tuned = client.post(
+        "/api/cad/beam-frequency",
+        json={"target_hz": 440, "length_mm": 90, "width_mm": 40, "added_mass_g": 120},
+        headers=member.headers,
+    )
+    assert tuned.status_code == 200
+    assert 10 < tuned.json()["thickness_mm"] < 11
+    assert "가늠값" in tuned.json()["accuracy"]
+
+    too_high = client.post(
+        "/api/cad/beam-frequency",
+        json={"target_hz": 500000, "length_mm": 200, "width_mm": 20},
+        headers=member.headers,
+    )
+    assert too_high.status_code == 400 and "짧게" in too_high.json()["error"]["message"]

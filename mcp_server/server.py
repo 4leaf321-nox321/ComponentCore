@@ -285,13 +285,72 @@ async def recipe_check(ctx: Context, recipe: dict[str, Any]) -> Any:
 
 
 @mcp.tool()
-async def recipe_geometry(ctx: Context, recipe: dict[str, Any]) -> Any:
+async def recipe_geometry(
+    ctx: Context, recipe: dict[str, Any], material: str | None = None
+) -> Any:
     """만든 형상의 **치수표** — 크기 · 평면(법선 · 넓이) · 원통 · **구멍(지름 · 중심 · 깊이)**.
 
     사람은 3D 를 보고 자를 대지만 너는 못 본다. 그러니 **그린 뒤에는 이것으로 확인한다**:
     구멍이 뜻한 자리에 뚫렸나, 바닥이 평평한가, 두께가 맞나. 제품을 기준으로 지그를 그릴 때도
-    먼저 제품의 치수표를 본다(`part_geometry` · `work_geometry`)."""
-    return await _post(ctx, "/api/cad/recipe/geometry", {"recipe": recipe})
+    먼저 제품의 치수표를 본다(`part_geometry` · `work_geometry`).
+
+    `material`(steel · aluminum · abs …)을 주면 **질량 · 무게중심 · 관성 모멘트**까지 낸다 —
+    무게 중심을 잡거나 진동을 볼 때 쓴다."""
+    return await _post(
+        ctx, "/api/cad/recipe/geometry", {"recipe": recipe, "material": material}
+    )
+
+
+@mcp.tool()
+async def sweep_parameter(
+    ctx: Context,
+    recipe: dict[str, Any],
+    param: str,
+    values: list[float],
+    material: str | None = None,
+) -> Any:
+    """치수 하나를 값마다 바꿔 만들어 보고 **치수표를 나란히** 받는다(한 번에 40개까지).
+
+    「연결부는 그대로 두고 두께만 바꿔 가며 고른다」 가 이 한 번으로 된다 — 질량 · 관성 · 크기가
+    어떻게 달라지는지 보고 고른다. 연결부를 이루는 칸에는 그 치수를 **쓰지 않아야** 안 변한다."""
+    return await _post(
+        ctx,
+        "/api/cad/recipe/sweep",
+        {"recipe": recipe, "param": param, "values": values, "material": material},
+    )
+
+
+@mcp.tool()
+async def beam_frequency(
+    ctx: Context,
+    length_mm: float,
+    width_mm: float,
+    thickness_mm: float | None = None,
+    target_hz: float | None = None,
+    material: str = "aluminum",
+    support: str = "cantilever",
+    added_mass_g: float = 0,
+) -> Any:
+    """납작한 보의 1차 굽힘 공진 **가늠값**, 또는 목표 주파수를 내는 **두께**.
+
+    지그를 세트의 공진에 맞출 때 쓴다: 붙는 부품 무게를 `added_mass_g` 로 주고 목표 Hz 를 주면
+    두께가 나온다 → 그 두께로 레시피를 그려 `sweep_parameter` 로 질량을 확인한다.
+
+    **해석이 아니다.** 균일 직사각형 보 · 완전 고정 가정의 닫힌 식이라 ±10% 는 흔하고, 물림이
+    무르면 실제는 더 낮다. 응답의 `accuracy` · `warnings` 를 사용자에게 그대로 전한다."""
+    return await _post(
+        ctx,
+        "/api/cad/beam-frequency",
+        {
+            "length_mm": length_mm,
+            "width_mm": width_mm,
+            "thickness_mm": thickness_mm,
+            "target_hz": target_hz,
+            "material": material,
+            "support": support,
+            "added_mass_g": added_mass_g,
+        },
+    )
 
 
 @mcp.tool()

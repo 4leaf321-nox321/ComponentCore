@@ -16,6 +16,7 @@ from typing import Any
 
 from app.core import export
 from app.core.recipe import Evaluation, RecipeError, evaluate, parse
+from app.core.recipe.digest import digest
 from app.core.recipe.schema import RecipeValidationError
 from app.modules.jobs import registry
 from app.modules.jobs.models import Artifact
@@ -76,6 +77,38 @@ def build(raw: dict[str, Any], *, allow_sketch: bool = False) -> Evaluation:
 
 
 # --- Job kind="cad" -------------------------------------------------------------
+
+
+def sweep(
+    raw: dict[str, Any], *, param: str, values: list[float], material: str | None = None
+) -> list[dict[str, Any]]:
+    """치수 하나를 값마다 바꿔 가며 만들어 보고 **치수표를 나란히** 돌려준다.
+
+    「연결부는 그대로 두고 두께만 바꿔 가며 알맞은 것을 찾는다」 가 이 한 번의 부름으로 된다.
+    실패한 값은 그 이유와 함께 남는다 — 끊기지 않게(가느다란 값에서 형상이 깨지는 일은 흔하다).
+    """
+    params = raw.get("params") or {}
+    if param not in params:
+        known = ", ".join(sorted(params)) or "(없음)"
+        raise AppError(
+            code("CAD", 10),
+            f"레시피에 '{param}' 치수가 없습니다",
+            details={"known": known},
+        )
+    if len(values) > 40:
+        raise AppError(code("CAD", 11), "한 번에 40개까지 봅니다")
+    out: list[dict[str, Any]] = []
+    for value in values:
+        variant = {**raw, "params": {**params, param: value}}
+        try:
+            evaluation = build(variant)
+        except AppError as failure:
+            out.append({param: value, "ok": False, "error": failure.message})
+            continue
+        out.append(
+            {param: value, "ok": True, "geometry": digest(evaluation.shape, material=material)}
+        )
+    return out
 
 
 def run_job(
