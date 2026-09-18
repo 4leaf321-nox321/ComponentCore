@@ -284,19 +284,6 @@ export default function WorkPage() {
                 >
                   {currentPromoted ? `부품 v${w.current?.promoted_part_version} 으로 올라감` : '부품으로 승격'}
                 </Button>
-                {/* 이 작업이 **지그를 그린 것**일 때 — 생성기를 거치지 않고 그대로 올린다. */}
-                <Button
-                  variant="outline"
-                  disabled={busy || w.current_version === 0}
-                  title="이 레시피가 지그일 때 — 생성기를 거치지 않고 지그 카탈로그로 올립니다"
-                  onClick={() => {
-                    setPromoteName(w.name)
-                    setPromoteNote('')
-                    setPromoting('jig-recipe')
-                  }}
-                >
-                  그린 지그로 승격
-                </Button>
               </div>
 
               {w.current_version === 0 ? (
@@ -374,9 +361,36 @@ export default function WorkPage() {
 
         {/* ---------------- 지그 ---------------- */}
         <TabsContent value="jig" className="space-y-4 pt-4">
+          {/*
+            지그는 **두 길**로 생긴다. 생성기는 제품에서 받침 · 핀 · 클램프를 규칙으로 배치하고,
+            손잡이는 아래 옵션뿐이다 — 레시피가 아니라 변수를 못 심는다. 생성기가 만들 수 없는
+            지그(공진을 맞추는 시험 지그 같은 것)는 **부품 탭에서 레시피로 그리고** 여기서 올린다.
+          */}
           <Card>
             <CardHeader>
-              <CardTitle>생성 옵션</CardTitle>
+              <CardTitle>이 작업의 레시피를 지그로</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-wrap items-center gap-3">
+              <p className="text-muted-foreground min-w-0 flex-1 text-sm">
+                생성기가 만들 수 없는 지그(공진을 맞추는 시험 지그 · 특수 치구)는 <b>부품 탭에서 그립니다</b>. 그린 것이니 변수 · 실험계획이 그대로 따라오고, 여기서 그대로 지그 카탈로그에 올립니다 — 계획 · 간섭 검사는 없습니다.
+              </p>
+              <Button
+                variant="outline"
+                disabled={busy || w.current_version === 0}
+                onClick={() => {
+                  setPromoteName(w.name)
+                  setPromoteNote('')
+                  setPromoting('jig-recipe')
+                }}
+              >
+                그린 지그로 승격 (v{w.current_version})
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>생성 옵션 — 제품에서 만들어 주기</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {options && <JigOptionsForm values={options} onChange={setOptions} />}
