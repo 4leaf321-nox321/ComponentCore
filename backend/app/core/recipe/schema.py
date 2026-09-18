@@ -140,6 +140,8 @@ class SketchNode(_Node):
     op: Literal["sketch"]
     plane: PlaneSpec = Field(default_factory=PlaneSpec)
     shapes: list[SketchShape] = Field(min_length=1)
+    offset: float = 0.0
+    """도형을 다 합친 뒤 윤곽을 밖(양수) · 안(음수)으로 띄운다 — 2D 여유."""
 
 
 class ExtrudeNode(_Node):
@@ -150,6 +152,37 @@ class ExtrudeNode(_Node):
     """평면 법선 쪽(normal) · 반대(reverse) · 양쪽(both, 절반씩)."""
     taper: float = Field(default=0.0, ge=-60, le=60)
     """구배(도). 양수면 갈수록 좁아진다 — 금형 빼기 · 위치 결정 핀의 안내 경사."""
+    until: Literal["distance", "next", "last"] = "distance"
+    """어디까지 — 거리(distance) · `target` 의 다음 면까지(next) · 마지막 면까지(last,
+    관통)."""
+    target: str | None = None
+    """`until` 이 next · last 일 때 부딪힐 입체."""
+
+    @model_validator(mode="after")
+    def _until_needs_target(self) -> ExtrudeNode:
+        if self.until != "distance":
+            if self.target is None:
+                raise ValueError(
+                    "target: 「다음 면까지」 「마지막 면까지」 는 대상 입체가 있어야 합니다"
+                )
+            if self.direction == "both":
+                raise ValueError("direction: 면까지 돌출은 한쪽 방향만 됩니다")
+        return self
+
+
+class HelixNode(_Node):
+    """스케치(단면)를 나선을 따라 밀어 — 스프링 · 나사산. 단면은 XY 에 원점 중심으로 그리면
+    나선 시작점에 알맞게 놓인다."""
+
+    op: Literal["helix"]
+    sketch: str
+    radius: Positive
+    pitch: Positive
+    height: Positive
+    at: XYZ = (0.0, 0.0, 0.0)
+    """나선 축의 밑점."""
+    axis: Literal["X", "Y", "Z"] = "Z"
+    lefthand: bool = False
 
 
 class SweepNode(_Node):
@@ -367,6 +400,17 @@ class SplitNode(_Node):
     keep: Literal["top", "bottom", "both"] = "top"
 
 
+class SectionNode(_Node):
+    """입체를 평면으로 자른 **단면**(스케치). 돌출하면 그 높이의 윤곽이 되고, `offset` 으로
+    여유를 주면 포켓 윤곽이 된다."""
+
+    op: Literal["section"]
+    target: str
+    plane: PlaneSpec = Field(default_factory=PlaneSpec)
+    offset: float = 0.0
+    """윤곽을 밖(양수) · 안(음수)으로 띄운다."""
+
+
 class OffsetNode(_Node):
     """전체를 두껍게(양수) · 얇게(음수) — 제품 형상에 **여유(클리어런스)** 를 주거나 수축을
     반영한다. 지그 포켓은 제품을 이걸로 키운 뒤 빼서 만든다."""
@@ -404,6 +448,7 @@ Node = Annotated[
     | ExtrudeNode
     | RevolveNode
     | SweepNode
+    | HelixNode
     | BoxNode
     | CylinderNode
     | SphereNode
@@ -421,6 +466,7 @@ Node = Annotated[
     | TransformNode
     | MirrorNode
     | SplitNode
+    | SectionNode
     | OffsetNode
     | ImportStepNode,
     Field(discriminator="op"),
@@ -462,9 +508,10 @@ class Recipe(BaseModel):
 
 #: 노드 종류별로 다른 노드를 가리키는 칸.
 _REFERENCE_FIELDS: dict[str, tuple[str, ...]] = {
-    "extrude": ("sketch",),
+    "extrude": ("sketch", "target"),
     "revolve": ("sketch",),
     "sweep": ("sketch",),
+    "helix": ("sketch",),
     "loft": ("sketches",),
     "shell": ("target",),
     "union": ("targets",),
@@ -477,12 +524,18 @@ _REFERENCE_FIELDS: dict[str, tuple[str, ...]] = {
     "transform": ("target",),
     "mirror": ("target",),
     "split": ("target",),
+    "section": ("target",),
     "offset": ("target",),
 }
 
 
 def _references(node: Any) -> list[tuple[str, str | list[str]]]:
-    return [(key, getattr(node, key)) for key in _REFERENCE_FIELDS.get(node.op, ())]
+    out = []
+    for key in _REFERENCE_FIELDS.get(node.op, ()):
+        value = getattr(node, key)
+        if value is not None:  # extrude.target 처럼 비어도 되는 칸
+            out.append((key, value))
+    return out
 
 
 class RecipeValidationError(ValueError):

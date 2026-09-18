@@ -532,3 +532,101 @@ def test_자르기_여유_배율() -> None:
         )
     )
     assert scaled.shape.volume == pytest.approx(1000)
+
+
+def test_면까지_돌출_나선_단면_윤곽_여유() -> None:
+    box = {"id": "b", "op": "box", "length": 40, "width": 30, "height": 20}
+    peg = {
+        "id": "p",
+        "op": "sketch",
+        "plane": {"origin": [0, 0, -30]},
+        "shapes": [{"type": "circle", "radius": 3}],
+    }
+    to_next = evaluate(
+        parse(
+            {
+                "nodes": [
+                    box,
+                    peg,
+                    {
+                        "id": "e",
+                        "op": "extrude",
+                        "sketch": "p",
+                        "distance": 1,
+                        "until": "next",
+                        "target": "b",
+                    },
+                ]
+            }
+        )
+    )
+    assert pytest.approx(-10) == to_next.shape.bounding_box().max.Z  # 상자 바닥에서 멈춘다
+    with pytest.raises(RecipeValidationError, match="대상 입체"):
+        parse(
+            {
+                "nodes": [
+                    box,
+                    peg,
+                    {
+                        "id": "e",
+                        "op": "extrude",
+                        "sketch": "p",
+                        "distance": 1,
+                        "until": "next",
+                    },
+                ]
+            }
+        )
+    spring = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {"id": "s", "op": "sketch", "shapes": [{"type": "circle", "radius": 1.5}]},
+                    {
+                        "id": "h",
+                        "op": "helix",
+                        "sketch": "s",
+                        "radius": 10,
+                        "pitch": 5,
+                        "height": 30,
+                    },
+                ]
+            }
+        )
+    )
+    assert spring.summary()["solid_count"] == 1
+    assert pytest.approx(23, abs=0.1) == spring.shape.bounding_box().size.X
+    pocket = evaluate(
+        parse(
+            {
+                "nodes": [
+                    box,
+                    {
+                        "id": "sec",
+                        "op": "section",
+                        "target": "b",
+                        "plane": {"name": "XY", "origin": [0, 0, 5]},
+                        "offset": 2,
+                    },
+                    {"id": "e", "op": "extrude", "sketch": "sec", "distance": 10},
+                ]
+            }
+        )
+    )
+    assert tuple(pocket.summary()["bbox"]["size"]) == (44.0, 34.0, 10.0)
+    outline = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "s",
+                        "op": "sketch",
+                        "shapes": [{"type": "rect", "width": 20, "height": 10}],
+                        "offset": -2,
+                    },
+                    {"id": "e", "op": "extrude", "sketch": "s", "distance": 5},
+                ]
+            }
+        )
+    )
+    assert tuple(outline.summary()["bbox"]["size"]) == (16.0, 6.0, 5.0)

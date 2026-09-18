@@ -27,6 +27,7 @@ from build123d import (
     Face,
     FontStyle,
     GeomType,
+    Helix,
     Keep,
     Kind,
     Line,
@@ -48,6 +49,7 @@ from build123d import (
     ThreePointArc,
     Torus,
     Transition,
+    Until,
     Vector,
     Wire,
     chamfer,
@@ -59,6 +61,7 @@ from build123d import (
     offset,
     revolve,
     scale,
+    section,
     split,
     sweep,
 )
@@ -214,7 +217,27 @@ def _sketch(node: S.SketchNode) -> Sketch:
     assert result is not None
     if not result.faces():
         raise RecipeError(node.id, "스케치에 남은 면이 없습니다 — cut 이 전부를 지웠습니다")
-    return _plane(node.plane) * result
+    return _plane(node.plane) * _offset2d(result, node.offset, node.id)
+
+
+def _offset2d(sketch: Sketch, amount: float, node_id: str) -> Sketch:
+    """윤곽을 띄운다. 음수로 다 사라지면 오류."""
+    if amount == 0:
+        return sketch
+    try:
+        moved = offset(sketch, amount, kind=Kind.ARC)
+    except Exception as failure:
+        raise RecipeError(node_id, f"윤곽을 {amount} 만큼 띄우지 못했습니다") from failure
+    if not moved.faces() or moved.area < 1e-6:
+        raise RecipeError(node_id, f"윤곽을 {amount} 만큼 줄이니 남는 것이 없습니다")
+    return moved
+
+
+def _relocate_section(sketch: Sketch, origin: Vector, tangent: Vector) -> Sketch:
+    """단면 스케치를 어디 그렸든 경로 시작점에, 경로 방향을 보게 옮긴다."""
+    face = sketch.faces()[0]
+    local = Plane(face.center(), z_dir=face.normal_at()).to_local_coords(sketch)
+    return Plane(origin=origin, z_dir=tangent) * local
 
 
 # --- 3D 노드 -------------------------------------------------------------------
@@ -398,10 +421,50 @@ def _evaluate_node(
         sketch = made[node.sketch]
         if not isinstance(sketch, Sketch):
             raise RecipeError(node.id, f"'{node.sketch}' 는 스케치가 아닙니다")
+        if node.until != "distance":
+            assert node.target is not None
+            normal = sketch.faces()[0].normal_at()
+            direction = normal if node.direction == "normal" else -normal
+            until = Until.NEXT if node.until == "next" else Until.LAST
+            try:
+                return extrude(
+                    sketch,
+                    until=until,
+                    target=_as_part(made[node.target], node.id),
+                    dir=direction,
+                )
+            except Exception as failure:
+                raise RecipeError(
+                    node.id,
+                    "그 방향에 부딪힐 면이 없습니다 — "
+                    "스케치가 대상 밖에서 대상을 향해야 합니다",
+                ) from failure
         if node.direction == "both":
             return extrude(sketch, node.distance / 2, both=True, taper=node.taper)
         amount = node.distance if node.direction == "normal" else -node.distance
         return extrude(sketch, amount, taper=node.taper)
+    if isinstance(node, S.HelixNode):
+        sketch = made[node.sketch]
+        if not isinstance(sketch, Sketch):
+            raise RecipeError(node.id, f"'{node.sketch}' 는 스케치가 아닙니다")
+        rot = {"Z": Rot(0, 0, 0), "X": Rot(0, 90, 0), "Y": Rot(-90, 0, 0)}[node.axis]
+        path = (
+            Pos(*node.at)
+            * rot
+            * Helix(
+                pitch=node.pitch,
+                height=node.height,
+                radius=node.radius,
+                lefthand=node.lefthand,
+            )
+        )
+        placed = _relocate_section(sketch, path.position_at(0), path.tangent_at(0))
+        try:
+            return sweep(placed, path, is_frenet=True)
+        except Exception as failure:
+            raise RecipeError(
+                node.id, "나선을 따라 밀지 못했습니다 — 단면이 피치보다 작아야 겹치지 않습니다"
+            ) from failure
     if isinstance(node, S.SweepNode):
         sketch = made[node.sketch]
         if not isinstance(sketch, Sketch):
@@ -487,10 +550,10 @@ def _evaluate_node(
     if isinstance(node, S.LoftNode):
         sections = []
         for name in node.sketches:
-            section = made[name]
-            if not isinstance(section, Sketch):
+            piece = made[name]
+            if not isinstance(piece, Sketch):
                 raise RecipeError(node.id, f"'{name}' 는 스케치가 아닙니다")
-            sections.append(section)
+            sections.append(piece)
         return loft(sections, ruled=node.ruled)
     if isinstance(node, S.SphereNode):
         return Pos(*node.at) * Sphere(node.radius)
@@ -526,6 +589,14 @@ def _evaluate_node(
                 node.id, "자른 쪽에 남는 것이 없습니다 — 평면이 입체를 지나야 합니다"
             )
         return _to_part(result)
+    if isinstance(node, S.SectionNode):
+        part = _as_part(made[node.target], node.id)
+        cut = section(part, section_by=_plane(node.plane))
+        if not cut.faces() or cut.area < 1e-6:
+            raise RecipeError(node.id, "그 평면은 입체를 지나지 않습니다")
+        return _offset2d(
+            Sketch(children=[copy.copy(f) for f in cut.faces()]), node.offset, node.id
+        )
     if isinstance(node, S.OffsetNode):
         part = _as_part(made[node.target], node.id)
         kind = Kind.ARC if node.corners == "round" else Kind.INTERSECTION

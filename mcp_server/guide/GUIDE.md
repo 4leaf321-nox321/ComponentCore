@@ -39,9 +39,13 @@
   width) · `regular_polygon`(radius, sides) · `polygon`(points) · **`polyline`**(start, segments
   [{to, via?}] — 임의 윤곽, `via` 가 있으면 그 점을 지나는 호) · `ellipse`(x_radius, y_radius) ·
   `text`(text, size, bold — 각인은 cut 으로 얕게 돌출해서 뺀다). 각 도형은 `at` [x, y] · `rotation`.
-- 입체 `extrude`(sketch, distance, direction normal|reverse|both, taper — 구배 도, 양수면 좁아짐) ·
+  스케치의 `offset` 은 합친 윤곽을 밖(+)/안(−)으로 띄운다(2D 여유). `section`(target, plane,
+  offset) 은 입체를 평면으로 자른 단면을 **스케치로** 준다 — 여유를 주고 돌출하면 포켓 윤곽.
+- 입체 `extrude`(sketch, distance, direction normal|reverse|both, taper — 구배 도, 양수면 좁아짐,
+  until distance|next|last + target — 대상의 다음/마지막 면까지; 관통 구멍은 last) ·
   `revolve`(sketch, axis, angle) · `sweep`(sketch, path [[x,y,z]…], smooth — 단면 스케치의 원점을
-  경로 첫 점에 두라) · `loft`(sketches [2개 이상], ruled) · `box`(length, width, height, at) · `cylinder`(radius, height,
+  경로 첫 점에 두라) · `helix`(sketch, radius, pitch, height, axis, at, lefthand — 스프링 · 나사산;
+  단면은 XY 원점에 그리면 자동으로 시작점에 놓인다) · `loft`(sketches [2개 이상], ruled) · `box`(length, width, height, at) · `cylinder`(radius, height,
   axis, at) · `sphere`(radius, at) · `cone`(bottom_radius, top_radius, height, at) · `torus`
   (major_radius, minor_radius) · `import_step`(file — 사용자가 올린 STEP, 직접 만들지 않는다)
 - 조합 `union`(targets) · `cut`(target, tools) · `intersect`(targets) · `split`(target, plane

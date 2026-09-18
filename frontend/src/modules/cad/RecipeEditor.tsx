@@ -164,7 +164,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
     // 참조 칸은 바로 앞의 알맞은 피처로 미리 채운다 — 「돌출」 을 누르면 방금 그린 스케치가 들어간다.
     const spec = OP_BY_NAME[op]
     for (const field of spec.fields) {
-      if (field.kind === 'ref') {
+      if (field.kind === 'ref' && !field.optional) {
         const candidate = [...nodes].reverse().find((n) => field.refKind === 'any' || (field.refKind === 'sketch') === (n.op === 'sketch'))
         if (candidate) made[field.key] = candidate.id
       }

@@ -21,6 +21,8 @@ import {
   Layers,
   Expand,
   Route,
+  Scan,
+  Spline,
   SquareSplitHorizontal,
   Move3d,
   Package,
@@ -66,6 +68,8 @@ export interface FieldSpec {
   help?: string
   /** 어떤 종류의 앞 피처를 가리키나 — ref/refs 에서 고를 목록을 좁힌다. */
   refKind?: 'sketch' | 'solid' | 'any'
+  /** 비워도 되는 ref — 비우면 null 로 보낸다. */
+  optional?: boolean
 }
 
 export interface OpSpec {
@@ -104,6 +108,7 @@ export const OP_SPECS: OpSpec[] = [
     fields: [
       { key: 'plane', label: '평면', kind: 'plane' },
       { key: 'shapes', label: '도형', kind: 'shapes' },
+      { key: 'offset', label: '윤곽 여유 (mm, 0 = 없음, 음수면 안쪽)', kind: 'number', step: 0.1 },
     ],
     defaults: {
       plane: { name: 'XY', origin: [0, 0, 0] },
@@ -139,8 +144,19 @@ export const OP_SPECS: OpSpec[] = [
         ],
       },
       { key: 'taper', label: '구배 (°, 양수면 갈수록 좁게)', kind: 'number', step: 1 },
+      {
+        key: 'until',
+        label: '어디까지',
+        kind: 'select',
+        options: [
+          { value: 'distance', label: '거리만큼' },
+          { value: 'next', label: '대상의 다음 면까지' },
+          { value: 'last', label: '대상의 마지막 면까지 (관통)' },
+        ],
+      },
+      { key: 'target', label: '부딪힐 대상 (면까지일 때)', kind: 'ref', refKind: 'solid', optional: true },
     ],
-    defaults: { sketch: '', distance: 10, direction: 'normal', taper: 0 },
+    defaults: { sketch: '', distance: 10, direction: 'normal', taper: 0, until: 'distance', target: null },
   },
   {
     op: 'sweep',
@@ -162,6 +178,23 @@ export const OP_SPECS: OpSpec[] = [
       ],
       smooth: false,
     },
+  },
+  {
+    op: 'helix',
+    icon: Spline,
+    label: '나선',
+    group: '입체',
+    help: '단면 스케치를 나선을 따라 밀어 — 스프링 · 나사산. 단면은 XY 원점에 그리면 시작점에 알맞게 놓인다. 단면이 피치보다 작아야 겹치지 않는다.',
+    fields: [
+      { key: 'sketch', label: '단면 스케치', kind: 'ref', refKind: 'sketch' },
+      { key: 'radius', label: '나선 반지름 (mm)', kind: 'number' },
+      { key: 'pitch', label: '피치 (mm, 한 바퀴에 오르는 높이)', kind: 'number' },
+      { key: 'height', label: '높이 (mm)', kind: 'number' },
+      { key: 'axis', label: '축', kind: 'select', options: AXIS_OPTIONS },
+      { key: 'at', label: '축 밑점', kind: 'xyz' },
+      { key: 'lefthand', label: '왼나사(반대 방향)', kind: 'checkbox' },
+    ],
+    defaults: { sketch: '', radius: 10, pitch: 5, height: 30, axis: 'Z', at: [0, 0, 0], lefthand: false },
   },
   {
     op: 'revolve',
@@ -332,6 +365,19 @@ export const OP_SPECS: OpSpec[] = [
       },
     ],
     defaults: { target: '', plane: { name: 'XY', origin: [0, 0, 0] }, keep: 'top' },
+  },
+  {
+    op: 'section',
+    icon: Scan,
+    label: '단면',
+    group: '스케치',
+    help: '입체를 평면으로 자른 단면을 스케치로. 여유를 주고 돌출하면 그 높이의 포켓 윤곽이 된다.',
+    fields: [
+      { key: 'target', label: '대상', kind: 'ref', refKind: 'solid' },
+      { key: 'plane', label: '자르는 평면', kind: 'plane' },
+      { key: 'offset', label: '윤곽 여유 (mm)', kind: 'number', step: 0.1 },
+    ],
+    defaults: { target: '', plane: { name: 'XY', origin: [0, 0, 0] }, offset: 0 },
   },
   {
     op: 'chamfer',
@@ -594,7 +640,7 @@ export function makeNode(op: string, nodes: RecipeNode[]): RecipeNode {
 
 /** 이 피처가 만드는 것이 스케치인가 입체인가 — ref 목록을 좁힐 때 쓴다. */
 export function nodeKind(node: RecipeNode, nodes: RecipeNode[]): 'sketch' | 'solid' {
-  if (node.op === 'sketch') return 'sketch'
+  if (node.op === 'sketch' || node.op === 'section') return 'sketch'
   if (node.op === 'pattern' || node.op === 'transform' || node.op === 'mirror') {
     const source = nodes.find((n) => n.id === (node.source ?? node.target))
     return source ? nodeKind(source, nodes) : 'solid'

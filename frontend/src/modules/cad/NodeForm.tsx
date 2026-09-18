@@ -217,7 +217,12 @@ export function NodeForm({
             {field.kind === 'xy' && <VectorInput value={node[field.key]} size={2} onChange={(v) => set(field.key, v)} />}
             {field.kind === 'xyz' && <VectorInput value={node[field.key]} size={3} onChange={(v) => set(field.key, v)} />}
             {field.kind === 'ref' && (
-              <RefSelect value={String(node[field.key] ?? '')} candidates={candidatesFor(field)} onChange={(v) => set(field.key, v)} placeholder={field.label} />
+              <RefSelect
+                value={String(node[field.key] ?? '')}
+                candidates={candidatesFor(field)}
+                onChange={(v) => set(field.key, v || (field.optional ? null : ''))}
+                placeholder={field.label}
+              />
             )}
             {field.kind === 'refs' && (
               <div className="space-y-1">
