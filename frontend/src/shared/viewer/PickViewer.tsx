@@ -80,6 +80,7 @@ const HOVER_COLOR = 0xf59e0b
 const EDGE_COLOR = 0x1f2937
 const PICKED_COLOR = 0xf59e0b
 const MEASURE_COLOR = 0xef4444
+const DOT_COLOR = 0x2563eb
 
 /** 글자를 캔버스에 그려 스프라이트로 — 언제나 카메라를 본다. 3D 안에서 값을 읽게. */
 function makeLabel(text: string, tone: 'distance' | 'entity'): THREE.Sprite {
@@ -108,6 +109,68 @@ function makeLabel(text: string, tone: 'distance' | 'entity'): THREE.Sprite {
   return sprite
 }
 
+/** 동그란 점 무늬 — 네모난 기본 점은 꼭짓점처럼 안 보인다. */
+function dotTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 64
+  canvas.height = 64
+  const draw = canvas.getContext('2d')!
+  draw.beginPath()
+  draw.arc(32, 32, 26, 0, Math.PI * 2)
+  draw.fillStyle = '#ffffff'
+  draw.fill()
+  draw.lineWidth = 8
+  draw.strokeStyle = 'rgba(0,0,0,0.45)'
+  draw.stroke()
+  return new THREE.CanvasTexture(canvas)
+}
+
+/** 크기를 점마다 따로 주는 재질 — 손이 올라간 점만 크게 그린다. */
+function dotMaterial(texture: THREE.Texture, color: number): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: { map: { value: texture }, tint: { value: new THREE.Color(color) } },
+    vertexShader: `
+      attribute float size;
+      void main() {
+        vec4 view = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = size * (300.0 / -view.z);
+        gl_Position = projectionMatrix * view;
+      }`,
+    fragmentShader: `
+      uniform sampler2D map;
+      uniform vec3 tint;
+      void main() {
+        vec4 dot = texture2D(map, gl_PointCoord);
+        if (dot.a < 0.35) discard;
+        gl_FragColor = vec4(tint, dot.a);
+      }`,
+    transparent: true,
+    depthTest: false,
+  })
+}
+
+/** 잡을 점을 모은다 — 꼭짓점(엣지 끝) · 엣지 중점 · 원 중심. 겹치는 것은 하나로. */
+function gatherDots(mesh: MeshData): { at: number[][]; kinds: string[] } {
+  const at: number[][] = []
+  const kinds: string[] = []
+  const seen = new Set<string>()
+  const add = (point: number[], kind: string) => {
+    const key = point.map((v) => Math.round(v * 1000)).join(',')
+    if (seen.has(key)) return
+    seen.add(key)
+    at.push(point)
+    kinds.push(kind)
+  }
+  for (const edge of mesh.edges) {
+    add([edge.points[0], edge.points[1], edge.points[2]], 'vertex')
+    const last = edge.points.length - 3
+    add([edge.points[last], edge.points[last + 1], edge.points[last + 2]], 'vertex')
+    add(edge.midpoint, 'midpoint')
+    if (edge.center) add(edge.center, 'center')
+  }
+  return { at, kinds }
+}
+
 /** 표준 방향 — 뒤에서 카메라가 설 자리(중심 기준 단위 벡터, CAD Z-up 기준). */
 const VIEWS: { key: string; label: string; dir: [number, number, number] }[] = [
   { key: 'iso', label: '등각', dir: [1, -1, 0.8] },
@@ -124,8 +187,12 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     renderer: THREE.WebGLRenderer
     controls: OrbitControls
     group: THREE.Group
+    /** 형상만 담는 자리 — 레시피가 바뀌면 이것만 비운다(측정 표시 · 잡을 점은 남는다). */
+    shapes: THREE.Group
     faces: THREE.Mesh[]
     edges: THREE.Line[]
+    /** 잡을 점 — 꼭짓점 · 엣지 중점 · 원 중심. 측정에서 「점」 을 켰을 때만 보인다. */
+    dots: { object: THREE.Points | null; at: number[][]; kinds: string[] }
     marks: THREE.Group
     fitted: boolean
   } | null>(null)
@@ -136,7 +203,7 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
   const look = useCallback((dir: [number, number, number]) => {
     const s = state.current
     if (!s) return
-    const box = new THREE.Box3().setFromObject(s.group)
+    const box = new THREE.Box3().setFromObject(s.shapes)
     if (box.isEmpty()) return
     const center = box.getCenter(new THREE.Vector3())
     const radius = Math.max(...box.getSize(new THREE.Vector3()).toArray()) || 1
@@ -167,9 +234,23 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     const group = new THREE.Group()
     group.rotation.x = -Math.PI / 2 // CAD Z-up → three Y-up
     scene.add(group)
+    const shapes = new THREE.Group()
+    group.add(shapes)
     const marks = new THREE.Group()
     group.add(marks)
-    state.current = { scene, camera, renderer, controls, group, faces: [], edges: [], marks, fitted: false }
+    state.current = {
+      scene,
+      camera,
+      renderer,
+      controls,
+      group,
+      shapes,
+      faces: [],
+      edges: [],
+      dots: { object: null, at: [], kinds: [] },
+      marks,
+      fitted: false,
+    }
 
     function resize() {
       const { clientWidth: w, clientHeight: h } = container!
@@ -201,12 +282,17 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       }
       if (m === 'measure') {
         const kinds = callbacks.current.measureKinds ?? { point: true, edge: true, face: true }
-        raycaster.params.Line = { threshold: Math.max(0.3, (s.group.userData.size as number) / 200) }
-        // 점은 엣지의 끝점에 붙으므로 엣지를 함께 쏜다 — 「점만」 켜도 꼭짓점을 잡을 수 있게.
-        const wantsLines = kinds.edge || kinds.point
-        const onEdge = wantsLines ? raycaster.intersectObjects(s.edges, false)[0] : undefined
+        const size = s.group.userData.size as number
+        raycaster.params.Line = { threshold: Math.max(0.3, size / 200) }
+        raycaster.params.Points = { threshold: Math.max(0.4, size / 70) }
+        // **점이 먼저다.** 점은 가장 정확한 자리라, 엣지 · 면 위에 겹쳐 있어도 점을 고른다.
+        if (kinds.point && s.dots.object) {
+          const onDot = raycaster.intersectObject(s.dots.object, false)[0]
+          if (onDot) return onDot
+        }
+        const onEdge = kinds.edge ? raycaster.intersectObjects(s.edges, false)[0] : undefined
         const onFace = kinds.face ? raycaster.intersectObjects(s.faces, false)[0] : undefined
-        if (onEdge && onFace) return onEdge.distance <= onFace.distance + (s.group.userData.size as number) / 50 ? onEdge : onFace
+        if (onEdge && onFace) return onEdge.distance <= onFace.distance + size / 50 ? onEdge : onFace
         return onEdge ?? onFace ?? null
       }
       return null
@@ -239,6 +325,17 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       }
       return best
     }
+    /** 점 위에 있을 때는 그 점만 크게 — 어느 점을 잡는지 눈으로 확인하고 누른다. */
+    function setHoverDot(index: number | null) {
+      const s = state.current
+      if (!s?.dots.object) return
+      const sizes = s.dots.object.geometry.getAttribute('size') as THREE.BufferAttribute
+      const base = s.dots.object.userData.base as number
+      for (let i = 0; i < sizes.count; i += 1) sizes.setX(i, i === index ? base * 2.2 : base)
+      sizes.needsUpdate = true
+      renderer.domElement.style.cursor = index === null ? renderer.domElement.style.cursor : 'crosshair'
+    }
+
     function setHover(object: THREE.Mesh | THREE.Line | null) {
       if (hovered === object) return
       if (hovered) {
@@ -253,9 +350,14 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       downAt = [e.clientX, e.clientY]
     }
     const onMove = (e: PointerEvent) => {
-      if (callbacks.current.mode === 'none') return setHover(null)
+      if (callbacks.current.mode === 'none') {
+        setHoverDot(null)
+        return setHover(null)
+      }
       const hit = pick(e)
-      setHover((hit?.object as THREE.Mesh | THREE.Line) ?? null)
+      const onDot = hit?.object === state.current?.dots.object
+      setHoverDot(onDot ? (hit?.index ?? null) : null)
+      setHover(onDot ? null : ((hit?.object as THREE.Mesh | THREE.Line) ?? null))
     }
     const onUp = (e: PointerEvent) => {
       if (!downAt) return
@@ -269,8 +371,11 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       if (callbacks.current.mode === 'edge' && data.edge) callbacks.current.onPickEdge?.(data.edge as MeshEdge)
       if (callbacks.current.mode === 'measure') {
         const kinds = callbacks.current.measureKinds ?? { point: true, edge: true, face: true }
-        const snapped = kinds.point ? snapVertex(hit.point) : null
-        if (snapped) callbacks.current.onMeasure?.({ kind: 'point', at: snapped })
+        const dots = state.current?.dots
+        // 점을 눌렀으면 **그 점의 좌표 그대로** — 화면에서 본 자리와 잰 자리가 같아야 한다.
+        const onDot = dots?.object && hit.object === dots.object && hit.index !== undefined ? dots.at[hit.index] : null
+        const snapped = onDot ?? (kinds.point ? snapVertex(hit.point) : null)
+        if (snapped) callbacks.current.onMeasure?.({ kind: 'point', at: [snapped[0], snapped[1], snapped[2]] })
         else if (data.edge && kinds.edge) callbacks.current.onMeasure?.({ kind: 'edge', edge: data.edge as MeshEdge })
         else if (data.face && kinds.face) {
           const local = state.current!.group.worldToLocal(hit.point.clone())
@@ -315,7 +420,9 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       l.geometry.dispose()
       ;(l.material as THREE.Material).dispose()
     }
-    s.group.clear()
+    // **형상만** 비운다. group 을 통째로 비우면 측정 표시와 잡을 점이 붙은 자리까지 떨어져
+    // 나가, 다시 그려도 화면에 안 보인다(자식이 아니므로).
+    s.shapes.clear()
     s.faces = []
     s.edges = []
     if (!mesh) return
@@ -328,7 +435,7 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       const material = new THREE.MeshStandardMaterial({ color: FACE_COLOR, metalness: 0.1, roughness: 0.6, side: THREE.DoubleSide })
       const m = new THREE.Mesh(geometry, material)
       m.userData = { face, base: FACE_COLOR, picked: false }
-      s.group.add(m)
+      s.shapes.add(m)
       s.faces.push(m)
     }
     const near = highlightEdgesNear ?? []
@@ -339,11 +446,11 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       const material = new THREE.LineBasicMaterial({ color: picked ? PICKED_COLOR : EDGE_COLOR, linewidth: 1 })
       const l = new THREE.Line(geometry, material)
       l.userData = { edge, base: EDGE_COLOR, picked }
-      s.group.add(l)
+      s.shapes.add(l)
       s.edges.push(l)
     }
 
-    const box = new THREE.Box3().setFromObject(s.group)
+    const box = new THREE.Box3().setFromObject(s.shapes)
     const size = box.getSize(new THREE.Vector3())
     const center = box.getCenter(new THREE.Vector3())
     const radius = Math.max(size.x, size.y, size.z) || 1
@@ -361,6 +468,32 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       s.fitted = true
     }
   }, [mesh, highlightEdgesNear])
+
+  // 잡을 점 — 「점」 을 켠 측정에서만 띄운다. 늘 띄우면 형상이 점으로 덮인다.
+  const wantsDots = mode === 'measure' && (measureKinds?.point ?? true)
+  useEffect(() => {
+    const s = state.current
+    if (!s) return
+    const old = s.dots.object
+    if (old) {
+      s.group.remove(old)
+      old.geometry.dispose()
+      ;(old.material as THREE.Material).dispose()
+      s.dots = { object: null, at: [], kinds: [] }
+    }
+    if (!mesh || !wantsDots) return
+    const gathered = gatherDots(mesh)
+    if (gathered.at.length === 0) return
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(gathered.at.flat(), 3))
+    const base = Math.max(0.02, (s.group.userData.size as number) / 900)
+    geometry.setAttribute('size', new THREE.Float32BufferAttribute(Array.from({ length: gathered.at.length }, () => base), 1))
+    const points = new THREE.Points(geometry, dotMaterial(dotTexture(), DOT_COLOR))
+    points.userData.base = base
+    points.renderOrder = 8
+    s.group.add(points)
+    s.dots = { object: points, at: gathered.at, kinds: gathered.kinds }
+  }, [mesh, wantsDots])
 
   // 측정 표시 — 점 · 치수선 · **값 글자** · 고른 엣지/면 강조. 무엇을 어디서 쟀는지 3D 에서 보인다.
   useEffect(() => {

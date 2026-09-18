@@ -18,7 +18,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 export type PickKind = 'point' | 'edge' | 'face'
 
 export const PICK_KINDS: { kind: PickKind; label: string; hint: string; icon: typeof Ruler }[] = [
-  { kind: 'point', label: '점', hint: '꼭짓점 · 원 중심에 붙는다', icon: CircleDot },
+  { kind: 'point', label: '점', hint: '켜면 3D 에 파란 점이 뜬다 — 꼭짓점 · 모서리 중점 · 원 중심', icon: CircleDot },
   { kind: 'edge', label: '선', hint: '모서리 · 원(구멍 지름)', icon: Minus },
   { kind: 'face', label: '면', hint: '평면 · 원통면', icon: Square },
 ]
@@ -116,6 +116,12 @@ export function MeasureDialog({
               })}
             </div>
           </div>
+
+          {kinds.has('point') && (
+            <p className="text-muted-foreground -mt-2 text-[11px]">
+              <span className="text-primary">●</span> 파란 점을 누르면 그 자리를 잽니다. 손을 올리면 커집니다.
+            </p>
+          )}
 
           {/* 지금 고른 것 */}
           <div>

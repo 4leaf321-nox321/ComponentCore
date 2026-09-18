@@ -683,7 +683,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                 : pickMode === 'edge'
                   ? `엣지를 눌러 고릅니다 (${(selected?.edges as { near?: number[][] })?.near?.length ?? 0} 개). 다시 누르면 뺍니다.`
                   : pickMode === 'measure'
-                    ? '측정 중 — 3D 에서 점 · 선 · 면을 누르세요. 값은 오른쪽 창에 나옵니다.'
+                    ? '측정 중 — 파란 점(꼭짓점 · 중점 · 원 중심) · 모서리 · 면을 누르세요. 값은 오른쪽 창에 나옵니다.'
                     : '끌어서 돌리고, 굴려서 확대합니다. 왼쪽 피처를 누르면 고칩니다.'}
               {edgePicking && pickMode === 'edge' && (
                 <button type="button" className="ml-2 underline" onClick={() => setEditing(true)}>

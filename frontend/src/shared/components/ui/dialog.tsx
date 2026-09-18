@@ -186,9 +186,16 @@ function DialogContent({
         )}
         // **transform 이 아니라 여백으로 옮긴다.** 인라인 transform 은 여는
         // 애니메이션(zoom-in)을 덮어 죽인다 — 여백은 다른 축이라 안 부딪친다.
+        //
+        // 네 쪽을 다 준다: 어느 쪽에 붙어 있든 움직이게 하려고. `left` 로 선 모달은
+        // marginLeft 로, `right` 로 선 모달(측정 창처럼 3D 옆에 붙인 것)은 marginRight
+        // 로만 움직인다 — 한쪽만 주면 **그 방향으로는 꿈쩍도 안 한다.** 붙지 않은 쪽의
+        // 여백은 자리에 아무 영향이 없으므로 같이 줘도 안전하다.
         style={{
           marginLeft: drag.offset.x,
+          marginRight: -drag.offset.x,
           marginTop: drag.offset.y,
+          marginBottom: -drag.offset.y,
           ...(drag.dragging ? { userSelect: "none" } : {}),
           ...props.style,
         }}

@@ -58,3 +58,10 @@ test('담아 둔 측정은 무엇을 어떻게 쟀는지 한 줄로 남는다', 
   expect(screen.getByText('원 1 ↔ 원 2 : 40 mm')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /지우기/ })).toBeInTheDocument()
 })
+
+test('「점」 을 켜면 3D 에 점이 뜬다고 알려 주고, 끄면 그 안내도 사라진다', () => {
+  render(<Host picks={[]} />)
+  expect(screen.getByText(/파란 점을 누르면/)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '점' }))
+  expect(screen.queryByText(/파란 점을 누르면/)).toBeNull()
+})
