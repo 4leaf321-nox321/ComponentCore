@@ -57,6 +57,7 @@ from build123d import (
     fillet,
     import_step,
     loft,
+    make_face,
     mirror,
     offset,
     revolve,
@@ -159,6 +160,8 @@ def _shape2d(one: S.SketchShape) -> Sketch:
         face = RegularPolygon(one.radius, one.sides, rotation=one.rotation)
     elif isinstance(one, S.PolylineShape):
         face = _polyline(one)
+    elif isinstance(one, S.PathShape):
+        face = _path(one)
     elif isinstance(one, S.EllipseShape):
         face = Ellipse(one.x_radius, one.y_radius, rotation=one.rotation)
     elif isinstance(one, S.TextShape):
@@ -173,11 +176,11 @@ def _shape2d(one: S.SketchShape) -> Sketch:
     return Pos(one.at[0], one.at[1]) * face
 
 
-def _polyline(shape: S.PolylineShape) -> Sketch:
-    """점을 이어 닫힌 윤곽으로. 구간에 `via` 가 있으면 그 점을 지나는 호."""
+def _centerline(start: S.XY, segments: list[S.Segment]) -> list[Any]:
+    """점을 이은 엣지들 — 직선, `via` 가 있으면 호. 겹치는 점은 건너뛴다."""
     edges: list[Any] = []
-    cursor = Vector(shape.start[0], shape.start[1], 0)
-    for segment in shape.segments:
+    cursor = Vector(start[0], start[1], 0)
+    for segment in segments:
         target = Vector(segment.to[0], segment.to[1], 0)
         if (target - cursor).length < 1e-6:
             continue
@@ -188,6 +191,33 @@ def _polyline(shape: S.PolylineShape) -> Sketch:
         else:
             edges.append(Line(cursor, target))
         cursor = target
+    return edges
+
+
+def _path(shape: S.PathShape) -> Sketch:
+    """중심선을 폭의 절반만큼 양쪽으로 띄워 닫힌 면으로. 열린 와이어의 offset 은 양 끝이 둥근
+    닫힌 곡선을 준다(실측) — make_face 로 면을 만든다."""
+    edges = _centerline(shape.start, shape.segments)
+    if not edges:
+        raise ValueError("선의 길이가 없습니다")
+    kind = Kind.ARC if shape.corners == "round" else Kind.INTERSECTION
+    outline = offset(Wire(edges), shape.width / 2, kind=kind)
+    wires = outline.wires()
+    if len(wires) != 1 or not wires[0].is_closed:
+        raise ValueError("선이 스스로 겹칩니다 — 폭을 줄이거나 점을 고치세요")
+    face = make_face(wires[0])
+    if not face.is_valid or face.area < 1e-6:
+        raise ValueError("선에서 면을 만들지 못했습니다")
+    sketch = Sketch(face.wrapped)
+    if shape.rotation:
+        sketch = sketch.rotate(Axis.Z, shape.rotation)
+    return sketch
+
+
+def _polyline(shape: S.PolylineShape) -> Sketch:
+    """점을 이어 닫힌 윤곽으로. 구간에 `via` 가 있으면 그 점을 지나는 호."""
+    edges = _centerline(shape.start, shape.segments)
+    cursor = edges[-1] @ 1 if edges else Vector(shape.start[0], shape.start[1], 0)
     start = Vector(shape.start[0], shape.start[1], 0)
     if (cursor - start).length > 1e-6:
         edges.append(Line(cursor, start))
@@ -211,13 +241,21 @@ def _sketch(node: S.SketchNode) -> Sketch:
                 raise RecipeError(
                     node.id, f"shapes[{index}]: 뺄 것이 없습니다 — cut 이 맨 앞입니다"
                 )
-            result = result - face
+            result = _as_sketch(result - face)
         else:
-            result = face if result is None else result + face
+            result = face if result is None else _as_sketch(result + face)
     assert result is not None
     if not result.faces():
         raise RecipeError(node.id, "스케치에 남은 면이 없습니다 — cut 이 전부를 지웠습니다")
     return _plane(node.plane) * _offset2d(result, node.offset, node.id)
+
+
+def _as_sketch(shape: Shape) -> Sketch:
+    """불리언이 면을 **둘로 가르면** Sketch 가 아니라 Compound 를 돌려준다(실측 — 사각형을
+    선으로 가를 때). 면들을 다시 스케치로 묶는다."""
+    if isinstance(shape, Sketch):
+        return shape
+    return Sketch(children=[copy.copy(f) for f in shape.faces()])
 
 
 def _offset2d(sketch: Sketch, amount: float, node_id: str) -> Sketch:

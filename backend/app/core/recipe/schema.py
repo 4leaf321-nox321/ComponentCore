@@ -77,6 +77,17 @@ class PolylineShape(_Shape):
     segments: list[Segment] = Field(min_length=2)
 
 
+class PathShape(_Shape):
+    """두께 있는 선 — 중심선을 찍고 폭을 준다. 리브 · 얇은 벽 · 브래킷 단면처럼 「선을 따라
+    살이 붙는」 모양. 양 끝은 둥글다."""
+
+    type: Literal["path"]
+    start: XY
+    segments: list[Segment] = Field(min_length=1)
+    width: Positive
+    corners: Literal["round", "sharp"] = "round"
+
+
 class EllipseShape(_Shape):
     type: Literal["ellipse"]
     x_radius: Positive
@@ -101,6 +112,7 @@ SketchShape = Annotated[
     | RegularPolygonShape
     | Slot
     | PolylineShape
+    | PathShape
     | EllipseShape
     | TextShape,
     Field(discriminator="type"),

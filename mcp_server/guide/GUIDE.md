@@ -37,7 +37,8 @@
 - 스케치 `sketch` — `plane` {name: XY|XZ|YZ|…, origin, (normal, x_dir)} 위의 2D 윤곽. `shapes` 는
   순서대로 더하거나(add) 빼는(cut) 도형: `rect`(width, height) · `circle`(radius) · `slot`(length,
   width) · `regular_polygon`(radius, sides) · `polygon`(points) · **`polyline`**(start, segments
-  [{to, via?}] — 임의 윤곽, `via` 가 있으면 그 점을 지나는 호) · `ellipse`(x_radius, y_radius) ·
+  [{to, via?}] — 임의 윤곽, `via` 가 있으면 그 점을 지나는 호) · `path`(start, segments, width,
+  corners — 두께 있는 선: 리브 · 얇은 벽, 양 끝 둥글게) · `ellipse`(x_radius, y_radius) ·
   `text`(text, size, bold — 각인은 cut 으로 얕게 돌출해서 뺀다). 각 도형은 `at` [x, y] · `rotation`.
   스케치의 `offset` 은 합친 윤곽을 밖(+)/안(−)으로 띄운다(2D 여유). `section`(target, plane,
   offset) 은 입체를 평면으로 자른 단면을 **스케치로** 준다 — 여유를 주고 돌출하면 포켓 윤곽.

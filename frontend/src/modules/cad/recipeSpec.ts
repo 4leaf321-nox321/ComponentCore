@@ -580,6 +580,7 @@ export const SHAPE_TYPES = [
   { value: 'regular_polygon', label: '정다각형' },
   { value: 'polygon', label: '다각형' },
   { value: 'polyline', label: '임의 윤곽' },
+  { value: 'path', label: '선 (두께)' },
   { value: 'ellipse', label: '타원' },
   { value: 'text', label: '글자' },
 ]
@@ -607,6 +608,8 @@ export function defaultShape(type: string): Record<string, unknown> {
       return { type, x_radius: 15, y_radius: 8, ...base }
     case 'text':
       return { type, text: 'AJ', size: 8, bold: false, ...base }
+    case 'path':
+      return { type, start: [0, 0], segments: [{ to: [30, 0] }, { to: [30, 20] }], width: 3, corners: 'round', ...base }
     case 'polyline':
       return {
         type,

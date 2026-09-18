@@ -630,3 +630,56 @@ def test_면까지_돌출_나선_단면_윤곽_여유() -> None:
         )
     )
     assert tuple(outline.summary()["bbox"]["size"]) == (16.0, 6.0, 5.0)
+
+
+def test_두께_있는_선_리브와_가르기() -> None:
+    rib = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "s",
+                        "op": "sketch",
+                        "shapes": [
+                            {
+                                "type": "path",
+                                "start": [0, 0],
+                                "segments": [
+                                    {"to": [30, 0]},
+                                    {"to": [30, 20], "via": [36, 10]},
+                                ],
+                                "width": 4,
+                            }
+                        ],
+                    },
+                    {"id": "e", "op": "extrude", "sketch": "s", "distance": 5},
+                ]
+            }
+        )
+    )
+    assert tuple(rib.summary()["bbox"]["size"]) == (40.0, 24.0, 5.0)  # 양 끝이 둥글어 폭/2 씩
+    # 사각형을 대각선으로 가르면 면이 둘 — 스케치가 Compound 로 바뀌던 자리.
+    halves = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "s",
+                        "op": "sketch",
+                        "shapes": [
+                            {"type": "rect", "width": 40, "height": 30},
+                            {
+                                "type": "path",
+                                "start": [-20, -15],
+                                "segments": [{"to": [20, 15]}],
+                                "width": 3,
+                                "mode": "cut",
+                            },
+                        ],
+                    },
+                    {"id": "e", "op": "extrude", "sketch": "s", "distance": 5},
+                ]
+            }
+        )
+    )
+    assert halves.summary()["solid_count"] == 2

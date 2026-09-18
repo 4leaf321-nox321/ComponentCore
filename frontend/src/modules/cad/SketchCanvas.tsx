@@ -48,7 +48,7 @@ function extent(shapes: SketchShape[]): number {
 type Segment = { to: number[]; via?: number[] | null }
 
 function polylinePoints(s: SketchShape): number[][] {
-  if (s.type !== 'polyline') return []
+  if (s.type !== 'polyline' && s.type !== 'path') return []
   const start = (s.start as number[]) ?? [0, 0]
   const segs = (s.segments as Segment[]) ?? []
   return [start, ...segs.flatMap((g) => (g.via ? [g.via, g.to] : [g.to]))]
@@ -70,7 +70,7 @@ function arcTo(from: number[], via: number[], to: number[]): string {
   return `A ${r} ${r} 0 ${large} ${sweep} ${cx} ${cy}`
 }
 
-function polylinePath(s: SketchShape): string {
+function polylinePath(s: SketchShape, close = true): string {
   const start = (s.start as number[]) ?? [0, 0]
   const segs = (s.segments as Segment[]) ?? []
   let cursor = start
@@ -79,7 +79,7 @@ function polylinePath(s: SketchShape): string {
     d += g.via ? ' ' + arcTo(cursor, g.via, g.to) : ` L ${g.to[0]} ${g.to[1]}`
     cursor = g.to
   }
-  return d + ' Z'
+  return close ? d + ' Z' : d
 }
 
 function ShapeSvg({ shape, selected, onPointerDown }: { shape: SketchShape; selected: boolean; onPointerDown: (e: PointerEvent) => void }) {
@@ -121,6 +121,22 @@ function ShapeSvg({ shape, selected, onPointerDown }: { shape: SketchShape; sele
     }
     case 'polyline':
       return <path d={polylinePath(shape)} transform={transform} {...common} />
+    case 'path':
+      // 중심선을 폭만큼 굵게 — 끝은 둥글고 모서리는 고른 대로. 서버가 만드는 면과 같은 모양.
+      return (
+        <path
+          d={polylinePath(shape, false)}
+          transform={transform}
+          {...common}
+          fill="none"
+          stroke={common.fill}
+          strokeWidth={Number(shape.width)}
+          strokeLinecap="round"
+          strokeLinejoin={shape.corners === 'sharp' ? 'miter' : 'round'}
+          vectorEffect={undefined}
+          style={{ cursor: 'move', outline: selected ? '1px solid #f59e0b' : undefined }}
+        />
+      )
     case 'ellipse':
       return <ellipse rx={Number(shape.x_radius)} ry={Number(shape.y_radius)} transform={transform} {...common} />
     case 'text': {
@@ -175,11 +191,12 @@ export function SketchCanvas({
   }
 
   function finishPolyline() {
-    if (drafting && drafting.length >= 3) {
+    const need = tool === 'path' ? 2 : 3
+    if (drafting && drafting.length >= need) {
       const [sx, sy] = drafting[0]
       const made = {
-        ...defaultShape('polyline'),
-        type: 'polyline',
+        ...defaultShape(tool),
+        type: tool,
         at: [0, 0],
         start: [sx, sy],
         segments: drafting.slice(1).map((pt) => ({ to: pt })),
@@ -196,7 +213,7 @@ export function SketchCanvas({
       setSelected(null)
       return
     }
-    if (tool === 'polyline') {
+    if (tool === 'polyline' || tool === 'path') {
       const [px, py] = toWorld(event)
       const point = [snap(px, !event.shiftKey), snap(py, !event.shiftKey)]
       const last = drafting?.[drafting.length - 1]
@@ -257,11 +274,16 @@ export function SketchCanvas({
               윤곽 닫기 ({drafting.length}점)
             </Button>
           )}
+          {tool === 'path' && drafting && drafting.length >= 2 && (
+            <Button size="sm" variant="secondary" onClick={finishPolyline}>
+              선 끝내기 ({drafting.length}점)
+            </Button>
+          )}
           <span className="text-muted-foreground ml-2 text-xs">
             {tool === 'select'
               ? '도형을 끌어 옮깁니다. 격자 1mm, Shift 로 5mm.'
-              : tool === 'polyline'
-                ? '점을 차례로 누릅니다. 같은 자리를 다시 누르거나 「윤곽 닫기」 로 끝. 호는 폼에서.'
+              : tool === 'polyline' || tool === 'path'
+                ? '점을 차례로 누릅니다. 같은 자리를 다시 누르거나 단추로 끝. 호는 폼에서.'
                 : '캔버스를 눌러 놓습니다.'}
           </span>
         </div>
@@ -410,9 +432,26 @@ function ShapeForm({
             </label>
           </>
         )}
+        {shape.type === 'path' && (
+          <>
+            {numberField('width', '폭 (mm)')}
+            <div className="space-y-1">
+              <Label className="text-xs">모서리</Label>
+              <Select value={String(shape.corners ?? 'round')} onValueChange={(v) => onChange({ corners: v })}>
+                <SelectTrigger className="h-8">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="round">둥글게</SelectItem>
+                  <SelectItem value="sharp">뾰족하게</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </>
+        )}
         {shape.type !== 'circle' && numberField('rotation', '회전 (°)', 1)}
       </div>
-      {shape.type === 'polyline' && (
+      {(shape.type === 'polyline' || shape.type === 'path') && (
         <div className="space-y-1">
           <Label className="text-xs">구간 (시작 {((shape.start as number[]) ?? [0, 0]).join(', ')}) — 「호」 를 켜면 지나는 점(via)이 생깁니다</Label>
           {((shape.segments as Segment[]) ?? []).map((g, i) => {

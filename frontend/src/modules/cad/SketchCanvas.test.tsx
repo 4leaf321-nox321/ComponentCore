@@ -41,3 +41,19 @@ test('도형을 누르면 치수 폼이 뜨고 고치면 반영된다', () => {
   const next = onChange.mock.calls.at(-1)![0] as SketchShape[]
   expect(next[0].radius).toBe(8)
 })
+
+test('선(두께) — 점을 찍고 「선 끝내기」 하면 중심선과 폭을 가진 도형이 된다', () => {
+  const onChange = vi.fn()
+  const { container } = render(<SketchCanvas shapes={[]} onChange={onChange} />)
+  const svg = container.querySelector('svg')!
+  mockBox(svg)
+  fireEvent.click(screen.getByRole('button', { name: '+ 선 (두께)' }))
+  fireEvent.pointerDown(svg, { clientX: 280, clientY: 200 })
+  fireEvent.pointerDown(svg, { clientX: 380, clientY: 200 })
+  fireEvent.click(screen.getByRole('button', { name: /선 끝내기/ }))
+  const next = onChange.mock.calls.at(-1)![0] as SketchShape[]
+  expect(next).toHaveLength(1)
+  expect(next[0].type).toBe('path')
+  expect(next[0].width).toBe(3)
+  expect((next[0].segments as { to: number[] }[])).toHaveLength(1)
+})
