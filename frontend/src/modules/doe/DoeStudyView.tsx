@@ -1,5 +1,5 @@
 /**
- * 실험계획 결과 — 설계점 표(바꾼 변수 · 파일 · 상태) · CSV · **공유 폴더 경로**.
+ * DOE 결과 — 설계점 표(바꾼 변수 · 파일 · 상태) · CSV · **공유 폴더로 보내기**.
  *
  * 질량 · 크기 같은 값은 여기 없다 — 결과는 해석(ANSYS)이 내고, 그것을 표에 붙이는 것이 다음
  * 일이다. 그때까지 표는 「어느 점이 어느 파일인가」 만 말한다.
@@ -8,12 +8,15 @@
  * 한 번에 되게 둔다 — 경로를 손으로 옮겨 적다 틀리면 엉뚱한 폴더를 해석한다.
  */
 
-import { Check, Copy, Download, FolderOpen } from 'lucide-react'
+import { Check, Copy, Download, FolderOpen, Send } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { doeApi } from '@/modules/doe/api'
 import type { DoeStudy } from '@/modules/doe/api'
 import { isFinished } from '@/modules/jobs/api'
+import { ApiError } from '@/shared/api/client'
+import { ErrorNotice } from '@/shared/components/ErrorNotice'
+import { shownDateTime } from '@/shared/lib/datetime'
 import { useJobPolling } from '@/modules/jobs/useJobPolling'
 import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
@@ -26,9 +29,25 @@ function show(value: number | null | undefined, digits = 2): string {
 
 export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: () => void }) {
   const [copied, setCopied] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<ApiError | Error | null>(null)
   // 작업이 끝나면 스터디를 다시 불러온다 — 점마다 결과가 붙어야 표가 찬다.
   const job = useJobPolling(study.job)
   const running = job !== null && !isFinished(job)
+  const finished = job !== null && isFinished(job)
+
+  async function send() {
+    setExporting(true)
+    setExportError(null)
+    try {
+      await doeApi.export(study.id)
+      onReload()
+    } catch (caught) {
+      setExportError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+    } finally {
+      setExporting(false)
+    }
+  }
   useEffect(() => {
     if (job && isFinished(job) && job.status !== study.job?.status) onReload()
   }, [job, study.job?.status, onReload])
@@ -38,26 +57,41 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
 
   return (
     <div className="space-y-4">
-      {/* 공유 폴더 — 이 화면의 끝 */}
+      {/* 공유 폴더 — 이 화면의 끝. 만들기는 서버 안에서 끝나고, 「보내기」 를 눌러야 해석이 읽는 폴더로 간다. */}
       <div className="bg-muted/40 flex flex-wrap items-center gap-2 rounded-md border p-3">
         <FolderOpen className="text-muted-foreground size-4 shrink-0" />
         <div className="min-w-0">
-          <p className="text-xs font-medium">공유 폴더 — 해석은 이 폴더를 읽습니다</p>
-          <p className="truncate font-mono text-xs">{study.export_dir_windows}</p>
+          {study.exported_at ? (
+            <>
+              <p className="text-xs font-medium">공유 폴더에 보냈습니다 ({shownDateTime(study.exported_at)}) — 해석은 이 폴더를 읽습니다</p>
+              <p className="truncate font-mono text-xs">{study.export_dir_windows}</p>
+            </>
+          ) : (
+            <>
+              <p className="text-xs font-medium">아직 서버 안에만 있습니다</p>
+              <p className="text-muted-foreground text-xs">{finished ? '「공유 폴더로 보내기」 를 누르면 해석이 읽는 폴더에 복사됩니다.' : '다 만들어지면 공유 폴더로 보낼 수 있습니다.'}</p>
+            </>
+          )}
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          className="ml-auto"
-          onClick={() => {
-            void navigator.clipboard?.writeText(study.export_dir_windows)
-            setCopied(true)
-            setTimeout(() => setCopied(false), 1500)
-          }}
-        >
-          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-          경로 복사
+        <ErrorNotice error={exportError} />
+        <Button size="sm" className="ml-auto" disabled={!finished || study.done === 0 || exporting} onClick={() => void send()}>
+          <Send className="size-3.5" />
+          {exporting ? '보내는 중…' : study.exported_at ? '다시 보내기' : '공유 폴더로 보내기'}
         </Button>
+        {study.exported_at && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              void navigator.clipboard?.writeText(study.export_dir_windows)
+              setCopied(true)
+              setTimeout(() => setCopied(false), 1500)
+            }}
+          >
+            {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+            경로 복사
+          </Button>
+        )}
         <Button size="sm" variant="outline" asChild>
           <a href={doeApi.manifestUrl(study.id)} download>
             <Download className="size-3.5" /> CSV

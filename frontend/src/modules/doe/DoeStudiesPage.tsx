@@ -27,16 +27,16 @@ export default function DoeStudiesPage() {
   return (
     <div>
       <PageHeader
-        title="실험계획 (DOE)"
-        description="부품 · 지그 · 조립 하나를 골라, 변수에 범위를 주고, 인스턴스를 여럿 만들어 공유 폴더에 쏟습니다. 해석(ANSYS)은 그 폴더를 읽습니다."
-        actions={<Button onClick={() => navigate('/doe/new')}>새 실험계획</Button>}
+        title="DOE"
+        description="부품 · 지그 · 조립 하나를 골라 변수에 범위를 주면 형상을 여럿 만듭니다. 다 만든 뒤 「보내기」 로 공유 폴더에 — 해석(ANSYS)은 그 폴더를 읽습니다."
+        actions={<Button onClick={() => navigate('/doe/new')}>새 DOE</Button>}
       />
       <ErrorNotice error={page.error} className="mb-4" />
       {rows.length === 0 && !page.loading ? (
         <EmptyState
-          title="아직 실험계획이 없습니다"
-          hint="「새 실험계획」 으로 대상(부품 · 지그 · 조립)을 고르면 시작합니다. 도면에 변수가 먼저 있어야 합니다."
-          action={<Button onClick={() => navigate('/doe/new')}>새 실험계획</Button>}
+          title="아직 DOE 가 없습니다"
+          hint="「새 DOE」 로 대상(부품 · 지그 · 조립)을 고르면 시작합니다. 도면에 변수가 먼저 있어야 합니다."
+          action={<Button onClick={() => navigate('/doe/new')}>새 DOE</Button>}
         />
       ) : (
         <>

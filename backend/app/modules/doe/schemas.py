@@ -68,6 +68,8 @@ class StudyOut(StudySummaryOut):
     recipe: dict[str, Any]
     factors: list[dict[str, Any]]
     export_dir_windows: str
+    """공유 폴더 경로(F:\\…). 아직 안 보냈으면 빈 문자열."""
+    exported_at: datetime | None
     """화면 · 해석 쪽이 여는 경로(F:\\…). 서버가 보는 경로는 안 내보낸다."""
     job: dict[str, Any] | None = None
     points: list[PointOut] = Field(default_factory=list)

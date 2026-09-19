@@ -9,8 +9,10 @@
 
 from __future__ import annotations
 
+import shutil
 import time
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +30,9 @@ from app.modules.doe import export as files
 from app.modules.doe.models import DoePoint, DoeStudy
 from app.modules.jobs import registry
 from app.modules.jobs import services as jobs
+from app.modules.jobs.models import Job
 from app.modules.server import settings_store
+from app.shared import filestore
 from app.shared.errors import AppError, Forbidden, NotFound, code
 
 JOB_KIND = "doe"
@@ -109,8 +113,10 @@ def create_study(
     seed: int,
     work_id: uuid.UUID | None,
 ) -> DoeStudy:
-    """스터디를 만들고 작업을 건다. 레시피는 **스냅샷**으로 박는다."""
-    root = check_root()
+    """스터디를 만들고 작업을 건다. 레시피는 **스냅샷**으로 박는다.
+
+    설계점은 **서버 보관 폴더**에 만든다. 공유 폴더로는 다 만들어진 뒤 「보내기」 로 간다 —
+    해석이 읽는 폴더에 만들다 만 것이 보이면 안 된다."""
     try:
         parse(recipe)
     except RecipeValidationError as failure:
@@ -144,7 +150,7 @@ def create_study(
     )
     db.add(study)
     db.flush()
-    study.export_dir = str(files.study_dir(root, study.name, str(study.id)))
+    study.local_dir = str(files.study_dir(filestore.root() / "doe", study.name, str(study.id)))
     for number, row in enumerate(rows, start=1):
         db.add(DoePoint(study_id=study.id, number=number, params=row, status="pending"))
     db.flush()
@@ -199,6 +205,34 @@ def delete_study(db: Session, study: DoeStudy) -> None:
     db.commit()
 
 
+def export_study(db: Session, study: DoeStudy) -> DoeStudy:
+    """서버 보관 폴더를 공유 폴더로 **복사**한다. 다시 누르면 덮어쓴다(같은 이름 폴더).
+
+    만들기가 끝나야 보낸다 — 만드는 중에 보내면 해석이 반쪽짜리 표를 읽는다."""
+    job = db.get(Job, study.job_id) if study.job_id else None
+    if job is None or job.status not in ("done", "failed"):
+        raise AppError(code("DOE", 9), "아직 만드는 중입니다 — 끝나면 보낼 수 있습니다.")
+    source = Path(study.local_dir)
+    if not (source / "manifest.csv").exists():
+        raise AppError(
+            code("DOE", 10), "보낼 것이 없습니다 — 설계점이 하나도 만들어지지 않았습니다."
+        )
+    root = check_root()
+    target = files.study_dir(root, study.name, str(study.id))
+    try:
+        shutil.copytree(source, target, dirs_exist_ok=True)
+    except OSError as failure:
+        raise AppError(
+            code("DOE", 11),
+            f"공유 폴더에 쓰지 못했습니다: {files.windows_path(target)} ({failure.strerror})",
+        ) from failure
+    study.export_dir = str(target)
+    study.exported_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(study)
+    return study
+
+
 def run_job(
     input: dict[str, Any], options: dict[str, Any], out_dir: Path, progress: registry.Progress
 ) -> registry.Outcome:
@@ -214,7 +248,7 @@ def run_job(
         study = db.get(DoeStudy, uuid.UUID(str(input["study_id"])))
         if study is None:
             raise registry.UserFacingError("실험계획이 사라졌습니다")
-        folder = Path(study.export_dir)
+        folder = Path(study.local_dir)
         (folder / "points").mkdir(parents=True, exist_ok=True)
         factor_names = [one["name"] for one in study.factors]
         columns = files.manifest_columns(factor_names)

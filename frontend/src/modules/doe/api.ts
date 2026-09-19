@@ -46,6 +46,8 @@ export interface DoeStudy extends DoeStudySummary {
   factors: Factor[]
   /** 해석 쪽이 여는 경로(F:\…). 서버가 보는 경로는 안 내려온다. */
   export_dir_windows: string
+  /** 마지막으로 공유 폴더에 보낸 때. 없으면 아직 서버 안에만 있다. */
+  exported_at: string | null
   job: Job | null
   points: DoePoint[]
   done: number
@@ -79,6 +81,8 @@ export const doeApi = {
     seed?: number
     work_id?: string | null
   }) => api.post<DoeStudy>('/doe', body),
+  /** 서버 보관 폴더의 STEP · 표를 공유 폴더로 — 해석은 그때부터 읽는다. 다시 누르면 덮어쓴다. */
+  export: (id: string) => api.post<DoeStudy>(`/doe/${id}/export`),
   remove: (id: string) => api.delete<void>(`/doe/${id}`),
   manifestUrl: (id: string) => `/api/doe/${id}/manifest.csv`,
 }

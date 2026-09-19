@@ -43,10 +43,10 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: '새 작업', icon: DraftingCompass, to: '/draw', summary: '빈 화면 · 템플릿 · STEP 에서 부품이나 지그를 그려 새 작업으로 저장한다.' },
       { label: '내 작업', icon: FolderPen, to: '/works', summary: '그리고 있는 것. 나만 본다. 여기서 부품 · 지그로 승격한다.' },
       {
-        label: '실험계획',
+        label: 'DOE',
         icon: FlaskConical,
         to: '/doe',
-        summary: '치수를 훑어 형상 여러 벌 — 해석으로 넘길 STEP 을 공유 폴더에 쏟는다.',
+        summary: '변수를 훑어 형상 여러 벌 — 서버에 만들고, 「보내기」 로 해석이 읽는 공유 폴더에.',
       },
       { label: '실행 기록', icon: ListChecks, to: '/jobs', summary: '내가 건 작업(부품 평가 · 지그 생성)과 산출물.' },
       { label: '내 정보', icon: UserCog, to: '/me' },

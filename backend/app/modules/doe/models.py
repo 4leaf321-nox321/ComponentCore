@@ -45,8 +45,15 @@ class DoeStudy(Base):
     method: Mapped[str] = mapped_column(String(20), default="factorial")
     samples: Mapped[int] = mapped_column(Integer, default=20)
     seed: Mapped[int] = mapped_column(Integer, default=1)
+    local_dir: Mapped[str] = mapped_column(Text, default="", server_default="")
+    """서버 보관 폴더(filestore/doe/…). 설계점은 먼저 여기에 만들어진다."""
     export_dir: Mapped[str] = mapped_column(Text, default="", server_default="")
-    """공유 폴더 안의 이 DOE 폴더(서버가 보는 경로). 화면은 윈도우 경로로 바꿔 보여 준다."""
+    """공유 폴더 안의 이 DOE 폴더(서버가 보는 경로). **「보내기」 를 눌러야** 채워진다 — 해석이
+    읽는 폴더에 만들다 만 것을 두지 않으려고. 화면은 윈도우 경로로 바꿔 보여 준다."""
+    exported_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    """마지막으로 공유 폴더에 보낸 때. 없으면 아직 서버 안에만 있다."""
     job_id: Mapped[uuid.UUID | None] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
     )

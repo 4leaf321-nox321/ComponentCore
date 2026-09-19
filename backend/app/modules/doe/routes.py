@@ -62,7 +62,10 @@ def _out(db: Session, study: DoeStudy) -> StudyOut:
         **_summary(db, study).model_dump(),
         recipe=study.recipe,
         factors=study.factors,
-        export_dir_windows=files.windows_path(Path(study.export_dir)),
+        export_dir_windows=files.windows_path(Path(study.export_dir))
+        if study.export_dir
+        else "",
+        exported_at=study.exported_at,
         job=jobs.job_out(db, job).model_dump() if job else None,
         points=[PointOut.model_validate(one) for one in rows],
         done=sum(1 for one in rows if one.status == "ok"),
@@ -120,6 +123,14 @@ def get_study(
     study_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)
 ) -> StudyOut:
     return _out(db, services.get_study(db, study_id, user))
+
+
+@router.post("/{study_id}/export", response_model=StudyOut)
+def export_study(
+    study_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> StudyOut:
+    """서버 보관 폴더의 STEP · 표를 **공유 폴더로 보낸다.** 해석은 그때부터 읽는다."""
+    return _out(db, services.export_study(db, services.get_study(db, study_id, user)))
 
 
 @router.get("/{study_id}/manifest.csv")

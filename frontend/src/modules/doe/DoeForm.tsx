@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react'
 
 import type { Recipe } from '@/modules/cad/api'
 import { doeApi } from '@/modules/doe/api'
-import type { Factor, Preview } from '@/modules/doe/api'
+import type { DoeStudy, Factor, Preview } from '@/modules/doe/api'
 import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { Button } from '@/shared/components/ui/button'
@@ -59,23 +59,28 @@ export function DoeForm({
   defaultName,
   onCreated,
   onEditRecipe,
+  initial,
 }: {
   recipe: Recipe
   workId?: string
   defaultName?: string
   onCreated: (id: string) => void
+  /** 지난 DOE 의 설정으로 시작할 때 — 「설정 바꿔 다시 만들기」. 도면에 없어진 변수는 버린다. */
+  initial?: Pick<DoeStudy, 'name' | 'description' | 'factors' | 'method' | 'samples' | 'seed'>
   /** 「치수가 없다」 일 때 편집기로 보내 준다 — 글로만 알려 주면 못 찾는다. */
   onEditRecipe?: () => void
 }) {
   const params = Object.entries((recipe.params ?? {}) as Record<string, number>)
-  const [name, setName] = useState(defaultName ?? '')
-  const [description, setDescription] = useState('')
-  const [method, setMethod] = useState<'factorial' | 'lhs'>('factorial')
-  const [samples, setSamples] = useState(20)
-  const [seed, setSeed] = useState(1)
-  const [factors, setFactors] = useState<Record<string, Factor>>(() =>
-    Object.fromEntries(params.map(([key, value]) => [key, { name: key, mode: 'fixed', value }])),
-  )
+  const [name, setName] = useState(initial?.name ?? defaultName ?? '')
+  const [description, setDescription] = useState(initial?.description ?? '')
+  const [method, setMethod] = useState<'factorial' | 'lhs'>(initial?.method ?? 'factorial')
+  const [samples, setSamples] = useState(initial?.samples ?? 20)
+  const [seed, setSeed] = useState(initial?.seed ?? 1)
+  const [factors, setFactors] = useState<Record<string, Factor>>(() => {
+    const before = new Map((initial?.factors ?? []).map((one) => [one.name, one]))
+    // 도면에 지금 있는 변수만 — 지난 설정이 있으면 그것을, 없으면 고정(지금 값).
+    return Object.fromEntries(params.map(([key, value]) => [key, before.get(key) ?? { name: key, mode: 'fixed', value }]))
+  })
   const [preview, setPreview] = useState<Preview | null>(null)
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [busy, setBusy] = useState(false)

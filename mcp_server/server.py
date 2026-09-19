@@ -411,14 +411,16 @@ async def doe_create(
 @mcp.tool()
 async def doe_points(ctx: Context, study_id: str) -> Any:
     """만들어진 설계점 표 — 바꾼 변수 값 · STEP 파일 이름 · 실패 사유, 그리고 **공유 폴더
-    경로**. `metrics` 는 해석 결과가 붙을 자리라 지금은 비어 있다."""
+    경로**(`folder`, 아직 안 보냈으면 None — `doe_export` 로 보낸다). `metrics` 는 해석 결과가
+    붙을 자리라 지금은 비어 있다."""
     got = await _get(ctx, f"/api/doe/{study_id}")
     if not isinstance(got, dict) or "error" in got:
         return got
     return {
         "study_id": got["id"],
         "name": got["name"],
-        "folder": got["export_dir_windows"],
+        "folder": got["export_dir_windows"] or None,
+        "exported_at": got.get("exported_at"),
         "method": got["method"],
         "seed": got["seed"],
         "points_total": got["point_count"],
@@ -436,6 +438,22 @@ async def doe_points(ctx: Context, study_id: str) -> Any:
             }
             for one in got.get("points", [])
         ],
+    }
+
+
+@mcp.tool()
+async def doe_export(ctx: Context, study_id: str) -> Any:
+    """만들어진 설계점(STEP · manifest.csv)을 **공유 폴더로 보낸다** — 해석은 그때부터 읽는다.
+
+    만들기는 서버 보관 폴더에 먼저 하고, 다 끝난 뒤 보낸다(반쪽짜리 표를 해석이 읽지 않게).
+    다시 부르면 같은 폴더에 덮어쓴다. 답의 `folder` 가 해석 쪽이 여는 경로(F:\\…)다."""
+    got = await _post(ctx, f"/api/doe/{study_id}/export", None)
+    if not isinstance(got, dict) or "error" in got:
+        return got
+    return {
+        "study_id": got["id"],
+        "folder": got["export_dir_windows"],
+        "exported_at": got["exported_at"],
     }
 
 

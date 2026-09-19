@@ -99,12 +99,18 @@ def test_설계점마다_STEP_을_공유_폴더에_쓴다(
     assert made.status_code == 201, made.text
     study = made.json()
     assert study["point_count"] == 3
-    assert study["export_dir_windows"]
+    # 만들기는 서버 보관 폴더에 — 공유 폴더는 「보내기」 를 눌러야 채워진다.
+    assert study["export_dir_windows"] == "" and study["exported_at"] is None
 
     got = client.get(f"/api/doe/{study['id']}", headers=member.headers).json()
     assert got["done"] == 3 and got["failed"] == 0
     # 표에는 바꾼 변수와 파일만 — 질량 · 크기는 아직 계산하지 않는다(해석이 붙일 자리).
     assert all(point["metrics"] is None for point in got["points"])
+    assert not export_root.exists() or not any(export_root.iterdir())
+
+    sent = client.post(f"/api/doe/{study['id']}/export", headers=member.headers)
+    assert sent.status_code == 200, sent.text
+    assert sent.json()["export_dir_windows"] and sent.json()["exported_at"]
 
     # 공유 폴더 — 해석이 읽는 것.
     folder = next(export_root.iterdir())
@@ -152,6 +158,7 @@ def test_깨지는_점이_있어도_나머지는_만든다(
     assert got["failed"] == 1 and got["done"] == 2
     broken = next(one for one in got["points"] if one["status"] == "failed")
     assert broken["error"]  # 왜 빠졌는지 적혀 있다
+    client.post(f"/api/doe/{made['id']}/export", headers=member.headers)
     rows = list(
         csv.DictReader(
             (next(export_root.iterdir()) / "manifest.csv")

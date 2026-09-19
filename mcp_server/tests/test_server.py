@@ -23,7 +23,7 @@ def test_말로_받은_치수를_넣을_칸을_가이드가_알려준다() -> No
     """AI 는 이 가이드만 읽고 레시피를 쓴다 — 좌표로 환산하지 않아도 되는 칸이 적혀 있어야 한다."""
     _, sections = server._guide_sections()
     recipe = sections["recipe"]
-    for word in ('radius', 'tangent', 'measure overall|centers', 'triangle', 'sheet_metal'):
+    for word in ("radius", "tangent", "measure overall|centers", "triangle", "sheet_metal"):
         assert word in recipe, word
     assert "via" in recipe and "사람이 캔버스에서 찍을 때" in recipe
 
@@ -52,6 +52,7 @@ def test_사람이_손으로_하는_일이_도구로_다_있다() -> None:
         "doe_preview",  # 형상 여러 벌
         "doe_create",
         "doe_points",
+        "doe_export",  # 다 만든 뒤 공유 폴더로
         "doe_tradeoff",  # 목표가 맞설 때
         "promote_jig_recipe",  # 손으로 그린 지그
     }

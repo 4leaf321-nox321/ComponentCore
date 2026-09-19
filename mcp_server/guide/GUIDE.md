@@ -14,7 +14,7 @@
 | 저장 템플릿의 본문 | `template_recipe(id)` · 되풀이해 쓸 모양은 `save_template` 로 남긴다 |
 | **내가 그린 것의 치수** | `recipe_geometry(recipe)` — 구멍 지름 · 중심 · 깊이, 면의 법선 · 넓이 |
 | **제품을 기준으로 지그 그리기** | `part_geometry(part_id)` · `work_geometry(work_id)` — 치수표 + STEP id |
-| **형상 여러 벌 만들기(DOE)** | `doe_preview` → `doe_create` → `doe_points` — 공유 폴더에 STEP 이 쌓인다 |
+| **형상 여러 벌 만들기(DOE)** | `doe_preview` → `doe_create` → `doe_points` → `doe_export` — 공유 폴더에 STEP 이 쌓인다 |
 | 레시피가 맞나, 만들어지나 | `recipe_check` — **저장 전에 반드시** |
 | 새 부품 시작 | `create_work(name, recipe)` |
 | 있는 부품 고치기 | `get_work` 로 레시피를 받아 고쳐 `save_version` |
@@ -102,9 +102,10 @@
 2. `doe_preview` 로 **개수를 먼저 센다** — 격자는 곱으로 늘어난다(인자 넷에 5단계면 625개,
    한 번에 만드는 상한은 관리자가 서버 설정 화면에서 정한다, 기본 200 — `doe_preview` 의
    `max`). 값은 인자의 `resolution`(가공 단위, 기본 0.1 mm)으로 맞춰진다.
-3. `doe_create` — 점마다 형상을 만들어 **공유 폴더**에 `points/p0001.step` 과 `manifest.csv`
-   (번호 · 바꾼 변수 값 · 파일 · 상태)를 쓴다. 해석(ANSYS)은 그 폴더를 그대로 읽는다. 질량 ·
-   크기는 계산하지 않는다 — 결과는 해석이 낸다.
+3. `doe_create` — 점마다 형상을 만들어 **서버 보관 폴더**에 `points/p0001.step` 과
+   `manifest.csv`(번호 · 바꾼 변수 값 · 파일 · 상태)를 쓴다. 질량 · 크기는 계산하지 않는다 —
+   결과는 해석이 낸다. 다 만들어지면 `doe_export` 로 **공유 폴더**에 보낸다 — 해석(ANSYS)은
+   그때부터 그 폴더를 읽는다(만드는 중에 보내지 않는다).
 4. 목표가 **맞설 때**(두께를 키우면 공진은 올라가고 질량도 는다) `doe_tradeoff` 로 지지 않는
    점만 가린다 — 가중치로 한 값을 만들지 말고 표를 보여 주고 사람이 고르게 한다. 해석 결과를
    설계점에 붙이는 길이 아직 없어, 지금은 빈 답이 온다.

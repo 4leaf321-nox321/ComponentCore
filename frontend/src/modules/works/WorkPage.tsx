@@ -225,7 +225,7 @@ export default function WorkPage() {
           <>
             {/* 여러 벌 만드는 일은 실험계획 공간에서 — 여기서는 이 도면을 대상으로 넘겨 줄 뿐이다. */}
             <Button variant="outline" onClick={() => navigate(`/doe/new?work=${id}`)} disabled={w.current_version === 0}>
-              실험계획 만들기
+              DOE 만들기
             </Button>
             {!isAssembly && (
               <Button
@@ -323,7 +323,7 @@ export default function WorkPage() {
                     <Button size="sm" onClick={() => setSaveChoice(true)} disabled={busy}>
                       저장
                     </Button>
-                    <span className="text-muted-foreground text-xs">저장해야 3D 와 실험계획에 반영됩니다.</span>
+                    <span className="text-muted-foreground text-xs">저장해야 3D 와 DOE 에 반영됩니다.</span>
                   </div>
                 )}
               </CardContent>
@@ -513,7 +513,7 @@ export default function WorkPage() {
                           size="sm"
                           variant="outline"
                           disabled={busy}
-                          title="결과를 지그 작업으로 가져옵니다 — 거기서 고치고 변수 · 실험계획을 씁니다"
+                          title="결과를 지그 작업으로 가져옵니다 — 거기서 고치고 변수 · DOE 를 씁니다"
                           onClick={() =>
                             void act(async () => {
                               const made = await worksApi.jigRunToWork(id, selectedRun.id)
