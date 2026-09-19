@@ -11,7 +11,8 @@ export interface Factor {
   value?: number | null
   start?: number | null
   end?: number | null
-  steps?: number
+  /** 칸을 비우면 null — 다 지우고 처음부터 칠 수 있어야 한다. 비어 있으면 만들기가 막힌다. */
+  steps?: number | null
   values?: number[]
   /** 값을 맞추는 가공 단위(mm). 없으면 0.1 — 0.333 같은 치수는 가공할 수 없다. */
   resolution?: number | null

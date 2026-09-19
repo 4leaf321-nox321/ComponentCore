@@ -24,6 +24,13 @@ const DEFAULT_RESOLUTION = 0.1
 /** 고를 수 있는 가공 단위 — 밀링 · 판금에서 흔히 쓰는 것들. */
 const RESOLUTIONS = [1, 0.5, 0.1, 0.05, 0.01]
 
+/** 숫자 칸의 값 — 비었으면 null. `Number('')` 은 0 이라 그대로 두면 지운 칸이 0 이 된다. */
+function numberOrNull(text: string): number | null {
+  if (text.trim() === '') return null
+  const value = Number(text)
+  return Number.isFinite(value) ? value : null
+}
+
 /** 서버의 snap 과 같은 규칙 — 단위의 배수로, 반올림(half-up). */
 function snap(value: number, unit: number): number {
   if (unit <= 0) return value
@@ -74,8 +81,10 @@ export function DoeForm({
   const [name, setName] = useState(initial?.name ?? defaultName ?? '')
   const [description, setDescription] = useState(initial?.description ?? '')
   const [method, setMethod] = useState<'factorial' | 'lhs'>(initial?.method ?? 'factorial')
-  const [samples, setSamples] = useState(initial?.samples ?? 20)
-  const [seed, setSeed] = useState(initial?.seed ?? 1)
+  // 숫자 칸은 비울 수 있다(null) — 다 지우고 처음부터 치는 것을 막으면 첫 자리부터 못 친다.
+  // 비어 있으면 미리보기를 안 묻고 「만들기」 가 막힌다.
+  const [samples, setSamples] = useState<number | null>(initial?.samples ?? 20)
+  const [seed, setSeed] = useState<number | null>(initial?.seed ?? 1)
   const [factors, setFactors] = useState<Record<string, Factor>>(() => {
     const before = new Map((initial?.factors ?? []).map((one) => [one.name, one]))
     // 도면에 지금 있는 변수만 — 지난 설정이 있으면 그것을, 없으면 고정(지금 값).
@@ -87,22 +96,26 @@ export function DoeForm({
 
   const list = Object.values(factors)
   const varying = list.filter((one) => one.mode !== 'fixed')
+  /** 빈 칸이 있으면 아직 쓰는 중이다 — 서버에 묻지도, 만들지도 않는다. */
+  const incomplete =
+    varying.some((one) => (one.mode === 'range' ? one.start == null || one.end == null || one.steps == null : (one.values ?? []).length === 0)) ||
+    (method === 'lhs' && (samples == null || seed == null))
 
   useEffect(() => {
-    if (varying.length === 0) {
+    if (varying.length === 0 || incomplete) {
       setPreview(null)
       return
     }
     let alive = true
     void doeApi
-      .preview({ factors: list, method, samples, seed })
+      .preview({ factors: list, method, samples: samples ?? 20, seed: seed ?? 1 })
       .then((got) => alive && setPreview(got))
       .catch(() => alive && setPreview(null))
     return () => {
       alive = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(list), method, samples, seed])
+  }, [JSON.stringify(list), method, samples, seed, incomplete])
 
   /**
    * 방식을 바꿀 때 칸의 기본값을 **상태에도** 넣는다. 화면만 기본값을 보여 주고 상태는 비워 두면,
@@ -122,7 +135,7 @@ export function DoeForm({
   function levelsOf(factor: Factor): number[] {
     const start = factor.start ?? 0
     const end = factor.end ?? 0
-    const steps = Math.max(1, factor.steps ?? 5)
+    const steps = Math.max(1, factor.steps ?? 1)
     const unit = factor.resolution ?? DEFAULT_RESOLUTION
     const raw = steps === 1 ? [start] : Array.from({ length: steps }, (_, i) => start + ((end - start) * i) / (steps - 1))
     const out: number[] = []
@@ -144,8 +157,8 @@ export function DoeForm({
         recipe,
         factors: list,
         method,
-        samples,
-        seed,
+        samples: samples ?? 20,
+        seed: seed ?? 1,
         work_id: workId ?? null,
       })
       onCreated(made.id)
@@ -215,22 +228,22 @@ export function DoeForm({
                 </SelectContent>
               </Select>
               {factor.mode === 'fixed' && (
-                <Input type="number" step={0.5} value={String(factor.value ?? 0)} onChange={(e) => set(key, { value: Number(e.target.value) })} className="h-8" aria-label={`${key} 고정값`} />
+                <Input type="number" step={0.5} value={factor.value ?? ''} onChange={(e) => set(key, { value: numberOrNull(e.target.value) })} className="h-8" aria-label={`${key} 고정값`} />
               )}
               {factor.mode === 'range' && (
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     <label className="flex items-center gap-1 text-xs">
                       <span className="text-muted-foreground">시작</span>
-                      <Input type="number" step={0.5} value={String(factor.start ?? 0)} onChange={(e) => set(key, { start: Number(e.target.value) })} className="h-8 w-24" aria-label={`${key} 시작`} />
+                      <Input type="number" step={0.5} value={factor.start ?? ''} onChange={(e) => set(key, { start: numberOrNull(e.target.value) })} className="h-8 w-24" aria-label={`${key} 시작`} />
                     </label>
                     <label className="flex items-center gap-1 text-xs">
                       <span className="text-muted-foreground">끝</span>
-                      <Input type="number" step={0.5} value={String(factor.end ?? 0)} onChange={(e) => set(key, { end: Number(e.target.value) })} className="h-8 w-24" aria-label={`${key} 끝`} />
+                      <Input type="number" step={0.5} value={factor.end ?? ''} onChange={(e) => set(key, { end: numberOrNull(e.target.value) })} className="h-8 w-24" aria-label={`${key} 끝`} />
                     </label>
                     <label className="flex items-center gap-1 text-xs">
                       <span className="text-muted-foreground">단계</span>
-                      <Input type="number" min={1} max={50} value={String(factor.steps ?? 5)} onChange={(e) => set(key, { steps: Math.max(1, Number(e.target.value)) })} className="h-8 w-20" aria-label={`${key} 단계`} />
+                      <Input type="number" min={1} max={50} value={factor.steps ?? ''} onChange={(e) => set(key, { steps: numberOrNull(e.target.value) })} className="h-8 w-20" aria-label={`${key} 단계`} />
                     </label>
                     <ResolutionSelect name={key} value={factor.resolution ?? DEFAULT_RESOLUTION} onChange={(unit) => set(key, { resolution: unit })} />
                   </div>
@@ -274,17 +287,19 @@ export function DoeForm({
           <>
             <div className="space-y-1">
               <Label htmlFor="doe-samples">표본 수{preview?.max_samples ? ` (≤ ${preview.max_samples})` : ''}</Label>
-              <Input id="doe-samples" type="number" min={1} max={preview?.max_samples} value={String(samples)} onChange={(e) => setSamples(Math.max(1, Number(e.target.value)))} className="w-24" />
+              <Input id="doe-samples" type="number" min={1} max={preview?.max_samples} value={samples ?? ''} onChange={(e) => setSamples(numberOrNull(e.target.value))} className="w-24" />
             </div>
             <div className="space-y-1">
               <Label htmlFor="doe-seed">시드</Label>
-              <Input id="doe-seed" type="number" value={String(seed)} onChange={(e) => setSeed(Number(e.target.value))} className="w-24" />
+              <Input id="doe-seed" type="number" value={seed ?? ''} onChange={(e) => setSeed(numberOrNull(e.target.value))} className="w-24" />
             </div>
           </>
         )}
         <div className="text-muted-foreground text-xs">
           {varying.length === 0 ? (
             '바꿀 변수를 하나는 고르세요 — 「구간」 이나 「값 목록」 으로.'
+          ) : incomplete ? (
+            '빈 칸을 채우면 설계점을 셉니다.'
           ) : preview ? (
             <span className={preview.too_many ? 'text-destructive' : ''}>
               설계점 <b>{preview.count}</b> 개{' '}
@@ -294,7 +309,7 @@ export function DoeForm({
             '세는 중…'
           )}
         </div>
-        <Button className="ml-auto" disabled={busy || !name.trim() || varying.length === 0 || !!preview?.too_many} onClick={() => void run()}>
+        <Button className="ml-auto" disabled={busy || !name.trim() || varying.length === 0 || incomplete || !!preview?.too_many} onClick={() => void run()}>
           {busy ? '만드는 중…' : '만들기'}
         </Button>
       </div>

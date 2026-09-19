@@ -87,3 +87,26 @@ test('구간 값은 가공 단위로 맞춰 보여 준다 — 0.333 은 나오�
   fireEvent.click(await screen.findByRole('option', { name: '0.5 mm' }))
   expect(screen.getByText('6 · 6.5 · 7')).toBeInTheDocument()
 })
+
+test('숫자 칸은 다 지울 수 있고, 비어 있으면 만들기가 막힌다', async () => {
+  const calls = mockApi(5)
+  render(<DoeForm recipe={RECIPE} onCreated={() => {}} />)
+  fireEvent.click(screen.getAllByRole('combobox')[0])
+  fireEvent.click(await screen.findByRole('option', { name: '구간' }))
+  fireEvent.change(screen.getByLabelText('이름'), { target: { value: '훑기' } })
+  await waitFor(() => expect(screen.getByRole('button', { name: '만들기' })).toBeEnabled())
+  const before = calls.filter((c) => c.url.endsWith('/doe/preview')).length
+
+  // 단계를 다 지운다 — 1 로 되돌리지 않고 빈 채로 둔다. 서버에 묻지 않고 만들기가 막힌다.
+  fireEvent.change(screen.getByLabelText('두께 단계'), { target: { value: '' } })
+  expect(screen.getByLabelText('두께 단계')).toHaveValue(null)
+  expect(screen.getByRole('button', { name: '만들기' })).toBeDisabled()
+  expect(screen.getByText('빈 칸을 채우면 설계점을 셉니다.')).toBeInTheDocument()
+  await new Promise((r) => setTimeout(r, 50))
+  expect(calls.filter((c) => c.url.endsWith('/doe/preview'))).toHaveLength(before)
+
+  // 처음부터 친다 — 3.
+  fireEvent.change(screen.getByLabelText('두께 단계'), { target: { value: '3' } })
+  expect(screen.getByLabelText('두께 단계')).toHaveValue(3)
+  await waitFor(() => expect(screen.getByRole('button', { name: '만들기' })).toBeEnabled())
+})
