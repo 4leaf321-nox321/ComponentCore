@@ -693,6 +693,21 @@ async def jig_options(ctx: Context) -> Any:
 
 
 @mcp.tool()
+async def jig_preview(
+    ctx: Context, source: str, options: dict[str, Any] | None = None
+) -> Any:
+    """부품에서 지그를 **만들기 전에** 어떻게 놓이는지 본다 — 계획(받침 · 위치 핀/받침대 ·
+    클램프 자리) · 간섭 · 부품 크기. 작업도 파일도 안 생긴다. 옵션을 바꿔 가며 몇 번 보고
+    `run_jig` 로 만든다. 메시는 크니 돌려주지 않는다."""
+    got = await _post(
+        ctx, "/api/works/jig-from-part/preview", {"source": source, "options": options or {}}
+    )
+    if isinstance(got, dict) and "mesh" in got:
+        return {k: v for k, v in got.items() if k != "mesh"}
+    return got
+
+
+@mcp.tool()
 async def run_jig(
     ctx: Context,
     source: str,

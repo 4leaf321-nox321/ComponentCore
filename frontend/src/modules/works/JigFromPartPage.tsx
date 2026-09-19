@@ -7,14 +7,14 @@
  */
 
 import { Boxes, Layers } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { JigResultView } from '@/modules/jigs/JigResultView'
 import type { Job } from '@/modules/jobs/api'
 import { partsApi } from '@/modules/parts/api'
 import { worksApi } from '@/modules/works/api'
-import type { Work } from '@/modules/works/api'
+import type { JigPreview, Work } from '@/modules/works/api'
 import { JigOptionsForm } from '@/modules/works/JigOptionsForm'
 import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
@@ -24,9 +24,25 @@ import { Button } from '@/shared/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card'
 import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
+import { Skeleton } from '@/shared/components/ui/skeleton'
+import { StatusBadge } from '@/shared/components/StatusBadge'
 import { useResource } from '@/shared/hooks/useResource'
 
+const PickViewer = lazy(() => import('@/shared/viewer/PickViewer'))
+
 type Source = { key: string; label: string; hint: string }
+
+/** 미리보기 색 — 요소 종류마다. 이름표(「받침 2」)의 앞말로 고른다. */
+const ELEMENT_COLORS: { prefix: string; label: string; color: number; note: string }[] = [
+  { prefix: '제품', label: '제품', color: 0x3b82f6, note: '고른 부품 — 바닥면이 받침 위에 올라간다' },
+  { prefix: '바닥판', label: '바닥판', color: 0x9ca3af, note: '부품 바닥 크기 + 판 여유' },
+  { prefix: '받침', label: '받침', color: 0x10b981, note: '부품 바닥면에서 구멍을 피해 놓는다(3 · 4개)' },
+  { prefix: '위치 핀', label: '위치 핀', color: 0xf97316, note: '부품 바닥의 구멍 두 개에 꽂는다(가장 먼 쌍)' },
+  { prefix: '받침대', label: '받침대', color: 0xf97316, note: '바닥에 구멍이 없으면 옆면을 받침대로 잡는다' },
+  { prefix: '클램프', label: '클램프', color: 0xa855f7, note: '부품 윗면 가장자리를 위에서 누른다' },
+]
+const colorOfLabel = (label: string) => ELEMENT_COLORS.find((one) => label.startsWith(one.prefix))?.color ?? 0x3b82f6
+const cssColor = (color: number) => `#${color.toString(16).padStart(6, '0')}`
 
 export default function JigFromPartPage() {
   const navigate = useNavigate()
@@ -41,10 +57,51 @@ export default function JigFromPartPage() {
   const [made, setMade] = useState<{ work: Work; job: Job } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | Error | null>(null)
+  /** 미리보기 — 부품이나 옵션이 바뀌면 조금 쉬었다 다시 본다. 만들기와 같은 규칙이 돈다. */
+  const [preview, setPreview] = useState<JigPreview | null>(null)
+  const [previewing, setPreviewing] = useState(false)
+  const [previewError, setPreviewError] = useState<ApiError | Error | null>(null)
+  const [emphasis, setEmphasis] = useState<string | null>(null)
 
   useEffect(() => {
     if (!options && defaults.data) setOptions(defaults.data)
   }, [defaults.data, options])
+
+  const optionsKey = JSON.stringify(options)
+  useEffect(() => {
+    if (!source || !options) {
+      setPreview(null)
+      return
+    }
+    let alive = true
+    setPreviewing(true)
+    const timer = setTimeout(async () => {
+      try {
+        const got = await worksApi.jigPreview({ source: source.key, options })
+        if (!alive) return
+        setPreview(got)
+        setPreviewError(null)
+      } catch (caught) {
+        if (!alive) return
+        setPreview(null)
+        setPreviewError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      } finally {
+        if (alive) setPreviewing(false)
+      }
+    }, 600)
+    return () => {
+      alive = false
+      clearTimeout(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source?.key, optionsKey])
+
+  const partColors = useMemo(() => {
+    const labels = new Set((preview?.mesh.faces ?? []).map((face) => face.part ?? ''))
+    return Object.fromEntries([...labels].filter(Boolean).map((label) => [label, colorOfLabel(label)]))
+  }, [preview])
+  /** 3D 에 실제로 있는 종류만 범례에 — 받침대가 없으면 받침대 줄도 없다. */
+  const legend = ELEMENT_COLORS.filter((one) => Object.keys(partColors).some((label) => label.startsWith(one.prefix)))
 
   const mine: Source[] = (works.data?.items ?? [])
     .filter((one) => one.kind === 'part' && one.current_version > 0)
@@ -120,7 +177,7 @@ export default function JigFromPartPage() {
       ) : (
         <div className="grid gap-4 lg:grid-cols-12">
           {/* 1. 어느 부품인가 */}
-          <Card className="lg:col-span-5">
+          <Card className="lg:col-span-4">
             <CardHeader>
               <CardTitle>1. 부품 고르기</CardTitle>
             </CardHeader>
@@ -131,26 +188,84 @@ export default function JigFromPartPage() {
             </CardContent>
           </Card>
 
-          {/* 2. 이름 · 옵션 · 만들기 */}
-          <Card className="lg:col-span-7">
+          {/* 2. 미리보기 · 옵션 · 만들기 */}
+          <Card className="lg:col-span-8">
             <CardHeader>
-              <CardTitle>2. 만들기</CardTitle>
+              <CardTitle>2. 미리 보고 만들기</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {source ? (
                 <p className="text-sm">
-                  <b>{source.label}</b> <span className="text-muted-foreground text-xs">({source.hint})</span> 을 올려놓고 잡는 지그를 만듭니다. 기본값 그대로 눌러 보고, 결과를 보며 고치면 됩니다.
+                  <b>{source.label}</b> <span className="text-muted-foreground text-xs">({source.hint})</span> 의 형상을 읽어 규칙으로 놓습니다 — 아래 3D 가 만들어질 그대로입니다. 옵션을 바꾸면 따라 바뀝니다.
                 </p>
               ) : (
-                <p className="text-muted-foreground text-sm">왼쪽에서 부품을 고르세요.</p>
+                <p className="text-muted-foreground text-sm">왼쪽에서 부품을 고르면 여기에 미리보기가 뜹니다.</p>
+              )}
+
+              {/* 미리보기 — 만들기와 같은 규칙. 색은 요소 종류. */}
+              {source && (
+                <div className="space-y-2">
+                  {preview ? (
+                    <Suspense fallback={<Skeleton className="h-[380px] w-full" />}>
+                      <PickViewer mesh={preview.mesh} mode="none" partColors={partColors} emphasis={emphasis} className="h-[380px] w-full rounded-md border" />
+                    </Suspense>
+                  ) : (
+                    <div className="text-muted-foreground flex h-[380px] items-center justify-center rounded-md border border-dashed text-sm">
+                      {previewing ? '미리 보는 중…' : previewError ? '이 부품에는 규칙을 적용하지 못했습니다.' : '미리 보는 중…'}
+                    </div>
+                  )}
+                  <ErrorNotice error={previewError} />
+                  {preview && (
+                    <>
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        {previewing && <span className="text-muted-foreground">다시 보는 중…</span>}
+                        <span>
+                          받침 <b>{preview.plan.supports.length}</b> · {preview.plan.locators.some((one) => one.kind === 'pin') ? '위치 핀' : '받침대'}{' '}
+                          <b>{preview.plan.locators.length}</b> · 클램프 <b>{preview.plan.clamps.length}</b>
+                        </span>
+                        <StatusBadge kind="interference" value={preview.interference.ok ? 'ok' : 'bad'} />
+                      </div>
+                      <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                        {legend.map((one) => (
+                          <li key={one.prefix}>
+                            <button
+                              type="button"
+                              className="flex items-center gap-1.5 text-left"
+                              title={one.note}
+                              onClick={() => {
+                                // 그 종류의 첫 요소만 또렷하게 — 어디에 놓였는지 찾기.
+                                const first = Object.keys(partColors).find((label) => label.startsWith(one.prefix)) ?? null
+                                setEmphasis(emphasis && emphasis.startsWith(one.prefix) ? null : first)
+                              }}
+                            >
+                              <span className="size-2.5 rounded-full" style={{ background: cssColor(one.color) }} aria-hidden />
+                              <span className={emphasis?.startsWith(one.prefix) ? 'font-medium' : ''}>{one.label}</span>
+                              <span className="text-muted-foreground">— {one.note}</span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                      {preview.plan.notes.length > 0 && (
+                        <ul className="text-muted-foreground list-disc pl-5 text-xs">
+                          {preview.plan.notes.map((note) => (
+                            <li key={note}>{note}</li>
+                          ))}
+                        </ul>
+                      )}
+                      {!preview.interference.ok && (
+                        <p className="text-destructive text-xs">간섭이 있습니다 — 옵션(판 여유 · 받침 수 · 클램프 수)을 바꿔 보세요. 만든 뒤 도면에서 옮길 수도 있습니다.</p>
+                      )}
+                    </>
+                  )}
+                </div>
               )}
               <div className="space-y-1">
                 <Label htmlFor="jig-name">지그 작업 이름</Label>
                 <Input id="jig-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={source ? `${source.label} 지그` : ''} />
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Button onClick={() => void run()} disabled={busy || !source || !options}>
-                  {busy ? '거는 중…' : '지그 만들기'}
+                <Button onClick={() => void run()} disabled={busy || !source || !options || !!previewError}>
+                  {busy ? '거는 중…' : '이대로 지그 만들기'}
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => setShowOptions(!showOptions)}>
                   {showOptions ? '세부 옵션 접기' : '세부 옵션 펴기'}

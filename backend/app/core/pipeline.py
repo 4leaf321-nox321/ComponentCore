@@ -15,15 +15,25 @@
 
 from __future__ import annotations
 
+import copy
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar
 
-from build123d import Shape
+from build123d import Compound, Shape
 
 from app.core import assembly, export, features, geometry, interference, planning, primitives
-from app.core.model import JigResult, StageLog
+from app.core.model import (
+    Feature,
+    FixturePlan,
+    InterferenceReport,
+    JigElements,
+    JigResult,
+    ProductGeometry,
+    StageLog,
+)
 from app.core.options import JigOptions
 
 T = TypeVar("T")
@@ -64,14 +74,50 @@ def resolve_product(source: Path | Shape | dict[str, Any] | None) -> Shape:
     return source
 
 
-def run(
+@dataclass
+class JigBuild:
+    """내보내기 전까지의 결과 — 미리보기는 여기서 멈춘다(파일을 쓰지 않는다)."""
+
+    geometry: ProductGeometry
+    features: list[Feature]
+    plan: FixturePlan
+    elements: JigElements
+    jig: Compound
+    product: Shape
+    interference: InterferenceReport
+    stages: list[StageLog]
+
+    def preview_shape(self) -> Compound:
+        """제품 + 지그 요소를 **이름표 붙은 자식**으로 — 메시가 면마다 어느 것인지 말한다."""
+        children: list[Shape] = []
+
+        def add(shape: Shape, label: str) -> None:
+            child = copy.copy(shape)
+            child.label = label
+            children.append(child)
+
+        add(self.product, "제품")
+        add(self.elements.base_plate, "바닥판")
+        for i, one in enumerate(self.elements.supports, start=1):
+            add(one, f"받침 {i}")
+        counts = {"pin": 0, "rest": 0}
+        for spec, one in zip(self.plan.locators, self.elements.locators, strict=True):
+            key = "pin" if spec.kind == "pin" else "rest"
+            counts[key] += 1
+            add(one, f"{'위치 핀' if key == 'pin' else '받침대'} {counts[key]}")
+        for i, one in enumerate(self.elements.clamps, start=1):
+            add(one, f"클램프 {i}")
+        return Compound(children=children)
+
+
+def analyze(
     source: Path | Shape | dict[str, Any] | None,
     options: JigOptions,
-    out_dir: Path,
     *,
-    basename: str = "jig",
     on_stage: OnStage | None = None,
-) -> JigResult:
+) -> JigBuild:
+    """읽기 → 특징 → 계획 → 요소 → 조립 → 간섭. **파일은 안 쓴다** — 미리보기와 실행이
+    같이 쓴다."""
     clock = _Clock(on_stage)
 
     raw = clock.run(
@@ -109,6 +155,30 @@ def run(
         lambda: interference.check(built, product, options.interference_tolerance),
         lambda r: "간섭 없음" if r.ok else f"간섭 {sum(not i.ok for i in r.items)} 건",
     )
+    return JigBuild(
+        geometry=geom,
+        features=found,
+        plan=fixture,
+        elements=built,
+        jig=jig,
+        product=product,
+        interference=report,
+        stages=clock.stages,
+    )
+
+
+def run(
+    source: Path | Shape | dict[str, Any] | None,
+    options: JigOptions,
+    out_dir: Path,
+    *,
+    basename: str = "jig",
+    on_stage: OnStage | None = None,
+) -> JigResult:
+    made = analyze(source, options, on_stage=on_stage)
+    clock = _Clock(on_stage)
+    clock.stages = made.stages
+    jig, product = made.jig, made.product
 
     def _export() -> dict[str, Path]:
         files = {
@@ -127,13 +197,13 @@ def run(
     files = clock.run("export", _export, lambda f: ", ".join(sorted(f)))
 
     return JigResult(
-        geometry=geom,
-        features=found,
-        plan=fixture,
-        elements=built,
+        geometry=made.geometry,
+        features=made.features,
+        plan=made.plan,
+        elements=made.elements,
         jig=jig,
         product=product,
-        interference=report,
+        interference=made.interference,
         files=files,
         stages=clock.stages,
     )

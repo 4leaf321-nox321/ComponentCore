@@ -19,7 +19,7 @@
 | 새 부품 시작 | `create_work(name, recipe)` |
 | 있는 부품 고치기 | `get_work` 로 레시피를 받아 고쳐 `save_version` |
 | 되돌리기 | `list_versions` → `restore_version` |
-| 부품에서 지그 생성 | `run_jig(source, options)` → 지그 작업이 생기고 계획 · 간섭이 돌아온다 |
+| 부품에서 지그 생성 | `jig_preview(source, options)` 로 계획을 보고 → `run_jig` → 지그 작업이 생긴다 |
 | 남에게 내놓기 | `promote_part` · `promote_jig_recipe` — **사용자가 시킬 때만** |
 | 남의 것 가져오기 | `list_parts` → `copy_part_to_work` |
 

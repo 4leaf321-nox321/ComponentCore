@@ -390,3 +390,34 @@ def test_지그_작업에_이어_둔_부품이_승격까지_따라간다(
     ).json()
     # 따로 고르지 않아도 어느 부품의 지그인지 이어진다.
     assert promoted["part_id"] == part["part_id"]
+
+
+def test_지그_생성_미리보기는_부품에_따라_달라진다(client: TestClient, member: Signed) -> None:
+    """만들기 전에 계획과 메시를 본다 — 파일은 안 쓴다. 받침 · 핀은 부품 바닥 · 구멍에서 나온다."""
+    work = _work(client, member, _plate(client, member))
+    got = client.post(
+        "/api/works/jig-from-part/preview",
+        json={"source": f"work:{work['id']}", "options": {"support_count": 3}},
+        headers=member.headers,
+    )
+    assert got.status_code == 200, got.text
+    body = got.json()
+    assert len(body["plan"]["supports"]) == 3
+    assert {one["kind"] for one in body["plan"]["locators"]} == {"pin"}  # 구멍판이라 핀
+    assert body["interference"]["ok"] is True
+    labels = {face["part"] for face in body["mesh"]["faces"]}
+    assert "제품" in labels and "바닥판" in labels
+    assert {one for one in labels if one.startswith("받침 ")} == {"받침 1", "받침 2", "받침 3"}
+    assert any(one.startswith("위치 핀") for one in labels)
+    assert any(one.startswith("클램프") for one in labels)
+
+    # 옵션을 바꾸면 계획이 따라 바뀐다 — 미리보기가 규칙을 보여 주는 이유.
+    four = client.post(
+        "/api/works/jig-from-part/preview",
+        json={"source": f"work:{work['id']}", "options": {"support_count": 4}},
+        headers=member.headers,
+    ).json()
+    assert len(four["plan"]["supports"]) == 4
+    # 작업은 안 생겼다.
+    mine = client.get("/api/works", headers=member.headers).json()
+    assert all(one["kind"] != "jig" for one in mine["items"])

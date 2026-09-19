@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from sqlalchemy.orm import Session
@@ -204,6 +205,17 @@ def list_jig_runs(
 ) -> list[JobOut]:
     work = _mine(db, work_id, user)
     return [jobs.job_out(db, one) for one in services.list_jig_runs(db, work)]
+
+
+@router.post("/jig-from-part/preview")
+def jig_preview(
+    payload: JigFromPartRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """만들기 전 미리보기 — 계획(받침 · 로케이터 · 클램프 자리) · 간섭 · 제품 + 지그 메시.
+    메시의 면마다 `part`(제품 · 바닥판 · 받침 n · 위치 핀 n · 클램프 n)가 붙어 있다."""
+    return services.jig_preview(db, by=user, source=payload.source, options=payload.options)
 
 
 @router.post("/jig-from-part", response_model=JigFromPartOut, status_code=202)

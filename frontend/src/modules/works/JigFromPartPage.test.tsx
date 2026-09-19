@@ -19,10 +19,17 @@ const JOB = {
   kind: 'jig',
   status: 'done',
   work_id: 'j1',
-  summary: { plan: { supports: [], locators: [], clamps: [], notes: [] }, interference: { ok: true, items: [] } },
+  summary: { plan: { supports: [], locators: [], clamps: [], notes: [] }, interference: { ok: true, items: [] }, stages: [], geometry: { bbox: { size: [1, 1, 1] } } },
   artifacts: [],
   progress: [],
   error: null,
+}
+
+const PREVIEW = {
+  plan: { base_plate: {}, supports: [{}, {}, {}], locators: [{ kind: 'pin' }, { kind: 'pin' }], clamps: [{}, {}], notes: ['받침은 구멍을 피해 놓았다'] },
+  interference: { ok: true, items: [] },
+  geometry: {},
+  mesh: { bbox: { min: [0, 0, 0], max: [1, 1, 1] }, faces: [{ index: 0, kind: 'plane', center: [0, 0, 0], normal: [0, 0, 1], area: 1, vertices: [], triangles: [], part: '받침 1' }], edges: [] },
 }
 
 test('부품을 고르고 만들면 지그 작업이 생기고, 끝난 결과가 첫 버전이 되어 그 화면으로 간다', async () => {
@@ -30,7 +37,9 @@ test('부품을 고르고 만들면 지그 작업이 생기고, 끝난 결과가
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input)
     calls.push({ url, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : null })
-    const body = url.endsWith('/works/jig-from-part')
+    const body = url.endsWith('/works/jig-from-part/preview')
+      ? PREVIEW
+      : url.endsWith('/works/jig-from-part')
       ? { work: { id: 'j1', name: '센서 브래킷 지그', kind: 'jig' }, job: JOB }
       : url.endsWith('/adopt')
         ? { number: 1 }
@@ -56,11 +65,15 @@ test('부품을 고르고 만들면 지그 작업이 생기고, 끝난 결과가
   expect(screen.getByRole('button', { name: /공용 브래킷/ })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /옛 지그/ })).toBeNull()
   expect(screen.queryByRole('button', { name: /빈 부품/ })).toBeNull()
-  expect(screen.getByRole('button', { name: '지그 만들기' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: '이대로 지그 만들기' })).toBeDisabled()
 
   fireEvent.click(screen.getByRole('button', { name: /센서 브래킷/ }))
-  await waitFor(() => expect(screen.getByRole('button', { name: '지그 만들기' })).toBeEnabled())
-  fireEvent.click(screen.getByRole('button', { name: '지그 만들기' }))
+  // 고르면 미리보기가 돈다 — 만들기와 같은 옵션으로. 계획이 글로도 보인다.
+  await waitFor(() => expect(calls.some((c) => c.url.endsWith('/jig-from-part/preview'))).toBe(true), { timeout: 3000 })
+  expect(await screen.findByText('받침은 구멍을 피해 놓았다')).toBeInTheDocument()
+  expect(calls.find((c) => c.url.endsWith('/jig-from-part/preview'))!.body).toMatchObject({ source: 'work:w1', options: { support_count: 4 } })
+  await waitFor(() => expect(screen.getByRole('button', { name: '이대로 지그 만들기' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: '이대로 지그 만들기' }))
 
   await waitFor(() => expect(screen.getByText('작업 화면')).toBeInTheDocument())
   const made = calls.find((c) => c.url.endsWith('/works/jig-from-part'))!

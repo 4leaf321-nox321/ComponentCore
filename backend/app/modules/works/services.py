@@ -22,6 +22,7 @@ from app.core.geometry import GeometryError
 from app.core.options import JigOptions
 from app.core.planning import PlanningError
 from app.core.recipe import RecipeError, evaluate, parse
+from app.core.recipe.mesh import mesh
 from app.core.recipe.schema import RecipeValidationError
 from app.modules.accounts.models import User
 from app.modules.cad import services as cad
@@ -431,6 +432,28 @@ def _product_source(
             {"product_part_id": str(part.id), "product_part_version_id": str(catalog.id)},
         )
     raise AppError(code("WORKS", 26), f"출처는 work:<id> 또는 part:<id> 입니다: {source}")
+
+
+def jig_preview(
+    db: Session, *, by: User, source: str, options: dict[str, Any]
+) -> dict[str, Any]:
+    """만들기 전에 **어떻게 놓이는지** 본다 — 계획 · 간섭 · 이름표 붙은 메시. 파일은 안 쓴다.
+
+    생성기는 규칙이라 결과가 옵션마다 다르다. 서른 개 옵션을 글로 읽고 상상하게 하지 않는다."""
+    recipe, _label, _part_id, _origin = _product_source(db, source, by)
+    opts = JigOptions.from_dict(options)
+    try:
+        made = pipeline.analyze(_product_from_input({"product_recipe": recipe}), opts)
+    except (GeometryError, PlanningError) as failure:
+        raise AppError(code("WORKS", 29), str(failure)) from failure
+    except registry.UserFacingError as failure:
+        raise AppError(code("WORKS", 29), str(failure)) from failure
+    return {
+        "plan": made.plan.summary(),
+        "interference": made.interference.summary(),
+        "geometry": made.geometry.summary(),
+        "mesh": mesh(made.preview_shape()),
+    }
 
 
 def jig_from_part(

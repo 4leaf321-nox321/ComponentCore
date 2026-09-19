@@ -1,5 +1,6 @@
 import type { Recipe } from '@/modules/cad/api'
 import type { Job } from '@/modules/jobs/api'
+import type { MeshData } from '@/shared/viewer/PickViewer'
 import { api } from '@/shared/api/client'
 import type { Page } from '@/shared/api/types'
 
@@ -63,6 +64,19 @@ export interface WorkSummary {
   updated_at: string
 }
 
+export interface JigPreview {
+  plan: {
+    base_plate: Record<string, unknown>
+    supports: unknown[]
+    locators: { kind: string }[]
+    clamps: unknown[]
+    notes: string[]
+  }
+  interference: { ok: boolean; items: { a: string; b: string; ok: boolean; volume: number }[] }
+  geometry: Record<string, unknown>
+  mesh: MeshData
+}
+
 export const worksApi = {
   jigOptions: () => api.get<Record<string, unknown>>('/works/jig-options'),
   list: (offset = 0, limit = 50) => api.get<Page<WorkSummary>>(`/works?offset=${offset}&limit=${limit}`),
@@ -100,6 +114,8 @@ export const worksApi = {
     return api.postForm<WorkVersion>(`/works/${id}/import-step`, form)
   },
   jigRuns: (id: string) => api.get<Job[]>(`/works/${id}/jig-runs`),
+  /** 만들기 전 미리보기 — 계획 · 간섭 · 제품 + 지그 메시(면마다 `part` 이름표). 파일 · 작업은 안 생긴다. */
+  jigPreview: (body: { source: string; options?: Record<string, unknown> }) => api.post<JigPreview>('/works/jig-from-part/preview', body),
   /** 부품에서 지그 작업을 **생성** — 지그 작업이 바로 생기고 생성이 걸린다. 끝나면 `adoptJigRun`. */
   jigFromPart: (body: { source: string; name?: string; options?: Record<string, unknown> }) => api.post<{ work: Work; job: Job }>('/works/jig-from-part', body),
   /** 끝난 생성 결과를 그 지그 작업의 버전으로 — 두 번 불러도 같은 버전. */
