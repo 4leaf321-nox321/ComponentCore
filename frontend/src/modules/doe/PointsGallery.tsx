@@ -3,11 +3,11 @@
  *
  * 점이 수백이라 한꺼번에 다 그리지 않는다: 메시는 **고른 점만** 서버에서 받아 오고(받은 것은
  * 들고 있는다), 한 번에 화면에 올리는 수에 상한이 있다 — 겹쳐 보기는 뷰어 하나라 색으로 가를
- * 수 있는 만큼(`MAX_OVERLAY`), 나란히는 뷰어마다 WebGL 문맥 하나라 브라우저 한계(열 몇 개)
- * 아래(`MAX_GRID`). 나란히는 카메라를 맞춰 하나를 돌리면 모두 돈다.
+ * 수 있는 만큼(`MAX_OVERLAY`), 나란히는 한 WebGL 문맥에 칸을 잘라 그리므로(`GridViewer`)
+ * 그리는 양이 한계(`MAX_GRID`). 나란히는 카메라가 하나라 돌리면 모두 같이 돈다.
  *
- * 화면 순서는 뷰어 → (하나씩이면 ◀ ▶) → 표. 하나씩 볼 때는 표에 체크가 없다 — 고를 것이
- * 없는데 체크가 보이면 헷갈린다.
+ * 격자는 정사각형 칸으로 1x1 → 2x1 → 2x2 → 3x2 → 3x3 → 4x3 → 4x4 까지 열을 늘리고, 그 뒤는
+ * 4열로 세로만 는다(`gridColumns`). 하나씩 볼 때의 ◀ ▶ 는 표 위에 따로 둔다(`PointsNav`).
  */
 
 import { ChevronLeft, ChevronRight } from 'lucide-react'
@@ -17,16 +17,21 @@ import { doeApi } from '@/modules/doe/api'
 import type { DoePoint, DoeStudy, PointMesh } from '@/modules/doe/api'
 import { Button } from '@/shared/components/ui/button'
 import { Skeleton } from '@/shared/components/ui/skeleton'
-import { createCameraSync } from '@/shared/viewer/cameraSync'
 import type { MeshData } from '@/shared/viewer/PickViewer'
 
 const PickViewer = lazy(() => import('@/shared/viewer/PickViewer'))
+const GridViewer = lazy(() => import('@/shared/viewer/GridViewer').then((m) => ({ default: m.GridViewer })))
 
 export type GalleryMode = 'single' | 'overlay' | 'grid'
 /** 겹쳐 볼 때 한 번에 올리는 점의 수 — 뷰어 하나라 색으로 가를 수 있는 만큼. */
 export const MAX_OVERLAY = 12
-/** 나란히 볼 때 — 뷰어마다 WebGL 문맥 하나, 브라우저는 열 몇 개가 한계다. */
-export const MAX_GRID = 9
+/** 나란히 볼 때 — 한 문맥에 칸을 잘라 그리므로 그리는 양이 한계다. 4x6 까지. */
+export const MAX_GRID = 24
+
+/** 격자의 열 수 — 정사각형에 가깝게 늘리다가 넷에서 멈춘다: 1 · 2 · 2 · 2 · 3 · 3 · 3 · 3 · 3 · 4 … */
+export function gridColumns(count: number): number {
+  return Math.max(1, Math.min(4, Math.ceil(Math.sqrt(count))))
+}
 /** 점마다 다른 색 — 겹쳐 보기의 면 색이자 나란히의 표시 색. 열두 개면 서로 가려진다. */
 const POINT_COLORS = [0x3b82f6, 0xf97316, 0x10b981, 0xa855f7, 0xef4444, 0x14b8a6, 0xeab308, 0xec4899, 0x6366f1, 0x84cc16, 0x0ea5e9, 0x78716c]
 const cssColor = (color: number) => `#${color.toString(16).padStart(6, '0')}`
@@ -51,16 +56,14 @@ export function mergeMeshes(items: { label: string; mesh: MeshData }[]): MeshDat
 export function PointsGallery({
   study,
   focus,
-  onFocus,
   picked,
   onPicked,
   mode,
   onMode,
 }: {
   study: DoeStudy
-  /** 하나씩 볼 때의 점(번호). 표에서 줄을 누르면 바뀐다. */
+  /** 하나씩 볼 때의 점(번호). 표에서 줄을 누르거나 `PointsNav` 가 바꾼다. */
   focus: number | null
-  onFocus: (number: number) => void
   /** 겹쳐 · 나란히 볼 점들(번호). 표의 체크가 고른다. */
   picked: number[]
   onPicked: (next: number[]) => void
@@ -68,8 +71,6 @@ export function PointsGallery({
   mode: GalleryMode
   onMode: (next: GalleryMode) => void
 }) {
-  /** 나란히 놓인 뷰어들의 카메라를 맞추는 끈. */
-  const sync = useMemo(() => createCameraSync(), [])
   const [meshes, setMeshes] = useState<Record<number, PointMesh>>({})
   const [loading, setLoading] = useState<Set<number>>(new Set())
   const [failed, setFailed] = useState<Record<number, string>>({})
@@ -106,14 +107,7 @@ export function PointsGallery({
     for (const number of shown) if (ready.includes(number)) void load(number)
   }, [shown, ready, load])
 
-  function step(delta: number) {
-    if (ready.length === 0) return
-    const at = focus === null ? -1 : ready.indexOf(focus)
-    const next = ready[(at + delta + ready.length) % ready.length]
-    onFocus(next)
-  }
-
-  const colorOf = (number: number) => POINT_COLORS[picked.indexOf(number) % POINT_COLORS.length]
+  const colorOf = (number: number) => POINT_COLORS[Math.max(0, picked.indexOf(number)) % POINT_COLORS.length]
   const paramsLine = (number: number) => {
     const point = study.points.find((one) => one.number === number)
     return point ? Object.entries(point.params).map(([k, v]) => `${k} ${v}`).join(' · ') : ''
@@ -125,8 +119,24 @@ export function PointsGallery({
   }, [shown, meshes])
   const overlayColors = useMemo(() => Object.fromEntries(shown.map((n) => [pointLabel(n), colorOf(n)])), [shown, picked]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const viewerHeight = mode === 'grid' ? (shown.length > 4 ? 'h-[220px]' : 'h-[280px]') : 'h-[420px]'
-  const gridCols = shown.length > 4 ? 'md:grid-cols-3' : shown.length > 1 ? 'md:grid-cols-2' : ''
+  const viewerHeight = 'h-[520px]'
+  const gridItems = useMemo(
+    () =>
+      shown
+        .filter((n) => meshes[n] && !failed[n])
+        .map((n) => ({
+          key: pointLabel(n),
+          label: (
+            <span className="flex items-center gap-1.5">
+              <span className="size-2.5 rounded-full" style={{ background: cssColor(colorOf(n)) }} aria-hidden />
+              <span className="font-mono">{pointLabel(n)}</span>
+              <span className="text-muted-foreground">{paramsLine(n)}</span>
+            </span>
+          ),
+          mesh: meshes[n].mesh,
+        })),
+    [shown, meshes, failed], // eslint-disable-line react-hooks/exhaustive-deps
+  )
 
   return (
     <div className="space-y-2 rounded-md border p-3">
@@ -152,10 +162,10 @@ export function PointsGallery({
           ))}
         </div>
         {mode === 'single' ? (
-          <span className="text-muted-foreground text-xs">표에서 줄을 누르거나 아래 ◀ ▶ 로 넘깁니다. 카메라는 그대로라 견주기 쉽습니다.</span>
+          <span className="text-muted-foreground text-xs">오른쪽 표에서 줄을 누르거나 ◀ ▶ 로 넘깁니다. 카메라는 그대로라 견주기 쉽습니다.</span>
         ) : (
           <span className="text-muted-foreground text-xs">
-            표의 체크로 고릅니다 — 한 번에 <b>{limit}</b> 개까지 ({picked.length} 고름
+            오른쪽 표의 체크로 고릅니다 — 한 번에 <b>{limit}</b> 개까지 ({picked.length} 고름
             {picked.length > limit && `, 앞 ${limit} 개만 보임`}).{mode === 'grid' && ' 하나를 돌리면 모두 같이 돕니다.'}
             {picked.length > 0 && (
               <button type="button" className="ml-1 underline" onClick={() => onPicked([])}>
@@ -206,48 +216,46 @@ export function PointsGallery({
 
       {mode === 'grid' &&
         (shown.length === 0 ? (
-          <Empty height={viewerHeight} text="표에서 나란히 볼 점을 체크하세요." />
+          <Empty height={viewerHeight} text="오른쪽 표에서 나란히 볼 점을 체크하세요." />
+        ) : gridItems.length === 0 ? (
+          <Skeleton className={`${viewerHeight} w-full`} />
         ) : (
-          <div className={`grid gap-2 ${gridCols}`}>
-            {shown.map((n) => (
-              <div key={n} className="space-y-1">
-                <p className="flex items-center gap-1.5 text-xs">
-                  <span className="size-2.5 rounded-full" style={{ background: cssColor(colorOf(n)) }} aria-hidden />
-                  <span className="font-mono">{pointLabel(n)}</span>
-                  <span className="text-muted-foreground">{paramsLine(n)}</span>
-                </p>
-                {failed[n] ? (
-                  <Empty height={viewerHeight} text={failed[n]} />
-                ) : meshes[n] ? (
-                  <Suspense fallback={<Skeleton className={`${viewerHeight} w-full`} />}>
-                    <PickViewer mesh={meshes[n].mesh} mode="none" sync={sync} className={`${viewerHeight} w-full rounded-md border`} />
-                  </Suspense>
-                ) : (
-                  <Skeleton className={`${viewerHeight} w-full`} />
-                )}
-              </div>
-            ))}
+          <div className="max-h-[75vh] overflow-auto">
+            <Suspense fallback={<Skeleton className={`${viewerHeight} w-full`} />}>
+              <GridViewer items={gridItems} columns={gridColumns(shown.length)} />
+            </Suspense>
+            {gridItems.length < shown.length && <p className="text-muted-foreground mt-1 text-xs">{shown.length - gridItems.length} 개는 아직 받는 중이거나 실패했습니다.</p>}
           </div>
         ))}
 
-      {/* 하나씩 — 넘기는 단추는 표 바로 위에. 표를 보며 넘기는 손이 여기 있다. */}
-      {mode === 'single' && (
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => step(-1)} disabled={ready.length === 0} aria-label="이전 점">
-            <ChevronLeft className="size-3.5" />
-          </Button>
-          <span className="font-mono text-xs">{focus === null ? '—' : pointLabel(focus)}</span>
-          <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => step(1)} disabled={ready.length === 0} aria-label="다음 점">
-            <ChevronRight className="size-3.5" />
-          </Button>
-          <span className="text-muted-foreground text-xs">{focus !== null && paramsLine(focus)}</span>
-          {ready.length > 0 && (
-            <span className="text-muted-foreground ml-auto text-xs">
-              {focus === null ? 0 : ready.indexOf(focus) + 1} / {ready.length}
-            </span>
-          )}
-        </div>
+    </div>
+  )
+}
+
+/** 하나씩 볼 때의 ◀ ▶ — 표 위에 둔다. 만들어진 점만 돈다(실패한 점은 건너뛴다). */
+export function PointsNav({ study, focus, onFocus }: { study: DoeStudy; focus: number | null; onFocus: (n: number) => void }) {
+  const ready = study.points.filter((one) => one.status === 'ok').map((one) => one.number)
+  const point = study.points.find((one) => one.number === focus)
+  function step(delta: number) {
+    if (ready.length === 0) return
+    const at = focus === null ? -1 : ready.indexOf(focus)
+    onFocus(ready[(at + delta + ready.length) % ready.length])
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => step(-1)} disabled={ready.length === 0} aria-label="이전 점">
+        <ChevronLeft className="size-3.5" />
+      </Button>
+      <span className="font-mono text-xs">{focus === null ? '—' : pointLabel(focus)}</span>
+      <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => step(1)} disabled={ready.length === 0} aria-label="다음 점">
+        <ChevronRight className="size-3.5" />
+      </Button>
+      {ready.length > 0 && (
+        <span className="text-muted-foreground ml-auto text-xs">
+          {focus === null ? 0 : ready.indexOf(focus) + 1} / {ready.length}
+        </span>
       )}
+      {point && <span className="text-muted-foreground w-full text-xs">{Object.entries(point.params).map(([k, v]) => `${k} ${v}`).join(' · ')}</span>}
     </div>
   )
 }

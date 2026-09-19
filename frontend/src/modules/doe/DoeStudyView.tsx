@@ -13,7 +13,7 @@ import { useEffect, useState } from 'react'
 
 import { doeApi } from '@/modules/doe/api'
 import type { DoeStudy } from '@/modules/doe/api'
-import { PointsGallery, pointRowProps } from '@/modules/doe/PointsGallery'
+import { PointsGallery, PointsNav, pointRowProps } from '@/modules/doe/PointsGallery'
 import type { GalleryMode } from '@/modules/doe/PointsGallery'
 import { isFinished } from '@/modules/jobs/api'
 import { ApiError } from '@/shared/api/client'
@@ -61,6 +61,7 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
 
   const names = study.factors.filter((one) => one.mode !== 'fixed').map((one) => one.name)
   const rows = study.points
+  const viewable = study.points.filter((one) => one.status === 'ok').map((one) => one.number)
 
   return (
     <div className="space-y-4">
@@ -122,54 +123,75 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
         )}
       </div>
 
-      <PointsGallery study={study} focus={focus} onFocus={setFocus} picked={picked} onPicked={setPicked} mode={galleryMode} onMode={setGalleryMode} />
-
-      <Table>
-        <TableHeader>
-          <TableRow>
-            {picking && (
-              <TableHead className="w-8" title="겹쳐 · 나란히 볼 점">
-                <span className="sr-only">고름</span>
-              </TableHead>
-            )}
-            <TableHead className="w-14">점</TableHead>
-            {names.map((name) => (
-              <TableHead key={name} className="font-mono text-xs">
-                {name}
-              </TableHead>
-            ))}
-            <TableHead>파일 · 상태</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((point) => {
-            const row = pointRowProps(point, focus, picked, setFocus, setPicked)
-            return (
-            <TableRow
-              key={point.id}
-              onClick={row.focus}
-              aria-selected={row.isFocus}
-              className={`${point.status === 'failed' ? 'text-destructive' : ''} ${row.viewable ? 'cursor-pointer' : ''} ${row.isFocus ? 'bg-accent' : ''}`}
-            >
-              {picking && (
-                <TableCell onClick={(event) => event.stopPropagation()}>
-                  {row.viewable && <input type="checkbox" checked={row.isPicked} onChange={row.toggle} aria-label={`p${String(point.number).padStart(4, '0')} 고르기`} />}
-                </TableCell>
-              )}
-              <TableCell className="font-mono text-xs">p{String(point.number).padStart(4, '0')}</TableCell>
-              {names.map((name) => (
-                <TableCell key={name} className="font-mono text-xs">
-                  {show(point.params[name])}
-                </TableCell>
-              ))}
-              <TableCell className="text-xs">
-                {point.status === 'ok' ? point.step_file.replace('points/', '') : point.status === 'failed' ? point.error.slice(0, 60) : '기다리는 중'}
-              </TableCell>
-            </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
+      {/* 왼쪽 도면 · 오른쪽 목록, 3:1. 목록은 세로로 길어지니 제 안에서 스크롤한다. */}
+      <div className="grid gap-4 lg:grid-cols-4">
+        <div className="lg:col-span-3">
+          <PointsGallery study={study} focus={focus} picked={picked} onPicked={setPicked} mode={galleryMode} onMode={setGalleryMode} />
+        </div>
+        <div className="space-y-2 lg:col-span-1">
+          {galleryMode === 'single' ? (
+            <PointsNav study={study} focus={focus} onFocus={setFocus} />
+          ) : (
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={viewable.length > 0 && viewable.every((n) => picked.includes(n))}
+                onChange={(event) => setPicked(event.target.checked ? viewable : [])}
+                aria-label="전체 선택"
+              />
+              전체 선택 ({viewable.length})
+            </label>
+          )}
+          <div className="max-h-[75vh] overflow-auto rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  {picking && (
+                    <TableHead className="w-8" title="겹쳐 · 나란히 볼 점">
+                      <span className="sr-only">고름</span>
+                    </TableHead>
+                  )}
+                  <TableHead className="w-14">점</TableHead>
+                  {names.map((name) => (
+                    <TableHead key={name} className="font-mono text-xs">
+                      {name}
+                    </TableHead>
+                  ))}
+                  <TableHead>상태</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((point) => {
+                  const row = pointRowProps(point, focus, picked, setFocus, setPicked)
+                  return (
+                  <TableRow
+                    key={point.id}
+                    onClick={row.focus}
+                    aria-selected={row.isFocus}
+                    className={`${point.status === 'failed' ? 'text-destructive' : ''} ${row.viewable ? 'cursor-pointer' : ''} ${row.isFocus ? 'bg-accent' : ''}`}
+                  >
+                    {picking && (
+                      <TableCell onClick={(event) => event.stopPropagation()}>
+                        {row.viewable && <input type="checkbox" checked={row.isPicked} onChange={row.toggle} aria-label={`p${String(point.number).padStart(4, '0')} 고르기`} />}
+                      </TableCell>
+                    )}
+                    <TableCell className="font-mono text-xs">p{String(point.number).padStart(4, '0')}</TableCell>
+                    {names.map((name) => (
+                      <TableCell key={name} className="font-mono text-xs">
+                        {show(point.params[name])}
+                      </TableCell>
+                    ))}
+                    <TableCell className="text-xs">
+                      {point.status === 'ok' ? '만듦' : point.status === 'failed' ? <span title={point.error}>실패</span> : '기다리는 중'}
+                    </TableCell>
+                  </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

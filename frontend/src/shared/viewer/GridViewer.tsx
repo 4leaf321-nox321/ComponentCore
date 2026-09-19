@@ -1,0 +1,201 @@
+/**
+ * 격자 뷰어 — 형상 여럿을 **한 WebGL 문맥**으로 칸마다 그린다(나란히 견주기).
+ *
+ * 뷰어를 칸마다 하나씩 띄우면 브라우저의 WebGL 문맥 한계(열 몇 개)에 곧 닿는다. 여기서는
+ * 캔버스 하나를 격자 뒤에 깔고, 칸마다 가위(scissor)로 잘라 그 칸의 장면을 그린다 — three.js
+ * 의 「multiple elements」 방식. 카메라는 **하나**라 돌리면 모두 같이 돈다(나란히의 뜻이 그것).
+ * 칸은 정사각형이고, 열 수는 호출부가 정한다.
+ */
+
+import { useEffect, useRef } from 'react'
+import * as THREE from 'three'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+
+import type { MeshData } from '@/shared/viewer/PickViewer'
+
+export interface GridItem {
+  key: string
+  label: React.ReactNode
+  mesh: MeshData
+  color?: number
+}
+
+const FACE_COLOR = 0x3b82f6
+const EDGE_COLOR = 0x1f2937
+
+/** 형상 하나를 장면 하나로 — 면은 한 지오메트리로 합쳐 그리기 한 번, 엣지도 한 번. */
+function sceneOf(mesh: MeshData, color: number, background: THREE.Color): THREE.Scene {
+  const scene = new THREE.Scene()
+  scene.background = background
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2))
+  const sun = new THREE.DirectionalLight(0xffffff, 1.5)
+  sun.position.set(1, 2, 3)
+  scene.add(sun)
+  const group = new THREE.Group()
+  group.rotation.x = -Math.PI / 2 // CAD Z-up → three Y-up
+  scene.add(group)
+
+  const positions: number[] = []
+  const indices: number[] = []
+  for (const face of mesh.faces) {
+    const base = positions.length / 3
+    positions.push(...face.vertices)
+    for (const i of face.triangles) indices.push(base + i)
+  }
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  group.add(new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color, metalness: 0.1, roughness: 0.6, side: THREE.DoubleSide })))
+
+  const lines: number[] = []
+  for (const edge of mesh.edges) {
+    const p = edge.points
+    for (let i = 0; i + 5 < p.length; i += 3) lines.push(p[i], p[i + 1], p[i + 2], p[i + 3], p[i + 4], p[i + 5])
+  }
+  const lineGeometry = new THREE.BufferGeometry()
+  lineGeometry.setAttribute('position', new THREE.Float32BufferAttribute(lines, 3))
+  group.add(new THREE.LineSegments(lineGeometry, new THREE.LineBasicMaterial({ color: EDGE_COLOR })))
+  return scene
+}
+
+function disposeScene(scene: THREE.Scene) {
+  scene.traverse((one) => {
+    if (one instanceof THREE.Mesh || one instanceof THREE.LineSegments) {
+      one.geometry.dispose()
+      ;(one.material as THREE.Material).dispose()
+    }
+  })
+}
+
+export function GridViewer({ items, columns, className }: { items: GridItem[]; columns: number; className?: string }) {
+  const mount = useRef<HTMLDivElement | null>(null)
+  const cells = useRef<Map<string, HTMLDivElement>>(new Map())
+  const state = useRef<{
+    renderer: THREE.WebGLRenderer
+    camera: THREE.PerspectiveCamera
+    controls: OrbitControls
+    scenes: Map<string, THREE.Scene>
+    fitted: boolean
+  } | null>(null)
+  const itemsRef = useRef(items)
+  itemsRef.current = items
+
+  // 한 번만: 렌더러 · 카메라 · 컨트롤 · 그리기 루프.
+  useEffect(() => {
+    const container = mount.current
+    if (!container) return
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setPixelRatio(window.devicePixelRatio)
+    renderer.setScissorTest(true)
+    renderer.domElement.style.position = 'absolute'
+    renderer.domElement.style.inset = '0'
+    renderer.domElement.style.width = '100%'
+    renderer.domElement.style.height = '100%'
+    container.appendChild(renderer.domElement)
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100_000)
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    state.current = { renderer, camera, controls, scenes: new Map(), fitted: false }
+
+    function resize() {
+      renderer.setSize(container!.clientWidth, container!.clientHeight, false)
+    }
+    resize()
+    const observer = new ResizeObserver(resize)
+    observer.observe(container)
+
+    let frame = 0
+    const animate = () => {
+      frame = requestAnimationFrame(animate)
+      controls.update()
+      const s = state.current
+      if (!s) return
+      const outer = container!.getBoundingClientRect()
+      const height = renderer.domElement.clientHeight
+      for (const item of itemsRef.current) {
+        const scene = s.scenes.get(item.key)
+        const cell = cells.current.get(item.key)
+        if (!scene || !cell) continue
+        const rect = cell.getBoundingClientRect()
+        const w = Math.max(1, Math.floor(rect.width))
+        const h = Math.max(1, Math.floor(rect.height))
+        const left = Math.floor(rect.left - outer.left)
+        const bottom = Math.floor(height - (rect.bottom - outer.top))
+        renderer.setViewport(left, bottom, w, h)
+        renderer.setScissor(left, bottom, w, h)
+        camera.aspect = w / h
+        camera.updateProjectionMatrix()
+        renderer.render(scene, camera)
+      }
+    }
+    animate()
+    return () => {
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+      controls.dispose()
+      for (const scene of state.current?.scenes.values() ?? []) disposeScene(scene)
+      renderer.dispose()
+      container.removeChild(renderer.domElement)
+      state.current = null
+    }
+  }, [])
+
+  // 형상이 바뀌면 장면을 맞춘다 — 남은 것은 두고, 간 것은 버리고, 온 것은 만든다.
+  useEffect(() => {
+    const s = state.current
+    if (!s) return
+    const dark = document.documentElement.classList.contains('dark')
+    const background = new THREE.Color(dark ? '#18181b' : '#f4f4f5')
+    const keep = new Set(items.map((one) => one.key))
+    for (const [key, scene] of s.scenes) {
+      if (!keep.has(key)) {
+        disposeScene(scene)
+        s.scenes.delete(key)
+      }
+    }
+    for (const item of items) {
+      if (!s.scenes.has(item.key)) s.scenes.set(item.key, sceneOf(item.mesh, item.color ?? FACE_COLOR, background))
+    }
+    if (!s.fitted && items.length > 0) {
+      // 모두를 담는 상자로 카메라를 한 번 맞춘다 — 같은 도면의 변형이라 크기가 비슷하다.
+      const box = new THREE.Box3()
+      for (const item of items) {
+        const [x0, y0, z0] = item.mesh.bbox.min
+        const [x1, y1, z1] = item.mesh.bbox.max
+        // CAD (x, y, z) → three (x, z, -y)
+        box.expandByPoint(new THREE.Vector3(x0, z0, -y1))
+        box.expandByPoint(new THREE.Vector3(x1, z1, -y0))
+      }
+      const center = box.getCenter(new THREE.Vector3())
+      const radius = Math.max(...box.getSize(new THREE.Vector3()).toArray()) || 1
+      s.camera.position.set(center.x + radius * 1.2, center.y + radius * 0.9, center.z + radius * 1.4)
+      s.camera.near = radius / 100
+      s.camera.far = radius * 100
+      s.camera.updateProjectionMatrix()
+      s.controls.target.copy(center)
+      s.controls.update()
+      s.fitted = true
+    }
+  }, [items])
+
+  return (
+    <div ref={mount} className={`relative ${className ?? ''}`}>
+      {/* 격자는 캔버스 위에 — 칸의 자리만 잡고 이름표를 단다. 포인터는 캔버스로 흘려보낸다. */}
+      <div className="pointer-events-none relative grid gap-2" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+        {items.map((item) => (
+          <div
+            key={item.key}
+            ref={(el) => {
+              if (el) cells.current.set(item.key, el)
+              else cells.current.delete(item.key)
+            }}
+            className="relative aspect-square rounded-md border"
+          >
+            <div className="pointer-events-auto absolute top-1 left-1 rounded bg-background/80 px-1.5 py-0.5 text-xs">{item.label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}

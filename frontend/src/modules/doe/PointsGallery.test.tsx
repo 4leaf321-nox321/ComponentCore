@@ -8,6 +8,13 @@ import { mergeMeshes } from '@/modules/doe/PointsGallery'
 vi.mock('@/shared/viewer/PickViewer', () => ({
   default: ({ mesh }: { mesh: { faces: { part?: string }[] } }) => <div data-testid="viewer">{[...new Set(mesh.faces.map((f) => f.part ?? '-'))].join(',')}</div>,
 }))
+vi.mock('@/shared/viewer/GridViewer', () => ({
+  GridViewer: ({ items, columns }: { items: { key: string }[]; columns: number }) => (
+    <div data-testid="grid" data-columns={columns}>
+      {items.map((one) => one.key).join(',')}
+    </div>
+  ),
+}))
 
 const face = (part?: string) => ({ index: 0, kind: 'plane', center: [0, 0, 0], normal: [0, 0, 1], area: 1, vertices: [], triangles: [], part })
 const meshOf = (n: number) => ({ number: n, params: { 두께: n * 2 }, summary: { bbox: { size: [1, 1, n] } }, mesh: { bbox: { min: [0, 0, 0], max: [1, 1, n] }, faces: [face()], edges: [] } })
@@ -67,9 +74,23 @@ test('표의 줄을 누르면 그 점의 형상을 받아 보고, 체크한 점�
   fireEvent.click(screen.getByLabelText('p0002 고르기'))
   await waitFor(() => expect(screen.getByTestId('viewer').textContent).toBe('p0001,p0002'))
   expect(asked.filter((u) => u.includes('/mesh'))).toEqual(['/api/doe/s1/points/2/mesh', '/api/doe/s1/points/1/mesh'])
-  // 나란히 — 뷰어가 점마다 하나씩.
+  // 나란히 — 한 격자 뷰어에 칸마다. 둘이면 2열.
   fireEvent.click(screen.getByRole('button', { name: '나란히' }))
-  await waitFor(() => expect(screen.getAllByTestId('viewer')).toHaveLength(2))
+  await waitFor(() => expect(screen.getByTestId('grid').textContent).toBe('p0001,p0002'))
+  expect(screen.getByTestId('grid').getAttribute('data-columns')).toBe('2')
+
+  // 전체 선택은 만들어진 점만 — 실패한 p0003 은 빠진다. 풀면 비운다.
+  fireEvent.click(screen.getByLabelText('p0001 고르기')) // 하나 풀고
+  fireEvent.click(screen.getByLabelText('전체 선택'))
+  expect((screen.getByLabelText('p0001 고르기') as HTMLInputElement).checked).toBe(true)
+  expect(screen.getByText('전체 선택 (2)')).toBeInTheDocument()
+  fireEvent.click(screen.getByLabelText('전체 선택'))
+  expect((screen.getByLabelText('p0002 고르기') as HTMLInputElement).checked).toBe(false)
+})
+
+test('격자 열 수는 정사각형에 가깝게 늘다가 넷에서 멈춘다', async () => {
+  const { gridColumns } = await import('@/modules/doe/PointsGallery')
+  expect([1, 2, 3, 4, 5, 6, 7, 9, 10, 12, 13, 16, 17, 20, 24].map(gridColumns)).toEqual([1, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4])
 })
 
 test('메시를 합치면 면마다 어느 점인지 붙고 번호가 이어진다', () => {
