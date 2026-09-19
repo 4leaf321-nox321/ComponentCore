@@ -53,6 +53,7 @@ def test_사람이_손으로_하는_일이_도구로_다_있다() -> None:
         "doe_points",
         "doe_export",  # 다 만든 뒤 공유 폴더로
         "assemble_jig_on_part",  # 부품 + 지그를 맞는 자리에
+        "recipe_interference",  # 구성품끼리 겹치는가
         "doe_tradeoff",  # 목표가 맞설 때
         "promote_jig_recipe",  # 손으로 그린 지그
     }

@@ -10,6 +10,15 @@ export type Recipe = {
   result?: string | null
 }
 
+export interface Interference {
+  ok: boolean
+  tolerance: number
+  total_volume: number
+  items: { a: string; b: string; volume: number; ok: boolean }[]
+  parts: string[]
+  checked_pairs: number
+}
+
 export interface RecipeSchema {
   schema: Record<string, unknown>
   templates: Record<string, Recipe>
@@ -39,6 +48,8 @@ export const cadApi = {
   info: (recipe: Recipe) => api.post<{ summary: RecipeSummary }>('/cad/recipe/info', { recipe }),
   preview: (recipe: Recipe) => postForBlob('/cad/recipe/preview', { recipe }),
   mesh: (recipe: Recipe) => api.post<{ summary: RecipeSummary; mesh: MeshData }>('/cad/recipe/mesh', { recipe }),
+  /** 조립의 구성품끼리 겹치는가 — 모든 쌍의 겹침 부피. */
+  interference: (recipe: Recipe, tolerance?: number) => api.post<Interference>('/cad/recipe/interference', { recipe, tolerance }),
   step: (recipe: Recipe) => postForBlob('/cad/recipe/step', { recipe }),
   stl: (recipe: Recipe) => postForBlob('/cad/recipe/stl', { recipe }),
   dxf: (recipe: Recipe) => postForBlob('/cad/recipe/dxf', { recipe }),

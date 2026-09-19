@@ -26,6 +26,8 @@ export interface DoePoint {
   error: string
   /** 해석 결과가 붙을 자리 — 붙이는 길이 아직 없어 지금은 늘 null. */
   metrics: Record<string, number | null> | null
+  /** 조립이면 구성품끼리 겹침(ok · items · total_volume). 구성품이 하나면 null. */
+  interference: { ok: boolean; total_volume: number; items: { a: string; b: string; volume: number; ok: boolean }[] } | null
   step_file: string
 }
 

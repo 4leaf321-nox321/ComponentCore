@@ -11,6 +11,11 @@ class RecipeRequest(BaseModel):
     recipe: dict[str, Any]
 
 
+class InterferenceRequest(RecipeRequest):
+    tolerance: float | None = Field(default=None, ge=0)
+    """이 부피(mm³) 이하의 겹침은 닿은 것으로 본다. 없으면 0.5."""
+
+
 class GeometryRequest(RecipeRequest):
     material: str | None = None
     """주면 질량 · 무게중심 · 관성까지 낸다(steel · aluminum · abs …)."""

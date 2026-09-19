@@ -33,6 +33,32 @@ beforeEach(() => {
   })
 })
 
+vi.mock('@/shared/viewer/PickViewer', () => ({
+  default: ({ partColors }: { partColors?: Record<string, number> }) => <div data-testid="viewer">{JSON.stringify(partColors ?? {})}</div>,
+}))
+
+test('구성품끼리 겹치면 배지와 함께 어느 것끼리 얼마나인지 말하고, 3D 에서 빨갛다', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = String(input)
+    const body = url.includes('/cad/recipe/check')
+      ? { ok: true, problems: [] }
+      : url.includes('/cad/recipe/mesh')
+        ? { summary: { bbox: { size: [1, 1, 1] } }, mesh: { bbox: { min: [0, 0, 0], max: [1, 1, 1] }, faces: [], edges: [] } }
+        : url.includes('/cad/recipe/interference')
+          ? { ok: false, tolerance: 0.5, total_volume: 1234.5, checked_pairs: 1, parts: ['센서_브래킷', '시험_지그'], items: [{ a: '센서_브래킷', b: '시험_지그', volume: 1234.5, ok: false }] }
+          : url.includes('/works')
+            ? WORKS
+            : { items: [], total: 0, limit: 100, offset: 0 }
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  })
+  render(<Host />)
+  fireEvent.click(await screen.findByRole('button', { name: /센서 브래킷/ }))
+  fireEvent.click(screen.getByRole('button', { name: /시험 지그/ }))
+  expect(await screen.findByText(/센서_브래킷 × 시험_지그 1,234.5 mm³/, {}, { timeout: 3000 })).toBeInTheDocument()
+  // 겹친 둘은 빨강(0xef4444).
+  await waitFor(() => expect(JSON.parse(screen.getByTestId('viewer').textContent!)).toEqual({ 센서_브래킷: 0xef4444, 시험_지그: 0xef4444 }))
+})
+
 test('라이브러리에서 가져오면 component 피처가 생기고 묶음이 따라붙는다', async () => {
   render(<Host />)
   fireEvent.click(await screen.findByRole('button', { name: /센서 브래킷/ }))

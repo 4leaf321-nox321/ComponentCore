@@ -291,6 +291,20 @@ def export_study(db: Session, study: DoeStudy) -> DoeStudy:
     return study
 
 
+def _interference_of(shape: Any) -> dict[str, Any] | None:
+    """결과가 이름표 붙은 묶음(조립)일 때만 — 구성품이 하나면 검사할 쌍이 없다(None)."""
+    from app.core.interference import check_pairs
+    from app.core.recipe.evaluate import _labeled_children
+
+    children = _labeled_children(shape)
+    if len(children) < 2:
+        return None
+    report = check_pairs(
+        [(str(child.label), child) for child in children], cad.DEFAULT_INTERFERENCE_TOLERANCE
+    )
+    return report.summary()
+
+
 def run_job(
     input: dict[str, Any], options: dict[str, Any], out_dir: Path, progress: registry.Progress
 ) -> registry.Outcome:
@@ -329,6 +343,9 @@ def run_job(
                 shapes.write_step(evaluation.shape, folder / "points" / name)
                 point.status = "ok"
                 point.step_file = f"points/{name}"
+                # 조립이면 구성품끼리 겹치는지 — 변수를 바꾸다 부품이 판에 파묻히는 것을
+                # 잡는다.
+                point.geometry = {"interference": _interference_of(evaluation.shape)}
                 made += 1
                 rows.append(
                     files.manifest_row(
@@ -337,6 +354,7 @@ def run_job(
                         factor_names,
                         status="ok",
                         step_file=point.step_file,
+                        interference=point.geometry["interference"],
                     )
                 )
             except (RecipeError, RecipeValidationError, ValueError, RuntimeError) as failure:

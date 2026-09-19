@@ -38,6 +38,27 @@ def _label(part: Part) -> str:
     return part.label or type(part).__name__
 
 
+def check_pairs(
+    members: list[tuple[str, Shape]], tolerance: float, *, keep_ok: bool = False
+) -> InterferenceReport:
+    """이름표 붙은 형상들 — **모든 쌍**의 겹침. 조립(group)의 구성품끼리, 지그 요소끼리 다
+    이것.
+
+    경계 상자가 안 겹치는 쌍은 불리언을 돌리지 않는다. `keep_ok` 면 괜찮은 쌍도 적는다(보고서에
+    「검사했다」 를 남길 때)."""
+    items: list[InterferenceItem] = []
+    for i, (name_a, a) in enumerate(members):
+        for name_b, b in members[i + 1 :]:
+            if not _boxes_touch(a, b):
+                continue
+            volume = _overlap(a, b)
+            ok = volume <= tolerance
+            if ok and not keep_ok:
+                continue
+            items.append(InterferenceItem(a=name_a, b=name_b, volume=round(volume, 3), ok=ok))
+    return InterferenceReport(items=items, tolerance=tolerance)
+
+
 def check(built: JigElements, product: Shape, tolerance: float) -> InterferenceReport:
     items: list[InterferenceItem] = []
     parts = built.all_parts()
@@ -51,16 +72,5 @@ def check(built: JigElements, product: Shape, tolerance: float) -> InterferenceR
         )
 
     # 부품끼리 — 판과 그 위에 선 것은 면으로 닿을 뿐이다. 나머지 쌍은 떨어져 있어야 한다.
-    for i, a in enumerate(parts):
-        for b in parts[i + 1 :]:
-            if not _boxes_touch(a, b):
-                continue
-            volume = _overlap(a, b)
-            if volume > tolerance:
-                items.append(
-                    InterferenceItem(
-                        a=_label(a), b=_label(b), volume=round(volume, 3), ok=False
-                    )
-                )
-
+    items += check_pairs([(_label(p), p) for p in parts], tolerance).items
     return InterferenceReport(items=items, tolerance=tolerance)

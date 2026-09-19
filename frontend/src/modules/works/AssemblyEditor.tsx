@@ -20,6 +20,7 @@ import { jigsApi } from '@/modules/jigs/api'
 import { partsApi } from '@/modules/parts/api'
 import { worksApi } from '@/modules/works/api'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
+import { StatusBadge } from '@/shared/components/StatusBadge'
 import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog'
@@ -81,8 +82,13 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
   const jigs = useResource(() => jigsApi.list({ limit: 100 }), [])
 
   const emit = useRecipeEmit(value, onChange)
-  const { mesh, problems, drawing, error } = useRecipeMesh(value)
-  const partColors = useMemo(() => Object.fromEntries(placed.map((one, index) => [one.id, colorOf(index)])), [placed])
+  const { mesh, problems, drawing, error, interference } = useRecipeMesh(value, { interference: true })
+  /** 겹친 구성품 — 3D 에서 빨갛게. 목록에서도 표시한다. */
+  const colliding = useMemo(() => new Set((interference?.items ?? []).filter((one) => !one.ok).flatMap((one) => [one.a, one.b])), [interference])
+  const partColors = useMemo(
+    () => Object.fromEntries(placed.map((one, index) => [one.id, colliding.has(one.id) ? 0xef4444 : colorOf(index)])),
+    [placed, colliding],
+  )
 
   function put(next: Placed[]) {
     emit((current) => withGroup(next, current))
@@ -141,7 +147,7 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
                 const isCurrent = one.id === selected
                 return (
                   <li key={one.id} className={`group flex items-center gap-1.5 rounded px-1.5 py-1 text-sm ${isCurrent ? 'bg-accent' : 'hover:bg-accent/60'}`}>
-                    <span className="size-2.5 shrink-0 rounded-full" style={{ background: cssColor(colorOf(index)) }} aria-hidden />
+                    <span className="size-2.5 shrink-0 rounded-full" style={{ background: cssColor(colliding.has(one.id) ? 0xef4444 : colorOf(index)) }} aria-hidden />
                     <button type="button" className="min-w-0 flex-1 truncate text-left" onClick={() => setSelected(isCurrent ? null : one.id)} title={one.id}>
                       {one.label || one.id}
                     </button>
@@ -243,6 +249,23 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
               <li key={one}>{one}</li>
             ))}
           </ul>
+        )}
+        {/* 겹침 — 서버는 겹친 채로도 저장하니 여기서 보여 줘야 한다. */}
+        {mesh && interference && placed.length > 1 && (
+          <div className="flex flex-wrap items-center gap-2 text-xs" role="status">
+            <StatusBadge kind="interference" value={interference.ok ? 'ok' : 'bad'} />
+            {interference.ok ? (
+              <span className="text-muted-foreground">구성품 {interference.parts.length} 개, {interference.checked_pairs} 쌍 검사 — 겹치지 않습니다.</span>
+            ) : (
+              <span className="text-destructive">
+                {interference.items
+                  .filter((one) => !one.ok)
+                  .map((one) => `${one.a} × ${one.b} ${one.volume.toLocaleString()} mm³`)
+                  .join(' · ')}{' '}
+                — 편집 창에서 자리를 옮기세요.
+              </span>
+            )}
+          </div>
         )}
         <ErrorNotice error={error} />
       </div>

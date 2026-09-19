@@ -55,6 +55,12 @@ def _summary(db: Session, study: DoeStudy) -> StudySummaryOut:
     )
 
 
+def _point_out(point: Any) -> PointOut:
+    out = PointOut.model_validate(point)
+    out.interference = (point.geometry or {}).get("interference")
+    return out
+
+
 def _out(db: Session, study: DoeStudy) -> StudyOut:
     rows = services.points(db, study)
     job = db.get(Job, study.job_id) if study.job_id else None
@@ -67,7 +73,7 @@ def _out(db: Session, study: DoeStudy) -> StudyOut:
         else "",
         exported_at=study.exported_at,
         job=jobs.job_out(db, job).model_dump() if job else None,
-        points=[PointOut.model_validate(one) for one in rows],
+        points=[_point_out(one) for one in rows],
         done=sum(1 for one in rows if one.status == "ok"),
         failed=sum(1 for one in rows if one.status == "failed"),
     )
@@ -161,6 +167,7 @@ def manifest(
             status=point.status,
             step_file=point.step_file,
             error=point.error,
+            interference=(point.geometry or {}).get("interference"),
         )
         for point in services.points(db, study)
     ]
@@ -186,7 +193,7 @@ def filter_points(
     for point in services.points(db, study):
         ok, _why = engine.passes(point.metrics or {}, conditions)
         if ok:
-            kept.append(PointOut.model_validate(point))
+            kept.append(_point_out(point))
     return kept
 
 

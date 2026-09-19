@@ -23,6 +23,7 @@ from app.modules.cad import services
 from app.modules.cad.schemas import (
     BeamRequest,
     GeometryRequest,
+    InterferenceRequest,
     RecipeInfoOut,
     RecipeProblemsOut,
     RecipeRequest,
@@ -99,6 +100,15 @@ def recipe_sweep(payload: SweepRequest, _: User = Depends(current_user)) -> dict
             material=payload.material,
         ),
     }
+
+
+@router.post("/recipe/interference")
+def recipe_interference(
+    payload: InterferenceRequest, _: User = Depends(current_user)
+) -> dict[str, Any]:
+    """조립의 구성품끼리 겹치는가 — 모든 쌍의 겹침 부피. 허용치(mm³) 이하는 닿은 것으로
+    본다."""
+    return services.interference(payload.recipe, tolerance=payload.tolerance)
 
 
 @router.post("/recipe/mesh")

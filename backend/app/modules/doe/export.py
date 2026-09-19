@@ -49,7 +49,7 @@ def windows_path(path: Path) -> str:
 def manifest_columns(factor_names: list[str]) -> list[str]:
     """표의 열 — 되짚는 열쇠(번호 · 상태), 바꾼 변수, 파일, 실패 사유. 해석 결과 열은 해석이
     붙인다."""
-    return ["point", "status", *factor_names, "step_file", "error"]
+    return ["point", "status", *factor_names, "step_file", "interference", "error"]
 
 
 def manifest_row(
@@ -60,12 +60,22 @@ def manifest_row(
     status: str,
     step_file: str = "",
     error: str = "",
+    interference: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    # 조립이면 겹침 — ok 또는 「N건 (총 부피)」. 구성품이 하나면 빈 칸.
+    if interference is None:
+        collision = ""
+    elif interference.get("ok"):
+        collision = "ok"
+    else:
+        bad = [one for one in interference.get("items", []) if not one.get("ok")]
+        collision = f"{len(bad)} ({interference.get('total_volume', 0)} mm3)"
     return {
         "point": number,
         "status": status,
         **{name: params.get(name, "") for name in factor_names},
         "step_file": step_file,
+        "interference": collision,
         "error": error,
     }
 

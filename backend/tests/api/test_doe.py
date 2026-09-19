@@ -126,7 +126,14 @@ def test_설계점마다_STEP_을_공유_폴더에_쓴다(
     assert [row["point"] for row in rows] == ["1", "2", "3"]
     assert [row["두께"] for row in rows] == ["4.0", "8.0", "12.0"]
     assert rows[0]["step_file"] == "points/p0001.step"
-    assert list(rows[0].keys()) == ["point", "status", "두께", "step_file", "error"]
+    assert list(rows[0].keys()) == [
+        "point",
+        "status",
+        "두께",
+        "step_file",
+        "interference",
+        "error",
+    ]
 
     # 내려받는 표도 같은 값이다.
     csv_out = client.get(f"/api/doe/{study['id']}/manifest.csv", headers=member.headers)

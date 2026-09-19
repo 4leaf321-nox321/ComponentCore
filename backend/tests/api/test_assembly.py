@@ -174,3 +174,67 @@ def test_빈_조립은_도면_없이_만들어도_남는다(client: TestClient, 
     assert got.status_code == 200, got.text
     assert got.json()["kind"] == "assembly"
     assert got.json()["current_version"] == 0
+
+
+def test_조립의_구성품끼리_겹치면_어느_것끼리_얼마나인지_말한다(
+    client: TestClient, member: Signed
+) -> None:
+    part = _work(client, member, "판", PLATE, "part")
+    jig = _work(client, member, "지그", PLATE, "jig")
+
+    def assembly(z: float) -> dict[str, Any]:
+        return {
+            "nodes": [
+                {"id": "부품", "op": "component", "source": f"work:{part['id']}"},
+                {
+                    "id": "지그",
+                    "op": "component",
+                    "source": f"work:{jig['id']}",
+                    "translate": [0, 0, z],
+                },
+                {"id": "조립", "op": "group", "targets": ["부품", "지그"]},
+            ]
+        }
+
+    apart = client.post(
+        "/api/cad/recipe/interference", json={"recipe": assembly(30)}, headers=member.headers
+    ).json()
+    assert apart["ok"] is True and apart["parts"] == ["부품", "지그"]
+    assert apart["checked_pairs"] == 1 and apart["items"] == []
+
+    buried = client.post(
+        "/api/cad/recipe/interference", json={"recipe": assembly(5)}, headers=member.headers
+    ).json()
+    assert buried["ok"] is False
+    (item,) = buried["items"]
+    assert {item["a"], item["b"]} == {"부품", "지그"} and item["volume"] > 100
+
+    # 구성품이 하나면 검사할 쌍이 없다.
+    alone = client.post(
+        "/api/cad/recipe/interference", json={"recipe": PLATE}, headers=member.headers
+    ).json()
+    assert alone["ok"] is True and alone["checked_pairs"] == 0
+
+    # DOE 로 훑으면 점마다 간섭이 붙는다 — 변수를 바꾸다 파묻히는 점을 잡는다.
+    recipe = {**assembly(0), "params": {"높이": 30}}
+    recipe["nodes"][1]["translate"] = [0, 0, "=높이"]
+    made = client.post(
+        "/api/works",
+        json={"name": "조립", "recipe": recipe, "kind": "assembly"},
+        headers=member.headers,
+    ).json()
+    study = client.post(
+        "/api/doe",
+        json={
+            "name": "높이 훑기",
+            "recipe": made["current"]["recipe"],
+            "factors": [{"name": "높이", "mode": "list", "values": [5, 30]}],
+            "work_id": made["id"],
+        },
+        headers=member.headers,
+    ).json()
+    got = client.get(f"/api/doe/{study['id']}", headers=member.headers).json()
+    flags = {p["number"]: p["interference"]["ok"] for p in got["points"]}
+    assert flags == {1: False, 2: True}
+    csv_out = client.get(f"/api/doe/{study['id']}/manifest.csv", headers=member.headers).text
+    assert "interference" in csv_out and "ok" in csv_out

@@ -117,6 +117,28 @@ def check(raw: dict[str, Any]) -> list[str]:
     return []
 
 
+#: 조립 간섭의 기본 허용치(mm³) — 닿는 면의 수치 오차가 이 아래로 나온다(지그 생성기와 같다).
+DEFAULT_INTERFERENCE_TOLERANCE = 0.5
+
+
+def interference(raw: dict[str, Any], *, tolerance: float | None = None) -> dict[str, Any]:
+    """레시피의 **구성품끼리** 겹침 — 결과가 이름표 붙은 묶음(group)일 때 그 자식들의 모든 쌍.
+
+    구성품이 하나뿐이거나 묶음이 아니면 검사할 쌍이 없다 — `parts` 가 그것을 말한다."""
+    from app.core.interference import check_pairs
+    from app.core.recipe.evaluate import _labeled_children
+
+    evaluation = build(raw)
+    children = _labeled_children(evaluation.shape)
+    limit = DEFAULT_INTERFERENCE_TOLERANCE if tolerance is None else tolerance
+    report = check_pairs([(str(child.label), child) for child in children], limit)
+    return {
+        **report.summary(),
+        "parts": [str(child.label) for child in children],
+        "checked_pairs": len(children) * (len(children) - 1) // 2,
+    }
+
+
 def build(raw: dict[str, Any], *, allow_sketch: bool = False) -> Evaluation:
     """만들어 본다. 실패는 AppError — 메시지가 그대로 화면 · AI 에 간다. `allow_sketch` 는
     미리보기(info · preview · mesh)만 — 그리는 도중의 2D 도 보여 줘야 한다."""

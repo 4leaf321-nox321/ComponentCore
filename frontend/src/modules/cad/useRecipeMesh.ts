@@ -8,14 +8,16 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { cadApi } from '@/modules/cad/api'
-import type { Recipe, RecipeSummary } from '@/modules/cad/api'
+import type { Interference, Recipe, RecipeSummary } from '@/modules/cad/api'
 import { nodesOf } from '@/modules/cad/recipeSpec'
 import type { MeshData } from '@/shared/viewer/PickViewer'
 
-export function useRecipeMesh(value: Recipe) {
+export function useRecipeMesh(value: Recipe, options: { interference?: boolean } = {}) {
   const [problems, setProblems] = useState<string[]>([])
   const [summary, setSummary] = useState<RecipeSummary | null>(null)
   const [mesh, setMesh] = useState<MeshData | null>(null)
+  /** 조립이면 구성품끼리 겹침 — `options.interference` 일 때만 묻는다. */
+  const [interference, setInterference] = useState<Interference | null>(null)
   const [drawing, setDrawing] = useState(false)
   const [error, setError] = useState<Error | null>(null)
   const lastDrawn = useRef<string>('')
@@ -25,6 +27,7 @@ export function useRecipeMesh(value: Recipe) {
       setProblems([])
       setSummary(null)
       setMesh(null)
+      setInterference(null)
       lastDrawn.current = ''
       return
     }
@@ -41,6 +44,13 @@ export function useRecipeMesh(value: Recipe) {
           lastDrawn.current = key
           setSummary(made.summary)
           setMesh(made.mesh)
+          if (options.interference) {
+            // 메시 뒤에 따로 — 겹침은 불리언이라 느릴 수 있고, 그림이 먼저 보여야 한다.
+            cadApi
+              .interference(value)
+              .then((got) => lastDrawn.current === key && setInterference(got))
+              .catch(() => setInterference(null))
+          }
         } catch (caught) {
           setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
         } finally {
@@ -53,5 +63,5 @@ export function useRecipeMesh(value: Recipe) {
     return () => clearTimeout(timer)
   }, [value])
 
-  return { problems, summary, mesh, drawing, error }
+  return { problems, summary, mesh, drawing, error, interference }
 }

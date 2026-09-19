@@ -302,6 +302,21 @@ async def recipe_geometry(
 
 
 @mcp.tool()
+async def recipe_interference(
+    ctx: Context, recipe: dict[str, Any], tolerance: float | None = None
+) -> Any:
+    """조립(group)의 **구성품끼리 겹치는가** — 모든 쌍의 겹침 부피(mm³). `ok` 가 False 면
+    `items` 에 어느 것과 어느 것이 얼마나 겹치는지 있다. 허용치(기본 0.5 mm³) 이하는 닿은 것.
+
+    조립을 저장하기 전, 그리고 지그를 고친 뒤(받침을 옮기거나 튜닝부를 붙인 뒤) 부른다 — 서버는
+    겹친 채로도 저장해 주므로 네가 봐야 한다. DOE 설계점에는 서버가 점마다 붙여 준다
+    (`doe_points` 의 `interference`)."""
+    return await _post(
+        ctx, "/api/cad/recipe/interference", {"recipe": recipe, "tolerance": tolerance}
+    )
+
+
+@mcp.tool()
 async def sweep_parameter(
     ctx: Context,
     recipe: dict[str, Any],
@@ -433,6 +448,7 @@ async def doe_points(ctx: Context, study_id: str) -> Any:
                 "params": one["params"],
                 "status": one["status"],
                 "metrics": one["metrics"],
+                "interference": one.get("interference"),
                 "step_file": one["step_file"],
                 "error": one["error"],
             }

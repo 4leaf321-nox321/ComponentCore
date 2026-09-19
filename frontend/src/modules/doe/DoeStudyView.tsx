@@ -62,6 +62,8 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
   const names = study.factors.filter((one) => one.mode !== 'fixed').map((one) => one.name)
   const rows = study.points
   const viewable = study.points.filter((one) => one.status === 'ok').map((one) => one.number)
+  /** 조립을 훑었으면 점마다 겹침이 붙어 있다 — 그때만 열을 보인다. */
+  const hasInterference = study.points.some((one) => one.interference)
 
   return (
     <div className="space-y-4">
@@ -158,6 +160,7 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
                       {name}
                     </TableHead>
                   ))}
+                  {hasInterference && <TableHead title="구성품끼리 겹침 — 조립일 때">간섭</TableHead>}
                   <TableHead>상태</TableHead>
                 </TableRow>
               </TableHeader>
@@ -182,6 +185,21 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
                         {show(point.params[name])}
                       </TableCell>
                     ))}
+                    {hasInterference && (
+                      <TableCell className="text-xs">
+                        {point.interference ? (
+                          point.interference.ok ? (
+                            <span className="text-muted-foreground">없음</span>
+                          ) : (
+                            <span className="text-destructive" title={point.interference.items.filter((one) => !one.ok).map((one) => `${one.a} × ${one.b} ${one.volume} mm³`).join('\n')}>
+                              {point.interference.items.filter((one) => !one.ok).length}건
+                            </span>
+                          )
+                        ) : (
+                          '—'
+                        )}
+                      </TableCell>
+                    )}
                     <TableCell className="text-xs">
                       {point.status === 'ok' ? '만듦' : point.status === 'failed' ? <span title={point.error}>실패</span> : '기다리는 중'}
                     </TableCell>
