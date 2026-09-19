@@ -10,14 +10,14 @@
 
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { cadApi } from '@/modules/cad/api'
-import type { Recipe, RecipeSummary } from '@/modules/cad/api'
+import type { Recipe } from '@/modules/cad/api'
 import type { WorkKind } from '@/modules/works/api'
 import { LoadRecipeDialog, LoadWorkDialog } from '@/modules/cad/LoadDialogs'
 import { keptLabel, MeasureDialog } from '@/modules/cad/MeasureDialog'
 import type { KeptMeasure, PickKind } from '@/modules/cad/MeasureDialog'
 import { measureMarks } from '@/modules/cad/measureMarks'
 import { useRecipeEmit } from '@/modules/cad/useRecipeEmit'
+import { useRecipeMesh } from '@/modules/cad/useRecipeMesh'
 import { RibbonButton, RibbonGroup } from '@/modules/cad/Ribbon'
 import { NodeForm } from '@/modules/cad/NodeForm'
 import { ParamsPanel } from '@/modules/cad/ParamsPanel'
@@ -31,7 +31,7 @@ import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { Boxes, Braces, BookmarkPlus, Download, FileAxis3d, FileUp, GripVertical, Image, FilePlus, FolderOpen, Files, Maximize2, Minimize2, Pencil, Redo2, Ruler, Save, SquareDashedMousePointer, Trash2, Undo2 } from 'lucide-react'
 
 import { useFullscreen } from '@/shared/viewer/FullscreenFrame'
-import type { MeasurePick, MeshData, MeshEdge, MeshFace, PickMode } from '@/shared/viewer/PickViewer'
+import type { MeasurePick, MeshEdge, MeshFace, PickMode } from '@/shared/viewer/PickViewer'
 import { Button } from '@/shared/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog'
 import { Skeleton } from '@/shared/components/ui/skeleton'
@@ -68,9 +68,6 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
   const [mode, setMode] = useState<'form' | 'json'>('form')
   const [text, setText] = useState(() => pretty(value))
   const [jsonError, setJsonError] = useState<string | null>(null)
-  const [problems, setProblems] = useState<string[]>([])
-  const [summary, setSummary] = useState<RecipeSummary | null>(null)
-  const [mesh, setMesh] = useState<MeshData | null>(null)
   const [pickMode, setPickMode] = useState<PickMode>('none')
   /** 면을 골라 어디에 쓰나 — 새 스케치 · 쉘의 open · 구멍의 plane. */
   const [faceTarget, setFaceTarget] = useState<'sketch' | 'shell-open' | 'hole-plane'>('sketch')
@@ -83,9 +80,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
   const [loading, setLoading] = useState<'recipe' | 'work' | null>(null)
   /** 끌고 있는 피처의 자리 · 놓을 수 있는 칸들 · 지금 가리키는 칸 · 막힌 이유. */
   const [drag, setDrag] = useState<{ from: number; allowed: Set<number>; at: number | null; refused: string | null } | null>(null)
-  const [error, setError] = useState<ApiError | Error | null>(null)
-  const [drawing, setDrawing] = useState(false)
-  const lastDrawn = useRef<string>('')
+  const { problems, summary, mesh, drawing, error } = useRecipeMesh(value)
   const stepInput = useRef<HTMLInputElement | null>(null)
 
   const selected = nodes.find((n) => n.id === selectedId) ?? null
@@ -238,40 +233,6 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
     if (mode === 'json') return
     setText(pretty(value))
   }, [value, mode])
-
-  useEffect(() => {
-    // 빈 레시피는 검증할 것이 아니다 — 「적어도 1개」 는 오류가 아니라 아직 시작 전이다.
-    if (nodesOf(value).length === 0) {
-      setProblems([])
-      setSummary(null)
-      setMesh(null)
-      lastDrawn.current = ''
-      return
-    }
-    const key = JSON.stringify(value)
-    const timer = setTimeout(async () => {
-      try {
-        const result = await cadApi.check(value)
-        setProblems(result.problems)
-        if (!result.ok || key === lastDrawn.current) return
-        setDrawing(true)
-        setError(null)
-        try {
-          const made = await cadApi.mesh(value)
-          lastDrawn.current = key
-          setSummary(made.summary)
-          setMesh(made.mesh)
-        } catch (caught) {
-          setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
-        } finally {
-          setDrawing(false)
-        }
-      } catch {
-        // 서버가 잠깐 안 닿는다 — 다음 변경에서 다시.
-      }
-    }, 500)
-    return () => clearTimeout(timer)
-  }, [value])
 
   // --- 3D 에서 고르기 -------------------------------------------------------------
 

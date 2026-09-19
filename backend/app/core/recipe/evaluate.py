@@ -487,10 +487,27 @@ def _to_part(shape: Shape) -> Part:
     솔리드들을 자식으로 다시 묶는다."""
     if isinstance(shape, Part):
         return shape
+    labeled = _labeled_children(shape)
+    if labeled:
+        # 조립(group) — 구성품을 통째로 자식으로 두어 이름표가 메시까지 간다.
+        children = []
+        for one in labeled:
+            child = copy.copy(one)
+            child.label = one.label
+            children.append(child)
+        return Part(children=children)
     solids = list(shape.solids())
     if solids:
         return Part(children=[copy.copy(one) for one in solids])
     return Part(shape.wrapped)
+
+
+def _labeled_children(shape: Shape) -> list[Shape]:
+    """group 이 이름표를 붙인 자식들 — 모두 붙어 있을 때만. 아니면 빈 목록."""
+    children = list(getattr(shape, "children", ()) or ())
+    if children and all(getattr(child, "label", "") for child in children):
+        return children
+    return []
 
 
 def _cleaned(part: Part) -> Part:
@@ -812,10 +829,15 @@ def _evaluate_node(
             return mirrored
         return _cleaned(_to_part(source) + _to_part(mirrored))
     if isinstance(node, S.GroupNode):
-        parts = [made[one] for one in node.targets]
         # **붙이지 않는다.** 자식으로 담아야 부품 · 지그가 따로 남는다(복사본으로 — Compound 는
-        # 자식을 옮겨 가 원본을 비운다).
-        return Compound(children=[copy.copy(one) for one in parts])
+        # 자식을 옮겨 가 원본을 비운다). 자식에 대상 id 를 이름표로 — 메시가 「이 면은 어느
+        # 구성품인가」 를 화면에 알려 줄 수 있게.
+        children = []
+        for target in node.targets:
+            child = copy.copy(made[target])
+            child.label = target
+            children.append(child)
+        return Compound(children=children)
     if isinstance(node, S.ComponentNode):
         if resolve_component is None:
             raise RecipeError(node.id, "이 자리에서는 다른 도면을 가져올 수 없습니다")

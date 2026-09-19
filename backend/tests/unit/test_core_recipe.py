@@ -1094,3 +1094,34 @@ def test_메시가_측정에_필요한_값을_준다() -> None:
     up = next(f for f in planes if f["normal"][2] > 0.9)
     down = next(f for f in planes if f["normal"][2] < -0.9)
     assert up["center"][2] - down["center"][2] == 10.0  # 나란한 두 면 = 두께
+
+
+def test_group_의_메시는_면마다_어느_구성품인지_말한다() -> None:
+    """조립 미리보기가 구성품마다 색을 달리 칠하려면 면 · 엣지에 구성품 id 가 붙어야 한다."""
+    from app.core.recipe.mesh import mesh
+
+    recipe = parse(
+        {
+            "version": 1,
+            "nodes": [
+                {"id": "a", "op": "box", "length": 10, "width": 10, "height": 10},
+                {
+                    "id": "b",
+                    "op": "box",
+                    "length": 5,
+                    "width": 5,
+                    "height": 5,
+                    "at": [20, 0, 0],
+                },
+                {"id": "g", "op": "group", "targets": ["a", "b"]},
+            ],
+        }
+    )
+    made = mesh(evaluate(recipe, resolve_file=None).shape)
+    assert {face["part"] for face in made["faces"]} == {"a", "b"}
+    assert [face["index"] for face in made["faces"]] == list(range(12))
+    assert {edge["part"] for edge in made["edges"]} == {"a", "b"}
+
+    box = {"id": "a", "op": "box", "length": 10, "width": 10, "height": 10}
+    alone = parse({"version": 1, "nodes": [box]})
+    assert "part" not in mesh(evaluate(alone, resolve_file=None).shape)["faces"][0]

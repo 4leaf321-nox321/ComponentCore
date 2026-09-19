@@ -83,10 +83,34 @@ def _edge(index: int, edge: Edge) -> dict[str, Any]:
     return out
 
 
+def _labeled_children(shape: Shape) -> list[Shape]:
+    """조립(group)의 자식들 — 모두 이름표가 있을 때만.
+
+    그 밖의 Compound(솔리드 묶음)는 한 몸이다."""
+    children = list(getattr(shape, "children", ()) or ())
+    if children and all(getattr(child, "label", "") for child in children):
+        return children
+    return []
+
+
 def mesh(shape: Shape) -> dict[str, Any]:
     box = shape.bounding_box()
-    return {
-        "bbox": {"min": _xyz(box.min), "max": _xyz(box.max)},
-        "faces": [_face(i, f) for i, f in enumerate(shape.faces())],
-        "edges": [_edge(i, e) for i, e in enumerate(shape.edges())],
-    }
+    out: dict[str, Any] = {"bbox": {"min": _xyz(box.min), "max": _xyz(box.max)}}
+    children = _labeled_children(shape)
+    if not children:
+        out["faces"] = [_face(i, f) for i, f in enumerate(shape.faces())]
+        out["edges"] = [_edge(i, e) for i, e in enumerate(shape.edges())]
+        return out
+    # 조립은 구성품마다 따로 낸다 — 면 · 엣지에 `part`(구성품 id) 를 붙여 화면이 색을 달리
+    # 칠하고, 고른 구성품만 도드라지게 할 수 있다. 번호는 전체에서 이어진다(고르기가 번호로
+    # 찾는다).
+    faces: list[dict[str, Any]] = []
+    edges: list[dict[str, Any]] = []
+    for child in children:
+        for face in child.faces():
+            faces.append({**_face(len(faces), face), "part": child.label})
+        for edge in child.edges():
+            edges.append({**_edge(len(edges), edge), "part": child.label})
+    out["faces"] = faces
+    out["edges"] = edges
+    return out

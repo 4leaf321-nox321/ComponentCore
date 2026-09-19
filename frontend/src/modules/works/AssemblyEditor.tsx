@@ -1,25 +1,33 @@
 /**
  * 조립 — 부품과 지그를 **가져다 서로 위치시킨다.**
  *
- * 조립은 그리는 것이 아니라 **놓는 것**이다. 그래서 화면이 다르다: 왼쪽은 가져올 것들(내 도면 ·
- * 카탈로그), 오른쪽은 놓인 것들과 3D. 가져온 것은 STEP 이 아니라 **살아 있는 레시피**라,
- * 그 치수에 조립의 변수를 물릴 수 있다(`fx`) — 그래야 조립을 실험계획으로 훑는 뜻이 있다.
+ * 조립은 그리는 것이 아니라 **놓는 것**이다. 그래서 화면이 다르다: 왼쪽은 구성(놓인 것들의
+ * 목록)과 가져올 것들(내 도면 · 카탈로그), 가운데는 3D 미리보기 — 가져오는 순간 거기 나타난다.
+ * 자리 · 회전 · 치수 덮어쓰기는 목록의 「편집」 이 여는 창에서 고치고, 고치는 대로 3D 가 따라온다.
+ * 가져온 것은 STEP 이 아니라 **살아 있는 레시피**라, 그 치수에 조립의 변수를 물릴 수 있다(`fx`)
+ * — 그래야 조립을 실험계획으로 훑는 뜻이 있다.
  */
 
-import { Boxes, Layers, Plus, Trash2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Boxes, Layers, Pencil, Plus, Trash2 } from 'lucide-react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 
 import type { Recipe } from '@/modules/cad/api'
 import { NumberField } from '@/modules/cad/NumberField'
 import { ParamsPanel } from '@/modules/cad/ParamsPanel'
+import { useRecipeEmit } from '@/modules/cad/useRecipeEmit'
+import { useRecipeMesh } from '@/modules/cad/useRecipeMesh'
 import { jigsApi } from '@/modules/jigs/api'
 import { partsApi } from '@/modules/parts/api'
-import { useRecipeEmit } from '@/modules/cad/useRecipeEmit'
 import { worksApi } from '@/modules/works/api'
+import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog'
 import { Input } from '@/shared/components/ui/input'
+import { Skeleton } from '@/shared/components/ui/skeleton'
 import { useResource } from '@/shared/hooks/useResource'
+
+const PickViewer = lazy(() => import('@/shared/viewer/PickViewer'))
 
 /** 놓인 것 하나 — 레시피의 `component` 피처. */
 type Placed = Record<string, unknown> & {
@@ -33,6 +41,13 @@ type Placed = Record<string, unknown> & {
 }
 
 const AXES = ['X', 'Y', 'Z'] as const
+
+/** 구성품마다 다른 색 — 목록의 점과 3D 의 면이 같은 색이라 어느 것이 어느 것인지 보인다. */
+const PALETTE = [0x3b82f6, 0xf97316, 0x10b981, 0xa855f7, 0xef4444, 0x14b8a6, 0xeab308, 0xec4899]
+const colorOf = (index: number) => PALETTE[index % PALETTE.length]
+const cssColor = (color: number) => `#${color.toString(16).padStart(6, '0')}`
+
+const SOURCE_LABEL: Record<string, string> = { work: '내 도면', part: '공용 부품', jig: '공용 지그' }
 
 function nodesOf(recipe: Recipe): Record<string, unknown>[] {
   return (recipe.nodes ?? []) as Record<string, unknown>[]
@@ -55,15 +70,19 @@ function uniqueId(base: string, taken: Set<string>): string {
 
 export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (next: Recipe) => void }) {
   const placed = useMemo(() => nodesOf(value).filter((one) => one.op === 'component') as Placed[], [value])
+  /** 목록에서 고른 것 — 3D 에서 그것만 또렷하다. */
   const [selected, setSelected] = useState<string | null>(null)
+  /** 「편집」 창을 연 것. */
+  const [editing, setEditing] = useState<string | null>(null)
   const params = (value.params ?? {}) as Record<string, number>
-
 
   const works = useResource(() => worksApi.list(0, 100), [])
   const parts = useResource(() => partsApi.list(0, 100), [])
   const jigs = useResource(() => jigsApi.list({ limit: 100 }), [])
 
   const emit = useRecipeEmit(value, onChange)
+  const { mesh, problems, drawing, error } = useRecipeMesh(value)
+  const partColors = useMemo(() => Object.fromEntries(placed.map((one, index) => [one.id, colorOf(index)])), [placed])
 
   function put(next: Placed[]) {
     emit((current) => withGroup(next, current))
@@ -99,14 +118,69 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
     put(placed.map((one) => (one.id === id ? { ...one, ...patch } : one)))
   }
 
+  function remove(id: string) {
+    put(placed.filter((other) => other.id !== id))
+    if (selected === id) setSelected(null)
+    if (editing === id) setEditing(null)
+  }
+
+  const editingNode = placed.find((one) => one.id === editing) ?? null
+  const viewerHeight = 'h-[520px]'
+
   return (
     <div className="grid gap-3 lg:grid-cols-12">
-      {/* 왼쪽 — 가져올 것들 */}
+      {/* 왼쪽 — 구성(놓인 것들) · 가져올 것들 · 변수 */}
       <div className="space-y-3 lg:col-span-3">
-        <ParamsPanel value={value} onChange={(next) => emit(() => next)} />
+        <div className="rounded-md border">
+          <p className="bg-muted/40 border-b px-2 py-1 text-xs font-medium">구성 {placed.length > 0 && `(${placed.length})`}</p>
+          {placed.length === 0 ? (
+            <p className="text-muted-foreground p-2 text-xs">아직 없습니다 — 아래 「가져오기」 에서 부품이나 지그를 고르세요.</p>
+          ) : (
+            <ul className="p-1">
+              {placed.map((one, index) => {
+                const isCurrent = one.id === selected
+                return (
+                  <li key={one.id} className={`group flex items-center gap-1.5 rounded px-1.5 py-1 text-sm ${isCurrent ? 'bg-accent' : 'hover:bg-accent/60'}`}>
+                    <span className="size-2.5 shrink-0 rounded-full" style={{ background: cssColor(colorOf(index)) }} aria-hidden />
+                    <button type="button" className="min-w-0 flex-1 truncate text-left" onClick={() => setSelected(isCurrent ? null : one.id)} title={one.id}>
+                      {one.label || one.id}
+                    </button>
+                    <Badge variant="outline" className="shrink-0 text-[10px]">
+                      {SOURCE_LABEL[one.source.split(':')[0]] ?? one.source.split(':')[0]}
+                    </Badge>
+                    {/* 손이 올라갔을 때만 — 늘 보이면 목록이 단추로 덮인다. 고른 줄은 늘 보인다. */}
+                    <span className={`flex shrink-0 gap-0.5 ${isCurrent ? '' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'}`}>
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-foreground rounded p-1"
+                        aria-label={`${one.label ?? one.id} 편집`}
+                        title="자리 · 회전 · 치수 덮어쓰기"
+                        onClick={() => {
+                          setSelected(one.id)
+                          setEditing(one.id)
+                        }}
+                      >
+                        <Pencil className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-destructive rounded p-1"
+                        aria-label={`${one.label ?? one.id} 빼기`}
+                        onClick={() => remove(one.id)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+
         <div className="rounded-md border">
           <p className="bg-muted/40 border-b px-2 py-1 text-xs font-medium">가져오기</p>
-          <div className="max-h-80 space-y-3 overflow-y-auto p-2">
+          <div className="max-h-72 space-y-3 overflow-y-auto p-2">
             <Library
               title="내 도면"
               icon={Layers}
@@ -137,101 +211,123 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
             />
           </div>
         </div>
+
+        <ParamsPanel value={value} onChange={(next) => emit(() => next)} />
       </div>
 
-      {/* 오른쪽 — 놓인 것들 */}
-      <div className="space-y-3 lg:col-span-9">
-        {placed.length === 0 ? (
-          <div className="text-muted-foreground rounded-md border border-dashed p-6 text-sm">
-            왼쪽에서 부품이나 지그를 <b>+</b> 로 가져오세요. 가져온 것은 살아 있는 도면이라, 그 치수를 조립의 변수로 움직일 수 있습니다.
-          </div>
+      {/* 가운데 — 3D. 가져오면 여기 나타나고, 편집 창에서 고치는 대로 따라온다. */}
+      <div className="space-y-2 lg:col-span-9">
+        <p className="text-muted-foreground text-xs">
+          {drawing
+            ? '그리는 중…'
+            : placed.length === 0
+              ? '가져온 부품 · 지그가 여기에 그려집니다.'
+              : problems.length > 0
+                ? '고칠 것이 있습니다.'
+                : selected
+                  ? '고른 구성품만 또렷합니다 — 목록에서 다시 누르면 풉니다. 끌어서 돌리고, 굴려서 확대합니다.'
+                  : '끌어서 돌리고, 굴려서 확대합니다. 목록에서 고르면 그것만 또렷해집니다.'}
+        </p>
+        {mesh ? (
+          <Suspense fallback={<Skeleton className={`${viewerHeight} w-full`} />}>
+            <PickViewer mesh={mesh} mode="none" partColors={partColors} emphasis={selected} className={`${viewerHeight} w-full rounded-md border`} />
+          </Suspense>
         ) : (
-          <div className="space-y-2">
-            {placed.map((one) => {
-              const isCurrent = one.id === selected
-              return (
-                <div key={one.id} className={`rounded-md border p-2 ${isCurrent ? 'border-primary' : ''}`}>
-                  <div className="flex items-center gap-2">
-                    <button type="button" className="text-left text-sm font-medium" onClick={() => setSelected(isCurrent ? null : one.id)}>
-                      {one.label || one.id}
-                    </button>
-                    <Badge variant="outline" className="font-mono text-[10px]">
-                      {one.source.split(':')[0]}
-                    </Badge>
-                    <Input
-                      value={one.id}
-                      onChange={(event) => update(one.id, { id: event.target.value })}
-                      className="ml-auto h-7 w-32 font-mono text-xs"
-                      aria-label={`${one.label ?? one.id} 이름`}
-                    />
-                    <button
-                      type="button"
-                      className="text-muted-foreground hover:text-destructive rounded p-1"
-                      aria-label={`${one.label ?? one.id} 빼기`}
-                      onClick={() => put(placed.filter((other) => other.id !== one.id))}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
-                  </div>
-
-                  {isCurrent && (
-                    <div className="mt-2 grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <p className="text-muted-foreground mb-1 text-xs">자리 (mm)</p>
-                        <div className="grid grid-cols-3 gap-1">
-                          {AXES.map((axis, index) => (
-                            <div key={axis} className="flex items-center gap-1">
-                              <span className="text-muted-foreground w-3 text-xs">{axis}</span>
-                              <NumberField
-                                params={params}
-                                onCreateParam={createParam}
-                                aria-label={`${one.label ?? one.id} ${axis}`}
-                                value={(one.translate ?? [0, 0, 0])[index]}
-                                onChange={(next) => {
-                                  const list = [...(one.translate ?? [0, 0, 0])]
-                                  list[index] = next ?? 0
-                                  update(one.id, { translate: list })
-                                }}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground mb-1 text-xs">회전 (°)</p>
-                        <div className="grid grid-cols-3 gap-1">
-                          {AXES.map((axis, index) => (
-                            <div key={axis} className="flex items-center gap-1">
-                              <span className="text-muted-foreground w-3 text-xs">{axis}</span>
-                              <NumberField
-                                params={params}
-                                onCreateParam={createParam}
-                                aria-label={`${one.label ?? one.id} 회전 ${axis}`}
-                                value={(one.rotate ?? [0, 0, 0])[index]}
-                                onChange={(next) => {
-                                  const list = [...(one.rotate ?? [0, 0, 0])]
-                                  list[index] = next ?? 0
-                                  update(one.id, { rotate: list })
-                                }}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <ComponentParams
-                        node={one}
-                        params={params}
-                        onCreateParam={createParam}
-                        onChange={(next) => update(one.id, { params: next })}
-                      />
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+          <div className={`text-muted-foreground flex ${viewerHeight} items-center justify-center rounded-md border border-dashed text-sm`}>
+            {placed.length === 0 ? '왼쪽 「가져오기」 에서 부품이나 지그를 누르세요.' : problems.length > 0 ? '도면이 맞으면 여기에 그려집니다.' : '그리는 중…'}
           </div>
         )}
+        {problems.length > 0 && (
+          <ul className="text-destructive list-disc pl-5 text-xs">
+            {problems.map((one) => (
+              <li key={one}>{one}</li>
+            ))}
+          </ul>
+        )}
+        <ErrorNotice error={error} />
       </div>
+
+      {/* 편집 창 — 3D 를 가리지 않게 오른쪽에 붙고(모달 아님), 고치는 대로 3D 가 따라온다. */}
+      <Dialog open={editingNode !== null} modal={false} onOpenChange={(open) => !open && setEditing(null)}>
+        <DialogContent
+          overlay={false}
+          className="top-24 right-6 left-auto max-h-[80vh] w-96 translate-x-0 translate-y-0 overflow-y-auto sm:max-w-md"
+          onInteractOutside={(event) => event.preventDefault()}
+          onOpenAutoFocus={(event) => event.preventDefault()}
+        >
+          {editingNode && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-base">
+                  <span className="size-2.5 rounded-full" style={{ background: cssColor(partColors[editingNode.id] ?? PALETTE[0]) }} aria-hidden />
+                  {editingNode.label || editingNode.id}
+                </DialogTitle>
+                <DialogDescription>고치는 대로 3D 에 바로 보입니다. 칸의 fx 로 조립의 변수를 물릴 수 있습니다.</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground w-12 text-xs">이름</span>
+                  <Input
+                    value={editingNode.id}
+                    onChange={(event) => {
+                      const next = event.target.value
+                      if (!next || placed.some((other) => other.id === next && other.id !== editingNode.id)) return
+                      update(editingNode.id, { id: next })
+                      setEditing(next)
+                      setSelected(next)
+                    }}
+                    className="h-7 flex-1 font-mono text-xs"
+                    aria-label={`${editingNode.label ?? editingNode.id} 이름`}
+                  />
+                </div>
+                <div>
+                  <p className="text-muted-foreground mb-1 text-xs">자리 (mm)</p>
+                  <div className="grid grid-cols-3 gap-1">
+                    {AXES.map((axis, index) => (
+                      <div key={axis} className="flex items-center gap-1">
+                        <span className="text-muted-foreground w-3 text-xs">{axis}</span>
+                        <NumberField
+                          params={params}
+                          onCreateParam={createParam}
+                          aria-label={`${editingNode.label ?? editingNode.id} ${axis}`}
+                          value={(editingNode.translate ?? [0, 0, 0])[index]}
+                          onChange={(next) => {
+                            const list = [...(editingNode.translate ?? [0, 0, 0])]
+                            list[index] = next ?? 0
+                            update(editingNode.id, { translate: list })
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-muted-foreground mb-1 text-xs">회전 (°)</p>
+                  <div className="grid grid-cols-3 gap-1">
+                    {AXES.map((axis, index) => (
+                      <div key={axis} className="flex items-center gap-1">
+                        <span className="text-muted-foreground w-3 text-xs">{axis}</span>
+                        <NumberField
+                          params={params}
+                          onCreateParam={createParam}
+                          aria-label={`${editingNode.label ?? editingNode.id} 회전 ${axis}`}
+                          value={(editingNode.rotate ?? [0, 0, 0])[index]}
+                          onChange={(next) => {
+                            const list = [...(editingNode.rotate ?? [0, 0, 0])]
+                            list[index] = next ?? 0
+                            update(editingNode.id, { rotate: list })
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <ComponentParams node={editingNode} params={params} onCreateParam={createParam} onChange={(next) => update(editingNode.id, { params: next })} />
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -295,7 +391,7 @@ function ComponentParams({
   const current = (node.params ?? {}) as Record<string, number | string>
   const [name, setName] = useState('')
   return (
-    <div className="sm:col-span-2">
+    <div>
       <p className="text-muted-foreground mb-1 text-xs">이 구성품의 치수 덮어쓰기</p>
       <div className="space-y-1">
         {Object.entries(current).map(([key, value]) => (

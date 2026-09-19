@@ -37,6 +37,9 @@ test('라이브러리에서 가져오면 component 피처가 생기고 묶음이
   render(<Host />)
   fireEvent.click(await screen.findByRole('button', { name: /센서 브래킷/ }))
   fireEvent.click(screen.getByRole('button', { name: /시험 지그/ }))
+  // 가져온 것은 왼쪽 「구성」 목록에 선다 — 라이브러리 단추와는 별개의 줄이다.
+  expect(screen.getByRole('button', { name: '센서 브래킷 편집' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '시험 지그 빼기' })).toBeInTheDocument()
 
   const nodes = recipeNow().nodes
   expect(nodes.map((one) => one.op)).toEqual(['component', 'component', 'group'])
@@ -47,9 +50,11 @@ test('라이브러리에서 가져오면 component 피처가 생기고 묶음이
 
 test('놓인 것의 자리와 구성품 치수에 변수를 물릴 수 있다', async () => {
   render(<Host />)
-  // 가져오면 바로 골라진 상태로 자리 · 회전 · 치수 덮어쓰기가 열린다.
   fireEvent.click(await screen.findByRole('button', { name: /시험 지그/ }))
-  fireEvent.change(screen.getByLabelText('시험 지그 Z'), { target: { value: '25' } })
+  // 자리 · 회전 · 치수 덮어쓰기는 목록의 「편집」 이 여는 창에서.
+  expect(screen.queryByLabelText('시험 지그 Z')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '시험 지그 편집' }))
+  fireEvent.change(await screen.findByLabelText('시험 지그 Z'), { target: { value: '25' } })
   expect((recipeNow().nodes[0] as { translate: number[] }).translate).toEqual([0, 0, 25])
 
   // 가져온 도면의 변수를 덮어쓸 칸을 더한다 — 여기에 =조립변수 를 넣는다.

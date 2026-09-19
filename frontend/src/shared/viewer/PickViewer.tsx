@@ -23,6 +23,8 @@ export interface MeshFace {
   /** 원통 · 구일 때만 — 측정이 지름을 바로 보여 준다. */
   radius?: number
   axis?: { origin: number[]; direction: number[] }
+  /** 조립일 때 — 이 면이 속한 구성품 id. 화면이 구성품마다 색을 달리한다. */
+  part?: string
 }
 
 export interface MeshEdge {
@@ -35,6 +37,7 @@ export interface MeshEdge {
   /** 원 · 호일 때만 — 구멍 지름은 가장 자주 재는 값이다. */
   radius?: number
   center?: number[]
+  part?: string
 }
 
 export interface MeshData {
@@ -76,6 +79,10 @@ export interface PickViewerProps {
    */
   measureKinds?: { point: boolean; edge: boolean; face: boolean }
   measureMarks?: MeasureMarks
+  /** 조립: 구성품 id → 색. 없는 구성품(과 조립이 아닌 면)은 기본색. */
+  partColors?: Record<string, number>
+  /** 조립: 이 구성품만 또렷하게, 나머지는 반투명으로 — 어느 것을 고치는지 보인다. */
+  emphasis?: string | null
   className?: string
 }
 
@@ -260,7 +267,7 @@ const VIEWS: { key: string; label: string; dir: [number, number, number] }[] = [
   { key: 'right', label: '우측', dir: [1, 0, 0] },
 ]
 
-export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, measureKinds, measureMarks, className }: PickViewerProps) {
+export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, measureKinds, measureMarks, partColors, emphasis, className }: PickViewerProps) {
   const mount = useRef<HTMLDivElement | null>(null)
   const state = useRef<{
     scene: THREE.Scene
@@ -559,9 +566,10 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       geometry.setAttribute('position', new THREE.Float32BufferAttribute(face.vertices, 3))
       geometry.setIndex(face.triangles)
       geometry.computeVertexNormals()
-      const material = new THREE.MeshStandardMaterial({ color: FACE_COLOR, metalness: 0.1, roughness: 0.6, side: THREE.DoubleSide })
+      const base = (face.part && partColors?.[face.part]) || FACE_COLOR
+      const material = new THREE.MeshStandardMaterial({ color: base, metalness: 0.1, roughness: 0.6, side: THREE.DoubleSide })
       const m = new THREE.Mesh(geometry, material)
-      m.userData = { face, base: FACE_COLOR, picked: false }
+      m.userData = { face, base, picked: false }
       s.shapes.add(m)
       s.faces.push(m)
     }
@@ -594,7 +602,30 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       s.scene.add(grid)
       s.fitted = true
     }
-  }, [mesh, highlightEdgesNear])
+  }, [mesh, highlightEdgesNear, partColors])
+
+  // 고른 구성품만 또렷하게 — 재질만 만지고 메시는 그대로 둔다(고를 때마다 다시 만들면 느리다).
+  useEffect(() => {
+    const s = state.current
+    if (!s) return
+    for (const m of s.faces) {
+      const face = m.userData.face as MeshFace
+      const dim = !!emphasis && face.part !== emphasis
+      const material = m.material as THREE.MeshStandardMaterial
+      material.transparent = dim
+      material.opacity = dim ? 0.25 : 1
+      material.depthWrite = !dim
+      material.needsUpdate = true
+    }
+    for (const l of s.edges) {
+      const edge = l.userData.edge as MeshEdge
+      const dim = !!emphasis && edge.part !== emphasis
+      const material = l.material as THREE.LineBasicMaterial
+      material.transparent = dim
+      material.opacity = dim ? 0.2 : 1
+      material.needsUpdate = true
+    }
+  }, [mesh, emphasis])
 
   // 모드를 끄면 손이 올라가 있던 표시도 함께 걷는다 — 다음에 마우스를 움직일 때까지 남으면
   // 「아직 측정 중인가?」 싶다.

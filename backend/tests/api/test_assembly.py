@@ -128,6 +128,20 @@ def test_구성품이_바뀌면_조립도_따라간다(client: TestClient, membe
     )
     assert again.json()["summary"]["bbox"]["size"] == [120.0, 50.0, 10.0]
 
+    # 미리보기 메시는 구성품마다 갈라 준다 — 화면이 색을 달리 칠하고 고른 것만 또렷하게 한다.
+    mesh = client.post(
+        "/api/cad/recipe/mesh",
+        json={"recipe": assembly["current"]["recipe"]},
+        headers=member.headers,
+    )
+    assert mesh.status_code == 200, mesh.text
+    placed = [
+        node["id"]
+        for node in assembly["current"]["recipe"]["nodes"]
+        if node["op"] == "component"
+    ]
+    assert {face["part"] for face in mesh.json()["mesh"]["faces"]} == set(placed)
+
 
 def test_없는_구성품은_어느_피처에서_왜인지_말한다(client: TestClient, member: Signed) -> None:
     got = client.post(
