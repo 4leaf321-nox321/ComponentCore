@@ -113,6 +113,21 @@ class JigFromPartRequest(BaseModel):
     """`JigOptions` 의 일부. 안 준 키는 기본값. 지그 작업에 `jig_options` 로 남는다."""
 
 
+class AssembleRequest(BaseModel):
+    """부품 + 지그를 맞는 자리에 놓은 조립 작업."""
+
+    part_source: str = Field(min_length=6)
+    """`work:<내 부품 작업 id>` 또는 `part:<공용 부품 id>`."""
+    jig_work_id: uuid.UUID
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+
+
+class AssembleOut(BaseModel):
+    work: WorkOut
+    placement: dict[str, Any]
+    """어떻게 놓았나 — mode(generated | guessed) · translate · product_lift · height_param."""
+
+
 class JigFromPartOut(BaseModel):
     """만들어진 지그 작업과, 돌고 있는 생성 작업. 끝나면 `adopt` 로 결과가 첫 버전이 된다."""
 

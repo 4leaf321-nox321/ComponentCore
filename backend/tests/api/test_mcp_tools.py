@@ -155,6 +155,12 @@ def test_AI_의_루프_가이드_검증_저장_지그_승격(
     runs = bot.call(server.list_jig_runs, jig["work_id"])["runs"]
     assert runs[0]["job_id"] == jig["job"]["job_id"] and runs[0]["interference_ok"] is True
 
+    # 5b) 부품 + 지그를 맞는 자리에 놓은 조립 — 좌표를 AI 가 계산하지 않는다.
+    assembled = bot.call(server.assemble_jig_on_part, f"work:{work_id}", jig["work_id"])
+    assert "error" not in assembled, assembled
+    assert assembled["kind"] == "assembly" and assembled["placement"]["mode"] == "generated"
+    assert assembled["recipe"]["nodes"][0]["translate"][2] == "=부품_높이"
+
     # 6) 승격(사용자가 시켰다고 치자) — 부품을 올리고, 지그는 도면 길로 올린다.
     part_up = bot.call(server.promote_part, work_id, note="AI 가 그린 부품")
     assert "error" not in part_up, part_up

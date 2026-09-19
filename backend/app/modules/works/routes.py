@@ -17,6 +17,8 @@ from app.modules.parts.schemas import PartVersionOut
 from app.modules.works import services
 from app.modules.works.models import Work
 from app.modules.works.schemas import (
+    AssembleOut,
+    AssembleRequest,
     JigFromPartOut,
     JigFromPartRequest,
     PromoteJigOut,
@@ -205,6 +207,25 @@ def list_jig_runs(
 ) -> list[JobOut]:
     work = _mine(db, work_id, user)
     return [jobs.job_out(db, one) for one in services.list_jig_runs(db, work)]
+
+
+@router.post("/assemble", response_model=AssembleOut, status_code=201)
+def assemble(
+    payload: AssembleRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> AssembleOut:
+    """부품 + 지그를 **맞는 자리에** 놓은 조립 작업. 부품 높이는 변수(`부품_높이`)라 DOE 로
+    훑는다. 생성기로 만든 지그는 그 좌표계로 정확히, 손으로 그린 지그는 윗면에 얹어 어림
+    (`placement.mode`)."""
+    made, placement = services.assemble_jig_on_part(
+        db,
+        by=user,
+        part_source=payload.part_source,
+        jig_work_id=payload.jig_work_id,
+        name=payload.name,
+    )
+    return AssembleOut(work=services.work_out(db, made), placement=placement)
 
 
 @router.post("/jig-from-part/preview")

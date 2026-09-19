@@ -5,6 +5,7 @@ import { Link, useNavigate } from 'react-router-dom'
 
 import { worksApi } from '@/modules/works/api'
 import type { WorkKind } from '@/modules/works/api'
+import { AssembleDialog } from '@/modules/works/AssembleDialog'
 import { EmptyState } from '@/shared/components/EmptyState'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { PageHeader } from '@/shared/components/PageHeader'
@@ -31,6 +32,7 @@ export default function WorksPage() {
   /** 「내 지그가 어디 있지」 를 한 번에 — 종류로 가려 본다. */
   const [kind, setKind] = useState<'all' | WorkKind>('all')
   const [starting, setStarting] = useState(false)
+  const [assembling, setAssembling] = useState(false)
   const page = useResource(() => worksApi.list(offset, PAGE), [offset])
 
   /** 빈 조립 하나를 만들고 바로 연다 — 조립은 그릴 것이 없어 그리기 화면을 거치지 않는다. */
@@ -63,9 +65,12 @@ export default function WorksPage() {
             <Button variant="outline" onClick={() => navigate('/draw/jig-from-part')}>
               부품에서 지그 생성
             </Button>
-            {/* 조립은 그리는 것이 아니라 **놓는 것**이라 그리기를 거치지 않는다. */}
+            {/* 조립은 그리는 것이 아니라 **놓는 것**이라 그리기를 거치지 않는다. 부품 + 지그면 자리를 서버가 맞춘다. */}
+            <Button variant="outline" onClick={() => setAssembling(true)}>
+              부품 + 지그로 조립
+            </Button>
             <Button variant="outline" onClick={() => void startAssembly()} disabled={starting}>
-              {starting ? '만드는 중…' : '새 조립'}
+              {starting ? '만드는 중…' : '빈 조립'}
             </Button>
           </>
         }
@@ -174,6 +179,7 @@ export default function WorksPage() {
           )}
         </>
       )}
+      <AssembleDialog key={String(assembling)} open={assembling} onClose={() => setAssembling(false)} onMade={(id) => navigate(`/works/${id}`)} />
     </div>
   )
 }

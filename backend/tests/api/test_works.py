@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tests.api.conftest import Signed
@@ -422,3 +423,56 @@ def test_지그_생성_미리보기는_부품에_따라_달라진다(client: Tes
     # 작업은 안 생겼다.
     mine = client.get("/api/works", headers=member.headers).json()
     assert all(one["kind"] != "jig" for one in mine["items"])
+
+
+def test_부품과_지그를_맞는_자리에_놓은_조립을_만든다(
+    client: TestClient, member: Signed
+) -> None:
+    """생성기 좌표계(XY 중심 원점 · 판 윗면 z=0 · 부품은 받침 높이만큼)를 서버가 맞춘다."""
+    part = _work(client, member, _plate(client, member))  # 0~100 x 0~60 x 0~12 (원점에서 그림)
+    run = client.post(
+        "/api/works/jig-from-part",
+        json={"source": f"work:{part['id']}", "options": {"support_height": 25}},
+        headers=member.headers,
+    ).json()
+    jig_work, job = run["work"], run["job"]
+    client.post(
+        f"/api/works/{jig_work['id']}/jig-runs/{job['id']}/adopt", headers=member.headers
+    )
+
+    made = client.post(
+        "/api/works/assemble",
+        json={"part_source": f"work:{part['id']}", "jig_work_id": jig_work["id"]},
+        headers=member.headers,
+    )
+    assert made.status_code == 201, made.text
+    body = made.json()
+    assert body["work"]["kind"] == "assembly"
+    assert body["placement"]["mode"] == "generated"
+    part_min = client.post(
+        "/api/cad/recipe/info", json={"recipe": _plate(client, member)}, headers=member.headers
+    ).json()["summary"]["bbox"]["min"]
+    size = client.post(
+        "/api/cad/recipe/info", json={"recipe": _plate(client, member)}, headers=member.headers
+    ).json()["summary"]["bbox"]["size"]
+    expected = [-(part_min[0] + size[0] / 2), -(part_min[1] + size[1] / 2), -part_min[2] + 25]
+    assert body["placement"]["translate"] == pytest.approx(expected, abs=0.01)
+    recipe = body["work"]["current"]["recipe"]
+    assert recipe["params"] == {"부품_높이": pytest.approx(expected[2], abs=0.01)}
+    assert recipe["nodes"][0]["translate"][2] == "=부품_높이"  # 높이는 변수 — DOE 로 훑는다
+    assert recipe["nodes"][1]["source"] == f"work:{jig_work['id']}"
+    # 조립이 평가된다 — 두 구성품이 한 좌표계에.
+    assert body["work"]["current"]["job"]["status"] == "done", body["work"]["current"]["job"]
+
+    # 손으로 그린 지그(생성 기록 없음)는 윗면에 얹어 어림한다고 말한다.
+    drawn = client.post(
+        "/api/works",
+        json={"name": "그린 지그", "kind": "jig", "recipe": BOX},
+        headers=member.headers,
+    ).json()
+    guessed = client.post(
+        "/api/works/assemble",
+        json={"part_source": f"work:{part['id']}", "jig_work_id": drawn["id"]},
+        headers=member.headers,
+    ).json()
+    assert guessed["placement"]["mode"] == "guessed"

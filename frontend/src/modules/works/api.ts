@@ -124,6 +124,9 @@ export const worksApi = {
   jigPreview: (body: { source: string; options?: Record<string, unknown> }) => api.post<JigPreview>('/works/jig-from-part/preview', body),
   /** 부품에서 지그 작업을 **생성** — 지그 작업이 바로 생기고 생성이 걸린다. 끝나면 `adoptJigRun`. */
   jigFromPart: (body: { source: string; name?: string; options?: Record<string, unknown> }) => api.post<{ work: Work; job: Job }>('/works/jig-from-part', body),
+  /** 부품 + 지그를 맞는 자리에 놓은 조립 작업. placement.mode 가 generated | guessed. */
+  assemble: (body: { part_source: string; jig_work_id: string; name?: string }) =>
+    api.post<{ work: Work; placement: { mode: 'generated' | 'guessed'; translate: number[]; product_lift: number; height_param: string } }>('/works/assemble', body),
   /** 끝난 생성 결과를 그 지그 작업의 버전으로 — 두 번 불러도 같은 버전. */
   adoptJigRun: (id: string, jobId: string) => api.post<WorkVersion>(`/works/${id}/jig-runs/${jobId}/adopt`, {}),
   promotePart: (id: string, body: { name?: string; note?: string }) =>

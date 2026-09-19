@@ -751,6 +751,36 @@ async def run_jig(
 
 
 @mcp.tool()
+async def assemble_jig_on_part(
+    ctx: Context, part_source: str, jig_work_id: str, name: str | None = None
+) -> Any:
+    """부품과 지그를 **맞는 자리에** 놓은 **조립 작업**을 만든다 — 좌표 계산을 네가 안 한다.
+
+    `part_source` 는 `work:<내 부품 작업 id>` 또는 `part:<공용 부품 id>`, `jig_work_id` 는 지그
+    작업(kind=jig). 생성기(`run_jig`)로 만든 지그는 그 좌표계(부품 XY 중심이 원점, 판 윗면이
+    z=0, 부품은 받침 높이만큼 뜸)로 정확히 놓고(`placement.mode="generated"`), 손으로 그린
+    지그는 윗면에 얹어 어림한다(`"guessed"` — 사용자에게 확인을 받아라). 부품 높이는 변수
+    `부품_높이` 로 들어가 있어 그대로 `doe_create(work_id=<조립>)` 로 훑을 수 있다. 다른 변수를
+    심으려면 `get_work` → 레시피를 고쳐 `save_version`."""
+    got = await _post(
+        ctx,
+        "/api/works/assemble",
+        {"part_source": part_source, "jig_work_id": jig_work_id, "name": name},
+    )
+    if not isinstance(got, dict) or "error" in got:
+        return got
+    work = got["work"]
+    return {
+        "work_id": work["id"],
+        "name": work["name"],
+        "kind": work["kind"],
+        "version": work.get("current_version"),
+        "placement": got["placement"],
+        "recipe": (work.get("current") or {}).get("recipe"),
+    }
+
+
+@mcp.tool()
 async def list_jig_runs(ctx: Context, work_id: str) -> Any:
     """지그 작업의 생성 기록(최근 것부터) — 계획 · 간섭 검사 결과를 되짚을 때."""
     runs = await _get(ctx, f"/api/works/{work_id}/jig-runs")

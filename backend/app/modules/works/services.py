@@ -488,6 +488,109 @@ def jig_from_part(
     return made, job
 
 
+def _bbox_of(recipe: dict[str, Any]) -> tuple[list[float], list[float]]:
+    box = cad.build(recipe).summary()["bbox"]
+    return list(box["min"]), list(box["max"])
+
+
+def assemble_jig_on_part(
+    db: Session, *, by: User, part_source: str, jig_work_id: uuid.UUID, name: str | None
+) -> tuple[Work, dict[str, Any]]:
+    """부품과 지그를 **맞는 자리에** 놓은 조립 작업을 만든다 — 좌표 계산을 사람 · AI 가 안
+    한다.
+
+    두 도면의 좌표계가 다르다. 부품은 그린 그대로이고, 생성된 지그는 생성기의 좌표계(부품의 XY
+    중심이 원점, 판 윗면이 z=0, 부품은 `product_lift` 만큼 뜸)다. 그래서 부품을
+    (-중심x, -중심y, -바닥z + product_lift) 만큼 옮겨야 맞는다. 생성 기록이 없는(손으로 그린)
+    지그는 규칙이 없으니 「지그 맨 윗면에 부품 바닥을 얹고 XY 중심을 맞춤」 으로 어림하고
+    그렇다고 말한다."""
+    part_recipe, part_label, part_id, origin = _product_source(db, part_source, by)
+    jig = get_work(db, jig_work_id)
+    require_owner(jig, by)
+    if jig.kind != "jig":
+        raise AppError(
+            code("WORKS", 27), "지그 작업을 고르세요 — 부품 위에 놓을 것은 지그입니다."
+        )
+    jig_version = current_version(db, jig)
+    if jig_version is None:
+        raise AppError(code("WORKS", 8), "지그 작업에 저장된 도면이 없습니다.")
+
+    pmin, pmax = _bbox_of(part_recipe)
+    center = [(pmin[0] + pmax[0]) / 2, (pmin[1] + pmax[1]) / 2]
+    generated = next(
+        (
+            job
+            for job in list_jig_runs(db, jig)
+            if job.status == "done" and (job.summary or {}).get("plan")
+        ),
+        None,
+    )
+    if generated is not None and generated.summary is not None:
+        lift = float(generated.summary["plan"].get("product_lift", 0.0))
+        translate = [-center[0], -center[1], -pmin[2] + lift]
+        mode = "generated"
+        note = f"{part_label} + {jig.name} — 생성기 좌표계로 맞춤(받침 높이 {lift:g})"
+    else:
+        jmin, jmax = _bbox_of(jig_version.recipe)
+        lift = jmax[2]
+        translate = [
+            (jmin[0] + jmax[0]) / 2 - center[0],
+            (jmin[1] + jmax[1]) / 2 - center[1],
+            -pmin[2] + lift,
+        ]
+        mode = "guessed"
+        note = f"{part_label} + {jig.name} — 지그 윗면에 얹어 어림(확인 필요)"
+
+    height_name = "부품_높이"
+    recipe: dict[str, Any] = {
+        "version": 1,
+        "params": {height_name: round(translate[2], 3)},
+        "nodes": [
+            {
+                "id": "부품",
+                "op": "component",
+                "source": part_source,
+                "label": part_label,
+                "params": {},
+                "translate": [
+                    round(translate[0], 3),
+                    round(translate[1], 3),
+                    f"={height_name}",
+                ],
+                "rotate": [0, 0, 0],
+            },
+            {
+                "id": "지그",
+                "op": "component",
+                "source": f"work:{jig.id}",
+                "label": jig.name,
+                "params": {},
+                "translate": [0, 0, 0],
+                "rotate": [0, 0, 0],
+            },
+            {"id": "조립", "op": "group", "targets": ["부품", "지그"]},
+        ],
+    }
+    made = create_work(
+        db,
+        owner=by,
+        name=(name or f"{part_label} + {jig.name}").strip(),
+        description=note,
+        recipe=recipe,
+        source="manual",
+        note=note,
+        kind="assembly",
+    )
+    del part_id, origin
+    placement = {
+        "mode": mode,
+        "translate": [round(v, 3) for v in translate],
+        "product_lift": round(lift, 3),
+        "height_param": height_name,
+    }
+    return made, placement
+
+
 def adopt_jig_run(db: Session, work: Work, *, by: User, job_id: uuid.UUID) -> WorkVersion:
     """끝난 생성 결과(STEP)를 이 지그 작업의 **버전**으로. 두 번 불러도 같은 버전이다."""
     if work.kind != "jig":
