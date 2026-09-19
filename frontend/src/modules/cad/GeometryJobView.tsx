@@ -27,7 +27,8 @@ export function GeometryJobView({
 }: {
   job: Job | null
   title: string
-  stepName: string
+  /** 주면 뷰어 머리에 「STEP 받기」 가 뜬다. 도구줄이 따로 있는 화면은 안 준다 — 받는 단추가 두 군데면 헷갈린다. */
+  stepName?: string
   onFinished?: () => void
   height?: string
 }) {
@@ -82,7 +83,7 @@ export function GeometryJobView({
         )}
         <div className="flex-1" />
         <FullscreenButton active={full.active} onToggle={() => void full.toggle()} />
-        {step && (
+        {step && stepName && (
           <Button size="sm" variant="outline" onClick={() => downloadFile(jobsApi.artifactPath(step.id), stepName)}>
             STEP 받기
           </Button>

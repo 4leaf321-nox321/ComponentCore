@@ -52,7 +52,7 @@ export interface FileActions {
   save?: { label: string; run: () => void; disabled?: boolean }
   saveTemplate?: () => void
   /** STEP 파일에서 시작 — 고른 파일을 호출부가 올린다(작업이 생기고 그 화면으로 간다). */
-  importStep?: { label: string; run: (file: File) => void; busy?: boolean }
+  importStep?: { label: string; title?: string; run: (file: File) => void; busy?: boolean }
   /** 형식별 내려받기 — 호출부가 blob 을 받아 저장한다. */
   download?: (format: 'step' | 'stl' | 'dxf' | 'svg') => void
   /** 불러온 뒤 알린다 — 출처 표시와, 기존 작업이면 **그 작업에 덮어 저장**할 수 있게. */
@@ -406,7 +406,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                     <RibbonButton
                       icon={FileUp}
                       label={file.importStep.busy ? '올리는 중…' : file.importStep.label}
-                      title="STEP 파일에서 시작 — 올린 형상이 도면의 첫 피처가 됩니다"
+                      title={file.importStep.title ?? "STEP 파일에서 시작 — 올린 형상이 도면의 첫 피처가 됩니다"}
                       disabled={file.importStep.busy}
                       onClick={() => stepInput.current?.click()}
                     />

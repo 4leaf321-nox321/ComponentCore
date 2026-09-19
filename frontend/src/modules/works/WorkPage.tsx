@@ -15,7 +15,7 @@
  * 그래서 「이 도면을 무엇으로 올릴까」 를 물을 일이 없다 — 종류가 이미 답이다.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import type { Recipe } from '@/modules/cad/api'
@@ -25,11 +25,12 @@ import { RecipeEditor } from '@/modules/cad/RecipeEditor'
 import { saveRecipeAs } from '@/modules/cad/download'
 import { SaveTemplateDialog } from '@/modules/templates/SaveTemplateDialog'
 import { JigResultView } from '@/modules/jigs/JigResultView'
+import { jobsApi } from '@/modules/jobs/api'
 import type { Job } from '@/modules/jobs/api'
 import { worksApi } from '@/modules/works/api'
 import type { WorkVersion } from '@/modules/works/api'
 import { JigOptionsForm } from '@/modules/works/JigOptionsForm'
-import { ApiError } from '@/shared/api/client'
+import { ApiError, downloadFile } from '@/shared/api/client'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { EmptyState } from '@/shared/components/EmptyState'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
@@ -81,7 +82,6 @@ export default function WorkPage() {
   const [saveAsName, setSaveAsName] = useState('')
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [busy, setBusy] = useState(false)
-  const fileInput = useRef<HTMLInputElement | null>(null)
 
   const w = work.data
 
@@ -116,7 +116,7 @@ export default function WorkPage() {
   }
 
   function startEditing() {
-    setDraft(structuredClone(selectedVersion?.recipe ?? w?.current?.recipe ?? null))
+    setDraft(structuredClone(selectedVersion?.recipe ?? w?.current?.recipe ?? { version: 1, nodes: [] }))
     setEditing(true)
   }
 
@@ -212,6 +212,8 @@ export default function WorkPage() {
   const isAssembly = w.kind === 'assembly'
 
   const currentPromoted = w.current?.promoted_part_id != null
+  /** 고른 버전의 STEP — 평가가 끝나야 있다. */
+  const selectedStep = selectedVersion?.job?.artifacts.find((one) => one.kind === 'model_step')
 
   return (
     <div className="space-y-4">
@@ -225,6 +227,20 @@ export default function WorkPage() {
             <Button variant="outline" onClick={() => navigate(`/doe/new?work=${id}`)} disabled={w.current_version === 0}>
               실험계획 만들기
             </Button>
+            {!isAssembly && (
+              <Button
+                variant="outline"
+                disabled={busy || w.current_version === 0 || (!isJig && currentPromoted)}
+                onClick={() => {
+                  setPromoteName(w.name)
+                  setPromoteNote('')
+                  setPromoting(isJig ? 'jig-recipe' : 'part')
+                }}
+                title={isJig ? '이 지그 도면을 공용 지그에 올립니다' : currentPromoted ? '현재 버전은 이미 공용 부품에 올라가 있습니다' : undefined}
+              >
+                {isJig ? '공용 지그로 승격' : currentPromoted ? `부품 v${w.current?.promoted_part_version} 으로 올라감` : '공용 부품으로 승격'}
+              </Button>
+            )}
             {w.promoted_part_id && (
               <Link to={`/parts/${w.promoted_part_id}`} className="text-muted-foreground text-xs hover:underline">
                 부품으로 올라감
@@ -284,6 +300,19 @@ export default function WorkPage() {
                     },
                     saveTemplate: () => setSavingTemplate(true),
                     download: (format) => void downloadDraft(format),
+                    // 올린 STEP 이 곧 새 버전이다 — 지금 고치던 것은 버리고 그 버전을 보여 준다.
+                    importStep: {
+                      label: 'STEP 올리기',
+                      title: `STEP 을 올려 새 버전(v${w.current_version + 1})으로 — 지금 고치던 것은 버립니다`,
+                      busy,
+                      run: (file) =>
+                        void act(async () => {
+                          const made = await worksApi.importStep(id, file)
+                          setEditing(false)
+                          setSelectedVersion(made)
+                          reloadAll()
+                        }),
+                    },
                     onLoaded: (label, source) => setNote(source === 'copy' ? `${label} 에서 복사` : `${label} 템플릿에서`),
                     currentWorkId: id,
                   }}
@@ -301,58 +330,24 @@ export default function WorkPage() {
             </Card>
           ) : (
             <>
+              {/* 이 도면을 어떻게 — 한 줄에 모은다. 작업 자체의 일(실험계획 · 승격 · 지우기)은 머리에 있다. */}
               <div className="flex flex-wrap items-center gap-2">
-                <Button onClick={startEditing} disabled={busy || w.current_version === 0}>
-                  수정
+                <Button onClick={startEditing} disabled={busy}>
+                  {w.current_version === 0 ? '그리기 시작' : '수정'}
                 </Button>
-                <input
-                  ref={fileInput}
-                  type="file"
-                  accept=".step,.stp"
-                  className="hidden"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0]
-                    if (file)
-                      void act(async () => {
-                        const made = await worksApi.importStep(id, file)
-                        setSelectedVersion(made)
-                        reloadAll()
-                      })
-                    event.target.value = ''
-                  }}
-                />
-                <Button variant="outline" onClick={() => fileInput.current?.click()} disabled={busy}>
-                  STEP 올리기
+                <Button
+                  variant="outline"
+                  disabled={!selectedStep}
+                  title={selectedStep ? undefined : '아직 평가된 STEP 이 없습니다'}
+                  onClick={() => selectedStep && selectedVersion && downloadFile(jobsApi.artifactPath(selectedStep.id), `${w.name}-v${selectedVersion.number}.step`)}
+                >
+                  STEP 받기{selectedVersion && selectedVersion.number !== w.current_version ? ` (v${selectedVersion.number})` : ''}
                 </Button>
                 <Button variant="outline" onClick={() => setSavingTemplate(true)} disabled={busy || !selectedVersion}>
                   템플릿으로 저장
                   {selectedVersion && selectedVersion.number !== w.current_version ? ` (v${selectedVersion.number})` : ''}
                 </Button>
-                <div className="flex-1" />
-                {!isAssembly && (
-                <Button
-                  variant="outline"
-                  disabled={busy || w.current_version === 0 || (!isJig && currentPromoted)}
-                  onClick={() => {
-                    setPromoteName(w.name)
-                    setPromoteNote('')
-                    setPromoting(isJig ? 'jig-recipe' : 'part')
-                  }}
-                  title={
-                    isJig
-                      ? '이 지그 그림을 지그 카탈로그에 올립니다'
-                      : currentPromoted
-                        ? '현재 버전은 이미 부품에 올라가 있습니다'
-                        : undefined
-                  }
-                >
-                  {isJig
-                    ? '공용 지그로 승격'
-                    : currentPromoted
-                      ? `부품 v${w.current?.promoted_part_version} 으로 올라감`
-                      : '공용 부품으로 승격'}
-                </Button>
-                )}
+                {!isAssembly && <span className="text-muted-foreground text-xs">STEP 을 올리려면 「수정」 › 「파일」 탭에서.</span>}
               </div>
 
               {w.current_version === 0 && isAssembly ? (
@@ -372,9 +367,9 @@ export default function WorkPage() {
                 />
               ) : w.current_version === 0 ? (
                 <EmptyState
-                  title="부품이 없습니다"
-                  hint="이 작업은 옛 지그 프로젝트에서 옮겨 와 부품이 없습니다. STEP 을 올리거나 새로 그리세요."
-                  action={<Button onClick={() => navigate('/draw')}>새 작업 만들기</Button>}
+                  title="아직 도면이 없습니다"
+                  hint="「그리기 시작」 으로 들어가 그리거나, 그 안 「파일」 탭에서 STEP 을 올리세요."
+                  action={<Button onClick={startEditing}>그리기 시작</Button>}
                 />
               ) : (
                 <div className="grid gap-4 lg:grid-cols-4">
@@ -432,7 +427,6 @@ export default function WorkPage() {
                         key={selectedVersion.id}
                         job={selectedVersion.job}
                         title={`v${selectedVersion.number}`}
-                        stepName={`${w.name}-v${selectedVersion.number}.step`}
                         onFinished={reloadAll}
                       />
                     )}
