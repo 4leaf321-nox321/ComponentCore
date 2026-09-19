@@ -714,8 +714,16 @@ async def run_jig(
     options: dict[str, Any] | None = None,
     name: str | None = None,
 ) -> Any:
-    """부품에서 **지그 작업을 생성**한다 — 규칙(3-2-1)으로 판 · 받침 · 위치 핀 · 클램프를 놓고
-    간섭을 검사한다. `source` 는 `work:<내 부품 작업 id>` 또는 `part:<공용 부품 id>`.
+    """부품에서 **지그 작업을 생성**한다. `source` 는 `work:<내 부품 작업 id>` 또는
+    `part:<공용 부품 id>`. `options.kind` 가 형식이다(`jig_options` 로 기본값과 칸 이름):
+    - `clamped`(기본) 판 · 받침 · 위치 핀 · 클램프 — 3-2-1 원칙의 고정구
+    - `bolted` 부품의 수직 관통 구멍으로 볼트를 넣어 판에 조인다 — 진동 · 충격 시험
+      (`bolt_max_count` · `bolt_head` hex|socket · `bolt_washer` · `bolt_spacer_height`)
+    - `bending` 3점 굽힘 — 긴 변으로 스팬(`bending_span_ratio` 또는 `bending_span`), 롤러 둘 +
+      로딩 노즈
+    - `drop` 낙하 · 충격 자세 — `drop_orientation`(bottom|top|+x|-x|+y|-y|edge|corner) 이
+      아래를 보게 놓고 바닥 · `drop_impactor`(none|ball|pen)
+    먼저 `jig_preview` 로 계획 · 간섭을 보고 부른다.
 
     지그 작업이 새로 생기고(kind=jig, 잡는 부품이 이어진다), 결과 STEP 이 그 **첫 버전**이 된
     채로 돌아온다 — 그 다음은 그냥 그린다(`save_version` 으로 받침을 옮기고 변수를 심는다).

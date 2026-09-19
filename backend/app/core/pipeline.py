@@ -97,7 +97,7 @@ class JigBuild:
             children.append(child)
 
         add(self.product, "제품")
-        add(self.elements.base_plate, "바닥판")
+        add(self.elements.base_plate, "바닥" if self.plan.kind == "drop" else "바닥판")
         for i, one in enumerate(self.elements.supports, start=1):
             add(one, f"받침 {i}")
         counts = {"pin": 0, "rest": 0}
@@ -107,6 +107,8 @@ class JigBuild:
             add(one, f"{'위치 핀' if key == 'pin' else '받침대'} {counts[key]}")
         for i, one in enumerate(self.elements.clamps, start=1):
             add(one, f"클램프 {i}")
+        for one in self.elements.others:  # 볼트 · 롤러 · 로딩 노즈 · 임팩터 — 이름표가 한국말
+            add(one, one.label)
         return Compound(children=children)
 
 
@@ -123,6 +125,9 @@ def analyze(
     raw = clock.run(
         "load", lambda: resolve_product(source), lambda s: f"솔리드 {len(s.solids())}"
     )
+    if options.kind == "drop":
+        # 낙하는 고른 면이 아래를 보게 돌린 뒤 정규화한다 — 나머지 단계는 모른다.
+        raw = geometry.pose(raw, options.drop_orientation)
     geom = clock.run(
         "geometry",
         lambda: geometry.understand(raw),

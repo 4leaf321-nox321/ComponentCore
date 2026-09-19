@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from build123d import Compound, Location, Shape, import_step
+from build123d import Compound, Location, Rotation, Shape, import_step
 
 from app.core.model import BBox, ProductGeometry, xyz
 
@@ -36,6 +36,33 @@ def normalize(shape: Shape) -> Shape:
     box = shape.bounding_box()
     center = box.center()
     return shape.moved(Location((-center.X, -center.Y, -box.min.Z)))
+
+
+#: 낙하 자세 — 무엇이 아래를 보나. 회전은 정규화(바닥 z=0) **전에** 한다.
+DROP_ORIENTATIONS = ("bottom", "top", "+x", "-x", "+y", "-y", "edge", "corner")
+
+
+def pose(shape: Shape, orientation: str) -> Shape:
+    """고른 면(또는 모서리 · 꼭짓점)이 아래(-Z)를 보게 통째로 돌린 복사본.
+
+    SpaceClaim 시절 DropTest 의 규칙: 면 이름 하나, 또는 둘(모서리) · 셋(꼭짓점)을 더해
+    정규화한 방향이 아래를 본다. edge 는 bottom+(+x), corner 는 bottom+(+x)+(+y) 로 잡았다."""
+    if orientation == "bottom":
+        return shape
+    turns = {
+        "top": Rotation(180, 0, 0),
+        "+x": Rotation(0, 90, 0),  # +X 면이 아래로
+        "-x": Rotation(0, -90, 0),
+        "+y": Rotation(-90, 0, 0),
+        "-y": Rotation(90, 0, 0),
+        "edge": Rotation(0, 45, 0),
+        "corner": Rotation(35.264, 45, 0),
+    }
+    if orientation not in turns:
+        raise GeometryError(
+            f"모르는 낙하 자세입니다: {orientation} ({' · '.join(DROP_ORIENTATIONS)})"
+        )
+    return shape.moved(turns[orientation])
 
 
 def understand(shape: Shape) -> ProductGeometry:

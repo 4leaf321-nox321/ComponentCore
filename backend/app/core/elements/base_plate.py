@@ -12,11 +12,13 @@ def build_base_plate(spec: BasePlateSpec) -> Part:
     plate: Part = Pos(0, 0, -t / 2) * Box(spec.length, spec.width, t)
     margin = max(spec.mount_hole_diameter, 8.0)
     dx, dy = spec.length / 2 - margin, spec.width / 2 - margin
-    if dx > margin and dy > margin:
+    if spec.mount_hole_diameter > 0 and dx > margin and dy > margin:
         for sx in (-1, 1):
             for sy in (-1, 1):
                 plate = plate - Pos(sx * dx, sy * dy, -t / 2) * Cylinder(
                     spec.mount_hole_diameter / 2, t * 2
                 )
+    for x, y, diameter in spec.holes:
+        plate = plate - Pos(x, y, -t / 2) * Cylinder(diameter / 2, t * 2)
     plate.label = "base-plate"
     return plate

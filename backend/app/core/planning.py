@@ -18,11 +18,15 @@ from app.core import features as feat
 from app.core.model import (
     XYZ,
     BasePlateSpec,
+    BoltSpec,
     ClampSpec,
     Feature,
     FixturePlan,
+    ImpactorSpec,
     LocatorSpec,
+    NoseSpec,
     ProductGeometry,
+    RollerSpec,
     SupportSpec,
 )
 from app.core.options import JigOptions
@@ -422,28 +426,233 @@ def _pick_clamps(
 # --- 계획 ---------------------------------------------------------------------
 
 
-def plan(geometry: ProductGeometry, features: list[Feature], opts: JigOptions) -> FixturePlan:
-    notes: list[str] = []
+def _plate(geometry: ProductGeometry, opts: JigOptions) -> BasePlateSpec:
     size = geometry.bbox.size
-    plate = BasePlateSpec(
+    return BasePlateSpec(
         length=round(size[0] + 2 * opts.plate_margin, 1),
         width=round(size[1] + 2 * opts.plate_margin, 1),
         thickness=opts.plate_thickness,
         mount_hole_diameter=opts.plate_mount_hole_diameter,
     )
+
+
+def _plan_clamped(
+    geometry: ProductGeometry, features: list[Feature], opts: JigOptions
+) -> FixturePlan:
+    """판 위에 받침 · 위치 핀(또는 받침대) · 클램프 — 3-2-1 원칙의 고정구."""
+    notes: list[str] = []
     # 순서가 곧 우선순위다: 로케이터(구멍이 정한다) → 받침(구멍 · 핀을 피한다) →
     # 클램프(레스트를 피한다).
     locators = _pick_locators(geometry, features, opts, notes)
     supports = _pick_supports(geometry, features, opts, notes)
     clamps = _pick_clamps(geometry, locators, opts, notes)
     return FixturePlan(
-        base_plate=plate,
+        kind="clamped",
+        base_plate=_plate(geometry, opts),
         supports=supports,
         locators=locators,
         clamps=clamps,
         product_lift=opts.support_height,
         notes=notes,
     )
+
+
+# --- 볼트 고정 ----------------------------------------------------------------
+
+#: ISO 미터 호칭 — 구멍 지름에서 가장 가까운 아래 것을 고른다(6.5 구멍 → M6).
+_ISO_NOMINALS = (3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 16.0, 20.0, 24.0)
+
+
+def _nominal_for(hole_diameter: float) -> float | None:
+    fitting = [d for d in _ISO_NOMINALS if d <= hole_diameter - 0.3]
+    return fitting[-1] if fitting else None
+
+
+def _spread(holes: list[Feature], count: int) -> list[Feature]:
+    """서로 가장 멀리 떨어진 것부터 `count` 개 — 한쪽에 몰리면 반대쪽이 들린다."""
+    if len(holes) <= count:
+        return holes
+    chosen = _farthest_pair(holes)
+    while len(chosen) < count:
+        rest = [h for h in holes if h not in chosen]
+        chosen.append(
+            max(rest, key=lambda h: min(math.dist(h.center[:2], k.center[:2]) for k in chosen))
+        )
+    return chosen
+
+
+def _plan_bolted(
+    geometry: ProductGeometry, features: list[Feature], opts: JigOptions
+) -> FixturePlan:
+    """부품의 수직 관통 구멍으로 볼트를 넣어 판에 조인다 — 진동 · 충격 시험의 기본 고정.
+
+    클램프가 아니라 볼트라야 가진에서 미끄러지지 않는다. 부품은 판(또는 스페이서)에 바로 앉고,
+    판에는 볼트 자리마다 탭 구멍이 난다."""
+    notes: list[str] = []
+    holes = [
+        one
+        for one in features
+        if one.kind == "hole"
+        and one.role == "through"
+        and one.radius is not None
+        and one.depth is not None
+        and _nominal_for(2 * one.radius) is not None
+    ]
+    if not holes:
+        raise PlanningError(
+            "볼트를 넣을 수직 관통 구멍이 없습니다 — 볼트 고정은 부품의 구멍으로 조입니다. "
+            "구멍을 뚫거나 「판 · 클램프 고정」 형식을 쓰세요."
+        )
+    chosen = _spread(holes, max(1, opts.bolt_max_count))
+    if len(chosen) < 2:
+        notes.append("관통 구멍이 하나뿐입니다 — 볼트 하나로는 돌아갑니다. 구멍을 더 두세요.")
+    lift = max(0.0, opts.bolt_spacer_height)
+    bolts: list[BoltSpec] = []
+    plate_holes: list[tuple[float, float, float]] = []
+    for index, hole in enumerate(chosen):
+        assert hole.radius is not None and hole.depth is not None
+        hole_d = round(2 * hole.radius, 3)
+        nominal = _nominal_for(hole_d)
+        assert nominal is not None
+        x, y = hole.center[0], hole.center[1]
+        bolts.append(
+            BoltSpec(
+                label=f"볼트 {index + 1}",
+                position=(x, y, round(hole.center[2] + hole.depth, 3)),
+                nominal=nominal,
+                hole_diameter=hole_d,
+                grip=round(hole.depth + lift, 3),
+                head=opts.bolt_head if opts.bolt_head in ("hex", "socket") else "hex",
+                washer=opts.bolt_washer,
+                engagement=round(nominal * opts.bolt_plate_engagement, 3),
+            )
+        )
+        plate_holes.append((x, y, nominal))  # 탭 구멍 — 호칭 지름(나사산 없음)
+    plate = _plate(geometry, opts)
+    plate.holes = plate_holes
+    if any(bolt.engagement > plate.thickness for bolt in bolts):
+        notes.append(
+            "판이 볼트 체결 깊이보다 얇습니다 — 판 두께를 키우거나 체결 깊이를 줄이세요."
+        )
+    return FixturePlan(
+        kind="bolted",
+        base_plate=plate,
+        supports=[],
+        locators=[],
+        clamps=[],
+        bolts=bolts,
+        product_lift=lift,
+        notes=notes,
+    )
+
+
+# --- 3점 굽힘 ---------------------------------------------------------------
+
+
+def _plan_bending(geometry: ProductGeometry, opts: JigOptions) -> FixturePlan:
+    """3점 굽힘 — 긴 변 방향으로 스팬을 잡아 롤러 둘로 받치고 가운데를 노즈로 누른다.
+
+    규칙은 SpaceClaim 시절의 BendingFixture 에서 가져왔다: 스팬 방향 = 긴 변, 스팬 = 길이 x
+    비율(또는 절대값), 롤러는 폭보다 조금 길게."""
+    notes: list[str] = []
+    sx, sy, sz = geometry.bbox.size
+    along_span = "x" if sx >= sy else "y"  # 스팬이 놓이는 축
+    length = sx if along_span == "x" else sy
+    width = sy if along_span == "x" else sx
+    span = opts.bending_span if opts.bending_span > 0 else length * opts.bending_span_ratio
+    if span <= 0 or span >= length:
+        raise PlanningError(
+            f"스팬 {span:.1f} 은 부품 길이 {length:.1f} 보다 작아야 합니다 — 비율이나 값을 "
+            "줄이세요."
+        )
+    roller_d = opts.bending_roller_diameter
+    roller_len = width + 2 * opts.bending_roller_margin
+    lift = opts.support_height
+    roller_along = "y" if along_span == "x" else "x"  # 롤러 축은 스팬에 수직
+    rollers = []
+    for index, sign in enumerate((-1, 1)):
+        x, y = (sign * span / 2, 0.0) if along_span == "x" else (0.0, sign * span / 2)
+        rollers.append(
+            RollerSpec(
+                label=f"롤러 {index + 1}",
+                position=(round(x, 3), round(y, 3), round(-roller_d / 2, 3)),
+                diameter=roller_d,
+                length=round(roller_len, 3),
+                along=roller_along,
+            )
+        )
+    nose = NoseSpec(
+        position=(0.0, 0.0, round(sz + opts.bending_nose_diameter / 2, 3)),
+        diameter=opts.bending_nose_diameter,
+        length=round(roller_len, 3),
+        along=roller_along,
+        stem_height=opts.bending_nose_stem_height,
+    )
+    if lift < roller_d:
+        notes.append(
+            "받침 높이가 롤러 지름보다 작아 롤러가 판에 묻힙니다 — 받침 높이를 키우세요."
+        )
+    plate = _plate(geometry, opts)
+    notes.append(f"스팬 {span:.1f} mm (부품 길이 {length:.1f} 의 {span / length:.0%}).")
+    return FixturePlan(
+        kind="bending",
+        base_plate=plate,
+        supports=[],
+        locators=[],
+        clamps=[],
+        rollers=rollers,
+        nose=nose,
+        product_lift=lift,
+        notes=notes,
+    )
+
+
+# --- 낙하 · 충격 ---------------------------------------------------------------
+
+
+def _plan_drop(geometry: ProductGeometry, opts: JigOptions) -> FixturePlan:
+    """낙하 · 충격 자세 — 부품은 이미 고른 면이 아래를 보게 돌아 있다(geometry.pose).
+
+    바닥판은 부품 발자국 + 여유. 틈(drop_gap)만큼 띄운다 — 해석이 초기 속도로 낙하를 준다.
+    임팩터를 주면 위에서 떨어지는 것(충격 시험)이 부품 윗면 가운데 위에 선다."""
+    notes: list[str] = []
+    sz = geometry.bbox.size[2]
+    impactor = None
+    if opts.drop_impactor in ("ball", "pen"):
+        d = opts.drop_ball_diameter
+        z = sz + opts.drop_impactor_clearance + (d / 2 if opts.drop_impactor == "ball" else 0)
+        impactor = ImpactorSpec(
+            kind=opts.drop_impactor, position=(0.0, 0.0, round(z, 3)), diameter=d
+        )
+    plate = _plate(geometry, opts)
+    plate.mount_hole_diameter = 0.0  # 바닥에는 고정 구멍이 없다
+    notes.append(f"자세: {opts.drop_orientation} 이 아래. 바닥과 틈 {opts.drop_gap:g} mm.")
+    return FixturePlan(
+        kind="drop",
+        base_plate=plate,
+        supports=[],
+        locators=[],
+        clamps=[],
+        impactor=impactor,
+        product_lift=max(0.0, opts.drop_gap),
+        notes=notes,
+    )
+
+
+# --- 계획 ---------------------------------------------------------------------
+
+
+def plan(geometry: ProductGeometry, features: list[Feature], opts: JigOptions) -> FixturePlan:
+    """형식(`opts.kind`)에 따라 다른 규칙 — 모두 같은 FixturePlan 으로 나온다."""
+    if opts.kind == "bolted":
+        return _plan_bolted(geometry, features, opts)
+    if opts.kind == "bending":
+        return _plan_bending(geometry, opts)
+    if opts.kind == "drop":
+        return _plan_drop(geometry, opts)
+    if opts.kind != "clamped":
+        raise PlanningError(f"모르는 지그 형식입니다: {opts.kind}")
+    return _plan_clamped(geometry, features, opts)
 
 
 def as_vector(point: XYZ) -> Vector:

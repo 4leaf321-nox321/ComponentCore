@@ -393,7 +393,8 @@ def test_지그_작업에_이어_둔_부품이_승격까지_따라간다(
 
 
 def test_지그_생성_미리보기는_부품에_따라_달라진다(client: TestClient, member: Signed) -> None:
-    """만들기 전에 계획과 메시를 본다 — 파일은 안 쓴다. 받침 · 핀은 부품 바닥 · 구멍에서 나온다."""
+    """만들기 전에 계획과 메시를 본다 — 파일은 안 쓴다. 받침 · 핀은 부품 바닥 · 구멍에서
+    나온다."""
     work = _work(client, member, _plate(client, member))
     got = client.post(
         "/api/works/jig-from-part/preview",

@@ -92,6 +92,8 @@ class BasePlateSpec:
     width: float
     thickness: float
     mount_hole_diameter: float
+    holes: list[tuple[float, float, float]] = field(default_factory=list)
+    """판에 더 뚫을 구멍 (x, y, 지름) — 볼트 고정의 탭 구멍."""
 
 
 @dataclass
@@ -131,6 +133,59 @@ class ClampSpec:
 
 
 @dataclass
+class BoltSpec:
+    """부품 관통 구멍을 지나 판에 박히는 볼트 — 진동 · 충격 시험의 기본 고정."""
+
+    label: str
+    position: XYZ
+    """구멍 축 위, 제품 윗면(구멍이 열리는 곳)의 점(제품 좌표계)."""
+    nominal: float
+    """호칭 지름(M6 이면 6)."""
+    hole_diameter: float
+    grip: float
+    """머리 아래에서 판 윗면까지 — 부품 두께 + 스페이서."""
+    head: str
+    washer: bool
+    engagement: float
+    """판에 박히는 깊이."""
+
+
+@dataclass
+class RollerSpec:
+    """3점 굽힘의 지지 롤러 — 축이 폭 방향으로 눕는 원기둥. 받침대 위에 놓인다."""
+
+    label: str
+    position: XYZ
+    """롤러 축의 중심(제품 좌표계, z 는 축 높이 — 음수: 제품 바닥 아래)."""
+    diameter: float
+    length: float
+    along: str
+    """축 방향 — x | y."""
+
+
+@dataclass
+class NoseSpec:
+    """로딩 노즈 — 스팬 가운데 위에서 누르는 원기둥 + 위로 뻗는 줄기."""
+
+    position: XYZ
+    """노즈 축의 중심(제품 윗면 + 반지름)."""
+    diameter: float
+    length: float
+    along: str
+    stem_height: float
+
+
+@dataclass
+class ImpactorSpec:
+    """충격 시험의 낙하물 — 강구 또는 펜(둥근 끝 원뿔)."""
+
+    kind: str
+    position: XYZ
+    """강구는 중심, 펜은 끝점."""
+    diameter: float
+
+
+@dataclass
 class FixturePlan:
     base_plate: BasePlateSpec
     supports: list[SupportSpec]
@@ -139,13 +194,23 @@ class FixturePlan:
     product_lift: float
     """제품이 판 윗면에서 얼마나 떠 있나(= 받침 높이)."""
     notes: list[str] = field(default_factory=list)
+    kind: str = "clamped"
+    bolts: list[BoltSpec] = field(default_factory=list)
+    rollers: list[RollerSpec] = field(default_factory=list)
+    nose: NoseSpec | None = None
+    impactor: ImpactorSpec | None = None
 
     def summary(self) -> dict[str, Any]:
         return {
+            "kind": self.kind,
             "base_plate": asdict(self.base_plate),
             "supports": [asdict(one) for one in self.supports],
             "locators": [asdict(one) for one in self.locators],
             "clamps": [asdict(one) for one in self.clamps],
+            "bolts": [asdict(one) for one in self.bolts],
+            "rollers": [asdict(one) for one in self.rollers],
+            "nose": asdict(self.nose) if self.nose else None,
+            "impactor": asdict(self.impactor) if self.impactor else None,
             "product_lift": self.product_lift,
             "notes": list(self.notes),
         }
@@ -163,9 +228,11 @@ class JigElements:
     supports: list[Part]
     locators: list[Part]
     clamps: list[Part]
+    others: list[Part] = field(default_factory=list)
+    """형식마다 다른 것 — 볼트 · 롤러 · 로딩 노즈 · 임팩터. 이름표가 곧 화면의 말이다."""
 
     def all_parts(self) -> list[Part]:
-        return [self.base_plate, *self.supports, *self.locators, *self.clamps]
+        return [self.base_plate, *self.supports, *self.locators, *self.clamps, *self.others]
 
 
 # --- 5. Interference -----------------------------------------------------------

@@ -5,8 +5,21 @@
 """
 
 from app.core.elements.base_plate import build_base_plate
+from app.core.elements.bolt import build_bolt, build_spacer
 from app.core.elements.clamp import build_clamp
+from app.core.elements.impactor import build_impactor
 from app.core.elements.locator import build_locator
+from app.core.elements.roller import build_nose, build_roller
 from app.core.elements.support import build_support
 
-__all__ = ["build_base_plate", "build_clamp", "build_locator", "build_support"]
+__all__ = [
+    "build_base_plate",
+    "build_bolt",
+    "build_clamp",
+    "build_impactor",
+    "build_locator",
+    "build_nose",
+    "build_roller",
+    "build_spacer",
+    "build_support",
+]

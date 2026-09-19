@@ -66,10 +66,16 @@ export interface WorkSummary {
 
 export interface JigPreview {
   plan: {
+    kind: 'clamped' | 'bolted' | 'bending' | 'drop'
     base_plate: Record<string, unknown>
     supports: unknown[]
     locators: { kind: string }[]
     clamps: unknown[]
+    bolts: unknown[]
+    rollers: unknown[]
+    nose: Record<string, unknown> | null
+    impactor: { kind: string } | null
+    product_lift: number
     notes: string[]
   }
   interference: { ok: boolean; items: { a: string; b: string; ok: boolean; volume: number }[] }

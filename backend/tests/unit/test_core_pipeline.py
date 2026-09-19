@@ -120,3 +120,80 @@ def test_클램프_팔은_벽을_지나지_않는다(tmp_path: Path) -> None:
         # 벽은 -Y 쪽(y < -22). 패드가 벽 앞(y > -22)이면 기둥도 벽 뒤(-Y 변)에 서면 안 된다.
         if clamp.pad_position[1] > -22:
             assert clamp.post_position[1] > -30, clamp
+
+
+PLATE = {
+    "kind": "plate_with_holes",
+    "length": 100,
+    "width": 60,
+    "thickness": 12,
+    "hole_diameter": 8.5,
+}
+BOX = {"kind": "box", "length": 80, "width": 50, "height": 20}
+
+
+def _labels(made: pipeline.JigBuild) -> set[str]:
+    return {str(child.label) for child in made.preview_shape().children}
+
+
+def test_볼트_고정은_관통_구멍으로_조이고_판에_탭_구멍을_낸다() -> None:
+    made = pipeline.analyze(PLATE, JigOptions(kind="bolted", bolt_max_count=4))
+    assert made.plan.kind == "bolted"
+    assert len(made.plan.bolts) == 4 and not made.plan.supports and not made.plan.clamps
+    # 8.5 구멍 → M8, 판에는 호칭 지름의 탭 구멍.
+    nominals = {bolt.nominal for bolt in made.plan.bolts}
+    assert nominals == {8.0}
+    assert len(made.plan.base_plate.holes) == 4
+    assert made.plan.product_lift == 0  # 스페이서 없이 판에 바로 앉는다
+    assert made.interference.ok, made.interference.summary()
+    assert {"볼트 1", "볼트 4", "바닥판", "제품"} <= _labels(made)
+
+    # 스페이서를 주면 볼트마다 하나씩 서고 부품이 그만큼 뜬다.
+    lifted = pipeline.analyze(
+        PLATE, JigOptions(kind="bolted", bolt_spacer_height=8, bolt_head="socket")
+    )
+    assert lifted.plan.product_lift == 8
+    assert {"스페이서 1", "스페이서 4"} <= _labels(lifted)
+    assert lifted.interference.ok, lifted.interference.summary()
+
+    # 구멍 없는 상자는 볼트 고정을 못 한다 — 이유를 말한다.
+    with pytest.raises(planning.PlanningError, match="관통 구멍"):
+        pipeline.analyze(BOX, JigOptions(kind="bolted"))
+
+
+def test_3점_굽힘은_긴_변으로_스팬을_잡는다() -> None:
+    made = pipeline.analyze(BOX, JigOptions(kind="bending"))
+    assert made.plan.kind == "bending"
+    rollers = made.plan.rollers
+    assert len(rollers) == 2 and made.plan.nose is not None
+    # 긴 변이 X 라 롤러는 X 로 ±스팬/2, 축은 Y 를 따라 눕는다. 스팬 = 80 x 0.8.
+    assert sorted(r.position[0] for r in rollers) == [-32.0, 32.0]
+    assert {r.along for r in rollers} == {"y"}
+    assert rollers[0].length == 50 + 2 * 5  # 폭 + 여유
+    assert made.plan.nose.position[2] == 20 + 5  # 윗면 + 반지름
+    assert made.interference.ok, made.interference.summary()
+    assert {"롤러 1", "롤러 2", "로딩 노즈"} <= _labels(made)
+    # 스팬이 길이를 넘으면 거절.
+    with pytest.raises(planning.PlanningError, match="스팬"):
+        pipeline.analyze(BOX, JigOptions(kind="bending", bending_span=90))
+
+
+def test_낙하_자세는_고른_면이_아래를_본다() -> None:
+    edge = pipeline.analyze(
+        BOX, JigOptions(kind="drop", drop_orientation="edge", drop_impactor="ball")
+    )
+    assert edge.plan.kind == "drop"
+    # 모서리가 아래면 폭은 그대로, 높이 · 길이는 45° 돌아 같아진다.
+    sx, sy, sz = edge.geometry.bbox.size
+    assert sy == 50 and abs(sx - sz) < 0.01 and sx > 70
+    assert edge.plan.impactor is not None and edge.plan.impactor.kind == "ball"
+    assert edge.plan.product_lift == 1.0
+    assert not edge.plan.base_plate.holes and edge.plan.base_plate.mount_hole_diameter == 0
+    assert {"바닥", "임팩터", "제품"} == _labels(edge)
+    assert edge.interference.ok, edge.interference.summary()
+
+    side = pipeline.analyze(BOX, JigOptions(kind="drop", drop_orientation="+x"))
+    assert side.geometry.bbox.size[2] == 80  # 긴 변이 세로로 선다
+    assert side.plan.impactor is None
+    with pytest.raises(geometry.GeometryError, match="낙하 자세"):
+        pipeline.analyze(BOX, JigOptions(kind="drop", drop_orientation="sideways"))
