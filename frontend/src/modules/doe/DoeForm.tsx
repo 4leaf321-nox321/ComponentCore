@@ -100,7 +100,7 @@ export function DoeForm({
         <p className="font-medium">먼저 레시피에 「변수」 를 만들어야 합니다.</p>
         <p className="text-muted-foreground">DOE 는 **변수**만 훑습니다 — 값에 이름이 없으면 무엇을 바꿔야 할지 알 수 없습니다.</p>
         <ol className="text-muted-foreground list-inside list-decimal space-y-1 text-xs">
-          <li>「레시피 고치기」 를 눌러 편집기를 엽니다.</li>
+          <li>「수정」 을 눌러 편집기를 엽니다.</li>
           <li>
             왼쪽 위 <b>변수</b> 상자의 <b>+</b> 로 이름과 값을 만듭니다 — 예: <code>두께</code>, 6.
           </li>

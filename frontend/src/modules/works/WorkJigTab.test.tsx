@@ -45,7 +45,7 @@ test('지그 작업은 그림 탭이 「지그」 이고, 승격이 지그 카�
   // 그림 탭 이름은 종류와 상관없이 「도면」 — 지그 작업에는 생성기 탭이 아예 없다.
   await waitFor(() => expect(screen.getByRole('tab', { name: /^도면 v2/ })).toBeInTheDocument())
   expect(screen.queryByRole('tab', { name: /지그 만들어 주기/ })).toBeNull()
-  expect(await screen.findByRole('button', { name: '지그 카탈로그로 승격' })).toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: '공용 지그로 승격' })).toBeInTheDocument()
 })
 
 function fireEventMouseDown(element: Element) {

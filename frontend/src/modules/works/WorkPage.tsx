@@ -1,14 +1,15 @@
 /**
  * 내 작업 하나.
  *
- * **부품이든 지그든 그리는 방법은 같다** — 레시피 한 줄기다. 다른 것은 작업의 **종류**뿐이고,
- * 그것이 「그림 탭의 이름」 「어느 카탈로그로 올라가나」 「덤으로 무엇을 쓸 수 있나」 를 정한다:
+ * **부품이든 지그든 그리는 방법은 같다** — 도면 한 줄기다. 다른 것은 작업의 **종류**뿐이고,
+ * 그것이 「탭」 과 「어디로 승격하나」 와 「덤으로 무엇을 쓸 수 있나」 를 정한다:
  *
- * - 부품 작업: 그림 탭 = 「부품」, 승격 = 부품 카탈로그, 덤 = **지그 생성기**(이 부품을 잡는
- *   지그를 규칙으로 만들어 준다).
- * - 지그 작업: 그림 탭 = 「지그」, 승격 = 지그 카탈로그, 덤 = **잡는 부품**을 이어 두기.
+ * - 부품: 탭 = 도면 · 실험계획, 승격 = **공용 부품**, 덤 = 지그 생성기(이 부품을 잡는 지그를
+ *   규칙으로 만들어 준다).
+ * - 지그: 탭 = 도면 · 실험계획, 승격 = **공용 지그**.
+ * - 조립: 탭 = 조립 · 실험계획. 부품 · 지그를 가져다 놓는다(승격은 없다).
  *
- * 그래서 「이 레시피를 무엇으로 올릴까」 를 물을 일이 없다 — 종류가 이미 답이다.
+ * 그래서 「이 도면을 무엇으로 올릴까」 를 물을 일이 없다 — 종류가 이미 답이다.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -275,7 +276,7 @@ export default function WorkPage() {
             <>
               <div className="flex flex-wrap items-center gap-2">
                 <Button onClick={startEditing} disabled={busy || w.current_version === 0}>
-                  레시피 고치기
+                  수정
                 </Button>
                 <input
                   ref={fileInput}
@@ -319,10 +320,10 @@ export default function WorkPage() {
                   }
                 >
                   {isJig
-                    ? '지그 카탈로그로 승격'
+                    ? '공용 지그로 승격'
                     : currentPromoted
                       ? `부품 v${w.current?.promoted_part_version} 으로 올라감`
-                      : '부품 카탈로그로 승격'}
+                      : '공용 부품으로 승격'}
                 </Button>
                 )}
               </div>
@@ -512,7 +513,7 @@ export default function WorkPage() {
                           }}
                           disabled={busy}
                         >
-                          지그 카탈로그로 승격
+                          공용 지그로 승격
                         </Button>
                       </>
                     )
@@ -552,13 +553,13 @@ export default function WorkPage() {
             className="space-y-4"
           >
             <DialogHeader>
-              <DialogTitle>{promoting === 'part' ? '부품으로 승격' : '지그로 승격'}</DialogTitle>
+              <DialogTitle>{promoting === 'part' ? '공용 부품으로 승격' : '공용 지그로 승격'}</DialogTitle>
               <DialogDescription>
                 {promoting === 'part'
-                  ? `부품 v${w.current_version} 이 부품 카탈로그에 올라갑니다. 올라간 버전은 바뀌지 않습니다 — 고치려면 여기서 고쳐 다시 승격합니다.`
+                  ? `부품 v${w.current_version} 이 **공용 부품**으로 올라갑니다. 올라간 버전은 바뀌지 않습니다 — 고치려면 여기서 고쳐 다시 승격합니다.`
                   : promoting === 'jig-recipe'
-                    ? `지금 레시피(v${w.current_version})를 **그린 지그**로 올립니다. 생성기를 거치지 않으므로 계획 · 간섭 검사는 없고, 형상과 STEP 만 올라갑니다.`
-                    : '이 지그 생성 결과가 지그 카탈로그에 올라갑니다. 어느 부품 버전의 지그인지 함께 고정됩니다.'}
+                    ? `지금 도면(v${w.current_version})을 **공용 지그**로 올립니다. 생성기를 거치지 않으므로 계획 · 간섭 검사는 없고, 형상과 STEP 만 올라갑니다.`
+                    : '이 지그 생성 결과가 공용 지그로 올라갑니다. 어느 부품 버전의 지그인지 함께 고정됩니다.'}
               </DialogDescription>
             </DialogHeader>
             {!(promoting === 'part' ? w.promoted_part_id : promoting === 'jig' ? w.promoted_jig_id : false) && (
