@@ -76,6 +76,9 @@ export default function WorkPage() {
   const [savingTemplate, setSavingTemplate] = useState(false)
   /** 생성기 옵션은 접어 둔다 — 서른 개를 펼쳐 두면 무엇을 해야 할지 안 보인다. */
   const [showOptions, setShowOptions] = useState(false)
+  /** 저장 갈림길 — 이 작업에 새 버전으로, 또는 새 작업으로 따로. */
+  const [saveChoice, setSaveChoice] = useState(false)
+  const [saveAsName, setSaveAsName] = useState('')
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [busy, setBusy] = useState(false)
   const fileInput = useRef<HTMLInputElement | null>(null)
@@ -139,6 +142,24 @@ export default function WorkPage() {
       setNote('')
       setSelectedVersion(made)
       reloadAll()
+    })
+  }
+
+  /** 고친 도면을 **새 작업**으로 — 원본은 그대로 둔다. 종류는 따라간다. */
+  async function saveAsNew() {
+    if (!draft || !w) return
+    await act(async () => {
+      const made = await worksApi.create({
+        name: saveAsName.trim() || `${w.name} 사본`,
+        description: w.description,
+        recipe: draft,
+        kind: w.kind,
+        source: 'copy',
+        note: `${w.name} v${w.current_version} 에서`,
+      })
+      setSaveChoice(false)
+      setEditing(false)
+      navigate(`/works/${made.id}`)
     })
   }
 
@@ -257,8 +278,8 @@ export default function WorkPage() {
                   onChange={setDraft}
                   file={{
                     save: {
-                      label: '새 버전으로',
-                      run: () => void saveVersion(),
+                      label: '저장',
+                      run: () => setSaveChoice(true),
                       disabled: busy,
                     },
                     saveTemplate: () => setSavingTemplate(true),
@@ -270,8 +291,8 @@ export default function WorkPage() {
                 )}
                 {isAssembly && (
                   <div className="mt-3 flex items-center gap-2">
-                    <Button size="sm" onClick={() => void saveVersion()} disabled={busy}>
-                      새 버전으로 저장
+                    <Button size="sm" onClick={() => setSaveChoice(true)} disabled={busy}>
+                      저장
                     </Button>
                     <span className="text-muted-foreground text-xs">저장해야 3D 와 실험계획에 반영됩니다.</span>
                   </div>
@@ -535,6 +556,41 @@ export default function WorkPage() {
 
 
       </Tabs>
+
+      <Dialog open={saveChoice} onOpenChange={(open) => !open && !busy && setSaveChoice(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>저장</DialogTitle>
+            <DialogDescription>이 작업에 덮어 저장할지, 새 작업으로 따로 저장할지 고릅니다.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <button
+              type="button"
+              className="hover:bg-accent rounded-md border px-3 py-2 text-left"
+              disabled={busy}
+              onClick={() => {
+                setSaveChoice(false)
+                void saveVersion()
+              }}
+            >
+              <div className="text-sm font-medium">
+                「{w.name}」 에 덮어 저장 (v{w.current_version} → v{w.current_version + 1})
+              </div>
+              <div className="text-muted-foreground text-xs">새 버전이 붙습니다. 옛 버전은 남아 되돌릴 수 있습니다.</div>
+            </button>
+            <div className="rounded-md border px-3 py-2">
+              <div className="text-sm font-medium">새 작업으로 저장</div>
+              <div className="text-muted-foreground mb-2 text-xs">원본 「{w.name}」 은 그대로 두고 다른 이름의 작업을 만듭니다.</div>
+              <div className="flex items-center gap-2">
+                <Input value={saveAsName} onChange={(e) => setSaveAsName(e.target.value)} placeholder={`${w.name} 사본`} className="h-8" aria-label="새 작업 이름" />
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => void saveAsNew()}>
+                  새 작업으로
+                </Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={promoting !== null} onOpenChange={(open) => !open && !busy && setPromoting(null)}>
         <DialogContent>

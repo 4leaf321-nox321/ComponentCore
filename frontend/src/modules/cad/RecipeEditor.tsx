@@ -12,6 +12,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 
 import { cadApi } from '@/modules/cad/api'
 import type { Recipe, RecipeSummary } from '@/modules/cad/api'
+import type { WorkKind } from '@/modules/works/api'
 import { LoadRecipeDialog, LoadWorkDialog } from '@/modules/cad/LoadDialogs'
 import { keptLabel, MeasureDialog } from '@/modules/cad/MeasureDialog'
 import type { KeptMeasure, PickKind } from '@/modules/cad/MeasureDialog'
@@ -54,8 +55,8 @@ export interface FileActions {
   importStep?: { label: string; run: (file: File) => void; busy?: boolean }
   /** 형식별 내려받기 — 호출부가 blob 을 받아 저장한다. */
   download?: (format: 'step' | 'stl' | 'dxf' | 'svg') => void
-  /** 불러온 뒤 알린다(출처 표시용). */
-  onLoaded?: (label: string, source: 'template' | 'copy') => void
+  /** 불러온 뒤 알린다 — 출처 표시와, 기존 작업이면 **그 작업에 덮어 저장**할 수 있게. */
+  onLoaded?: (label: string, source: 'template' | 'copy', work?: { id: string; name: string; kind: WorkKind }) => void
   /** 지금 작업 id — 작업 불러오기 목록에서 자기 자신은 뺀다. */
   currentWorkId?: string
 }
@@ -518,7 +519,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
           setSelectedId(nodesOf(loaded.recipe)[nodesOf(loaded.recipe).length - 1]?.id ?? null)
           setLoading(null)
           setTab('스케치')
-          file?.onLoaded?.(loaded.label, loaded.source)
+          file?.onLoaded?.(loaded.label, loaded.source, loaded.work)
         }}
       />
       <LoadWorkDialog
@@ -531,7 +532,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
           setSelectedId(nodesOf(loaded.recipe)[nodesOf(loaded.recipe).length - 1]?.id ?? null)
           setLoading(null)
           setTab('스케치')
-          file?.onLoaded?.(loaded.label, loaded.source)
+          file?.onLoaded?.(loaded.label, loaded.source, loaded.work)
         }}
       />
 

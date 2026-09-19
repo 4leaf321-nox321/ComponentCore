@@ -10,13 +10,15 @@ import { cadApi } from '@/modules/cad/api'
 import type { Recipe } from '@/modules/cad/api'
 import { templatesApi } from '@/modules/templates/api'
 import { worksApi } from '@/modules/works/api'
+import type { WorkKind } from '@/modules/works/api'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { Button } from '@/shared/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog'
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
-type Loaded = { recipe: Recipe; label: string; source: 'template' | 'copy' }
+/** 불러온 것. `work` 가 있으면 **그 작업에 덮어 저장**할 수 있다 — 새로 저장과 갈리는 근거. */
+type Loaded = { recipe: Recipe; label: string; source: 'template' | 'copy'; work?: { id: string; name: string; kind: WorkKind } }
 
 function Row({ title, hint, action }: { title: React.ReactNode; hint?: React.ReactNode; action: React.ReactNode }) {
   return (
@@ -166,6 +168,7 @@ export function LoadWorkDialog({ open, onClose, onLoad, currentWorkId }: { open:
                               recipe: structuredClone(full.current.recipe),
                               label: `${w.name} v${full.current.number}`,
                               source: 'copy',
+                              work: { id: full.id, name: full.name, kind: full.kind },
                             })
                         } finally {
                           setBusy(null)
