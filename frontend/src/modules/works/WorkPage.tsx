@@ -374,7 +374,7 @@ export default function WorkPage() {
                 <EmptyState
                   title="부품이 없습니다"
                   hint="이 작업은 옛 지그 프로젝트에서 옮겨 와 부품이 없습니다. STEP 을 올리거나 새로 그리세요."
-                  action={<Button onClick={() => navigate('/draw')}>그리러 가기</Button>}
+                  action={<Button onClick={() => navigate('/draw')}>새 작업 만들기</Button>}
                 />
               ) : (
                 <div className="grid gap-4 lg:grid-cols-4">

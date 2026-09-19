@@ -46,9 +46,9 @@ export function pretty(recipe: Recipe): string {
 
 const GROUPS = ['스케치', '입체', '조합', '마감', '배치'] as const
 
-/** 「파일」 탭이 부르는 것들 — 호출부(그리기 · 내 작업)가 준다. 없는 것은 단추가 안 뜬다. */
+/** 「파일」 탭이 부르는 것들 — 호출부(새 작업 · 내 작업)가 준다. 없는 것은 단추가 안 뜬다. */
 export interface FileActions {
-  /** 「저장」 — 그리기에서는 내 작업으로, 내 작업에서는 새 버전으로. */
+  /** 「저장」 — 「새 작업」 에서는 새 작업으로, 내 작업에서는 덮어 저장(새 버전) 또는 새 작업으로. */
   save?: { label: string; run: () => void; disabled?: boolean }
   saveTemplate?: () => void
   /** STEP 파일에서 시작 — 고른 파일을 호출부가 올린다(작업이 생기고 그 화면으로 간다). */

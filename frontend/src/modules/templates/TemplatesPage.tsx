@@ -143,7 +143,7 @@ export default function TemplatesPage() {
                   <TableCell>{shownDateTime(row.updated_at)}</TableCell>
                   <TableCell className="space-x-1 text-right">
                     <Button size="sm" onClick={() => navigate(`/draw?template=${row.id}`)}>
-                      그리기에서 열기
+                      새 작업으로 열기
                     </Button>
                     {row.mine ? (
                       <>

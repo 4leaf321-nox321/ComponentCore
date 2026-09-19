@@ -61,7 +61,7 @@ export default function WorksPage() {
             <Button variant="outline" onClick={() => void startAssembly()} disabled={starting}>
               {starting ? '만드는 중…' : '새 조립'}
             </Button>
-            <Button onClick={() => navigate('/draw')}>새로 그리기</Button>
+            <Button onClick={() => navigate('/draw')}>새 작업</Button>
           </>
         }
       />
@@ -94,8 +94,8 @@ export default function WorksPage() {
       {rows.length === 0 && !page.loading ? (
         <EmptyState
           title="작업이 없습니다"
-          hint="「그리기」 에서 템플릿으로 그리거나 STEP 을 올려 시작하세요."
-          action={<Button onClick={() => navigate('/draw')}>그리러 가기</Button>}
+          hint="「새 작업」 에서 빈 화면 · 템플릿 · STEP 으로 그려 저장하세요."
+          action={<Button onClick={() => navigate('/draw')}>새 작업 만들기</Button>}
         />
       ) : (
         <>

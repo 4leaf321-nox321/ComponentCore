@@ -1,8 +1,9 @@
 /**
- * 그리기 — 새 작업의 시작. 템플릿에서 그리거나 STEP 을 올린다.
+ * 새 작업 — 부품이나 지그를 그려 **새 작업으로** 저장하는 곳. 빈 화면 · 템플릿 · 기존 작업의 사본 ·
+ * STEP 에서 시작한다.
  *
- * 저장 전에는 아무것도 남지 않는다. 「내 작업으로 저장」 하면 작업이 생기고 그 화면으로 간다 —
- * 거기서 계속 고치고, 지그를 만들고, 부품 · 지그로 승격한다.
+ * 저장 전에는 아무것도 남지 않는다. 저장하면 작업이 생기고 그 화면으로 간다 — 거기서 계속 고치고
+ * (덮어 저장은 거기 「수정」 의 일), 공용 부품 · 지그로 승격한다.
  */
 
 import { useEffect, useState } from 'react'
@@ -35,10 +36,12 @@ export default function DrawPage() {
   })
   /** 부품을 그린 것인지 지그를 그린 것인지 — 저장할 때 고른다. 그리는 방법은 같다. */
   const [kind, setKind] = useState<WorkKind>('part')
-  /** 기존 작업을 불러와 고치는 중이면 그 작업 — **덮어 저장**할 수 있는 근거. */
+  /**
+   * 기존 작업을 불러왔으면 그 이름 · 종류를 기본값으로 — 하지만 **여기서는 늘 새 작업**이다.
+   * 기존 작업을 덮어 고치는 일은 「내 작업 › 수정」 이 한다. 한 화면이 두 가지를 하면 어느
+   * 쪽인지 매번 물어야 한다.
+   */
   const [origin, setOrigin] = useState<{ id: string; name: string; kind: WorkKind } | null>(null)
-  /** 어디에 저장하나 — 불러온 작업에 새 버전으로, 또는 새 작업으로. */
-  const [target, setTarget] = useState<'overwrite' | 'new'>('new')
   const [recipe, setRecipe] = useState<Recipe | null>({
     version: 1,
     nodes: [],
@@ -49,7 +52,7 @@ export default function DrawPage() {
   const [busy, setBusy] = useState(false)
   const [params, setParams] = useSearchParams()
 
-  // 템플릿 공간에서 「그리기에서 열기」 로 왔을 때 — 주소의 id 를 받아 한 번만 싣는다.
+  // 템플릿 공간에서 「새 작업으로 열기」 로 왔을 때 — 주소의 id 를 받아 한 번만 싣는다.
   const wanted = params.get('template')
   useEffect(() => {
     if (!wanted) return
@@ -88,12 +91,6 @@ export default function DrawPage() {
     setBusy(true)
     setError(null)
     try {
-      if (target === 'overwrite' && origin) {
-        // 불러온 작업에 **새 버전**으로 — 덮어쓰지만 옛 버전은 남는다(되돌릴 수 있다).
-        await worksApi.addVersion(origin.id, { recipe, source: 'manual', note: noteOf.label })
-        navigate(`/works/${origin.id}`)
-        return
-      }
       const made = await worksApi.create({
         name,
         recipe,
@@ -125,8 +122,8 @@ export default function DrawPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="그리기"
-        description="빈 화면에서 그리거나 「파일」 탭에서 템플릿 · 기존 작업 · STEP 을 엽니다. 저장하기 전에는 아무것도 남지 않습니다."
+        title="새 작업"
+        description="부품이나 지그를 그려 새 작업으로 저장합니다. 빈 화면에서 그리거나 「파일」 탭에서 템플릿 · 기존 작업(사본) · STEP 을 엽니다. 저장하기 전에는 아무것도 남지 않습니다."
       />
       <ErrorNotice error={error} />
 
@@ -141,11 +138,10 @@ export default function DrawPage() {
             importStep: { label: 'STEP 열기', run: (picked) => void startFromStep(picked), busy },
             onLoaded: (label, source, work) => {
               setNoteOf(source === 'copy' ? { source, label: `${label} 에서 복사` } : { source, label: `${label} 템플릿에서` })
-              // 기존 작업을 불러왔으면 그 작업에 덮어 저장하는 것이 기본이다 — 사람은 「고치는 중」 이다.
+              // 기존 작업은 **사본**으로 시작한다 — 이름을 미리 「사본」 으로 두어 원본이 남는다는 걸 보인다.
               setOrigin(work ?? null)
-              setTarget(work ? 'overwrite' : 'new')
               if (work) {
-                setName(work.name)
+                setName(`${work.name} 사본`)
                 setKind(work.kind === 'assembly' ? 'part' : work.kind)
               }
             },
@@ -167,45 +163,13 @@ export default function DrawPage() {
             <DialogHeader>
               <DialogTitle>저장</DialogTitle>
               <DialogDescription>
-                {origin
-                  ? '불러온 작업에 덮어 저장할지, 새 작업으로 따로 저장할지 고릅니다.'
-                  : '내 공간에 작업이 생기고 버전 1 이 평가됩니다. 남에게는 승격해야 보입니다.'}
+                내 공간에 <b>새 작업</b>이 생기고 버전 1 이 평가됩니다. 남에게는 승격해야 보입니다.
+                {origin && ` 불러온 「${origin.name}」 은 그대로 남습니다 — 그것을 고치려면 내 작업에서 「수정」 하세요.`}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-2">
-              {origin && (
-                <div className="space-y-1">
-                  <Label>어디에 저장합니까</Label>
-                  <div className="grid gap-1">
-                    {(
-                      [
-                        { value: 'overwrite', label: `「${origin.name}」 에 덮어 저장`, hint: '그 작업에 새 버전이 붙습니다. 옛 버전은 남아 되돌릴 수 있습니다.' },
-                        { value: 'new', label: '새 작업으로 저장', hint: '원본은 그대로 두고 다른 이름의 작업을 만듭니다.' },
-                      ] as const
-                    ).map((one) => (
-                      <button
-                        key={one.value}
-                        type="button"
-                        onClick={() => setTarget(one.value)}
-                        aria-pressed={target === one.value}
-                        className={`rounded-md border px-3 py-2 text-left text-sm ${
-                          target === one.value ? 'border-primary bg-primary/5' : 'hover:bg-accent'
-                        }`}
-                      >
-                        <div className="font-medium">{one.label}</div>
-                        <div className="text-muted-foreground text-xs">{one.hint}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {target === 'new' && (
-                <>
               <Label htmlFor="work-name">작업 이름</Label>
               <Input id="work-name" value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
-                </>
-              )}
-              {target === 'new' && (
               <div className="space-y-1 pt-2">
                 <Label>무엇으로 저장합니까</Label>
                 <div className="flex gap-1">
@@ -232,14 +196,13 @@ export default function DrawPage() {
                   부품과 지그는 <b>서로 관계없는 각자의 도면</b>입니다. 둘을 함께 놓아 보려면 「조립」 에서 가져다 씁니다. 종류는 나중에 바꿀 수 있습니다.
                 </p>
               </div>
-              )}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setSaving(false)} disabled={busy}>
                 취소
               </Button>
-              <Button type="submit" disabled={busy || (target === 'new' && !name.trim())}>
-                {busy ? '저장 중…' : target === 'overwrite' && origin ? `「${origin.name}」 에 저장` : '새 작업으로 저장'}
+              <Button type="submit" disabled={busy || !name.trim()}>
+                {busy ? '저장 중…' : '새 작업으로 저장'}
               </Button>
             </DialogFooter>
           </form>

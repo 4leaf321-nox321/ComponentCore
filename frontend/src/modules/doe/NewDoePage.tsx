@@ -41,8 +41,8 @@ export default function NewDoePage() {
         {rows.length === 0 && !works.loading ? (
           <EmptyState
             title="훑을 도면이 없습니다"
-            hint="먼저 그리기에서 부품이나 지그를 그려 저장하세요. 조립은 내 작업의 「새 조립」 으로 만듭니다."
-            action={<Button onClick={() => navigate('/draw')}>그리러 가기</Button>}
+            hint="먼저 「새 작업」 에서 부품이나 지그를 그려 저장하세요. 조립은 내 작업의 「새 조립」 으로 만듭니다."
+            action={<Button onClick={() => navigate('/draw')}>새 작업 만들기</Button>}
           />
         ) : (
           <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">

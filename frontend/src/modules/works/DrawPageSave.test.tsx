@@ -39,7 +39,7 @@ async function loadExisting() {
   await waitFor(() => expect(screen.getAllByText('b').length).toBeGreaterThan(0))
 }
 
-test('기존 작업을 불러와 고쳤으면 「덮어 저장」 과 「새 작업으로」 가 갈린다 — 기본은 덮어 저장', async () => {
+test('기존 작업을 불러와도 「새 작업」 은 늘 새 작업으로 저장한다 — 원본은 그대로', async () => {
   const calls = mockApi()
   render(
     <MemoryRouter initialEntries={['/draw']}>
@@ -52,13 +52,17 @@ test('기존 작업을 불러와 고쳤으면 「덮어 저장」 과 「새 작
   await loadExisting()
   fireEvent.mouseDown(screen.getByRole('tab', { name: '파일' })) // 불러오면 스케치 탭으로 간다
   fireEvent.click(screen.getByRole('button', { name: '저장' }))
-  expect(await screen.findByText(/「센서 브래킷」 에 덮어 저장/)).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: /^새 작업으로 저장/ })).toBeInTheDocument()
+  // 덮어 저장이라는 갈림길이 없다 — 이름은 「사본」 으로 미리 채워져 원본이 남는다는 걸 보인다.
+  expect(await screen.findByLabelText('작업 이름')).toHaveValue('센서 브래킷 사본')
+  expect(screen.queryByText(/덮어 저장/)).toBeNull()
+  expect(screen.getByText(/「센서 브래킷」 은 그대로 남습니다/)).toBeInTheDocument()
 
-  // 덮어 저장 = 그 작업에 새 버전. 새 작업은 만들지 않는다.
-  fireEvent.click(screen.getByRole('button', { name: '「센서 브래킷」 에 저장' }))
-  await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/works/w1/versions'))).toBe(true))
-  expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/works'))).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: '새 작업으로 저장' }))
+  await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/works'))).toBe(true))
+  const made = calls.find((c) => c.method === 'POST' && c.url.endsWith('/works'))!.body as { name: string; kind: string; source: string }
+  expect(made).toMatchObject({ name: '센서 브래킷 사본', kind: 'part', source: 'copy' })
+  expect(calls.some((c) => c.url.endsWith('/works/w1/versions'))).toBe(false)
+  expect(await screen.findByText('작업 화면')).toBeInTheDocument()
 })
 
 test('처음부터 그린 것은 새 작업으로만 저장된다', async () => {

@@ -1,7 +1,7 @@
 /**
  * 사이드바 메뉴 정의 — **화면 목록의 정본이다.** `router.test.tsx` 가 라우터와 맞는지 검사한다.
  *
- * 순서가 곧 동선이다: 내 활동(그리기 → 내 작업 → 실행 기록) → 공용 공간(템플릿 · 부품 · 지그)
+ * 순서가 곧 동선이다: 내 활동(새 작업 → 내 작업 → 실행 기록) → 공용 공간(템플릿 · 부품 · 지그)
  * → 관리. 템플릿은 시작점, 부품 · 지그는 승격된 결과다.
  */
 
@@ -40,7 +40,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     title: '내 활동',
     items: [
-      { label: '그리기', icon: DraftingCompass, to: '/draw', summary: '템플릿이나 STEP 에서 새 작업을 시작한다.' },
+      { label: '새 작업', icon: DraftingCompass, to: '/draw', summary: '빈 화면 · 템플릿 · STEP 에서 부품이나 지그를 그려 새 작업으로 저장한다.' },
       { label: '내 작업', icon: FolderPen, to: '/works', summary: '그리고 있는 것. 나만 본다. 여기서 부품 · 지그로 승격한다.' },
       {
         label: '실험계획',

@@ -17,7 +17,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
-/** 불러온 것. `work` 가 있으면 **그 작업에 덮어 저장**할 수 있다 — 새로 저장과 갈리는 근거. */
+/** 불러온 것. `work` 는 어느 작업에서 복사했나 — 받는 쪽이 이름 기본값이나 덮어 저장 여부를 정할 근거. */
 type Loaded = { recipe: Recipe; label: string; source: 'template' | 'copy'; work?: { id: string; name: string; kind: WorkKind } }
 
 function Row({ title, hint, action }: { title: React.ReactNode; hint?: React.ReactNode; action: React.ReactNode }) {
