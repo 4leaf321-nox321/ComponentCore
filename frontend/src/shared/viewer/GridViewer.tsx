@@ -93,6 +93,8 @@ export function GridViewer({ items, columns, cellClass, className }: { items: Gr
     renderer.domElement.style.inset = '0'
     renderer.domElement.style.width = '100%'
     renderer.domElement.style.height = '100%'
+    // 캔버스는 React 자식들 **뒤에** 붙는다 — 그대로 두면 이름표 · 도구줄을 덮는다.
+    renderer.domElement.style.zIndex = '0'
     container.appendChild(renderer.domElement)
     const rig = new CameraRig(renderer.domElement)
     const controls = rig.controls
@@ -174,7 +176,7 @@ export function GridViewer({ items, columns, cellClass, className }: { items: Gr
   return (
     <div ref={mount} className={`relative ${className ?? ''}`}>
       {/* 격자는 캔버스 위에 — 칸의 자리만 잡고 이름표를 단다. 포인터는 캔버스로 흘려보낸다. */}
-      <div className={`pointer-events-none relative grid gap-2 ${cellClass ? 'h-full' : ''}`} style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+      <div className={`pointer-events-none relative z-10 grid gap-2 ${cellClass ? 'h-full' : ''}`} style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
         {items.map((item) => (
           <div
             key={item.key}

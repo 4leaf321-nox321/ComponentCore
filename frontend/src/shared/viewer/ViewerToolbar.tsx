@@ -9,7 +9,7 @@ export function ViewerToolbar({ rig }: { rig: () => CameraRig | null }) {
   const [projection, setProjection] = useState<Projection>('perspective')
   const button = 'bg-background/80 hover:bg-accent rounded border px-2 py-1 text-[11px] shadow-sm'
   return (
-    <div className="absolute top-2 right-2 flex gap-1">
+    <div className="absolute top-2 right-2 z-10 flex gap-1">
       {STANDARD_VIEWS.map((view) => (
         <button key={view.key} type="button" onClick={() => rig()?.look(view.dir)} className={button} title={`${view.label} 뷰`}>
           {view.label}
