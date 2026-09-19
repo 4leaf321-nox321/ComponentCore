@@ -127,7 +127,8 @@ export function PointsGallery({
   }, [shown, meshes])
   const overlayColors = useMemo(() => Object.fromEntries(shown.map((n) => [pointLabel(n), colorOf(n)])), [shown]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const viewerHeight = 'h-[520px]'
+  // 화면을 채운다 — 머리(경로 · 요약 · 모드 줄)만큼 빼고 나머지 높이. 격자도 칸이 하나면 같다.
+  const viewerHeight = 'h-[calc(100vh-15rem)] min-h-[360px]'
   const gridItems = useMemo(
     () =>
       shown
@@ -242,7 +243,7 @@ export function PointsGallery({
         ) : (
           <div className="max-h-[75vh] overflow-auto">
             <Suspense fallback={<Skeleton className={`${viewerHeight} w-full`} />}>
-              <GridViewer items={gridItems} columns={gridColumns(shown.length)} />
+              <GridViewer items={gridItems} columns={gridColumns(shown.length)} cellClass={shown.length === 1 ? viewerHeight : undefined} />
             </Suspense>
             {gridItems.length < shown.length && <p className="text-muted-foreground mt-1 text-xs">{shown.length - gridItems.length} 개는 아직 받는 중이거나 실패했습니다.</p>}
           </div>

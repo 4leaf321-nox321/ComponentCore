@@ -7,11 +7,12 @@
  * 칸은 정사각형이고, 열 수는 호출부가 정한다.
  */
 
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
+import { CameraRig } from '@/shared/viewer/cameraRig'
 import type { MeshData } from '@/shared/viewer/PickViewer'
+import { ViewerToolbar } from '@/shared/viewer/ViewerToolbar'
 
 export interface GridItem {
   key: string
@@ -68,18 +69,18 @@ function disposeScene(scene: THREE.Scene) {
   })
 }
 
-export function GridViewer({ items, columns, className }: { items: GridItem[]; columns: number; className?: string }) {
+export function GridViewer({ items, columns, cellClass, className }: { items: GridItem[]; columns: number; cellClass?: string; className?: string }) {
   const mount = useRef<HTMLDivElement | null>(null)
   const cells = useRef<Map<string, HTMLDivElement>>(new Map())
   const state = useRef<{
     renderer: THREE.WebGLRenderer
-    camera: THREE.PerspectiveCamera
-    controls: OrbitControls
+    rig: CameraRig
     scenes: Map<string, THREE.Scene>
     fitted: boolean
   } | null>(null)
   const itemsRef = useRef(items)
   itemsRef.current = items
+  const rigOf = useCallback(() => state.current?.rig ?? null, [])
 
   // 한 번만: 렌더러 · 카메라 · 컨트롤 · 그리기 루프.
   useEffect(() => {
@@ -93,10 +94,9 @@ export function GridViewer({ items, columns, className }: { items: GridItem[]; c
     renderer.domElement.style.width = '100%'
     renderer.domElement.style.height = '100%'
     container.appendChild(renderer.domElement)
-    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100_000)
-    const controls = new OrbitControls(camera, renderer.domElement)
-    controls.enableDamping = true
-    state.current = { renderer, camera, controls, scenes: new Map(), fitted: false }
+    const rig = new CameraRig(renderer.domElement)
+    const controls = rig.controls
+    state.current = { renderer, rig, scenes: new Map(), fitted: false }
 
     function resize() {
       renderer.setSize(container!.clientWidth, container!.clientHeight, false)
@@ -124,16 +124,15 @@ export function GridViewer({ items, columns, className }: { items: GridItem[]; c
         const bottom = Math.floor(height - (rect.bottom - outer.top))
         renderer.setViewport(left, bottom, w, h)
         renderer.setScissor(left, bottom, w, h)
-        camera.aspect = w / h
-        camera.updateProjectionMatrix()
-        renderer.render(scene, camera)
+        rig.setAspect(w / h)
+        renderer.render(scene, rig.camera)
       }
     }
     animate()
     return () => {
       cancelAnimationFrame(frame)
       observer.disconnect()
-      controls.dispose()
+      rig.dispose()
       for (const scene of state.current?.scenes.values() ?? []) disposeScene(scene)
       renderer.dispose()
       container.removeChild(renderer.domElement)
@@ -167,14 +166,7 @@ export function GridViewer({ items, columns, className }: { items: GridItem[]; c
         box.expandByPoint(new THREE.Vector3(x0, z0, -y1))
         box.expandByPoint(new THREE.Vector3(x1, z1, -y0))
       }
-      const center = box.getCenter(new THREE.Vector3())
-      const radius = Math.max(...box.getSize(new THREE.Vector3()).toArray()) || 1
-      s.camera.position.set(center.x + radius * 1.2, center.y + radius * 0.9, center.z + radius * 1.4)
-      s.camera.near = radius / 100
-      s.camera.far = radius * 100
-      s.camera.updateProjectionMatrix()
-      s.controls.target.copy(center)
-      s.controls.update()
+      s.rig.fit(box)
       s.fitted = true
     }
   }, [items])
@@ -190,12 +182,13 @@ export function GridViewer({ items, columns, className }: { items: GridItem[]; c
               if (el) cells.current.set(item.key, el)
               else cells.current.delete(item.key)
             }}
-            className="relative aspect-square rounded-md border"
+            className={`relative rounded-md border ${cellClass ?? 'aspect-square'}`}
           >
             <div className="pointer-events-auto absolute top-1 left-1 rounded bg-background/80 px-1.5 py-0.5 text-xs">{item.label}</div>
           </div>
         ))}
       </div>
+      <ViewerToolbar rig={rigOf} />
     </div>
   )
 }

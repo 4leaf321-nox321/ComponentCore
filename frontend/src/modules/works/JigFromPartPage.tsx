@@ -237,11 +237,11 @@ export default function JigFromPartPage() {
               {source && (
                 <div className="space-y-2">
                   {preview ? (
-                    <Suspense fallback={<Skeleton className="h-[380px] w-full" />}>
-                      <PickViewer mesh={preview.mesh} mode="none" partColors={partColors} emphasis={emphasis} className="h-[380px] w-full rounded-md border" />
+                    <Suspense fallback={<Skeleton className="h-[calc(100vh-26rem)] min-h-[380px] w-full" />}>
+                      <PickViewer mesh={preview.mesh} mode="none" partColors={partColors} emphasis={emphasis} className="h-[calc(100vh-26rem)] min-h-[380px] w-full rounded-md border" />
                     </Suspense>
                   ) : (
-                    <div className="text-muted-foreground flex h-[380px] items-center justify-center rounded-md border border-dashed text-sm">
+                    <div className="text-muted-foreground flex h-[calc(100vh-26rem)] min-h-[380px] items-center justify-center rounded-md border border-dashed text-sm">
                       {previewing ? '미리 보는 중…' : previewError ? '이 부품에는 규칙을 적용하지 못했습니다.' : '미리 보는 중…'}
                     </div>
                   )}

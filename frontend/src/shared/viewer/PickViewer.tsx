@@ -7,12 +7,13 @@
 
 import { useCallback, useEffect, useRef } from 'react'
 import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { Line2 } from 'three/examples/jsm/lines/Line2.js'
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js'
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 
+import { CameraRig } from '@/shared/viewer/cameraRig'
 import type { CameraSync } from '@/shared/viewer/cameraSync'
+import { ViewerToolbar } from '@/shared/viewer/ViewerToolbar'
 
 export interface MeshFace {
   index: number
@@ -264,13 +265,6 @@ function gatherDots(mesh: MeshData): { at: number[][]; kinds: string[] } {
 }
 
 /** 표준 방향 — 뒤에서 카메라가 설 자리(중심 기준 단위 벡터, CAD Z-up 기준). */
-const VIEWS: { key: string; label: string; dir: [number, number, number] }[] = [
-  { key: 'iso', label: '등각', dir: [1, -1, 0.8] },
-  { key: 'front', label: '정면', dir: [0, -1, 0] },
-  { key: 'top', label: '윗면', dir: [0, 0, 1] },
-  { key: 'right', label: '우측', dir: [1, 0, 0] },
-]
-
 export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, measureKinds, measureMarks, partColors, emphasis, sync, className }: PickViewerProps) {
   const syncId = useRef(`viewer-${Math.random().toString(36).slice(2)}`)
   const syncRef = useRef(sync)
@@ -278,9 +272,8 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
   const mount = useRef<HTMLDivElement | null>(null)
   const state = useRef<{
     scene: THREE.Scene
-    camera: THREE.PerspectiveCamera
+    rig: CameraRig
     renderer: THREE.WebGLRenderer
-    controls: OrbitControls
     group: THREE.Group
     /** 형상만 담는 자리 — 레시피가 바뀌면 이것만 비운다(측정 표시 · 잡을 점은 남는다). */
     shapes: THREE.Group
@@ -300,20 +293,7 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
   const callbacks = useRef({ mode, onPickFace, onPickEdge, onMeasure, measureKinds })
   callbacks.current = { mode, onPickFace, onPickEdge, onMeasure, measureKinds }
 
-  /** 표준 뷰 — 형상을 가운데 두고 그 방향에서 본다. CAD 의 Z 는 three 의 Y 다(group 이 눕혀 있다). */
-  const look = useCallback((dir: [number, number, number]) => {
-    const s = state.current
-    if (!s) return
-    const box = new THREE.Box3().setFromObject(s.shapes)
-    if (box.isEmpty()) return
-    const center = box.getCenter(new THREE.Vector3())
-    const radius = Math.max(...box.getSize(new THREE.Vector3()).toArray()) || 1
-    const world = new THREE.Vector3(dir[0], dir[2], -dir[1]).normalize() // CAD → three
-    s.camera.position.copy(center.clone().add(world.multiplyScalar(radius * 2)))
-    s.camera.up.set(0, 1, 0)
-    s.controls.target.copy(center)
-    s.controls.update()
-  }, [])
+  const rigOf = useCallback(() => state.current?.rig ?? null, [])
 
   // 한 번만: 장면 · 카메라 · 렌더러.
   useEffect(() => {
@@ -322,7 +302,6 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     const scene = new THREE.Scene()
     const dark = document.documentElement.classList.contains('dark')
     scene.background = new THREE.Color(dark ? '#18181b' : '#f4f4f5')
-    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100_000)
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     renderer.setPixelRatio(window.devicePixelRatio)
     container.appendChild(renderer.domElement)
@@ -330,8 +309,8 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     const sun = new THREE.DirectionalLight(0xffffff, 1.5)
     sun.position.set(1, 2, 3)
     scene.add(sun)
-    const controls = new OrbitControls(camera, renderer.domElement)
-    controls.enableDamping = true
+    const rig = new CameraRig(renderer.domElement)
+    const controls = rig.controls
     const group = new THREE.Group()
     group.rotation.x = -Math.PI / 2 // CAD Z-up → three Y-up
     scene.add(group)
@@ -341,9 +320,8 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     group.add(marks)
     state.current = {
       scene,
-      camera,
+      rig,
       renderer,
-      controls,
       group,
       shapes,
       faces: [],
@@ -359,8 +337,7 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     function resize() {
       const { clientWidth: w, clientHeight: h } = container!
       renderer.setSize(w, h, false)
-      camera.aspect = w / Math.max(h, 1)
-      camera.updateProjectionMatrix()
+      rig.setAspect(w / Math.max(h, 1))
       const s = state.current
       if (!s) return
       s.resolution.set(w, h)
@@ -383,7 +360,7 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       if (!s) return null
       const box = renderer.domElement.getBoundingClientRect()
       const pointer = new THREE.Vector2(((event.clientX - box.left) / box.width) * 2 - 1, -((event.clientY - box.top) / box.height) * 2 + 1)
-      raycaster.setFromCamera(pointer, camera)
+      raycaster.setFromCamera(pointer, rig.camera)
       const { mode: m } = callbacks.current
       if (m === 'face') return raycaster.intersectObjects(s.faces, false)[0] ?? null
       if (m === 'edge') {
@@ -536,16 +513,16 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       const link = syncRef.current
       if (!link || following) return
       link.publish(syncId.current, {
-        position: camera.position.toArray() as [number, number, number],
+        position: rig.camera.position.toArray() as [number, number, number],
         target: controls.target.toArray() as [number, number, number],
-        up: camera.up.toArray() as [number, number, number],
+        up: rig.camera.up.toArray() as [number, number, number],
       })
     }
     controls.addEventListener('change', onCameraChange)
     const unsubscribe = syncRef.current?.subscribe(syncId.current, (pose) => {
       following = true
-      camera.position.fromArray(pose.position)
-      camera.up.fromArray(pose.up)
+      rig.camera.position.fromArray(pose.position)
+      rig.camera.up.fromArray(pose.up)
       controls.target.fromArray(pose.target)
       controls.update()
       following = false
@@ -555,7 +532,7 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     const animate = () => {
       frame = requestAnimationFrame(animate)
       controls.update()
-      renderer.render(scene, camera)
+      renderer.render(scene, rig.camera)
     }
     animate()
     return () => {
@@ -566,7 +543,7 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       renderer.domElement.removeEventListener('pointerdown', onDown)
       renderer.domElement.removeEventListener('pointermove', onMove)
       renderer.domElement.removeEventListener('pointerup', onUp)
-      controls.dispose()
+      rig.dispose()
       renderer.dispose()
       container.removeChild(renderer.domElement)
       state.current = null
@@ -622,19 +599,15 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     const radius = Math.max(size.x, size.y, size.z) || 1
     s.group.userData.size = radius
     if (!s.fitted) {
-      s.camera.position.set(center.x + radius * 1.2, center.y + radius * 0.9, center.z + radius * 1.4)
-      s.camera.near = radius / 100
-      s.camera.far = radius * 100
-      s.camera.updateProjectionMatrix()
-      s.controls.target.copy(center)
+      s.rig.fit(box)
       // 늦게 뜬 뷰어는 먼저 뜬 것의 자세로 시작한다 — 나란히 놓였는데 처음부터 어긋나면 안 된다.
       const pose = syncRef.current?.last()
       if (pose) {
-        s.camera.position.fromArray(pose.position)
-        s.camera.up.fromArray(pose.up)
-        s.controls.target.fromArray(pose.target)
+        s.rig.camera.position.fromArray(pose.position)
+        s.rig.camera.up.fromArray(pose.up)
+        s.rig.controls.target.fromArray(pose.target)
+        s.rig.controls.update()
       }
-      s.controls.update()
       const grid = new THREE.GridHelper(radius * 4, 20, 0x888888, 0xcccccc)
       grid.position.set(center.x, box.min.y, center.z)
       s.scene.add(grid)
@@ -784,18 +757,7 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
   return (
     <div className={`relative ${className ?? 'h-[480px] w-full rounded-md border'}`}>
       <div ref={mount} className="h-full w-full" />
-      <div className="absolute top-2 right-2 flex gap-1">
-        {VIEWS.map((view) => (
-          <button
-            key={view.key}
-            type="button"
-            onClick={() => look(view.dir)}
-            className="bg-background/80 hover:bg-accent rounded border px-2 py-1 text-[11px] shadow-sm"
-          >
-            {view.label}
-          </button>
-        ))}
-      </div>
+      <ViewerToolbar rig={rigOf} />
     </div>
   )
 }

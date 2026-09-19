@@ -8,10 +8,12 @@
  * 지그인지 화면에서 구별할 수 없다.
  */
 
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+
+import { CameraRig } from '@/shared/viewer/cameraRig'
+import { ViewerToolbar } from '@/shared/viewer/ViewerToolbar'
 
 export interface ViewerModel {
   /** Blob URL 또는 내려받을 수 있는 주소. */
@@ -22,6 +24,8 @@ export interface ViewerModel {
 
 export function ModelViewer({ models, className }: { models: ViewerModel[]; className?: string }) {
   const mount = useRef<HTMLDivElement | null>(null)
+  const rigRef = useRef<CameraRig | null>(null)
+  const rigOf = useCallback(() => rigRef.current, [])
 
   useEffect(() => {
     const container = mount.current
@@ -31,7 +35,6 @@ export function ModelViewer({ models, className }: { models: ViewerModel[]; clas
     const dark = document.documentElement.classList.contains('dark')
     scene.background = new THREE.Color(dark ? '#18181b' : '#f4f4f5')
 
-    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100_000)
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     renderer.setPixelRatio(window.devicePixelRatio)
     container.appendChild(renderer.domElement)
@@ -41,8 +44,9 @@ export function ModelViewer({ models, className }: { models: ViewerModel[]; clas
     sun.position.set(1, 2, 3)
     scene.add(sun)
 
-    const controls = new OrbitControls(camera, renderer.domElement)
-    controls.enableDamping = true
+    const rig = new CameraRig(renderer.domElement)
+    rigRef.current = rig
+    const controls = rig.controls
 
     const loader = new GLTFLoader()
     const group = new THREE.Group()
@@ -59,12 +63,7 @@ export function ModelViewer({ models, className }: { models: ViewerModel[]; clas
       const size = box.getSize(new THREE.Vector3())
       const center = box.getCenter(new THREE.Vector3())
       const radius = Math.max(size.x, size.y, size.z) || 1
-      camera.position.set(center.x + radius * 1.2, center.y + radius * 0.9, center.z + radius * 1.4)
-      camera.near = radius / 100
-      camera.far = radius * 100
-      camera.updateProjectionMatrix()
-      controls.target.copy(center)
-      controls.update()
+      rig.fit(box)
       const grid = new THREE.GridHelper(radius * 4, 20, 0x888888, 0xcccccc)
       grid.position.set(center.x, box.min.y, center.z)
       scene.add(grid)
@@ -107,8 +106,7 @@ export function ModelViewer({ models, className }: { models: ViewerModel[]; clas
     function resize() {
       const { clientWidth: w, clientHeight: h } = container!
       renderer.setSize(w, h, false)
-      camera.aspect = w / Math.max(h, 1)
-      camera.updateProjectionMatrix()
+      rig.setAspect(w / Math.max(h, 1))
     }
     resize()
     const observer = new ResizeObserver(resize)
@@ -118,7 +116,7 @@ export function ModelViewer({ models, className }: { models: ViewerModel[]; clas
     function animate() {
       frame = requestAnimationFrame(animate)
       controls.update()
-      renderer.render(scene, camera)
+      renderer.render(scene, rig.camera)
     }
     animate()
 
@@ -126,13 +124,19 @@ export function ModelViewer({ models, className }: { models: ViewerModel[]; clas
       disposed = true
       cancelAnimationFrame(frame)
       observer.disconnect()
-      controls.dispose()
+      rig.dispose()
+      rigRef.current = null
       renderer.dispose()
       container.removeChild(renderer.domElement)
     }
   }, [models])
 
-  return <div ref={mount} className={className ?? 'h-[480px] w-full rounded-md border'} />
+  return (
+    <div className={`relative ${className ?? 'h-[480px] w-full rounded-md border'}`}>
+      <div ref={mount} className="h-full w-full" />
+      <ViewerToolbar rig={rigOf} />
+    </div>
+  )
 }
 
 export default ModelViewer

@@ -142,8 +142,9 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
               전체 선택 ({viewable.length})
             </label>
           )}
-          <div className="max-h-[75vh] overflow-auto rounded-md border">
-            <Table>
+          {/* 변수가 많으면 가로로도 스크롤 — 표가 내용만큼 넓어지게(min-w-max) 두고 줄바꿈을 막는다. */}
+          <div className="max-h-[calc(100vh-15rem)] overflow-auto rounded-md border">
+            <Table className="min-w-max whitespace-nowrap">
               <TableHeader>
                 <TableRow>
                   {picking && (
