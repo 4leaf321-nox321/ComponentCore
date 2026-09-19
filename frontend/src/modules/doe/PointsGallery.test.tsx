@@ -105,3 +105,32 @@ test('메시를 합치면 면마다 어느 점인지 붙고 번호가 이어진�
   ])
   expect(merged.bbox).toEqual({ min: [-1, 0, 0], max: [2, 1, 3] })
 })
+
+test('고른 점이 상한을 넘으면 쪽으로 넘겨 가며 다 본다', async () => {
+  const many = {
+    ...STUDY,
+    point_count: 30,
+    done: 30,
+    failed: 0,
+    points: Array.from({ length: 30 }, (_, i) => ({ id: `p${i}`, number: i + 1, params: { 두께: i }, status: 'ok', error: '', metrics: null, step_file: `points/p${i}.step` })),
+  } as unknown as DoeStudy
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const n = Number(String(input).match(/points\/(\d+)\/mesh/)?.[1] ?? 0)
+    return new Response(JSON.stringify(meshOf(n)), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  })
+  render(
+    <MemoryRouter>
+      <DoeStudyView study={many} onReload={() => {}} />
+    </MemoryRouter>,
+  )
+  fireEvent.click(screen.getByRole('button', { name: '나란히' }))
+  fireEvent.click(screen.getByLabelText('전체 선택'))
+  // 24씩 — 첫 쪽은 1–24, 4열.
+  await waitFor(() => expect(screen.getByTestId('grid').textContent!.split(',')).toHaveLength(24))
+  expect(screen.getByText('1–24 / 30')).toBeInTheDocument()
+  expect(screen.getByTestId('grid').getAttribute('data-columns')).toBe('4')
+  fireEvent.click(screen.getByRole('button', { name: '다음 쪽' }))
+  await waitFor(() => expect(screen.getByTestId('grid').textContent!.split(',')).toHaveLength(6))
+  expect(screen.getByText('25–30 / 30')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '다음 쪽' })).toBeDisabled()
+})

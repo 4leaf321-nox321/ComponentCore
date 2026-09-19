@@ -61,11 +61,25 @@ def check_root() -> Path:
     return root
 
 
+def _samples(db: Session, raw: dict[str, Any]) -> int:
+    """LHS 표본 수 — 상한은 관리자 설정. 넘으면 이유와 상한을 말한다."""
+    samples = int(raw.get("samples") or 20)
+    if raw.get("method", "factorial") == "lhs":
+        limit = settings_store.doe_max_samples(db)
+        if samples > limit:
+            raise AppError(
+                code("DOE", 14),
+                f"LHS 표본 수 {samples} 는 상한 {limit} 을 넘습니다 — 관리자가 서버 설정에서 "
+                "올릴 수 있습니다.",
+            )
+    return samples
+
+
 def preview(db: Session, raw: dict[str, Any]) -> dict[str, Any]:
     """만들기 전에 **몇 개인지** 와 앞 몇 줄. 격자는 곱으로 늘어난다."""
     factors = _factors(raw.get("factors") or [])
     method = raw.get("method", "factorial")
-    samples = int(raw.get("samples") or 20)
+    samples = _samples(db, raw)
     seed = int(raw.get("seed") or 1)
     total = engine.count(factors, method, samples)
     limit = settings_store.doe_max_points(db)
@@ -77,6 +91,7 @@ def preview(db: Session, raw: dict[str, Any]) -> dict[str, Any]:
     return {
         "count": total,
         "max": limit,
+        "max_samples": settings_store.doe_max_samples(db),
         "too_many": total > limit,
         "points": rows[:20],
         "varying": [f.name for f in factors if f.varying],
@@ -95,7 +110,7 @@ def _points(db: Session, raw: dict[str, Any]) -> list[dict[str, float]]:
         return engine.build_points(
             _factors(raw.get("factors") or []),
             method=raw.get("method", "factorial"),
-            samples=int(raw.get("samples") or 20),
+            samples=_samples(db, raw),
             seed=int(raw.get("seed") or 1),
             limit=settings_store.doe_max_points(db),
         )

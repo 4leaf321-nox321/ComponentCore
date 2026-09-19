@@ -15,7 +15,7 @@ function mockApi(count = 10) {
     const body = init?.body ? JSON.parse(String(init.body)) : null
     calls.push({ url, body })
     const payload = url.endsWith('/doe/preview')
-      ? { count, max: 200, too_many: count > 200, points: [], varying: ['두께'] }
+      ? { count, max: 200, max_samples: 500, too_many: count > 200, points: [], varying: ['두께'] }
       : { id: 'study-1' }
     return new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } })
   })

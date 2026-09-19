@@ -273,8 +273,8 @@ export function DoeForm({
         {method === 'lhs' && (
           <>
             <div className="space-y-1">
-              <Label htmlFor="doe-samples">표본 수</Label>
-              <Input id="doe-samples" type="number" min={1} value={String(samples)} onChange={(e) => setSamples(Math.max(1, Number(e.target.value)))} className="w-24" />
+              <Label htmlFor="doe-samples">표본 수{preview?.max_samples ? ` (≤ ${preview.max_samples})` : ''}</Label>
+              <Input id="doe-samples" type="number" min={1} max={preview?.max_samples} value={String(samples)} onChange={(e) => setSamples(Math.max(1, Number(e.target.value)))} className="w-24" />
             </div>
             <div className="space-y-1">
               <Label htmlFor="doe-seed">시드</Label>

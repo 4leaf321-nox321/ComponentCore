@@ -24,7 +24,8 @@ class FactorIn(BaseModel):
 class PreviewRequest(BaseModel):
     factors: list[FactorIn]
     method: str = "factorial"
-    samples: int = Field(default=20, ge=1, le=500)
+    samples: int = Field(default=20, ge=1)
+    """LHS 표본 수. 상한은 서버 설정(관리자가 바꾼다) — 서비스가 본다."""
     seed: int = 1
 
 

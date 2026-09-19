@@ -39,6 +39,17 @@ KNOWN: dict[str, Known] = {
         minimum=1,
         maximum=5000,
     ),
+    "doe_max_samples": Known(
+        key="doe_max_samples",
+        label="DOE LHS 표본 수 상한",
+        description=(
+            "라틴 하이퍼큐브로 뽑을 수 있는 표본 수. 설계점 상한이 먼저 걸리므로 보통 그와 "
+            "같거나 그보다 크게 둔다."
+        ),
+        default=lambda: get_settings().doe_max_samples,
+        minimum=1,
+        maximum=20000,
+    ),
 }
 
 
@@ -53,6 +64,10 @@ def get_int(db: Session, key: str) -> int:
 
 def doe_max_points(db: Session) -> int:
     return get_int(db, "doe_max_points")
+
+
+def doe_max_samples(db: Session) -> int:
+    return get_int(db, "doe_max_samples")
 
 
 def listing(db: Session) -> list[dict[str, Any]]:

@@ -75,6 +75,8 @@ export function PointsGallery({
   const [loading, setLoading] = useState<Set<number>>(new Set())
   const [failed, setFailed] = useState<Record<number, string>>({})
   const inflight = useRef<Set<number>>(new Set())
+  /** 고른 점이 상한을 넘으면 쪽으로 나눠 본다 — 수백 개도 넘겨 가며 다 본다. */
+  const [page, setPage] = useState(0)
 
   const ready = useMemo(() => study.points.filter((one) => one.status === 'ok').map((one) => one.number), [study.points])
 
@@ -100,14 +102,20 @@ export function PointsGallery({
     [meshes, study.id],
   )
 
-  // 보여야 할 점만 받아 온다 — 모드에 따라 하나, 또는 고른 것들(상한까지).
+  // 보여야 할 점만 받아 온다 — 모드에 따라 하나, 또는 고른 것들 중 이 쪽(상한만큼).
   const limit = mode === 'grid' ? MAX_GRID : MAX_OVERLAY
-  const shown = mode === 'single' ? (focus === null ? [] : [focus]) : picked.slice(0, limit)
+  const pages = Math.max(1, Math.ceil(picked.length / limit))
+  const at = Math.min(page, pages - 1)
+  const shown = mode === 'single' ? (focus === null ? [] : [focus]) : picked.slice(at * limit, (at + 1) * limit)
+  useEffect(() => {
+    if (page > pages - 1) setPage(pages - 1)
+  }, [page, pages])
   useEffect(() => {
     for (const number of shown) if (ready.includes(number)) void load(number)
   }, [shown, ready, load])
 
-  const colorOf = (number: number) => POINT_COLORS[Math.max(0, picked.indexOf(number)) % POINT_COLORS.length]
+  // 색은 이 쪽 안의 자리로 — 쪽마다 처음부터 다시 색을 매긴다(열두 색을 수백에 돌리면 뜻이 없다).
+  const colorOf = (number: number) => POINT_COLORS[Math.max(0, shown.indexOf(number)) % POINT_COLORS.length]
   const paramsLine = (number: number) => {
     const point = study.points.find((one) => one.number === number)
     return point ? Object.entries(point.params).map(([k, v]) => `${k} ${v}`).join(' · ') : ''
@@ -117,7 +125,7 @@ export function PointsGallery({
     const items = shown.filter((n) => meshes[n]).map((n) => ({ label: pointLabel(n), mesh: meshes[n].mesh }))
     return items.length > 0 ? mergeMeshes(items) : null
   }, [shown, meshes])
-  const overlayColors = useMemo(() => Object.fromEntries(shown.map((n) => [pointLabel(n), colorOf(n)])), [shown, picked]) // eslint-disable-line react-hooks/exhaustive-deps
+  const overlayColors = useMemo(() => Object.fromEntries(shown.map((n) => [pointLabel(n), colorOf(n)])), [shown]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const viewerHeight = 'h-[520px]'
   const gridItems = useMemo(
@@ -164,13 +172,25 @@ export function PointsGallery({
         {mode === 'single' ? (
           <span className="text-muted-foreground text-xs">오른쪽 표에서 줄을 누르거나 ◀ ▶ 로 넘깁니다. 카메라는 그대로라 견주기 쉽습니다.</span>
         ) : (
-          <span className="text-muted-foreground text-xs">
-            오른쪽 표의 체크로 고릅니다 — 한 번에 <b>{limit}</b> 개까지 ({picked.length} 고름
-            {picked.length > limit && `, 앞 ${limit} 개만 보임`}).{mode === 'grid' && ' 하나를 돌리면 모두 같이 돕니다.'}
+          <span className="text-muted-foreground flex flex-wrap items-center gap-1 text-xs">
+            오른쪽 표의 체크로 고릅니다 — 한 번에 <b>{limit}</b> 개씩 ({picked.length} 고름).{mode === 'grid' && ' 하나를 돌리면 모두 같이 돕니다.'}
             {picked.length > 0 && (
-              <button type="button" className="ml-1 underline" onClick={() => onPicked([])}>
+              <button type="button" className="underline" onClick={() => onPicked([])}>
                 모두 해제
               </button>
+            )}
+            {pages > 1 && (
+              <span className="ml-2 flex items-center gap-1">
+                <Button size="sm" variant="outline" className="h-6 px-1.5" onClick={() => setPage(Math.max(0, at - 1))} disabled={at === 0} aria-label="이전 쪽">
+                  <ChevronLeft className="size-3.5" />
+                </Button>
+                <span className="font-mono">
+                  {at * limit + 1}–{Math.min(picked.length, (at + 1) * limit)} / {picked.length}
+                </span>
+                <Button size="sm" variant="outline" className="h-6 px-1.5" onClick={() => setPage(Math.min(pages - 1, at + 1))} disabled={at >= pages - 1} aria-label="다음 쪽">
+                  <ChevronRight className="size-3.5" />
+                </Button>
+              </span>
             )}
           </span>
         )}

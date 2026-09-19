@@ -18,7 +18,7 @@ const WORK2 = { ...WORKS.items[1], current: { recipe: { params: { 지그_높이:
 beforeEach(() => {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
     const url = String(input)
-    const body = url.endsWith('/works/w2') ? WORK2 : url.includes('/doe/preview') ? { count: 3, max: 200, too_many: false, points: [], varying: ['지그_높이'] } : WORKS
+    const body = url.endsWith('/works/w2') ? WORK2 : url.includes('/doe/preview') ? { count: 3, max: 200, max_samples: 500, too_many: false, points: [], varying: ['지그_높이'] } : WORKS
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
   })
 })
@@ -63,7 +63,7 @@ test('지난 DOE 에서 「설정 바꿔 다시 만들기」 로 오면 대상�
   }
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
     const url = String(input)
-    const body = url.endsWith('/doe/s1') ? STUDY : url.endsWith('/works/w2') ? WORK2 : url.includes('/doe/preview') ? { count: 12, max: 200, too_many: false, points: [], varying: ['지그_높이'] } : WORKS
+    const body = url.endsWith('/doe/s1') ? STUDY : url.endsWith('/works/w2') ? WORK2 : url.includes('/doe/preview') ? { count: 12, max: 200, max_samples: 500, too_many: false, points: [], varying: ['지그_높이'] } : WORKS
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
   })
   render(
@@ -78,5 +78,5 @@ test('지난 DOE 에서 「설정 바꿔 다시 만들기」 로 오면 대상�
   expect(await screen.findByLabelText('이름')).toHaveValue('높이 훑기')
   expect(screen.getByLabelText('지그_높이 시작')).toHaveValue(20)
   expect(screen.getByLabelText('지그_높이 끝')).toHaveValue(30)
-  expect(screen.getByLabelText('표본 수')).toHaveValue(12)
+  expect(screen.getByLabelText(/^표본 수/)).toHaveValue(12)
 })

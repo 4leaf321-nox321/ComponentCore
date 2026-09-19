@@ -66,6 +66,8 @@ export interface PointMesh {
 export interface Preview {
   count: number
   max: number
+  /** LHS 표본 수 상한 — 관리자 설정. */
+  max_samples: number
   too_many: boolean
   points: Record<string, number>[]
   varying: string[]

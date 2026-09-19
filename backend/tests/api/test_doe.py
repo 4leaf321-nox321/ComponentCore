@@ -248,3 +248,32 @@ def test_값은_가공_단위로_맞춘다(client: TestClient, member: Signed) -
     assert values_a == [6.0, 6.3, 6.7, 7.0]
     assert values_b == [6.0, 6.5, 7.0]  # 0.5 단위로 맞추니 넷이 셋으로 준다
     assert got["count"] == 12
+
+
+def test_LHS_표본_수_상한도_관리자가_바꾼다(
+    client: TestClient, member: Signed, admin: Signed
+) -> None:
+    factors = [{"name": "두께", "mode": "range", "start": 4, "end": 12, "steps": 5}]
+    client.put(
+        "/api/server/settings/doe_max_samples", json={"value": 30}, headers=admin.headers
+    )
+    too_many = client.post(
+        "/api/doe/preview",
+        json={"factors": factors, "method": "lhs", "samples": 31},
+        headers=member.headers,
+    )
+    assert too_many.status_code == 400 and too_many.json()["error"]["code"] == "AJG-DOE-0014"
+    ok = client.post(
+        "/api/doe/preview",
+        json={"factors": factors, "method": "lhs", "samples": 30},
+        headers=member.headers,
+    ).json()
+    assert ok["count"] == 30 and ok["max_samples"] == 30
+    # 전체 조합은 표본 수를 보지 않는다.
+    grid = client.post(
+        "/api/doe/preview", json={"factors": factors, "samples": 999}, headers=member.headers
+    )
+    assert grid.status_code == 200 and grid.json()["count"] == 5
+    client.put(
+        "/api/server/settings/doe_max_samples", json={"value": None}, headers=admin.headers
+    )
