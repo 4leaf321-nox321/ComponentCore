@@ -53,6 +53,9 @@ class StudySummaryOut(BaseModel):
     name: str
     description: str
     work_id: uuid.UUID | None
+    work_name: str | None
+    work_kind: str | None
+    """대상 — 어느 도면(부품 · 지그 · 조립)을 훑는가. 지워졌으면 None(스냅샷은 남는다)."""
     method: str
     samples: int
     seed: int

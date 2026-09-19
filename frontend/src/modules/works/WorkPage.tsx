@@ -4,10 +4,13 @@
  * **부품이든 지그든 그리는 방법은 같다** — 도면 한 줄기다. 다른 것은 작업의 **종류**뿐이고,
  * 그것이 「탭」 과 「어디로 승격하나」 와 「덤으로 무엇을 쓸 수 있나」 를 정한다:
  *
- * - 부품: 탭 = 도면 · 실험계획, 승격 = **공용 부품**, 덤 = 지그 생성기(이 부품을 잡는 지그를
- *   규칙으로 만들어 준다).
- * - 지그: 탭 = 도면 · 실험계획, 승격 = **공용 지그**.
- * - 조립: 탭 = 조립 · 실험계획. 부품 · 지그를 가져다 놓는다(승격은 없다).
+ * - 부품: 탭 = 도면, 승격 = **공용 부품**, 덤 = 지그 생성기(이 부품을 잡는 지그를 규칙으로
+ *   만들어 준다).
+ * - 지그: 탭 = 도면, 승격 = **공용 지그**.
+ * - 조립: 탭 = 조립. 부품 · 지그를 가져다 놓는다(승격은 없다).
+ *
+ * 여러 벌을 만드는 일(실험계획)은 **여기서 하지 않는다** — 실험계획 공간이 이 도면을 대상으로
+ * 고른다. 도면을 저장할 때까지 하는 일은 그리기와 변수 심기뿐이다.
  *
  * 그래서 「이 도면을 무엇으로 올릴까」 를 물을 일이 없다 — 종류가 이미 답이다.
  */
@@ -16,7 +19,6 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import type { Recipe } from '@/modules/cad/api'
-import { WorkDoeTab } from '@/modules/doe/WorkDoeTab'
 import { AssemblyEditor } from '@/modules/works/AssemblyEditor'
 import { GeometryJobView } from '@/modules/cad/GeometryJobView'
 import { RecipeEditor } from '@/modules/cad/RecipeEditor'
@@ -198,6 +200,10 @@ export default function WorkPage() {
         back={{ to: '/works', label: '내 작업' }}
         actions={
           <>
+            {/* 여러 벌 만드는 일은 실험계획 공간에서 — 여기서는 이 도면을 대상으로 넘겨 줄 뿐이다. */}
+            <Button variant="outline" onClick={() => navigate(`/doe/new?work=${id}`)} disabled={w.current_version === 0}>
+              실험계획 만들기
+            </Button>
             {w.promoted_part_id && (
               <Link to={`/parts/${w.promoted_part_id}`} className="text-muted-foreground text-xs hover:underline">
                 부품으로 올라감
@@ -225,7 +231,7 @@ export default function WorkPage() {
           {!isJig && !isAssembly && (
             <TabsTrigger value="jig">지그 만들어 주기 {w.jig_run_count > 0 && `(${w.jig_run_count})`}</TabsTrigger>
           )}
-          <TabsTrigger value="doe">실험계획</TabsTrigger>
+
         </TabsList>
 
         {/* ---------------- 부품 ---------------- */}
@@ -527,20 +533,7 @@ export default function WorkPage() {
           )}
         </TabsContent>
 
-        {/* ---------------- 실험계획 ---------------- */}
-        <TabsContent value="doe" className="space-y-4 pt-4">
-          <WorkDoeTab
-            workId={id}
-            work={w}
-            // 저장하지 않은 고침이 있으면 DOE 는 그것을 못 본다 — 탭이 그 사실을 말하게 한다.
-            pendingDraft={editing && draft !== null && JSON.stringify(draft) !== JSON.stringify(w.current?.recipe)}
-            onEditRecipe={() => {
-              setTab('geometry')
-              // 이미 고치는 중이면 **다시 시작하지 않는다** — 적어 둔 것이 날아간다.
-              if (!editing) startEditing()
-            }}
-          />
-        </TabsContent>
+
       </Tabs>
 
       <Dialog open={promoting !== null} onOpenChange={(open) => !open && !busy && setPromoting(null)}>

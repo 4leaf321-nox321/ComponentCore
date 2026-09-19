@@ -5673,6 +5673,28 @@
             ],
             "title": "Work Id"
           },
+          "work_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Name"
+          },
+          "work_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Kind"
+          },
           "method": {
             "type": "string",
             "title": "Method"
@@ -5751,6 +5773,8 @@
           "name",
           "description",
           "work_id",
+          "work_name",
+          "work_kind",
           "method",
           "samples",
           "seed",
@@ -5790,6 +5814,28 @@
             ],
             "title": "Work Id"
           },
+          "work_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Name"
+          },
+          "work_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Kind"
+          },
           "method": {
             "type": "string",
             "title": "Method"
@@ -5822,6 +5868,8 @@
           "name",
           "description",
           "work_id",
+          "work_name",
+          "work_kind",
           "method",
           "samples",
           "seed",

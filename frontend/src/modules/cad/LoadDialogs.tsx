@@ -38,8 +38,8 @@ export function LoadRecipeDialog({ open, onClose, onLoad }: { open: boolean; onC
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>레시피 불러오기</DialogTitle>
-          <DialogDescription>내장 템플릿과 저장한 템플릿. 고르면 지금 레시피를 바꿉니다.</DialogDescription>
+          <DialogTitle>템플릿 불러오기</DialogTitle>
+          <DialogDescription>내장 템플릿과 템플릿 라이브러리. 고르면 지금 도면을 바꿉니다.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1">
@@ -139,7 +139,7 @@ export function LoadWorkDialog({ open, onClose, onLoad, currentWorkId }: { open:
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>기존 작업 불러오기</DialogTitle>
-          <DialogDescription>「레시피 가져오기」 는 그 작업의 현재 부품을 여기로 복사합니다(원본은 그대로). 「열기」 는 그 작업으로 갑니다.</DialogDescription>
+          <DialogDescription>「도면 가져오기」 는 그 작업의 현재 도면을 여기로 복사합니다(원본은 그대로). 「열기」 는 그 작업으로 갑니다.</DialogDescription>
         </DialogHeader>
         <div className="space-y-1">
           {(works.data?.items ?? [])
@@ -172,7 +172,7 @@ export function LoadWorkDialog({ open, onClose, onLoad, currentWorkId }: { open:
                         }
                       }}
                     >
-                      레시피 가져오기
+                      도면 가져오기
                     </Button>
                   </div>
                 }

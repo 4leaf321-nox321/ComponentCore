@@ -29,6 +29,8 @@ export interface DoeStudySummary {
   name: string
   description: string
   work_id: string | null
+  work_name: string | null
+  work_kind: 'part' | 'jig' | 'assembly' | null
   method: 'factorial' | 'lhs'
   samples: number
   seed: number

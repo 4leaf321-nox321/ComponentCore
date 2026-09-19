@@ -381,13 +381,13 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                   icon={FilePlus}
                   label="새로"
                   onClick={() => {
-                    if (nodes.length > 0 && !window.confirm('지금 그린 것을 지우고 빈 레시피에서 시작합니까?')) return
+                    if (nodes.length > 0 && !window.confirm('지금 그린 것을 지우고 빈 도면에서 시작합니까?')) return
                     emit(() => ({ version: 1, nodes: [] }))
                     setSelectedId(null)
                     setTab('스케치')
                   }}
                 />
-                <RibbonButton icon={FolderOpen} label="레시피" title="레시피 불러오기 — 내장 · 저장 템플릿" onClick={() => setLoading('recipe')} />
+                <RibbonButton icon={FolderOpen} label="템플릿" title="템플릿 불러오기 — 내장 · 템플릿 라이브러리" onClick={() => setLoading('recipe')} />
                 <RibbonButton icon={Files} label="기존 작업" title="기존 작업 불러오기" onClick={() => setLoading('work')} />
                 {file?.importStep && (
                   <>
@@ -405,7 +405,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                     <RibbonButton
                       icon={FileUp}
                       label={file.importStep.busy ? '올리는 중…' : file.importStep.label}
-                      title="STEP 파일에서 시작 — 올린 형상이 레시피의 첫 피처가 됩니다"
+                      title="STEP 파일에서 시작 — 올린 형상이 도면의 첫 피처가 됩니다"
                       disabled={file.importStep.busy}
                       onClick={() => stepInput.current?.click()}
                     />
@@ -555,7 +555,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
             {nodes.length > 0 && <ParamsPanel value={value} onChange={onChange} />}
             {nodes.length === 0 ? (
               <div className="text-muted-foreground rounded-md border border-dashed p-3 text-xs">
-                빈 레시피입니다. 「스케치」 탭의 스케치 단추부터 누르세요. 「파일」 탭에서 템플릿이나 기존 작업을 불러올 수도 있습니다. 스케치를 그리고 「돌출」 을 더하면 입체가
+                빈 도면입니다. 「스케치」 탭의 스케치 단추부터 누르세요. 「파일」 탭에서 템플릿이나 기존 작업을 불러올 수도 있습니다. 스케치를 그리고 「돌출」 을 더하면 입체가
                 됩니다.
               </div>
             ) : (
@@ -720,7 +720,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
               </Suspense>
             ) : (
               <div className={`text-muted-foreground flex ${viewerHeight} items-center justify-center rounded-md border border-dashed text-sm`}>
-                {nodes.length === 0 ? '피처를 더하면 여기에 그려집니다.' : valid ? '그리는 중…' : '레시피가 맞으면 여기에 그려집니다.'}
+                {nodes.length === 0 ? '피처를 더하면 여기에 그려집니다.' : valid ? '그리는 중…' : '도면이 맞으면 여기에 그려집니다.'}
               </div>
             )}
             {summary?.is_sketch && (

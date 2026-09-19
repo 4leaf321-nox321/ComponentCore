@@ -25,6 +25,7 @@ from app.modules.doe.schemas import (
 )
 from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Job
+from app.modules.works.models import Work
 from app.shared.auth import current_user
 from app.shared.errors import AppError, code
 from app.shared.pagination import Page, clamp_limit
@@ -32,15 +33,34 @@ from app.shared.pagination import Page, clamp_limit
 router = APIRouter(prefix="/doe", tags=["doe"])
 
 
-def _summary(study: DoeStudy) -> StudySummaryOut:
-    return StudySummaryOut.model_validate(study)
+def _summary(db: Session, study: DoeStudy) -> StudySummaryOut:
+    work = db.get(Work, study.work_id) if study.work_id else None
+    return StudySummaryOut(
+        **{
+            key: getattr(study, key)
+            for key in (
+                "id",
+                "name",
+                "description",
+                "work_id",
+                "method",
+                "samples",
+                "seed",
+                "material",
+                "point_count",
+                "created_at",
+            )
+        },
+        work_name=work.name if work else None,
+        work_kind=work.kind if work else None,
+    )
 
 
 def _out(db: Session, study: DoeStudy) -> StudyOut:
     rows = services.points(db, study)
     job = db.get(Job, study.job_id) if study.job_id else None
     return StudyOut(
-        **_summary(study).model_dump(),
+        **_summary(db, study).model_dump(),
         recipe=study.recipe,
         factors=study.factors,
         export_dir_windows=files.windows_path(Path(study.export_dir)),
@@ -67,7 +87,9 @@ def list_studies(
 ) -> Page[StudySummaryOut]:
     size = clamp_limit(limit)
     rows, total = services.list_studies(db, user, work_id=work_id, limit=size, offset=offset)
-    return Page(items=[_summary(one) for one in rows], total=total, limit=size, offset=offset)
+    return Page(
+        items=[_summary(db, one) for one in rows], total=total, limit=size, offset=offset
+    )
 
 
 @router.post("", response_model=StudyOut, status_code=201)

@@ -60,7 +60,7 @@ export function SaveTemplateDialog({
           <DialogHeader>
             <DialogTitle>템플릿으로 저장</DialogTitle>
             <DialogDescription>
-              지금 레시피가 「그리기」 의 시작 목록에 들어갑니다. 버전은 없습니다 — 시작점일 뿐이고, 고친
+              지금 도면이 템플릿 라이브러리에 들어갑니다 — 다음에 부품 · 지그를 그릴 때 출발점으로 고릅니다. 버전은 없습니다 — 시작점일 뿐이고, 고친
               결과는 작업으로 갑니다.
             </DialogDescription>
           </DialogHeader>

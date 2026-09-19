@@ -51,8 +51,8 @@ test('설계점이 너무 많으면 만들지 못하게 막는다', async () => 
 test('변수가 없으면 어디서 어떻게 만드는지 알려 주고, 편집기로 보내 준다', () => {
   const onEditRecipe = vi.fn()
   render(<DoeForm recipe={{ nodes: [] }} onCreated={() => {}} onEditRecipe={onEditRecipe} />)
-  expect(screen.getByText(/먼저 레시피에 「변수」 를 만들어야 합니다/)).toBeInTheDocument()
+  expect(screen.getByText(/먼저 도면에 「변수」 를 만들어야 합니다/)).toBeInTheDocument()
   expect(screen.getByText(/fx/)).toBeInTheDocument() // 어느 단추를 누르는지까지
-  fireEvent.click(screen.getByRole('button', { name: '레시피 고치러 가기' }))
+  fireEvent.click(screen.getByRole('button', { name: '도면 고치러 가기' }))
   expect(onEditRecipe).toHaveBeenCalled()
 })
