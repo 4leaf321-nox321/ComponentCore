@@ -285,6 +285,8 @@ def create_work(
     db.flush()
     if recipe is not None:
         add_version(db, work, recipe=recipe, source=source, note=note or "첫 버전", by=owner)
+    # 도면 없는 작업(빈 조립)은 add_version 이 안 돌아 여기서 확정해야 남는다.
+    db.commit()
     db.refresh(work)
     return work
 

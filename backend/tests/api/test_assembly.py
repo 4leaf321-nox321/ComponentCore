@@ -148,3 +148,15 @@ def test_없는_구성품은_어느_피처에서_왜인지_말한다(client: Tes
     assert got.status_code == 400
     assert got.json()["error"]["details"]["node_id"] == "없는것"
     assert "찾지 못했습니다" in got.json()["error"]["message"]
+
+
+def test_빈_조립은_도면_없이_만들어도_남는다(client: TestClient, member: Signed) -> None:
+    """「새 조립」 은 도면 없이 작업만 만든다 — 다음 요청에서도 찾을 수 있어야 한다."""
+    made = client.post(
+        "/api/works", json={"name": "새 조립", "kind": "assembly"}, headers=member.headers
+    )
+    assert made.status_code == 201, made.text
+    got = client.get(f"/api/works/{made.json()['id']}", headers=member.headers)
+    assert got.status_code == 200, got.text
+    assert got.json()["kind"] == "assembly"
+    assert got.json()["current_version"] == 0
