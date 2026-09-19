@@ -347,7 +347,6 @@ export default function WorkPage() {
                   템플릿으로 저장
                   {selectedVersion && selectedVersion.number !== w.current_version ? ` (v${selectedVersion.number})` : ''}
                 </Button>
-                {!isAssembly && <span className="text-muted-foreground text-xs">STEP 을 올리려면 「수정」 › 「파일」 탭에서.</span>}
               </div>
 
               {w.current_version === 0 && isAssembly ? (
