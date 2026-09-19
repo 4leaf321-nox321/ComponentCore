@@ -19,6 +19,8 @@ export interface GridItem {
   label: React.ReactNode
   mesh: MeshData
   color?: number
+  /** 이 칸을 도드라지게 — 목록에서 고른 점. */
+  highlight?: boolean
 }
 
 const FACE_COLOR = 0x3b82f6
@@ -184,7 +186,8 @@ export function GridViewer({ items, columns, cellClass, className }: { items: Gr
               if (el) cells.current.set(item.key, el)
               else cells.current.delete(item.key)
             }}
-            className={`relative rounded-md border ${cellClass ?? 'aspect-square'}`}
+            className={`relative rounded-md border ${cellClass ?? 'aspect-square'} ${item.highlight ? 'border-primary ring-primary ring-2' : ''}`}
+            aria-current={item.highlight ? 'true' : undefined}
           >
             <div className="pointer-events-auto absolute top-1 left-1 rounded bg-background/80 px-1.5 py-0.5 text-xs">{item.label}</div>
           </div>

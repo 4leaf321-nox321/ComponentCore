@@ -163,7 +163,7 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
               </TableHeader>
               <TableBody>
                 {rows.map((point) => {
-                  const row = pointRowProps(point, focus, picked, setFocus, setPicked)
+                  const row = pointRowProps(point, focus, picked, setFocus, setPicked, galleryMode)
                   return (
                   <TableRow
                     key={point.id}

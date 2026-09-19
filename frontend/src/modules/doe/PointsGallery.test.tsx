@@ -6,11 +6,15 @@ import { DoeStudyView } from '@/modules/doe/DoeStudyView'
 import { mergeMeshes } from '@/modules/doe/PointsGallery'
 
 vi.mock('@/shared/viewer/PickViewer', () => ({
-  default: ({ mesh }: { mesh: { faces: { part?: string }[] } }) => <div data-testid="viewer">{[...new Set(mesh.faces.map((f) => f.part ?? '-'))].join(',')}</div>,
+  default: ({ mesh, emphasis }: { mesh: { faces: { part?: string }[] }; emphasis?: string | null }) => (
+    <div data-testid="viewer" data-emphasis={emphasis ?? ''}>
+      {[...new Set(mesh.faces.map((f) => f.part ?? '-'))].join(',')}
+    </div>
+  ),
 }))
 vi.mock('@/shared/viewer/GridViewer', () => ({
-  GridViewer: ({ items, columns }: { items: { key: string }[]; columns: number }) => (
-    <div data-testid="grid" data-columns={columns}>
+  GridViewer: ({ items, columns }: { items: { key: string; highlight?: boolean }[]; columns: number }) => (
+    <div data-testid="grid" data-columns={columns} data-highlight={items.find((one) => one.highlight)?.key ?? ''}>
       {items.map((one) => one.key).join(',')}
     </div>
   ),
@@ -74,10 +78,18 @@ test('표의 줄을 누르면 그 점의 형상을 받아 보고, 체크한 점�
   fireEvent.click(screen.getByLabelText('p0002 고르기'))
   await waitFor(() => expect(screen.getByTestId('viewer').textContent).toBe('p0001,p0002'))
   expect(asked.filter((u) => u.includes('/mesh'))).toEqual(['/api/doe/s1/points/2/mesh', '/api/doe/s1/points/1/mesh'])
-  // 나란히 — 한 격자 뷰어에 칸마다. 둘이면 2열.
+  // 줄을 누르면(체크 말고) 그 점만 또렷하다. 다시 누르면 푼다. (범례에도 이름이 있어 표의 칸을 짚는다.)
+  const rowOf = (label: string) => screen.getAllByText(label).find((el) => el.closest('tr'))!
+  fireEvent.click(rowOf('p0002'))
+  expect(screen.getByTestId('viewer').getAttribute('data-emphasis')).toBe('p0002')
+  fireEvent.click(rowOf('p0002'))
+  expect(screen.getByTestId('viewer').getAttribute('data-emphasis')).toBe('')
+  // 나란히 — 한 격자 뷰어에 칸마다. 둘이면 2열. 누른 줄의 칸이 도드라진다.
   fireEvent.click(screen.getByRole('button', { name: '나란히' }))
   await waitFor(() => expect(screen.getByTestId('grid').textContent).toBe('p0001,p0002'))
   expect(screen.getByTestId('grid').getAttribute('data-columns')).toBe('2')
+  fireEvent.click(rowOf('p0001'))
+  expect(screen.getByTestId('grid').getAttribute('data-highlight')).toBe('p0001')
 
   // 전체 선택은 만들어진 점만 — 실패한 p0003 은 빠진다. 풀면 비운다.
   fireEvent.click(screen.getByLabelText('p0001 고르기')) // 하나 풀고

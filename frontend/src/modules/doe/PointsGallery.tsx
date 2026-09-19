@@ -8,6 +8,9 @@
  *
  * 격자는 정사각형 칸으로 1x1 → 2x1 → 2x2 → 3x2 → 3x3 → 4x3 → 4x4 까지 열을 늘리고, 그 뒤는
  * 4열로 세로만 는다(`gridColumns`). 하나씩 볼 때의 ◀ ▶ 는 표 위에 따로 둔다(`PointsNav`).
+ *
+ * 표의 줄을 누르면(체크 말고) 그 점이 **도드라진다**: 하나씩이면 그 점을 보고, 겹쳐 보기면
+ * 그 점만 또렷하고 나머지는 반투명, 나란히면 그 칸에 테두리. 같은 줄을 다시 누르면 푼다.
  */
 
 import { ChevronLeft, ChevronRight } from 'lucide-react'
@@ -137,6 +140,7 @@ export function PointsGallery({
         .filter((n) => meshes[n] && !failed[n])
         .map((n) => ({
           key: pointLabel(n),
+          highlight: n === focus,
           label: (
             <span className="flex items-center gap-1.5">
               <span className="size-2.5 rounded-full" style={{ background: cssColor(colorOf(n)) }} aria-hidden />
@@ -146,7 +150,7 @@ export function PointsGallery({
           ),
           mesh: meshes[n].mesh,
         })),
-    [shown, meshes, failed], // eslint-disable-line react-hooks/exhaustive-deps
+    [shown, meshes, failed, focus], // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   return (
@@ -232,7 +236,13 @@ export function PointsGallery({
           <Empty height={viewerHeight} text="표에서 견줄 점을 체크하세요 — 같은 자리에 겹쳐 그려 차이가 보입니다." />
         ) : overlay ? (
           <Suspense fallback={<Skeleton className={`${viewerHeight} w-full`} />}>
-            <PickViewer mesh={overlay} mode="none" partColors={overlayColors} className={`${viewerHeight} w-full rounded-md border`} />
+            <PickViewer
+              mesh={overlay}
+              mode="none"
+              partColors={overlayColors}
+              emphasis={focus !== null && shown.includes(focus) ? pointLabel(focus) : null}
+              className={`${viewerHeight} w-full rounded-md border`}
+            />
           </Suspense>
         ) : (
           <Skeleton className={`${viewerHeight} w-full`} />
@@ -290,14 +300,23 @@ function Empty({ height, text }: { height: string; text: string }) {
 }
 
 /** 표의 줄 하나 — 누르면 하나씩 보기의 점, 체크면 겹쳐 · 나란히의 점. */
-export function pointRowProps(point: DoePoint, focus: number | null, picked: number[], onFocus: (n: number) => void, onPicked: (next: number[]) => void) {
+export function pointRowProps(
+  point: DoePoint,
+  focus: number | null,
+  picked: number[],
+  onFocus: (n: number | null) => void,
+  onPicked: (next: number[]) => void,
+  mode: GalleryMode = 'single',
+) {
   const viewable = point.status === 'ok'
   const isPicked = picked.includes(point.number)
+  const isFocus = focus === point.number
   return {
     viewable,
-    isFocus: focus === point.number,
+    isFocus,
     isPicked,
     toggle: () => onPicked(isPicked ? picked.filter((n) => n !== point.number) : [...picked, point.number]),
-    focus: () => viewable && onFocus(point.number),
+    // 하나씩은 늘 그 점을 본다. 겹쳐 · 나란히는 도드라지게 하는 것이라 다시 누르면 푼다.
+    focus: () => viewable && onFocus(isFocus && mode !== 'single' ? null : point.number),
   }
 }
