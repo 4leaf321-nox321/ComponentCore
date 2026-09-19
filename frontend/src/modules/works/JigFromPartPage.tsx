@@ -27,6 +27,7 @@ import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
 import { Skeleton } from '@/shared/components/ui/skeleton'
 import { StatusBadge } from '@/shared/components/StatusBadge'
+import { useFillHeight } from '@/shared/hooks/useFillHeight'
 import { useResource } from '@/shared/hooks/useResource'
 
 const PickViewer = lazy(() => import('@/shared/viewer/PickViewer'))
@@ -70,6 +71,8 @@ export default function JigFromPartPage() {
   const [previewing, setPreviewing] = useState(false)
   const [previewError, setPreviewError] = useState<ApiError | Error | null>(null)
   const [emphasis, setEmphasis] = useState<string | null>(null)
+  /** 미리보기는 아래 범례 · 단추가 보일 만큼만 남기고 화면을 채운다. */
+  const fill = useFillHeight<HTMLDivElement>({ min: 380, gap: 220, deps: [source?.key, preview !== null] })
 
   useEffect(() => {
     if (!options && defaults.data) setOptions({ ...defaults.data, kind })
@@ -236,15 +239,17 @@ export default function JigFromPartPage() {
               {/* 미리보기 — 만들기와 같은 규칙. 색은 요소 종류. */}
               {source && (
                 <div className="space-y-2">
+                  <div ref={fill.ref} style={fill.style}>
                   {preview ? (
-                    <Suspense fallback={<Skeleton className="h-[calc(100vh-26rem)] min-h-[380px] w-full" />}>
-                      <PickViewer mesh={preview.mesh} mode="none" partColors={partColors} emphasis={emphasis} className="h-[calc(100vh-26rem)] min-h-[380px] w-full rounded-md border" />
+                    <Suspense fallback={<Skeleton className="h-full w-full" />}>
+                      <PickViewer mesh={preview.mesh} mode="none" partColors={partColors} emphasis={emphasis} className="h-full w-full rounded-md border" />
                     </Suspense>
                   ) : (
-                    <div className="text-muted-foreground flex h-[calc(100vh-26rem)] min-h-[380px] items-center justify-center rounded-md border border-dashed text-sm">
+                    <div className="text-muted-foreground flex h-full items-center justify-center rounded-md border border-dashed text-sm">
                       {previewing ? '미리 보는 중…' : previewError ? '이 부품에는 규칙을 적용하지 못했습니다.' : '미리 보는 중…'}
                     </div>
                   )}
+                  </div>
                   <ErrorNotice error={previewError} />
                   {preview && (
                     <>

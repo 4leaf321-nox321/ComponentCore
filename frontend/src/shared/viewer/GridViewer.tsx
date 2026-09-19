@@ -174,7 +174,7 @@ export function GridViewer({ items, columns, cellClass, className }: { items: Gr
   return (
     <div ref={mount} className={`relative ${className ?? ''}`}>
       {/* 격자는 캔버스 위에 — 칸의 자리만 잡고 이름표를 단다. 포인터는 캔버스로 흘려보낸다. */}
-      <div className="pointer-events-none relative grid gap-2" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+      <div className={`pointer-events-none relative grid gap-2 ${cellClass ? 'h-full' : ''}`} style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
         {items.map((item) => (
           <div
             key={item.key}

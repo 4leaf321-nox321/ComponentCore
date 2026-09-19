@@ -17,6 +17,7 @@ import { doeApi } from '@/modules/doe/api'
 import type { DoePoint, DoeStudy, PointMesh } from '@/modules/doe/api'
 import { Button } from '@/shared/components/ui/button'
 import { Skeleton } from '@/shared/components/ui/skeleton'
+import { useFillHeight } from '@/shared/hooks/useFillHeight'
 import type { MeshData } from '@/shared/viewer/PickViewer'
 
 const PickViewer = lazy(() => import('@/shared/viewer/PickViewer'))
@@ -127,8 +128,9 @@ export function PointsGallery({
   }, [shown, meshes])
   const overlayColors = useMemo(() => Object.fromEntries(shown.map((n) => [pointLabel(n), colorOf(n)])), [shown]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 화면을 채운다 — 머리(경로 · 요약 · 모드 줄)만큼 빼고 나머지 높이. 격자도 칸이 하나면 같다.
-  const viewerHeight = 'h-[calc(100vh-15rem)] min-h-[360px]'
+  // 화면을 채운다 — 뷰 자리에서 스크롤 영역 아래 끝까지. 격자도 칸이 하나면 같다.
+  const fill = useFillHeight<HTMLDivElement>({ min: 360, gap: 12, deps: [mode, shown.length, picked.length] })
+  const viewerHeight = 'h-full'
   const gridItems = useMemo(
     () =>
       shown
@@ -211,6 +213,7 @@ export function PointsGallery({
         </ul>
       )}
 
+      <div ref={fill.ref} style={fill.style}>
       {mode === 'single' &&
         (focus === null ? (
           <Empty height={viewerHeight} text={ready.length === 0 ? '만들어진 형상이 아직 없습니다.' : '표에서 점을 누르세요.'} />
@@ -241,13 +244,14 @@ export function PointsGallery({
         ) : gridItems.length === 0 ? (
           <Skeleton className={`${viewerHeight} w-full`} />
         ) : (
-          <div className="max-h-[75vh] overflow-auto">
+          <div className="h-full overflow-auto">
             <Suspense fallback={<Skeleton className={`${viewerHeight} w-full`} />}>
-              <GridViewer items={gridItems} columns={gridColumns(shown.length)} cellClass={shown.length === 1 ? viewerHeight : undefined} />
+              <GridViewer items={gridItems} columns={gridColumns(shown.length)} cellClass={shown.length === 1 ? 'h-full' : undefined} className={shown.length === 1 ? 'h-full' : undefined} />
             </Suspense>
             {gridItems.length < shown.length && <p className="text-muted-foreground mt-1 text-xs">{shown.length - gridItems.length} 개는 아직 받는 중이거나 실패했습니다.</p>}
           </div>
         ))}
+      </div>
 
     </div>
   )
