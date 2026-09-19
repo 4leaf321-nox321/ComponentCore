@@ -44,7 +44,7 @@ test('설계점이 너무 많으면 만들지 못하게 막는다', async () => 
   fireEvent.click(await screen.findByRole('option', { name: '값 목록' }))
   fireEvent.change(screen.getByLabelText('두께 값 목록'), { target: { value: '1,2,3' } })
   fireEvent.change(screen.getByLabelText('이름'), { target: { value: '훑기' } })
-  await waitFor(() => expect(screen.getByText(/200 개까지만 만듭니다/)).toBeInTheDocument())
+  await waitFor(() => expect(screen.getByText(/200 개까지 만듭니다/)).toBeInTheDocument())
   expect(screen.getByRole('button', { name: '만들기' })).toBeDisabled()
 })
 

@@ -58,13 +58,16 @@ def preview(raw: dict[str, Any]) -> dict[str, Any]:
     samples = int(raw.get("samples") or 20)
     seed = int(raw.get("seed") or 1)
     total = engine.count(factors, method, samples)
+    limit = get_settings().doe_max_points
     rows: list[dict[str, float]] = []
-    if total <= engine.MAX_POINTS:
-        rows = engine.build_points(factors, method=method, samples=samples, seed=seed)
+    if total <= limit:
+        rows = engine.build_points(
+            factors, method=method, samples=samples, seed=seed, limit=limit
+        )
     return {
         "count": total,
-        "max": engine.MAX_POINTS,
-        "too_many": total > engine.MAX_POINTS,
+        "max": limit,
+        "too_many": total > limit,
         "points": rows[:20],
         "varying": [f.name for f in factors if f.varying],
     }
@@ -84,6 +87,7 @@ def _points(raw: dict[str, Any]) -> list[dict[str, float]]:
             method=raw.get("method", "factorial"),
             samples=int(raw.get("samples") or 20),
             seed=int(raw.get("seed") or 1),
+            limit=get_settings().doe_max_points,
         )
     except engine.DoeError as failure:
         raise AppError(code("DOE", 3), str(failure)) from failure

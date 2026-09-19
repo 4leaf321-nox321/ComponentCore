@@ -389,7 +389,8 @@ async def doe_create(
 
     인자로 쓴 치수만 바뀐다. **연결부처럼 고정돼야 하는 자리는 그 치수를 쓰지 않으면 된다.**
     LHS 는 `seed` 를 적어 두면 같은 표를 다시 만든다 — 해석 결과와 형상을 잇는 열쇠다.
-    먼저 `doe_preview` 로 개수를 확인하고 부른다(한 번에 200점까지)."""
+    먼저 `doe_preview` 로 개수를 확인하고 부른다(한 번에 만드는 상한은 서버 설정
+    DOE_MAX_POINTS, 기본 200 — preview 의 `max`)."""
     return await _post(
         ctx,
         "/api/doe",

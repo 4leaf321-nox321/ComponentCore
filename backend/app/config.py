@@ -84,6 +84,11 @@ class Settings(BaseSettings):
     """작업을 워커 없이 **요청 안에서** 돌린다. 시험과 워커를 안 띄우는 작은 설치용. 켜면 지그
     생성 요청이 끝날 때까지 응답이 안 온다 — 큰 제품이면 그 시간이 곧 타임아웃이다."""
 
+    doe_max_points: int = 200
+    """실험계획 한 번에 만드는 설계점 상한. 점마다 형상을 평가하고 STEP 을 쓰므로(수백 ms ~
+    수 초) 상한이 없으면 한 요청이 서버를 오래 잡는다. 더 큰 표가 필요하면 .env 에서 올리거나,
+    LHS 로 표본 수를 정해 격자 곱을 피한다."""
+
     doe_export_root: Path = Path("/mnt/f/data/0_Program/73_AutoJigGenerator")
     """실험계획(DOE)이 STEP · manifest 를 쏟아 놓는 **공유 폴더**. 해석(ANSYS)을 도는 쪽이 이
     폴더를 그대로 읽는다. 서버가 WSL 이면 `/mnt/f/...`, 화면에는 `F:\...` 로 보여 준다.

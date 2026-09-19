@@ -20,7 +20,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-#: 한 번에 만들 수 있는 설계점 수 — 점마다 형상을 만들고 STEP 을 쓰므로 무한정 갈 수 없다.
+#: 한 번에 만들 수 있는 설계점 수의 **기본값** — 점마다 형상을 만들고 STEP 을 쓰므로 무한정
+#: 갈 수 없다. 서버는 설정 `DOE_MAX_POINTS` 로 바꾼다(`config.Settings.doe_max_points`).
 MAX_POINTS = 200
 #: 조합에 넣을 수 있는 인자 수. 격자는 곱으로 늘어난다(8개면 2단계만 해도 256).
 MAX_FACTORS = 8
@@ -147,14 +148,19 @@ def latin_hypercube(dimensions: int, samples: int, seed: int) -> list[list[float
 
 
 def build_points(
-    factors: list[Factor], *, method: Method = "factorial", samples: int = 20, seed: int = 1
+    factors: list[Factor],
+    *,
+    method: Method = "factorial",
+    samples: int = 20,
+    seed: int = 1,
+    limit: int = MAX_POINTS,
 ) -> list[dict[str, float]]:
-    """설계점 표 — 각 줄은 `{치수 이름: 값}`."""
+    """설계점 표 — 각 줄은 `{치수 이름: 값}`. `limit` 는 서버 설정(DOE_MAX_POINTS)이 정한다."""
     total = count(factors, method, samples)
-    if total > MAX_POINTS:
+    if total > limit:
         raise DoeError(
-            f"설계점이 {total} 개입니다 — 한 번에 {MAX_POINTS} 개까지 만듭니다. "
-            f"단계를 줄이거나 인자를 빼세요."
+            f"설계점이 {total} 개입니다 — 한 번에 {limit} 개까지 만듭니다. "
+            f"단계를 줄이거나 인자를 빼거나, LHS 로 표본 수를 정하세요."
         )
     fixed = {f.name: levels(f)[0] for f in factors if not f.varying}
     varying = [f for f in factors if f.varying]

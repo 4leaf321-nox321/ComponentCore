@@ -78,6 +78,15 @@ export function DoeForm({
     return { mode }
   }
 
+  /** 구간이 실제로 내는 값들 — 서버의 levels 와 같은 규칙(끝을 포함, 단계 1 이면 시작만). */
+  function levelsOf(factor: Factor): number[] {
+    const start = factor.start ?? 0
+    const end = factor.end ?? 0
+    const steps = Math.max(1, factor.steps ?? 5)
+    if (steps === 1) return [start]
+    return Array.from({ length: steps }, (_, i) => Number((start + ((end - start) * i) / (steps - 1)).toPrecision(6)))
+  }
+
   function set(key: string, patch: Partial<Factor>) {
     setFactors((all) => ({ ...all, [key]: { ...all[key], ...patch } }))
   }
@@ -137,7 +146,7 @@ export function DoeForm({
           <Input id="doe-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="브래킷 두께 훑기" />
         </div>
         <div className="space-y-1">
-          <Label htmlFor="doe-material">재료 (질량 · 관성 계산용)</Label>
+          <Label htmlFor="doe-material">재료 — 질량 · 관성모멘트 계산에만 (STEP 에는 안 들어감)</Label>
           <Select value={material} onValueChange={setMaterial}>
             <SelectTrigger id="doe-material">
               <SelectValue />
@@ -166,8 +175,10 @@ export function DoeForm({
         {params.map(([key]) => {
           const factor = factors[key]
           return (
-            <div key={key} className="grid grid-cols-[1fr_auto_2fr] items-center gap-2 border-b px-3 py-2 last:border-b-0">
-              <span className="truncate font-mono text-xs">{key}</span>
+            <div key={key} className="grid grid-cols-[minmax(6rem,1fr)_auto_minmax(0,3fr)] items-center gap-3 border-b px-3 py-2 last:border-b-0">
+              <span className="truncate font-mono text-xs" title={key}>
+                {key}
+              </span>
               <Select value={factor.mode} onValueChange={(mode) => set(key, withDefaults(factor, mode as Factor['mode']))}>
                 <SelectTrigger className="h-8 w-28 text-xs">
                   <SelectValue />
@@ -182,12 +193,25 @@ export function DoeForm({
                 <Input type="number" step={0.5} value={String(factor.value ?? 0)} onChange={(e) => set(key, { value: Number(e.target.value) })} className="h-8" aria-label={`${key} 고정값`} />
               )}
               {factor.mode === 'range' && (
-                <div className="flex items-center gap-1">
-                  <Input type="number" step={0.5} value={String(factor.start ?? 0)} onChange={(e) => set(key, { start: Number(e.target.value) })} className="h-8" aria-label={`${key} 시작`} />
-                  <span className="text-muted-foreground text-xs">~</span>
-                  <Input type="number" step={0.5} value={String(factor.end ?? 0)} onChange={(e) => set(key, { end: Number(e.target.value) })} className="h-8" aria-label={`${key} 끝`} />
-                  <Input type="number" min={1} value={String(factor.steps ?? 5)} onChange={(e) => set(key, { steps: Math.max(1, Number(e.target.value)) })} className="h-8 w-16" aria-label={`${key} 단계`} />
-                  <span className="text-muted-foreground text-xs">단계</span>
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <label className="flex items-center gap-1 text-xs">
+                      <span className="text-muted-foreground">시작</span>
+                      <Input type="number" step={0.5} value={String(factor.start ?? 0)} onChange={(e) => set(key, { start: Number(e.target.value) })} className="h-8 w-24" aria-label={`${key} 시작`} />
+                    </label>
+                    <label className="flex items-center gap-1 text-xs">
+                      <span className="text-muted-foreground">끝</span>
+                      <Input type="number" step={0.5} value={String(factor.end ?? 0)} onChange={(e) => set(key, { end: Number(e.target.value) })} className="h-8 w-24" aria-label={`${key} 끝`} />
+                    </label>
+                    <label className="flex items-center gap-1 text-xs">
+                      <span className="text-muted-foreground">단계</span>
+                      <Input type="number" min={1} max={50} value={String(factor.steps ?? 5)} onChange={(e) => set(key, { steps: Math.max(1, Number(e.target.value)) })} className="h-8 w-20" aria-label={`${key} 단계`} />
+                    </label>
+                  </div>
+                  {/* 어떤 값들이 나오는지 바로 보인다 — 「5단계」 만으로는 6, 7.5, 9 … 를 머리로 세야 한다. */}
+                  <p className="text-muted-foreground truncate font-mono text-[11px]" title={levelsOf(factor).join(', ')}>
+                    {levelsOf(factor).join(' · ')}
+                  </p>
                 </div>
               )}
               {factor.mode === 'list' && (
@@ -234,7 +258,8 @@ export function DoeForm({
             '바꿀 변수를 하나는 고르세요 — 「구간」 이나 「값 목록」 으로.'
           ) : preview ? (
             <span className={preview.too_many ? 'text-destructive' : ''}>
-              설계점 <b>{preview.count}</b> 개 {preview.too_many && `— ${preview.max} 개까지만 만듭니다. 단계를 줄이세요.`}
+              설계점 <b>{preview.count}</b> 개{' '}
+              {preview.too_many && `— 한 번에 ${preview.max} 개까지 만듭니다(서버 설정 DOE_MAX_POINTS). 단계를 줄이거나, LHS 로 표본 수를 정하세요.`}
             </span>
           ) : (
             '세는 중…'
