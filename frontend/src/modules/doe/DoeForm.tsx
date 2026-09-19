@@ -18,7 +18,40 @@ import { Label } from '@/shared/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select'
 import { Textarea } from '@/shared/components/ui/textarea'
 
-const MATERIALS = ['aluminum', 'steel', 'stainless', 'brass', 'abs', 'pla', 'nylon', 'pom']
+
+/** 서버의 기본 가공 단위와 같다(core/doe.py DEFAULT_RESOLUTION). */
+const DEFAULT_RESOLUTION = 0.1
+/** 고를 수 있는 가공 단위 — 밀링 · 판금에서 흔히 쓰는 것들. */
+const RESOLUTIONS = [1, 0.5, 0.1, 0.05, 0.01]
+
+/** 서버의 snap 과 같은 규칙 — 단위의 배수로, 반올림(half-up). */
+function snap(value: number, unit: number): number {
+  if (unit <= 0) return value
+  const quotient = Number((value / unit).toFixed(9))
+  return Number((Math.floor(quotient + 0.5) * unit).toFixed(10))
+}
+
+function ResolutionSelect({ name, value, onChange }: { name: string; value: number; onChange: (unit: number) => void }) {
+  return (
+    <label className="flex items-center gap-1 text-xs">
+      <span className="text-muted-foreground" title="값을 이 단위의 배수로 맞춥니다 — 가공할 수 있는 치수만 나오게">
+        단위
+      </span>
+      <Select value={String(value)} onValueChange={(next) => onChange(Number(next))}>
+        <SelectTrigger className="h-8 w-20 text-xs" aria-label={`${name} 가공 단위`}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {RESOLUTIONS.map((one) => (
+            <SelectItem key={one} value={String(one)}>
+              {one} mm
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </label>
+  )
+}
 
 export function DoeForm({
   recipe,
@@ -40,7 +73,6 @@ export function DoeForm({
   const [method, setMethod] = useState<'factorial' | 'lhs'>('factorial')
   const [samples, setSamples] = useState(20)
   const [seed, setSeed] = useState(1)
-  const [material, setMaterial] = useState('aluminum')
   const [factors, setFactors] = useState<Record<string, Factor>>(() =>
     Object.fromEntries(params.map(([key, value]) => [key, { name: key, mode: 'fixed', value }])),
   )
@@ -78,13 +110,19 @@ export function DoeForm({
     return { mode }
   }
 
-  /** 구간이 실제로 내는 값들 — 서버의 levels 와 같은 규칙(끝을 포함, 단계 1 이면 시작만). */
+  /**
+   * 구간이 실제로 내는 값들 — 서버의 levels 와 같은 규칙: 끝을 포함하고, 가공 단위로 맞추고,
+   * 맞추다 겹친 값은 하나만. 0.333 같은 치수는 가공할 수 없어서다.
+   */
   function levelsOf(factor: Factor): number[] {
     const start = factor.start ?? 0
     const end = factor.end ?? 0
     const steps = Math.max(1, factor.steps ?? 5)
-    if (steps === 1) return [start]
-    return Array.from({ length: steps }, (_, i) => Number((start + ((end - start) * i) / (steps - 1)).toPrecision(6)))
+    const unit = factor.resolution ?? DEFAULT_RESOLUTION
+    const raw = steps === 1 ? [start] : Array.from({ length: steps }, (_, i) => start + ((end - start) * i) / (steps - 1))
+    const out: number[] = []
+    for (const value of raw.map((one) => snap(one, unit))) if (out.length === 0 || out[out.length - 1] !== value) out.push(value)
+    return out
   }
 
   function set(key: string, patch: Partial<Factor>) {
@@ -103,7 +141,6 @@ export function DoeForm({
         method,
         samples,
         seed,
-        material,
         work_id: workId ?? null,
       })
       onCreated(made.id)
@@ -140,26 +177,9 @@ export function DoeForm({
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1">
-          <Label htmlFor="doe-name">이름</Label>
-          <Input id="doe-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="브래킷 두께 훑기" />
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="doe-material">재료 — 질량 · 관성모멘트 계산에만 (STEP 에는 안 들어감)</Label>
-          <Select value={material} onValueChange={setMaterial}>
-            <SelectTrigger id="doe-material">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {MATERIALS.map((one) => (
-                <SelectItem key={one} value={one}>
-                  {one}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+      <div className="space-y-1">
+        <Label htmlFor="doe-name">이름</Label>
+        <Input id="doe-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="브래킷 두께 훑기" />
       </div>
       <div className="space-y-1">
         <Label htmlFor="doe-desc">무엇을 찾는가</Label>
@@ -207,6 +227,7 @@ export function DoeForm({
                       <span className="text-muted-foreground">단계</span>
                       <Input type="number" min={1} max={50} value={String(factor.steps ?? 5)} onChange={(e) => set(key, { steps: Math.max(1, Number(e.target.value)) })} className="h-8 w-20" aria-label={`${key} 단계`} />
                     </label>
+                    <ResolutionSelect name={key} value={factor.resolution ?? DEFAULT_RESOLUTION} onChange={(unit) => set(key, { resolution: unit })} />
                   </div>
                   {/* 어떤 값들이 나오는지 바로 보인다 — 「5단계」 만으로는 6, 7.5, 9 … 를 머리로 세야 한다. */}
                   <p className="text-muted-foreground truncate font-mono text-[11px]" title={levelsOf(factor).join(', ')}>
@@ -215,13 +236,16 @@ export function DoeForm({
                 </div>
               )}
               {factor.mode === 'list' && (
-                <Input
-                  value={(factor.values ?? []).join(', ')}
-                  onChange={(e) => set(key, { values: e.target.value.split(/[,\s]+/).map(Number).filter((v) => Number.isFinite(v)) })}
-                  placeholder="4, 8, 12"
-                  className="h-8 font-mono text-xs"
-                  aria-label={`${key} 값 목록`}
-                />
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <Input
+                    value={(factor.values ?? []).join(', ')}
+                    onChange={(e) => set(key, { values: e.target.value.split(/[,\s]+/).map(Number).filter((v) => Number.isFinite(v)) })}
+                    placeholder="4, 8, 12"
+                    className="h-8 min-w-40 flex-1 font-mono text-xs"
+                    aria-label={`${key} 값 목록`}
+                  />
+                  <ResolutionSelect name={key} value={factor.resolution ?? DEFAULT_RESOLUTION} onChange={(unit) => set(key, { resolution: unit })} />
+                </div>
               )}
             </div>
           )

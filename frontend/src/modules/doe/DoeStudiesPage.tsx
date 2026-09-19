@@ -47,7 +47,6 @@ export default function DoeStudiesPage() {
                 <TableHead>대상</TableHead>
                 <TableHead>방법</TableHead>
                 <TableHead>설계점</TableHead>
-                <TableHead>재료</TableHead>
                 <TableHead>만든 때</TableHead>
               </TableRow>
             </TableHeader>
@@ -76,7 +75,6 @@ export default function DoeStudiesPage() {
                     <Badge variant="outline">{row.method === 'factorial' ? '전체 조합' : `LHS · 시드 ${row.seed}`}</Badge>
                   </TableCell>
                   <TableCell>{row.point_count}</TableCell>
-                  <TableCell>{row.material}</TableCell>
                   <TableCell>{shownDateTime(row.created_at)}</TableCell>
                 </TableRow>
               ))}

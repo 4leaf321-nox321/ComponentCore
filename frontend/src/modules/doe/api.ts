@@ -12,6 +12,8 @@ export interface Factor {
   end?: number | null
   steps?: number
   values?: number[]
+  /** 값을 맞추는 가공 단위(mm). 없으면 0.1 — 0.333 같은 치수는 가공할 수 없다. */
+  resolution?: number | null
 }
 
 export interface DoePoint {
@@ -20,6 +22,7 @@ export interface DoePoint {
   params: Record<string, number>
   status: 'pending' | 'ok' | 'failed'
   error: string
+  /** 해석 결과가 붙을 자리 — 붙이는 길이 아직 없어 지금은 늘 null. */
   metrics: Record<string, number | null> | null
   step_file: string
 }
@@ -34,7 +37,6 @@ export interface DoeStudySummary {
   method: 'factorial' | 'lhs'
   samples: number
   seed: number
-  material: string
   point_count: number
   created_at: string
 }
@@ -58,29 +60,6 @@ export interface Preview {
   varying: string[]
 }
 
-/** 무엇을 어느 쪽으로 좋게 볼 것인가. */
-export interface Objective {
-  key: string
-  goal: 'min' | 'max' | 'target'
-  target?: number
-}
-
-/** 파레토 표시가 붙은 설계점 — 지표 값이 그대로 펼쳐져 있다. */
-export type TradeoffPoint = Record<string, unknown> & {
-  number: number
-  params: Record<string, number>
-  comparable: boolean
-  pareto: boolean
-  score: number | null
-}
-
-export interface Condition {
-  key: string
-  op: 'lte' | 'gte' | 'between' | 'eq'
-  value: number | null
-  value2?: number | null
-}
-
 export const doeApi = {
   preview: (body: { factors: Factor[]; method?: string; samples?: number; seed?: number }) =>
     api.post<Preview>('/doe/preview', body),
@@ -98,12 +77,8 @@ export const doeApi = {
     method?: string
     samples?: number
     seed?: number
-    material?: string
     work_id?: string | null
   }) => api.post<DoeStudy>('/doe', body),
-  tradeoff: (id: string, objectives: Objective[]) =>
-    api.post<{ objectives: Objective[]; points: TradeoffPoint[]; pareto_count: number }>(`/doe/${id}/tradeoff`, objectives),
-  filter: (id: string, conditions: Condition[]) => api.post<DoePoint[]>(`/doe/${id}/filter`, conditions),
   remove: (id: string) => api.delete<void>(`/doe/${id}`),
   manifestUrl: (id: string) => `/api/doe/${id}/manifest.csv`,
 }

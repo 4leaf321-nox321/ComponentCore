@@ -93,7 +93,6 @@ def test_설계점마다_STEP_을_공유_폴더에_쓴다(
             "description": "세트 공진에 맞추려고 두께를 훑는다",
             "recipe": JIG,
             "factors": [{"name": "두께", "mode": "list", "values": [4, 8, 12]}],
-            "material": "aluminum",
         },
         headers=member.headers,
     )
@@ -104,8 +103,8 @@ def test_설계점마다_STEP_을_공유_폴더에_쓴다(
 
     got = client.get(f"/api/doe/{study['id']}", headers=member.headers).json()
     assert got["done"] == 3 and got["failed"] == 0
-    masses = [point["metrics"]["mass_g"] for point in got["points"]]
-    assert masses[0] < masses[1] < masses[2]  # 두꺼울수록 무겁다
+    # 표에는 바꾼 변수와 파일만 — 질량 · 크기는 아직 계산하지 않는다(해석이 붙일 자리).
+    assert all(point["metrics"] is None for point in got["points"])
 
     # 공유 폴더 — 해석이 읽는 것.
     folder = next(export_root.iterdir())
@@ -121,19 +120,19 @@ def test_설계점마다_STEP_을_공유_폴더에_쓴다(
     assert [row["point"] for row in rows] == ["1", "2", "3"]
     assert [row["두께"] for row in rows] == ["4.0", "8.0", "12.0"]
     assert rows[0]["step_file"] == "points/p0001.step"
-    assert float(rows[0]["mass_g"]) > 0
+    assert list(rows[0].keys()) == ["point", "status", "두께", "step_file", "error"]
 
     # 내려받는 표도 같은 값이다.
     csv_out = client.get(f"/api/doe/{study['id']}/manifest.csv", headers=member.headers)
     assert csv_out.status_code == 200 and "두께" in csv_out.text
 
-    # 부등식 필터 — 값이 있는 점만, 조건을 만족하는 것만.
+    # 부등식 필터 — 값(해석 결과)이 없는 점은 만족하지 않은 것으로 센다. 지금은 모두 비어 있다.
     kept = client.post(
         f"/api/doe/{study['id']}/filter",
-        json=[{"key": "mass_g", "op": "lte", "value": masses[1]}],
+        json=[{"key": "mass_g", "op": "lte", "value": 100}],
         headers=member.headers,
     )
-    assert kept.status_code == 200 and len(kept.json()) == 2
+    assert kept.status_code == 200 and kept.json() == []
 
 
 def test_깨지는_점이_있어도_나머지는_만든다(
@@ -175,3 +174,70 @@ def test_레시피에_없는_치수는_미리_막는다(client: TestClient, memb
     )
     assert got.status_code == 400
     assert "레시피에 없는 치수" in got.json()["error"]["message"]
+
+
+def test_설계점_상한은_관리자가_화면에서_바꾼다(
+    client: TestClient, member: Signed, admin: Signed
+) -> None:
+    """.env 는 관리자가 손댈 수 없다 — 서버 설정 화면의 값이 .env 기본값을 덮는다."""
+    factors = [{"name": "두께", "mode": "range", "start": 4, "end": 12, "steps": 5}]
+    before = client.post(
+        "/api/doe/preview", json={"factors": factors}, headers=member.headers
+    ).json()
+    assert before["count"] == 5 and not before["too_many"]
+
+    changed = client.put(
+        "/api/server/settings/doe_max_points", json={"value": 3}, headers=admin.headers
+    )
+    assert changed.status_code == 200, changed.text
+    row = next(one for one in changed.json() if one["key"] == "doe_max_points")
+    assert row["value"] == 3 and row["overridden"]
+
+    after = client.post(
+        "/api/doe/preview", json={"factors": factors}, headers=member.headers
+    ).json()
+    assert after["too_many"] and after["max"] == 3
+
+    # 회원은 못 바꾼다 · 범위 밖은 거절 · None 이면 기본값으로.
+    assert (
+        client.put(
+            "/api/server/settings/doe_max_points", json={"value": 9}, headers=member.headers
+        ).status_code
+        == 403
+    )
+    assert (
+        client.put(
+            "/api/server/settings/doe_max_points", json={"value": 0}, headers=admin.headers
+        ).status_code
+        == 400
+    )
+    reset = client.put(
+        "/api/server/settings/doe_max_points", json={"value": None}, headers=admin.headers
+    ).json()
+    assert not next(one for one in reset if one["key"] == "doe_max_points")["overridden"]
+
+
+def test_값은_가공_단위로_맞춘다(client: TestClient, member: Signed) -> None:
+    """구간을 셋으로 나누면 0.333… — 그런 치수는 가공할 수 없다. 기본 0.1, 인자마다 바꾼다."""
+    got = client.post(
+        "/api/doe/preview",
+        json={
+            "factors": [
+                {"name": "a", "mode": "range", "start": 6, "end": 7, "steps": 4},
+                {
+                    "name": "b",
+                    "mode": "range",
+                    "start": 6,
+                    "end": 7,
+                    "steps": 4,
+                    "resolution": 0.5,
+                },
+            ]
+        },
+        headers=member.headers,
+    ).json()
+    values_a = sorted({row["a"] for row in got["points"]})
+    values_b = sorted({row["b"] for row in got["points"]})
+    assert values_a == [6.0, 6.3, 6.7, 7.0]
+    assert values_b == [6.0, 6.5, 7.0]  # 0.5 단위로 맞추니 넷이 셋으로 준다
+    assert got["count"] == 12

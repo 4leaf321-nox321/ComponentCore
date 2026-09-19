@@ -16,7 +16,14 @@ from app.modules.accounts.models import User
 from app.modules.jigs.models import Jig
 from app.modules.jobs.models import Artifact, Job
 from app.modules.parts.models import Part
-from app.modules.server.schemas import DiskOut, ServerStatusOut, TableCountOut
+from app.modules.server import settings_store
+from app.modules.server.schemas import (
+    DiskOut,
+    ServerStatusOut,
+    SettingOut,
+    SettingUpdateRequest,
+    TableCountOut,
+)
 from app.modules.works.models import Work
 from app.shared.auth import require_system_admin
 
@@ -87,3 +94,22 @@ def status(
         build123d_version=_build123d_version(),
         started_at=STARTED_AT,
     )
+
+
+@router.get("/settings", response_model=list[SettingOut])
+def list_settings(
+    _: User = Depends(require_system_admin), db: Session = Depends(get_db)
+) -> list[SettingOut]:
+    """관리자가 화면에서 바꾸는 값들 — 지금 값 · .env 기본값 · 허용 범위."""
+    return [SettingOut(**one) for one in settings_store.listing(db)]
+
+
+@router.put("/settings/{key}", response_model=list[SettingOut])
+def update_setting(
+    key: str,
+    payload: SettingUpdateRequest,
+    user: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> list[SettingOut]:
+    settings_store.set_int(db, key, payload.value, by=user.id)
+    return [SettingOut(**one) for one in settings_store.listing(db)]

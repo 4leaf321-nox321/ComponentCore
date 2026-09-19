@@ -131,3 +131,19 @@ def test_틀린_목표는_이름을_짚어_말한다() -> None:
         parse_objectives([{"key": "hz", "goal": "가볍게"}])
     with pytest.raises(DoeError, match="하나는 고르세요"):
         parse_objectives([])
+
+
+def test_구간_값은_가공_단위로_맞추고_겹치면_하나만() -> None:
+    from app.core.doe import levels, parse_factors, snap
+
+    assert snap(6.333333, 0.1) == 6.3
+    assert snap(6.35, 0.1) == 6.4
+    assert snap(6.26, 0.5) == 6.5
+    fine = parse_factors([{"name": "t", "mode": "range", "start": 6, "end": 6.2, "steps": 5}])
+    assert levels(fine[0]) == [6.0, 6.1, 6.2]  # 5단계를 0.1 단위로 맞추면 셋만 남는다
+    coarse = parse_factors(
+        [{"name": "t", "mode": "range", "start": 6, "end": 7, "steps": 4, "resolution": 0.5}]
+    )
+    assert levels(coarse[0]) == [6.0, 6.5, 7.0]
+    listed = parse_factors([{"name": "t", "mode": "list", "values": [4.04, 8.06]}])
+    assert levels(listed[0]) == [4.0, 8.1]

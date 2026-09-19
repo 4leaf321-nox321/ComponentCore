@@ -382,15 +382,16 @@ async def doe_create(
     method: str = "factorial",
     samples: int = 20,
     seed: int = 1,
-    material: str = "aluminum",
     work_id: str | None = None,
 ) -> Any:
     """치수를 훑어 **형상 여러 벌**을 만든다 — 점마다 STEP 을 공유 폴더에 쓴다(해석이 읽는 곳).
 
     인자로 쓴 치수만 바뀐다. **연결부처럼 고정돼야 하는 자리는 그 치수를 쓰지 않으면 된다.**
+    인자마다 `resolution`(가공 단위, 기본 0.1 mm)으로 값을 맞춘다 — 0.333 같은 치수는 안 나온다.
     LHS 는 `seed` 를 적어 두면 같은 표를 다시 만든다 — 해석 결과와 형상을 잇는 열쇠다.
-    먼저 `doe_preview` 로 개수를 확인하고 부른다(한 번에 만드는 상한은 서버 설정
-    DOE_MAX_POINTS, 기본 200 — preview 의 `max`)."""
+    먼저 `doe_preview` 로 개수를 확인하고 부른다(한 번에 만드는 상한은 관리자가 서버 설정
+    화면에서 정한다, 기본 200 — preview 의 `max`). 표에는 바꾼 변수와 파일 이름만 적힌다 —
+    질량 · 크기는 계산하지 않는다(필요하면 `recipe_geometry` 로 따로)."""
     return await _post(
         ctx,
         "/api/doe",
@@ -402,7 +403,6 @@ async def doe_create(
             "method": method,
             "samples": samples,
             "seed": seed,
-            "material": material,
             "work_id": work_id,
         },
     )
@@ -410,8 +410,8 @@ async def doe_create(
 
 @mcp.tool()
 async def doe_points(ctx: Context, study_id: str) -> Any:
-    """만들어진 설계점 표 — 치수 값 · 질량 · 크기 · STEP 파일 이름 · 실패 사유, 그리고 **공유
-    폴더 경로**. 결과를 보고 다음 범위를 좁힐 때 쓴다."""
+    """만들어진 설계점 표 — 바꾼 변수 값 · STEP 파일 이름 · 실패 사유, 그리고 **공유 폴더
+    경로**. `metrics` 는 해석 결과가 붙을 자리라 지금은 비어 있다."""
     got = await _get(ctx, f"/api/doe/{study_id}")
     if not isinstance(got, dict) or "error" in got:
         return got
@@ -421,7 +421,6 @@ async def doe_points(ctx: Context, study_id: str) -> Any:
         "folder": got["export_dir_windows"],
         "method": got["method"],
         "seed": got["seed"],
-        "material": got["material"],
         "points_total": got["point_count"],
         "done": got["done"],
         "failed": got["failed"],
@@ -445,7 +444,8 @@ async def doe_tradeoff(ctx: Context, study_id: str, objectives: list[dict[str, A
     """맞서는 목표에서 **아무한테도 지지 않는 점**(파레토)을 가린다.
 
     목표 하나는 `{"key": "mass_g", "goal": "min"}` 또는 `{"key": "hz", "goal": "target",
-    "target": 440}` — `key` 는 설계점의 metrics 이름(mass_g · volume_mm3 · size_x · izz …).
+    "target": 440}` — `key` 는 설계점의 metrics 이름. **metrics 는 해석 결과가 붙을 자리라 아직
+    비어 있다** — 붙이는 길이 생기기 전에는 이 도구가 빈 답을 낸다.
 
     **가중치로 한 값을 만들지 않는다.** 「무게 0.3, 공진 0.7」 같은 수를 네가 정하면 답이 그
     수의 것이 된다. 지지 않는 점들을 내놓고 **고르는 것은 사람에게 맡긴다** — 표를 보여 주고

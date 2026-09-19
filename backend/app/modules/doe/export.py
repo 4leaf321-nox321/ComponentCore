@@ -3,7 +3,7 @@
 폴더 하나가 곧 한 번의 DOE 다:
 
     73_AutoJigGenerator/브래킷_튜닝-3f9a21/
-    ├─ manifest.csv   설계점 · 치수 값 · 질량 · 크기 · 파일 이름 · 상태
+    ├─ manifest.csv   설계점 · 바꾼 변수 값 · 파일 이름 · 상태 (해석 결과는 여기에 붙인다)
     ├─ study.json     기준 레시피 · 인자 정의 · 시드(같은 표를 다시 만들 때)
     ├─ README.txt     사람이 열어 볼 한 장
     └─ points/p0001.step …
@@ -47,26 +47,9 @@ def windows_path(path: Path) -> str:
 
 
 def manifest_columns(factor_names: list[str]) -> list[str]:
-    """표의 열 — 앞은 되짚는 열쇠(번호 · 파일), 가운데가 치수, 뒤가 결과."""
-    return [
-        "point",
-        "status",
-        *factor_names,
-        "step_file",
-        "volume_mm3",
-        "mass_g",
-        "size_x",
-        "size_y",
-        "size_z",
-        "com_x",
-        "com_y",
-        "com_z",
-        "ixx",
-        "iyy",
-        "izz",
-        "hole_count",
-        "error",
-    ]
+    """표의 열 — 되짚는 열쇠(번호 · 상태), 바꾼 변수, 파일, 실패 사유. 해석 결과 열은 해석이
+    붙인다."""
+    return ["point", "status", *factor_names, "step_file", "error"]
 
 
 def manifest_row(
@@ -76,27 +59,13 @@ def manifest_row(
     *,
     status: str,
     step_file: str = "",
-    metrics: dict[str, Any] | None = None,
     error: str = "",
 ) -> dict[str, Any]:
-    got = metrics or {}
     return {
         "point": number,
         "status": status,
         **{name: params.get(name, "") for name in factor_names},
         "step_file": step_file,
-        "volume_mm3": got.get("volume_mm3", ""),
-        "mass_g": got.get("mass_g", ""),
-        "size_x": got.get("size_x", ""),
-        "size_y": got.get("size_y", ""),
-        "size_z": got.get("size_z", ""),
-        "com_x": got.get("com_x", ""),
-        "com_y": got.get("com_y", ""),
-        "com_z": got.get("com_z", ""),
-        "ixx": got.get("ixx", ""),
-        "iyy": got.get("iyy", ""),
-        "izz": got.get("izz", ""),
-        "hole_count": got.get("hole_count", ""),
         "error": error,
     }
 
@@ -138,13 +107,12 @@ def write_readme(folder: Path, study: dict[str, Any], point_count: int) -> Path:
 방법: {"전체 조합" if study.get("method") == "factorial" else "라틴 하이퍼큐브(LHS)"}
 설계점: {point_count} 개
 시드: {study.get("seed")}   ← 같은 표를 다시 만들 때 쓴다
-재료: {study.get("material")}
 
 바꾼 치수
 {factors or "  (없음)"}
 
 파일
-  manifest.csv   설계점마다 치수 · 질량 · 크기 · 파일 이름. **해석 결과를 이 표에 붙인다.**
+  manifest.csv   설계점마다 바꾼 변수 값 · 파일 이름 · 상태. **해석 결과를 이 표에 붙인다.**
   study.json     기준 레시피와 인자 정의 전부(다시 만들 때)
   points/        p0001.step … 번호가 manifest 의 point 열과 같다
 

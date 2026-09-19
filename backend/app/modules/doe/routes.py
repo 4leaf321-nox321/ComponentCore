@@ -46,7 +46,6 @@ def _summary(db: Session, study: DoeStudy) -> StudySummaryOut:
                 "method",
                 "samples",
                 "seed",
-                "material",
                 "point_count",
                 "created_at",
             )
@@ -72,9 +71,11 @@ def _out(db: Session, study: DoeStudy) -> StudyOut:
 
 
 @router.post("/preview")
-def preview(payload: PreviewRequest, _: User = Depends(current_user)) -> dict[str, Any]:
+def preview(
+    payload: PreviewRequest, _: User = Depends(current_user), db: Session = Depends(get_db)
+) -> dict[str, Any]:
     """**만들기 전에** 설계점이 몇 개인지와 앞 스무 줄. 격자는 곱으로 늘어난다."""
-    return services.preview(payload.model_dump())
+    return services.preview(db, payload.model_dump())
 
 
 @router.get("", response_model=Page[StudySummaryOut])
@@ -109,7 +110,6 @@ def create_study(
         method=payload.method,
         samples=payload.samples,
         seed=payload.seed,
-        material=payload.material,
         work_id=payload.work_id,
     )
     return _out(db, study)
@@ -137,7 +137,6 @@ def manifest(
             names,
             status=point.status,
             step_file=point.step_file,
-            metrics=point.metrics,
             error=point.error,
         )
         for point in services.points(db, study)
@@ -156,7 +155,9 @@ def filter_points(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> list[PointOut]:
-    """설계 조건(부등식)을 만족하는 점만. 값이 없는 점은 **만족하지 않은 것**으로 센다."""
+    """설계 조건(부등식)을 만족하는 점만. 값이 없는 점은 **만족하지 않은 것**으로 센다.
+
+    값(`metrics`)은 해석 결과를 붙이는 자리다 — 아직 붙이는 길이 없어 지금은 모두 비어 있다."""
     study = services.get_study(db, study_id, user)
     kept = []
     for point in services.points(db, study):

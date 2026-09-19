@@ -49,6 +49,19 @@ export interface Page<T> {
   offset: number
 }
 
+/** 관리자가 화면에서 바꾸는 서버 설정 하나 — 지금 값 · .env 기본값 · 허용 범위. */
+export interface ServerSetting {
+  key: string
+  label: string
+  description: string
+  value: number
+  default: number
+  overridden: boolean
+  minimum: number
+  maximum: number
+  updated_at: string | null
+}
+
 export interface ServerStatus {
   app_name: string
   app_slug: string

@@ -45,7 +45,6 @@ class DoeStudy(Base):
     method: Mapped[str] = mapped_column(String(20), default="factorial")
     samples: Mapped[int] = mapped_column(Integer, default=20)
     seed: Mapped[int] = mapped_column(Integer, default=1)
-    material: Mapped[str] = mapped_column(String(30), default="aluminum")
     export_dir: Mapped[str] = mapped_column(Text, default="", server_default="")
     """공유 폴더 안의 이 DOE 폴더(서버가 보는 경로). 화면은 윈도우 경로로 바꿔 보여 준다."""
     job_id: Mapped[uuid.UUID | None] = mapped_column(

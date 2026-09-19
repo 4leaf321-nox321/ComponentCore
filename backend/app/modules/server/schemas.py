@@ -30,3 +30,21 @@ class ServerStatusOut(BaseModel):
     counts: list[TableCountOut]
     build123d_version: str
     started_at: datetime
+
+
+class SettingOut(BaseModel):
+    key: str
+    label: str
+    description: str
+    value: int
+    default: int
+    overridden: bool
+    minimum: int
+    maximum: int
+    updated_at: datetime | None
+
+
+class SettingUpdateRequest(BaseModel):
+    """`value` 가 None 이면 덮어쓴 것을 지워 .env 기본값으로."""
+
+    value: int | None

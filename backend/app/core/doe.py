@@ -11,6 +11,8 @@
   만든다 — 「지난번 그 48개」 를 못 만들면 해석 결과와 형상을 잇지 못한다.
 - 값이 없는 칸(계산 실패)은 **조건을 만족한 것으로 세지 않는다.** `Number(null) == 0` 으로
   걸러져 실패한 점이 「무게 5 kg 이하」 에 들어가는 일이 실제로 있었다.
+- 값은 인자의 **가공 단위**(`resolution`, 기본 0.1 mm)로 맞춘다. 구간을 셋으로 나누면
+  0.333… 이 나오는데 그런 치수는 가공할 수 없다 — 0.3 으로 맞추고, 겹치는 값은 하나로.
 """
 
 from __future__ import annotations
@@ -25,6 +27,8 @@ from typing import Any, Literal
 MAX_POINTS = 200
 #: 조합에 넣을 수 있는 인자 수. 격자는 곱으로 늘어난다(8개면 2단계만 해도 256).
 MAX_FACTORS = 8
+#: 값을 맞추는 가공 단위의 기본값(mm). 0.1 이면 6.333 은 6.3 이 된다.
+DEFAULT_RESOLUTION = 0.1
 
 Method = Literal["factorial", "lhs"]
 
@@ -44,10 +48,35 @@ class Factor:
     end: float | None = None
     steps: int = 5
     values: tuple[float, ...] = ()
+    resolution: float = DEFAULT_RESOLUTION
+    """값을 이 단위의 배수로 맞춘다 — 가공할 수 있는 치수만 내려고."""
 
     @property
     def varying(self) -> bool:
         return self.mode != "fixed"
+
+
+def snap(value: float, resolution: float) -> float:
+    """`value` 를 `resolution` 의 배수로. 0.1 단위면 6.333 → 6.3, 6.35 → 6.4(반올림)."""
+    if resolution <= 0:
+        return value
+    # 6.35 / 0.1 은 63.4999… 로 나온다 — 자릿수를 한 번 다듬고 **반올림(half-up)** 한다.
+    # round() 는 짝수로 가는 은행 반올림이라 6.35 가 6.3 이 된다.
+    quotient = round(value / resolution, 9)
+    return round(math.floor(quotient + 0.5) * resolution, 10)
+
+
+def _resolution(one: dict[str, Any], name: str) -> float:
+    raw = one.get("resolution")
+    if raw is None or raw == "":
+        return DEFAULT_RESOLUTION
+    try:
+        got = float(raw)
+    except (TypeError, ValueError) as failure:
+        raise DoeError(f"'{name}': 가공 단위가 숫자가 아닙니다") from failure
+    if got <= 0:
+        raise DoeError(f"'{name}': 가공 단위는 0 보다 커야 합니다")
+    return got
 
 
 def parse_factors(raw: list[dict[str, Any]]) -> list[Factor]:
@@ -64,6 +93,7 @@ def parse_factors(raw: list[dict[str, Any]]) -> list[Factor]:
             raise DoeError(f"인자 '{name}' 이 두 번 있습니다")
         seen.add(name)
         mode = one.get("mode", "fixed")
+        resolution = _resolution(one, name)
         if mode == "fixed":
             out.append(Factor(name=name, mode="fixed", value=_number(one, "value", name)))
         elif mode == "range":
@@ -74,13 +104,22 @@ def parse_factors(raw: list[dict[str, Any]]) -> list[Factor]:
                 raise DoeError(f"'{name}': 단계 수는 1 이상입니다")
             if steps > 1 and start == end:
                 raise DoeError(f"'{name}': 시작과 끝이 같은데 단계가 {steps} 입니다")
-            out.append(Factor(name=name, mode="range", start=start, end=end, steps=steps))
+            out.append(
+                Factor(
+                    name=name,
+                    mode="range",
+                    start=start,
+                    end=end,
+                    steps=steps,
+                    resolution=resolution,
+                )
+            )
         elif mode == "list":
             values = one.get("values") or []
-            numbers = tuple(float(v) for v in values)
+            numbers = tuple(snap(float(v), resolution) for v in values)
             if not numbers:
                 raise DoeError(f"'{name}': 값 목록이 비었습니다")
-            out.append(Factor(name=name, mode="list", values=numbers))
+            out.append(Factor(name=name, mode="list", values=numbers, resolution=resolution))
         else:
             raise DoeError(f"'{name}': 모르는 방식입니다 — fixed · range · list 중 하나")
     varying = [f for f in out if f.varying]
@@ -107,9 +146,15 @@ def levels(factor: Factor) -> list[float]:
         return list(factor.values)
     assert factor.start is not None and factor.end is not None
     if factor.steps == 1:
-        return [factor.start]
+        return [snap(factor.start, factor.resolution)]
     span = (factor.end - factor.start) / (factor.steps - 1)
-    return [round(factor.start + span * i, 10) for i in range(factor.steps)]
+    out: list[float] = []
+    for i in range(factor.steps):
+        value = snap(factor.start + span * i, factor.resolution)
+        # 단위로 맞추다 보면 이웃이 같은 값이 된다(0.1 단위로 6~6.2 를 5단계) — 하나만 남긴다.
+        if not out or out[-1] != value:
+            out.append(value)
+    return out
 
 
 def count(factors: list[Factor], method: Method, samples: int) -> int:
@@ -185,7 +230,7 @@ def _map_unit(factor: Factor, unit: float) -> float:
         index = min(len(factor.values) - 1, int(unit * len(factor.values)))
         return factor.values[index]
     assert factor.start is not None and factor.end is not None
-    return round(factor.start + unit * (factor.end - factor.start), 10)
+    return snap(factor.start + unit * (factor.end - factor.start), factor.resolution)
 
 
 # --- 걸러 보기 -------------------------------------------------------------------

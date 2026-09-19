@@ -17,6 +17,8 @@ class FactorIn(BaseModel):
     end: float | None = None
     steps: int = 5
     values: list[float] = Field(default_factory=list)
+    resolution: float | None = Field(default=None, gt=0)
+    """값을 맞추는 가공 단위(mm). 없으면 0.1 — 0.333 같은 치수는 가공할 수 없다."""
 
 
 class PreviewRequest(BaseModel):
@@ -30,7 +32,6 @@ class StudyCreateRequest(PreviewRequest):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=2000)
     recipe: dict[str, Any]
-    material: str = "aluminum"
     work_id: uuid.UUID | None = None
 
 
@@ -59,7 +60,6 @@ class StudySummaryOut(BaseModel):
     method: str
     samples: int
     seed: int
-    material: str
     point_count: int
     created_at: datetime
 
