@@ -26,10 +26,8 @@ import { saveRecipeAs } from '@/modules/cad/download'
 import { SaveTemplateDialog } from '@/modules/templates/SaveTemplateDialog'
 import { JigResultView } from '@/modules/jigs/JigResultView'
 import { jobsApi } from '@/modules/jobs/api'
-import type { Job } from '@/modules/jobs/api'
 import { worksApi } from '@/modules/works/api'
 import type { WorkVersion } from '@/modules/works/api'
-import { JigOptionsForm } from '@/modules/works/JigOptionsForm'
 import { ApiError, downloadFile } from '@/shared/api/client'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { EmptyState } from '@/shared/components/EmptyState'
@@ -52,6 +50,7 @@ const SOURCE_LABELS: Record<string, string> = {
   import: 'STEP',
   restore: '되돌림',
   copy: '복사',
+  generated: '생성기',
 }
 
 export default function WorkPage() {
@@ -59,24 +58,19 @@ export default function WorkPage() {
   const navigate = useNavigate()
   const work = useResource(() => worksApi.get(id), [id])
   const versions = useResource(() => worksApi.versions(id), [id])
+  /** 지그 작업이 부품에서 생성됐으면 그 생성 기록 — 계획 · 간섭 검사를 되짚어 본다. */
   const runs = useResource(() => worksApi.jigRuns(id), [id])
-  const defaults = useResource(() => worksApi.jigOptions(), [])
 
   const [tab, setTab] = useState('geometry')
   const [selectedVersion, setSelectedVersion] = useState<WorkVersion | null>(null)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState<Recipe | null>(null)
   const [note, setNote] = useState('')
-  const [options, setOptions] = useState<Record<string, unknown> | null>(null)
-  const [selectedRun, setSelectedRun] = useState<Job | null>(null)
-  const [promoting, setPromoting] = useState<'part' | 'jig' | 'jig-recipe' | null>(null)
+  const [promoting, setPromoting] = useState<'part' | 'jig-recipe' | null>(null)
   const [promoteName, setPromoteName] = useState('')
   const [promoteNote, setPromoteNote] = useState('')
-  const [promoteProduct, setPromoteProduct] = useState(true)
   const [deleting, setDeleting] = useState(false)
   const [savingTemplate, setSavingTemplate] = useState(false)
-  /** 생성기 옵션은 접어 둔다 — 서른 개를 펼쳐 두면 무엇을 해야 할지 안 보인다. */
-  const [showOptions, setShowOptions] = useState(false)
   /** 저장 갈림길 — 이 작업에 새 버전으로, 또는 새 작업으로 따로. */
   const [saveChoice, setSaveChoice] = useState(false)
   const [saveAsName, setSaveAsName] = useState('')
@@ -88,14 +82,6 @@ export default function WorkPage() {
   useEffect(() => {
     if (!selectedVersion && w?.current) setSelectedVersion(w.current)
   }, [w, selectedVersion])
-  useEffect(() => {
-    if (!selectedRun && runs.data && runs.data.length > 0) setSelectedRun(runs.data[0])
-  }, [runs.data, selectedRun])
-  useEffect(() => {
-    if (options || !w || !defaults.data) return
-    const saved = Object.keys(w.jig_options).length > 0 ? w.jig_options : defaults.data
-    setOptions({ ...defaults.data, ...saved })
-  }, [w, defaults.data, options])
 
   function reloadAll() {
     work.reload()
@@ -163,15 +149,6 @@ export default function WorkPage() {
     })
   }
 
-  async function runJig() {
-    await act(async () => {
-      const made = await worksApi.runJig(id, options ?? {})
-      setSelectedRun(made)
-      setTab('jig')
-      runs.reload()
-    })
-  }
-
   async function promote() {
     await act(async () => {
       if (promoting === 'part') {
@@ -190,16 +167,6 @@ export default function WorkPage() {
         setPromoting(null)
         reloadAll()
         navigate(`/jigs/${made.jig_id}`)
-      } else if (promoting === 'jig' && selectedRun) {
-        const made = await worksApi.promoteJig(id, {
-          job_id: selectedRun.id,
-          name: promoteName || undefined,
-          note: promoteNote,
-          promote_product: promoteProduct,
-        })
-        setPromoting(null)
-        reloadAll()
-        navigate(`/jigs/${made.jig_id}`)
       }
     })
   }
@@ -212,6 +179,7 @@ export default function WorkPage() {
   const isAssembly = w.kind === 'assembly'
 
   const currentPromoted = w.current?.promoted_part_id != null
+  const latestRun = runs.data?.[0] ?? null
   /** 고른 버전의 STEP — 평가가 끝나야 있다. */
   const selectedStep = selectedVersion?.job?.artifacts.find((one) => one.kind === 'model_step')
 
@@ -264,11 +232,6 @@ export default function WorkPage() {
           <TabsTrigger value="geometry">
             {isAssembly ? '조립' : '도면'} {w.current_version > 0 && `v${w.current_version}`}
           </TabsTrigger>
-          {/* 지그 생성기는 **부품 도면의 덤**이다 — 지그 · 조립 작업에는 나오지 않는다. */}
-          {!isJig && !isAssembly && (
-            <TabsTrigger value="jig">지그 만들어 주기 {w.jig_run_count > 0 && `(${w.jig_run_count})`}</TabsTrigger>
-          )}
-
         </TabsList>
 
         {/* ---------------- 부품 ---------------- */}
@@ -434,120 +397,40 @@ export default function WorkPage() {
               )}
             </>
           )}
-        </TabsContent>
 
-        {/* ---------------- 지그 ---------------- */}
-        <TabsContent value="jig" className="space-y-4 pt-4">
-          {isJig || isAssembly ? null : (
-          <Card>
-            <CardHeader>
-              <CardTitle>지그 생성기</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {/* **무엇을 해 주는지 한 줄로.** 옵션 서른 개를 먼저 보여 주면 아무도 안 누른다. */}
-              <p className="text-muted-foreground text-sm">
-                이 부품(v{w.current_version})을 올려놓고 잡는 지그를 규칙으로 만들어 줍니다 — <b>바닥판 · 받침 · 위치 핀 · 클램프</b>를 놓고 간섭을 검사합니다. 기본값 그대로 눌러 보고, 결과를 보며 고치면 됩니다.
-              </p>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button onClick={() => void runJig()} disabled={busy || !options || w.current_version === 0}>
-                  {busy ? '거는 중…' : '지그 만들어 보기'}
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setShowOptions(!showOptions)}>
-                  {showOptions ? '세부 옵션 접기' : '세부 옵션 펴기'}
-                </Button>
-                {showOptions && (
-                  <Button variant="ghost" size="sm" onClick={() => defaults.data && setOptions(defaults.data)}>
-                    기본값으로
-                  </Button>
-                )}
-                {w.current_version === 0 && <span className="text-muted-foreground text-xs">부품이 있어야 지그를 만들 수 있습니다.</span>}
-              </div>
-              {showOptions && options && <JigOptionsForm values={options} onChange={setOptions} />}
-            </CardContent>
-          </Card>
-          )}
-
-          {!isJig && (
-          <div className="grid gap-4 lg:grid-cols-4">
-            <Card className="lg:col-span-1">
+          {/* 부품에서 생성한 지그 — 계획 · 간섭 검사를 되짚어 본다. 결과를 아직 도면으로 안 가져왔으면 여기서. */}
+          {isJig && latestRun && (
+            <Card>
               <CardHeader>
-                <CardTitle>실행 기록</CardTitle>
+                <CardTitle>생성기 결과 — 계획 · 간섭</CardTitle>
               </CardHeader>
               <CardContent>
-                {(runs.data ?? []).length === 0 ? (
-                  <p className="text-muted-foreground text-sm">아직 만든 지그가 없습니다.</p>
-                ) : (
-                  <ul className="space-y-1">
-                    {(runs.data ?? []).map((one) => (
-                      <li key={one.id}>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedRun(one)}
-                          className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm ${
-                            selectedRun?.id === one.id ? 'bg-accent' : 'hover:bg-accent/60'
-                          }`}
-                        >
-                          <span>{shownDateTime(one.created_at)}</span>
-                          <StatusBadge kind="run" value={one.status} />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </CardContent>
-            </Card>
-            <div className="lg:col-span-3">
-              {selectedRun ? (
                 <JigResultView
-                  key={selectedRun.id}
-                  job={selectedRun}
-                  onFinished={() => {
-                    runs.reload()
-                    work.reload()
-                  }}
+                  key={latestRun.id}
+                  job={latestRun}
+                  onFinished={reloadAll}
                   actions={
-                    selectedRun.status === 'done' && (
-                      <>
-                        {/* 생성기는 **출발점**이다 — 이어서 그리려면 지그 작업으로 가져간다. */}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={busy}
-                          title="결과를 지그 작업으로 가져옵니다 — 거기서 고치고 변수 · DOE 를 씁니다"
-                          onClick={() =>
-                            void act(async () => {
-                              const made = await worksApi.jigRunToWork(id, selectedRun.id)
-                              navigate(`/works/${made.id}`)
-                            })
-                          }
-                        >
-                          이어서 그리기 (지그 작업으로)
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => {
-                            setPromoteName(`${w.name} 지그`)
-                            setPromoteNote('')
-                            setPromoteProduct(true)
-                            setPromoting('jig')
-                          }}
-                          disabled={busy}
-                        >
-                          공용 지그로 승격
-                        </Button>
-                      </>
+                    w.current_version === 0 &&
+                    latestRun.status === 'done' && (
+                      <Button
+                        size="sm"
+                        disabled={busy}
+                        onClick={() =>
+                          void act(async () => {
+                            await worksApi.adoptJigRun(id, latestRun.id)
+                            reloadAll()
+                          })
+                        }
+                      >
+                        도면으로 가져오기
+                      </Button>
                     )
                   }
                 />
-              ) : (
-                <EmptyState title="아직 만든 지그가 없습니다" hint="위의 「지그 만들어 보기」 를 누르면 여기에 3D 와 배치 계획이 뜹니다. 기본값으로 한 번 만들어 보고 고치는 편이 빠릅니다." />
-              )}
-            </div>
-          </div>
+              </CardContent>
+            </Card>
           )}
         </TabsContent>
-
-
       </Tabs>
 
       <Dialog open={saveChoice} onOpenChange={(open) => !open && !busy && setSaveChoice(false)}>
@@ -599,12 +482,10 @@ export default function WorkPage() {
               <DialogDescription>
                 {promoting === 'part'
                   ? `부품 v${w.current_version} 이 **공용 부품**으로 올라갑니다. 올라간 버전은 바뀌지 않습니다 — 고치려면 여기서 고쳐 다시 승격합니다.`
-                  : promoting === 'jig-recipe'
-                    ? `지금 도면(v${w.current_version})을 **공용 지그**로 올립니다. 생성기를 거치지 않으므로 계획 · 간섭 검사는 없고, 형상과 STEP 만 올라갑니다.`
-                    : '이 지그 생성 결과가 공용 지그로 올라갑니다. 어느 부품 버전의 지그인지 함께 고정됩니다.'}
+                  : `지금 도면(v${w.current_version})을 **공용 지그**로 올립니다. 형상과 STEP 이 올라가고, 잡는 부품이 이어져 있으면 함께 적힙니다.`}
               </DialogDescription>
             </DialogHeader>
-            {!(promoting === 'part' ? w.promoted_part_id : promoting === 'jig' ? w.promoted_jig_id : false) && (
+            {!(promoting === 'part' ? w.promoted_part_id : w.promoted_jig_id) && (
               <div className="space-y-2">
                 <Label htmlFor="promote-name">카탈로그 이름</Label>
                 <Input id="promote-name" value={promoteName} onChange={(e) => setPromoteName(e.target.value)} />
@@ -614,12 +495,6 @@ export default function WorkPage() {
               <Label htmlFor="promote-note">메모</Label>
               <Input id="promote-note" value={promoteNote} onChange={(e) => setPromoteNote(e.target.value)} placeholder="무엇이 바뀌었나" />
             </div>
-            {promoting === 'jig' && !currentPromoted && (
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={promoteProduct} onChange={(e) => setPromoteProduct(e.target.checked)} />
-                제품(부품 v{w.current_version})도 카탈로그에 함께 올린다
-              </label>
-            )}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setPromoting(null)} disabled={busy}>
                 취소

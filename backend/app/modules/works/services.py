@@ -387,24 +387,110 @@ def import_step(
 # --- 지그 생성 ----------------------------------------------------------------
 
 
-def request_jig(db: Session, work: Work, *, by: User, options: dict[str, Any]) -> Job:
-    version = current_version(db, work)
-    if version is None:
-        raise AppError(code("WORKS", 8), "형상이 없습니다 — 먼저 그리거나 STEP 을 올리세요.")
+def _product_source(
+    db: Session, source: str, by: User
+) -> tuple[dict[str, Any], str, uuid.UUID | None, dict[str, Any]]:
+    """`work:<id>` · `part:<id>` 를 (제품 레시피, 이름, 잡는 부품 id, 작업 입력의 출처)로."""
+    head, _, raw = source.partition(":")
+    try:
+        ident = uuid.UUID(raw)
+    except ValueError as failure:
+        raise AppError(code("WORKS", 26), f"출처를 읽을 수 없습니다: {source}") from failure
+    if head == "work":
+        work = get_work(db, ident)
+        require_owner(work, by)
+        if work.kind != "part":
+            raise AppError(code("WORKS", 27), "부품 작업에서만 지그를 생성합니다.")
+        version = current_version(db, work)
+        if version is None:
+            raise AppError(
+                code("WORKS", 8), "형상이 없습니다 — 먼저 그리거나 STEP 을 올리세요."
+            )
+        part_id, _jig = _promoted_ids(db, work.id)
+        return (
+            version.recipe,
+            work.name,
+            part_id,
+            {"product_work_id": str(work.id), "product_work_version_id": str(version.id)},
+        )
+    if head == "part":
+        part = db.get(Part, ident)
+        if part is None or part.deleted_at is not None:
+            raise NotFound(code("WORKS", 28), "부품을 찾을 수 없습니다.")
+        catalog = db.scalar(
+            select(PartVersion).where(
+                PartVersion.part_id == part.id, PartVersion.number == part.current_version
+            )
+        )
+        if catalog is None:
+            raise AppError(code("WORKS", 8), "이 부품에는 형상이 없습니다.")
+        return (
+            catalog.recipe,
+            part.name,
+            part.id,
+            {"product_part_id": str(part.id), "product_part_version_id": str(catalog.id)},
+        )
+    raise AppError(code("WORKS", 26), f"출처는 work:<id> 또는 part:<id> 입니다: {source}")
+
+
+def jig_from_part(
+    db: Session, *, by: User, source: str, name: str | None, options: dict[str, Any]
+) -> tuple[Work, Job]:
+    """부품에서 **지그 작업을 생성**한다 — 지그 작업을 먼저 만들고 그 작업에 생성을 건다.
+
+    생성기는 규칙(3-2-1)으로 출발점을 만들어 줄 뿐이다. 결과는 `adopt_jig_run` 으로 그 지그
+    작업의 첫 버전(`import_step`)이 되고, 그때부터는 그냥 그린다 — 변수 · DOE · 편집."""
+    recipe, label, part_id, origin = _product_source(db, source, by)
     opts = JigOptions.from_dict(options)
-    work.jig_options = opts.to_dict()  # 다음에 열면 그대로
-    db.commit()
-    return jobs.enqueue(
+    made = Work(
+        name=(name or f"{label} 지그").strip(),
+        description=f"{label} 에서 규칙으로 생성",
+        owner_id=by.id,
+        kind="jig",
+        jig_for_part_id=part_id,
+        jig_options=opts.to_dict(),
+    )
+    db.add(made)
+    db.flush()
+    job = jobs.enqueue(
         db,
         kind=JIG_JOB_KIND,
         requested_by=by,
-        work_id=work.id,
-        input={
-            "work_version_id": str(version.id),
-            "work_version": version.number,
-            "product_recipe": version.recipe,
-        },
+        work_id=made.id,
+        input={"product_recipe": recipe, "product_label": label, **origin},
         options=opts.to_dict(),
+    )
+    db.commit()
+    db.refresh(made)
+    return made, job
+
+
+def adopt_jig_run(db: Session, work: Work, *, by: User, job_id: uuid.UUID) -> WorkVersion:
+    """끝난 생성 결과(STEP)를 이 지그 작업의 **버전**으로. 두 번 불러도 같은 버전이다."""
+    if work.kind != "jig":
+        raise AppError(code("WORKS", 27), "지그 작업에서만 생성 결과를 가져옵니다.")
+    job = _done_job(db, job_id, "지그 생성")
+    if job.work_id != work.id or job.kind != JIG_JOB_KIND:
+        raise NotFound(code("WORKS", 24), "이 작업의 지그 생성이 아닙니다.")
+    artifact = db.scalar(
+        select(Artifact).where(Artifact.job_id == job.id, Artifact.kind == "jig_step")
+    )
+    if artifact is None:
+        raise AppError(code("WORKS", 25), "이 생성 결과에 STEP 이 없습니다.")
+    node = {"id": "생성된_지그", "op": "import_step", "file": str(artifact.id)}
+    for version in list_versions(db, work):
+        nodes = version.recipe.get("nodes") or []
+        if nodes and nodes[0].get("file") == str(artifact.id):
+            return version
+    plan = (job.summary or {}).get("plan") or {}
+    label = job.input.get("product_label", "부품")
+    counts = " · ".join(
+        f"{word} {len(plan.get(key, []))}"
+        for word, key in (("받침", "supports"), ("로케이터", "locators"), ("클램프", "clamps"))
+    )
+    note = f"{label} 에서 생성 — {counts}"
+    return add_version(
+        db, work, recipe={"nodes": [node]}, source="generated", note=note, by=by
     )
 
 
@@ -512,47 +598,6 @@ def promote_part(
     return promoted
 
 
-def jig_work_from_run(
-    db: Session, work: Work, *, by: User, job_id: uuid.UUID, name: str | None
-) -> Work:
-    """생성기가 만든 지그를 **지그 작업으로 가져온다** — 그 다음부터는 그냥 그린다.
-
-    생성기는 규칙으로 출발점을 만들어 줄 뿐이다. 받침을 옮기거나 튜닝부를 붙이는 일은 결국
-    사람이 한다. 결과 STEP 을 `import_step` 한 줄짜리 지그 작업으로 만들어 주면, 거기서부터
-    **변수 · 실험계획 · 편집**이 그대로 된다 — 지금까지는 결과를 받아 내려받는 것으로 끝이었다.
-    """
-    job = _done_job(db, job_id, "지그 생성")
-    if job.work_id != work.id or job.kind != JIG_JOB_KIND:
-        raise NotFound(code("WORKS", 24), "이 작업의 지그 생성이 아닙니다.")
-    artifact = db.scalar(
-        select(Artifact).where(Artifact.job_id == job.id, Artifact.kind == "jig_step")
-    )
-    if artifact is None:
-        raise AppError(code("WORKS", 25), "이 생성 결과에 STEP 이 없습니다.")
-    part_id, _jig_id = _promoted_ids(db, work.id)
-    made = Work(
-        name=(name or f"{work.name} 지그").strip(),
-        description=f"{work.name} 의 지그 생성 결과에서 가져옴",
-        owner_id=by.id,
-        kind="jig",
-        jig_for_part_id=part_id,
-    )
-    db.add(made)
-    db.flush()
-    add_version(
-        db,
-        made,
-        recipe={
-            "nodes": [{"id": "생성된_지그", "op": "import_step", "file": str(artifact.id)}]
-        },
-        source="copy",
-        note="지그 생성기 결과",
-        by=by,
-    )
-    db.refresh(made)
-    return made
-
-
 def promote_jig_recipe(
     db: Session,
     work: Work,
@@ -635,65 +680,3 @@ def _jig_for(
     if part_version is not None:
         jig.part_id = part_version.part_id
     return jig
-
-
-def promote_jig(
-    db: Session,
-    work: Work,
-    *,
-    by: User,
-    job_id: uuid.UUID,
-    name: str | None,
-    note: str,
-    promote_product: bool,
-) -> PromoteJigOut:
-    """지그 생성 작업 하나를 지그로. **어느 부품 버전의 지그인가**를 고정한다 — 제품(그때의
-    형상 버전)이 부품에 없으면 함께 올린다. 지그만 있고 제품이 없는 카탈로그는 반쪽이다."""
-    job = _done_job(db, job_id, "지그 생성")
-    if job.work_id != work.id or job.kind != JIG_JOB_KIND:
-        raise NotFound(code("WORKS", 12), "이 작업의 지그 생성이 아닙니다.")
-    if db.scalar(select(JigVersion.id).where(JigVersion.job_id == job.id)) is not None:
-        raise AppError(code("WORKS", 13), "이 지그 생성은 이미 올라가 있습니다.")
-
-    # 제품 = 그때의 형상 버전. 부품 카탈로그에 있으면 그것을, 없으면 지금 올린다.
-    part_version: PartVersion | None = None
-    part_promoted_now = False
-    raw_version_id = job.input.get("work_version_id")
-    if raw_version_id:
-        product_version = db.get(WorkVersion, uuid.UUID(str(raw_version_id)))
-        if product_version is not None:
-            part_version = _promoted_part_version(db, product_version.id)
-            if part_version is None and promote_product:
-                if product_version.number != work.current_version:
-                    # 승격은 현재 버전으로만 — 옛 버전을 올리려면 되돌린 뒤.
-                    raise AppError(
-                        code("WORKS", 14),
-                        f"이 지그의 제품은 작업 v{product_version.number} 인데 현재는 "
-                        f"v{work.current_version} 입니다. 먼저 v{product_version.number} 으로 "
-                        f"되돌리거나 현재 형상으로 지그를 다시 만드세요.",
-                    )
-                part_version = promote_part(db, work, by=by, name=None, note="지그와 함께")
-                part_promoted_now = True
-
-    jig = _jig_for(db, work, by=by, name=name, part_version=part_version)
-
-    promoted = JigVersion(
-        jig_id=jig.id,
-        number=jig.current_version + 1,
-        job_id=job.id,
-        part_version_id=part_version.id if part_version else None,
-        options=job.options,
-        summary=job.summary,
-        note=note.strip(),
-        promoted_by_id=by.id,
-    )
-    db.add(promoted)
-    jig.current_version = promoted.number
-    db.commit()
-    return PromoteJigOut(
-        jig_id=jig.id,
-        jig_version=promoted.number,
-        part_id=part_version.part_id if part_version else None,
-        part_version=part_version.number if part_version else None,
-        part_promoted_now=part_promoted_now,
-    )

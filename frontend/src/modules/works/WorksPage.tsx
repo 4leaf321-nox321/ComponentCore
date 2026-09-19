@@ -61,6 +61,10 @@ export default function WorksPage() {
             <Button variant="outline" onClick={() => void startAssembly()} disabled={starting}>
               {starting ? '만드는 중…' : '새 조립'}
             </Button>
+            {/* 지그의 두 번째 시작점 — 부품을 골라 규칙으로 만들고, 그 뒤는 그냥 그린다. */}
+            <Button variant="outline" onClick={() => navigate('/draw/jig-from-part')}>
+              부품에서 지그 생성
+            </Button>
             <Button onClick={() => navigate('/draw')}>새 작업</Button>
           </>
         }

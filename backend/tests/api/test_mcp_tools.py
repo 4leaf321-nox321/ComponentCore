@@ -146,25 +146,32 @@ def test_AI_의_루프_가이드_검증_저장_지그_승격(
     assert saved["version"] == 2 and saved["evaluation"]["summary"]["bbox"]["size"][2] == 20
     assert [v["number"] for v in bot.call(server.list_versions, work_id)["versions"]] == [2, 1]
 
-    # 5) 지그 — 끝난 결과가 돌아온다.
-    jig = bot.call(server.run_jig, work_id, {"support_count": 3})
-    assert jig["status"] == "done", jig
-    assert jig["summary"]["interference"]["ok"] is True
-    assert {one["kind"] for one in jig["summary"]["plan"]["locators"]} == {"pin"}
-    runs = bot.call(server.list_jig_runs, work_id)["runs"]
-    assert runs[0]["job_id"] == jig["job_id"] and runs[0]["interference_ok"] is True
+    # 5) 부품에서 지그 생성 — 지그 작업이 생기고 결과가 그 첫 버전이 된 채로 돌아온다.
+    jig = bot.call(server.run_jig, f"work:{work_id}", {"support_count": 3})
+    assert "error" not in jig, jig
+    assert jig["job"]["status"] == "done" and jig["version"] == 1
+    assert jig["job"]["summary"]["interference"]["ok"] is True
+    assert {one["kind"] for one in jig["job"]["summary"]["plan"]["locators"]} == {"pin"}
+    runs = bot.call(server.list_jig_runs, jig["work_id"])["runs"]
+    assert runs[0]["job_id"] == jig["job"]["job_id"] and runs[0]["interference_ok"] is True
 
-    # 6) 승격(사용자가 시켰다고 치자) — 제품도 함께 부품으로.
-    promoted = bot.call(server.promote_jig, work_id, jig["job_id"], note="AI 가 만든 지그")
+    # 6) 승격(사용자가 시켰다고 치자) — 부품을 올리고, 지그는 도면 길로 올린다.
+    part_up = bot.call(server.promote_part, work_id, note="AI 가 그린 부품")
+    assert "error" not in part_up, part_up
+    promoted = bot.call(
+        server.promote_jig_recipe,
+        jig["work_id"],
+        note="AI 가 만든 지그",
+        part_id=part_up["part_id"],
+    )
     assert "error" not in promoted, promoted
-    assert promoted["part_promoted_now"] is True
-    part = bot.call(server.get_part, promoted["part_id"])
+    part = bot.call(server.get_part, part_up["part_id"])
     assert part["current_version"] == 1 and part["jig_count"] == 1
     catalog = bot.call(server.get_jig, promoted["jig_id"])
-    assert catalog["part_version"] == 1 and catalog["summary"]["interference"]["ok"] is True
+    assert catalog["part_version"] == 1
 
     # 7) 카탈로그에서 내 공간으로 복사.
-    copied = bot.call(server.copy_part_to_work, promoted["part_id"])
+    copied = bot.call(server.copy_part_to_work, part_up["part_id"])
     assert copied["version"] == 1 and copied["work_id"] != work_id
 
 

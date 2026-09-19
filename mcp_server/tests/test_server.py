@@ -46,7 +46,6 @@ def test_사람이_손으로_하는_일이_도구로_다_있다() -> None:
         "jig_options",
         "run_jig",
         "promote_part",
-        "promote_jig",
         "sweep_parameter",  # 치수를 훑어 고르기
         "beam_frequency",  # 공진 가늠값
         "doe_preview",  # 형상 여러 벌

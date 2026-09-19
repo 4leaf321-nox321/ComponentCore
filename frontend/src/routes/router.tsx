@@ -15,6 +15,7 @@ import { AppShell } from '@/shared/layout/AppShell'
 
 // **매일 밟는 길(로그인 · 내 작업)은 처음에 싣고** 나머지는 나눠 싣는다.
 const DrawPage = lazy(() => import('@/modules/works/DrawPage'))
+const JigFromPartPage = lazy(() => import('@/modules/works/JigFromPartPage'))
 const WorksPage = lazy(() => import('@/modules/works/WorksPage'))
 const WorkPage = lazy(() => import('@/modules/works/WorkPage'))
 const TemplatesPage = lazy(() => import('@/modules/templates/TemplatesPage'))
@@ -43,6 +44,7 @@ export const router = createBrowserRouter(
           children: [
             { index: true, element: <Navigate to="/works" replace /> },
             { path: 'draw', element: <DrawPage /> },
+            { path: 'draw/jig-from-part', element: <JigFromPartPage /> },
             { path: 'works', element: <WorksPage /> },
             { path: 'works/:id', element: <WorkPage /> },
             { path: 'templates', element: <TemplatesPage /> },

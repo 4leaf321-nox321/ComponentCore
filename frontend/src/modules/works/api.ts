@@ -63,14 +63,6 @@ export interface WorkSummary {
   updated_at: string
 }
 
-export interface PromoteJigResult {
-  jig_id: string
-  jig_version: number
-  part_id: string | null
-  part_version: number | null
-  part_promoted_now: boolean
-}
-
 export const worksApi = {
   jigOptions: () => api.get<Record<string, unknown>>('/works/jig-options'),
   list: (offset = 0, limit = 50) => api.get<Page<WorkSummary>>(`/works?offset=${offset}&limit=${limit}`),
@@ -108,15 +100,14 @@ export const worksApi = {
     return api.postForm<WorkVersion>(`/works/${id}/import-step`, form)
   },
   jigRuns: (id: string) => api.get<Job[]>(`/works/${id}/jig-runs`),
-  runJig: (id: string, options: Record<string, unknown>) => api.post<Job>(`/works/${id}/jig-runs`, { options }),
+  /** 부품에서 지그 작업을 **생성** — 지그 작업이 바로 생기고 생성이 걸린다. 끝나면 `adoptJigRun`. */
+  jigFromPart: (body: { source: string; name?: string; options?: Record<string, unknown> }) => api.post<{ work: Work; job: Job }>('/works/jig-from-part', body),
+  /** 끝난 생성 결과를 그 지그 작업의 버전으로 — 두 번 불러도 같은 버전. */
+  adoptJigRun: (id: string, jobId: string) => api.post<WorkVersion>(`/works/${id}/jig-runs/${jobId}/adopt`, {}),
   promotePart: (id: string, body: { name?: string; note?: string }) =>
     api.post<{ part_id: string; number: number }>(`/works/${id}/promote/part`, body),
   /** 손으로 그린 지그(레시피 버전)를 지그 카탈로그로 — 생성기를 거치지 않는 길. */
   /** 생성기가 만든 지그를 **지그 작업으로** — 그 다음부터는 그냥 그린다. */
-  jigRunToWork: (id: string, jobId: string, name?: string) =>
-    api.post<Work>(`/works/${id}/jig-runs/${jobId}/to-work${name ? `?name=${encodeURIComponent(name)}` : ''}`, {}),
   promoteJigRecipe: (id: string, body: { number?: number; name?: string; note?: string; part_id?: string | null }) =>
     api.post<{ jig_id: string; jig_version: number }>(`/works/${id}/promote/jig-recipe`, body),
-  promoteJig: (id: string, body: { job_id: string; name?: string; note?: string; promote_product?: boolean }) =>
-    api.post<PromoteJigResult>(`/works/${id}/promote/jig`, body),
 }

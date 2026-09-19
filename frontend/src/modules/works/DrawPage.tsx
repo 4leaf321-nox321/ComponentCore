@@ -124,6 +124,11 @@ export default function DrawPage() {
       <PageHeader
         title="새 작업"
         description="부품이나 지그를 그려 새 작업으로 저장합니다. 빈 화면에서 그리거나 「파일」 탭에서 템플릿 · 기존 작업(사본) · STEP 을 엽니다. 저장하기 전에는 아무것도 남지 않습니다."
+        actions={
+          <Button variant="outline" onClick={() => navigate('/draw/jig-from-part')}>
+            부품에서 지그 생성
+          </Button>
+        }
       />
       <ErrorNotice error={error} />
 

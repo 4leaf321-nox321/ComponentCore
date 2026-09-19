@@ -693,17 +693,39 @@ async def jig_options(ctx: Context) -> Any:
 
 
 @mcp.tool()
-async def run_jig(ctx: Context, work_id: str, options: dict[str, Any] | None = None) -> Any:
-    """작업의 **현재 부품(버전)**을 제품으로 지그를 만든다. 끝날 때까지 기다려 계획(받침 ·
-    로케이터 · 클램프) · 간섭 검사 · 단계별 시간을 돌려준다. 간섭이 있으면 계획의 notes 와
-    interference.items 를 읽고 부품이나 옵션을 고쳐 다시 만든다."""
-    job = await _post(ctx, f"/api/works/{work_id}/jig-runs", {"options": options or {}})
-    return _slim_job(await _wait_job(ctx, job))
+async def run_jig(
+    ctx: Context,
+    source: str,
+    options: dict[str, Any] | None = None,
+    name: str | None = None,
+) -> Any:
+    """부품에서 **지그 작업을 생성**한다 — 규칙(3-2-1)으로 판 · 받침 · 위치 핀 · 클램프를 놓고
+    간섭을 검사한다. `source` 는 `work:<내 부품 작업 id>` 또는 `part:<공용 부품 id>`.
+
+    지그 작업이 새로 생기고(kind=jig, 잡는 부품이 이어진다), 결과 STEP 이 그 **첫 버전**이 된
+    채로 돌아온다 — 그 다음은 그냥 그린다(`save_version` 으로 받침을 옮기고 변수를 심는다).
+    간섭이 있으면 `job.summary.interference.items` 와 계획의 notes 를 읽고 옵션을 고쳐 다시
+    만든다(새 지그 작업이 또 생긴다 — 지난 것은 사용자가 내 작업에서 지운다)."""
+    made = await _post(
+        ctx,
+        "/api/works/jig-from-part",
+        {"source": source, "options": options or {}, "name": name},
+    )
+    if not isinstance(made, dict) or "error" in made:
+        return made
+    work_id = made["work"]["id"]
+    job = await _wait_job(ctx, made["job"])
+    out: dict[str, Any] = {"work_id": work_id, "name": made["work"]["name"], "job": _slim_job(job)}
+    if isinstance(job, dict) and job.get("status") == "done":
+        adopted = await _post(ctx, f"/api/works/{work_id}/jig-runs/{job['id']}/adopt", None)
+        if isinstance(adopted, dict) and "number" in adopted:
+            out["version"] = adopted["number"]
+    return out
 
 
 @mcp.tool()
 async def list_jig_runs(ctx: Context, work_id: str) -> Any:
-    """작업의 지그 생성 기록(최근 것부터). 승격할 것을 고를 때 job_id 를 여기서 얻는다."""
+    """지그 작업의 생성 기록(최근 것부터) — 계획 · 간섭 검사 결과를 되짚을 때."""
     runs = await _get(ctx, f"/api/works/{work_id}/jig-runs")
     if isinstance(runs, list):
         return {
@@ -742,19 +764,6 @@ async def promote_part(
 
 
 @mcp.tool()
-async def promote_jig(
-    ctx: Context, work_id: str, job_id: str, name: str | None = None, note: str = ""
-) -> Any:
-    """지그 생성 결과 하나를 **지그 카탈로그**에 올린다. 제품(그때의 부품 버전)이 카탈로그에
-    없으면 함께 올린다. **사용자가 시킬 때만.**"""
-    return await _post(
-        ctx,
-        f"/api/works/{work_id}/promote/jig",
-        {"job_id": job_id, "name": name, "note": note, "promote_product": True},
-    )
-
-
-@mcp.tool()
 async def promote_jig_recipe(
     ctx: Context,
     work_id: str,
@@ -762,11 +771,11 @@ async def promote_jig_recipe(
     note: str = "",
     part_id: str | None = None,
 ) -> Any:
-    """**손으로 그린 지그**(레시피 버전)를 지그 카탈로그로 — 생성기(`run_jig`)를 거치지 않는 길.
+    """지그 작업의 현재 버전을 **지그 카탈로그**로. **사용자가 시킬 때만.**
 
-    지그는 두 길로 생긴다: (1) `run_jig` 가 제품에서 만들어 주는 것, (2) 사람 · AI 가 **그리는**
-    것. 공진을 맞추는 시험 지그처럼 생성기가 만들 수 없는 것은 그린다 — 그리는 것이니 `params`
-    로 변수를 심고 DOE 로 훑을 수 있다. `part_id` 를 주면 어느 부품의 지그인지 이어진다."""
+    지그 작업은 두 길로 생긴다: (1) `run_jig` 가 부품에서 만들어 주는 것, (2) 사람 · AI 가 빈
+    화면에서 **그리는** 것. 어느 쪽이든 올리는 길은 이것 하나다. `part_id` 를 주면 어느 부품의
+    지그인지 이어진다(생성한 것은 이미 이어져 있다)."""
     return await _post(
         ctx,
         f"/api/works/{work_id}/promote/jig-recipe",

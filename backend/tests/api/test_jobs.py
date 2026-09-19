@@ -49,10 +49,12 @@ def test_워커가_집어서_돌린다(
     assert first is not None and first.kind == "cad"
     services.execute(db, first, worker_id="test-worker")
 
-    queued = client.post(f"/api/works/{work}/jig-runs", json={}, headers=member.headers)
+    queued = client.post(
+        "/api/works/jig-from-part", json={"source": f"work:{work}"}, headers=member.headers
+    )
     assert queued.status_code == 202, queued.text
-    assert queued.json()["status"] == "queued"
-    job_id = queued.json()["id"]
+    assert queued.json()["job"]["status"] == "queued"
+    job_id = queued.json()["job"]["id"]
 
     # 화면이 보는 것 — 아직 진행이 없다.
     seen = client.get(f"/api/jobs/{job_id}", headers=member.headers).json()
@@ -73,7 +75,7 @@ def test_워커가_집어서_돌린다(
 
     seen = client.get(f"/api/jobs/{job_id}", headers=member.headers).json()
     assert seen["status"] == "done" and len(seen["artifacts"]) == 4
-    assert seen["work_name"] == "큐 시험"
+    assert seen["work_name"] == "큐 시험 지그"  # 생성 작업은 새 지그 작업에 매달린다
 
 
 def test_사람이_읽을_수_있는_실패는_메시지_그대로(

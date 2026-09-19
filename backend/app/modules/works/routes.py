@@ -16,10 +16,10 @@ from app.modules.parts.schemas import PartVersionOut
 from app.modules.works import services
 from app.modules.works.models import Work
 from app.modules.works.schemas import (
-    JigRunRequest,
+    JigFromPartOut,
+    JigFromPartRequest,
     PromoteJigOut,
     PromoteJigRecipeRequest,
-    PromoteJigRequest,
     PromotePartRequest,
     VersionCreateRequest,
     VersionOut,
@@ -206,16 +206,32 @@ def list_jig_runs(
     return [jobs.job_out(db, one) for one in services.list_jig_runs(db, work)]
 
 
-@router.post("/{work_id}/jig-runs", response_model=JobOut, status_code=202)
-def create_jig_run(
-    work_id: uuid.UUID,
-    payload: JigRunRequest,
+@router.post("/jig-from-part", response_model=JigFromPartOut, status_code=202)
+def jig_from_part(
+    payload: JigFromPartRequest,
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-) -> JobOut:
-    """현재 형상을 제품으로 지그 생성을 **건다.** 화면은 `GET /api/jobs/{id}` 를 폴링한다."""
+) -> JigFromPartOut:
+    """부품에서 **지그 작업을 생성**한다. 지그 작업이 바로 생기고 생성이 걸린다 — 화면은
+    `GET /api/jobs/{id}` 를 폴링하다 끝나면 `adopt` 로 결과를 첫 버전으로 가져온다."""
+    made, job = services.jig_from_part(
+        db, by=user, source=payload.source, name=payload.name, options=payload.options
+    )
+    return JigFromPartOut(
+        work=services.work_out(db, made), job=jobs.job_out(db, job).model_dump()
+    )
+
+
+@router.post("/{work_id}/jig-runs/{job_id}/adopt", response_model=VersionOut, status_code=201)
+def adopt_jig_run(
+    work_id: uuid.UUID,
+    job_id: uuid.UUID,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> VersionOut:
+    """끝난 생성 결과를 이 지그 작업의 버전으로 — 그 다음부터는 그냥 그린다(변수 · DOE)."""
     work = _mine(db, work_id, user)
-    return jobs.job_out(db, services.request_jig(db, work, by=user, options=payload.options))
+    return services.version_out(db, services.adopt_jig_run(db, work, by=user, job_id=job_id))
 
 
 # --- 승격 ---------------------------------------------------------------------
@@ -232,21 +248,6 @@ def promote_part(
     work = _mine(db, work_id, user)
     promoted = services.promote_part(db, work, by=user, name=payload.name, note=payload.note)
     return parts.version_out(db, promoted)
-
-
-@router.post("/{work_id}/jig-runs/{job_id}/to-work", response_model=WorkOut, status_code=201)
-def jig_work_from_run(
-    work_id: uuid.UUID,
-    job_id: uuid.UUID,
-    name: str | None = None,
-    user: User = Depends(current_user),
-    db: Session = Depends(get_db),
-) -> WorkOut:
-    """생성기가 만든 지그를 **지그 작업으로** — 그 다음부터는 그냥 그린다(변수 · 실험계획)."""
-    work = services.get_work(db, work_id)
-    services.require_owner(work, user)
-    made = services.jig_work_from_run(db, work, by=user, job_id=job_id, name=name)
-    return services.work_out(db, made)
 
 
 @router.post("/{work_id}/promote/jig-recipe", response_model=PromoteJigOut, status_code=201)
@@ -271,24 +272,4 @@ def promote_jig_recipe(
         name=payload.name,
         note=payload.note,
         part_id=payload.part_id,
-    )
-
-
-@router.post("/{work_id}/promote/jig", response_model=PromoteJigOut, status_code=201)
-def promote_jig(
-    work_id: uuid.UUID,
-    payload: PromoteJigRequest,
-    user: User = Depends(current_user),
-    db: Session = Depends(get_db),
-) -> PromoteJigOut:
-    """지그 생성 작업 하나를 지그 카탈로그에 올린다. 제품이 부품에 없으면 함께 올린다."""
-    work = _mine(db, work_id, user)
-    return services.promote_jig(
-        db,
-        work,
-        by=user,
-        job_id=payload.job_id,
-        name=payload.name,
-        note=payload.note,
-        promote_product=payload.promote_product,
     )

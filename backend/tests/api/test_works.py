@@ -116,67 +116,77 @@ def test_STEP_을_올리면_import_step_버전(
     assert bad.status_code == 400 and bad.json()["error"]["code"] == "AJG-WORKS-0005"
 
 
-def test_지그_생성과_승격(client: TestClient, member: Signed, admin: Signed) -> None:
+def test_부품에서_지그를_생성하면_지그_작업이_되고_거기서_승격한다(
+    client: TestClient, member: Signed, admin: Signed
+) -> None:
+    """생성기는 지그의 시작점이다 — 부품 화면이 아니라 「새 작업 > 부품에서 지그 생성」."""
     work = _work(client, member, _plate(client, member))
     run = client.post(
-        f"/api/works/{work['id']}/jig-runs",
-        json={"options": {"support_count": 3}},
+        "/api/works/jig-from-part",
+        json={"source": f"work:{work['id']}", "options": {"support_count": 3}},
         headers=member.headers,
     )
     assert run.status_code == 202, run.text
-    job = run.json()
+    made, job = run.json()["work"], run.json()["job"]
+    # 지그 작업이 바로 생기고, 생성 작업은 그 지그 작업에 매달린다(부품 작업이 아니라).
+    assert made["kind"] == "jig" and made["name"] == "시험 작업 지그"
+    assert made["jig_options"]["support_count"] == 3 and made["current_version"] == 0
     assert job["kind"] == "jig" and job["status"] == "done", job["error"]
+    assert job["work_id"] == made["id"]
     assert {one["kind"] for one in job["summary"]["plan"]["locators"]} == {"pin"}
     assert len(job["summary"]["plan"]["supports"]) == 3
-    # 옵션이 작업에 남는다.
     assert (
-        client.get(f"/api/works/{work['id']}", headers=member.headers).json()["jig_options"][
-            "support_count"
-        ]
-        == 3
+        client.get(f"/api/works/{work['id']}", headers=member.headers).json()["jig_run_count"]
+        == 0
     )
 
-    # 지그를 승격한다 — 제품(형상 v1)이 부품에 없으니 함께 올라간다.
+    # 결과를 첫 버전으로 — 두 번 불러도 같은 버전.
+    adopted = client.post(
+        f"/api/works/{made['id']}/jig-runs/{job['id']}/adopt", headers=member.headers
+    )
+    assert adopted.status_code == 201, adopted.text
+    version = adopted.json()
+    assert version["number"] == 1 and version["source"] == "generated"
+    assert version["recipe"]["nodes"][0]["op"] == "import_step"
+    assert version["job"]["status"] == "done"  # 그대로 평가된다 — 이어서 그릴 수 있다
+    assert "받침 3" in version["note"]
+    again = client.post(
+        f"/api/works/{made['id']}/jig-runs/{job['id']}/adopt", headers=member.headers
+    ).json()
+    assert again["id"] == version["id"]
+    seen = client.get(f"/api/works/{made['id']}", headers=member.headers).json()
+    assert seen["current_version"] == 1 and seen["jig_run_count"] == 1
+    # 부품이 아직 카탈로그에 없으니 잡는 부품은 비어 있다.
+    assert seen["jig_for_part_id"] is None
+
+    # 부품을 승격하고, 그 공용 부품에서 생성하면 잡는 부품이 이어진다.
+    part = client.post(
+        f"/api/works/{work['id']}/promote/part", json={}, headers=member.headers
+    ).json()
+    from_catalog = client.post(
+        "/api/works/jig-from-part",
+        json={"source": f"part:{part['part_id']}", "name": "카탈로그 지그"},
+        headers=member.headers,
+    )
+    assert from_catalog.status_code == 202, from_catalog.text
+    assert from_catalog.json()["work"]["jig_for_part_id"] == part["part_id"]
+    assert from_catalog.json()["job"]["status"] == "done"
+
+    # 지그 작업의 승격은 도면 길(promote/jig-recipe) 하나다 — 카탈로그에서 누구나 본다.
     promoted = client.post(
-        f"/api/works/{work['id']}/promote/jig",
-        json={"job_id": job["id"], "note": "첫 지그"},
+        f"/api/works/{made['id']}/promote/jig-recipe",
+        json={"note": "첫 지그", "part_id": part["part_id"]},
         headers=member.headers,
     )
     assert promoted.status_code == 201, promoted.text
     body = promoted.json()
-    assert (
-        body["jig_version"] == 1
-        and body["part_version"] == 1
-        and body["part_promoted_now"] is True
-    )
-
-    # 카탈로그에서 누구나 본다 — 남(관리자로 대신)이 부품과 지그와 그 STEP 을 받는다.
-    part = client.get(f"/api/parts/{body['part_id']}", headers=admin.headers)
-    assert (
-        part.status_code == 200
-        and part.json()["current_version"] == 1
-        and part.json()["jig_count"] == 1
-    )
+    assert body["jig_version"] == 1 and body["part_id"] == part["part_id"]
     jig = client.get(f"/api/jigs/{body['jig_id']}", headers=admin.headers)
-    assert jig.status_code == 200
-    assert (
-        jig.json()["part_name"] == "시험 작업" and jig.json()["current"]["part_version"] == 1
-    )
-    step = next(
-        one for one in jig.json()["current"]["job"]["artifacts"] if one["kind"] == "jig_step"
-    )
-    assert (
-        client.get(f"/api/artifacts/{step['id']}/download", headers=admin.headers).status_code
-        == 200
-    )
+    assert jig.status_code == 200 and jig.json()["part_name"] == "시험 작업"
+    got_part = client.get(f"/api/parts/{part['part_id']}", headers=admin.headers)
+    assert got_part.status_code == 200 and got_part.json()["jig_count"] == 1
 
-    # 같은 생성은 두 번 못 올린다. 같은 형상 버전도.
-    again = client.post(
-        f"/api/works/{work['id']}/promote/jig",
-        json={"job_id": job["id"]},
-        headers=member.headers,
-    )
-    assert again.status_code == 400 and again.json()["error"]["code"] == "AJG-WORKS-0013"
+    # 같은 형상 버전은 두 번 못 올린다.
     same = client.post(
         f"/api/works/{work['id']}/promote/part", json={}, headers=member.headers
     )
@@ -197,12 +207,12 @@ def test_지그_생성과_승격(client: TestClient, member: Signed, admin: Sign
         client.get(f"/api/works/{work['id']}", headers=member.headers).json()[
             "promoted_part_id"
         ]
-        == body["part_id"]
+        == part["part_id"]
     )
 
     # 남의 부품을 고치는 길은 「내 공간으로 복사」 뿐.
     copied = client.post(
-        f"/api/parts/{body['part_id']}/copy-to-work", json={"number": 1}, headers=admin.headers
+        f"/api/parts/{part['part_id']}/copy-to-work", json={"number": 1}, headers=admin.headers
     )
     assert copied.status_code == 201, copied.text
     assert copied.json()["owner_id"] != work["owner_id"]
@@ -226,7 +236,9 @@ def test_형상_없는_작업은_지그를_못_건다(client: TestClient, member
         from tests.api.conftest import _login
 
         headers = {"Authorization": f"Bearer {_login(client, owner.email)}"}
-        got = client.post(f"/api/works/{work.id}/jig-runs", json={}, headers=headers)
+        got = client.post(
+            "/api/works/jig-from-part", json={"source": f"work:{work.id}"}, headers=headers
+        )
         assert got.status_code == 400 and got.json()["error"]["code"] == "AJG-WORKS-0008"
     finally:
         db.close()
@@ -378,34 +390,3 @@ def test_지그_작업에_이어_둔_부품이_승격까지_따라간다(
     ).json()
     # 따로 고르지 않아도 어느 부품의 지그인지 이어진다.
     assert promoted["part_id"] == part["part_id"]
-
-
-def test_생성된_지그를_작업으로_가져오면_그때부터_그린다(
-    client: TestClient, member: Signed
-) -> None:
-    """생성기는 출발점만 만들어 준다 — 받침을 옮기고 튜닝부를 붙이는 일은 사람이 한다."""
-    product = client.post(
-        "/api/works",
-        json={
-            "name": "판",
-            "recipe": {
-                "nodes": [
-                    {"id": "b", "op": "box", "length": 80, "width": 50, "height": 10},
-                ]
-            },
-        },
-        headers=member.headers,
-    ).json()
-    run = client.post(
-        f"/api/works/{product['id']}/jig-runs", json={"options": {}}, headers=member.headers
-    ).json()
-    assert run["status"] == "done", run.get("error")
-
-    made = client.post(
-        f"/api/works/{product['id']}/jig-runs/{run['id']}/to-work", headers=member.headers
-    )
-    assert made.status_code == 201, made.text
-    got = made.json()
-    assert got["kind"] == "jig"  # 지그 작업으로 온다
-    assert got["current"]["recipe"]["nodes"][0]["op"] == "import_step"
-    assert got["current"]["job"]["status"] == "done"  # 그대로 평가된다 — 이어서 그릴 수 있다

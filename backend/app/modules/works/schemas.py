@@ -20,8 +20,7 @@ class WorkCreateRequest(BaseModel):
     **비워도 된다** — 조립처럼 「빈 채로 만들어 놓고 채우는」 것이 있다. 그러면 버전 없이
     작업만 생기고, 화면이 첫 버전을 만들 때까지 기다린다."""
     kind: str = "part"
-    """part | jig — **무엇을 그리는가.** 그리는 방법은 같고, 승격할 곳과 덤으로 쓰는 도구가
-    다르다(부품 작업에는 지그 생성기, 지그 작업에는 잡는 부품)."""
+    """part | jig | assembly — **무엇을 그리는가.** 그리는 방법은 같고, 승격할 곳이 다르다."""
     jig_for_part_id: uuid.UUID | None = None
     source: str = "manual"
     note: str = Field(default="", max_length=2000)
@@ -103,9 +102,22 @@ class WorkSummaryOut(BaseModel):
     updated_at: datetime
 
 
-class JigRunRequest(BaseModel):
+class JigFromPartRequest(BaseModel):
+    """부품에서 **지그 작업을 생성**한다 — 규칙(3-2-1)으로 판 · 받침 · 핀 · 클램프를 놓는다."""
+
+    source: str = Field(min_length=6)
+    """`work:<내 부품 작업 id>` 또는 `part:<공용 부품 id>`. 그 현재 버전이 제품이 된다."""
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    """지그 작업 이름. 비우면 「〈부품〉 지그」."""
     options: dict[str, Any] = Field(default_factory=dict)
-    """`JigOptions` 의 일부. 안 준 키는 기본값. 작업에 마지막 옵션으로 남는다."""
+    """`JigOptions` 의 일부. 안 준 키는 기본값. 지그 작업에 `jig_options` 로 남는다."""
+
+
+class JigFromPartOut(BaseModel):
+    """만들어진 지그 작업과, 돌고 있는 생성 작업. 끝나면 `adopt` 로 결과가 첫 버전이 된다."""
+
+    work: WorkOut
+    job: dict[str, Any]
 
 
 class PromotePartRequest(BaseModel):
@@ -115,17 +127,6 @@ class PromotePartRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     """새 부품일 때 이름. 비우면 작업 이름."""
     note: str = Field(default="", max_length=2000)
-
-
-class PromoteJigRequest(BaseModel):
-    """지그 생성 작업 하나를 지그로. 제품(그때의 형상 버전)이 부품에 없으면 함께 승격한다."""
-
-    job_id: uuid.UUID
-    name: str | None = Field(default=None, min_length=1, max_length=120)
-    note: str = Field(default="", max_length=2000)
-    promote_product: bool = True
-    """제품 버전이 부품 카탈로그에 없을 때 함께 올린다. 끄면 제품 참조 없이(스냅숏만)
-    올라간다."""
 
 
 class PromoteJigRecipeRequest(BaseModel):

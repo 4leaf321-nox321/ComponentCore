@@ -3,10 +3,10 @@
 **부품이든 지그든 그리는 방법은 같다** — 레시피(연산 트리) 하나다. 다른 것은 작업의 `kind`
 뿐이고, 그것이 「이 그림이 무엇인가」 와 「어느 카탈로그로 올라가나」 를 정한다:
 
-- `part`  제품 · 부품을 그린다. 덤으로 **지그 생성기**를 쓸 수 있다(이 부품을 잡는 지그를
-  규칙으로 만들어 준다 — `jig_options`).
-- `jig`   지그를 그린다. 생성기가 만들 수 없는 것(공진 시험 지그 · 특수 치구)이 이쪽이다.
-  덤으로 **어느 부품을 잡는지**(`jig_for_part_id`)를 이어 둘 수 있다.
+- `part`  제품 · 부품을 그린다.
+- `jig`   지그를 그린다. 빈 화면에서 그리거나, **부품에서 규칙으로 생성**해서 시작한다
+  (「새 작업 > 부품에서 지그 생성」 — 그 생성 작업은 이 지그 작업에 매달리고 `jig_options` 가
+  그때 옵션이다). 덤으로 **어느 부품을 잡는지**(`jig_for_part_id`)를 이어 둘 수 있다.
 
 승격은 종류를 따라간다 — 부품 작업은 부품으로, 지그 작업은 지그로. 그래서 「이 레시피를
 무엇으로 올릴까」 를 물을 일이 없다.
@@ -29,7 +29,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 
 #: 버전이 어디서 왔나.
-VERSION_SOURCES = ("template", "manual", "ai", "import", "restore", "copy")
+VERSION_SOURCES = ("template", "manual", "ai", "import", "restore", "copy", "generated")
 #: 이 작업이 만드는 것.
 #:
 #: - `part` · `jig` 는 **그리는 것**이다. 둘은 서로 아무 관계가 없다 — 각자 제 도면이다.

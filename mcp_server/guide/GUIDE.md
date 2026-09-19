@@ -19,8 +19,8 @@
 | 새 부품 시작 | `create_work(name, recipe)` |
 | 있는 부품 고치기 | `get_work` 로 레시피를 받아 고쳐 `save_version` |
 | 되돌리기 | `list_versions` → `restore_version` |
-| 지그 만들기 | `run_jig(work_id, options)` → 계획 · 간섭이 돌아온다 |
-| 남에게 내놓기 | `promote_part` · `promote_jig` — **사용자가 시킬 때만** |
+| 부품에서 지그 생성 | `run_jig(source, options)` → 지그 작업이 생기고 계획 · 간섭이 돌아온다 |
+| 남에게 내놓기 | `promote_part` · `promote_jig_recipe` — **사용자가 시킬 때만** |
 | 남의 것 가져오기 | `list_parts` → `copy_part_to_work` |
 
 기본 습관:
@@ -133,18 +133,19 @@
   가져오는 것은 STEP 이 아니라 **살아 있는 레시피**라, `params` 로 구성품의 치수를 조립의
   변수로 움직일 수 있다 → 조립을 그대로 실험계획으로 훑는다.
 
-**지그는 두 길로 생긴다** — 어느 쪽인지 먼저 정한다:
-- **만들어 준다**: `run_jig` — 제품 형상에서 받침 · 위치 핀 · 클램프를 규칙으로 배치한다.
-  손잡이는 `jig_options`(판 두께 · 여유 · 핀 지름 …)뿐이고 **레시피가 아니라 변수를 못 심는다.**
-- **그린다**: 레시피로 직접. 생성기가 만들 수 없는 지그(공진을 맞추는 시험 지그, 특수 치구)는
-  이 길이다. 그리는 것이니 `params` 로 **변수를 심고 DOE 로 훑을 수 있다.** 작업을 만들 때
-  `kind="jig"` 로 두면 화면의 말과 승격이 지그 쪽으로 맞춰진다. 다 그리면 `promote_jig_recipe`
-  로 지그 카탈로그에 올린다(작업에 이어 둔 부품이 자동으로 따라간다).
+**지그 작업은 두 길로 시작한다** — 어느 쪽이든 결과는 `kind="jig"` 작업이고 그 뒤는 같다:
+- **부품에서 생성**: `run_jig(source)` — 부품(`work:<id>` · `part:<id>`)의 형상에서 받침 · 위치
+  핀 · 클램프를 규칙으로 배치해 **새 지그 작업**을 만들고, 결과 STEP 이 그 첫 버전이 된다.
+  손잡이는 `jig_options`(판 두께 · 여유 · 핀 지름 …). 출발점일 뿐이다 — 받침을 옮기거나 튜닝부를
+  붙이는 일은 그 다음에 `save_version` 으로 그린다(그때부터 `params` 로 변수를 심는다).
+- **빈 화면에서 그린다**: 생성기가 만들 수 없는 지그(공진을 맞추는 시험 지그, 특수 치구)는
+  `create_work(kind="jig")` 로 시작해 레시피로 그린다.
+다 그리면 `promote_jig_recipe` 로 지그 카탈로그에 올린다(작업에 이어 둔 부품이 자동으로 따라간다).
 
 제품을 기준으로 **지그**를 그릴 때:
 1. `list_parts` → `part_geometry(part_id)` — 크기 · 바닥 평면 · **구멍(지름 · 중심 · 깊이)** 을
    읽는다. 내 작업이라면 `work_geometry(work_id)`.
-2. 자동으로 뽑으려면 `copy_part_to_work` → `run_jig`(옵션은 `jig_options`).
+2. 자동으로 뽑으려면 `run_jig("part:<part_id>")` (옵션은 `jig_options`) — 복사할 필요가 없다.
 3. 손으로 그리려면 받은 `step_artifact_id` 로 제품을 불러와 쓴다:
    `{"op":"import_step","file":"<step_artifact_id>","id":"제품"}` →
    `{"op":"offset","target":"제품","amount":0.3,"id":"여유"}` →
@@ -187,9 +188,10 @@
    가리킨다.
 3. `recipe_check(recipe)` — 통과할 때까지. 요약의 bbox · volume 이 의도와 맞는지 본다.
 4. `save_version(work_id, recipe, note)` — 평가가 끝나면 요약이 돌아온다.
-5. 지그가 필요하면 `run_jig(work_id, options)`. 간섭이 있으면 결과의 `plan.notes` 와
-   `interference.items` 를 읽고 (a) 옵션(판 여유 · 받침 수 · 클램프 수) 또는 (b) 부품을 고쳐 다시.
-6. 사용자가 시키면 `promote_part` / `promote_jig`.
+5. 지그가 필요하면 `run_jig("work:<work_id>", options)` — 새 지그 작업이 생긴다. 간섭이 있으면
+   결과의 `plan.notes` 와 `interference.items` 를 읽고 (a) 옵션(판 여유 · 받침 수 · 클램프 수)
+   또는 (b) 부품을 고쳐 다시(지난 지그 작업은 `delete_work`).
+6. 사용자가 시키면 `promote_part` / `promote_jig_recipe`.
 
 ## jig
 
