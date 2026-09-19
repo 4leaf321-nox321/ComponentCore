@@ -114,6 +114,13 @@ export function PointsGallery({
   useEffect(() => {
     if (page > pages - 1) setPage(pages - 1)
   }, [page, pages])
+  // 목록에서 짚은 점이 다른 쪽에 있으면 그 쪽으로 — 짚었는데 안 보이면 없는 줄 안다.
+  useEffect(() => {
+    if (mode === 'single' || focus === null) return
+    const index = picked.indexOf(focus)
+    if (index >= 0 && Math.floor(index / limit) !== at) setPage(Math.floor(index / limit))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus])
   useEffect(() => {
     for (const number of shown) if (ready.includes(number)) void load(number)
   }, [shown, ready, load])

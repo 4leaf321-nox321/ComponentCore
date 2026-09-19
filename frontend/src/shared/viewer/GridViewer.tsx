@@ -144,6 +144,14 @@ export function GridViewer({ items, columns, cellClass, className }: { items: Gr
     }
   }, [])
 
+  // 도드라진 칸이 바뀌면 거기로 스크롤한다 — 목록에서 고른 것을 아래에서 찾아 내려가지 않게.
+  const highlighted = items.find((one) => one.highlight)?.key ?? null
+  useEffect(() => {
+    if (!highlighted) return
+    const cell = cells.current.get(highlighted)
+    cell?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [highlighted])
+
   // 형상이 바뀌면 장면을 맞춘다 — 남은 것은 두고, 간 것은 버리고, 온 것은 만든다.
   useEffect(() => {
     const s = state.current

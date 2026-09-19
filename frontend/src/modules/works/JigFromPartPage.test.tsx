@@ -22,7 +22,7 @@ const JOB = {
   kind: 'jig',
   status: 'done',
   work_id: 'j1',
-  summary: { plan: { supports: [], locators: [], clamps: [], notes: [] }, interference: { ok: true, items: [] }, stages: [], geometry: { bbox: { size: [1, 1, 1] } } },
+  summary: { plan: { supports: [], locators: [], clamps: [], notes: [] }, interference: { ok: true, items: [] }, stages: [], geometry: { bbox: { size: [1, 1, 1] }, volume: 1, face_count: 6 }, feature_counts: {} },
   artifacts: [],
   progress: [],
   error: null,

@@ -145,4 +145,8 @@ test('고른 점이 상한을 넘으면 쪽으로 넘겨 가며 다 본다', asy
   await waitFor(() => expect(screen.getByTestId('grid').textContent!.split(',')).toHaveLength(6))
   expect(screen.getByText('25–30 / 30')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '다음 쪽' })).toBeDisabled()
+  // 목록에서 첫 쪽의 점을 짚으면 그 쪽으로 돌아간다.
+  fireEvent.click(screen.getAllByText('p0003').find((el) => el.closest('tr'))!)
+  await waitFor(() => expect(screen.getByText('1–24 / 30')).toBeInTheDocument())
+  expect(screen.getByTestId('grid').getAttribute('data-highlight')).toBe('p0003')
 })
