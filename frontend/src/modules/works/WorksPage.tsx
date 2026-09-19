@@ -57,15 +57,16 @@ export default function WorksPage() {
         description="그리고 있는 것들. 나만 봅니다 — 남에게 보이려면 부품이나 지그로 승격합니다."
         actions={
           <>
-            {/* 조립은 그리는 것이 아니라 **놓는 것**이라 그리기를 거치지 않는다. */}
-            <Button variant="outline" onClick={() => void startAssembly()} disabled={starting}>
-              {starting ? '만드는 중…' : '새 조립'}
-            </Button>
+            {/* 시작하는 길 셋 — 그리기, 부품에서 생성, 놓기. 흔한 순서대로. */}
+            <Button onClick={() => navigate('/draw')}>새 부품/지그</Button>
             {/* 지그의 두 번째 시작점 — 부품을 골라 규칙으로 만들고, 그 뒤는 그냥 그린다. */}
             <Button variant="outline" onClick={() => navigate('/draw/jig-from-part')}>
               부품에서 지그 생성
             </Button>
-            <Button onClick={() => navigate('/draw')}>새 작업</Button>
+            {/* 조립은 그리는 것이 아니라 **놓는 것**이라 그리기를 거치지 않는다. */}
+            <Button variant="outline" onClick={() => void startAssembly()} disabled={starting}>
+              {starting ? '만드는 중…' : '새 조립'}
+            </Button>
           </>
         }
       />

@@ -47,7 +47,3 @@ test('지그 작업은 그림 탭이 「지그」 이고, 승격이 지그 카�
   expect(screen.queryByRole('tab', { name: /지그 만들어 주기/ })).toBeNull()
   expect(await screen.findByRole('button', { name: '공용 지그로 승격' })).toBeInTheDocument()
 })
-
-function fireEventMouseDown(element: Element) {
-  element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-}
