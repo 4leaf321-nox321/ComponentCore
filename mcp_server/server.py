@@ -730,7 +730,11 @@ async def run_jig(
         return made
     work_id = made["work"]["id"]
     job = await _wait_job(ctx, made["job"])
-    out: dict[str, Any] = {"work_id": work_id, "name": made["work"]["name"], "job": _slim_job(job)}
+    out: dict[str, Any] = {
+        "work_id": work_id,
+        "name": made["work"]["name"],
+        "job": _slim_job(job),
+    }
     if isinstance(job, dict) and job.get("status") == "done":
         adopted = await _post(ctx, f"/api/works/{work_id}/jig-runs/{job['id']}/adopt", None)
         if isinstance(adopted, dict) and "number" in adopted:
