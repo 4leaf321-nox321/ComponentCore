@@ -44,16 +44,22 @@ test('표의 줄을 누르면 그 점의 형상을 받아 보고, 체크한 점�
       <DoeStudyView study={STUDY} onReload={() => {}} />
     </MemoryRouter>,
   )
-  // 처음엔 아무것도 안 받는다 — 점이 수백이라 고른 것만.
+  // 처음엔 아무것도 안 받는다 — 점이 수백이라 고른 것만. 하나씩 볼 때는 표에 체크가 없다.
   expect(screen.getByText('표에서 점을 누르세요.')).toBeInTheDocument()
   expect(asked.filter((u) => u.includes('/mesh'))).toHaveLength(0)
+  expect(screen.queryByLabelText('p0001 고르기')).toBeNull()
 
   fireEvent.click(screen.getByText('p0002'))
   await waitFor(() => expect(screen.getByTestId('viewer')).toBeInTheDocument())
   expect(asked.filter((u) => u.includes('/mesh'))).toEqual(['/api/doe/s1/points/2/mesh'])
+  expect(screen.getByText('2 / 2')).toBeInTheDocument()
+  // ▶ 는 만들어진 점만 돈다 — 실패한 p0003 을 건너 p0001 로.
+  fireEvent.click(screen.getByRole('button', { name: '다음 점' }))
+  await waitFor(() => expect(asked.filter((u) => u.includes('/mesh'))).toEqual(['/api/doe/s1/points/2/mesh', '/api/doe/s1/points/1/mesh']))
+  expect(screen.getByText('1 / 2')).toBeInTheDocument()
   // 실패한 점은 누를 수 없다.
   fireEvent.click(screen.getByText('p0003'))
-  expect(asked.filter((u) => u.includes('/mesh'))).toHaveLength(1)
+  expect(asked.filter((u) => u.includes('/mesh'))).toHaveLength(2)
 
   // 겹쳐 보기 — 체크한 점들이 한 뷰어에 점 이름표로 들어간다. 받은 것은 다시 안 받는다.
   fireEvent.click(screen.getByRole('button', { name: '겹쳐 보기' }))
@@ -61,6 +67,9 @@ test('표의 줄을 누르면 그 점의 형상을 받아 보고, 체크한 점�
   fireEvent.click(screen.getByLabelText('p0002 고르기'))
   await waitFor(() => expect(screen.getByTestId('viewer').textContent).toBe('p0001,p0002'))
   expect(asked.filter((u) => u.includes('/mesh'))).toEqual(['/api/doe/s1/points/2/mesh', '/api/doe/s1/points/1/mesh'])
+  // 나란히 — 뷰어가 점마다 하나씩.
+  fireEvent.click(screen.getByRole('button', { name: '나란히' }))
+  await waitFor(() => expect(screen.getAllByTestId('viewer')).toHaveLength(2))
 })
 
 test('메시를 합치면 면마다 어느 점인지 붙고 번호가 이어진다', () => {

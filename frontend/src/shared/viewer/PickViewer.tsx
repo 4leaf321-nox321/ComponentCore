@@ -12,6 +12,8 @@ import { Line2 } from 'three/examples/jsm/lines/Line2.js'
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js'
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 
+import type { CameraSync } from '@/shared/viewer/cameraSync'
+
 export interface MeshFace {
   index: number
   kind: string
@@ -83,6 +85,8 @@ export interface PickViewerProps {
   partColors?: Record<string, number>
   /** 조립: 이 구성품만 또렷하게, 나머지는 반투명으로 — 어느 것을 고치는지 보인다. */
   emphasis?: string | null
+  /** 나란히 놓인 뷰어끼리 카메라를 맞춘다 — 같은 sync 를 받은 뷰어가 함께 돈다. */
+  sync?: CameraSync
   className?: string
 }
 
@@ -267,7 +271,10 @@ const VIEWS: { key: string; label: string; dir: [number, number, number] }[] = [
   { key: 'right', label: '우측', dir: [1, 0, 0] },
 ]
 
-export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, measureKinds, measureMarks, partColors, emphasis, className }: PickViewerProps) {
+export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, measureKinds, measureMarks, partColors, emphasis, sync, className }: PickViewerProps) {
+  const syncId = useRef(`viewer-${Math.random().toString(36).slice(2)}`)
+  const syncRef = useRef(sync)
+  syncRef.current = sync
   const mount = useRef<HTMLDivElement | null>(null)
   const state = useRef<{
     scene: THREE.Scene
@@ -522,6 +529,28 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     renderer.domElement.addEventListener('pointermove', onMove)
     renderer.domElement.addEventListener('pointerup', onUp)
 
+    // 카메라 맞추기 — 내가 움직이면 알리고, 남이 움직이면 그대로 놓는다. 되받은 자세를 다시
+    // 보내지 않게 `following` 동안은 알리지 않는다.
+    let following = false
+    const onCameraChange = () => {
+      const link = syncRef.current
+      if (!link || following) return
+      link.publish(syncId.current, {
+        position: camera.position.toArray() as [number, number, number],
+        target: controls.target.toArray() as [number, number, number],
+        up: camera.up.toArray() as [number, number, number],
+      })
+    }
+    controls.addEventListener('change', onCameraChange)
+    const unsubscribe = syncRef.current?.subscribe(syncId.current, (pose) => {
+      following = true
+      camera.position.fromArray(pose.position)
+      camera.up.fromArray(pose.up)
+      controls.target.fromArray(pose.target)
+      controls.update()
+      following = false
+    })
+
     let frame = 0
     const animate = () => {
       frame = requestAnimationFrame(animate)
@@ -531,6 +560,8 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     animate()
     return () => {
       cancelAnimationFrame(frame)
+      controls.removeEventListener('change', onCameraChange)
+      unsubscribe?.()
       observer.disconnect()
       renderer.domElement.removeEventListener('pointerdown', onDown)
       renderer.domElement.removeEventListener('pointermove', onMove)
@@ -596,6 +627,13 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       s.camera.far = radius * 100
       s.camera.updateProjectionMatrix()
       s.controls.target.copy(center)
+      // 늦게 뜬 뷰어는 먼저 뜬 것의 자세로 시작한다 — 나란히 놓였는데 처음부터 어긋나면 안 된다.
+      const pose = syncRef.current?.last()
+      if (pose) {
+        s.camera.position.fromArray(pose.position)
+        s.camera.up.fromArray(pose.up)
+        s.controls.target.fromArray(pose.target)
+      }
       s.controls.update()
       const grid = new THREE.GridHelper(radius * 4, 20, 0x888888, 0xcccccc)
       grid.position.set(center.x, box.min.y, center.z)
