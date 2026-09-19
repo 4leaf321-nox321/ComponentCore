@@ -67,6 +67,17 @@ export function DoeForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(list), method, samples, seed])
 
+  /**
+   * 방식을 바꿀 때 칸의 기본값을 **상태에도** 넣는다. 화면만 기본값을 보여 주고 상태는 비워 두면,
+   * 손대지 않은 칸이 서버에 빈 채로 가서 「start 가 숫자가 아닙니다」 가 난다.
+   */
+  function withDefaults(factor: Factor, mode: Factor['mode']): Partial<Factor> {
+    const base = factor.value ?? 0
+    if (mode === 'range') return { mode, start: factor.start ?? base, end: factor.end ?? base * 2, steps: factor.steps ?? 5 }
+    if (mode === 'list') return { mode, values: factor.values?.length ? factor.values : [base] }
+    return { mode }
+  }
+
   function set(key: string, patch: Partial<Factor>) {
     setFactors((all) => ({ ...all, [key]: { ...all[key], ...patch } }))
   }
@@ -157,7 +168,7 @@ export function DoeForm({
           return (
             <div key={key} className="grid grid-cols-[1fr_auto_2fr] items-center gap-2 border-b px-3 py-2 last:border-b-0">
               <span className="truncate font-mono text-xs">{key}</span>
-              <Select value={factor.mode} onValueChange={(mode) => set(key, { mode: mode as Factor['mode'] })}>
+              <Select value={factor.mode} onValueChange={(mode) => set(key, withDefaults(factor, mode as Factor['mode']))}>
                 <SelectTrigger className="h-8 w-28 text-xs">
                   <SelectValue />
                 </SelectTrigger>
@@ -172,9 +183,9 @@ export function DoeForm({
               )}
               {factor.mode === 'range' && (
                 <div className="flex items-center gap-1">
-                  <Input type="number" step={0.5} value={String(factor.start ?? factor.value ?? 0)} onChange={(e) => set(key, { start: Number(e.target.value) })} className="h-8" aria-label={`${key} 시작`} />
+                  <Input type="number" step={0.5} value={String(factor.start ?? 0)} onChange={(e) => set(key, { start: Number(e.target.value) })} className="h-8" aria-label={`${key} 시작`} />
                   <span className="text-muted-foreground text-xs">~</span>
-                  <Input type="number" step={0.5} value={String(factor.end ?? (factor.value ?? 0) * 2)} onChange={(e) => set(key, { end: Number(e.target.value) })} className="h-8" aria-label={`${key} 끝`} />
+                  <Input type="number" step={0.5} value={String(factor.end ?? 0)} onChange={(e) => set(key, { end: Number(e.target.value) })} className="h-8" aria-label={`${key} 끝`} />
                   <Input type="number" min={1} value={String(factor.steps ?? 5)} onChange={(e) => set(key, { steps: Math.max(1, Number(e.target.value)) })} className="h-8 w-16" aria-label={`${key} 단계`} />
                   <span className="text-muted-foreground text-xs">단계</span>
                 </div>

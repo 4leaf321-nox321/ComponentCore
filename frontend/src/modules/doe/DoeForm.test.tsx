@@ -56,3 +56,18 @@ test('변수가 없으면 어디서 어떻게 만드는지 알려 주고, 편집
   fireEvent.click(screen.getByRole('button', { name: '도면 고치러 가기' }))
   expect(onEditRecipe).toHaveBeenCalled()
 })
+
+test('「구간」 으로 바꾸고 칸을 손대지 않아도 시작 · 끝 · 단계가 채워져 서버로 간다', async () => {
+  const calls = mockApi(5)
+  render(<DoeForm recipe={RECIPE} onCreated={() => {}} />)
+  fireEvent.click(screen.getAllByRole('combobox')[1])
+  fireEvent.click(await screen.findByRole('option', { name: '구간' }))
+  fireEvent.change(screen.getByLabelText('이름'), { target: { value: 'test1' } })
+  await waitFor(() => expect(calls.some((c) => c.url.endsWith('/doe/preview'))).toBe(true))
+  await waitFor(() => expect(screen.getByRole('button', { name: '만들기' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: '만들기' }))
+  await waitFor(() => expect(calls.some((c) => c.url.endsWith('/doe/studies') || c.url.endsWith('/doe'))).toBe(true))
+  const made = calls.find((c) => c.url.endsWith('/doe/studies') || c.url.endsWith('/doe'))!.body as { factors: { name: string; mode: string; start?: number; end?: number; steps?: number }[] }
+  // 손대지 않은 구간은 지금 값에서 시작해 두 배까지 5단계 — 빈 채로 보내지 않는다.
+  expect(made.factors.find((f) => f.name === '두께')).toMatchObject({ mode: 'range', start: 6, end: 12, steps: 5 })
+})
