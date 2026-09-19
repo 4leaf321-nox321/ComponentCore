@@ -2,6 +2,7 @@ import type { Recipe } from '@/modules/cad/api'
 import type { Job } from '@/modules/jobs/api'
 import { api } from '@/shared/api/client'
 import type { Page } from '@/shared/api/types'
+import type { MeshData } from '@/shared/viewer/PickViewer'
 
 /** 인자 하나 — 고정이거나, 구간이거나, 값 목록. */
 export interface Factor {
@@ -54,6 +55,14 @@ export interface DoeStudy extends DoeStudySummary {
   failed: number
 }
 
+/** 설계점 하나의 형상 — 스냅샷 레시피에 그 점의 값을 넣어 다시 만든 것. */
+export interface PointMesh {
+  number: number
+  params: Record<string, number>
+  summary: { bbox: { size: number[] } } & Record<string, unknown>
+  mesh: MeshData
+}
+
 export interface Preview {
   count: number
   max: number
@@ -81,6 +90,8 @@ export const doeApi = {
     seed?: number
     work_id?: string | null
   }) => api.post<DoeStudy>('/doe', body),
+  /** 설계점 하나의 형상 — 화면이 점마다 3D 로 본다. */
+  pointMesh: (id: string, number: number) => api.get<PointMesh>(`/doe/${id}/points/${number}/mesh`),
   /** 서버 보관 폴더의 STEP · 표를 공유 폴더로 — 해석은 그때부터 읽는다. 다시 누르면 덮어쓴다. */
   export: (id: string) => api.post<DoeStudy>(`/doe/${id}/export`),
   remove: (id: string) => api.delete<void>(`/doe/${id}`),

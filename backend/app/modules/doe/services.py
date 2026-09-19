@@ -12,6 +12,7 @@ from __future__ import annotations
 import shutil
 import time
 import uuid
+from collections import OrderedDict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -23,8 +24,10 @@ from app.config import get_settings
 from app.core import doe as engine
 from app.core import export as shapes
 from app.core.recipe import RecipeError, evaluate, parse
+from app.core.recipe.mesh import mesh
 from app.core.recipe.schema import RecipeValidationError
 from app.modules.accounts.models import User
+from app.modules.cad import services as cad
 from app.modules.cad.services import resolve_component, resolve_import
 from app.modules.doe import export as files
 from app.modules.doe.models import DoePoint, DoeStudy
@@ -196,6 +199,46 @@ def points(db: Session, study: DoeStudy) -> list[DoePoint]:
             select(DoePoint).where(DoePoint.study_id == study.id).order_by(DoePoint.number)
         ).all()
     )
+
+
+#: 점 메시는 다시 계산하면 그만이라 DB 에 두지 않는다. 화면이 「하나씩 · 겹쳐 · 나란히」 넘길
+#: 때 같은 점을 거듭 묻으므로 최근 것을 든다. 스냅샷은 바뀌지 않으니 (study, number) 로 족하다.
+_MESH_CACHE: OrderedDict[tuple[uuid.UUID, int], dict[str, Any]] = OrderedDict()
+_MESH_CACHE_SIZE = 64
+
+
+def point_mesh(db: Session, study: DoeStudy, number: int) -> dict[str, Any]:
+    """설계점 하나의 형상 — 스냅샷 레시피에 그 점의 값을 넣어 다시 만든다(STEP 을 읽는 것보다
+    빠르고, 같은 규칙이다). 면마다 어느 점인지는 화면이 붙인다."""
+    key = (study.id, number)
+    if key in _MESH_CACHE:
+        _MESH_CACHE.move_to_end(key)
+        return _MESH_CACHE[key]
+    point = db.scalar(
+        select(DoePoint).where(DoePoint.study_id == study.id, DoePoint.number == number)
+    )
+    if point is None:
+        raise NotFound(code("DOE", 12), f"설계점 {number} 이 없습니다.")
+    if point.status != "ok":
+        raise AppError(
+            code("DOE", 13),
+            "이 점은 형상이 없습니다 — " + (point.error or "아직 만드는 중입니다.")[:200],
+        )
+    recipe = {
+        **study.recipe,
+        "params": {**(study.recipe.get("params") or {}), **point.params},
+    }
+    evaluation = cad.build(recipe)
+    made = {
+        "number": number,
+        "params": point.params,
+        "summary": evaluation.summary(),
+        "mesh": mesh(evaluation.shape),
+    }
+    _MESH_CACHE[key] = made
+    if len(_MESH_CACHE) > _MESH_CACHE_SIZE:
+        _MESH_CACHE.popitem(last=False)
+    return made
 
 
 def delete_study(db: Session, study: DoeStudy) -> None:

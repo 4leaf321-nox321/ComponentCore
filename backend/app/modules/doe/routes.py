@@ -133,6 +133,18 @@ def export_study(
     return _out(db, services.export_study(db, services.get_study(db, study_id, user)))
 
 
+@router.get("/{study_id}/points/{number}/mesh")
+def point_mesh(
+    study_id: uuid.UUID,
+    number: int,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """설계점 하나의 형상(메시) — 화면이 점마다 3D 로 본다. 스냅샷 레시피에 그 점의 값을 넣어
+    다시 만든다."""
+    return services.point_mesh(db, services.get_study(db, study_id, user), number)
+
+
 @router.get("/{study_id}/manifest.csv")
 def manifest(
     study_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)

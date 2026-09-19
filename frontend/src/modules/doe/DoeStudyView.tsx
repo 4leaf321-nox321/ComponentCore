@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react'
 
 import { doeApi } from '@/modules/doe/api'
 import type { DoeStudy } from '@/modules/doe/api'
+import { PointsGallery, pointRowProps } from '@/modules/doe/PointsGallery'
 import { isFinished } from '@/modules/jobs/api'
 import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
@@ -29,6 +30,9 @@ function show(value: number | null | undefined, digits = 2): string {
 
 export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: () => void }) {
   const [copied, setCopied] = useState(false)
+  /** 형상 보기 — 하나씩 볼 점과 겹쳐 · 나란히 볼 점들. 표가 고르고 갤러리가 그린다. */
+  const [focus, setFocus] = useState<number | null>(null)
+  const [picked, setPicked] = useState<number[]>([])
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState<ApiError | Error | null>(null)
   // 작업이 끝나면 스터디를 다시 불러온다 — 점마다 결과가 붙어야 표가 찬다.
@@ -115,9 +119,14 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
         )}
       </div>
 
+      <PointsGallery study={study} focus={focus} onFocus={setFocus} picked={picked} onPicked={setPicked} />
+
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead className="w-8" title="겹쳐 · 나란히 볼 점">
+              <span className="sr-only">고름</span>
+            </TableHead>
             <TableHead className="w-14">점</TableHead>
             {names.map((name) => (
               <TableHead key={name} className="font-mono text-xs">
@@ -128,8 +137,18 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((point) => (
-            <TableRow key={point.id} className={point.status === 'failed' ? 'text-destructive' : ''}>
+          {rows.map((point) => {
+            const row = pointRowProps(point, focus, picked, setFocus, setPicked)
+            return (
+            <TableRow
+              key={point.id}
+              onClick={row.focus}
+              aria-selected={row.isFocus}
+              className={`${point.status === 'failed' ? 'text-destructive' : ''} ${row.viewable ? 'cursor-pointer' : ''} ${row.isFocus ? 'bg-accent' : ''}`}
+            >
+              <TableCell onClick={(event) => event.stopPropagation()}>
+                {row.viewable && <input type="checkbox" checked={row.isPicked} onChange={row.toggle} aria-label={`p${String(point.number).padStart(4, '0')} 고르기`} />}
+              </TableCell>
               <TableCell className="font-mono text-xs">p{String(point.number).padStart(4, '0')}</TableCell>
               {names.map((name) => (
                 <TableCell key={name} className="font-mono text-xs">
@@ -140,7 +159,8 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
                 {point.status === 'ok' ? point.step_file.replace('points/', '') : point.status === 'failed' ? point.error.slice(0, 60) : '기다리는 중'}
               </TableCell>
             </TableRow>
-          ))}
+            )
+          })}
         </TableBody>
       </Table>
     </div>
