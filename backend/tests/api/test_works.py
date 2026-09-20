@@ -148,8 +148,22 @@ def test_부품에서_지그를_생성하면_지그_작업이_되고_거기서_�
     assert adopted.status_code == 201, adopted.text
     version = adopted.json()
     assert version["number"] == 1 and version["source"] == "generated"
-    assert version["recipe"]["nodes"][0]["op"] == "import_step"
+    # 결과는 STEP 덩어리가 아니라 **변수 있는 레시피** — 판 두께 · 받침 높이를 조립 → DOE 로
+    # 훑는다.
+    assert version["recipe"]["nodes"][0] == {
+        "id": "바닥판",
+        "op": "box",
+        "length": "=판_길이",
+        "width": "=판_너비",
+        "height": "=판_두께",
+        "at": [0, 0, 0],
+        "align": ["center", "center", "max"],
+    }
+    assert {"판_두께", "받침_높이", "받침_지름"} <= set(version["recipe"]["params"])
+    assert version["recipe"]["result"] == "지그"
+    assert any(n["op"] == "pin" for n in version["recipe"]["nodes"])  # 구멍판이라 위치 핀
     assert version["job"]["status"] == "done"  # 그대로 평가된다 — 이어서 그릴 수 있다
+    assert version["job"]["summary"]["bbox"]["size"][2] > 25  # 판 + 받침 + 클램프
     assert "받침 3" in version["note"]
     again = client.post(
         f"/api/works/{made['id']}/jig-runs/{job['id']}/adopt", headers=member.headers

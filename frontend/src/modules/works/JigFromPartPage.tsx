@@ -163,7 +163,7 @@ export default function JigFromPartPage() {
     <div className="space-y-4">
       <PageHeader
         title="부품에서 지그 생성"
-        description="부품 하나를 고르면 규칙으로 바닥판 · 받침 · 위치 핀 · 클램프를 놓고 간섭을 검사합니다. 결과는 지그 작업이 되고, 거기서 이어서 그립니다."
+        description="부품 하나를 고르면 규칙으로 놓고 간섭을 검사합니다. 결과는 변수(판 두께 · 받침 높이 …)가 있는 도면으로 지그 작업이 되고, 거기서 이어서 그리거나 DOE 로 훑습니다."
         back={{ to: '/works', label: '내 작업' }}
       />
       <ErrorNotice error={error} />

@@ -291,6 +291,8 @@ class JigResult:
     interference: InterferenceReport
     files: dict[str, Path]
     stages: list[StageLog]
+    recipe: dict[str, Any] = field(default_factory=dict)
+    """같은 지그를 그린 **레시피**(변수 있음) — 결과를 도면으로 가져갈 때 STEP 대신 이것."""
 
     def summary(self) -> dict[str, Any]:
         """DB 에 남기고 화면이 읽는 요약. **기하 객체는 안 든다** — JSON 이어야 한다."""
@@ -302,6 +304,7 @@ class JigResult:
             "interference": self.interference.summary(),
             "files": {key: path.name for key, path in self.files.items()},
             "stages": [asdict(stage) for stage in self.stages],
+            "recipe": self.recipe,
         }
 
 

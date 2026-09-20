@@ -598,26 +598,36 @@ def adopt_jig_run(db: Session, work: Work, *, by: User, job_id: uuid.UUID) -> Wo
     job = _done_job(db, job_id, "지그 생성")
     if job.work_id != work.id or job.kind != JIG_JOB_KIND:
         raise NotFound(code("WORKS", 24), "이 작업의 지그 생성이 아닙니다.")
-    artifact = db.scalar(
-        select(Artifact).where(Artifact.job_id == job.id, Artifact.kind == "jig_step")
-    )
-    if artifact is None:
-        raise AppError(code("WORKS", 25), "이 생성 결과에 STEP 이 없습니다.")
-    node = {"id": "생성된_지그", "op": "import_step", "file": str(artifact.id)}
+    summary = job.summary or {}
+    generated = summary.get("recipe") or {}
+    if generated.get("nodes"):
+        # 생성기가 그린 **레시피** — 변수(판_두께 · 받침_높이 …)가 있어 이어 그리고 DOE 로
+        # 훑는다.
+        recipe: dict[str, Any] = generated
+    else:
+        # 옛 생성(레시피가 없던 때) — STEP 한 덩어리로.
+        artifact = db.scalar(
+            select(Artifact).where(Artifact.job_id == job.id, Artifact.kind == "jig_step")
+        )
+        if artifact is None:
+            raise AppError(code("WORKS", 25), "이 생성 결과에 STEP 이 없습니다.")
+        recipe = {
+            "nodes": [{"id": "생성된_지그", "op": "import_step", "file": str(artifact.id)}]
+        }
+    # 두 번 불러도 같은 버전 — 같은 도면(노드 · 변수)이 이미 있으면 그것.
     for version in list_versions(db, work):
-        nodes = version.recipe.get("nodes") or []
-        if nodes and nodes[0].get("file") == str(artifact.id):
+        if version.recipe.get("nodes") == recipe.get("nodes") and (
+            version.recipe.get("params") or {}
+        ) == (recipe.get("params") or {}):
             return version
-    plan = (job.summary or {}).get("plan") or {}
+    plan = summary.get("plan") or {}
     label = job.input.get("product_label", "부품")
     counts = " · ".join(
         f"{word} {len(plan.get(key, []))}"
         for word, key in (("받침", "supports"), ("로케이터", "locators"), ("클램프", "clamps"))
     )
     note = f"{label} 에서 생성 — {counts}"
-    return add_version(
-        db, work, recipe={"nodes": [node]}, source="generated", note=note, by=by
-    )
+    return add_version(db, work, recipe=recipe, source="generated", note=note, by=by)
 
 
 def _product_from_input(input: dict[str, Any]) -> Shape | Path | None:

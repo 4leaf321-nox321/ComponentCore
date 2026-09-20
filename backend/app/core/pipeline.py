@@ -24,7 +24,16 @@ from typing import Any, TypeVar
 
 from build123d import Compound, Shape
 
-from app.core import assembly, export, features, geometry, interference, planning, primitives
+from app.core import (
+    assembly,
+    export,
+    features,
+    geometry,
+    interference,
+    jig_recipe,
+    planning,
+    primitives,
+)
 from app.core.model import (
     Feature,
     FixturePlan,
@@ -211,4 +220,5 @@ def run(
         interference=made.interference,
         files=files,
         stages=clock.stages,
+        recipe=jig_recipe.recipe_of(made.plan, options),
     )

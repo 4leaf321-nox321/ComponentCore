@@ -853,8 +853,10 @@ async def run_jig(
       아래를 보게 놓고 바닥 · `drop_impactor`(none|ball|pen)
     먼저 `jig_preview` 로 계획 · 간섭을 보고 부른다.
 
-    지그 작업이 새로 생기고(kind=jig, 잡는 부품이 이어진다), 결과 STEP 이 그 **첫 버전**이 된
-    채로 돌아온다 — 그 다음은 그냥 그린다(`save_version` 으로 받침을 옮기고 변수를 심는다).
+    지그 작업이 새로 생기고(kind=jig, 잡는 부품이 이어진다), 결과가 **변수 있는 레시피**로 그
+    첫 버전이 된 채로 돌아온다 — `판_두께` · `받침_높이` · `스팬` 같은 변수가 이미 있어
+    `assemble_jig_on_part` → `doe_create` 로 바로 훑고, `patch_work` 로 받침을 옮기거나 튜닝부를
+    붙인다.
     간섭이 있으면 `job.summary.interference.items` 와 계획의 notes 를 읽고 옵션을 고쳐 다시
     만든다(새 지그 작업이 또 생긴다 — 지난 것은 사용자가 내 작업에서 지운다)."""
     made = await _post(

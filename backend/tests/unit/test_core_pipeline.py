@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -197,3 +198,46 @@ def test_낙하_자세는_고른_면이_아래를_본다() -> None:
     assert side.plan.impactor is None
     with pytest.raises(geometry.GeometryError, match="낙하 자세"):
         pipeline.analyze(BOX, JigOptions(kind="drop", drop_orientation="sideways"))
+
+
+@pytest.mark.parametrize(
+    ("kind", "source", "extra"),
+    [
+        ("clamped", PLATE, {}),
+        ("clamped", BOX, {}),  # 구멍이 없어 받침대
+        ("bolted", PLATE, {"bolt_spacer_height": 8}),
+        ("bolted", PLATE, {}),
+        ("bending", BOX, {}),
+        ("drop", BOX, {"drop_impactor": "ball"}),
+        ("drop", BOX, {"drop_impactor": "pen", "drop_orientation": "+x"}),
+    ],
+)
+def test_생성기의_레시피는_같은_지그를_그린다(
+    kind: str, source: dict[str, Any], extra: dict[str, Any]
+) -> None:
+    """계획을 레시피로 옮긴 것이 생성기가 만든 형상과 **같아야** 한다 — 상자 · 부피로 본다."""
+    from app.core.jig_recipe import recipe_of
+    from app.core.recipe import evaluate, parse
+
+    opts = JigOptions(kind=kind, **extra)
+    made = pipeline.analyze(source, opts)
+    recipe = recipe_of(made.plan, opts)
+    drawn = evaluate(parse(recipe), resolve_file=None)
+    box = made.jig.bounding_box()
+    got = drawn.summary()["bbox"]
+    assert [round(v, 1) for v in got["min"]] == [
+        round(v, 1) for v in (box.min.X, box.min.Y, box.min.Z)
+    ]
+    assert [round(v, 1) for v in got["max"]] == [
+        round(v, 1) for v in (box.max.X, box.max.Y, box.max.Z)
+    ]
+    assert abs(float(drawn.shape.volume) - float(made.jig.volume)) < 1.0
+    assert recipe["params"]["판_두께"] == opts.plate_thickness
+    # 변수를 바꾸면 따라온다 — 판을 두 배 두껍게.
+    thicker = parse(
+        {**recipe, "params": {**recipe["params"], "판_두께": opts.plate_thickness * 2}}
+    )
+    assert (
+        evaluate(thicker, resolve_file=None).summary()["bbox"]["min"][2]
+        == -opts.plate_thickness * 2
+    )
