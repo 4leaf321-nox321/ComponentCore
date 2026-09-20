@@ -22,8 +22,10 @@ function Tabs({
   )
 }
 
+// 가로 탭 목록은 높이를 **고정하지 않는다**(min-h) — 탭이 많아 줄이 바뀌면 고정 높이에서 둘째 줄이
+// 첫 줄과 겹친다. 줄바꿈은 호출부가 flex-wrap 으로 켠다.
 const tabsListVariants = cva(
-  "group/tabs-list inline-flex w-fit items-center justify-center rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
+  "group/tabs-list inline-flex w-fit items-center justify-center rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:min-h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
   {
     variants: {
       variant: {

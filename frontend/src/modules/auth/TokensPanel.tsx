@@ -316,7 +316,7 @@ function SetupCard({ issued, issuedName }: { issued: string | null; issuedName: 
           <CardTitle className="text-base">도구별 등록 방법</CardTitle>
         </div>
         <CardDescription>
-          쓰는 AI 도구 탭을 골라 그대로 복사하세요. MCP 주소는 <code className="font-mono">{mcpUrl}</code> 입니다{info.data?.url ? '' : ' (지금 접속한 호스트 기준 — 다른 PC 에서 붙이면 서버 주소로 바꾸세요)'}.
+          쓰는 AI 도구 탭을 골라 그대로 복사하세요. MCP 주소는 <code className="font-mono break-all">{mcpUrl}</code> 입니다{info.data?.url ? '' : ' (지금 접속한 호스트 기준 — 다른 PC 에서 붙이면 서버 주소로 바꾸세요)'}.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -326,7 +326,7 @@ function SetupCard({ issued, issuedName }: { issued: string | null; issuedName: 
           </div>
         )}
         <Tabs key={initialTab} defaultValue={initialTab}>
-          <TabsList className="w-full flex-wrap justify-start">
+          <TabsList className="h-auto w-full flex-wrap justify-start gap-y-1">
             <TabsTrigger value="claude-code">Claude Code</TabsTrigger>
             <TabsTrigger value="desktop">Claude Desktop</TabsTrigger>
             <TabsTrigger value="gemini">Gemini CLI</TabsTrigger>

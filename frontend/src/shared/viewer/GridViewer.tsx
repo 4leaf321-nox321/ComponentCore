@@ -184,7 +184,10 @@ export function GridViewer({ items, columns, cellClass, className }: { items: Gr
   }, [items])
 
   return (
-    <div ref={mount} className={`relative ${className ?? ''}`}>
+    <div className={`flex flex-col ${className ?? ''}`}>
+      {/* 도구줄은 격자 위 제 줄에 — 칸 이름표(왼쪽 위)와 겹치지 않게. */}
+      <ViewerToolbar rig={rigOf} inline />
+      <div ref={mount} className="relative min-h-0 flex-1">
       {/* 격자는 캔버스 위에 — 칸의 자리만 잡고 이름표를 단다. 포인터는 캔버스로 흘려보낸다. */}
       <div className={`pointer-events-none relative z-10 grid gap-2 ${cellClass ? 'h-full' : ''}`} style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
         {items.map((item) => (
@@ -201,7 +204,7 @@ export function GridViewer({ items, columns, cellClass, className }: { items: Gr
           </div>
         ))}
       </div>
-      <ViewerToolbar rig={rigOf} />
+      </div>
     </div>
   )
 }
