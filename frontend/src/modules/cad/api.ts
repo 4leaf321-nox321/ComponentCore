@@ -48,6 +48,9 @@ export const cadApi = {
   info: (recipe: Recipe) => api.post<{ summary: RecipeSummary }>('/cad/recipe/info', { recipe }),
   preview: (recipe: Recipe) => postForBlob('/cad/recipe/preview', { recipe }),
   mesh: (recipe: Recipe) => api.post<{ summary: RecipeSummary; mesh: MeshData }>('/cad/recipe/mesh', { recipe }),
+  /** 구성품을 다른 것의 면에 얹는 translate — 서버가 경계 상자로 잰다. */
+  place: (recipe: Recipe, body: { mover: string; onto: string; face: string; offset: number; align: string }) =>
+    api.post<{ recipe: Recipe; translate: number[]; problems: string[] }>('/cad/recipe/place', { recipe, ...body }),
   /** 조립의 구성품끼리 겹치는가 — 모든 쌍의 겹침 부피. */
   interference: (recipe: Recipe, tolerance?: number) => api.post<Interference>('/cad/recipe/interference', { recipe, tolerance }),
   step: (recipe: Recipe) => postForBlob('/cad/recipe/step', { recipe }),

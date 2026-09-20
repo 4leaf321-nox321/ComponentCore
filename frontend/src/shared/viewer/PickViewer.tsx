@@ -10,6 +10,7 @@ import * as THREE from 'three'
 import { Line2 } from 'three/examples/jsm/lines/Line2.js'
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js'
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 
 import { CameraRig } from '@/shared/viewer/cameraRig'
 import type { CameraSync } from '@/shared/viewer/cameraSync'
@@ -88,7 +89,29 @@ export interface PickViewerProps {
   emphasis?: string | null
   /** 나란히 놓인 뷰어끼리 카메라를 맞춘다 — 같은 sync 를 받은 뷰어가 함께 돈다. */
   sync?: CameraSync
+  /**
+   * 조립: 이 구성품(`part` 이름표)에 끌기 손잡이를 붙인다 — 화살표를 끌어 옮기거나(translate)
+   * 고리를 돌려 회전한다. 놓으면 `onMoved` 로 **CAD 좌표계의 이동량 · 회전량**을 알린다.
+   */
+  dragPart?: string | null
+  dragMode?: 'translate' | 'rotate'
+  onMoved?: (part: string, delta: { translate: [number, number, number]; rotate: [number, number, number] }) => void
   className?: string
+}
+
+const round3 = (v: number) => Math.round(v * 1000) / 1000
+
+/** 이름표(part)마다 묶음 하나 — 없으면 만든다. 이름표 없는 면은 shapes 바로 아래. */
+function partGroup(s: { shapes: THREE.Group; parts: Map<string, THREE.Group> }, part: string | undefined): THREE.Object3D {
+  if (!part) return s.shapes
+  let group = s.parts.get(part)
+  if (!group) {
+    group = new THREE.Group()
+    group.userData.part = part
+    s.shapes.add(group)
+    s.parts.set(part, group)
+  }
+  return group
 }
 
 const FACE_COLOR = 0x3b82f6
@@ -265,7 +288,7 @@ function gatherDots(mesh: MeshData): { at: number[][]; kinds: string[] } {
 }
 
 /** 표준 방향 — 뒤에서 카메라가 설 자리(중심 기준 단위 벡터, CAD Z-up 기준). */
-export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, measureKinds, measureMarks, partColors, emphasis, sync, className }: PickViewerProps) {
+export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, measureKinds, measureMarks, partColors, emphasis, sync, dragPart, dragMode = 'translate', onMoved, className }: PickViewerProps) {
   const syncId = useRef(`viewer-${Math.random().toString(36).slice(2)}`)
   const syncRef = useRef(sync)
   syncRef.current = sync
@@ -289,9 +312,12 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     resolution: THREE.Vector2
     marks: THREE.Group
     fitted: boolean
+    /** 구성품마다 한 묶음 — 끌기 손잡이가 이것을 잡는다. 이름표 없는 면은 shapes 바로 아래. */
+    parts: Map<string, THREE.Group>
+    gizmo: TransformControls | null
   } | null>(null)
-  const callbacks = useRef({ mode, onPickFace, onPickEdge, onMeasure, measureKinds })
-  callbacks.current = { mode, onPickFace, onPickEdge, onMeasure, measureKinds }
+  const callbacks = useRef({ mode, onPickFace, onPickEdge, onMeasure, measureKinds, onMoved })
+  callbacks.current = { mode, onPickFace, onPickEdge, onMeasure, measureKinds, onMoved }
 
   const rigOf = useCallback(() => state.current?.rig ?? null, [])
 
@@ -332,6 +358,8 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       resolution: new THREE.Vector2(1, 1),
       marks,
       fitted: false,
+      parts: new Map(),
+      gizmo: null,
     }
 
     function resize() {
@@ -532,6 +560,8 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     const animate = () => {
       frame = requestAnimationFrame(animate)
       controls.update()
+      const gizmo = state.current?.gizmo
+      if (gizmo && gizmo.camera !== rig.camera) gizmo.camera = rig.camera // 투시 ↔ 정사영을 바꿔도 손잡이가 따라온다
       renderer.render(scene, rig.camera)
     }
     animate()
@@ -543,6 +573,7 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       renderer.domElement.removeEventListener('pointerdown', onDown)
       renderer.domElement.removeEventListener('pointermove', onMove)
       renderer.domElement.removeEventListener('pointerup', onUp)
+      state.current?.gizmo?.dispose()
       rig.dispose()
       renderer.dispose()
       container.removeChild(renderer.domElement)
@@ -564,7 +595,9 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     }
     // **형상만** 비운다. group 을 통째로 비우면 측정 표시와 잡을 점이 붙은 자리까지 떨어져
     // 나가, 다시 그려도 화면에 안 보인다(자식이 아니므로).
+    s.gizmo?.detach()
     s.shapes.clear()
+    s.parts.clear()
     s.faces = []
     s.edges = []
     if (!mesh) return
@@ -578,7 +611,7 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       const material = new THREE.MeshStandardMaterial({ color: base, metalness: 0.1, roughness: 0.6, side: THREE.DoubleSide })
       const m = new THREE.Mesh(geometry, material)
       m.userData = { face, base, picked: false }
-      s.shapes.add(m)
+      partGroup(s, face.part).add(m)
       s.faces.push(m)
     }
     const near = highlightEdgesNear ?? []
@@ -589,7 +622,7 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       const material = new THREE.LineBasicMaterial({ color: picked ? PICKED_COLOR : EDGE_COLOR, linewidth: 1 })
       const l = new THREE.Line(geometry, material)
       l.userData = { edge, base: EDGE_COLOR, picked }
-      s.shapes.add(l)
+      partGroup(s, edge.part).add(l)
       s.edges.push(l)
     }
 
@@ -614,6 +647,49 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       s.fitted = true
     }
   }, [mesh, highlightEdgesNear, partColors])
+
+  // 끌기 손잡이 — dragPart 의 묶음에 붙인다. 끄는 동안 궤도 컨트롤은 쉰다. 놓으면 묶음의
+  // position · rotation(부모가 CAD 축으로 돌려져 있어 그대로 CAD 값)을 알리고 제자리로 되돌린다
+  // — 레시피가 바뀌어 다시 그려지는 것이 진짜 자리다.
+  useEffect(() => {
+    const s = state.current
+    if (!s) return
+    if (!dragPart || !s.parts.has(dragPart)) {
+      s.gizmo?.detach()
+      return
+    }
+    if (!s.gizmo) {
+      const gizmo = new TransformControls(s.rig.camera, s.renderer.domElement)
+      gizmo.setTranslationSnap(0.5)
+      gizmo.setRotationSnap(THREE.MathUtils.degToRad(5))
+      gizmo.addEventListener('dragging-changed', (event) => {
+        s.rig.controls.enabled = !(event as unknown as { value: boolean }).value
+      })
+      gizmo.addEventListener('mouseUp', () => {
+        const target = gizmo.object as THREE.Group | undefined
+        if (!target) return
+        const p = target.position
+        const r = target.rotation
+        const moved = p.lengthSq() > 1e-9 || Math.abs(r.x) + Math.abs(r.y) + Math.abs(r.z) > 1e-9
+        if (moved) {
+          callbacks.current.onMoved?.(target.userData.part as string, {
+            translate: [round3(p.x), round3(p.y), round3(p.z)],
+            rotate: [round3(THREE.MathUtils.radToDeg(r.x)), round3(THREE.MathUtils.radToDeg(r.y)), round3(THREE.MathUtils.radToDeg(r.z))],
+          })
+        }
+        target.position.set(0, 0, 0)
+        target.rotation.set(0, 0, 0)
+      })
+      s.scene.add(gizmo.getHelper())
+      s.gizmo = gizmo
+    }
+    s.gizmo.camera = s.rig.camera
+    s.gizmo.setMode(dragMode)
+    s.gizmo.attach(s.parts.get(dragPart)!)
+    return () => {
+      s.gizmo?.detach()
+    }
+  }, [dragPart, dragMode, mesh])
 
   // 고른 구성품만 또렷하게 — 재질만 만지고 메시는 그대로 둔다(고를 때마다 다시 만들면 느리다).
   useEffect(() => {

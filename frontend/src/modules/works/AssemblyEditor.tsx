@@ -11,6 +11,7 @@
 import { Boxes, Layers, Pencil, Plus, Trash2 } from 'lucide-react'
 import { lazy, Suspense, useMemo, useState } from 'react'
 
+import { cadApi } from '@/modules/cad/api'
 import type { Recipe } from '@/modules/cad/api'
 import { NumberField } from '@/modules/cad/NumberField'
 import { ParamsPanel } from '@/modules/cad/ParamsPanel'
@@ -75,6 +76,9 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
   const [selected, setSelected] = useState<string | null>(null)
   /** 「편집」 창을 연 것. */
   const [editing, setEditing] = useState<string | null>(null)
+  /** 3D 손잡이 — 고른 구성품을 화살표로 옮기거나 고리로 돌린다. */
+  const [dragMode, setDragMode] = useState<'translate' | 'rotate'>('translate')
+  const [dragNote, setDragNote] = useState<string | null>(null)
   const params = (value.params ?? {}) as Record<string, number>
 
   const works = useResource(() => worksApi.list(0, 100), [])
@@ -118,6 +122,38 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
     }
     put([...placed, made])
     setSelected(made.id)
+  }
+
+  /**
+   * 3D 에서 끌어 놓은 만큼 translate · rotate 에 더한다. 식(`=변수`)이 든 축은 건드리지 않고
+   * 말한다 — 변수를 끌기로 덮어쓰면 DOE 가 끊긴다.
+   */
+  function moved(id: string, delta: { translate: [number, number, number]; rotate: [number, number, number] }) {
+    const one = placed.find((p) => p.id === id)
+    if (!one) return
+    const skipped: string[] = []
+    const add = (now: (number | string)[] | undefined, by: [number, number, number], name: string) =>
+      [0, 1, 2].map((i) => {
+        const current = (now ?? [0, 0, 0])[i]
+        if (typeof current === 'string') {
+          if (by[i] !== 0) skipped.push(`${name} ${'XYZ'[i]}`)
+          return current
+        }
+        return Math.round(((current ?? 0) + by[i]) * 1000) / 1000
+      })
+    update(id, { translate: add(one.translate, delta.translate, '자리'), rotate: add(one.rotate, delta.rotate, '회전') })
+    setDragNote(skipped.length > 0 ? `${skipped.join(' · ')} 는 식으로 묶여 있어 끌기로 바꾸지 않았습니다 — 편집 창에서 변수를 고치세요.` : null)
+  }
+
+  /** 다른 구성품의 면에 얹는다 — 서버가 경계 상자로 translate 를 계산한다(「지그 윗면에 부품 바닥을」). */
+  async function placeOn(id: string, onto: string, face: string, offset: number) {
+    try {
+      const got = await cadApi.place(value, { mover: id, onto, face, offset, align: 'center' })
+      update(id, { translate: got.translate })
+      setDragNote(null)
+    } catch (caught) {
+      setDragNote(caught instanceof Error ? caught.message : '얹지 못했습니다')
+    }
   }
 
   function update(id: string, patch: Partial<Placed>) {
@@ -231,12 +267,43 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
               : problems.length > 0
                 ? '고칠 것이 있습니다.'
                 : selected
-                  ? '고른 구성품만 또렷합니다 — 목록에서 다시 누르면 풉니다. 끌어서 돌리고, 굴려서 확대합니다.'
-                  : '끌어서 돌리고, 굴려서 확대합니다. 목록에서 고르면 그것만 또렷해집니다.'}
+                  ? '고른 구성품에 손잡이가 붙었습니다 — 화살표를 끌어 옮기거나(0.5 mm 단위) 고리를 돌립니다(5°). 목록에서 다시 누르면 풉니다.'
+                  : '끌어서 돌리고, 굴려서 확대합니다. 목록에서 고르면 그것만 또렷해지고 손잡이가 붙습니다.'}
         </p>
+        {selected && (
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-muted-foreground">손잡이</span>
+            {(
+              [
+                { value: 'translate', label: '옮기기' },
+                { value: 'rotate', label: '돌리기' },
+              ] as const
+            ).map((one) => (
+              <button
+                key={one.value}
+                type="button"
+                onClick={() => setDragMode(one.value)}
+                aria-pressed={dragMode === one.value}
+                className={`rounded-md border px-2 py-0.5 ${dragMode === one.value ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-accent'}`}
+              >
+                {one.label}
+              </button>
+            ))}
+            {dragNote && <span className="text-destructive">{dragNote}</span>}
+          </div>
+        )}
         {mesh ? (
           <Suspense fallback={<Skeleton className={`${viewerHeight} w-full`} />}>
-            <PickViewer mesh={mesh} mode="none" partColors={partColors} emphasis={selected} className={`${viewerHeight} w-full rounded-md border`} />
+            <PickViewer
+              mesh={mesh}
+              mode="none"
+              partColors={partColors}
+              emphasis={selected}
+              dragPart={selected}
+              dragMode={dragMode}
+              onMoved={moved}
+              className={`${viewerHeight} w-full rounded-md border`}
+            />
           </Suspense>
         ) : (
           <div className={`text-muted-foreground flex ${viewerHeight} items-center justify-center rounded-md border border-dashed text-sm`}>
@@ -345,6 +412,7 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
                     ))}
                   </div>
                 </div>
+                <PlaceOnRow node={editingNode} others={placed.filter((one) => one.id !== editingNode.id)} onPlace={(onto, face, offset) => void placeOn(editingNode.id, onto, face, offset)} />
                 <ComponentParams node={editingNode} params={params} onCreateParam={createParam} onChange={(next) => update(editingNode.id, { params: next })} />
               </div>
             </>
@@ -390,6 +458,44 @@ function Library({
           ))}
         </ul>
       )}
+    </div>
+  )
+}
+
+/** 「이 구성품을 저 구성품의 어느 면에」 — 숫자 대신 말로 놓는 길. 서버가 경계 상자로 잰다. */
+function PlaceOnRow({ node, others, onPlace }: { node: Placed; others: Placed[]; onPlace: (onto: string, face: string, offset: number) => void }) {
+  const [onto, setOnto] = useState(others[0]?.id ?? '')
+  const [face, setFace] = useState('top')
+  const [offset, setOffset] = useState('0')
+  if (others.length === 0) return null
+  const target = others.some((one) => one.id === onto) ? onto : others[0].id
+  return (
+    <div>
+      <p className="text-muted-foreground mb-1 text-xs">다른 구성품의 면에 얹기</p>
+      <div className="flex flex-wrap items-center gap-1 text-xs">
+        <select value={target} onChange={(e) => setOnto(e.target.value)} className="h-7 rounded-md border bg-background px-1" aria-label={`${node.label ?? node.id} 를 얹을 구성품`}>
+          {others.map((one) => (
+            <option key={one.id} value={one.id}>
+              {one.label || one.id}
+            </option>
+          ))}
+        </select>
+        <span className="text-muted-foreground">의</span>
+        <select value={face} onChange={(e) => setFace(e.target.value)} className="h-7 rounded-md border bg-background px-1" aria-label="어느 면">
+          <option value="top">윗면</option>
+          <option value="bottom">아랫면</option>
+          <option value="+x">+X 면</option>
+          <option value="-x">-X 면</option>
+          <option value="+y">+Y 면</option>
+          <option value="-y">-Y 면</option>
+        </select>
+        <span className="text-muted-foreground">에 틈</span>
+        <Input type="number" step={0.5} value={offset} onChange={(e) => setOffset(e.target.value)} className="h-7 w-16 text-xs" aria-label="틈 (mm)" />
+        <Button size="sm" type="button" className="h-7 px-2 text-xs" onClick={() => onPlace(target, face, Number(offset) || 0)}>
+          얹기
+        </Button>
+      </div>
+      <p className="text-muted-foreground mt-1 text-[11px]">경계 상자로 맞춥니다 — 닿는 면이 평면이면 정확하고, 곡면이면 어림입니다. 나머지 두 축은 가운데를 맞춥니다.</p>
     </div>
   )
 }

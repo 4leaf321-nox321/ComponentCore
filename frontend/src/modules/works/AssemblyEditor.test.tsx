@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 
 import type { Recipe } from '@/modules/cad/api'
@@ -33,9 +33,79 @@ beforeEach(() => {
   })
 })
 
+let lastViewer: { dragPart?: string | null; onMoved?: (part: string, delta: { translate: [number, number, number]; rotate: [number, number, number] }) => void } = {}
 vi.mock('@/shared/viewer/PickViewer', () => ({
-  default: ({ partColors }: { partColors?: Record<string, number> }) => <div data-testid="viewer">{JSON.stringify(partColors ?? {})}</div>,
+  default: (props: { partColors?: Record<string, number>; dragPart?: string | null; onMoved?: (part: string, delta: { translate: [number, number, number]; rotate: [number, number, number] }) => void }) => {
+    lastViewer = props
+    return <div data-testid="viewer">{JSON.stringify(props.partColors ?? {})}</div>
+  },
 }))
+
+test('3D 에서 끌어 놓으면 자리에 더해지고, 식으로 묶인 축은 건드리지 않고 말한다', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = String(input)
+    const body = url.includes('/cad/recipe/check')
+      ? { ok: true, problems: [] }
+      : url.includes('/cad/recipe/mesh')
+        ? { summary: { bbox: { size: [1, 1, 1] } }, mesh: { bbox: { min: [0, 0, 0], max: [1, 1, 1] }, faces: [], edges: [] } }
+        : url.includes('/cad/recipe/interference')
+          ? { ok: true, tolerance: 0.5, total_volume: 0, checked_pairs: 1, parts: [], items: [] }
+          : url.includes('/works')
+            ? WORKS
+            : { items: [], total: 0, limit: 100, offset: 0 }
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  })
+  render(<Host />)
+  fireEvent.click(await screen.findByRole('button', { name: /시험 지그/ }))
+  await waitFor(() => expect(screen.getByTestId('viewer')).toBeInTheDocument())
+  // 가져오면 고른 상태 — 손잡이가 그것에 붙는다.
+  await waitFor(() => expect(lastViewer.dragPart).toBe('시험_지그'))
+  act(() => lastViewer.onMoved!('시험_지그', { translate: [10, 0, 2.5], rotate: [0, 0, 0] }))
+  expect((recipeNow().nodes[0] as { translate: number[] }).translate).toEqual([10, 0, 2.5])
+  act(() => lastViewer.onMoved!('시험_지그', { translate: [0, -4, 0], rotate: [0, 0, 90] }))
+  expect((recipeNow().nodes[0] as { translate: number[]; rotate: number[] }).translate).toEqual([10, -4, 2.5])
+  expect((recipeNow().nodes[0] as { rotate: number[] }).rotate).toEqual([0, 0, 90])
+
+})
+
+test('식으로 묶인 축은 끌기가 건드리지 않고 말한다', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = String(input)
+    const body = url.includes('/cad/recipe/check')
+      ? { ok: true, problems: [] }
+      : url.includes('/cad/recipe/mesh')
+        ? { summary: { bbox: { size: [1, 1, 1] } }, mesh: { bbox: { min: [0, 0, 0], max: [1, 1, 1] }, faces: [], edges: [] } }
+        : url.includes('/cad/recipe/interference')
+          ? { ok: true, tolerance: 0.5, total_volume: 0, checked_pairs: 0, parts: [], items: [] }
+          : url.includes('/works')
+            ? WORKS
+            : { items: [], total: 0, limit: 100, offset: 0 }
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  })
+  function Bound() {
+    const [recipe, setRecipe] = useState<Recipe>({
+      version: 1,
+      params: { 높이: 5 },
+      nodes: [
+        { id: '지그', op: 'component', source: 'work:w-jig', label: '시험 지그', translate: [0, 0, '=높이'], rotate: [0, 0, 0] },
+        { id: '조립', op: 'group', targets: ['지그'] },
+      ],
+    })
+    return (
+      <>
+        <AssemblyEditor value={recipe} onChange={setRecipe} />
+        <pre data-testid="recipe">{JSON.stringify(recipe)}</pre>
+      </>
+    )
+  }
+  render(<Bound />)
+  await waitFor(() => expect(screen.getByTestId('viewer')).toBeInTheDocument())
+  fireEvent.click(screen.getByRole('button', { name: '시험 지그' })) // 목록에서 고른다
+  await waitFor(() => expect(lastViewer.dragPart).toBe('지그'))
+  act(() => lastViewer.onMoved!('지그', { translate: [1, 1, 1], rotate: [0, 0, 0] }))
+  expect((recipeNow().nodes[0] as { translate: (number | string)[] }).translate).toEqual([1, 1, '=높이'])
+  expect(screen.getByText(/자리 Z 는 식으로 묶여 있어/)).toBeInTheDocument()
+})
 
 test('구성품끼리 겹치면 배지와 함께 어느 것끼리 얼마나인지 말하고, 3D 에서 빨갛다', async () => {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
