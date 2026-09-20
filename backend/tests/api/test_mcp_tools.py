@@ -34,10 +34,19 @@ class _FakeFastMCP:
         return lambda function: function
 
 
+class _FakeImage:
+    """fastmcp 의 Image — 그림 바이트를 든다. 시험은 PNG 머리만 본다."""
+
+    def __init__(self, *, data: bytes, format: str) -> None:
+        self.data = data
+        self.format = format
+
+
 def _load_server() -> Any:
     fake = types.ModuleType("mcp.server.fastmcp")
     fake.FastMCP = _FakeFastMCP  # type: ignore[attr-defined]
     fake.Context = object  # type: ignore[attr-defined]
+    fake.Image = _FakeImage  # type: ignore[attr-defined]
     for name in ("mcp", "mcp.server"):
         sys.modules.setdefault(name, types.ModuleType(name))
     sys.modules["mcp.server.fastmcp"] = fake
@@ -161,6 +170,60 @@ def test_AI_의_루프_가이드_검증_저장_지그_승격(
     assert assembled["kind"] == "assembly" and assembled["placement"]["mode"] == "generated"
     assert assembled["recipe"]["nodes"][0]["translate"][2] == "=부품_높이"
 
+    # 5c) 눈으로 확인 · 묻기 · 재기 · 부분 수정 — AI 가 좌표를 짐작하지 않는 길.
+    pictures = bot.call(server.recipe_views, fixed, ["iso", "top"], 240)
+    assert [one for one in pictures if isinstance(one, str)] == ["[iso]", "[top]"]
+    assert all(
+        one.data[:8] == b"\x89PNG\r\n\x1a\n" for one in pictures if not isinstance(one, str)
+    )
+    rim = bot.call(server.recipe_find, fixed, {"of_face_role": "top", "kind": "line"})
+    assert rim["total"] == 4
+    top_z = rim["items"][0]["midpoint"][2]
+    thick = bot.call(
+        server.recipe_measure,
+        fixed,
+        {"face_near": [0, 0, top_z]},
+        {"face_near": [0, 0, top_z - 100]},
+    )
+    assert thick["angle"] == 0 and thick["gap"] > 0
+    patched = bot.call(
+        server.patch_work,
+        assembled["work_id"],
+        [
+            {"op": "set_param", "name": "지그_오프셋", "value": 0},
+            {
+                "op": "set_field",
+                "id": "지그",
+                "field": "translate",
+                "value": [0, 0, "=지그_오프셋"],
+            },
+        ],
+        note="지그 자리를 변수로",
+    )
+    assert "error" not in patched, patched
+    assert patched["version"] == 2 and patched["evaluation"]["status"] == "done"
+
+    # 5d) DOE — 조립을 대상으로 변수 둘을 훑고, 점마다 형상 · 간섭이 붙고, 보낼 수 있다.
+    factors = [
+        {"name": "부품_높이", "mode": "range", "start": 25, "end": 27, "steps": 2},
+        {"name": "지그_오프셋", "mode": "list", "values": [0, -2]},
+    ]
+    preview = bot.call(server.doe_preview, factors)
+    assert preview["count"] == 4 and not preview["too_many"]
+    study = bot.call(
+        server.doe_create,
+        "조립 훑기",
+        patched["recipe"],
+        factors,
+        work_id=assembled["work_id"],
+    )
+    assert "error" not in study, study
+    points = bot.call(server.doe_points, study["id"])
+    assert points["done"] == 4 and points["folder"] is None  # 아직 서버 안
+    assert all(one["interference"] is not None for one in points["points"])
+    sent = bot.call(server.doe_export, study["id"])
+    assert "error" not in sent and sent["folder"]
+
     # 6) 승격(사용자가 시켰다고 치자) — 부품을 올리고, 지그는 도면 길로 올린다.
     part_up = bot.call(server.promote_part, work_id, note="AI 가 그린 부품")
     assert "error" not in part_up, part_up
@@ -179,6 +242,18 @@ def test_AI_의_루프_가이드_검증_저장_지그_승격(
     # 7) 카탈로그에서 내 공간으로 복사.
     copied = bot.call(server.copy_part_to_work, part_up["part_id"])
     assert copied["version"] == 1 and copied["work_id"] != work_id
+
+
+@pytest.fixture(autouse=True)
+def export_root(tmp_path: Path) -> Iterator[Path]:
+    """공유 폴더는 시험에서 임시 폴더로 — 진짜 F: 드라이브에 쓰지 않는다."""
+    from app.config import get_settings
+
+    settings = get_settings()
+    before = settings.doe_export_root
+    settings.doe_export_root = tmp_path / "공유"
+    yield settings.doe_export_root
+    settings.doe_export_root = before
 
 
 def test_읽기_토큰은_저장을_못_한다(reader: Bot) -> None:
