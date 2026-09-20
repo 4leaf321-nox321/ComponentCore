@@ -6,6 +6,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { worksApi } from '@/modules/works/api'
 import type { WorkKind } from '@/modules/works/api'
 import { AssembleDialog } from '@/modules/works/AssembleDialog'
+import { SearchBox } from '@/shared/components/SearchBox'
 import { EmptyState } from '@/shared/components/EmptyState'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { PageHeader } from '@/shared/components/PageHeader'
@@ -33,7 +34,23 @@ export default function WorksPage() {
   const [kind, setKind] = useState<'all' | WorkKind>('all')
   const [starting, setStarting] = useState(false)
   const [assembling, setAssembling] = useState(false)
-  const page = useResource(() => worksApi.list(offset, PAGE), [offset])
+  /** 찾기 · 꼬리표 · 휴지통 — 서버가 거른다(수십 개를 넘으면 한 쪽에 다 안 온다). */
+  const [q, setQ] = useState('')
+  const [tag, setTag] = useState('')
+  const [trashed, setTrashed] = useState(false)
+  const page = useResource(() => worksApi.list(offset, PAGE, { q, tag, kind: kind === 'all' ? '' : kind, trashed }), [offset, q, tag, kind, trashed])
+  const tags = useResource(() => worksApi.tags(), [page.data])
+  const [restoring, setRestoring] = useState<string | null>(null)
+
+  async function restore(id: string) {
+    setRestoring(id)
+    try {
+      await worksApi.restoreWork(id)
+      page.reload()
+    } finally {
+      setRestoring(null)
+    }
+  }
 
   /** 빈 조립 하나를 만들고 바로 연다 — 조립은 그릴 것이 없어 그리기 화면을 거치지 않는다. */
   async function startAssembly() {
@@ -49,8 +66,7 @@ export default function WorksPage() {
       setStarting(false)
     }
   }
-  const all = page.data?.items ?? []
-  const rows = kind === 'all' ? all : all.filter((one) => one.kind === kind)
+  const rows = page.data?.items ?? []
 
   return (
     <div>
@@ -75,7 +91,9 @@ export default function WorksPage() {
           </>
         }
       />
-      <div className="mb-4 flex items-center gap-1">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <SearchBox value={q} onChange={(next) => { setQ(next); setOffset(0) }} />
+        <div className="flex items-center gap-1">
         {(
           [
             { value: 'all', label: '전체' },
@@ -94,19 +112,42 @@ export default function WorksPage() {
             }`}
           >
             {one.label}
-            {one.value !== 'all' && (
-              <span className="ml-1 text-xs opacity-70">{all.filter((row) => row.kind === one.value).length}</span>
-            )}
           </button>
         ))}
+        </div>
+        {(tags.data ?? []).length > 0 && (
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="text-muted-foreground text-xs">꼬리표</span>
+            {(tags.data ?? []).map((one) => (
+              <button
+                key={one}
+                type="button"
+                onClick={() => { setTag(tag === one ? '' : one); setOffset(0) }}
+                aria-pressed={tag === one}
+                className={`rounded-full border px-2 py-0.5 text-xs ${tag === one ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-accent'}`}
+              >
+                {one}
+              </button>
+            ))}
+          </div>
+        )}
+        <button type="button" onClick={() => { setTrashed(!trashed); setOffset(0) }} aria-pressed={trashed} className={`ml-auto rounded-md border px-3 py-1 text-sm ${trashed ? 'bg-destructive/10 border-destructive/40' : 'hover:bg-accent'}`}>
+          {trashed ? '휴지통 보는 중 — 내 작업으로' : '휴지통'}
+        </button>
       </div>
       <ErrorNotice error={page.error} className="mb-4" />
       {rows.length === 0 && !page.loading ? (
-        <EmptyState
-          title="작업이 없습니다"
-          hint="「새 작업」 에서 빈 화면 · 템플릿 · STEP 으로 그려 저장하세요."
-          action={<Button onClick={() => navigate('/draw')}>새 작업 만들기</Button>}
-        />
+        trashed ? (
+          <EmptyState title="휴지통이 비었습니다" hint="지운 작업이 여기 오고, 되살릴 수 있습니다." />
+        ) : q || tag ? (
+          <EmptyState title="맞는 작업이 없습니다" hint="찾는 말이나 꼬리표를 바꿔 보세요." />
+        ) : (
+          <EmptyState
+            title="작업이 없습니다"
+            hint="「새 작업」 에서 빈 화면 · 템플릿 · STEP 으로 그려 저장하세요."
+            action={<Button onClick={() => navigate('/draw')}>새 작업 만들기</Button>}
+          />
+        )
       ) : (
         <>
           <Table>
@@ -129,6 +170,15 @@ export default function WorksPage() {
                     </Link>
                     {row.description && (
                       <p className="text-muted-foreground max-w-md truncate text-xs">{row.description}</p>
+                    )}
+                    {row.tags.length > 0 && (
+                      <p className="mt-0.5 flex flex-wrap gap-1">
+                        {row.tags.map((one) => (
+                          <span key={one} className="bg-accent rounded-full px-1.5 text-[10px]">
+                            {one}
+                          </span>
+                        ))}
+                      </p>
                     )}
                   </TableCell>
                   <TableCell>
@@ -169,7 +219,18 @@ export default function WorksPage() {
                     )}
                     {!row.promoted_part_id && !row.promoted_jig_id && <span className="text-muted-foreground">—</span>}
                   </TableCell>
-                  <TableCell className="text-sm">{shownDateTime(row.updated_at)}</TableCell>
+                  <TableCell className="text-sm">
+                    {trashed ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-muted-foreground text-xs">지움 {row.deleted_at ? shownDateTime(row.deleted_at) : ''}</span>
+                        <Button size="sm" variant="outline" className="h-7" disabled={restoring === row.id} onClick={() => void restore(row.id)}>
+                          되살리기
+                        </Button>
+                      </div>
+                    ) : (
+                      shownDateTime(row.updated_at)
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

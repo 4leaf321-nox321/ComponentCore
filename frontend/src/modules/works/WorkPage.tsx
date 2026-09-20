@@ -40,6 +40,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/components/ui/tabs'
+import { TagEditor } from '@/modules/works/TagEditor'
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
@@ -60,6 +61,7 @@ export default function WorkPage() {
   const versions = useResource(() => worksApi.versions(id), [id])
   /** 지그 작업이 부품에서 생성됐으면 그 생성 기록 — 계획 · 간섭 검사를 되짚어 본다. */
   const runs = useResource(() => worksApi.jigRuns(id), [id])
+  const allTags = useResource(() => worksApi.tags(), [])
 
   const [tab, setTab] = useState('geometry')
   const [selectedVersion, setSelectedVersion] = useState<WorkVersion | null>(null)
@@ -219,6 +221,19 @@ export default function WorkPage() {
                 지그로 올라감
               </Link>
             )}
+            <Button
+              variant="ghost"
+              disabled={busy}
+              title="현재 도면으로 새 작업 — 종류 · 꼬리표가 따라갑니다"
+              onClick={() =>
+                void act(async () => {
+                  const made = await worksApi.duplicate(id)
+                  navigate(`/works/${made.id}`)
+                })
+              }
+            >
+              복제
+            </Button>
             <Button variant="ghost" onClick={() => setDeleting(true)} disabled={busy}>
               지우기
             </Button>
@@ -226,6 +241,23 @@ export default function WorkPage() {
         }
       />
       <ErrorNotice error={error} />
+
+      {/* 꼬리표 — 프로젝트 · 제품군으로 묶는다. 내 작업 목록이 이것으로 거른다. */}
+      <div className="flex items-center gap-2">
+        <span className="text-muted-foreground text-xs">꼬리표</span>
+        <TagEditor
+          tags={w.tags}
+          suggestions={allTags.data ?? []}
+          busy={busy}
+          onChange={(next) =>
+            void act(async () => {
+              await worksApi.update(id, { tags: next })
+              work.reload()
+              allTags.reload()
+            })
+          }
+        />
+      </div>
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>

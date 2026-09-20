@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
@@ -110,11 +110,14 @@ def jig_summary(db: Session, jig: Jig) -> JigSummaryOut:
 
 
 def list_jigs(
-    db: Session, *, part_id: uuid.UUID | None, limit: int, offset: int
+    db: Session, *, part_id: uuid.UUID | None, limit: int, offset: int, query: str = ""
 ) -> tuple[list[Jig], int]:
     base = select(Jig).where(Jig.deleted_at.is_(None))
     if part_id is not None:
         base = base.where(Jig.part_id == part_id)
+    if query.strip():
+        like = f"%{query.strip()}%"
+        base = base.where(or_(Jig.name.ilike(like), Jig.description.ilike(like)))
     total = int(db.scalar(select(func.count()).select_from(base.subquery())) or 0)
     rows = list(db.scalars(base.order_by(Jig.updated_at.desc()).limit(limit).offset(offset)))
     return rows, total

@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
@@ -100,8 +100,13 @@ def part_summary(db: Session, part: Part) -> PartSummaryOut:
     )
 
 
-def list_parts(db: Session, *, limit: int, offset: int) -> tuple[list[Part], int]:
+def list_parts(
+    db: Session, *, limit: int, offset: int, query: str = ""
+) -> tuple[list[Part], int]:
     base = select(Part).where(Part.deleted_at.is_(None))
+    if query.strip():
+        like = f"%{query.strip()}%"
+        base = base.where(or_(Part.name.ilike(like), Part.description.ilike(like)))
     total = int(db.scalar(select(func.count()).select_from(base.subquery())) or 0)
     rows = list(db.scalars(base.order_by(Part.updated_at.desc()).limit(limit).offset(offset)))
     return rows, total

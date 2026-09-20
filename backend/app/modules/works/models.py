@@ -61,6 +61,9 @@ class Work(Base):
         JSONB, default=dict, server_default="{}"
     )
     """부품 작업일 때 — 마지막으로 쓴 **지그 생성기** 옵션. 다음에 열면 그대로 있다."""
+    tags: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
+    """꼬리표 — 프로젝트 · 제품군 같은 묶음. 폴더 대신 이것으로 거른다(한 작업이 여러 묶음에
+    들 수 있다)."""
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

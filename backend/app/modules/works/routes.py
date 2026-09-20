@@ -57,11 +57,18 @@ def _mine(db: Session, work_id: uuid.UUID, user: User) -> Work:
 def list_works(
     limit: int | None = Query(default=None, ge=1),
     offset: int = Query(default=0, ge=0),
+    q: str = Query(default="", max_length=120),
+    tag: str = Query(default="", max_length=40),
+    kind: str = Query(default="", max_length=10),
+    trashed: bool = Query(default=False),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> Page[WorkSummaryOut]:
+    """내 작업 — `q` 로 이름 · 설명을 찾고, `tag` · `kind` 로 거르고, `trashed` 면 휴지통."""
     size = clamp_limit(limit)
-    rows, total = services.list_works(db, owner=user, limit=size, offset=offset)
+    rows, total = services.list_works(
+        db, owner=user, limit=size, offset=offset, query=q, tag=tag, kind=kind, trashed=trashed
+    )
     return Page(
         items=[services.work_summary(db, one) for one in rows],
         total=total,
@@ -107,6 +114,36 @@ def create_work_from_step(
         stream=file.file,
     )
     return services.work_out(db, work)
+
+
+@router.get("/tags", response_model=list[str])
+def my_tags(user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[str]:
+    """내 작업에 붙은 꼬리표 — 많이 쓴 것부터."""
+    return services.my_tags(db, user)
+
+
+@router.post("/{work_id}/restore", response_model=WorkOut)
+def restore_work(
+    work_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> WorkOut:
+    """휴지통에서 되살린다."""
+    work = db.get(Work, work_id)
+    if work is None or work.deleted_at is None:
+        raise AppError(code("WORKS", 31), "휴지통에 없는 작업입니다.")
+    services.require_owner(work, user)
+    return services.work_out(db, services.restore_work(db, work))
+
+
+@router.post("/{work_id}/duplicate", response_model=WorkOut, status_code=201)
+def duplicate_work(
+    work_id: uuid.UUID,
+    name: str | None = Query(default=None, max_length=120),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> WorkOut:
+    """현재 도면으로 새 작업 — 종류 · 꼬리표 · 잡는 부품을 따라간다."""
+    work = _mine(db, work_id, user)
+    return services.work_out(db, services.duplicate_work(db, work, by=user, name=name))
 
 
 @router.get("/{work_id}", response_model=WorkOut)

@@ -43,7 +43,7 @@ export interface PartSummary {
 }
 
 export const partsApi = {
-  list: (offset = 0, limit = 50) => api.get<Page<PartSummary>>(`/parts?offset=${offset}&limit=${limit}`),
+  list: (offset = 0, limit = 50, q = '') => api.get<Page<PartSummary>>(`/parts?offset=${offset}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ''}`),
   get: (id: string) => api.get<Part>(`/parts/${id}`),
   versions: (id: string) => api.get<PartVersion[]>(`/parts/${id}/versions`),
   update: (id: string, body: { name?: string; description?: string }) => api.patch<Part>(`/parts/${id}`, body),

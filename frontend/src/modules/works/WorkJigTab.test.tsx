@@ -16,6 +16,8 @@ const WORK = {
   jig_options: {},
   promoted_part_id: null,
   promoted_jig_id: null,
+  tags: [],
+  deleted_at: null,
 }
 
 beforeEach(() => {
@@ -27,9 +29,11 @@ beforeEach(() => {
         ? []
         : url.includes('/works/jig-options')
           ? {}
-          : url.includes('/works/w1')
-            ? WORK
-            : { items: [], total: 0, limit: 50, offset: 0 }
+          : url.endsWith('/works/tags')
+            ? []
+            : url.includes('/works/w1')
+              ? WORK
+              : { items: [], total: 0, limit: 50, offset: 0 }
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
   })
 })

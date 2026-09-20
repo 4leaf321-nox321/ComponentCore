@@ -690,6 +690,32 @@ async def list_works(ctx: Context, limit: int = 50) -> Any:
 
 
 @mcp.tool()
+async def search(ctx: Context, query: str, limit: int = 10) -> Any:
+    """이름 · 설명으로 **한꺼번에 찾는다** — 내 작업(부품 · 지그 · 조립) · 공용 부품 · 공용 지그 ·
+    템플릿. 사용자가 「센서 브래킷」 「진동」 처럼 말하면 목록을 다 훑지 말고 이것부터. 답의 id 를
+    `work:<id>` · `part:<id>` · `jig:<id>` 로 다른 도구에 넘긴다."""
+    works, parts, jigs, templates = await asyncio.gather(
+        _get(ctx, "/api/works", {"q": query, "limit": limit}),
+        _get(ctx, "/api/parts", {"q": query, "limit": limit}),
+        _get(ctx, "/api/jigs", {"q": query, "limit": limit}),
+        _get(ctx, "/api/templates", {"q": query, "limit": limit}),
+    )
+
+    def rows(page: Any, kind: str, fields: tuple[str, ...]) -> list[dict[str, Any]]:
+        if not isinstance(page, dict) or "items" not in page:
+            return []
+        return [{"kind": kind, **{f: one.get(f) for f in fields}} for one in page["items"]]
+
+    return {
+        "query": query,
+        "works": rows(works, "work", ("id", "name", "kind", "current_version", "tags")),
+        "parts": rows(parts, "part", ("id", "name", "current_version")),
+        "jigs": rows(jigs, "jig", ("id", "name", "current_version", "part_name")),
+        "templates": rows(templates, "template", ("id", "name", "mine")),
+    }
+
+
+@mcp.tool()
 async def get_work(ctx: Context, work_id: str) -> Any:
     """작업 하나 — 현재 버전의 레시피와 평가 요약, 지그 옵션. 고칠 때는 이 레시피를 받아
     바꾼다."""

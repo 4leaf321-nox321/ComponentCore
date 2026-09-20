@@ -22,6 +22,7 @@
 | 부품에서 지그 생성 | `jig_preview(source, options)` 로 계획을 보고 → `run_jig` → 지그 작업이 생긴다 |
 | 남에게 내놓기 | `promote_part` · `promote_jig_recipe` — **사용자가 시킬 때만** |
 | 남의 것 가져오기 | `list_parts` → `copy_part_to_work` |
+| 이름으로 찾기 | `search("브래킷")` — 내 작업 · 공용 부품 · 지그 · 템플릿 한꺼번에 |
 
 기본 습관:
 1. 저장은 늘 **사용자의 내 작업**에 새 버전으로 들어간다. 옛 버전은 남는다. 그러니 겁내지 말고

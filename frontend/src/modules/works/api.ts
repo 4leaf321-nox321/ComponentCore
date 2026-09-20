@@ -44,8 +44,10 @@ export interface Work {
   last_jig_status: string | null
   promoted_part_id: string | null
   promoted_jig_id: string | null
+  tags: string[]
   created_at: string
   updated_at: string
+  deleted_at: string | null
 }
 
 export interface WorkSummary {
@@ -61,7 +63,9 @@ export interface WorkSummary {
   last_jig_status: string | null
   promoted_part_id: string | null
   promoted_jig_id: string | null
+  tags: string[]
   updated_at: string
+  deleted_at: string | null
 }
 
 export interface JigPreview {
@@ -85,7 +89,20 @@ export interface JigPreview {
 
 export const worksApi = {
   jigOptions: () => api.get<Record<string, unknown>>('/works/jig-options'),
-  list: (offset = 0, limit = 50) => api.get<Page<WorkSummary>>(`/works?offset=${offset}&limit=${limit}`),
+  list: (offset = 0, limit = 50, filter: { q?: string; tag?: string; kind?: string; trashed?: boolean } = {}) => {
+    const query = new URLSearchParams({ offset: String(offset), limit: String(limit) })
+    if (filter.q) query.set('q', filter.q)
+    if (filter.tag) query.set('tag', filter.tag)
+    if (filter.kind) query.set('kind', filter.kind)
+    if (filter.trashed) query.set('trashed', 'true')
+    return api.get<Page<WorkSummary>>(`/works?${query}`)
+  },
+  /** 내 작업에 붙은 꼬리표 — 많이 쓴 것부터. */
+  tags: () => api.get<string[]>('/works/tags'),
+  /** 휴지통에서 되살린다. */
+  restoreWork: (id: string) => api.post<Work>(`/works/${id}/restore`, {}),
+  /** 현재 도면으로 새 작업 — 종류 · 꼬리표가 따라간다. */
+  duplicate: (id: string, name?: string) => api.post<Work>(`/works/${id}/duplicate${name ? `?name=${encodeURIComponent(name)}` : ''}`, {}),
   get: (id: string) => api.get<Work>(`/works/${id}`),
   create: (body: {
     name: string
@@ -100,7 +117,7 @@ export const worksApi = {
     api.post<Work>('/works', body),
   update: (
     id: string,
-    body: { name?: string; description?: string; jig_options?: Record<string, unknown>; kind?: WorkKind; jig_for_part_id?: string | null },
+    body: { name?: string; description?: string; jig_options?: Record<string, unknown>; kind?: WorkKind; jig_for_part_id?: string | null; tags?: string[] },
   ) =>
     api.patch<Work>(`/works/${id}`, body),
   remove: (id: string) => api.delete<void>(`/works/${id}`),

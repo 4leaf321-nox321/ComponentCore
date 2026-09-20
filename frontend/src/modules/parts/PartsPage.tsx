@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom'
 import { partsApi } from '@/modules/parts/api'
 import { EmptyState } from '@/shared/components/EmptyState'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
+import { SearchBox } from '@/shared/components/SearchBox'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { Pagination } from '@/shared/components/Pagination'
 import {
@@ -23,12 +24,16 @@ const PAGE = 20
 
 export default function PartsPage() {
   const [offset, setOffset] = useState(0)
-  const page = useResource(() => partsApi.list(offset, PAGE), [offset])
+  const [q, setQ] = useState('')
+  const page = useResource(() => partsApi.list(offset, PAGE, q), [offset, q])
   const rows = page.data?.items ?? []
 
   return (
     <div>
       <PageHeader title="부품" description="내 작업에서 승격된 부품. 버전은 바뀌지 않고, 고치려면 내 공간으로 복사합니다." />
+      <div className="mb-4">
+        <SearchBox value={q} onChange={(next) => { setQ(next); setOffset(0) }} />
+      </div>
       <ErrorNotice error={page.error} className="mb-4" />
       {rows.length === 0 && !page.loading ? (
         <EmptyState title="아직 올라온 부품이 없습니다" hint="내 작업의 부품 탭에서 「부품으로 승격」 하면 여기 뜹니다." />

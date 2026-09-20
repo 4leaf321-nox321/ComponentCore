@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 from build123d import Shape
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -151,6 +151,8 @@ def work_out(db: Session, work: Work) -> WorkOut:
         version_count=count,
         current=version_out(db, current) if current else None,
         jig_options=work.jig_options,
+        tags=list(work.tags or []),
+        deleted_at=work.deleted_at,
         jig_run_count=runs,
         last_jig_status=last,
         promoted_part_id=part_id,
@@ -186,15 +188,79 @@ def work_summary(db: Session, work: Work) -> WorkSummaryOut:
         last_jig_status=last,
         promoted_part_id=part_id,
         promoted_jig_id=jig_id,
+        tags=list(work.tags or []),
         updated_at=work.updated_at,
+        deleted_at=work.deleted_at,
     )
 
 
-def list_works(db: Session, *, owner: User, limit: int, offset: int) -> tuple[list[Work], int]:
-    base = select(Work).where(Work.deleted_at.is_(None), Work.owner_id == owner.id)
+def list_works(
+    db: Session,
+    *,
+    owner: User,
+    limit: int,
+    offset: int,
+    query: str = "",
+    tag: str = "",
+    kind: str = "",
+    trashed: bool = False,
+) -> tuple[list[Work], int]:
+    """내 작업 — 이름 · 설명으로 찾고(`query`), 꼬리표 · 종류로 거른다. `trashed` 면 지운
+    것만."""
+    base = select(Work).where(Work.owner_id == owner.id)
+    base = base.where(Work.deleted_at.is_not(None) if trashed else Work.deleted_at.is_(None))
+    if query.strip():
+        like = f"%{query.strip()}%"
+        base = base.where(or_(Work.name.ilike(like), Work.description.ilike(like)))
+    if tag.strip():
+        base = base.where(Work.tags.contains([tag.strip()]))
+    if kind.strip():
+        base = base.where(Work.kind == kind.strip())
     total = int(db.scalar(select(func.count()).select_from(base.subquery())) or 0)
-    rows = list(db.scalars(base.order_by(Work.updated_at.desc()).limit(limit).offset(offset)))
+    order = Work.deleted_at.desc() if trashed else Work.updated_at.desc()
+    rows = list(db.scalars(base.order_by(order).limit(limit).offset(offset)))
     return rows, total
+
+
+def my_tags(db: Session, owner: User) -> list[str]:
+    """내 작업에 붙은 꼬리표 전부(지운 것 제외) — 거르개 · 자동 완성."""
+    rows = db.scalars(
+        select(Work.tags).where(Work.owner_id == owner.id, Work.deleted_at.is_(None))
+    )
+    seen: dict[str, int] = {}
+    for tags in rows:
+        for one in tags or []:
+            seen[one] = seen.get(one, 0) + 1
+    return sorted(seen, key=lambda t: (-seen[t], t))
+
+
+def restore_work(db: Session, work: Work) -> Work:
+    """휴지통에서 되살린다 — 버전 · 생성 기록이 그대로 있다(행만 지웠으니)."""
+    work.deleted_at = None
+    db.commit()
+    db.refresh(work)
+    return work
+
+
+def duplicate_work(db: Session, work: Work, *, by: User, name: str | None) -> Work:
+    """현재 도면으로 **새 작업** — 종류 · 꼬리표 · 잡는 부품을 따라가고, 버전은 1 부터."""
+    version = current_version(db, work)
+    made = create_work(
+        db,
+        owner=by,
+        name=(name or f"{work.name} 사본").strip(),
+        description=work.description,
+        recipe=version.recipe if version else None,
+        source="copy",
+        note=f"{work.name} v{work.current_version} 에서 복제",
+        kind=work.kind,
+        jig_for_part_id=work.jig_for_part_id,
+    )
+    made.tags = list(work.tags or [])
+    made.jig_options = dict(work.jig_options or {})
+    db.commit()
+    db.refresh(made)
+    return made
 
 
 def list_versions(db: Session, work: Work) -> list[WorkVersion]:
@@ -299,6 +365,14 @@ def update_work(db: Session, work: Work, *, fields: dict[str, Any]) -> Work:
         raise AppError(code("WORKS", 23), f"모르는 종류입니다: {fields['kind']} (part · jig)")
     for key, value in fields.items():
         if value is None:
+            continue
+        if key == "tags":
+            cleaned: list[str] = []
+            for one in value:
+                tag = str(one).strip()[:40]
+                if tag and tag not in cleaned:
+                    cleaned.append(tag)
+            work.tags = cleaned
             continue
         setattr(work, key, value.strip() if isinstance(value, str) else value)
     db.commit()

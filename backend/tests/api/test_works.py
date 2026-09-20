@@ -563,3 +563,50 @@ def test_면_기준_놓기가_translate_를_계산해_준다(client: TestClient,
     assert got.json()["problems"] == []
     moved = next(n for n in got.json()["recipe"]["nodes"] if n["id"] == "부품")
     assert moved["translate"] == [0, 0, 2]
+
+
+def test_찾기_꼬리표_복제_휴지통(client: TestClient, member: Signed) -> None:
+    """작업이 수십 개를 넘으면 필요한 것들 — 이름으로 찾고, 꼬리표로 거르고, 복제하고,
+    되살린다."""
+    a = _work(client, member)
+    b = client.post(
+        "/api/works",
+        json={"name": "모터 브래킷", "description": "진동 시험용", "recipe": BOX},
+        headers=member.headers,
+    ).json()
+    # 꼬리표 — 전체를 바꾼다. 빈 것 · 중복은 걸러진다.
+    tagged = client.patch(
+        f"/api/works/{b['id']}",
+        json={"tags": ["진동", " 진동 ", "", "P1"]},
+        headers=member.headers,
+    )
+    assert tagged.status_code == 200 and tagged.json()["tags"] == ["진동", "P1"]
+    assert client.get("/api/works/tags", headers=member.headers).json() == ["P1", "진동"]
+
+    # 찾기 — 이름 · 설명. 꼬리표 · 종류로 거르기.
+    found = client.get("/api/works", params={"q": "진동"}, headers=member.headers).json()
+    assert [one["id"] for one in found["items"]] == [b["id"]]
+    found = client.get("/api/works", params={"tag": "P1"}, headers=member.headers).json()
+    assert [one["id"] for one in found["items"]] == [b["id"]]
+    found = client.get("/api/works", params={"kind": "part"}, headers=member.headers).json()
+    assert {one["id"] for one in found["items"]} >= {a["id"], b["id"]}
+
+    # 복제 — 종류 · 꼬리표가 따라오고 버전은 1 부터.
+    copy = client.post(f"/api/works/{b['id']}/duplicate", headers=member.headers)
+    assert copy.status_code == 201, copy.text
+    assert copy.json()["name"] == "모터 브래킷 사본" and copy.json()["tags"] == ["진동", "P1"]
+    assert copy.json()["current_version"] == 1 and copy.json()["current"]["source"] == "copy"
+
+    # 지우면 목록에서 빠지고 휴지통에 있다 — 되살리면 돌아온다.
+    assert client.delete(f"/api/works/{b['id']}", headers=member.headers).status_code == 204
+    assert b["id"] not in {
+        one["id"] for one in client.get("/api/works", headers=member.headers).json()["items"]
+    }
+    trash = client.get("/api/works", params={"trashed": "true"}, headers=member.headers).json()
+    assert [one["id"] for one in trash["items"]] == [b["id"]]
+    assert trash["items"][0]["deleted_at"]
+    back = client.post(f"/api/works/{b['id']}/restore", headers=member.headers)
+    assert back.status_code == 200 and back.json()["deleted_at"] is None
+    assert (
+        client.post(f"/api/works/{b['id']}/restore", headers=member.headers).status_code == 400
+    )

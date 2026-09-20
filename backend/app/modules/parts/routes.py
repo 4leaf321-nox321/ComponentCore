@@ -30,11 +30,12 @@ router = APIRouter(prefix="/parts", tags=["parts"])
 def list_parts(
     limit: int | None = Query(default=None, ge=1),
     offset: int = Query(default=0, ge=0),
+    q: str = Query(default="", max_length=120),
     _: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> Page[PartSummaryOut]:
     size = clamp_limit(limit)
-    rows, total = services.list_parts(db, limit=size, offset=offset)
+    rows, total = services.list_parts(db, limit=size, offset=offset, query=q)
     return Page(
         items=[services.part_summary(db, one) for one in rows],
         total=total,

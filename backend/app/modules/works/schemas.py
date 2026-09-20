@@ -33,6 +33,8 @@ class WorkUpdateRequest(BaseModel):
     kind: str | None = None
     """그리다 보니 지그였을 수 있다 — 종류는 바꿀 수 있다."""
     jig_for_part_id: uuid.UUID | None = None
+    tags: list[str] | None = None
+    """꼬리표 전체를 바꾼다(빈 목록이면 다 뗀다)."""
 
 
 class VersionCreateRequest(BaseModel):
@@ -80,8 +82,10 @@ class WorkOut(BaseModel):
     promoted_part_id: uuid.UUID | None
     promoted_jig_id: uuid.UUID | None
     """이 작업에서 승격된 부품 · 지그(있으면). 다시 승격하면 그쪽에 다음 버전이 붙는다."""
+    tags: list[str] = []
     created_at: datetime
     updated_at: datetime
+    deleted_at: datetime | None = None
 
 
 class WorkSummaryOut(BaseModel):
@@ -99,7 +103,9 @@ class WorkSummaryOut(BaseModel):
     last_jig_status: str | None
     promoted_part_id: uuid.UUID | None
     promoted_jig_id: uuid.UUID | None
+    tags: list[str] = []
     updated_at: datetime
+    deleted_at: datetime | None = None
 
 
 class JigFromPartRequest(BaseModel):

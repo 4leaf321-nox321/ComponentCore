@@ -77,9 +77,10 @@ export interface JigCatalogSummary {
 }
 
 export const jigsApi = {
-  list: (params: { part_id?: string; offset?: number; limit?: number } = {}) => {
+  list: (params: { part_id?: string; offset?: number; limit?: number; q?: string } = {}) => {
     const query = new URLSearchParams()
     if (params.part_id) query.set('part_id', params.part_id)
+    if (params.q) query.set('q', params.q)
     query.set('offset', String(params.offset ?? 0))
     query.set('limit', String(params.limit ?? 50))
     return api.get<Page<JigCatalogSummary>>(`/jigs?${query.toString()}`)

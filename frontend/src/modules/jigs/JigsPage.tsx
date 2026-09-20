@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom'
 import { jigsApi } from '@/modules/jigs/api'
 import { EmptyState } from '@/shared/components/EmptyState'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
+import { SearchBox } from '@/shared/components/SearchBox'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { Pagination } from '@/shared/components/Pagination'
 import { StatusBadge } from '@/shared/components/StatusBadge'
@@ -24,12 +25,16 @@ const PAGE = 20
 
 export default function JigsPage() {
   const [offset, setOffset] = useState(0)
-  const page = useResource(() => jigsApi.list({ offset, limit: PAGE }), [offset])
+  const [q, setQ] = useState('')
+  const page = useResource(() => jigsApi.list({ offset, limit: PAGE, q }), [offset, q])
   const rows = page.data?.items ?? []
 
   return (
     <div>
       <PageHeader title="지그" description="내 작업에서 승격된 지그. 어느 부품 버전의 지그인지 함께 적혀 있습니다." />
+      <div className="mb-4">
+        <SearchBox value={q} onChange={(next) => { setQ(next); setOffset(0) }} />
+      </div>
       <ErrorNotice error={page.error} className="mb-4" />
       {rows.length === 0 && !page.loading ? (
         <EmptyState title="아직 올라온 지그가 없습니다" hint="내 작업의 지그 탭에서 결과를 「지그로 승격」 하면 여기 뜹니다." />
