@@ -66,6 +66,15 @@ class PatOut(BaseModel):
     revoked_at: datetime | None
 
 
+class McpInfoOut(BaseModel):
+    """화면이 등록 명령을 만들 때 쓰는 것 — 주소가 정해져 있으면 그것, 아니면 포트."""
+
+    url: str
+    """비어 있으면 화면이 접속한 호스트 + port 로 만든다."""
+    port: int
+    server_name: str = "autojig"
+
+
 class PatCreateResponse(BaseModel):
     token: str
     """평문은 이 응답에서 한 번만 나온다."""

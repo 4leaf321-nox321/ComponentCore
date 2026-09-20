@@ -19,6 +19,7 @@ from app.modules.auth.schemas import (
     ChangePasswordRequest,
     LoginRequest,
     LoginResponse,
+    McpInfoOut,
     PatCreateRequest,
     PatCreateResponse,
     PatOut,
@@ -122,6 +123,14 @@ def change_password(
 
 
 # --- 개인 토큰(PAT) — 스크립트 · MCP(AI) 용 자격 증명 -----------------------------
+
+
+@router.get("/mcp-info", response_model=McpInfoOut)
+def mcp_info(_: User = Depends(current_user)) -> McpInfoOut:
+    """AI 도구 등록 명령에 넣을 MCP 주소 — 설정에 있으면 그것, 없으면 포트만(화면이 호스트를
+    안다)."""
+    settings = get_settings()
+    return McpInfoOut(url=settings.mcp_public_url, port=settings.port + 2)
 
 
 @router.get("/token-scopes", response_model=TokenScopesOut)

@@ -37,7 +37,7 @@ export default function ProfilePage() {
 
   return (
     <div className="max-w-3xl space-y-8">
-      <PageHeader title="내 정보" description="표시 이름과 개인 토큰." />
+      <PageHeader title="내 정보" description="표시 이름과 개인 토큰 — AI 도구(Claude · Gemini · Codex)를 붙이는 열쇠." />
       <form onSubmit={submit} className="max-w-lg space-y-4">
         <div className="space-y-2">
           <Label>아이디</Label>
