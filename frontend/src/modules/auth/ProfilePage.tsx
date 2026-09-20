@@ -36,22 +36,23 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="max-w-3xl space-y-8">
+    <div className="space-y-6">
       <PageHeader title="내 정보" description="표시 이름과 개인 토큰 — AI 도구(Claude · Gemini · Codex)를 붙이는 열쇠." />
-      <form onSubmit={submit} className="max-w-lg space-y-4">
-        <div className="space-y-2">
+      {/* 표시 이름은 한 줄이면 된다 — 토큰 · 등록 방법이 화면을 넓게 쓴다. */}
+      <form onSubmit={submit} className="flex flex-wrap items-end gap-3">
+        <div className="min-w-56 space-y-1">
           <Label>아이디</Label>
           <Input value={user?.email ?? ''} disabled />
         </div>
-        <div className="space-y-2">
+        <div className="min-w-56 space-y-1">
           <Label htmlFor="name">표시 이름</Label>
           <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
         </div>
-        <ErrorNotice error={error} />
-        {saved && <p className="text-muted-foreground text-sm">저장했습니다.</p>}
         <Button type="submit" disabled={busy}>
           {busy ? '저장 중…' : '저장'}
         </Button>
+        {saved && <p className="text-muted-foreground text-sm">저장했습니다.</p>}
+        <ErrorNotice error={error} className="w-full" />
       </form>
       <TokensPanel />
     </div>

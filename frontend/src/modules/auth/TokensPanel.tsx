@@ -81,7 +81,8 @@ export function TokensPanel() {
   const [issued, setIssued] = useState<string | null>(null)
   const [issuedName, setIssuedName] = useState<string>('')
   return (
-    <div className="grid items-start gap-4 lg:grid-cols-2">
+    <div className="grid items-start gap-4 xl:grid-cols-12">
+      <div className="xl:col-span-5">
       <IssueCard
         issued={issued}
         onIssued={(token, name) => {
@@ -89,7 +90,10 @@ export function TokensPanel() {
           setIssuedName(name)
         }}
       />
-      <SetupCard issued={issued} issuedName={issuedName} />
+      </div>
+      <div className="xl:col-span-7">
+        <SetupCard issued={issued} issuedName={issuedName} />
+      </div>
     </div>
   )
 }
