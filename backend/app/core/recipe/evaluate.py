@@ -7,6 +7,7 @@ done") 노드 종류에 맞는 말로 바꾼다.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import math
 from collections.abc import Callable
@@ -480,6 +481,33 @@ def _copies(source: Shape, node: S.PatternNode) -> list[Shape]:
     return out
 
 
+def _bolt(node: S.BoltNode) -> Part:
+    """머리 · 와셔 · 몸통 — 지그 생성기의 볼트와 같은 비례. `at` 이 머리가 앉는 면."""
+    d = node.nominal
+    x, y, seat = node.at
+    sign = -1.0 if node.down else 1.0
+    washer_t = 0.2 * d if node.washer else 0.0
+    head_h = d if node.head == "socket" else 0.65 * d
+    head_d = 1.5 * d
+    shank_len = node.length
+    shank: Part = Pos(x, y, seat + sign * shank_len / 2) * Cylinder(d / 2, shank_len)
+    parts: list[Part] = [shank]
+    if node.washer:
+        parts.append(Pos(x, y, seat - sign * washer_t / 2) * Cylinder(d, washer_t))
+    z_head = seat - sign * washer_t
+    if node.head == "socket":
+        head: Part = Pos(x, y, z_head - sign * head_h / 2) * Cylinder(head_d / 2, head_h)
+        head = head - Pos(x, y, z_head - sign * head_h) * Cylinder(0.4 * d, head_h)
+    else:
+        head = Pos(x, y, z_head - sign * head_h / 2) * extrude(
+            RegularPolygon(head_d / 2, 6), head_h / 2, both=True
+        )
+    bolt = parts[0]
+    for one in [*parts[1:], head]:
+        bolt = bolt + one
+    return bolt
+
+
 def _to_part(shape: Shape) -> Part:
     """Compound(복사본 묶음) · Solid(STEP 하나) 를 Part 로 — 불리언은 Part 끼리 한다.
 
@@ -769,6 +797,22 @@ def _evaluate_node(
         if node.scale != 1.0:
             source = scale(source, node.scale)
         return Pos(*node.translate) * Rot(rx, ry, rz) * source
+    if isinstance(node, S.BoltNode):
+        return _bolt(node)
+    if isinstance(node, S.PinNode):
+        x, y, z = node.at
+        pin: Part = Pos(x, y, z + node.length / 2) * Cylinder(node.diameter / 2, node.length)
+        if node.chamfer > 0:
+            with contextlib.suppress(Exception):  # 끝이 너무 작으면 모따기 없이
+                pin = chamfer(
+                    pin.edges().sort_by(Axis.Z)[-1], min(node.chamfer, node.diameter / 5)
+                )
+        return pin
+    if isinstance(node, S.StandoffNode):
+        x, y, z = node.at
+        return Pos(x, y, z + node.height / 2) * (
+            Cylinder(node.outer / 2, node.height) - Cylinder(node.hole / 2, node.height * 2)
+        )
     if isinstance(node, S.WedgeNode):
         return Pos(*node.at) * Wedge(
             node.length,

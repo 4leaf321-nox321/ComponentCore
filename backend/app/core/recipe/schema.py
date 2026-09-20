@@ -545,6 +545,48 @@ class WedgeNode(_Node):
         return self
 
 
+class BoltNode(_Node):
+    """볼트 — 머리(육각 · 소켓) + 와셔 + 몸통. `at` 은 **머리가 앉는 면의 점**, 몸통은 -Z 로
+    내려간다(`down=False` 면 +Z). 나사산은 없고 몸통은 호칭 지름 그대로. ISO 비례(머리 지름
+    1.5d, 육각 높이 0.65d, 소켓 1.0d). 지그에 볼트를 손수 원통으로 그리지 않게."""
+
+    op: Literal["bolt"]
+    at: XYZ
+    nominal: Positive
+    """호칭 지름(M6 이면 6)."""
+    length: Positive
+    """머리 아래 몸통 길이."""
+    head: Literal["hex", "socket"] = "hex"
+    washer: bool = False
+    down: bool = True
+
+
+class PinNode(_Node):
+    """위치 핀 — 원기둥에 끝 모따기. `at` 은 **밑면 중심**, 위(+Z)로 선다."""
+
+    op: Literal["pin"]
+    at: XYZ
+    diameter: Positive
+    length: Positive
+    chamfer: float = Field(default=0.8, ge=0)
+
+
+class StandoffNode(_Node):
+    """스페이서(스탠드오프) — 가운데 구멍 난 원통. `at` 은 **밑면 중심**, 위로 선다."""
+
+    op: Literal["standoff"]
+    at: XYZ
+    outer: Positive
+    hole: Positive
+    height: Positive
+
+    @model_validator(mode="after")
+    def _hole_fits(self) -> StandoffNode:
+        if self.hole >= self.outer:
+            raise ValueError("구멍이 바깥 지름보다 작아야 합니다")
+        return self
+
+
 class DraftNode(_Node):
     """고른 면에 구배를 준다 — 기준 평면은 그대로 두고 면을 기울인다. 금형 · 빼기 편한 포켓."""
 
@@ -649,6 +691,9 @@ Node = Annotated[
     | SheetMetalNode
     | BoxNode
     | WedgeNode
+    | BoltNode
+    | PinNode
+    | StandoffNode
     | CylinderNode
     | SphereNode
     | ConeNode

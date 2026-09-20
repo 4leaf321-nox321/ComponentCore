@@ -33,8 +33,10 @@ import os
 import re
 from typing import Any
 
+import base64
+
 import httpx
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.fastmcp import Context, FastMCP, Image
 
 API_BASE = os.environ.get("PLATFORM_API_BASE", "http://127.0.0.1:8060").rstrip("/")
 
@@ -299,6 +301,116 @@ async def recipe_geometry(
     return await _post(
         ctx, "/api/cad/recipe/geometry", {"recipe": recipe, "material": material}
     )
+
+
+@mcp.tool()
+async def recipe_views(
+    ctx: Context,
+    recipe: dict[str, Any],
+    views: list[str] | None = None,
+    width: int = 640,
+) -> Any:
+    """도면을 **그림으로 본다** — iso · front · top · right 의 은선 투영(보이는 선 실선, 가려진
+    선 점선). 네가 그린 것이 뜻대로인지 눈으로 확인하는 유일한 길이다. `recipe_check` 통과 뒤,
+    저장 전에 본다. 답은 이미지들과 한 줄 설명."""
+    got = await _post(
+        ctx,
+        "/api/cad/recipe/views",
+        {"recipe": recipe, "views": views or ["iso", "front", "top", "right"], "width": width},
+    )
+    if not isinstance(got, dict) or "error" in got:
+        return got
+    out: list[Any] = []
+    for name, one in got["views"].items():
+        out.append(f"[{name}]")
+        out.append(Image(data=base64.b64decode(one["png_base64"]), format="png"))
+    return out
+
+
+@mcp.tool()
+async def recipe_find(ctx: Context, recipe: dict[str, Any], query: dict[str, Any]) -> Any:
+    """말로 고른 **엣지 · 면의 좌표** — 좌표를 짐작하지 않는다. query 예:
+    - 윗면 테두리 엣지: `{"what":"edges","of_face_role":"top","kind":"line"}`
+    - 지름 8 구멍의 위 원: `{"kind":"circle","radius":4,"near":[20,10,12]}`
+    - 옆면들: `{"what":"faces","role":"side"}`
+    칸: what(edges|faces) · kind · role(top|bottom|side|step|underside) · of_face_role · axis(x|y|z)
+    · radius · min_length · max_length · near · limit. 답의 `midpoint`(엣지) · `center`(면)를
+    fillet/chamfer 의 `near`, 스케치의 `plane` 에 그대로 쓴다."""
+    return await _post(ctx, "/api/cad/recipe/find", {"recipe": recipe, "query": query})
+
+
+@mcp.tool()
+async def recipe_measure(
+    ctx: Context, recipe: dict[str, Any], a: dict[str, Any], b: dict[str, Any]
+) -> Any:
+    """둘 사이를 **잰다** — 거리(축별 차) · 평면끼리 각도 · 평행이면 간격 · 점과 평면의 수직
+    거리. 선택자: `{"point":[x,y,z]}` · `{"hole_near":[…]}`(구멍 중심 · 지름) · `{"face_near":[…]}`
+    · `{"edge_near":[…]}`. 예: 두께 = 윗면과 바닥면의 gap, 구멍 간 거리 = 두 hole_near."""
+    return await _post(ctx, "/api/cad/recipe/measure", {"recipe": recipe, "a": a, "b": b})
+
+
+@mcp.tool()
+async def patch_work(
+    ctx: Context, work_id: str, ops: list[dict[str, Any]], note: str = ""
+) -> Any:
+    """작업의 현재 도면을 **연산 몇 개로 고쳐 새 버전**으로 — 레시피 전체를 되보내지 않는다.
+    연산: `set_param{name,value}` · `remove_param{name}` · `add_node{node,before?}` ·
+    `set_field{id,field,value}`(value null 이면 칸 지움) · `remove_node{id}`(가리키는 것이 있으면
+    거절) · `move_node{id,before?}` · `rename_node{id,new_id}`(가리키는 곳도 따라감).
+    고친 도면이 틀리면 저장하지 않고 문제와 고친 레시피를 돌려준다. 끝나면 평가 요약."""
+    version = await _post(
+        ctx, f"/api/works/{work_id}/patch", {"ops": ops, "note": note or "AI 가 부분 수정"}
+    )
+    if not isinstance(version, dict) or "error" in version:
+        return version
+    evaluation = await _wait_job(ctx, version.get("job"))
+    return {
+        "work_id": work_id,
+        "version": version.get("number"),
+        "recipe": version.get("recipe"),
+        "evaluation": _slim_job(evaluation),
+    }
+
+
+@mcp.tool()
+async def place_on(
+    ctx: Context,
+    work_id: str,
+    mover: str,
+    onto: str,
+    face: str = "top",
+    offset: float = 0.0,
+    align: str = "center",
+    note: str = "",
+) -> Any:
+    """조립에서 구성품 `mover` 를 `onto` 의 면에 **얹는다** — 「지그 윗면에 부품 바닥을」.
+    `face` 는 top|bottom|+x|-x|+y|-y, `offset` 은 띄우는 거리, `align` 은 나머지 두 축(center|
+    min|max). 경계 상자로 맞추므로 닿는 면이 평면일 때 정확하다. translate 를 계산해 새 버전으로
+    저장하고 값을 돌려준다. 부품 + 생성된 지그는 `assemble_jig_on_part` 가 더 정확하다."""
+    got = await _get(ctx, f"/api/works/{work_id}")
+    if not isinstance(got, dict) or "error" in got:
+        return got
+    current = got.get("current") or {}
+    placed = await _post(
+        ctx,
+        "/api/cad/recipe/place",
+        {
+            "recipe": current.get("recipe"),
+            "mover": mover,
+            "onto": onto,
+            "face": face,
+            "offset": offset,
+            "align": align,
+        },
+    )
+    if not isinstance(placed, dict) or "error" in placed:
+        return placed
+    if placed["problems"]:
+        return {"error": "놓은 뒤 도면이 틀립니다", "problems": placed["problems"]}
+    saved = await save_version(
+        ctx, work_id, placed["recipe"], note or f"{mover} 를 {onto} 의 {face} 에 얹음"
+    )
+    return {**saved, "translate": placed["translate"]}
 
 
 @mcp.tool()

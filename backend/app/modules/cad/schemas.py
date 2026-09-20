@@ -11,6 +11,35 @@ class RecipeRequest(BaseModel):
     recipe: dict[str, Any]
 
 
+class ViewsRequest(RecipeRequest):
+    views: list[str] = Field(default_factory=lambda: ["iso", "front", "top", "right"])
+    width: int = Field(default=640, ge=120, le=2000)
+
+
+class FindRequest(RecipeRequest):
+    query: dict[str, Any] = Field(default_factory=dict)
+    """what · kind · role · of_face_role · axis · radius · min_length · max_length · near ·
+    limit."""
+
+
+class MeasureRequest(RecipeRequest):
+    a: dict[str, Any]
+    b: dict[str, Any]
+    """선택자: {point:[x,y,z]} | {hole_near:[…]} | {face_near:[…]} | {edge_near:[…]}."""
+
+
+class PatchRequest(RecipeRequest):
+    ops: list[dict[str, Any]] = Field(min_length=1)
+
+
+class PlaceRequest(RecipeRequest):
+    mover: str
+    onto: str
+    face: str = "top"
+    offset: float = 0.0
+    align: str = "center"
+
+
 class InterferenceRequest(RecipeRequest):
     tolerance: float | None = Field(default=None, ge=0)
     """이 부피(mm³) 이하의 겹침은 닿은 것으로 본다. 없으면 0.5."""

@@ -113,6 +113,13 @@ class JigFromPartRequest(BaseModel):
     """`JigOptions` 의 일부. 안 준 키는 기본값. 지그 작업에 `jig_options` 로 남는다."""
 
 
+class WorkPatchRequest(BaseModel):
+    """현재 도면에 연산 몇 개를 적용해 새 버전으로."""
+
+    ops: list[dict[str, Any]] = Field(min_length=1)
+    note: str = Field(default="", max_length=2000)
+
+
 class AssembleRequest(BaseModel):
     """부품 + 지그를 맞는 자리에 놓은 조립 작업."""
 

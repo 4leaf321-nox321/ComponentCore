@@ -78,7 +78,11 @@ claude mcp add --transport http autojig http://127.0.0.1:8062/mcp \
   --header "Authorization: Bearer autojig_pat_…"
 ```
 Claude 에게 "80×50×10 판에 모서리 M6 넷, 이름은 베이스" 라고 하면 내 작업에 출처 「AI」 버전이
-생긴다. 자세한 것은 [mcp_server/README.md](mcp_server/README.md).
+생긴다. AI 는 3D 를 못 보므로 **그림**(`recipe_views` — 등각 · 정면 · 윗면 · 우측 은선 투영)으로
+확인하고, 엣지 · 면 좌표는 **묻고**(`recipe_find`), 거리는 **재고**(`recipe_measure`), 고칠 때는
+**연산 몇 개**로(`patch_work`) 한다. 볼트 · 핀 · 스페이서는 노드(`bolt` · `pin` · `standoff`)로
+놓고, 조립은 `place_on` · `assemble_jig_on_part` 로 자리를 잡는다. 자세한 것은
+[mcp_server/README.md](mcp_server/README.md).
 
 ### 서버 없이 코어만
 

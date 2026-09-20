@@ -28,10 +28,12 @@ from app.modules.works.schemas import (
     VersionOut,
     WorkCreateRequest,
     WorkOut,
+    WorkPatchRequest,
     WorkSummaryOut,
     WorkUpdateRequest,
 )
 from app.shared.auth import current_user
+from app.shared.errors import AppError, code
 from app.shared.pagination import Page, clamp_limit
 
 router = APIRouter(prefix="/works", tags=["works"])
@@ -207,6 +209,33 @@ def list_jig_runs(
 ) -> list[JobOut]:
     work = _mine(db, work_id, user)
     return [jobs.job_out(db, one) for one in services.list_jig_runs(db, work)]
+
+
+@router.post("/{work_id}/patch", response_model=VersionOut, status_code=202)
+def patch_work(
+    work_id: uuid.UUID,
+    payload: WorkPatchRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> VersionOut:
+    """현재 도면을 연산 몇 개로 고쳐 **새 버전**으로 — 레시피 전체를 되보내지 않는다."""
+    from app.modules.cad import services as cad
+
+    work = _mine(db, work_id, user)
+    version = services.current_version(db, work)
+    if version is None:
+        raise AppError(code("WORKS", 8), "고칠 도면이 없습니다.")
+    made = cad.patch(version.recipe, payload.ops)
+    if made["problems"]:
+        raise AppError(
+            code("WORKS", 30),
+            "고친 도면이 올바르지 않습니다",
+            details={"problems": made["problems"], "recipe": made["recipe"]},
+        )
+    new = services.add_version(
+        db, work, recipe=made["recipe"], source="ai", note=payload.note or "부분 수정", by=user
+    )
+    return services.version_out(db, new)
 
 
 @router.post("/assemble", response_model=AssembleOut, status_code=201)

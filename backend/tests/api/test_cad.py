@@ -199,3 +199,82 @@ def test_치수를_훑어_고르고_보_공진을_가늠한다(client: TestClien
         headers=member.headers,
     )
     assert too_high.status_code == 400 and "짧게" in too_high.json()["error"]["message"]
+
+
+def test_그림_찾기_재기_는_AI_가_좌표를_짐작하지_않게_한다(
+    client: TestClient, member: Signed
+) -> None:
+    """AI 는 3D 를 못 본다 — 그림(PNG)으로 확인하고, 말로 고른 엣지 · 면의 좌표를 받고, 둘
+    사이를 서버가 재 준다."""
+    recipe = {
+        "nodes": [
+            {"id": "판", "op": "box", "length": 80, "width": 50, "height": 20},
+            {"id": "구멍", "op": "hole", "target": "판", "diameter": 8, "at": [[20, 10]]},
+        ]
+    }
+    views = client.post(
+        "/api/cad/recipe/views",
+        json={"recipe": recipe, "views": ["iso", "top"], "width": 300},
+        headers=member.headers,
+    )
+    assert views.status_code == 200, views.text
+    got = views.json()["views"]
+    assert set(got) == {"iso", "top"}
+    assert got["top"]["svg"].startswith("<?xml") and len(got["top"]["png_base64"]) > 100
+    bad = client.post(
+        "/api/cad/recipe/views",
+        json={"recipe": recipe, "views": ["back"]},
+        headers=member.headers,
+    )
+    assert bad.status_code == 400 and "back" in bad.json()["error"]["message"]
+
+    # 윗면 테두리의 직선 엣지 — 필렛에 넣을 near 점이 바로 나온다.
+    rim = client.post(
+        "/api/cad/recipe/find",
+        json={
+            "recipe": recipe,
+            "query": {"what": "edges", "of_face_role": "top", "kind": "line"},
+        },
+        headers=member.headers,
+    ).json()
+    assert rim["total"] == 4 and all(
+        one["midpoint"][2] == 10 for one in rim["items"]
+    )  # 상자는 원점 중심
+    # 지름 8 구멍의 원 — 위 · 아래 둘. near 로 가까운 순.
+    circles = client.post(
+        "/api/cad/recipe/find",
+        json={
+            "recipe": recipe,
+            "query": {"kind": "circle", "radius": 4, "near": [20, 10, 20]},
+        },
+        headers=member.headers,
+    ).json()
+    assert circles["total"] == 2 and circles["items"][0]["center"][2] == 10
+    faces = client.post(
+        "/api/cad/recipe/find",
+        json={"recipe": recipe, "query": {"what": "faces", "role": "top"}},
+        headers=member.headers,
+    ).json()
+    assert faces["total"] == 1 and faces["items"][0]["normal"] == [0, 0, 1]
+
+    # 재기 — 윗면과 바닥면 사이(두께), 구멍 중심에서 모서리까지.
+    got = client.post(
+        "/api/cad/recipe/measure",
+        json={
+            "recipe": recipe,
+            "a": {"face_near": [0, 0, 10]},
+            "b": {"face_near": [0, 0, -10]},
+        },
+        headers=member.headers,
+    ).json()
+    assert got["angle"] == 0 and got["gap"] == 20
+    got = client.post(
+        "/api/cad/recipe/measure",
+        json={
+            "recipe": recipe,
+            "a": {"hole_near": [20, 10, 10]},
+            "b": {"point": [-40, -25, 0]},
+        },
+        headers=member.headers,
+    ).json()
+    assert got["a"]["diameter"] == 8 and got["delta"] == [-60, -35, 0]

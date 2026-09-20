@@ -22,13 +22,18 @@ from app.modules.accounts.models import User
 from app.modules.cad import services
 from app.modules.cad.schemas import (
     BeamRequest,
+    FindRequest,
     GeometryRequest,
     InterferenceRequest,
+    MeasureRequest,
+    PatchRequest,
+    PlaceRequest,
     RecipeInfoOut,
     RecipeProblemsOut,
     RecipeRequest,
     RecipeSchemaOut,
     SweepRequest,
+    ViewsRequest,
 )
 from app.shared.auth import current_user
 from app.shared.errors import AppError, code
@@ -100,6 +105,61 @@ def recipe_sweep(payload: SweepRequest, _: User = Depends(current_user)) -> dict
             material=payload.material,
         ),
     }
+
+
+@router.post("/recipe/views")
+def recipe_views(payload: ViewsRequest, _: User = Depends(current_user)) -> dict[str, Any]:
+    """은선 투영 그림 — iso · front · top · right 의 SVG 와 PNG(base64). AI 가 자기가 그린 것을
+    눈으로 확인하는 길."""
+    from app.core.views import views
+
+    evaluation = services.build(payload.recipe)
+    try:
+        return {"views": views(evaluation.shape, tuple(payload.views), width=payload.width)}
+    except ValueError as failure:
+        raise AppError(code("CAD", 8), str(failure)) from failure
+
+
+@router.post("/recipe/find")
+def recipe_find(payload: FindRequest, _: User = Depends(current_user)) -> dict[str, Any]:
+    """말로 고른 엣지 · 면의 좌표 — 「윗면의 바깥 엣지」 「지름 8 구멍의 위 원」. 답의
+    midpoint · center 를 fillet · chamfer 의 near, 스케치의 plane 에 그대로 쓴다."""
+    from app.core.recipe.query import find_features
+
+    evaluation = services.build(payload.recipe)
+    return find_features(evaluation.shape, payload.query)
+
+
+@router.post("/recipe/measure")
+def recipe_measure(payload: MeasureRequest, _: User = Depends(current_user)) -> dict[str, Any]:
+    """둘 사이를 잰다 — 점 · 구멍 중심 · 면 · 엣지. 거리(축별 차) · 평면끼리 각도 · 간격."""
+    from app.core.recipe.query import measure
+
+    evaluation = services.build(payload.recipe)
+    try:
+        return measure(evaluation.shape, payload.a, payload.b)
+    except ValueError as failure:
+        raise AppError(code("CAD", 9), str(failure)) from failure
+
+
+@router.post("/recipe/patch")
+def recipe_patch(payload: PatchRequest, _: User = Depends(current_user)) -> dict[str, Any]:
+    """연산 몇 개로 고친 레시피 + 검사 결과. 저장은 안 한다 — works 의 patch 가 저장한다."""
+    return services.patch(payload.recipe, payload.ops)
+
+
+@router.post("/recipe/place")
+def recipe_place(payload: PlaceRequest, _: User = Depends(current_user)) -> dict[str, Any]:
+    """구성품을 다른 것의 면에 얹는다 — 「지그 윗면에 부품 바닥을」. translate 를 계산해 넣은
+    레시피를 돌려준다."""
+    return services.place(
+        payload.recipe,
+        mover=payload.mover,
+        onto=payload.onto,
+        face=payload.face,
+        offset=payload.offset,
+        align=payload.align,
+    )
 
 
 @router.post("/recipe/interference")

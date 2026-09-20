@@ -476,3 +476,76 @@ def test_부품과_지그를_맞는_자리에_놓은_조립을_만든다(
         headers=member.headers,
     ).json()
     assert guessed["placement"]["mode"] == "guessed"
+
+
+def test_부분_수정으로_새_버전을_만들고_틀리면_고친_레시피와_함께_거절한다(
+    client: TestClient, member: Signed
+) -> None:
+    work = _work(client, member)  # BOX
+    got = client.post(
+        f"/api/works/{work['id']}/patch",
+        json={
+            "ops": [
+                {"op": "set_param", "name": "높이", "value": 30},
+                {"op": "set_field", "id": "b", "field": "distance", "value": "=높이"},
+            ],
+            "note": "높이를 변수로",
+        },
+        headers=member.headers,
+    )
+    assert got.status_code == 202, got.text
+    assert got.json()["number"] == 2 and got.json()["source"] == "ai"
+    assert got.json()["recipe"]["params"] == {"높이": 30}
+    assert got.json()["job"]["summary"]["bbox"]["size"][2] == 30
+
+    bad = client.post(
+        f"/api/works/{work['id']}/patch",
+        json={
+            "ops": [{"op": "set_field", "id": "b", "field": "height", "value": "=없는변수"}]
+        },
+        headers=member.headers,
+    )
+    assert bad.status_code == 400 and bad.json()["error"]["code"] == "AJG-WORKS-0030"
+    assert bad.json()["error"]["details"]["problems"]
+    # 버전은 안 늘었다.
+    assert (
+        client.get(f"/api/works/{work['id']}", headers=member.headers).json()[
+            "current_version"
+        ]
+        == 2
+    )
+
+
+def test_면_기준_놓기가_translate_를_계산해_준다(client: TestClient, member: Signed) -> None:
+    part = _work(client, member, _plate(client, member))
+    recipe = {
+        "nodes": [
+            {
+                "id": "판",
+                "op": "box",
+                "length": 120,
+                "width": 80,
+                "height": 15,
+                "at": [0, 0, -7.5],
+            },
+            {
+                "id": "부품",
+                "op": "component",
+                "source": f"work:{part['id']}",
+                "translate": [5, 5, 5],
+            },
+            {"id": "조립", "op": "group", "targets": ["판", "부품"]},
+        ]
+    }
+    got = client.post(
+        "/api/cad/recipe/place",
+        json={"recipe": recipe, "mover": "부품", "onto": "판", "face": "top", "offset": 2},
+        headers=member.headers,
+    )
+    assert got.status_code == 200, got.text
+    # 판 윗면 z=0 · 부품(XY 중심 원점, 바닥 z=0) → 바닥이 z=2 에 오게 tz = 2, XY 는 판 중심.
+    # [5, 5, 5] 로 옮겨 둔 것은 상자에 이미 들어 있어 그만큼 빠진다.
+    assert got.json()["translate"] == [0, 0, 2]
+    assert got.json()["problems"] == []
+    moved = next(n for n in got.json()["recipe"]["nodes"] if n["id"] == "부품")
+    assert moved["translate"] == [0, 0, 2]

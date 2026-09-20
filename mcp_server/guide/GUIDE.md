@@ -31,6 +31,13 @@
 3. 승격(카탈로그에 올리기)은 사람의 판단이다. 시키지 않았으면 하지 마라.
 4. 치수 단위는 mm. 좌표계는 X 오른쪽 · Y 앞 · Z 위. 스케치 평면 XY 의 법선이 +Z 라 `extrude` 는
    위로 자란다.
+5. **눈으로 확인한다** — `recipe_check` 를 통과했어도 저장 전에 `recipe_views` 로 그림(등각 ·
+   정면 · 윗면 · 우측)을 보고 뜻대로인지 본다. 구멍이 엉뚱한 자리에, 필렛이 다른 엣지에 간 것은
+   검사로는 안 잡힌다.
+6. **좌표를 짐작하지 않는다** — 엣지 · 면 자리는 `recipe_find` 로 묻고(`near` · `plane` 에 그대로
+   쓴다), 거리 · 두께 · 각도는 `recipe_measure` 로 잰다.
+7. **고칠 때는 `patch_work`** — 레시피 전체를 되보내지 말고 연산 몇 개(set_param · set_field ·
+   add_node …)로. 크고 실수가 적다. 조립에서 놓는 것은 `place_on` / `assemble_jig_on_part`.
 
 ## recipe
 
@@ -63,7 +70,9 @@
   단면은 XY 원점에 그리면 자동으로 시작점에 놓인다) · `loft`(sketches [2개 이상], ruled) · `box`(length, width, height, at) · `cylinder`(radius, height,
   axis, at) · `sphere`(radius, at) · `cone`(bottom_radius, top_radius, height, at) · `torus`
   (major_radius, minor_radius) · `wedge`(length, width, height, top_x_min/max, top_z_min/max —
-  경사 블록) · `sheet_metal`(thickness, width, path [[x, y]…], plane, bend_radius, side left|right
+  경사 블록) · **표준 부품** `bolt`(at=머리가 앉는 점, nominal, length, head hex|socket, washer,
+  down) · `pin`(at=밑면 중심, diameter, length, chamfer) · `standoff`(at=밑면 중심, outer, hole,
+  height) — 볼트 · 핀 · 스페이서를 원통으로 손수 그리지 않는다 · `sheet_metal`(thickness, width, path [[x, y]…], plane, bend_radius, side left|right
   — **판금 절곡**: 옆에서 본 꺾은선대로 판을 접는다. 「2t 판, 30 올라가 20 꺾임, 폭 40, 굽힘 R3」
   이 그대로 칸이 된다. 꺾은선이 **폭의 가운데**에 오므로 구멍 자리는 평면 좌표 그대로 주면 된다.
   브래킷 · ㄱ자 앵글 · 덮개는 블록을 깎지 말고 이것으로) ·

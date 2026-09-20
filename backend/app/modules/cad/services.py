@@ -117,6 +117,55 @@ def check(raw: dict[str, Any]) -> list[str]:
     return []
 
 
+def patch(raw: dict[str, Any], ops: list[dict[str, Any]]) -> dict[str, Any]:
+    """연산 몇 개로 고친 레시피 — 고친 뒤 검사까지. 문제가 있으면 고친 레시피와 함께 말한다."""
+    from app.core.recipe.patch import PatchError, apply
+
+    try:
+        made = apply(raw, ops)
+    except PatchError as failure:
+        raise AppError(code("CAD", 10), str(failure)) from failure
+    return {"recipe": made, "problems": check(made)}
+
+
+def place(
+    raw: dict[str, Any], *, mover: str, onto: str, face: str, offset: float, align: str
+) -> dict[str, Any]:
+    """구성품 `mover` 를 `onto` 의 면에 얹는다 — translate 를 계산해 넣은 레시피와 그 값.
+
+    둘 다 이 레시피의 피처여야 하고, mover 는 translate 를 갖는 것(component · transform)이어야
+    한다. 상자는 평가 결과(node 별 bbox)에서 온다."""
+    from app.core.recipe.patch import PatchError, apply, place_on
+
+    evaluation = build(raw)
+    boxes = {one.id: one.bbox for one in evaluation.nodes}
+    if mover not in boxes or onto not in boxes:
+        raise AppError(code("CAD", 11), f"피처를 찾을 수 없습니다: {mover} · {onto}")
+    node = next((n for n in raw.get("nodes", []) if n.get("id") == mover), None)
+    if node is None or node.get("op") not in ("component", "transform"):
+        raise AppError(
+            code("CAD", 11), f"'{mover}' 는 component · transform 이어야 옮길 수 있습니다"
+        )
+    current = [
+        float(v) if not isinstance(v, str) else 0.0 for v in node.get("translate") or [0, 0, 0]
+    ]
+    if any(isinstance(v, str) for v in node.get("translate") or []):
+        raise AppError(
+            code("CAD", 11), f"'{mover}' 의 translate 에 식이 있어 숫자로 놓을 수 없습니다"
+        )
+    mbox, tbox = boxes[mover], boxes[onto]
+    if mbox is None or tbox is None:
+        raise AppError(code("CAD", 11), "상자를 잴 수 없는 피처입니다(스케치?)")
+    try:
+        translate = place_on(mbox, current, tbox, face=face, offset=offset, align=align)
+    except PatchError as failure:
+        raise AppError(code("CAD", 11), str(failure)) from failure
+    made = apply(
+        raw, [{"op": "set_field", "id": mover, "field": "translate", "value": translate}]
+    )
+    return {"recipe": made, "translate": translate, "problems": check(made)}
+
+
 #: 조립 간섭의 기본 허용치(mm³) — 닿는 면의 수치 오차가 이 아래로 나온다(지그 생성기와 같다).
 DEFAULT_INTERFERENCE_TOLERANCE = 0.5
 

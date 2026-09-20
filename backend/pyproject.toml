@@ -39,7 +39,7 @@ strict = true
 files = ["app", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["uvicorn.*"]
+module = ["uvicorn.*", "cairosvg.*"]
 ignore_missing_imports = true
 
 # build123d 는 타입 정보가 부분적이라(OCP 바인딩) strict 로 보면 Any 가 흘러넘친다.
