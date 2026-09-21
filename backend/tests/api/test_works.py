@@ -114,7 +114,7 @@ def test_STEP_을_올리면_import_step_버전(
         files={"file": ("notes.txt", b"hello", "text/plain")},
         headers=member.headers,
     )
-    assert bad.status_code == 400 and bad.json()["error"]["code"] == "AJG-WORKS-0005"
+    assert bad.status_code == 400 and bad.json()["error"]["code"] == "CCR-WORKS-0005"
 
 
 def test_부품에서_지그를_생성하면_지그_작업이_되고_거기서_승격한다(
@@ -205,7 +205,7 @@ def test_부품에서_지그를_생성하면_지그_작업이_되고_거기서_�
     same = client.post(
         f"/api/works/{work['id']}/promote/part", json={}, headers=member.headers
     )
-    assert same.status_code == 400 and same.json()["error"]["code"] == "AJG-WORKS-0010"
+    assert same.status_code == 400 and same.json()["error"]["code"] == "CCR-WORKS-0010"
 
     # 형상을 고쳐 다시 승격하면 부품 v2.
     v2 = client.post(
@@ -254,7 +254,7 @@ def test_형상_없는_작업은_지그를_못_건다(client: TestClient, member
         got = client.post(
             "/api/works/jig-from-part", json={"source": f"work:{work.id}"}, headers=headers
         )
-        assert got.status_code == 400 and got.json()["error"]["code"] == "AJG-WORKS-0008"
+        assert got.status_code == 400 and got.json()["error"]["code"] == "CCR-WORKS-0008"
     finally:
         db.close()
     assert member
@@ -519,7 +519,7 @@ def test_부분_수정으로_새_버전을_만들고_틀리면_고친_레시피�
         },
         headers=member.headers,
     )
-    assert bad.status_code == 400 and bad.json()["error"]["code"] == "AJG-WORKS-0030"
+    assert bad.status_code == 400 and bad.json()["error"]["code"] == "CCR-WORKS-0030"
     assert bad.json()["error"]["details"]["problems"]
     # 버전은 안 늘었다.
     assert (

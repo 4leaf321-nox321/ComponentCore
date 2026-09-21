@@ -15,7 +15,7 @@ def _token(client: TestClient, who: Signed, scopes: list[str]) -> str:
     )
     assert made.status_code == 201, made.text
     token = str(made.json()["token"])
-    assert token.startswith("autojig_pat_")
+    assert token.startswith("compcore_pat_")
     return token
 
 
@@ -27,7 +27,7 @@ def test_읽기_토큰은_읽기만(client: TestClient, member: Signed) -> None:
         "/api/works", json={"name": "x", "recipe": {"nodes": []}}, headers=headers
     )
     assert denied.status_code == 403
-    assert denied.json()["error"]["code"] == "AJG-AUTH-0106"
+    assert denied.json()["error"]["code"] == "CCR-AUTH-0106"
 
 
 def test_쓰기_토큰으로_작업을_만들고_폐기하면_즉시_막힌다(
@@ -73,6 +73,6 @@ def test_모르는_범위는_발급에서_거절(client: TestClient, member: Sig
     got = client.post(
         "/api/auth/tokens", json={"name": "x", "scopes": ["admin"]}, headers=member.headers
     )
-    assert got.status_code == 400 and got.json()["error"]["code"] == "AJG-AUTH-0107"
+    assert got.status_code == 400 and got.json()["error"]["code"] == "CCR-AUTH-0107"
     scopes = client.get("/api/auth/token-scopes", headers=member.headers).json()
     assert set(scopes["scopes"]) == {"read", "write"}

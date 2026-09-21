@@ -20,10 +20,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/shared/components/ui/table'
+import { useDisplay } from '@/shared/api/display'
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
-const PAGE = 20
 
 const KIND_LABELS: Record<string, string> = { jig: '지그 생성', cad: '부품 평가' }
 
@@ -42,7 +42,8 @@ function elapsed(job: Job): string {
 
 export default function JobsPage() {
   const [offset, setOffset] = useState(0)
-  const page = useResource(() => jobsApi.list({ mine: true, offset, limit: PAGE }), [offset])
+  const PAGE = useDisplay().list_page_size
+  const page = useResource(() => jobsApi.list({ mine: true, offset, limit: PAGE }), [offset, PAGE])
   const rows = page.data?.items ?? []
 
   return (

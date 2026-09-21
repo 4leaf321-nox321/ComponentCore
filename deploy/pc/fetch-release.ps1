@@ -5,14 +5,14 @@
 #   .\fetch-release.ps1 -Version v0.4.3          특정 버전
 #   .\fetch-release.ps1 -Apptainer               apptainer .deb 도 함께(폐쇄망 서버용)
 #
-# 받는 것: autojig-<버전>.tar.gz · .sha256 (검증까지 한다)
+# 받는 것: compcore-<버전>.tar.gz · .sha256 (검증까지 한다)
 param(
     [string]$Out = "$PSScriptRoot\downloads",
     [string]$Version = "",
     [switch]$Apptainer
 )
 $ErrorActionPreference = "Stop"
-$Repo = "4leaf321-nox321/AutoJigGenerator"
+$Repo = "4leaf321-nox321/CompCore"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
@@ -23,7 +23,7 @@ if (-not $Version) {
 }
 Write-Host "==> 버전 $Version → $Out"
 
-$name = "autojig-$Version.tar.gz"
+$name = "compcore-$Version.tar.gz"
 foreach ($f in @($name, "$name.sha256")) {
     $url = "https://github.com/$Repo/releases/download/$Version/$f"
     Write-Host "    받는 중: $f"

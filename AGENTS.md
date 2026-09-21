@@ -5,7 +5,8 @@
 
 ## 이 저장소가 무엇인가
 
-**AutoJigGenerator — 제품 STEP 에서 지그(fixture)를 자동으로 만드는 독립 플랫폼.**
+**CompCore(Component Engineering Core) — 부품 하나를 그려 지그(fixture)를 만들고,
+변수를 훑어(DOE) 해석으로 넘기는 독립 플랫폼.**
 
 [StandardPlatform](../StandardPlatform) 에서 로그인 · 설정 · 오류 규약 · 배포 형태 같은
 **제반 구조만 가져왔다.** StandardPlatform 의 인스턴스(확장 모듈 · 온톨로지 · 부서)가 아니다 —
@@ -87,11 +88,11 @@
 - 설치 이름은 `.env` 가 덮을 수 있다(`APP_NAME` · `APP_SLUG`). 코드는 `get_settings().app_name`
   으로 읽고 `branding.py` 에서 import 하지 않는다 — `config.py` 만 예외.
 - `APP_SLUG` 에서 DB 이름과 refresh 쿠키 이름이 나온다. 같은 서버의 다른 플랫폼과 겹치면
-  **번갈아 로그아웃**되고 그 원인은 코드 어디에도 없다. 기본값 `autojig`.
+  **번갈아 로그아웃**되고 그 원인은 코드 어디에도 없다. 기본값 `compcore`.
 - **포트는 8060 (개발 8061 · Vite 5230).** 플랫폼마다 10씩 벌린다. 정본 표는
   `StandardPlatform/docs/새-플랫폼-만들기.md` 3.6 이고 이 플랫폼도 거기 적혀 있다 — 8050 은
   그 표에서 PartTrace 예약 자리라 비켜 갔다.
-- 오류 코드는 `errors.code("MODULE", n)` 로만 만든다(`AJG-JIGS-0003`). 손으로 이으면
+- 오류 코드는 `errors.code("MODULE", n)` 로만 만든다(`CCR-JIGS-0003`). 손으로 이으면
   시험이 잡는다.
 
 ## 구조

@@ -6,7 +6,7 @@
 #   ./fetch-release.sh -v v0.4.3             특정 버전
 #   ./fetch-release.sh -a                    apptainer .deb 도 함께(폐쇄망 서버용)
 set -euo pipefail
-REPO="4leaf321-nox321/AutoJigGenerator"
+REPO="4leaf321-nox321/CompCore"
 OUT="$(dirname "$0")/downloads"; VERSION=""; APPTAINER=0
 while getopts ":o:v:ah" opt; do
     case "$opt" in
@@ -20,7 +20,7 @@ if [[ -z "$VERSION" ]]; then
     [[ -n "$VERSION" ]] || { echo "최신 버전을 알아내지 못했습니다 — -v 로 주세요"; exit 1; }
 fi
 echo "==> 버전 $VERSION → $OUT"
-NAME="autojig-$VERSION.tar.gz"
+NAME="compcore-$VERSION.tar.gz"
 for f in "$NAME" "$NAME.sha256"; do
     echo "    받는 중: $f"
     curl -fL --progress-bar -o "$OUT/$f" "https://github.com/$REPO/releases/download/$VERSION/$f"

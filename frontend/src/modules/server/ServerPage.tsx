@@ -6,6 +6,7 @@
 import { useState } from 'react'
 
 import { api, ApiError } from '@/shared/api/client'
+import { refreshDisplay } from '@/shared/api/display'
 import type { ServerSetting, ServerStatus } from '@/shared/api/types'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { PageHeader } from '@/shared/components/PageHeader'
@@ -39,6 +40,8 @@ function SettingRow({ setting, onSaved }: { setting: ServerSetting; onSaved: (ne
     try {
       const next = await api.put<ServerSetting[]>(`/server/settings/${setting.key}`, { value })
       onSaved(next)
+      // 화면이 들고 있는 값(목록 줄 수 · 형상 보기 수)도 바뀌었을 수 있다 — 다시 묻게 한다.
+      refreshDisplay()
       const mine = next.find((one) => one.key === setting.key)
       if (mine) setDraft(String(mine.value))
     } catch (caught) {

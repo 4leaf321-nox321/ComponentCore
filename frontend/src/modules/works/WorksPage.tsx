@@ -22,10 +22,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/shared/components/ui/table'
+import { useDisplay } from '@/shared/api/display'
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
-const PAGE = 20
 
 export default function WorksPage() {
   const navigate = useNavigate()
@@ -38,7 +38,8 @@ export default function WorksPage() {
   const [q, setQ] = useState('')
   const [tag, setTag] = useState('')
   const [trashed, setTrashed] = useState(false)
-  const page = useResource(() => worksApi.list(offset, PAGE, { q, tag, kind: kind === 'all' ? '' : kind, trashed }), [offset, q, tag, kind, trashed])
+  const PAGE = useDisplay().list_page_size
+  const page = useResource(() => worksApi.list(offset, PAGE, { q, tag, kind: kind === 'all' ? '' : kind, trashed }), [offset, q, tag, kind, trashed, PAGE])
   const tags = useResource(() => worksApi.tags(), [page.data])
   const [restoring, setRestoring] = useState<string | null>(null)
 

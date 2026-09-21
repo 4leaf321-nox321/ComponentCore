@@ -287,7 +287,7 @@ function SetupCard({ issued, issuedName }: { issued: string | null; issuedName: 
   const info = useResource(() => api.get<McpInfo>('/auth/mcp-info'), [])
   const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
   const mcpUrl = info.data?.url || `http://${host}:${info.data?.port ?? 8062}/mcp`
-  const server = info.data?.server_name ?? 'autojig'
+  const server = info.data?.server_name ?? 'compcore'
   const token = issued ?? TOKEN_PLACEHOLDER
   const auth = `Bearer ${token}`
   /** 발급한 이름으로 첫 탭을 고른다 — 「Gemini CLI」 로 발급했으면 Gemini 탭이 먼저. */

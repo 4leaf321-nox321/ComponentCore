@@ -2,9 +2,10 @@
  * DOE 설계점 형상 보기 — 만든 형상을 **하나씩 · 겹쳐서 · 나란히** 본다.
  *
  * 점이 수백이라 한꺼번에 다 그리지 않는다: 메시는 **고른 점만** 서버에서 받아 오고(받은 것은
- * 들고 있는다), 한 번에 화면에 올리는 수에 상한이 있다 — 겹쳐 보기는 뷰어 하나라 색으로 가를
- * 수 있는 만큼(`MAX_OVERLAY`), 나란히는 한 WebGL 문맥에 칸을 잘라 그리므로(`GridViewer`)
- * 그리는 양이 한계(`MAX_GRID`). 나란히는 카메라가 하나라 돌리면 모두 같이 돈다.
+ * 들고 있는다), 한 번에 화면에 올리는 수에 상한이 있다 — 관리자가 「서버 › 설정」 에서 정하는
+ * `doe_gallery_max`(브라우저가 그리는 양이라 크게 잡으면 느려진다). 겹쳐 보기는 뷰어 하나에
+ * 색으로 갈라 놓으므로 색 수(`MAX_OVERLAY`)를 더 넘지 않는다 — 넘으면 두 점이 같은 색이 되어
+ * 겹쳐 본 뜻이 없다. 나란히는 카메라가 하나라 돌리면 모두 같이 돈다.
  *
  * 격자는 정사각형 칸으로 1x1 → 2x1 → 2x2 → 3x2 → 3x3 → 4x3 → 4x4 까지 열을 늘리고, 그 뒤는
  * 4열로 세로만 는다(`gridColumns`). 하나씩 볼 때의 ◀ ▶ 는 표 위에 따로 둔다(`PointsNav`).
@@ -16,6 +17,7 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { useDisplay } from '@/shared/api/display'
 import { doeApi } from '@/modules/doe/api'
 import type { DoePoint, DoeStudy, PointMesh } from '@/modules/doe/api'
 import { Button } from '@/shared/components/ui/button'
@@ -27,10 +29,9 @@ const PickViewer = lazy(() => import('@/shared/viewer/PickViewer'))
 const GridViewer = lazy(() => import('@/shared/viewer/GridViewer').then((m) => ({ default: m.GridViewer })))
 
 export type GalleryMode = 'single' | 'overlay' | 'grid'
-/** 겹쳐 볼 때 한 번에 올리는 점의 수 — 뷰어 하나라 색으로 가를 수 있는 만큼. */
+/** 겹쳐 볼 때의 천장 — 뷰어 하나라 색으로 가를 수 있는 만큼(`POINT_COLORS`). 설정이 이보다
+ * 커도 겹쳐 보기는 여기서 멈춘다. */
 export const MAX_OVERLAY = 12
-/** 나란히 볼 때 — 한 문맥에 칸을 잘라 그리므로 그리는 양이 한계다. 4x6 까지. */
-export const MAX_GRID = 24
 
 /** 격자의 열 수 — 정사각형에 가깝게 늘리다가 넷에서 멈춘다: 1 · 2 · 2 · 2 · 3 · 3 · 3 · 3 · 3 · 4 … */
 export function gridColumns(count: number): number {
@@ -75,6 +76,7 @@ export function PointsGallery({
   mode: GalleryMode
   onMode: (next: GalleryMode) => void
 }) {
+  const galleryMax = useDisplay().doe_gallery_max
   const [meshes, setMeshes] = useState<Record<number, PointMesh>>({})
   const [loading, setLoading] = useState<Set<number>>(new Set())
   const [failed, setFailed] = useState<Record<number, string>>({})
@@ -107,7 +109,7 @@ export function PointsGallery({
   )
 
   // 보여야 할 점만 받아 온다 — 모드에 따라 하나, 또는 고른 것들 중 이 쪽(상한만큼).
-  const limit = mode === 'grid' ? MAX_GRID : MAX_OVERLAY
+  const limit = mode === 'grid' ? galleryMax : Math.min(galleryMax, MAX_OVERLAY)
   const pages = Math.max(1, Math.ceil(picked.length / limit))
   const at = Math.min(page, pages - 1)
   const shown = mode === 'single' ? (focus === null ? [] : [focus]) : picked.slice(at * limit, (at + 1) * limit)

@@ -1,4 +1,4 @@
-"""AutoJigGenerator MCP 서버 — AI 가 **내 작업**에서 부품을 그리고 지그를 만들게 하는 도구.
+"""CompCore MCP 서버 — AI 가 **내 작업**에서 부품을 그리고 지그를 만들게 하는 도구.
 
 플랫폼이 AI 를 부르지 않는다. AI(Claude Code · Claude Desktop · 다른 클라이언트)가 이 서버를
 도구로 물고, 사용자의 **개인 토큰(PAT)** 으로 백엔드에 붙는다 — 검증도 권한도 백엔드가 한다.
@@ -22,8 +22,8 @@ AI 는 그것을 읽고 고쳐 다시 부른다. 통과한 레시피만 `save_ve
     # streamable-http, 기본 127.0.0.1:8062/mcp
 
 Claude Code 등록(사용자별 토큰 — 화면의 「내 정보」 에서 발급):
-    claude mcp add --transport http autojig http://127.0.0.1:8062/mcp \\
-      --header "Authorization: Bearer autojig_pat_…"
+    claude mcp add --transport http compcore http://127.0.0.1:8062/mcp \\
+      --header "Authorization: Bearer compcore_pat_…"
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ API_BASE = os.environ.get("PLATFORM_API_BASE", "http://127.0.0.1:8060").rstrip("
 _JSON_RESPONSE = os.environ.get("MCP_JSON_RESPONSE") == "1"
 
 mcp = FastMCP(
-    os.environ.get("APP_SLUG", "autojig"),
+    os.environ.get("APP_SLUG", "compcore"),
     json_response=_JSON_RESPONSE,
     instructions=(
         "부품을 레시피(연산 트리 JSON)로 그리고 지그를 만드는 플랫폼. "

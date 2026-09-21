@@ -269,7 +269,7 @@ def test_LHS_표본_수_상한도_관리자가_바꾼다(
         json={"factors": factors, "method": "lhs", "samples": 31},
         headers=member.headers,
     )
-    assert too_many.status_code == 400 and too_many.json()["error"]["code"] == "AJG-DOE-0014"
+    assert too_many.status_code == 400 and too_many.json()["error"]["code"] == "CCR-DOE-0014"
     ok = client.post(
         "/api/doe/preview",
         json={"factors": factors, "method": "lhs", "samples": 30},
@@ -284,3 +284,30 @@ def test_LHS_표본_수_상한도_관리자가_바꾼다(
     client.put(
         "/api/server/settings/doe_max_samples", json={"value": None}, headers=admin.headers
     )
+
+
+def test_화면이_쓰는_수도_관리자가_바꾼다(
+    client: TestClient, member: Signed, admin: Signed
+) -> None:
+    """목록 줄 수 · 형상 보기 수 — 관리자가 아닌 사람도 읽어야 화면이 그 수를 지킨다."""
+    before = client.get("/api/server/display", headers=member.headers)
+    assert before.status_code == 200
+    assert before.json() == {"doe_gallery_max": 24, "list_page_size": 20}
+
+    client.put(
+        "/api/server/settings/doe_gallery_max", json={"value": 40}, headers=admin.headers
+    )
+    client.put(
+        "/api/server/settings/list_page_size", json={"value": 50}, headers=admin.headers
+    )
+    after = client.get("/api/server/display", headers=member.headers).json()
+    assert after == {"doe_gallery_max": 40, "list_page_size": 50}
+
+    # 회원은 바꾸지 못한다 — 읽기만.
+    denied = client.put(
+        "/api/server/settings/list_page_size", json={"value": 5}, headers=member.headers
+    )
+    assert denied.status_code == 403
+
+    for key in ("doe_gallery_max", "list_page_size"):
+        client.put(f"/api/server/settings/{key}", json={"value": None}, headers=admin.headers)

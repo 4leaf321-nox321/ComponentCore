@@ -1,4 +1,4 @@
-# AutoJigGenerator MCP 서버
+# CompCore MCP 서버
 
 AI(Claude Code · Claude Desktop · 다른 MCP 클라이언트)가 **내 작업**에서 부품을 그리고 지그를
 만들게 하는 도구. 플랫폼이 AI 를 부르지 않는다 — AI 가 이 서버를 도구로 물고, 사용자의 개인
@@ -19,9 +19,9 @@ PLATFORM_API_BASE=http://127.0.0.1:8061 ./venv/bin/python server.py
 ## Claude Code 등록 (사용자별 토큰)
 1. 화면 「내 정보」 → 개인 토큰 발급 — 이름(예: Claude Code) · 범위 `read` + `write`. 토큰은 한 번만 보인다.
 2. ```bash
-   claude mcp add --transport http autojig http://127.0.0.1:8062/mcp \
-     --header "Authorization: Bearer autojig_pat_…"
-   claude mcp list   # autojig: … - ✔ Connected
+   claude mcp add --transport http compcore http://127.0.0.1:8062/mcp \
+     --header "Authorization: Bearer compcore_pat_…"
+   claude mcp list   # compcore: … - ✔ Connected
    ```
 3. Claude 에게 "80×50×10 판에 모서리 M6 구멍 넷, 이름은 베이스" 라고 하면 `get_guide` →
    `recipe_check` → `create_work` 로 내 작업에 들어간다. 화면의 내 작업에서 3D 를 보고 승격한다.

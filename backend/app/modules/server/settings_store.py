@@ -39,6 +39,29 @@ KNOWN: dict[str, Known] = {
         minimum=1,
         maximum=5000,
     ),
+    "doe_gallery_max": Known(
+        key="doe_gallery_max",
+        label="실험계획 형상 보기 — 한 번에 그리는 수",
+        description=(
+            "겹쳐 보기 · 나란히에서 한 번에 화면에 올리는 형상 수. 넘게 고르면 쪽으로 나눠 "
+            "넘긴다. 브라우저가 그리는 양이라 크게 잡으면 느려지고, 겹쳐 보기는 열둘을 넘으면 "
+            "색이 돌아 서로 구별이 안 된다."
+        ),
+        default=lambda: get_settings().doe_gallery_max,
+        minimum=1,
+        maximum=100,
+    ),
+    "list_page_size": Known(
+        key="list_page_size",
+        label="목록 한 쪽에 보이는 줄 수",
+        description=(
+            "실험계획 · 내 작업 · 부품 · 지그 · 템플릿 · 실행 기록 목록이 한 쪽에 보여 주는 "
+            "줄 수. 크게 잡으면 한 화면에 많이 보이지만 목록을 받는 데 오래 걸린다."
+        ),
+        default=lambda: get_settings().list_page_size,
+        minimum=5,
+        maximum=200,
+    ),
     "doe_max_samples": Known(
         key="doe_max_samples",
         label="DOE LHS 표본 수 상한",
@@ -68,6 +91,14 @@ def doe_max_points(db: Session) -> int:
 
 def doe_max_samples(db: Session) -> int:
     return get_int(db, "doe_max_samples")
+
+
+def display(db: Session) -> dict[str, int]:
+    """화면이 쓰는 값 — 관리자가 아니어도 읽어야 목록 · 형상 보기가 그 수를 지킨다."""
+    return {
+        "doe_gallery_max": get_int(db, "doe_gallery_max"),
+        "list_page_size": get_int(db, "list_page_size"),
+    }
 
 
 def listing(db: Session) -> list[dict[str, Any]]:

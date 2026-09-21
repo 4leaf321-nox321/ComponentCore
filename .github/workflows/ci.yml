@@ -21,8 +21,8 @@ jobs:
           - 5432:5432
     env:
       APP_ENV: development
-      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/autojig
-      APP_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/autojig_test
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/compcore
+      APP_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/compcore_test
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -36,8 +36,8 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libglu1-mesa libxrender1 libxext1
       - run: pip install -r backend/requirements.txt -r backend/requirements-dev.txt
       - run: |
-          PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE autojig"
-          PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE autojig_test"
+          PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE compcore"
+          PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE compcore_test"
       - working-directory: backend
         run: |
           ruff format --check . ../mcp_server --config pyproject.toml

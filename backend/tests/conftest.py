@@ -28,7 +28,7 @@ os.environ["DATABASE_URL"] = _test_database_url()
 import tempfile  # noqa: E402
 
 # 시험은 저장소 밖(임시 폴더)에 파일을 쓴다 — 개발 filestore 를 시험 산출물로 채우지 않는다.
-_TEMP_STORE = tempfile.mkdtemp(prefix="autojig-test-")
+_TEMP_STORE = tempfile.mkdtemp(prefix="compcore-test-")
 os.environ["FILESTORE_DIR"] = _TEMP_STORE
 os.environ["LOG_DIR"] = os.path.join(_TEMP_STORE, "logs")
 # API 시험은 워커 없이 돈다 — 작업이 요청 안에서 끝난다. 워커 자체는 tests/api/test_jobs.py 가

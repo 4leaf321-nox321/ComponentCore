@@ -16,7 +16,7 @@ beforeEach(() => {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
     const url = String(input)
     if (url.endsWith('/cad/recipe/check')) return new Response(JSON.stringify({ ok: true, problems: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-    return new Response(JSON.stringify({ error: { code: 'AJG-TEST-0001', message: '없음' } }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+    return new Response(JSON.stringify({ error: { code: 'CCR-TEST-0001', message: '없음' } }), { status: 500, headers: { 'Content-Type': 'application/json' } })
   })
 })
 

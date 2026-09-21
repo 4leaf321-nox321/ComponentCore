@@ -29,10 +29,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/shared/components/ui/table'
+import { useDisplay } from '@/shared/api/display'
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
-const PAGE = 20
 
 const SCOPES: { value: TemplateScope; label: string; hint: string }[] = [
   { value: 'all', label: '전체', hint: '내 템플릿과 공용 템플릿을 함께 봅니다. 내 것이 먼저 옵니다.' },
@@ -48,7 +48,8 @@ export default function TemplatesPage() {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [removing, setRemoving] = useState<TemplateSummary | null>(null)
-  const page = useResource(() => templatesApi.list({ scope, q: query, offset, limit: PAGE }), [scope, query, offset])
+  const PAGE = useDisplay().list_page_size
+  const page = useResource(() => templatesApi.list({ scope, q: query, offset, limit: PAGE }), [scope, query, offset, PAGE])
   const rows = page.data?.items ?? []
 
   async function act(run: () => Promise<unknown>, id: string) {

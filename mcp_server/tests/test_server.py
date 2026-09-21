@@ -89,14 +89,14 @@ def test_오류_봉투를_그대로_전한다() -> None:
         400,
         json={
             "error": {
-                "code": "AJG-CAD-0003",
+                "code": "CCR-CAD-0003",
                 "message": "만들지 못했습니다 — f: 반지름",
                 "details": {"node_id": "f"},
             }
         },
     )
     got = server._unwrap(response)
-    assert got["error"].startswith("[AJG-CAD-0003]") and got["details"]["node_id"] == "f"
+    assert got["error"].startswith("[CCR-CAD-0003]") and got["details"]["node_id"] == "f"
     assert server._unwrap(httpx.Response(204)) == {"ok": True, "message": "완료"}
 
 

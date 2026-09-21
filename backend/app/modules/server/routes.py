@@ -19,13 +19,14 @@ from app.modules.parts.models import Part
 from app.modules.server import settings_store
 from app.modules.server.schemas import (
     DiskOut,
+    DisplayOut,
     ServerStatusOut,
     SettingOut,
     SettingUpdateRequest,
     TableCountOut,
 )
 from app.modules.works.models import Work
-from app.shared.auth import require_system_admin
+from app.shared.auth import current_user, require_system_admin
 
 router = APIRouter(prefix="/server", tags=["server"])
 
@@ -94,6 +95,14 @@ def status(
         build123d_version=_build123d_version(),
         started_at=STARTED_AT,
     )
+
+
+@router.get("/display", response_model=DisplayOut)
+def display_settings(
+    _: User = Depends(current_user), db: Session = Depends(get_db)
+) -> DisplayOut:
+    """화면이 쓰는 수 — 목록 한 쪽 줄 수, 실험계획 형상 보기의 한 번에 그리는 수."""
+    return DisplayOut(**settings_store.display(db))
 
 
 @router.get("/settings", response_model=list[SettingOut])

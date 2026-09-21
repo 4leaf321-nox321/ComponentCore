@@ -72,7 +72,7 @@ class McpInfoOut(BaseModel):
     url: str
     """비어 있으면 화면이 접속한 호스트 + port 로 만든다."""
     port: int
-    server_name: str = "autojig"
+    server_name: str = "compcore"
 
 
 class PatCreateResponse(BaseModel):

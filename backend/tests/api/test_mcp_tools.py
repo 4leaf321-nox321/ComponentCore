@@ -262,4 +262,4 @@ def test_읽기_토큰은_저장을_못_한다(reader: Bot) -> None:
     # 검증 · 미리보기는 POST 지만 아무것도 안 바꾼다 — 읽기 토큰으로 되어야 AI 가 그려 본다.
     assert reader.call(server.recipe_check, box)["ok"] is True
     denied = reader.call(server.create_work, "x", box)
-    assert "error" in denied and "AJG-AUTH-0106" in denied["error"]
+    assert "error" in denied and "CCR-AUTH-0106" in denied["error"]

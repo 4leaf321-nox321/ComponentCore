@@ -47,6 +47,9 @@ test('표의 줄을 누르면 그 점의 형상을 받아 보고, 체크한 점�
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
     const url = String(input)
     asked.push(url)
+    if (url.includes('/server/display')) {
+      return new Response(JSON.stringify({ doe_gallery_max: 24, list_page_size: 20 }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }
     const n = Number(url.match(/points\/(\d+)\/mesh/)?.[1] ?? 0)
     return new Response(JSON.stringify(meshOf(n)), { status: 200, headers: { 'Content-Type': 'application/json' } })
   })
@@ -127,6 +130,9 @@ test('고른 점이 상한을 넘으면 쪽으로 넘겨 가며 다 본다', asy
     points: Array.from({ length: 30 }, (_, i) => ({ id: `p${i}`, number: i + 1, params: { 두께: i }, status: 'ok', error: '', metrics: null, step_file: `points/p${i}.step` })),
   } as unknown as DoeStudy
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    if (String(input).includes('/server/display')) {
+      return new Response(JSON.stringify({ doe_gallery_max: 24, list_page_size: 20 }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }
     const n = Number(String(input).match(/points\/(\d+)\/mesh/)?.[1] ?? 0)
     return new Response(JSON.stringify(meshOf(n)), { status: 200, headers: { 'Content-Type': 'application/json' } })
   })

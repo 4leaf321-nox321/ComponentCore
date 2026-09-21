@@ -1,6 +1,7 @@
-# AutoJigGenerator
+# CompCore
 
-제품 STEP 을 올리면 지그(fixture)를 자동으로 설계해 STEP 으로 돌려주는 플랫폼.
+부품(Component)을 가운데 두고 도는 플랫폼 — STEP 을 올리거나 직접 그린 도면에서
+지그(fixture)를 자동으로 설계하고, 변수를 훑어(DOE) 해석으로 넘긴다.
 제품 파일이 없어도 기본 도형(상자 · 원기둥 · 구멍 뚫린 판 · L 브래킷)을 그려 지그를 잡아 볼 수 있다.
 
     제품 STEP
@@ -31,11 +32,11 @@
 
 ### 1. PostgreSQL
 
-`autojig` 와 `autojig_test` 데이터베이스가 있어야 한다.
+`compcore` 와 `compcore_test` 데이터베이스가 있어야 한다.
 
 ```bash
-psql -U postgres -c "CREATE DATABASE autojig"
-psql -U postgres -c "CREATE DATABASE autojig_test"
+psql -U postgres -c "CREATE DATABASE compcore"
+psql -U postgres -c "CREATE DATABASE compcore_test"
 ```
 
 ### 2. 백엔드
@@ -74,8 +75,8 @@ cd mcp_server && python3 -m venv venv && ./venv/bin/pip install -r requirements.
 ```
 그 뒤 `python run.py` 가 MCP 서버(8062)를 함께 띄운다. 화면 「내 정보」 에서 개인 토큰을 발급하고:
 ```bash
-claude mcp add --transport http autojig http://127.0.0.1:8062/mcp \
-  --header "Authorization: Bearer autojig_pat_…"
+claude mcp add --transport http compcore http://127.0.0.1:8062/mcp \
+  --header "Authorization: Bearer compcore_pat_…"
 ```
 Claude 에게 "80×50×10 판에 모서리 M6 넷, 이름은 베이스" 라고 하면 내 작업에 출처 「AI」 버전이
 생긴다. AI 는 3D 를 못 보므로 **그림**(`recipe_views` — 등각 · 정면 · 윗면 · 우측 은선 투영)으로
@@ -88,13 +89,13 @@ Claude 에게 "80×50×10 판에 모서리 M6 넷, 이름은 베이스" 라고 �
 
 ```bash
 ./deploy/build_bundle.sh v0.1.0      # 프론트 빌드 → Apptainer SIF → tar.gz 하나 (몇 분)
-scp release/autojig-v0.1.0.tar.gz <계정>@<서버>:~/
+scp release/compcore-v0.1.0.tar.gz <계정>@<서버>:~/
 # 서버에서
-tar xzf autojig-v0.1.0.tar.gz && cd autojig-v0.1.0
+tar xzf compcore-v0.1.0.tar.gz && cd compcore-v0.1.0
 sudo ./deploy.sh setup               # 물어보며 prepare → install (또는 prepare/install 따로)
 ```
 
-한 프로세스가 API 와 화면을 같이 서빙하고, 워커(`autojig-worker`)와 MCP 서버(`autojig-mcp`)가
+한 프로세스가 API 와 화면을 같이 서빙하고, 워커(`compcore-worker`)와 MCP 서버(`compcore-mcp`)가
 따로 뜬다. **실험계획의 공유 폴더**는 `DOE_HOST_DIR` 로 정한다 — 해석(ANSYS)이 읽는 자리라
 안 정하면 DOE 를 만들 때 거절된다. 자세한 것은 [deploy/README_OPERATOR.md](deploy/README_OPERATOR.md)
 (쉬운 순서는 [deploy/쉬운-설치.md](deploy/쉬운-설치.md)).
@@ -134,6 +135,7 @@ cd backend
   이름만 — 질량 · 크기는 계산하지 않는다(결과는 해석이 낸다). 값은 인자마다 고른 가공 단위
   (기본 0.1 mm)로 맞춘다. 「설정 바꿔 다시 만들기」 로 지난 DOE 의 설정을 채워 새로 만든다.
   만든 형상은 점마다 3D 로 본다 — 하나씩(◀ ▶) · 겹쳐 보기 · 나란히(쪽으로 넘겨 수백 개도).
+  한 번에 화면에 올리는 형상 수와 목록 한 쪽의 줄 수도 「서버 › 설정」 에서 바꾼다.
 - **찾기 · 꼬리표 · 복제 · 휴지통** — 내 작업 · 공용 부품 · 지그 목록의 찾기 칸, 작업에 꼬리표
   (프로젝트 · 제품군)를 붙여 거르기, 현재 도면으로 복제, 지운 작업 되살리기. MCP `search`.
 - **부품 + 지그로 조립** — 부품과 지그 작업을 고르면 맞는 자리에 놓은 조립이 생긴다(생성된 지그는
@@ -160,5 +162,5 @@ cd ../frontend && npm run build && npm test && npm run lint
 
 ## 포트
 
-플랫폼마다 10씩 벌린다: StandardPlatform 8040 · (예약) PartTrace 8050 · **AutoJigGenerator 8060** (개발 8061, Vite 5230).
+플랫폼마다 10씩 벌린다: StandardPlatform 8040 · (예약) PartTrace 8050 · **CompCore 8060** (개발 8061, Vite 5230).
 정본 표는 `StandardPlatform/docs/새-플랫폼-만들기.md` 3.6.

@@ -17,7 +17,7 @@ def test_틀린_비밀번호는_401_봉투(client: TestClient, db: Session) -> N
     got = client.post("/api/auth/login", json={"email": user.email, "password": "nope"})
     assert got.status_code == 401
     body = got.json()["error"]
-    assert body["code"] == "AJG-AUTH-0001"
+    assert body["code"] == "CCR-AUTH-0001"
     assert body["request_id"]
 
 

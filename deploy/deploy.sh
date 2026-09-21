@@ -132,7 +132,7 @@ fi
 LOG_HOST_DIR="$INSTALL_DIR/logs"
 
 # **실험계획(DOE)이 STEP 을 쏟는 공유 폴더.** 해석(ANSYS)을 도는 쪽이 같은 자리를 본다 —
-# 대개 파일 서버의 마운트(예: /mnt/share/AutoJigGenerator)다. 안 정하면 유닛에 bind 가 안
+# 대개 파일 서버의 마운트(예: /mnt/share/CompCore)다. 안 정하면 유닛에 bind 가 안
 # 걸리고, 그때 DOE 를 만들면 「공유 폴더에 쓸 수 없습니다」 로 **거절된다**(조용히 컨테이너
 # 안에 쓰지 않는다 — 그러면 이미지를 바꾸는 날 결과가 통째로 사라진다).
 # 공용 스토리지(DATA_DIR)를 쓰면 그 아래를 기본값으로 삼는다.
@@ -542,7 +542,7 @@ setup_backup_timer() {
 check_doe_dir() {
     [[ -n "$DOE_HOST_DIR" ]] || {
         warn "실험계획 공유 폴더를 안 정했습니다 — DOE 를 만들 수 없습니다.
-      정하려면: DOE_HOST_DIR=/mnt/share/AutoJigGenerator sudo ./deploy.sh update"
+      정하려면: DOE_HOST_DIR=/mnt/share/CompCore sudo ./deploy.sh update"
         return 0
     }
     local probe="$DOE_HOST_DIR/.deploy-write-test"

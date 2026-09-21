@@ -3,7 +3,7 @@
 **오류를 만드는 경로가 곧 로그를 남기는 경로다.** 핸들러를 거치지 않고 오류 응답을 만들
 방법을 두지 않는다.
 
-코드 형식: <PREFIX>-<MODULE>-<NNNN>  예) AJG-AUTH-0001
+코드 형식: <PREFIX>-<MODULE>-<NNNN>  예) CCR-AUTH-0001
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 def code(module: str, number: int) -> str:
-    """AJG-AUTH-0001 을 만든다. **문자열을 손으로 잇지 않는다.**"""
+    """CCR-AUTH-0001 을 만든다. **문자열을 손으로 잇지 않는다.**"""
     return f"{ERROR_PREFIX}-{module.upper()}-{number:04d}"
 
 

@@ -50,7 +50,7 @@ def check_root() -> Path:
     root = _settings_root()
     try:
         root.mkdir(parents=True, exist_ok=True)
-        probe = root / ".autojig-write-test"
+        probe = root / ".compcore-write-test"
         probe.write_text("ok", encoding="utf-8")
         probe.unlink()
     except OSError as failure:

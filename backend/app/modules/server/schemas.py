@@ -32,6 +32,13 @@ class ServerStatusOut(BaseModel):
     started_at: datetime
 
 
+class DisplayOut(BaseModel):
+    """화면이 읽는 설정 — 관리자가 아닌 사람도 본다(목록 줄 수 · 형상 보기 수)."""
+
+    doe_gallery_max: int
+    list_page_size: int
+
+
 class SettingOut(BaseModel):
     key: str
     label: str

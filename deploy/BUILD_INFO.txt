@@ -1,4 +1,4 @@
 version=v0.1.0-test
-app_name=AutoJigGenerator
-app_slug=autojig
+app_name=CompCore
+app_slug=compcore
 python=3.12

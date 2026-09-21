@@ -4,7 +4,7 @@
 
 ## 결정
 
-AutoJigGenerator 는 StandardPlatform 의 **인스턴스(확장 모듈)가 아니라 별도 저장소**다.
+CompCore 는 StandardPlatform 의 **인스턴스(확장 모듈)가 아니라 별도 저장소**다.
 StandardPlatform 에서는 로그인(JWT + 회전하는 refresh 쿠키) · 설정(`.env` → `Settings`) · 오류
 봉투와 요청 ID · 접근 로그 · 파일 저장소 · 한 프로세스가 SPA 까지 서빙하는 배포 형태 ·
 프론트 껍데기(사이드바 · 오류 경계 · shadcn 프리미티브)만 가져왔다.

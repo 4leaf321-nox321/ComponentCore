@@ -1,5 +1,5 @@
 <!-- version: 2026-09-18.1 -->
-# AutoJigGenerator MCP 가이드
+# CompCore MCP 가이드
 
 ## overview
 

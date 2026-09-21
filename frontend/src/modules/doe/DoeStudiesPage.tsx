@@ -11,17 +11,18 @@ import { Pagination } from '@/shared/components/Pagination'
 import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/components/ui/table'
+import { useDisplay } from '@/shared/api/display'
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
-const PAGE = 20
 
 const KIND_LABEL: Record<string, string> = { part: '부품', jig: '지그', assembly: '조립' }
 
 export default function DoeStudiesPage() {
   const navigate = useNavigate()
   const [offset, setOffset] = useState(0)
-  const page = useResource(() => doeApi.list({ offset, limit: PAGE }), [offset])
+  const PAGE = useDisplay().list_page_size
+  const page = useResource(() => doeApi.list({ offset, limit: PAGE }), [offset, PAGE])
   const rows = page.data?.items ?? []
 
   return (

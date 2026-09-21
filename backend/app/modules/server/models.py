@@ -21,7 +21,8 @@ class ServerSetting(Base):
     __tablename__ = "server_settings"
 
     key: Mapped[str] = mapped_column(String(60), primary_key=True)
-    value: Mapped[Any] = mapped_column(JSONB)
+    # NULL 은 「기본값으로 돌림」 이다 — 줄을 지우지 않고 비워 두면 .env 의 값을 다시 쓴다.
+    value: Mapped[Any] = mapped_column(JSONB, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

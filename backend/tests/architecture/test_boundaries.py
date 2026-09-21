@@ -91,7 +91,7 @@ def test_모듈_이름은_프론트와_같다() -> None:
 
 def test_오류_코드를_손으로_잇지_않는다() -> None:
     """`errors.code()` 를 거쳐야 접두사를 바꿔도 전부 따라온다."""
-    pattern = re.compile(r'["\']AJG-[A-Z]+-\d{4}["\']')
+    pattern = re.compile(r'["\']CCR-[A-Z]+-\d{4}["\']')
     for path in APP.rglob("*.py"):
         if path.name == "errors.py":
             continue

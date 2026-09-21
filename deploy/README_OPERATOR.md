@@ -1,4 +1,4 @@
-# AutoJigGenerator 운영 배포 가이드
+# CompCore 운영 배포 가이드
 
 **이 문서는 릴리스 번들 안에 함께 담긴다.** 서버가 tar 하나만 받는 환경이어도
 설치하는 자리에서 이것을 볼 수 있어야 한다.
@@ -47,9 +47,9 @@ ls
 
 ```bash
 # 처음 한 번 — 이름 · 포트 · 확장을 준다. /etc/platform-instances/<slug>.conf 에 남는다
-APP_SLUG=autojig APP_NAME="AutoJigGenerator" APP_PORT=8060 \
-  DOE_HOST_DIR=/mnt/share/AutoJigGenerator sudo ./deploy.sh prepare
-APP_SLUG=autojig sudo ./deploy.sh install
+APP_SLUG=compcore APP_NAME="CompCore" APP_PORT=8060 \
+  DOE_HOST_DIR=/mnt/share/CompCore sudo ./deploy.sh prepare
+APP_SLUG=compcore sudo ./deploy.sh install
 # 그다음부터 — 이 서버에 인스턴스가 하나면 APP_SLUG 를 안 줘도 그것이다
 sudo ./deploy.sh update
 ```
@@ -287,7 +287,7 @@ Code · Claude Desktop · Gemini CLI 에서 **부품을 그리고 지그를 만�
 
 ```bash
 # 처음 정할 때(또는 바꿀 때) — 폴더는 미리 마운트돼 있어야 한다
-DOE_HOST_DIR=/mnt/share/AutoJigGenerator sudo ./deploy.sh update
+DOE_HOST_DIR=/mnt/share/CompCore sudo ./deploy.sh update
 sudo ./deploy.sh status          # 「실험계획 공유 폴더」 에 쓰기 되는지 나온다
 ```
 
@@ -301,6 +301,9 @@ sudo ./deploy.sh status          # 「실험계획 공유 폴더」 에 쓰기 �
 - **백업 대상이 아니다.** 주인이 따로 있고, 안의 STEP 은 도면과 설계점에서 다시 만들 수 있다.
 - 한 번에 만드는 설계점 · LHS 표본 수의 상한은 **화면(관리 › 서버 › 설정)** 에서 바꾼다.
   `.env` 의 `DOE_MAX_POINTS` · `DOE_MAX_SAMPLES` 는 그 기본값일 뿐이다.
+- 같은 자리에서 **화면이 한 번에 보여 주는 수**도 바꾼다: 형상 보기(겹쳐 · 나란히)에 올리는
+  형상 수(`DOE_GALLERY_MAX`, 기본 24)와 목록 한 쪽의 줄 수(`LIST_PAGE_SIZE`, 기본 20).
+  형상 쪽은 브라우저가 그리는 양이라 크게 잡으면 사용자 쪽이 느려진다.
 
 ---
 

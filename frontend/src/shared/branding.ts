@@ -8,9 +8,9 @@ function meta(name: string): string | null {
   return document.querySelector(`meta[name="${name}"]`)?.getAttribute('content') ?? null
 }
 
-export const DEFAULT_APP_NAME = 'AutoJigGenerator'
-export const DEFAULT_APP_SLUG = 'autojig'
-export const DEFAULT_APP_TAGLINE = '제품 STEP 에서 지그를 자동으로'
+export const DEFAULT_APP_NAME = 'CompCore'
+export const DEFAULT_APP_SLUG = 'compcore'
+export const DEFAULT_APP_TAGLINE = '부품 하나에서 지그 · 실험계획 · 해석 조건까지'
 
 export const APP_NAME = meta('app-name') || DEFAULT_APP_NAME
 export const APP_SLUG = meta('app-slug') || DEFAULT_APP_SLUG
@@ -20,4 +20,4 @@ export const APP_TAGLINE = meta('app-tagline') ?? DEFAULT_APP_TAGLINE
 export const STORAGE_PREFIX = APP_SLUG
 
 /** 클라이언트가 만드는 오류의 코드 앞머리. 서버의 ERROR_PREFIX 와 같아야 한다. */
-export const ERROR_PREFIX = 'AJG'
+export const ERROR_PREFIX = 'CCR'

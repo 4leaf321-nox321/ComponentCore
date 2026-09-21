@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "AutoJigGenerator API",
+    "title": "CompCore API",
     "version": "baseline"
   },
   "paths": {
@@ -193,6 +193,28 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/mcp-info": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Mcp Info",
+        "description": "AI 도구 등록 명령에 넣을 MCP 주소 — 설정에 있으면 그것, 없으면 포트만(화면이 호스트를\n안다).",
+        "operationId": "mcp_info_api_auth_mcp_info_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpInfoOut"
                 }
               }
             }
@@ -692,6 +714,7 @@
           "works"
         ],
         "summary": "List Works",
+        "description": "내 작업 — `q` 로 이름 · 설명을 찾고, `tag` · `kind` 로 거르고, `trashed` 면 휴지통.",
         "operationId": "list_works_api_works_get",
         "parameters": [
           {
@@ -720,6 +743,49 @@
               "minimum": 0,
               "default": 0,
               "title": "Offset"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 120,
+              "default": "",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 40,
+              "default": "",
+              "title": "Tag"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 10,
+              "default": "",
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "trashed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Trashed"
             }
           }
         ],
@@ -804,6 +870,137 @@
           },
           "required": true
         },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/works/tags": {
+      "get": {
+        "tags": [
+          "works"
+        ],
+        "summary": "My Tags",
+        "description": "내 작업에 붙은 꼬리표 — 많이 쓴 것부터.",
+        "operationId": "my_tags_api_works_tags_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "title": "Response My Tags Api Works Tags Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/works/{work_id}/restore": {
+      "post": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Restore Work",
+        "description": "휴지통에서 되살린다.",
+        "operationId": "restore_work_api_works__work_id__restore_post",
+        "parameters": [
+          {
+            "name": "work_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Work Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/works/{work_id}/duplicate": {
+      "post": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Duplicate Work",
+        "description": "현재 도면으로 새 작업 — 종류 · 꼬리표 · 잡는 부품을 따라간다.",
+        "operationId": "duplicate_work_api_works__work_id__duplicate_post",
+        "parameters": [
+          {
+            "name": "work_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Work Id"
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Name"
+            }
+          }
+        ],
         "responses": {
           "201": {
             "description": "Successful Response",
@@ -1258,14 +1455,16 @@
             }
           }
         }
-      },
+      }
+    },
+    "/api/works/{work_id}/patch": {
       "post": {
         "tags": [
           "works"
         ],
-        "summary": "Create Jig Run",
-        "description": "현재 형상을 제품으로 지그 생성을 **건다.** 화면은 `GET /api/jobs/{id}` 를 폴링한다.",
-        "operationId": "create_jig_run_api_works__work_id__jig_runs_post",
+        "summary": "Patch Work",
+        "description": "현재 도면을 연산 몇 개로 고쳐 **새 버전**으로 — 레시피 전체를 되보내지 않는다.",
+        "operationId": "patch_work_api_works__work_id__patch_post",
         "parameters": [
           {
             "name": "work_id",
@@ -1283,7 +1482,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/JigRunRequest"
+                "$ref": "#/components/schemas/WorkPatchRequest"
               }
             }
           }
@@ -1294,7 +1493,189 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JobOut"
+                  "$ref": "#/components/schemas/VersionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/works/assemble": {
+      "post": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Assemble",
+        "description": "부품 + 지그를 **맞는 자리에** 놓은 조립 작업. 부품 높이는 변수(`부품_높이`)라 DOE 로\n훑는다. 생성기로 만든 지그는 그 좌표계로 정확히, 손으로 그린 지그는 윗면에 얹어 어림\n(`placement.mode`).",
+        "operationId": "assemble_api_works_assemble_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssembleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssembleOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/works/jig-from-part/preview": {
+      "post": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Jig Preview",
+        "description": "만들기 전 미리보기 — 계획(받침 · 로케이터 · 클램프 자리) · 간섭 · 제품 + 지그 메시.\n메시의 면마다 `part`(제품 · 바닥판 · 받침 n · 위치 핀 n · 클램프 n)가 붙어 있다.",
+        "operationId": "jig_preview_api_works_jig_from_part_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JigFromPartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Jig Preview Api Works Jig From Part Preview Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/works/jig-from-part": {
+      "post": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Jig From Part",
+        "description": "부품에서 **지그 작업을 생성**한다. 지그 작업이 바로 생기고 생성이 걸린다 — 화면은\n`GET /api/jobs/{id}` 를 폴링하다 끝나면 `adopt` 로 결과를 첫 버전으로 가져온다.",
+        "operationId": "jig_from_part_api_works_jig_from_part_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JigFromPartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JigFromPartOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/works/{work_id}/jig-runs/{job_id}/adopt": {
+      "post": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Adopt Jig Run",
+        "description": "끝난 생성 결과를 이 지그 작업의 버전으로 — 그 다음부터는 그냥 그린다(변수 · DOE).",
+        "operationId": "adopt_jig_run_api_works__work_id__jig_runs__job_id__adopt_post",
+        "parameters": [
+          {
+            "name": "work_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Work Id"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionOut"
                 }
               }
             }
@@ -1366,76 +1747,6 @@
         }
       }
     },
-    "/api/works/{work_id}/jig-runs/{job_id}/to-work": {
-      "post": {
-        "tags": [
-          "works"
-        ],
-        "summary": "Jig Work From Run",
-        "description": "생성기가 만든 지그를 **지그 작업으로** — 그 다음부터는 그냥 그린다(변수 · 실험계획).",
-        "operationId": "jig_work_from_run_api_works__work_id__jig_runs__job_id__to_work_post",
-        "parameters": [
-          {
-            "name": "work_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Work Id"
-            }
-          },
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Job Id"
-            }
-          },
-          {
-            "name": "name",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Name"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WorkOut"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/works/{work_id}/promote/jig-recipe": {
       "post": {
         "tags": [
@@ -1462,60 +1773,6 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/PromoteJigRecipeRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PromoteJigOut"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/works/{work_id}/promote/jig": {
-      "post": {
-        "tags": [
-          "works"
-        ],
-        "summary": "Promote Jig",
-        "description": "지그 생성 작업 하나를 지그 카탈로그에 올린다. 제품이 부품에 없으면 함께 올린다.",
-        "operationId": "promote_jig_api_works__work_id__promote_jig_post",
-        "parameters": [
-          {
-            "name": "work_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Work Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PromoteJigRequest"
               }
             }
           }
@@ -1578,6 +1835,17 @@
               "minimum": 0,
               "default": 0,
               "title": "Offset"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 120,
+              "default": "",
+              "title": "Q"
             }
           }
         ],
@@ -1885,6 +2153,17 @@
               "minimum": 0,
               "default": 0,
               "title": "Offset"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 120,
+              "default": "",
+              "title": "Q"
             }
           }
         ],
@@ -2575,6 +2854,270 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Recipe Sweep Api Cad Recipe Sweep Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cad/recipe/views": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Recipe Views",
+        "description": "은선 투영 그림 — iso · front · top · right 의 SVG 와 PNG(base64). AI 가 자기가 그린 것을\n눈으로 확인하는 길.",
+        "operationId": "recipe_views_api_cad_recipe_views_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ViewsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Recipe Views Api Cad Recipe Views Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cad/recipe/find": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Recipe Find",
+        "description": "말로 고른 엣지 · 면의 좌표 — 「윗면의 바깥 엣지」 「지름 8 구멍의 위 원」. 답의\nmidpoint · center 를 fillet · chamfer 의 near, 스케치의 plane 에 그대로 쓴다.",
+        "operationId": "recipe_find_api_cad_recipe_find_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Recipe Find Api Cad Recipe Find Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cad/recipe/measure": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Recipe Measure",
+        "description": "둘 사이를 잰다 — 점 · 구멍 중심 · 면 · 엣지. 거리(축별 차) · 평면끼리 각도 · 간격.",
+        "operationId": "recipe_measure_api_cad_recipe_measure_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeasureRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Recipe Measure Api Cad Recipe Measure Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cad/recipe/patch": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Recipe Patch",
+        "description": "연산 몇 개로 고친 레시피 + 검사 결과. 저장은 안 한다 — works 의 patch 가 저장한다.",
+        "operationId": "recipe_patch_api_cad_recipe_patch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Recipe Patch Api Cad Recipe Patch Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cad/recipe/place": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Recipe Place",
+        "description": "구성품을 다른 것의 면에 얹는다 — 「지그 윗면에 부품 바닥을」. translate 를 계산해 넣은\n레시피를 돌려준다.",
+        "operationId": "recipe_place_api_cad_recipe_place_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Recipe Place Api Cad Recipe Place Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cad/recipe/interference": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Recipe Interference",
+        "description": "조립의 구성품끼리 겹치는가 — 모든 쌍의 겹침 부피. 허용치(mm³) 이하는 닿은 것으로\n본다.",
+        "operationId": "recipe_interference_api_cad_recipe_interference_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InterferenceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Recipe Interference Api Cad Recipe Interference Post"
                 }
               }
             }
@@ -3378,6 +3921,105 @@
         }
       }
     },
+    "/api/doe/{study_id}/export": {
+      "post": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Export Study",
+        "description": "서버 보관 폴더의 STEP · 표를 **공유 폴더로 보낸다.** 해석은 그때부터 읽는다.",
+        "operationId": "export_study_api_doe__study_id__export_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/doe/{study_id}/points/{number}/mesh": {
+      "get": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Point Mesh",
+        "description": "설계점 하나의 형상(메시) — 화면이 점마다 3D 로 본다. 스냅샷 레시피에 그 점의 값을 넣어\n다시 만든다.",
+        "operationId": "point_mesh_api_doe__study_id__points__number__mesh_get",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Point Mesh Api Doe  Study Id  Points  Number  Mesh Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/doe/{study_id}/manifest.csv": {
       "get": {
         "tags": [
@@ -3426,7 +4068,7 @@
           "doe"
         ],
         "summary": "Filter Points",
-        "description": "설계 조건(부등식)을 만족하는 점만. 값이 없는 점은 **만족하지 않은 것**으로 센다.",
+        "description": "설계 조건(부등식)을 만족하는 점만. 값이 없는 점은 **만족하지 않은 것**으로 센다.\n\n값(`metrics`)은 해석 결과를 붙이는 자리다 — 아직 붙이는 길이 없어 지금은 모두 비어 있다.",
         "operationId": "filter_points_api_doe__study_id__filter_post",
         "parameters": [
           {
@@ -3558,6 +4200,110 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ServerStatusOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/server/display": {
+      "get": {
+        "tags": [
+          "server"
+        ],
+        "summary": "Display Settings",
+        "description": "화면이 쓰는 수 — 목록 한 쪽 줄 수, 실험계획 형상 보기의 한 번에 그리는 수.",
+        "operationId": "display_settings_api_server_display_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisplayOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/server/settings": {
+      "get": {
+        "tags": [
+          "server"
+        ],
+        "summary": "List Settings",
+        "description": "관리자가 화면에서 바꾸는 값들 — 지금 값 · .env 기본값 · 허용 범위.",
+        "operationId": "list_settings_api_server_settings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SettingOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Settings Api Server Settings Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/server/settings/{key}": {
+      "put": {
+        "tags": [
+          "server"
+        ],
+        "summary": "Update Setting",
+        "operationId": "update_setting_api_server_settings__key__put",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SettingOut"
+                  },
+                  "title": "Response Update Setting Api Server Settings  Key  Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -3704,6 +4450,58 @@
           "created_at"
         ],
         "title": "ArtifactOut"
+      },
+      "AssembleOut": {
+        "properties": {
+          "work": {
+            "$ref": "#/components/schemas/WorkOut"
+          },
+          "placement": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Placement"
+          }
+        },
+        "type": "object",
+        "required": [
+          "work",
+          "placement"
+        ],
+        "title": "AssembleOut"
+      },
+      "AssembleRequest": {
+        "properties": {
+          "part_source": {
+            "type": "string",
+            "minLength": 6,
+            "title": "Part Source"
+          },
+          "jig_work_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Jig Work Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "part_source",
+          "jig_work_id"
+        ],
+        "title": "AssembleRequest",
+        "description": "부품 + 지그를 맞는 자리에 놓은 조립 작업."
       },
       "BeamRequest": {
         "properties": {
@@ -3908,6 +4706,25 @@
         ],
         "title": "DiskOut"
       },
+      "DisplayOut": {
+        "properties": {
+          "doe_gallery_max": {
+            "type": "integer",
+            "title": "Doe Gallery Max"
+          },
+          "list_page_size": {
+            "type": "integer",
+            "title": "List Page Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "doe_gallery_max",
+          "list_page_size"
+        ],
+        "title": "DisplayOut",
+        "description": "화면이 읽는 설정 — 관리자가 아닌 사람도 본다(목록 줄 수 · 형상 보기 수)."
+      },
       "FactorIn": {
         "properties": {
           "name": {
@@ -3965,6 +4782,18 @@
             },
             "type": "array",
             "title": "Values"
+          },
+          "resolution": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution"
           }
         },
         "type": "object",
@@ -3973,6 +4802,25 @@
         ],
         "title": "FactorIn",
         "description": "인자 하나 — 고정이거나, 구간이거나, 값 목록."
+      },
+      "FindRequest": {
+        "properties": {
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "query": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Query"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipe"
+        ],
+        "title": "FindRequest"
       },
       "GeometryRequest": {
         "properties": {
@@ -4011,6 +4859,84 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "InterferenceRequest": {
+        "properties": {
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "tolerance": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tolerance"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipe"
+        ],
+        "title": "InterferenceRequest"
+      },
+      "JigFromPartOut": {
+        "properties": {
+          "work": {
+            "$ref": "#/components/schemas/WorkOut"
+          },
+          "job": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Job"
+          }
+        },
+        "type": "object",
+        "required": [
+          "work",
+          "job"
+        ],
+        "title": "JigFromPartOut",
+        "description": "만들어진 지그 작업과, 돌고 있는 생성 작업. 끝나면 `adopt` 로 결과가 첫 버전이 된다."
+      },
+      "JigFromPartRequest": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "minLength": 6,
+            "title": "Source"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "options": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Options"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "title": "JigFromPartRequest",
+        "description": "부품에서 **지그 작업을 생성**한다 — 규칙(3-2-1)으로 판 · 받침 · 핀 · 클램프를 놓는다."
       },
       "JigOut": {
         "properties": {
@@ -4117,17 +5043,6 @@
           "updated_at"
         ],
         "title": "JigOut"
-      },
-      "JigRunRequest": {
-        "properties": {
-          "options": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Options"
-          }
-        },
-        "type": "object",
-        "title": "JigRunRequest"
       },
       "JigSummaryOut": {
         "properties": {
@@ -4548,6 +5463,56 @@
           "user"
         ],
         "title": "LoginResponse"
+      },
+      "McpInfoOut": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "port": {
+            "type": "integer",
+            "title": "Port"
+          },
+          "server_name": {
+            "type": "string",
+            "title": "Server Name",
+            "default": "compcore"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url",
+          "port"
+        ],
+        "title": "McpInfoOut",
+        "description": "화면이 등록 명령을 만들 때 쓰는 것 — 주소가 정해져 있으면 그것, 아니면 포트."
+      },
+      "MeasureRequest": {
+        "properties": {
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "a": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "A"
+          },
+          "b": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "B"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipe",
+          "a",
+          "b"
+        ],
+        "title": "MeasureRequest"
       },
       "Page_JigSummaryOut_": {
         "properties": {
@@ -5117,6 +6082,69 @@
         ],
         "title": "PatOut"
       },
+      "PatchRequest": {
+        "properties": {
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "ops": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Ops"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipe",
+          "ops"
+        ],
+        "title": "PatchRequest"
+      },
+      "PlaceRequest": {
+        "properties": {
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "mover": {
+            "type": "string",
+            "title": "Mover"
+          },
+          "onto": {
+            "type": "string",
+            "title": "Onto"
+          },
+          "face": {
+            "type": "string",
+            "title": "Face",
+            "default": "top"
+          },
+          "offset": {
+            "type": "number",
+            "title": "Offset",
+            "default": 0.0
+          },
+          "align": {
+            "type": "string",
+            "title": "Align",
+            "default": "center"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipe",
+          "mover",
+          "onto"
+        ],
+        "title": "PlaceRequest"
+      },
       "PointOut": {
         "properties": {
           "id": {
@@ -5153,6 +6181,18 @@
             ],
             "title": "Metrics"
           },
+          "interference": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interference"
+          },
           "step_file": {
             "type": "string",
             "title": "Step File"
@@ -5186,7 +6226,6 @@
           },
           "samples": {
             "type": "integer",
-            "maximum": 500.0,
             "minimum": 1.0,
             "title": "Samples",
             "default": 20
@@ -5315,45 +6354,6 @@
         "type": "object",
         "title": "PromoteJigRecipeRequest",
         "description": "**손으로 그린 지그**(레시피 버전)를 지그로. 자동 생성기가 만들 수 없는 지그 — 공진을\n맞추는 시험 지그처럼 우리가 형상을 정하는 것들이다."
-      },
-      "PromoteJigRequest": {
-        "properties": {
-          "job_id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Job Id"
-          },
-          "name": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 120,
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name"
-          },
-          "note": {
-            "type": "string",
-            "maxLength": 2000,
-            "title": "Note",
-            "default": ""
-          },
-          "promote_product": {
-            "type": "boolean",
-            "title": "Promote Product",
-            "default": true
-          }
-        },
-        "type": "object",
-        "required": [
-          "job_id"
-        ],
-        "title": "PromoteJigRequest",
-        "description": "지그 생성 작업 하나를 지그로. 제품(그때의 형상 버전)이 부품에 없으면 함께 승격한다."
       },
       "PromotePartRequest": {
         "properties": {
@@ -5554,6 +6554,88 @@
         ],
         "title": "ServerStatusOut"
       },
+      "SettingOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "value": {
+            "type": "integer",
+            "title": "Value"
+          },
+          "default": {
+            "type": "integer",
+            "title": "Default"
+          },
+          "overridden": {
+            "type": "boolean",
+            "title": "Overridden"
+          },
+          "minimum": {
+            "type": "integer",
+            "title": "Minimum"
+          },
+          "maximum": {
+            "type": "integer",
+            "title": "Maximum"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "description",
+          "value",
+          "default",
+          "overridden",
+          "minimum",
+          "maximum",
+          "updated_at"
+        ],
+        "title": "SettingOut"
+      },
+      "SettingUpdateRequest": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value"
+        ],
+        "title": "SettingUpdateRequest",
+        "description": "`value` 가 None 이면 덮어쓴 것을 지워 .env 기본값으로."
+      },
       "StageOut": {
         "properties": {
           "name": {
@@ -5593,7 +6675,6 @@
           },
           "samples": {
             "type": "integer",
-            "maximum": 500.0,
             "minimum": 1.0,
             "title": "Samples",
             "default": 20
@@ -5619,11 +6700,6 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Recipe"
-          },
-          "material": {
-            "type": "string",
-            "title": "Material",
-            "default": "aluminum"
           },
           "work_id": {
             "anyOf": [
@@ -5707,10 +6783,6 @@
             "type": "integer",
             "title": "Seed"
           },
-          "material": {
-            "type": "string",
-            "title": "Material"
-          },
           "point_count": {
             "type": "integer",
             "title": "Point Count"
@@ -5736,6 +6808,18 @@
           "export_dir_windows": {
             "type": "string",
             "title": "Export Dir Windows"
+          },
+          "exported_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exported At"
           },
           "job": {
             "anyOf": [
@@ -5778,12 +6862,12 @@
           "method",
           "samples",
           "seed",
-          "material",
           "point_count",
           "created_at",
           "recipe",
           "factors",
-          "export_dir_windows"
+          "export_dir_windows",
+          "exported_at"
         ],
         "title": "StudyOut"
       },
@@ -5848,10 +6932,6 @@
             "type": "integer",
             "title": "Seed"
           },
-          "material": {
-            "type": "string",
-            "title": "Material"
-          },
           "point_count": {
             "type": "integer",
             "title": "Point Count"
@@ -5873,7 +6953,6 @@
           "method",
           "samples",
           "seed",
-          "material",
           "point_count",
           "created_at"
         ],
@@ -6409,6 +7488,34 @@
         ],
         "title": "VersionOut"
       },
+      "ViewsRequest": {
+        "properties": {
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "views": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Views"
+          },
+          "width": {
+            "type": "integer",
+            "maximum": 2000.0,
+            "minimum": 120.0,
+            "title": "Width",
+            "default": 640
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipe"
+        ],
+        "title": "ViewsRequest"
+      },
       "WorkCreateRequest": {
         "properties": {
           "name": {
@@ -6583,6 +7690,14 @@
             ],
             "title": "Promoted Jig Id"
           },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags",
+            "default": []
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -6592,6 +7707,18 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
           }
         },
         "type": "object",
@@ -6616,6 +7743,31 @@
           "updated_at"
         ],
         "title": "WorkOut"
+      },
+      "WorkPatchRequest": {
+        "properties": {
+          "ops": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Ops"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "ops"
+        ],
+        "title": "WorkPatchRequest",
+        "description": "현재 도면에 연산 몇 개를 적용해 새 버전으로."
       },
       "WorkSummaryOut": {
         "properties": {
@@ -6699,10 +7851,30 @@
             ],
             "title": "Promoted Jig Id"
           },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags",
+            "default": []
+          },
           "updated_at": {
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
           }
         },
         "type": "object",
@@ -6784,6 +7956,20 @@
               }
             ],
             "title": "Jig For Part Id"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
           }
         },
         "type": "object",

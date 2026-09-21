@@ -81,7 +81,7 @@ def test_만들지_못하는_레시피는_노드를_말한다(client: TestClient
     }
     got = client.post("/api/cad/recipe/info", json={"recipe": recipe}, headers=member.headers)
     assert got.status_code == 400
-    assert got.json()["error"]["code"] == "AJG-CAD-0003"
+    assert got.json()["error"]["code"] == "CCR-CAD-0003"
     assert got.json()["error"]["details"]["node_id"] == "f"
 
 

@@ -17,15 +17,16 @@ import {
   TableHeader,
   TableRow,
 } from '@/shared/components/ui/table'
+import { useDisplay } from '@/shared/api/display'
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
-const PAGE = 20
 
 export default function PartsPage() {
   const [offset, setOffset] = useState(0)
   const [q, setQ] = useState('')
-  const page = useResource(() => partsApi.list(offset, PAGE, q), [offset, q])
+  const PAGE = useDisplay().list_page_size
+  const page = useResource(() => partsApi.list(offset, PAGE, q), [offset, q, PAGE])
   const rows = page.data?.items ?? []
 
   return (
