@@ -84,6 +84,21 @@ Claude 에게 "80×50×10 판에 모서리 M6 넷, 이름은 베이스" 라고 �
 놓고, 조립은 `place_on` · `assemble_jig_on_part` 로 자리를 잡는다. 자세한 것은
 [mcp_server/README.md](mcp_server/README.md).
 
+### 5. 서버에 배포
+
+```bash
+./deploy/build_bundle.sh v0.1.0      # 프론트 빌드 → Apptainer SIF → tar.gz 하나 (몇 분)
+scp release/autojig-v0.1.0.tar.gz <계정>@<서버>:~/
+# 서버에서
+tar xzf autojig-v0.1.0.tar.gz && cd autojig-v0.1.0
+sudo ./deploy.sh setup               # 물어보며 prepare → install (또는 prepare/install 따로)
+```
+
+한 프로세스가 API 와 화면을 같이 서빙하고, 워커(`autojig-worker`)와 MCP 서버(`autojig-mcp`)가
+따로 뜬다. **실험계획의 공유 폴더**는 `DOE_HOST_DIR` 로 정한다 — 해석(ANSYS)이 읽는 자리라
+안 정하면 DOE 를 만들 때 거절된다. 자세한 것은 [deploy/README_OPERATOR.md](deploy/README_OPERATOR.md)
+(쉬운 순서는 [deploy/쉬운-설치.md](deploy/쉬운-설치.md)).
+
 ### 서버 없이 코어만
 
 ```bash

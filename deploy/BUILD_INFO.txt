@@ -1,0 +1,4 @@
+version=v0.1.0-test
+app_name=AutoJigGenerator
+app_slug=autojig
+python=3.12

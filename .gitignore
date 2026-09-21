@@ -35,3 +35,8 @@ Thumbs.db
 *.step.tmp
 *.stl.tmp
 mcp_server/venv/
+
+# 배포 번들 — GitHub 릴리스(또는 scp)로 나가는 것이라 저장소에 안 담는다.
+/release/
+deploy/app.sif
+deploy/apptainer_debs/
