@@ -16,8 +16,8 @@
 #   sudo ./deploy.sh lb        메인 서버용 nginx 조각 · keepalived(DB VIP)를 env 에서 다시 만들고 반영
 #
 # **번들 하나로 여러 플랫폼(인스턴스)을 설치한다.** 어느 플랫폼인지는 `APP_SLUG` 가 정한다 —
-# 처음 한 번 env 로 주면(`APP_SLUG=plmhub APP_NAME="PLM 기준정보" APP_PORT=8040 EXTENSIONS=hub`)
-# /etc/platform-instances/<slug>.conf 에 남아 다음부터는 `APP_SLUG=plmhub ./deploy.sh update` 로
+# 처음 한 번 env 로 주면(`APP_SLUG=compcore APP_NAME="CompCore" APP_PORT=8060`)
+# /etc/platform-instances/<slug>.conf 에 남아 다음부터는 `APP_SLUG=compcore ./deploy.sh update` 로
 # 충분하고, 이 서버에 인스턴스가 하나뿐이면 그것마저 생략된다. 안 주면 번들의 기본값
 # (BUILD_INFO — 틀의 이름)으로 뜬다. slug 하나에서 DB · 유닛 · 경로 · 주소가 전부 나온다.
 #
@@ -44,7 +44,7 @@ VERSION="$(bundle version)"
 
 # ───────────────────────── 사전 확인 ─────────────────────────
 # 'render' 는 아무것도 바꾸지 않는다 — root 없이 유닛 · nginx · keepalived 설정을 보여 준다.
-RENDER_ONLY=0; [[ "${1:-}" =~ ^(render|-h|--help|help)$ ]] && RENDER_ONLY=1
+RENDER_ONLY=0; [[ "${1:-}" =~ ^(render|units|-h|--help|help)$ ]] && RENDER_ONLY=1
 [[ "${1:-}" == "setup" && "${2:-}" == "--plan" ]] && RENDER_ONLY=1
 [[ $EUID -eq 0 || $RENDER_ONLY -eq 1 ]] || err "root 로 실행하세요 (sudo)"
 
@@ -566,6 +566,35 @@ health_check() {
 }
 
 # ───────────────────────── 명령 ─────────────────────────
+units_of() {
+    # **한 플랫폼은 유닛 하나가 아니다** — 앱 · 작업 워커 · MCP 가 같이 산다. `.env` 를
+    # 고치고 앱만 재시작하면 워커와 MCP 는 옛 설정으로 남고, 그 사실은 형상이 엉뚱한
+    # 자리에 떨어지거나 AI 쪽만 안 되는 것으로 한참 뒤에 드러난다.
+    #
+    # `$ETC` 는 `render` 가 root 없이 결과를 보여 줄 때 쓰는 접두어다 — 운영에서는 비어
+    # 있어 실제 경로다.
+    local list=("$SERVICE_NAME")
+    [[ -f "$ETC$WORKER_SERVICE_UNIT" ]] && list+=("$WORKER_SERVICE_NAME")
+    [[ -f "$ETC$MCP_SERVICE_UNIT" ]] && list+=("$MCP_SERVICE_NAME")
+    printf '%s\n' "${list[@]}"
+}
+
+cmd_units() {
+    # **무엇을 껐다 켜는지 먼저 보여 준다.** root 없이도 볼 수 있어야 한다 — 「이 서버에
+    # 뭐가 깔려 있지」 는 고치기 전에 묻는 물음이다.
+    units_of
+}
+
+cmd_service() {  # $1 = start|stop|restart
+    local action="$1" unit
+    mapfile -t unit < <(units_of)
+    info "$action: ${unit[*]}"
+    systemctl "$action" "${unit[@]}"
+    [[ "$action" == "stop" ]] && return 0
+    health_check || warn "앱이 아직 응답하지 않습니다 — journalctl -u $SERVICE_NAME -n 50"
+    return 0
+}
+
 cmd_prepare() {
     info "OS 패키지 설치 (postgresql-$PG_VERSION, python3-venv$( [[ -n "$HA_ROLE" ]] && echo ', keepalived' )$( [[ "$LB_MODE" == "local" ]] && echo ', nginx' ))"
     # python3-venv: MCP 서버가 별도 venv 로 돈다. 없으면 install 때 MCP 만 조용히
@@ -802,7 +831,7 @@ cmd_setup() {
     local role
     ask role "이 서버는 주(A) 입니까, 대기(B) 입니까? (A/B, 서버 한 대뿐이면 1)" "A"
     case "${role^^}" in A) HA_ROLE=master ;; B) HA_ROLE=backup ;; 1) HA_ROLE="" ;; *) err "A, B, 1 중 하나로 답하세요." ;; esac
-    ask APP_SLUG "플랫폼 이름 — 기계용, 소문자·숫자만 (예: plmhub). 설치 뒤엔 못 바꿉니다" "${APP_SLUG:-}"
+    ask APP_SLUG "플랫폼 이름 — 기계용, 소문자·숫자만 (예: compcore). 설치 뒤엔 못 바꿉니다" "${APP_SLUG:-}"
     [[ "$APP_SLUG" =~ ^[a-z][a-z0-9]{0,31}$ ]] || err "소문자·숫자 한 덩어리 32자 이내여야 합니다: $APP_SLUG"
     if [[ "$HA_ROLE" == backup ]]; then
         # 이름 · 포트 · 확장은 A 의 .env 에 이미 있다 — 다시 묻지 않고 받아온 것을 쓴다.
@@ -974,9 +1003,13 @@ SQL
 cmd_render() {
     local show=0
     if [[ -z "${ETC:-}" ]]; then ETC="$(mktemp -d)"; show=1; fi
-    # **INSTANCES_DIR 을 다시 잡는다.** 스크립트 맨 위에서 빈 ETC 로 /etc/platform-instances 를
-    # 가리킨 채였다 — 그대로 두면 root 없이 render 하는 순간 /etc 에 쓰려다 거절된다(실측).
+    # **ETC 에서 나온 경로를 다시 잡는다.** 스크립트 맨 위(와 ha.sh)에서 빈 ETC 로
+    # /etc/… 를 가리킨 채였다 — 그대로 두면 root 없이 render 하는 순간 /etc 에 쓰려다
+    # 거절된다(실측). INSTANCES_DIR 은 앞서 고쳤고, **HA_CONF 도 같은 병이다**:
+    # 이중화 설정을 주고 render 하면 `ha.sh: /etc/platform-ha.conf: Permission denied`
+    # 로 죽는데, 그 메시지는 render 가 아무것도 안 바꾼다는 약속을 어긴 것처럼 보인다.
     INSTANCES_DIR="$ETC/etc/platform-instances"
+    HA_CONF="$ETC/etc/platform-ha.conf"
     local tpl unit
     mkdir -p "$ETC/etc/systemd/system"
     # 설정 파일도 그 아래에 — 실제 배포가 남길 것과 같은 모양을 본다.
@@ -1013,12 +1046,15 @@ usage() {
     cat <<MSG
 $APP_NAME 배포 스크립트 ($VERSION)
 
-  sudo ./deploy.sh [setup|prepare|install|update|reset|status]
+  sudo ./deploy.sh [setup|prepare|install|update|restart|reset|status]
 
   setup     **처음이면 이것.** 물음에 답하면 prepare → (DB 주/대기) → install 을 알아서
   prepare   최초 1회: apt 패키지, apptainer(공식 PPA), postgres, DB 역할·DB
   install   SIF + .env + systemd, 마이그레이션, 시드, 기동
   update    SIF 교체 + 마이그레이션 + 재시작 (자료 그대로)
+  restart   앱 · 작업 워커 · MCP 를 함께 재시작 — **「.env」 를 고쳤으면 이것**
+  start|stop  같은 묶음을 켜고 끈다
+  units     그 묶음에 무엇이 들어 있는지만 본다 (root 없이)
   reset     DB·첨부 초기화 (파괴적)
   remove    이 인스턴스를 지운다 — 유닛 · DB · 설치 폴더 (공용 폴더는 남김, 파괴적)
   status    서비스 상태 + health (+ 이중화 · DB 주/대기)
@@ -1050,6 +1086,10 @@ case "${1:-}" in
     prepare)        cmd_prepare ;;
     install)        cmd_install ;;
     update)         cmd_update  ;;
+    restart)        cmd_service restart ;;
+    start)          cmd_service start   ;;
+    stop)           cmd_service stop    ;;
+    units)          cmd_units   ;;
     reset)          cmd_reset   ;;
     status)         cmd_status  ;;
     db-primary)     shift; ensure_dirs; cmd_db primary "$@" ;;
