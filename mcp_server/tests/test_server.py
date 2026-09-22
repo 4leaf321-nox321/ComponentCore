@@ -20,7 +20,8 @@ def test_가이드에_주제가_있다() -> None:
 
 
 def test_말로_받은_치수를_넣을_칸을_가이드가_알려준다() -> None:
-    """AI 는 이 가이드만 읽고 레시피를 쓴다 — 좌표로 환산하지 않아도 되는 칸이 적혀 있어야 한다."""
+    """AI 는 이 가이드만 읽고 레시피를 쓴다 —
+    좌표로 환산하지 않아도 되는 칸이 적혀 있어야 한다."""
     _, sections = server._guide_sections()
     recipe = sections["recipe"]
     for word in ("radius", "tangent", "measure overall|centers", "triangle", "sheet_metal"):
@@ -29,7 +30,8 @@ def test_말로_받은_치수를_넣을_칸을_가이드가_알려준다() -> No
 
 
 def test_사람이_손으로_하는_일이_도구로_다_있다() -> None:
-    """화면에서 되는 것은 AI 도 돼야 한다 — 그리기 · 치수 확인 · 저장 · 지그 · 승격 · 템플릿."""
+    """화면에서 되는 것은 AI 도 돼야 한다 —
+    그리기 · 치수 확인 · 저장 · 지그 · 승격 · 템플릿."""
     tools = {name for name in dir(server) if not name.startswith("_")}
     needed = {
         "recipe_schema",  # 무엇을 만들 수 있나

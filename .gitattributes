@@ -6,6 +6,14 @@
 *.env         text eol=lf
 .env.*        text eol=lf
 
+# 배포가 서버로 그대로 나가는 것들. 여기서 어긋나면 배포가 시작도 못 한다 —
+# systemd 는 CRLF 가 섞인 유닛 파일을 조용히 다르게 읽고, apptainer 는 .def 의
+# `%post` 한 줄이 `\r` 로 끝나면 빌드 중에 엉뚱한 자리를 가리킨다.
+*.def         text eol=lf
+*.template    text eol=lf
+*.service     text eol=lf
+*.timer       text eol=lf
+
 # CAD · 바이너리 — text=auto 의 추측에 맡기면 조용히 망가진다.
 *.step        binary
 *.stp         binary
@@ -17,3 +25,10 @@
 *.woff        binary
 *.woff2       binary
 *.pdf         binary
+
+# 번들 — 한 바이트가 바뀌면 이미지가 안 뜨고, 그 오류는 무엇을 고쳐야 하는지
+# 말해 주지 않는다.
+*.sif         binary
+*.tar.gz      binary
+*.tgz         binary
+*.dump        binary

@@ -29,11 +29,10 @@ Claude Code 등록(사용자별 토큰 — 화면의 「내 정보」 에서 발
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
 import re
 from typing import Any
-
-import base64
 
 import httpx
 from mcp.server.fastmcp import Context, FastMCP, Image
@@ -225,8 +224,8 @@ async def get_guide(ctx: Context, topic: str | None = None) -> dict[str, Any]:
 @mcp.tool()
 async def recipe_schema(ctx: Context) -> Any:
     """레시피의 **피처 종류와 칸**(JSON Schema), 내장 템플릿 넷(상자 · 원기둥 · 구멍판 · L
-    브래킷), 그리고 사람이 저장해 둔 템플릿 목록(`saved_templates` — 내 것과 공용). 새로 그릴 때는
-    템플릿에서 시작해 고치는 것이 빠르다.
+    브래킷), 그리고 사람이 저장해 둔 템플릿 목록(`saved_templates` — 내 것과 공용).
+    새로 그릴 때는 템플릿에서 시작해 고치는 것이 빠르다.
 
     저장 템플릿의 **레시피 본문은 여기 없다**(목록이 무거워진다) — `template_recipe(id)` 로
     받는다."""
@@ -333,9 +332,9 @@ async def recipe_find(ctx: Context, recipe: dict[str, Any], query: dict[str, Any
     - 윗면 테두리 엣지: `{"what":"edges","of_face_role":"top","kind":"line"}`
     - 지름 8 구멍의 위 원: `{"kind":"circle","radius":4,"near":[20,10,12]}`
     - 옆면들: `{"what":"faces","role":"side"}`
-    칸: what(edges|faces) · kind · role(top|bottom|side|step|underside) · of_face_role · axis(x|y|z)
-    · radius · min_length · max_length · near · limit. 답의 `midpoint`(엣지) · `center`(면)를
-    fillet/chamfer 의 `near`, 스케치의 `plane` 에 그대로 쓴다."""
+    칸: what(edges|faces) · kind · role(top|bottom|side|step|underside) · of_face_role ·
+    axis(x|y|z) · radius · min_length · max_length · near · limit. 답의 `midpoint`(엣지) ·
+    `center`(면)를 fillet/chamfer 의 `near`, 스케치의 `plane` 에 그대로 쓴다."""
     return await _post(ctx, "/api/cad/recipe/find", {"recipe": recipe, "query": query})
 
 
@@ -344,8 +343,9 @@ async def recipe_measure(
     ctx: Context, recipe: dict[str, Any], a: dict[str, Any], b: dict[str, Any]
 ) -> Any:
     """둘 사이를 **잰다** — 거리(축별 차) · 평면끼리 각도 · 평행이면 간격 · 점과 평면의 수직
-    거리. 선택자: `{"point":[x,y,z]}` · `{"hole_near":[…]}`(구멍 중심 · 지름) · `{"face_near":[…]}`
-    · `{"edge_near":[…]}`. 예: 두께 = 윗면과 바닥면의 gap, 구멍 간 거리 = 두 hole_near."""
+    거리. 선택자: `{"point":[x,y,z]}` · `{"hole_near":[…]}`(구멍 중심 · 지름) ·
+    `{"face_near":[…]}` · `{"edge_near":[…]}`. 예: 두께 = 윗면과 바닥면의 gap,
+    구멍 간 거리 = 두 hole_near."""
     return await _post(ctx, "/api/cad/recipe/measure", {"recipe": recipe, "a": a, "b": b})
 
 
@@ -355,8 +355,9 @@ async def patch_work(
 ) -> Any:
     """작업의 현재 도면을 **연산 몇 개로 고쳐 새 버전**으로 — 레시피 전체를 되보내지 않는다.
     연산: `set_param{name,value}` · `remove_param{name}` · `add_node{node,before?}` ·
-    `set_field{id,field,value}`(value null 이면 칸 지움) · `remove_node{id}`(가리키는 것이 있으면
-    거절) · `move_node{id,before?}` · `rename_node{id,new_id}`(가리키는 곳도 따라감).
+    `set_field{id,field,value}`(value null 이면 칸 지움) ·
+    `remove_node{id}`(가리키는 것이 있으면 거절) · `move_node{id,before?}` ·
+    `rename_node{id,new_id}`(가리키는 곳도 따라감).
     고친 도면이 틀리면 저장하지 않고 문제와 고친 레시피를 돌려준다. 끝나면 평가 요약."""
     version = await _post(
         ctx, f"/api/works/{work_id}/patch", {"ops": ops, "note": note or "AI 가 부분 수정"}
@@ -385,8 +386,9 @@ async def place_on(
 ) -> Any:
     """조립에서 구성품 `mover` 를 `onto` 의 면에 **얹는다** — 「지그 윗면에 부품 바닥을」.
     `face` 는 top|bottom|+x|-x|+y|-y, `offset` 은 띄우는 거리, `align` 은 나머지 두 축(center|
-    min|max). 경계 상자로 맞추므로 닿는 면이 평면일 때 정확하다. translate 를 계산해 새 버전으로
-    저장하고 값을 돌려준다. 부품 + 생성된 지그는 `assemble_jig_on_part` 가 더 정확하다."""
+    min|max). 경계 상자로 맞추므로 닿는 면이 평면일 때 정확하다. translate 를 계산해
+    새 버전으로 저장하고 값을 돌려준다. 부품 + 생성된 지그는 `assemble_jig_on_part` 가
+    더 정확하다."""
     got = await _get(ctx, f"/api/works/{work_id}")
     if not isinstance(got, dict) or "error" in got:
         return got
@@ -438,8 +440,9 @@ async def sweep_parameter(
 ) -> Any:
     """치수 하나를 값마다 바꿔 만들어 보고 **치수표를 나란히** 받는다(한 번에 40개까지).
 
-    「연결부는 그대로 두고 두께만 바꿔 가며 고른다」 가 이 한 번으로 된다 — 질량 · 관성 · 크기가
-    어떻게 달라지는지 보고 고른다. 연결부를 이루는 칸에는 그 치수를 **쓰지 않아야** 안 변한다."""
+    「연결부는 그대로 두고 두께만 바꿔 가며 고른다」 가 이 한 번으로 된다 — 질량 · 관성 ·
+    크기가 어떻게 달라지는지 보고 고른다. 연결부를 이루는 칸에는 그 치수를 **쓰지 않아야**
+    안 변한다."""
     return await _post(
         ctx,
         "/api/cad/recipe/sweep",
@@ -488,7 +491,8 @@ async def doe_preview(
     samples: int = 20,
     seed: int = 1,
 ) -> Any:
-    """**만들기 전에** 설계점이 몇 개인지 센다. 격자는 곱으로 늘어난다 — 인자 넷에 5단계면 625개.
+    """**만들기 전에** 설계점이 몇 개인지 센다. 격자는 곱으로 늘어난다 —
+    인자 넷에 5단계면 625개.
 
     인자 하나는 `{"name": "두께", "mode": "range", "start": 4, "end": 12, "steps": 5}` 또는
     `{"mode": "list", "values": [4, 8, 12]}` 또는 `{"mode": "fixed", "value": 6}`."""
@@ -514,7 +518,8 @@ async def doe_create(
     """치수를 훑어 **형상 여러 벌**을 만든다 — 점마다 STEP 을 공유 폴더에 쓴다(해석이 읽는 곳).
 
     인자로 쓴 치수만 바뀐다. **연결부처럼 고정돼야 하는 자리는 그 치수를 쓰지 않으면 된다.**
-    인자마다 `resolution`(가공 단위, 기본 0.1 mm)으로 값을 맞춘다 — 0.333 같은 치수는 안 나온다.
+    인자마다 `resolution`(가공 단위, 기본 0.1 mm)으로 값을 맞춘다 —
+    0.333 같은 치수는 안 나온다.
     LHS 는 `seed` 를 적어 두면 같은 표를 다시 만든다 — 해석 결과와 형상을 잇는 열쇠다.
     먼저 `doe_preview` 로 개수를 확인하고 부른다(한 번에 만드는 상한은 관리자가 서버 설정
     화면에서 정한다, 기본 200 — preview 의 `max`). 표에는 바꾼 변수와 파일 이름만 적힌다 —
@@ -617,7 +622,8 @@ async def work_geometry(ctx: Context, work_id: str, number: int | None = None) -
 
     그 id 를 `{"op": "import_step", "file": "<id>"}` 에 넣으면 **제품 형상 자체를 지그 레시피
     안에 불러올 수 있다** — 제품을 여유만큼 키워(`offset`) 블록에서 빼면 곧 포켓이다."""
-    path = f"/api/works/{work_id}" if number is None else f"/api/works/{work_id}/versions/{number}"
+    base = f"/api/works/{work_id}"
+    path = base if number is None else f"{base}/versions/{number}"
     got = await _get(ctx, path)
     if not isinstance(got, dict) or "error" in got:
         return got
@@ -691,9 +697,9 @@ async def list_works(ctx: Context, limit: int = 50) -> Any:
 
 @mcp.tool()
 async def search(ctx: Context, query: str, limit: int = 10) -> Any:
-    """이름 · 설명으로 **한꺼번에 찾는다** — 내 작업(부품 · 지그 · 조립) · 공용 부품 · 공용 지그 ·
-    템플릿. 사용자가 「센서 브래킷」 「진동」 처럼 말하면 목록을 다 훑지 말고 이것부터. 답의 id 를
-    `work:<id>` · `part:<id>` · `jig:<id>` 로 다른 도구에 넘긴다."""
+    """이름 · 설명으로 **한꺼번에 찾는다** — 내 작업(부품 · 지그 · 조립) · 공용 부품 ·
+    공용 지그 · 템플릿. 사용자가 「센서 브래킷」 「진동」 처럼 말하면 목록을 다 훑지 말고
+    이것부터. 답의 id 를 `work:<id>` · `part:<id>` · `jig:<id>` 로 다른 도구에 넘긴다."""
     works, parts, jigs, templates = await asyncio.gather(
         _get(ctx, "/api/works", {"q": query, "limit": limit}),
         _get(ctx, "/api/parts", {"q": query, "limit": limit}),
@@ -847,9 +853,7 @@ async def jig_options(ctx: Context) -> Any:
 
 
 @mcp.tool()
-async def jig_preview(
-    ctx: Context, source: str, options: dict[str, Any] | None = None
-) -> Any:
+async def jig_preview(ctx: Context, source: str, options: dict[str, Any] | None = None) -> Any:
     """부품에서 지그를 **만들기 전에** 어떻게 놓이는지 본다 — 계획(받침 · 위치 핀/받침대 ·
     클램프 자리) · 간섭 · 부품 크기. 작업도 파일도 안 생긴다. 옵션을 바꿔 가며 몇 번 보고
     `run_jig` 로 만든다. 메시는 크니 돌려주지 않는다."""
@@ -881,8 +885,8 @@ async def run_jig(
 
     지그 작업이 새로 생기고(kind=jig, 잡는 부품이 이어진다), 결과가 **변수 있는 레시피**로 그
     첫 버전이 된 채로 돌아온다 — `판_두께` · `받침_높이` · `스팬` 같은 변수가 이미 있어
-    `assemble_jig_on_part` → `doe_create` 로 바로 훑고, `patch_work` 로 받침을 옮기거나 튜닝부를
-    붙인다.
+    `assemble_jig_on_part` → `doe_create` 로 바로 훑고, `patch_work` 로 받침을 옮기거나
+    튜닝부를 붙인다.
     간섭이 있으면 `job.summary.interference.items` 와 계획의 notes 를 읽고 옵션을 고쳐 다시
     만든다(새 지그 작업이 또 생긴다 — 지난 것은 사용자가 내 작업에서 지운다)."""
     made = await _post(

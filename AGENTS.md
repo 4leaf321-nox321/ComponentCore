@@ -194,6 +194,25 @@ cd backend && .venv/bin/python scripts/generate_jig.py            # 시연 제�
 .venv/bin/python scripts/generate_jig.py --spec '{"kind":"box","length":60,"width":40,"height":20}'
 ```
 
+## 배포와 릴리스
+
+**번들은 태그에서 나온다.** `git tag v0.1.0 && git push origin v0.1.0` → Actions 가
+`ci.yml` 전체를 먼저 돌리고(통과해야 한다), `deploy/build_bundle.sh` 로 tar.gz 하나를 만들어
+릴리스에 붙인다. 검증을 릴리스 쪽에 한 벌 더 적지 않는다 — 두 벌이 되면 한쪽만 고쳐지고,
+그때부터 「CI 는 통과인데 릴리스는 다른 것을 본다」 가 된다.
+
+- 받는 PC 는 저장소를 안 받는다. `deploy/pc/fetch-release.{sh,ps1,bat}` 이 릴리스를 받아
+  체크섬까지 본다. **저장소가 비공개라 `GH_TOKEN` 이 든다** — 없으면 GitHub 이 404 를 주는데
+  그것은 「없다」 가 아니라 「너는 볼 수 없다」 이다.
+- 손으로 만들려면 `./deploy/build_bundle.sh v0.1.0` (리눅스 · apptainer · npm 필요, 몇 분).
+  **Windows 에서는 못 만든다** — Apptainer 가 리눅스 전용이라 CI 가 그 일을 한다.
+- 번들에 무엇이 들어가야 하는지는 `release.yml` 의 「번들이 온전한가」 가 지킨다. 새 파일을
+  `build_bundle.sh` 에 더했으면 그 목록에도 더한다 — 빠진 파일은 **서버에서** 드러난다.
+- 서버 쪽 명령(`deploy.sh setup · update · status · backup · db-*`)의 정본은
+  `deploy/README_OPERATOR.md` 다. 쉬운 순서는 `deploy/쉬운-설치.md`.
+- `.gitattributes` 가 `*.sh · *.def · *.template` 을 LF 로 고정한다. Windows 에서 클론해
+  만지면 CRLF 가 섞이고, 그것은 서버에서 `bad interpreter: bash^M` 로만 보인다.
+
 ## 문서
 
 - 판단이 갈렸던 결정은 `docs/adr/NNNN-제목.md` 에 남긴다 — 결정 · 배경 · 대안 · 결과.
