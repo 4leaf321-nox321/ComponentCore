@@ -48,8 +48,21 @@ def windows_path(path: Path) -> str:
 
 def manifest_columns(factor_names: list[str]) -> list[str]:
     """표의 열 — 되짚는 열쇠(번호 · 상태), 바꾼 변수, 파일, 실패 사유. 해석 결과 열은 해석이
-    붙인다."""
-    return ["point", "status", *factor_names, "step_file", "interference", "error"]
+    붙인다.
+
+    `topology` · `unresolved` 는 **해석이 이 점을 쓸 수 있는가**를 말한다. 영역을 하나도 못
+    풀었으면 경계조건을 붙일 자리가 없고, 그 사실은 표에서 한눈에 보여야 한다 — 설계점 200개를
+    보내 놓고 「왜 절반이 실패했지」 를 로그에서 찾게 하지 않는다."""
+    return [
+        "point",
+        "status",
+        *factor_names,
+        "step_file",
+        "topology",
+        "unresolved",
+        "interference",
+        "error",
+    ]
 
 
 def manifest_row(
@@ -61,6 +74,8 @@ def manifest_row(
     step_file: str = "",
     error: str = "",
     interference: dict[str, Any] | None = None,
+    topology_file: str = "",
+    unresolved: list[str] | None = None,
 ) -> dict[str, Any]:
     # 조립이면 겹침 — ok 또는 「N건 (총 부피)」. 구성품이 하나면 빈 칸.
     if interference is None:
@@ -75,6 +90,10 @@ def manifest_row(
         "status": status,
         **{name: params.get(name, "") for name in factor_names},
         "step_file": step_file,
+        "topology": topology_file,
+        # 못 푼 영역 이름을 **그대로** 적는다 — 개수만 적으면 어느 것이 빠졌는지
+        # 다시 물어야 한다.
+        "unresolved": " ".join(unresolved or []),
         "interference": collision,
         "error": error,
     }

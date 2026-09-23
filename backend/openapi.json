@@ -6196,6 +6196,11 @@
           "step_file": {
             "type": "string",
             "title": "Step File"
+          },
+          "topology_file": {
+            "type": "string",
+            "title": "Topology File",
+            "default": ""
           }
         },
         "type": "object",

@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import time
 import uuid
@@ -23,7 +24,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.core import doe as engine
 from app.core import export as shapes
-from app.core.recipe import RecipeError, evaluate, parse
+from app.core.recipe import RecipeError, evaluate, parse, topology
 from app.core.recipe.mesh import mesh
 from app.core.recipe.schema import RecipeValidationError
 from app.modules.accounts.models import User
@@ -343,9 +344,23 @@ def run_job(
                 shapes.write_step(evaluation.shape, folder / "points" / name)
                 point.status = "ok"
                 point.step_file = f"points/{name}"
+                # **영역 지문을 STEP 옆에 나란히 쓴다.** STEP 은 이름표를 못 나르므로, 해석이
+                # 「어느 면이 고정면인가」 를 물을 곳은 이 파일뿐이다. 설계점마다 좌표가
+                # 다르므로 점마다 한 장이다(topology.py 머리말).
+                topo = topology.document(evaluation.shape)
+                topo_name = f"p{point.number:04d}.topology.json"
+                (folder / "points" / topo_name).write_text(
+                    json.dumps(topo, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+                point.topology_file = f"points/{topo_name}"
                 # 조립이면 구성품끼리 겹치는지 — 변수를 바꾸다 부품이 판에 파묻히는 것을
                 # 잡는다.
-                point.geometry = {"interference": _interference_of(evaluation.shape)}
+                point.geometry = {
+                    "interference": _interference_of(evaluation.shape),
+                    # manifest.csv 를 나중에 다시 그릴 때(내려받기 API)도
+                    # 같은 값을 적어야 한다.
+                    "topology_unresolved": topo["unresolved"],
+                }
                 made += 1
                 rows.append(
                     files.manifest_row(
@@ -354,6 +369,8 @@ def run_job(
                         factor_names,
                         status="ok",
                         step_file=point.step_file,
+                        topology_file=point.topology_file,
+                        unresolved=topo["unresolved"],
                         interference=point.geometry["interference"],
                     )
                 )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -131,9 +132,23 @@ def test_설계점마다_STEP_을_공유_폴더에_쓴다(
         "status",
         "두께",
         "step_file",
+        "topology",
+        "unresolved",
         "interference",
         "error",
     ]
+
+    # **영역 지문이 STEP 옆에 나란히 있다.** STEP 은 이름표를 못 나르므로 해석이 「어느 면이
+    # 고정면인가」 를 물을 곳은 이 파일뿐이다.
+    assert rows[0]["topology"] == "points/p0001.topology.json"
+    assert rows[0]["unresolved"] == "", "영역을 못 풀면 그 이름이 여기 적힌다"
+    topo = json.loads((folder / "points" / "p0001.topology.json").read_text(encoding="utf-8"))
+    assert topo["units"] == "mm"
+    assert topo["regions"]["fixed_base"], "바닥 고정 모달의 자리"
+    assert topo["bodies"][0]["volume"] > 0
+    # 설계점마다 좌표가 다르다 — 그래서 점마다 한 장이다.
+    other = json.loads((folder / "points" / "p0003.topology.json").read_text(encoding="utf-8"))
+    assert other["bodies"][0]["volume"] != topo["bodies"][0]["volume"]
 
     # 내려받는 표도 같은 값이다.
     csv_out = client.get(f"/api/doe/{study['id']}/manifest.csv", headers=member.headers)

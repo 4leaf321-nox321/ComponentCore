@@ -88,6 +88,9 @@ class DoePoint(Base):
     geometry: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     """치수표 전체(면 · 구멍 · 관성)."""
     step_file: Mapped[str] = mapped_column(Text, default="", server_default="")
+    topology_file: Mapped[str] = mapped_column(Text, default="", server_default="")
+    """영역 · 바디의 좌표 지문(`points/pNNNN.topology.json`). **STEP 은 이름표를 못 나르므로**
+    해석이 「어느 면이 고정면인가」 를 물을 곳은 이 파일뿐이다(`core/recipe/topology.py`)."""
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
