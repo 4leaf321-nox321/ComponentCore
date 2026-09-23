@@ -9,6 +9,8 @@ export interface WorkVersion {
   work_id: string
   number: number
   recipe: Recipe
+  /** 해석 조건 한 벌 — 비어 있으면 아직 안 붙인 것이다(`modules/conditions`). */
+  conditions?: Record<string, unknown>
   source: string
   note: string
   created_by_id: string | null

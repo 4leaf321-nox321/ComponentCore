@@ -22,6 +22,8 @@ import type { Recipe } from '@/modules/cad/api'
 import { AssemblyEditor } from '@/modules/works/AssemblyEditor'
 import { GeometryJobView } from '@/modules/cad/GeometryJobView'
 import { RecipeEditor } from '@/modules/cad/RecipeEditor'
+import { ConditionsPanel } from '@/modules/conditions/ConditionsPanel'
+import { conditionsApi } from '@/modules/conditions/api'
 import { saveRecipeAs } from '@/modules/cad/download'
 import { SaveTemplateDialog } from '@/modules/templates/SaveTemplateDialog'
 import { JigResultView } from '@/modules/jigs/JigResultView'
@@ -181,6 +183,12 @@ export default function WorkPage() {
   const isAssembly = w.kind === 'assembly'
 
   const currentPromoted = w.current?.promoted_part_id != null
+  /** 붙어 있는 조건 수 — 탭에 숫자로 보여 「있다/없다」 를 열어 보지 않게. */
+  const conditions = (w.current?.conditions ?? {}) as Record<string, unknown[]>
+  const conditionCount = ['constraints', 'loads', 'contacts', 'initial'].reduce(
+    (sum, key) => sum + (Array.isArray(conditions[key]) ? conditions[key].length : 0),
+    0,
+  )
   const latestRun = runs.data?.[0] ?? null
   /** 고른 버전의 STEP — 평가가 끝나야 있다. */
   const selectedStep = selectedVersion?.job?.artifacts.find((one) => one.kind === 'model_step')
@@ -263,6 +271,12 @@ export default function WorkPage() {
         <TabsList>
           <TabsTrigger value="geometry">
             {isAssembly ? '조립' : '도면'} {w.current_version > 0 && `v${w.current_version}`}
+          </TabsTrigger>
+          {/* **둘째 탭이 곧 시뮬레이션 모드다.** 도면은 형상을 만들고, 여기서는 그 위에
+              조건을 붙인다 — 형상을 안 바꾸므로 새 버전이 생기지 않는다. */}
+          <TabsTrigger value="conditions" disabled={w.current_version === 0}>
+            해석 조건
+            {conditionCount > 0 && <span className="text-muted-foreground ml-1 text-xs">{conditionCount}</span>}
           </TabsTrigger>
         </TabsList>
 
@@ -461,6 +475,28 @@ export default function WorkPage() {
                 />
               </CardContent>
             </Card>
+          )}
+        </TabsContent>
+
+        {/* ---------------- 해석 조건 ---------------- */}
+        <TabsContent value="conditions" className="pt-4">
+          {w.current ? (
+            <ConditionsPanel
+              recipe={w.current.recipe}
+              value={w.current.conditions}
+              saving={busy}
+              onSave={(next) => {
+                setBusy(true)
+                setError(null)
+                conditionsApi
+                  .save(id, w.current_version, next)
+                  .then(() => reloadAll())
+                  .catch((failure) => setError(failure as ApiError))
+                  .finally(() => setBusy(false))
+              }}
+            />
+          ) : (
+            <EmptyState title="도면이 먼저입니다" hint="「도면」 탭에서 그리고 저장한 뒤 조건을 붙이세요." />
           )}
         </TabsContent>
       </Tabs>

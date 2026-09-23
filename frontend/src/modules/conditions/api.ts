@@ -1,0 +1,118 @@
+/**
+ * 해석 조건 — 화면이 쓰는 말과 길.
+ *
+ * **칸 목록을 화면에 박지 않는다.** 조건 종류가 열 몇이고 칸이 제각각이라(고정 지지에는 값이
+ * 없고, 압력에는 크기와 방향이, 볼트에는 N 이) 여기 적어 두면 종류를 더할 때마다 화면을
+ * 고쳐야 한다. 정본은 서버(`GET /cad/conditions/schema`)이고 화면은 그것으로 폼을 그린다 —
+ * CAD 리본이 `OP_SPECS` 로 하는 것과 같다.
+ */
+
+import type { Recipe } from '@/modules/cad/api'
+import { api } from '@/shared/api/client'
+
+export interface FieldSchema {
+  title?: string
+  type?: string
+  enum?: string[]
+  anyOf?: { type?: string; enum?: string[] }[]
+  description?: string
+  default?: unknown
+}
+
+export interface GroupSchema {
+  label: string
+  /** 이 묶음에 더할 수 있는 종류 — 화면의 「+ 조건」 목록. */
+  types: string[]
+  fields: Record<string, FieldSchema>
+  required: string[]
+}
+
+export interface ConditionsSchema {
+  schema_version: number
+  units: Record<string, string>
+  analysis: { properties?: Record<string, FieldSchema> }
+  groups: Record<string, GroupSchema>
+  entities: string[]
+}
+
+/** 이름표 — 조건이 붙는 유일한 창구. 좌표가 아니라 **셀렉터**로 적힌다. */
+export interface NamedSelection {
+  name: string
+  entity: string
+  select: Record<string, unknown>
+}
+
+export interface ConditionItem {
+  [key: string]: unknown
+  name?: string
+  type?: string
+  on?: string
+}
+
+export interface Conditions {
+  schema_version?: number
+  units?: Record<string, string>
+  named_selections: NamedSelection[]
+  materials: ConditionItem[]
+  constraints: ConditionItem[]
+  loads: ConditionItem[]
+  contacts: ConditionItem[]
+  initial: ConditionItem[]
+  analysis: Record<string, unknown>
+  mesh_hints: ConditionItem[]
+}
+
+/** 조건이 담기는 묶음들 — 이름표와 해석 설정은 따로 다룬다. */
+export const GROUP_KEYS = [
+  'constraints',
+  'loads',
+  'contacts',
+  'initial',
+  'mesh_hints',
+] as const
+
+export function emptyConditions(): Conditions {
+  return {
+    schema_version: 1,
+    named_selections: [],
+    materials: [],
+    constraints: [],
+    loads: [],
+    contacts: [],
+    initial: [],
+    analysis: { type: 'modal', modes: 6 },
+    mesh_hints: [],
+  }
+}
+
+/** 서버가 준 것을 화면이 쓰는 모양으로 — 빈 칸을 채워 두면 화면에 `?.` 가 줄어든다. */
+export function asConditions(raw: unknown): Conditions {
+  const empty = emptyConditions()
+  if (!raw || typeof raw !== 'object') return empty
+  return { ...empty, ...(raw as Partial<Conditions>) }
+}
+
+/** 3D 에서 찍은 자리 하나에 대한 **셀렉터 후보**. */
+export interface SelectorCandidate {
+  label: string
+  select: Record<string, unknown>
+  /** 지금 몇 개에 맞나 — 1 이면 이것 하나, 여럿이면 그 부류 전부. */
+  matches: number
+}
+
+export const conditionsApi = {
+  schema: () => api.get<ConditionsSchema>('/cad/conditions/schema'),
+
+  /** 찍은 자리를 말로 되돌려 받는다. `what` 은 faces · edges · vertices. */
+  selectors: (recipe: Recipe, what: string, point: number[]) =>
+    api.post<{ picked: Record<string, unknown> | null; candidates: SelectorCandidate[] }>(
+      '/cad/recipe/selectors',
+      { recipe, pick: { what, point } },
+    ),
+
+  /** 버전에 붙인다 — **새 버전을 만들지 않는다**(도면이 안 바뀌었으니까). */
+  save: (workId: string, number: number, conditions: Conditions) =>
+    api.put<{ conditions: Conditions }>(`/works/${workId}/versions/${number}/conditions`, {
+      conditions,
+    }),
+}
