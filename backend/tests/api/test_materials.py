@@ -156,3 +156,24 @@ def test_관리자만_올린다(client: TestClient, member: Signed) -> None:
         headers=member.headers,
     )
     assert denied.status_code == 403
+
+
+def test_무엇이_비었는지_이름을_댄다(
+    client: TestClient, member: Signed, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**실제로 겪었다**(2026-09-24): 주소는 넣고 토큰만 비운 채 화면을 열었더니 「주소가
+    없습니다」 라고 말했다 — 맞는 칸을 놔두고 엉뚱한 데를 보게 만든다."""
+    from app.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "matnexus_base_url", "http://matnexus.test", raising=False)
+    monkeypatch.setattr(settings, "matnexus_token", "", raising=False)
+
+    got = client.get("/api/materials", headers=member.headers).json()
+    assert got["fallback"] is True
+    assert "MATNEXUS_TOKEN" in got["detail"]
+    assert "MATNEXUS_BASE_URL" not in got["detail"], "채워 둔 칸을 탓하면 안 된다"
+
+    monkeypatch.setattr(settings, "matnexus_base_url", "", raising=False)
+    both = client.get("/api/materials", headers=member.headers).json()
+    assert "MATNEXUS_BASE_URL" in both["detail"] and "MATNEXUS_TOKEN" in both["detail"]

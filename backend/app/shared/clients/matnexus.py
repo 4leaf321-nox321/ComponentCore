@@ -42,6 +42,23 @@ def configured() -> bool:
     return bool(settings.matnexus_base_url and settings.matnexus_token)
 
 
+def missing() -> str:
+    """**무엇이 비었는지 이름을 댄다.** 「설정이 없습니다」 로는 어느 칸을 채울지 모른다.
+
+    실제로 겪었다(2026-09-24): 주소는 넣고 토큰만 비운 채로 화면을 열었더니 「주소가
+    없습니다」 라고 말했다 — 맞는 칸을 놔두고 엉뚱한 데를 보게 만든다.
+    """
+    settings = get_settings()
+    empty = []
+    if not settings.matnexus_base_url:
+        empty.append("MATNEXUS_BASE_URL(주소)")
+    if not settings.matnexus_token:
+        empty.append("MATNEXUS_TOKEN(토큰)")
+    if not empty:
+        return ""
+    return f".env 의 {' · '.join(empty)} 가 비어 있습니다"
+
+
 def _client() -> httpx.Client:
     settings = get_settings()
     return httpx.Client(
@@ -53,7 +70,7 @@ def _client() -> httpx.Client:
 
 def _get(path: str, params: dict[str, Any] | None = None) -> Any:
     if not configured():
-        raise MatNexusUnavailable("MatNexus 주소나 토큰이 없습니다(.env 의 MATNEXUS_*)")
+        raise MatNexusUnavailable(missing())
     try:
         with _client() as client:
             answer = client.get(path, params=params)
@@ -97,7 +114,7 @@ def get(material_id: str) -> dict[str, Any]:
 def ping() -> dict[str, Any]:
     """닿나. 관리자 화면이 「연결됨 · 몇 건」 을 보여 주는 데 쓴다."""
     if not configured():
-        return {"configured": False, "ok": False, "detail": ".env 의 MATNEXUS_* 가 비었습니다"}
+        return {"configured": False, "ok": False, "detail": missing()}
     try:
         rows = search(limit=1)
     except MatNexusUnavailable as failure:

@@ -26,7 +26,7 @@ def main() -> int:
 
     got = matnexus.ping()
     if not got["configured"]:
-        print("\n결과 : 설정 안 됨 — .env 의 MATNEXUS_BASE_URL · MATNEXUS_TOKEN")
+        print(f"\n결과 : 설정 안 됨 — {got['detail']}")
         print("       이대로면 물성 탐색기는 올려 둔 카탈로그 파일로만 돕니다.")
         return 1
     if not got["ok"]:

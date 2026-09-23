@@ -75,7 +75,7 @@ def search(
     return {
         "items": _from_catalog(db, query, family, limit),
         "fallback": True,
-        "detail": "MatNexus 주소가 없습니다 — 올려 둔 카탈로그로 고릅니다",
+        "detail": f"{matnexus.missing()} — 올려 둔 카탈로그로 고릅니다",
     }
 
 
