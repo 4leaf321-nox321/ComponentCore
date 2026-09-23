@@ -121,12 +121,11 @@ jobs:
           # 것은 **이 릴리스에서만 다른 것**(파일 이름)뿐이다.
           {
             printf '설치 절차의 정본은 번들 안의 `README.md` 입니다.\n\n'
-            printf '**이 저장소는 비공개입니다** — 받는 PC 에서는 `deploy/pc/fetch-release.sh`\n'
-            printf '(맥 · 리눅스) 또는 `fetch-release.bat`(윈도우)을 쓰고, 토큰을 `GH_TOKEN`\n'
-            printf '환경변수로 줍니다. `gh release download %s` 도 같은 일을 합니다.\n\n' "${GITHUB_REF_NAME}"
+            printf '받는 PC 에서는 `deploy/pc/fetch-release.sh`(맥 · 리눅스) 또는\n'
+            printf '`fetch-release.bat`(윈도우)이 버전을 골라 받고 체크섬까지 맞춰 봅니다.\n\n'
             printf '```bash\n'
             printf '# 받는 PC 에서\n'
-            printf 'GH_TOKEN=<개인 토큰> ./fetch-release.sh -v %s\n' "${GITHUB_REF_NAME}"
+            printf './fetch-release.sh -v %s\n' "${GITHUB_REF_NAME}"
             printf 'scp downloads/%s* <계정>@<서버>:~/\n' "$base"
             printf '\n# 서버에서\n'
             printf 'ssh <계정>@<서버>\n'

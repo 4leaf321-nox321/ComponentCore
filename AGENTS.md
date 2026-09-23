@@ -202,8 +202,7 @@ cd backend && .venv/bin/python scripts/generate_jig.py            # 시연 제�
 그때부터 「CI 는 통과인데 릴리스는 다른 것을 본다」 가 된다.
 
 - 받는 PC 는 저장소를 안 받는다. `deploy/pc/fetch-release.{sh,ps1,bat}` 이 릴리스를 받아
-  체크섬까지 본다. **저장소가 비공개라 `GH_TOKEN` 이 든다** — 없으면 GitHub 이 404 를 주는데
-  그것은 「없다」 가 아니라 「너는 볼 수 없다」 이다.
+  체크섬까지 본다. 저장소가 공개라 토큰은 필요 없다 — 비공개 포크로 쓸 때만 `GH_TOKEN`.
 - 손으로 만들려면 `./deploy/build_bundle.sh v0.1.0` (리눅스 · apptainer · npm 필요, 몇 분).
   **Windows 에서는 못 만든다** — Apptainer 가 리눅스 전용이라 CI 가 그 일을 한다.
 - 번들에 무엇이 들어가야 하는지는 `release.yml` 의 「번들이 온전한가」 가 지킨다. 새 파일을

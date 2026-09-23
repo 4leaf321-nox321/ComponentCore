@@ -97,7 +97,7 @@ sudo ./deploy.sh setup               # 물어보며 prepare → install (또는 
 
 **보통은 손으로 안 만든다.** 태그를 밀면 GitHub Actions 가 CI 를 통과시킨 뒤 번들을 만들어
 릴리스에 붙인다 — `git tag v0.1.0 && git push origin v0.1.0`. 받는 PC 는
-[deploy/pc/](deploy/pc/) 의 스크립트로 받는다(비공개 저장소라 `GH_TOKEN` 이 필요하다).
+[deploy/pc/](deploy/pc/) 의 스크립트로 받는다.
 
 한 프로세스가 API 와 화면을 같이 서빙하고, 워커(`compcore-worker`)와 MCP 서버(`compcore-mcp`)가
 따로 뜬다. **실험계획의 공유 폴더**는 `DOE_HOST_DIR` 로 정한다 — 해석(ANSYS)이 읽는 자리라

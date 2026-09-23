@@ -4,12 +4,11 @@
 #   .\fetch-release.ps1 -Out D:\bundles          폴더 지정
 #   .\fetch-release.ps1 -Version v0.4.3          특정 버전
 #   .\fetch-release.ps1 -Apptainer               apptainer .deb 도 함께(폐쇄망 서버용)
-#   .\fetch-release.ps1 -Token ghp_xxx           비공개 저장소 — 개인 토큰
+#   .\fetch-release.ps1 -Token ghp_xxx           비공개 포크일 때만 — 개인 토큰
 #
-# **저장소가 비공개다.** 토큰 없이는 GitHub 이 404 를 준다 — 「그런 릴리스가 없다」 로
-# 보이지만 사실은 「너는 볼 수 없다」 이다. -Token 을 주거나 GH_TOKEN 환경변수에 둔다.
-# 토큰이 있으면 **애셋 API** 로 받는다 — 비공개 저장소에서는 다운로드 주소가 인증을
-# 받지 않아 로그인 페이지 HTML 이 tar.gz 라는 이름으로 저장된다.
+# **저장소는 공개다 — 토큰 없이 그냥 받아진다.** 토큰은 선택이다(비공개 포크, 또는 API
+# 호출 한도). 토큰이 있으면 **애셋 API** 로 받는다 — 비공개 저장소에서는 다운로드 주소가
+# 인증을 받지 않아 로그인 페이지 HTML 이 tar.gz 라는 이름으로 저장되기 때문이다.
 #
 # 받는 것: compcore-<버전>.tar.gz · .sha256 (검증까지 한다)
 param(
@@ -34,7 +33,7 @@ $relUrl = if ($Version) { "https://api.github.com/repos/$Repo/releases/tags/$Ver
 try {
     $release = Invoke-RestMethod $relUrl -Headers $headers
 } catch {
-    throw "릴리스를 읽지 못했습니다. 비공개 저장소라면 토큰을 주세요: -Token <개인 토큰>"
+    throw "릴리스를 읽지 못했습니다 — 아직 릴리스가 없거나 버전 이름이 다릅니다. https://github.com/$Repo/releases (비공개 포크라면 -Token <개인 토큰>)"
 }
 if (-not $Version) { $Version = $release.tag_name }
 Write-Host "==> 버전 $Version → $Out"

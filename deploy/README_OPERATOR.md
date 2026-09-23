@@ -10,17 +10,14 @@
 번들은 **GitHub Actions 가 태그에서 만든다.** 저장소를 받는 PC 에서는 만들 수
 없다 — Apptainer 는 리눅스 전용이다. 받는 것은 만들어진 `tar.gz` 하나다.
 
-**저장소가 비공개라 받는 데 개인 토큰이 든다.** 토큰 없이 부르면 GitHub 은 404 를
-주는데, 그것은 「그런 릴리스가 없다」 가 아니라 「너는 볼 수 없다」 이다 — 없는 버전을
-찾는 줄 알고 태그를 뒤지게 된다.
-
 ```bash
 # 받는 PC 에서 — 저장소의 deploy/pc/fetch-release.{bat,sh} 가 최신 버전을 골라 받고 체크섬까지 본다.
-GH_TOKEN=<개인 토큰> ./fetch-release.sh            # 맥 · 리눅스
-#   fetch-release.bat -Token <개인 토큰>           # Windows
+./fetch-release.sh                                 # 맥 · 리눅스
+#   fetch-release.bat                              # Windows (더블클릭도 된다)
 
-# 손으로 받으면 — gh CLI 가 토큰을 들고 애셋 API 로 받는다.
-gh release download <태그> --repo <소유자>/<저장소> --pattern '<slug>-*'
+# 손으로 받으면 (Windows PowerShell 의 curl 도 같은 줄로 된다):
+curl -LO https://github.com/<소유자>/<저장소>/releases/download/<태그>/<slug>-<태그>.tar.gz
+curl -LO https://github.com/<소유자>/<저장소>/releases/download/<태그>/<slug>-<태그>.tar.gz.sha256
 
 scp <slug>-<태그>.tar.gz <계정>@<서버>:~/
 ```
