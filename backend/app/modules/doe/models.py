@@ -41,6 +41,11 @@ class DoeStudy(Base):
     )
     """어느 작업에서 시작했나. 지워져도 DOE 는 남는다 — 스냅샷이 있으니 혼자 선다."""
     recipe: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    conditions: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default="{}"
+    )
+    """대상 버전의 해석 조건을 **그때 떠 둔 것**. 작업이 나중에 바뀌어도 이 DOE 가 무엇으로
+    돌았는지 남는다 — 레시피 스냅샷과 같은 까닭이다."""
     factors: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
     method: Mapped[str] = mapped_column(String(20), default="factorial")
     samples: Mapped[int] = mapped_column(Integer, default=20)

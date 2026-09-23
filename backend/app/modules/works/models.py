@@ -87,6 +87,12 @@ class WorkVersion(Base):
     )
     number: Mapped[int] = mapped_column(Integer)
     recipe: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    conditions: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default="{}"
+    )
+    """해석 조건 한 벌(`core/conditions.py`) — 경계 · 하중 · 접촉 · 초기 · 해석 설정 · 물성.
+    **형상의 성질이라 버전에 붙는다** — 「이 지그는 바닥으로 시험대에 앉는다」 는 어떻게 훑든
+    변하지 않는다. 실험계획은 레시피처럼 이것도 스냅샷을 뜬다."""
     source: Mapped[str] = mapped_column(String(20), default="manual", server_default="manual")
     note: Mapped[str] = mapped_column(Text, default="", server_default="")
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(

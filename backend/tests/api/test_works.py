@@ -610,3 +610,49 @@ def test_찾기_꼬리표_복제_휴지통(client: TestClient, member: Signed) -
     assert (
         client.post(f"/api/works/{b['id']}/restore", headers=member.headers).status_code == 400
     )
+
+
+def test_해석_조건은_버전에_붙고_새_버전을_만들지_않는다(
+    client: TestClient, member: Signed
+) -> None:
+    """조건은 **형상의 성질**이다 — 도면이 안 바뀌었는데 버전이 늘면 「무엇이 달라졌나」 를
+    되짚을 수 없다."""
+    work = _work(client, member)
+    before = client.get(f"/api/works/{work['id']}/versions", headers=member.headers).json()
+
+    conditions = {
+        "named_selections": [
+            {"name": "바닥", "entity": "face", "select": {"what": "faces", "role": "bottom"}}
+        ],
+        "constraints": [{"name": "고정", "type": "fixed_support", "on": "바닥"}],
+        "analysis": {"type": "modal", "modes": 6},
+    }
+    put = client.put(
+        f"/api/works/{work['id']}/versions/1/conditions",
+        json={"conditions": conditions},
+        headers=member.headers,
+    )
+    assert put.status_code == 200, put.text
+    assert put.json()["conditions"]["constraints"][0]["on"] == "바닥"
+
+    after = client.get(f"/api/works/{work['id']}/versions", headers=member.headers).json()
+    assert len(after) == len(before), "버전이 늘면 안 된다"
+    again = client.get(f"/api/works/{work['id']}/versions/1", headers=member.headers).json()
+    assert again["conditions"]["analysis"]["modes"] == 6
+
+    # 없는 이름표를 가리키면 **지금** 막는다 — 내보낸 뒤 해석 쪽에서 0 개를 집으면 늦다.
+    bad = client.put(
+        f"/api/works/{work['id']}/versions/1/conditions",
+        json={
+            "conditions": {
+                **conditions,
+                "loads": [{"name": "누름", "type": "pressure", "on": "옆면", "magnitude": 1}],
+            }
+        },
+        headers=member.headers,
+    )
+    assert bad.status_code == 400 and "이름표가 없습니다" in bad.json()["error"]["message"]
+
+    # 조건의 칸 사양표 — 화면과 AI 가 같은 것을 본다.
+    spec = client.get("/api/cad/conditions/schema", headers=member.headers).json()
+    assert "bolt_pretension" in spec["groups"]["loads"]["types"]

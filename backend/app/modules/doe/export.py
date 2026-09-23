@@ -122,6 +122,19 @@ def write_study(folder: Path, study: dict[str, Any]) -> Path:
     return path
 
 
+def write_conditions(folder: Path, conditions: dict[str, Any]) -> Path | None:
+    """스터디의 해석 조건 — **식이 있는 그대로**(사람이 읽는 정본).
+
+    설계점마다 풀린 값은 `points/pNNNN.conditions.json` 이 따로 든다. 받는 쪽은 식을 풀 수
+    없기 때문이다 — 그렇다고 이 파일을 안 쓰면 「무엇을 훑은 조건인가」 가 사라진다.
+    """
+    if not conditions:
+        return None
+    path = folder / "conditions.json"
+    path.write_text(json.dumps(conditions, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
 def write_readme(folder: Path, study: dict[str, Any], point_count: int) -> Path:
     """사람이 폴더를 열었을 때 한 장으로 아는 것 — 무엇을 왜 바꿨는지."""
     factors = "\n".join(
@@ -141,11 +154,16 @@ def write_readme(folder: Path, study: dict[str, Any], point_count: int) -> Path:
 {factors or "  (없음)"}
 
 파일
-  manifest.csv   설계점마다 바꾼 변수 값 · 파일 이름 · 상태. **해석 결과를 이 표에 붙인다.**
+  manifest.csv   설계점마다 바꾼 변수 값 · 파일 이름 · 상태
   study.json     기준 레시피와 인자 정의 전부(다시 만들 때)
-  points/        p0001.step … 번호가 manifest 의 point 열과 같다
+  conditions.json  해석 조건 한 벌 — 이름표 · 구속 · 하중 · 접촉 · 초기 · 해석 설정 · 물성
+                   (숫자 칸에 "=식" 이 있을 수 있다. 푼 값은 점마다 아래 파일에)
+  points/        p0001.step              형상
+                 p0001.topology.json     영역 · 바디의 좌표 지문 + 이 점의 변수 값
+                 p0001.conditions.json   그 변수로 **풀린** 조건
 
 STEP 은 mm 단위이며, 바꾸지 않은 치수(연결부 등)는 모든 점에서 똑같다.
+해석 결과는 이 폴더로 돌아오지 않는다 — 푸는 쪽이 들고 거기서 본다.
 """
     path = folder / "README.txt"
     path.write_text(text, encoding="utf-8")

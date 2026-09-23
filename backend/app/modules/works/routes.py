@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from sqlalchemy.orm import Session
 
+from app.core import conditions
 from app.database import get_db
 from app.modules.accounts.models import User
 from app.modules.jobs import services as jobs
@@ -19,6 +20,7 @@ from app.modules.works.models import Work
 from app.modules.works.schemas import (
     AssembleOut,
     AssembleRequest,
+    ConditionsRequest,
     JigFromPartOut,
     JigFromPartRequest,
     PromoteJigOut,
@@ -207,6 +209,30 @@ def get_version(
 ) -> VersionOut:
     work = _mine(db, work_id, user)
     return services.version_out(db, services.get_version(db, work, number))
+
+
+@router.put("/{work_id}/versions/{number}/conditions", response_model=VersionOut)
+def set_conditions(
+    work_id: uuid.UUID,
+    number: int,
+    payload: ConditionsRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> VersionOut:
+    """이 버전의 **해석 조건**을 붙인다 — 경계 · 하중 · 접촉 · 초기 · 해석 설정 · 물성.
+
+    조건은 형상의 성질이라 버전에 붙는다. **새 버전을 만들지 않는다** — 도면이 안 바뀌었는데
+    버전이 늘면 「무엇이 달라졌나」 를 되짚을 수 없다. 실험계획은 이것을 스냅샷 뜬다."""
+    work = _mine(db, work_id, user)
+    version = services.get_version(db, work, number)
+    try:
+        conditions.parse(payload.conditions)
+    except conditions.ConditionError as failure:
+        raise AppError(code("WORKS", 12), str(failure)) from failure
+    version.conditions = payload.conditions
+    db.commit()
+    db.refresh(version)
+    return services.version_out(db, version)
 
 
 @router.post(

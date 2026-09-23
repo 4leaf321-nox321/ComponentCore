@@ -6,6 +6,7 @@ import csv
 import json
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,7 +15,7 @@ from app.config import get_settings
 from tests.api.conftest import Signed
 
 #: 연결부(구멍 자리)는 숫자로 못 박고 튜닝부만 치수 이름으로 — DOE 의 전제다.
-JIG = {
+JIG: dict[str, Any] = {
     "params": {"두께": 6.0, "길이": 90.0},
     "nodes": [
         {
@@ -326,3 +327,90 @@ def test_화면이_쓰는_수도_관리자가_바꾼다(
 
     for key in ("doe_gallery_max", "list_page_size"):
         client.put(f"/api/server/settings/{key}", json={"value": None}, headers=admin.headers)
+
+
+def test_해석_조건을_붙여_훑으면_점마다_풀려_나간다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    """**조건도 CAD 치수와 같은 자리에서 훑는다.** 받는 쪽은 `"=압력"` 을 풀 수 없으므로
+    점마다 풀린 값이 파일로 나가야 한다."""
+    conditions = {
+        "named_selections": [
+            {"name": "바닥", "entity": "face", "select": {"what": "faces", "role": "bottom"}}
+        ],
+        "constraints": [{"name": "고정", "type": "fixed_support", "on": "바닥"}],
+        "loads": [
+            {
+                "name": "누름",
+                "type": "pressure",
+                "on": "바닥",
+                "magnitude": "=압력",
+                "unit": "MPa",
+                "direction": "normal",
+            }
+        ],
+        "analysis": {"type": "modal", "modes": 6},
+    }
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "조건까지 훑기",
+            "recipe": {**JIG, "params": {**JIG["params"], "압력": 2.0}},
+            "conditions": conditions,
+            # 형상(두께)과 조건(압력)을 함께 훑는다 — 변수가 같은 자리에 있으니 된다.
+            "factors": [
+                {"name": "두께", "mode": "list", "values": [6, 10]},
+                {"name": "압력", "mode": "list", "values": [2, 3]},
+            ],
+        },
+        headers=member.headers,
+    )
+    assert made.status_code == 201, made.text
+    study = made.json()
+    assert study["point_count"] == 4
+    assert study["conditions"]["loads"][0]["magnitude"] == "=압력", "스냅샷은 식을 그대로"
+
+    sent = client.post(f"/api/doe/{study['id']}/export", headers=member.headers)
+    assert sent.status_code == 200, sent.text
+    folder = next(export_root.iterdir())
+
+    # 스터디 한 장 — 사람이 읽는 정본. 식이 그대로 있다.
+    spec = json.loads((folder / "conditions.json").read_text(encoding="utf-8"))
+    assert spec["loads"][0]["magnitude"] == "=압력"
+
+    # 점마다 **풀린** 값. 두께 · 압력 조합이 그대로 보인다.
+    풀린 = {}
+    for number in (1, 2, 3, 4):
+        conditions_file = folder / "points" / f"p{number:04d}.conditions.json"
+        topo_file = folder / "points" / f"p{number:04d}.topology.json"
+        one = json.loads(conditions_file.read_text(encoding="utf-8"))
+        topo = json.loads(topo_file.read_text(encoding="utf-8"))
+        풀린[number] = (topo["point"]["params"]["두께"], one["loads"][0]["magnitude"])
+        # 이름표는 셀렉터 그대로 — 좌표는 topology 가 든다(설계점마다 다르니까).
+        assert one["named_selections"][0]["select"] == {"what": "faces", "role": "bottom"}
+        assert topo["regions"]["fixed_base"], "조건이 가리킬 면이 실제로 풀렸다"
+        # **이 점이 무엇인가**를 파일이 스스로 말한다 — 결과가 우리에게 안 돌아오므로.
+        assert topo["point"]["number"] == number
+        assert topo["point"]["study"]["name"] == "조건까지 훑기"
+
+    assert sorted(풀린.values()) == [(6.0, 2.0), (6.0, 3.0), (10.0, 2.0), (10.0, 3.0)]
+
+
+def test_없는_이름표를_가리키는_조건은_만들기_전에_막는다(
+    client: TestClient, member: Signed
+) -> None:
+    """설계점 마흔 개를 만든 뒤에 알면 늦다 — 폴더에 반쪽짜리가 남는다."""
+    bad = client.post(
+        "/api/doe",
+        json={
+            "name": "막혀야 한다",
+            "recipe": JIG,
+            "conditions": {
+                "constraints": [{"name": "고정", "type": "fixed_support", "on": "없다"}]
+            },
+            "factors": [{"name": "두께", "mode": "list", "values": [6]}],
+        },
+        headers=member.headers,
+    )
+    assert bad.status_code == 400
+    assert "이름표가 없습니다" in bad.json()["error"]["message"]

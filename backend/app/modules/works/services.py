@@ -82,6 +82,7 @@ def version_out(db: Session, version: WorkVersion) -> VersionOut:
         work_id=version.work_id,
         number=version.number,
         recipe=version.recipe,
+        conditions=version.conditions or {},
         source=version.source,
         note=version.note,
         created_by_id=version.created_by_id,

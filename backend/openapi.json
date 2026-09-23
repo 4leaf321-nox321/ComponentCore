@@ -1304,6 +1304,69 @@
         }
       }
     },
+    "/api/works/{work_id}/versions/{number}/conditions": {
+      "put": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Set Conditions",
+        "description": "이 버전의 **해석 조건**을 붙인다 — 경계 · 하중 · 접촉 · 초기 · 해석 설정 · 물성.\n\n조건은 형상의 성질이라 버전에 붙는다. **새 버전을 만들지 않는다** — 도면이 안 바뀌었는데\n버전이 늘면 「무엇이 달라졌나」 를 되짚을 수 없다. 실험계획은 이것을 스냅샷 뜬다.",
+        "operationId": "set_conditions_api_works__work_id__versions__number__conditions_put",
+        "parameters": [
+          {
+            "name": "work_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Work Id"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConditionsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/works/{work_id}/versions/{number}/restore": {
       "post": {
         "tags": [
@@ -2959,6 +3022,30 @@
         }
       }
     },
+    "/api/cad/conditions/schema": {
+      "get": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Conditions Schema",
+        "description": "해석 조건의 **칸 사양표** — 화면이 폼을 그리고 AI 가 읽는 한 벌.\n\n종류를 더할 때 화면을 고치지 않게, 정본을 서버가 들고 준다(`core/conditions.py`).",
+        "operationId": "conditions_schema_api_cad_conditions_schema_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Conditions Schema Api Cad Conditions Schema Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/cad/recipe/selectors": {
       "post": {
         "tags": [
@@ -4538,6 +4625,20 @@
           "new_password"
         ],
         "title": "ChangePasswordRequest"
+      },
+      "ConditionsRequest": {
+        "properties": {
+          "conditions": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Conditions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "conditions"
+        ],
+        "title": "ConditionsRequest"
       },
       "CopyToWorkRequest": {
         "properties": {
@@ -6632,6 +6733,11 @@
             "type": "object",
             "title": "Recipe"
           },
+          "conditions": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Conditions"
+          },
           "work_id": {
             "anyOf": [
               {
@@ -6727,6 +6833,11 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Recipe"
+          },
+          "conditions": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Conditions"
           },
           "factors": {
             "items": {
@@ -7331,6 +7442,12 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Recipe"
+          },
+          "conditions": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Conditions",
+            "default": {}
           },
           "source": {
             "type": "string",

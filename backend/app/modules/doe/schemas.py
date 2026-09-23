@@ -33,6 +33,9 @@ class StudyCreateRequest(PreviewRequest):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=2000)
     recipe: dict[str, Any]
+    conditions: dict[str, Any] = Field(default_factory=dict)
+    """해석 조건 한 벌 — 대상 버전의 것을 그대로 넘기면 스냅샷으로 박힌다.
+    비면 형상만 훑는다."""
     work_id: uuid.UUID | None = None
 
 
@@ -70,6 +73,8 @@ class StudySummaryOut(BaseModel):
 
 class StudyOut(StudySummaryOut):
     recipe: dict[str, Any]
+    conditions: dict[str, Any] = Field(default_factory=dict)
+    """이 스터디가 돌던 때의 해석 조건 — 작업이 나중에 바뀌어도 여기 남는다."""
     factors: list[dict[str, Any]]
     export_dir_windows: str
     """공유 폴더 경로(F:\\…). 아직 안 보냈으면 빈 문자열."""

@@ -24,6 +24,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.core import conditions as condition_model
 from app.core import doe as engine
 from app.core import export as shapes
 from app.core.recipe import RecipeError, evaluate, parse, topology
@@ -133,8 +134,9 @@ def create_study(
     samples: int,
     seed: int,
     work_id: uuid.UUID | None,
+    conditions: dict[str, Any] | None = None,
 ) -> DoeStudy:
-    """스터디를 만들고 작업을 건다. 레시피는 **스냅샷**으로 박는다.
+    """스터디를 만들고 작업을 건다. 레시피와 **해석 조건**을 스냅샷으로 박는다.
 
     설계점은 **서버 보관 폴더**에 만든다. 공유 폴더로는 다 만들어진 뒤 「보내기」 로 간다 —
     해석이 읽는 폴더에 만들다 만 것이 보이면 안 된다."""
@@ -154,6 +156,12 @@ def create_study(
             code("DOE", 5),
             f"레시피에 없는 치수입니다: {', '.join(unknown)} — 있는 치수: {known}",
         )
+    # **조건을 지금 검증한다.** 설계점 마흔 개를 만든 뒤에 「그런 이름표가 없다」 를 알면
+    # 늦다 — 그때는 폴더에 반쪽짜리가 남는다.
+    try:
+        condition_model.parse(conditions)
+    except condition_model.ConditionError as failure:
+        raise AppError(code("DOE", 15), f"해석 조건: {failure}") from failure
     rows = _points(
         db, {"factors": factors, "method": method, "samples": samples, "seed": seed}
     )
@@ -163,6 +171,7 @@ def create_study(
         owner_id=owner.id,
         work_id=work_id,
         recipe=recipe,
+        conditions=conditions or {},
         factors=factors,
         method=method,
         samples=samples,
@@ -350,11 +359,30 @@ def run_job(
                 # 「어느 면이 고정면인가」 를 물을 곳은 이 파일뿐이다. 설계점마다 좌표가
                 # 다르므로 점마다 한 장이다(topology.py 머리말).
                 topo = topology.document(evaluation.shape)
+                # **이 점이 무엇인가**를 파일이 스스로 말하게 한다 — 결과가 우리에게 돌아오지
+                # 않으므로, 해석 쪽은 파일만 보고 「이 결과가 두께 8 짜리」 를 알아야 한다.
+                topo["point"] = {
+                    "number": point.number,
+                    "study": {
+                        "id": str(study.id),
+                        "name": study.name,
+                        "method": study.method,
+                        "seed": study.seed,
+                    },
+                    "params": point.params,
+                    "step_file": f"points/{name}",
+                }
                 topo_name = f"p{point.number:04d}.topology.json"
                 (folder / "points" / topo_name).write_text(
                     json.dumps(topo, ensure_ascii=False, indent=2), encoding="utf-8"
                 )
                 point.topology_file = f"points/{topo_name}"
+                # **조건의 식을 이 점의 값으로 푼다.** 받는 쪽은 `"=압력"` 을 풀 수 없다.
+                if study.conditions:
+                    resolved = condition_model.resolve(study.conditions, point.params)
+                    (folder / "points" / f"p{point.number:04d}.conditions.json").write_text(
+                        json.dumps(resolved, ensure_ascii=False, indent=2), encoding="utf-8"
+                    )
                 # 조립이면 구성품끼리 겹치는지 — 변수를 바꾸다 부품이 판에 파묻히는 것을
                 # 잡는다.
                 point.geometry = {
@@ -407,8 +435,10 @@ def run_job(
                 "seed": study.seed,
                 "factors": study.factors,
                 "recipe": study.recipe,
+                "conditions": study.conditions,
             },
         )
+        files.write_conditions(folder, study.conditions)
         files.write_readme(
             folder,
             {

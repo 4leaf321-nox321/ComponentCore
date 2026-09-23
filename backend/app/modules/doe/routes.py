@@ -65,6 +65,7 @@ def _out(db: Session, study: DoeStudy) -> StudyOut:
     return StudyOut(
         **_summary(db, study).model_dump(),
         recipe=study.recipe,
+        conditions=study.conditions,
         factors=study.factors,
         export_dir_windows=files.windows_path(Path(study.export_dir))
         if study.export_dir
@@ -118,6 +119,7 @@ def create_study(
         samples=payload.samples,
         seed=payload.seed,
         work_id=payload.work_id,
+        conditions=payload.conditions,
     )
     return _out(db, study)
 

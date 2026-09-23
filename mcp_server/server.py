@@ -109,6 +109,11 @@ async def _post(ctx: Context, path: str, json_body: Any = None) -> Any:
         return _unwrap(await client.post(path, json=json_body, headers=_forward_headers(ctx)))
 
 
+async def _put(ctx: Context, path: str, json_body: Any = None) -> Any:
+    async with _client(60) as client:
+        return _unwrap(await client.put(path, json=json_body, headers=_forward_headers(ctx)))
+
+
 async def _wait_job(ctx: Context, job: Any) -> Any:
     """작업(Job)이 끝날 때까지 폴링한다. 도구 하나가 「걸고 결과까지」 를 돌려줘야 AI 가 한
     번에 읽는다 — 작업 id 만 주면 다음 도구 호출을 또 낸다."""
@@ -492,6 +497,37 @@ async def beam_frequency(
             "support": support,
             "added_mass_g": added_mass_g,
         },
+    )
+
+
+@mcp.tool()
+async def conditions_schema(ctx: Context) -> Any:
+    """해석 조건에 **어떤 칸이 있는가** — 구속 · 하중 · 접촉 · 초기조건 · 메시 힌트의 종류와
+    칸 목록. 조건을 쓰기 전에 이것을 읽어라(레시피 전에 `recipe_schema` 를 읽는 것과 같다)."""
+    return await _get(ctx, "/api/cad/conditions/schema")
+
+
+@mcp.tool()
+async def set_conditions(
+    ctx: Context, work_id: str, conditions: dict[str, Any], number: int | None = None
+) -> Any:
+    """작업 버전에 **해석 조건**을 붙인다 — 경계 · 하중 · 접촉 · 초기조건 · 해석 설정 · 물성.
+
+    **조건은 면을 직접 가리키지 않는다.** `named_selections` 에 이름표를 만들고(셀렉터는
+    `recipe_selectors` 로 받는다) 조건은 그 이름만 가리킨다. 좌표를 박으면 실험계획이 치수를
+    바꾸는 순간 그 자리에 아무것도 없다.
+
+    숫자 칸에는 레시피와 **같은 식**을 쓸 수 있다(`"=압력"`) — 변수는 레시피의 `params` 다.
+    그 변수를 실험계획으로 훑으면 형상과 하중이 함께 움직인다.
+
+    새 버전을 만들지 않는다 — 도면이 안 바뀌었으니까. `number` 를 안 주면 현재 버전."""
+    if number is None:
+        got = await _get(ctx, f"/api/works/{work_id}")
+        if not isinstance(got, dict) or "error" in got:
+            return got
+        number = got["current_version"]
+    return await _put(
+        ctx, f"/api/works/{work_id}/versions/{number}/conditions", {"conditions": conditions}
     )
 
 

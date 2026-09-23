@@ -131,6 +131,16 @@ def recipe_find(payload: FindRequest, _: User = Depends(current_user)) -> dict[s
     return find_features(evaluation.shape, payload.query)
 
 
+@router.get("/conditions/schema")
+def conditions_schema(_: User = Depends(current_user)) -> dict[str, Any]:
+    """해석 조건의 **칸 사양표** — 화면이 폼을 그리고 AI 가 읽는 한 벌.
+
+    종류를 더할 때 화면을 고치지 않게, 정본을 서버가 들고 준다(`core/conditions.py`)."""
+    from app.core.conditions import spec
+
+    return spec()
+
+
 @router.post("/recipe/selectors")
 def recipe_selectors(
     payload: SelectorsRequest, _: User = Depends(current_user)

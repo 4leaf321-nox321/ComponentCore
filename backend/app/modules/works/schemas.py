@@ -50,6 +50,8 @@ class VersionOut(BaseModel):
     work_id: uuid.UUID
     number: int
     recipe: dict[str, Any]
+    conditions: dict[str, Any] = {}
+    """해석 조건 한 벌(`core/conditions.py`) — 비어 있으면 아직 안 붙인 것이다."""
     source: str
     note: str
     created_by_id: uuid.UUID | None
@@ -117,6 +119,12 @@ class JigFromPartRequest(BaseModel):
     """지그 작업 이름. 비우면 「〈부품〉 지그」."""
     options: dict[str, Any] = Field(default_factory=dict)
     """`JigOptions` 의 일부. 안 준 키는 기본값. 지그 작업에 `jig_options` 로 남는다."""
+
+
+class ConditionsRequest(BaseModel):
+    conditions: dict[str, Any]
+    """`core/conditions.py` 의 한 벌. 통째로 바꾼다 — 부분 수정은 레시피의 `patch` 처럼
+    필요해지면 그때 만든다."""
 
 
 class WorkPatchRequest(BaseModel):
