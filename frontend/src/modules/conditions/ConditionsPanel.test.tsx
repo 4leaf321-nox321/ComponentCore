@@ -51,12 +51,48 @@ const CANDIDATES = {
 
 const RECIPE = { params: {}, nodes: [] }
 
+/** 가짜 물성 — MatNexus 가 주는 모양 그대로(단위가 값에 붙어 있다). */
+const MATERIALS = {
+  fallback: false,
+  items: [
+    {
+      code: 'M-000123',
+      id: '8f0e',
+      name: 'SPCC 1.2t',
+      alias: '냉연강판',
+      family: '강판',
+      category: '냉연',
+      grade: 'SPCC',
+      density: 7850,
+      density_unit: 'kg/m^3',
+      poisson_ratio: 0.3,
+      declared_count: 1,
+      source: 'matnexus',
+      payload: {
+        code: 'M-000123',
+        declared_properties: [
+          {
+            item: '탄성계수',
+            si_unit: 'Pa',
+            points: [
+              { temperature_C: 22, value_si: 2.06e11 },
+              { temperature_C: 400, value_si: 1.7e11 },
+            ],
+          },
+        ],
+      },
+    },
+  ],
+}
+
 vi.mock('@/shared/api/client', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('@/shared/api/client')
   return {
     ...actual,
     api: {
-      get: vi.fn(async () => SCHEMA),
+      get: vi.fn(async (path: string) =>
+        path.startsWith('/materials') ? MATERIALS : SCHEMA,
+      ),
       post: vi.fn(async () => CANDIDATES),
       put: vi.fn(async () => ({ conditions: {} })),
     },
@@ -96,8 +132,7 @@ test('조건은 이름표를 가리키고, 저장하면 그 한 벌이 그대로
   await waitFor(() => expect(screen.getAllByText('바닥').length).toBeGreaterThan(0))
 
   // 구속을 더하면 **첫 이름표를 가리킨 채** 생긴다 — 빈 칸으로 두면 저장에서 막힌다.
-  const plus = screen.getAllByRole('button', { name: '+' })
-  fireEvent.click(plus[0])
+  fireEvent.click(screen.getByRole('button', { name: '구속 더하기' }))
   await waitFor(() => screen.getByLabelText('이름'))
 
   fireEvent.click(screen.getByText('조건 저장'))
@@ -134,4 +169,25 @@ test('같은 이름을 두 번 쓰면 막는다 — 조건이 어느 것을 가�
     fireEvent.click(screen.getByText('이름표 만들기'))
   }
   await waitFor(() => screen.getByText(/이미 있습니다/))
+})
+
+test('물성은 MatNexus 에서 골라 **payload 째로** 실린다', async () => {
+  const onSave = await panel()
+
+  fireEvent.click(screen.getByRole('button', { name: '물성 더하기' }))
+  await waitFor(() => screen.getByText('물성 고르기'))
+  await waitFor(() => screen.getByText('SPCC 1.2t'))
+
+  fireEvent.click(screen.getByText('SPCC 1.2t'))
+  // 구조를 그대로 펼친다 — 우리가 아는 항목만 보여 주면 없는 줄 안다.
+  await waitFor(() => screen.getByText(/22 °C/))
+  fireEvent.click(screen.getByText('이 물성을 쓴다'))
+
+  fireEvent.click(screen.getByText('조건 저장'))
+  await waitFor(() => expect(onSave).toHaveBeenCalled())
+  const saved = onSave.mock.calls[0][0]
+  expect(saved.materials).toHaveLength(1)
+  expect(saved.materials[0].ref.code).toBe('M-000123')
+  // **값을 해석하지 않는다** — 단위도 온도 표도 받은 그대로 실린다.
+  expect(saved.materials[0].payload.declared_properties[0].si_unit).toBe('Pa')
 })

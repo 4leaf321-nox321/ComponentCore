@@ -13,6 +13,7 @@ from app.modules.auth.models import PersonalAccessToken, RefreshToken
 from app.modules.doe.models import DoePoint, DoeStudy
 from app.modules.jigs.models import Jig, JigVersion
 from app.modules.jobs.models import Artifact, Job
+from app.modules.materials.models import CatalogMaterial
 from app.modules.parts.models import Part, PartVersion
 from app.modules.server.models import ServerSetting
 from app.modules.templates.models import RecipeTemplate
@@ -22,6 +23,7 @@ __all__ = [
     "AccessLog",
     "Artifact",
     "Base",
+    "CatalogMaterial",
     "DoePoint",
     "DoeStudy",
     "Jig",

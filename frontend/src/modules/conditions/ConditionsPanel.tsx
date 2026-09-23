@@ -19,6 +19,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { Recipe } from '@/modules/cad/api'
 import { useRecipeMesh } from '@/modules/cad/useRecipeMesh'
 import { ConditionForm } from '@/modules/conditions/ConditionForm'
+import { MaterialPicker } from '@/modules/materials/MaterialPicker'
 import { asConditions, conditionsApi, GROUP_KEYS } from '@/modules/conditions/api'
 import type {
   ConditionItem,
@@ -81,6 +82,7 @@ export function ConditionsPanel({
   } | null>(null)
   const [newName, setNewName] = useState('')
   const [picked, setPicked] = useState<number | null>(null)
+  const [picking, setPicking] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
   const schema = useResource<ConditionsSchema>(() => conditionsApi.schema(), [])
@@ -208,6 +210,41 @@ export function ConditionsPanel({
               </ul>
             </div>
 
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <p className="font-medium">
+                  물성 <span className="text-muted-foreground">{draft.materials.length}</span>
+                </p>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2"
+                  aria-label="물성 더하기"
+                  onClick={() => setPicking(true)}
+                >
+                  +
+                </Button>
+              </div>
+              <ul className="space-y-1">
+                {draft.materials.map((one, index) => (
+                  <li key={index} className="flex items-center gap-1 px-2 py-1">
+                    <span className="truncate">{String((one.ref as Record<string, unknown>)?.name ?? '이름 없음')}</span>
+                    <span className="text-muted-foreground text-xs">{String(one.apply_to ?? '전체')}</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="ml-auto h-6 px-1"
+                      onClick={() =>
+                        setDraft({ ...draft, materials: draft.materials.filter((_, i) => i !== index) })
+                      }
+                    >
+                      ×
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
             {GROUP_KEYS.map((group) => (
               <div key={group}>
                 <div className="mb-1 flex items-center justify-between">
@@ -219,6 +256,7 @@ export function ConditionsPanel({
                     size="sm"
                     variant="ghost"
                     className="h-6 px-2"
+                    aria-label={`${spec.groups[group]?.label ?? group} 더하기`}
                     onClick={() => addItem(group)}
                   >
                     +
@@ -371,6 +409,31 @@ export function ConditionsPanel({
           </CardContent>
         </Card>
       </div>
+
+      <MaterialPicker
+        open={picking}
+        onClose={() => setPicking(false)}
+        onPick={(row) => {
+          // **payload 통째로** 싣는다 — 「어느 것이 영률인가」 는 솔버를 아는 쪽의 일이다.
+          setDraft({
+            ...draft,
+            materials: [
+              ...draft.materials,
+              {
+                apply_to: '전체',
+                ref: {
+                  source: row.source === 'catalog' ? 'matnexus-catalog' : 'matnexus',
+                  code: row.code,
+                  name: row.name,
+                  fetched_at: new Date().toISOString(),
+                },
+                payload: row.payload,
+              },
+            ],
+          })
+          setPicking(false)
+        }}
+      />
 
       <div className="flex items-center gap-2">
         <Button onClick={() => onSave(draft)} disabled={saving}>

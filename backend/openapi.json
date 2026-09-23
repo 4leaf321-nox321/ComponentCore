@@ -4193,6 +4193,189 @@
         }
       }
     },
+    "/api/materials": {
+      "get": {
+        "tags": [
+          "materials"
+        ],
+        "summary": "Search Materials",
+        "description": "물성 탐색기가 쓰는 목록 — **전역 재료만** 본다.\n\nMatNexus 의 PAT 에는 범위가 없어서, 서비스 계정으로 부르면서 작업공간 재료까지 보여 주면\n그쪽 권한 구분이 이쪽에서 무너진다. 못 닿으면 올려 둔 카탈로그로 넘어가고, **넘어갔다는\n사실을 답에 적는다**(`fallback`).",
+        "operationId": "search_materials_api_materials_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 120,
+              "default": "",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "family",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 60,
+              "default": "",
+              "title": "Family"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 30,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Search Materials Api Materials Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/materials/status": {
+      "get": {
+        "tags": [
+          "materials"
+        ],
+        "summary": "Material Status",
+        "description": "닿나 · 사본은 몇 건이고 언제 받은 것인가.",
+        "operationId": "material_status_api_materials_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Material Status Api Materials Status Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/materials/catalog": {
+      "post": {
+        "tags": [
+          "materials"
+        ],
+        "summary": "Upload Catalog",
+        "description": "MatNexus 의 「내보내기」 JSON 을 올린다 — **폐쇄망 · 점검 때의 길.**\n\n통째로 갈아 끼운다. 합치면 그쪽에서 지워진 재료가 사본에만 남고, 그것을 고르고\n나서야 없다는 것을 안다.",
+        "operationId": "upload_catalog_api_materials_catalog_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_catalog_api_materials_catalog_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Upload Catalog Api Materials Catalog Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/materials/{code_or_id}": {
+      "get": {
+        "tags": [
+          "materials"
+        ],
+        "summary": "Get Material",
+        "description": "재료 하나 — `payload` 는 **받은 그대로**다. 우리가 고치지 않는다.",
+        "operationId": "get_material_api_materials__code_or_id__get",
+        "parameters": [
+          {
+            "name": "code_or_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Code Or Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Material Api Materials  Code Or Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/server/status": {
       "get": {
         "tags": [
@@ -4603,6 +4786,20 @@
           "file"
         ],
         "title": "Body_import_step_api_works__work_id__import_step_post"
+      },
+      "Body_upload_catalog_api_materials_catalog_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_catalog_api_materials_catalog_post"
       },
       "ChangePasswordRequest": {
         "properties": {
