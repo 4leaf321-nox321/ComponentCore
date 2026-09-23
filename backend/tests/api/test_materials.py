@@ -120,8 +120,14 @@ def test_못_닿으면_올려_둔_카탈로그로_넘어가고_그_사실을_말
     assert status["configured"] is False and status["catalog_count"] == 1
 
 
-def test_카탈로그는_통째로_갈아_끼운다(client: TestClient, admin: Signed) -> None:
-    """합치면 그쪽에서 지워진 재료가 사본에만 남고, 그것을 고르고 나서야 없다는 것을 안다."""
+def test_카탈로그는_통째로_갈아_끼운다(
+    client: TestClient, admin: Signed, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """합치면 그쪽에서 지워진 재료가 사본에만 남고, 그것을 고르고 나서야 없다는 것을 안다.
+
+    **사본 길만 본다** — 이 기계의 `.env` 에 MatNexus 가 붙어 있든 말든 같은 답이어야 한다.
+    """
+    monkeypatch.setattr(matnexus, "configured", lambda: False)
     first = json.dumps([SPCC, {**SPCC, "code": "M-000999", "record_name": "없어질 것"}])
     client.post(
         "/api/materials/catalog",
@@ -137,7 +143,7 @@ def test_카탈로그는_통째로_갈아_끼운다(client: TestClient, admin: S
     )
     assert again.json()["loaded"] == 1
     gone = client.get("/api/materials/M-000999", headers=admin.headers)
-    assert gone.status_code == 404
+    assert gone.status_code == 404, gone.text
 
 
 def test_카탈로그가_아닌_파일은_말해_준다(client: TestClient, admin: Signed) -> None:

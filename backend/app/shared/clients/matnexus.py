@@ -18,6 +18,7 @@ MatNexus 의 PAT 에는 **범위가 없다** — 그 계정의 권한 전부다.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import httpx
@@ -103,12 +104,26 @@ def search(query: str = "", family: str = "", limit: int = 30) -> list[dict[str,
     return list(items or [])
 
 
-def get(material_id: str) -> dict[str, Any]:
-    """재료 하나 — 통째로. 우리가 고르거나 줄이지 않는다."""
-    got = _get(f"/api/materials/{material_id}")
-    if not isinstance(got, dict):
-        raise AppError(code("MATERIALS", 2), "MatNexus 의 답이 재료 한 벌이 아닙니다")
-    return got
+#: `M-000123` 은 UUID 가 아니다 — 상세 API 는 UUID 만 받는다.
+_UUID = re.compile(r"^[0-9a-fA-F-]{32,36}$")
+
+
+def get(material_id: str) -> dict[str, Any] | None:
+    """재료 하나 — 통째로. 우리가 고르거나 줄이지 않는다.
+
+    **번호(`M-000123`)와 UUID 는 다른 길이다**(2026-09-24 실측): 상세 API 는 UUID 만 받고,
+    번호를 주면 `422 Input should be a valid UUID` 를 돌려준다. 우리가 손잡이로 삼는 것은
+    번호이므로(이름은 바뀌어도 번호는 안 바뀐다) 번호일 때는 목록 API 의 `code` 로 찾는다.
+    """
+    if _UUID.match(material_id):
+        got = _get(f"/api/materials/{material_id}")
+        if not isinstance(got, dict):
+            raise AppError(code("MATERIALS", 2), "MatNexus 의 답이 재료 한 벌이 아닙니다")
+        return got
+    rows = _get("/api/materials", {"scope": _SCOPE, "code": material_id, "limit": 1})
+    items = rows.get("items") if isinstance(rows, dict) else rows
+    first = (items or [None])[0]
+    return first if isinstance(first, dict) else None
 
 
 def ping() -> dict[str, Any]:

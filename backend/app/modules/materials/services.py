@@ -83,7 +83,9 @@ def one(db: Session, code_or_id: str) -> dict[str, Any]:
     """재료 하나 — 살아 있는 쪽이 우선, 없으면 사본."""
     if matnexus.configured():
         try:
-            return _row(matnexus.get(code_or_id), "matnexus")
+            live = matnexus.get(code_or_id)
+            if live is not None:
+                return _row(live, "matnexus")
         except matnexus.MatNexusUnavailable:
             pass
     row = db.scalar(select(CatalogMaterial).where(CatalogMaterial.code == code_or_id))
