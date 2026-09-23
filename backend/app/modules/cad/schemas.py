@@ -22,6 +22,11 @@ class FindRequest(RecipeRequest):
     limit."""
 
 
+class SelectorsRequest(RecipeRequest):
+    pick: dict[str, Any] = Field(default_factory=dict)
+    """`what`(faces · edges · vertices) 와 `point`([x, y, z] — 3D 에서 찍은 자리)."""
+
+
 class MeasureRequest(RecipeRequest):
     a: dict[str, Any]
     b: dict[str, Any]

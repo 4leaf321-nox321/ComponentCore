@@ -339,6 +339,18 @@ async def recipe_find(ctx: Context, recipe: dict[str, Any], query: dict[str, Any
 
 
 @mcp.tool()
+async def recipe_selectors(ctx: Context, recipe: dict[str, Any], pick: dict[str, Any]) -> Any:
+    """찍은 자리를 **말로 되돌려 받는다** — 「아래쪽 면」 · 「반지름 4.25 원통면(4개)」.
+
+    `pick` 은 `{"what": "faces"|"edges"|"vertices", "point": [x, y, z]}`. 답의 후보마다
+    `select`(셀렉터)와 `matches`(지금 몇 개에 맞나)가 있다.
+
+    **좌표를 그대로 조건에 박지 마라.** 실험계획이 치수를 바꾸면 그 자리에 아무것도 없다.
+    이 셀렉터를 영역 이름표 · 조건에 쓰면 설계점마다 다시 풀린다."""
+    return await _post(ctx, "/api/cad/recipe/selectors", {"recipe": recipe, "pick": pick})
+
+
+@mcp.tool()
 async def recipe_measure(
     ctx: Context, recipe: dict[str, Any], a: dict[str, Any], b: dict[str, Any]
 ) -> Any:

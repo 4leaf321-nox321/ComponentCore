@@ -32,6 +32,7 @@ from app.modules.cad.schemas import (
     RecipeProblemsOut,
     RecipeRequest,
     RecipeSchemaOut,
+    SelectorsRequest,
     SweepRequest,
     ViewsRequest,
 )
@@ -128,6 +129,23 @@ def recipe_find(payload: FindRequest, _: User = Depends(current_user)) -> dict[s
 
     evaluation = services.build(payload.recipe)
     return find_features(evaluation.shape, payload.query)
+
+
+@router.post("/recipe/selectors")
+def recipe_selectors(
+    payload: SelectorsRequest, _: User = Depends(current_user)
+) -> dict[str, Any]:
+    """3D 에서 **고른 것을 말로 되돌려 준다** — 「아래쪽 면」 · 「반지름 4.25 원통면(4개)」.
+
+    좌표로 저장하면 실험계획이 치수를 바꾸는 순간 그 자리에 아무것도 없다. 후보를 여럿 주고
+    **지금 몇 개에 맞는지**(`matches`)를 함께 보여 사람이 고르게 한다."""
+    from app.core.recipe.query import selector_candidates
+
+    evaluation = services.build(payload.recipe)
+    try:
+        return selector_candidates(evaluation.shape, payload.pick)
+    except ValueError as failure:
+        raise AppError(code("CAD", 13), str(failure)) from failure
 
 
 @router.post("/recipe/measure")

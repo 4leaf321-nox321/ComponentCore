@@ -257,6 +257,50 @@ def test_그림_찾기_재기_는_AI_가_좌표를_짐작하지_않게_한다(
     ).json()
     assert faces["total"] == 1 and faces["items"][0]["normal"] == [0, 0, 1]
 
+    # 점 — 꼭짓점(엣지 셋)과 구멍 테두리의 점(엣지 둘)이 갈린다.
+    corners = client.post(
+        "/api/cad/recipe/find",
+        json={"recipe": recipe, "query": {"what": "vertices", "edges": 3}},
+        headers=member.headers,
+    ).json()
+    assert corners["total"] == 8, "상자의 꼭짓점 여덟"
+    assert all(one["kind"] == "vertex" and len(one["point"]) == 3 for one in corners["items"])
+
+    # **찍은 자리를 말로 되돌려 준다.** 좌표를 조건에 박으면 치수를 바꾸는 순간 그 자리에
+    # 아무것도 없다 — 셀렉터로 저장해야 설계점마다 다시 풀린다.
+    back = client.post(
+        "/api/cad/recipe/selectors",
+        json={"recipe": recipe, "pick": {"what": "faces", "point": [0, 0, 10]}},
+        headers=member.headers,
+    ).json()
+    labels = {one["label"]: one for one in back["candidates"]}
+    assert "top 면" in labels and labels["top 면"]["select"] == {
+        "what": "faces",
+        "role": "top",
+    }
+    assert labels["top 면"]["matches"] == 1
+    # 「이 자리의 면」 은 **찍은 자리**를 그대로 쓴다(원통면의 center 는 표면 위의 점이라
+    # 사람이 읽으면 엉뚱해 보인다). 그리고 하나만 집는다.
+    assert labels["이 자리의 면"]["select"]["near"] == [0, 0, 10]
+    assert labels["이 자리의 면"]["matches"] == 1
+
+    # 구멍을 찍으면 **그 부류를 잡는 후보**가 함께 온다(이 레시피엔 구멍이 하나라 1).
+    # 여럿일 때 한꺼번에 잡는 것은 `test_core_query.py` 가 못 박는다.
+    hole = client.post(
+        "/api/cad/recipe/selectors",
+        json={"recipe": recipe, "pick": {"what": "faces", "point": [20, 10, 5]}},
+        headers=member.headers,
+    ).json()
+    group = [one for one in hole["candidates"] if one["select"].get("kind") == "cylinder"]
+    assert group and group[0]["matches"] == 1
+
+    bad_pick = client.post(
+        "/api/cad/recipe/selectors",
+        json={"recipe": recipe, "pick": {"what": "faces"}},
+        headers=member.headers,
+    )
+    assert bad_pick.status_code == 400 and "point" in bad_pick.json()["error"]["message"]
+
     # 재기 — 윗면과 바닥면 사이(두께), 구멍 중심에서 모서리까지.
     got = client.post(
         "/api/cad/recipe/measure",

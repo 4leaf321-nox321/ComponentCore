@@ -2959,6 +2959,50 @@
         }
       }
     },
+    "/api/cad/recipe/selectors": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Recipe Selectors",
+        "description": "3D 에서 **고른 것을 말로 되돌려 준다** — 「아래쪽 면」 · 「반지름 4.25 원통면(4개)」.\n\n좌표로 저장하면 실험계획이 치수를 바꾸는 순간 그 자리에 아무것도 없다. 후보를 여럿 주고\n**지금 몇 개에 맞는지**(`matches`)를 함께 보여 사람이 고르게 한다.",
+        "operationId": "recipe_selectors_api_cad_recipe_selectors_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SelectorsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Recipe Selectors Api Cad Recipe Selectors Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/cad/recipe/measure": {
       "post": {
         "tags": [
@@ -6329,6 +6373,25 @@
           "template_labels"
         ],
         "title": "RecipeSchemaOut"
+      },
+      "SelectorsRequest": {
+        "properties": {
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "pick": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Pick"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipe"
+        ],
+        "title": "SelectorsRequest"
       },
       "ServerStatusOut": {
         "properties": {

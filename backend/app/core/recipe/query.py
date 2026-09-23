@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from build123d import Edge, Face, GeomType, Shape, Vector
+from build123d import Edge, Face, GeomType, Shape, Vector, Vertex
 
 _AXIS_COS = 0.95
 _LIMIT = 60
@@ -69,6 +69,23 @@ def _edge_row(index: int, edge: Edge) -> dict[str, Any]:
     return row
 
 
+def _vertex_row(index: int, vertex: Vertex, shape: Shape) -> dict[str, Any]:
+    """점 하나 — 좌표와 **거기 모이는 엣지 수**.
+
+    엣지 수가 있어야 「모서리 꼭짓점(3개)」 과 「구멍 테두리 위의 점(2개)」 을 가른다. 좌표만
+    보면 같은 점이 여럿이고, 사람은 셋 중 무엇을 고른 것인지 말할 수 없다.
+    """
+    point = vertex.to_tuple()
+    return {
+        "index": index,
+        "kind": "vertex",
+        "point": [round(float(v), 3) for v in point],
+        "edges": sum(
+            1 for edge in shape.edges() if any(v.to_tuple() == point for v in edge.vertices())
+        ),
+    }
+
+
 def _face_row(index: int, face: Face, box_min_z: float, box_max_z: float) -> dict[str, Any]:
     kind = face.geom_type.name.lower()
     row: dict[str, Any] = {
@@ -94,16 +111,17 @@ def find_features(shape: Shape, query: dict[str, Any]) -> dict[str, Any]:
     """말로 고른 엣지 · 면의 좌표.
 
     query:
-      what        edges | faces
+      what        edges | faces | vertices
       kind        line | circle | arc | plane | cylinder … (엣지 · 면의 기하 종류)
       role        top | bottom | side | step | underside (면)
       of_face_role  이 역할의 **가장 넓은 면**에 속한 엣지만 (예: top → 윗면 테두리)
       axis        x | y | z (직선 엣지의 방향)
       radius      이 반지름(±0.05)의 원 · 원통만
       min_length / max_length
+      edges       이 점에 모이는 엣지 수(점) — 꼭짓점 3 · 구멍 테두리 2
       near        [x, y, z] — 이 점에서 가까운 순으로
       limit       기본 60
-    답의 `midpoint`(엣지) · `center`(면)를 그대로 `near` 나 `plane` 에 쓴다.
+    답의 `midpoint`(엣지) · `center`(면) · `point`(점)를 그대로 `near` 나 `plane` 에 쓴다.
     """
     what = query.get("what", "edges")
     box = shape.bounding_box()
@@ -111,7 +129,12 @@ def find_features(shape: Shape, query: dict[str, Any]) -> dict[str, Any]:
     limit = int(query.get("limit") or _LIMIT)
     near = query.get("near")
 
-    if what == "faces":
+    if what == "vertices":
+        rows = [_vertex_row(i, v, shape) for i, v in enumerate(shape.vertices())]
+        if query.get("edges") is not None:
+            rows = [r for r in rows if r["edges"] == int(query["edges"])]
+        key = "point"
+    elif what == "faces":
         rows = [_face_row(i, f, z_lo, z_hi) for i, f in enumerate(shape.faces())]
         if query.get("kind"):
             rows = [r for r in rows if r["kind"] == query["kind"]]
@@ -230,3 +253,98 @@ def measure(shape: Shape, a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any
             abs(sum(x * n for x, n in zip(d, normal, strict=True))), 3
         )
     return out
+
+
+# --- 고른 것을 말로 되돌려 주기 -------------------------------------------------
+
+
+def _face_candidates(
+    row: dict[str, Any], point: list[float]
+) -> list[tuple[str, dict[str, Any]]]:
+    out: list[tuple[str, dict[str, Any]]] = []
+    role = row.get("role")
+    if role:
+        out.append((f"{role} 면", {"what": "faces", "role": role}))
+    if row.get("radius") is not None:
+        out.append(
+            (
+                f"반지름 {row['radius']} 원통면",
+                {"what": "faces", "kind": row["kind"], "radius": row["radius"]},
+            )
+        )
+    # **찍은 자리를 그대로 쓴다.** 원통면의 `center` 는 축이 아니라 표면 위의 점이라
+    # (topology.py 머리말) 사람이 읽으면 엉뚱한 좌표로 보인다.
+    out.append(("이 자리의 면", {"what": "faces", "near": point, "limit": 1}))
+    return out
+
+
+def _edge_candidates(
+    row: dict[str, Any], point: list[float]
+) -> list[tuple[str, dict[str, Any]]]:
+    out: list[tuple[str, dict[str, Any]]] = []
+    if row.get("radius") is not None:
+        out.append(
+            (
+                f"반지름 {row['radius']} 원",
+                {"what": "edges", "kind": row["kind"], "radius": row["radius"]},
+            )
+        )
+    if row.get("axis"):
+        out.append(
+            (
+                f"{row['axis']} 방향 직선 엣지",
+                {"what": "edges", "kind": row["kind"], "axis": row["axis"]},
+            )
+        )
+    out.append(("이 자리의 엣지", {"what": "edges", "near": point, "limit": 1}))
+    return out
+
+
+def _vertex_candidates(
+    row: dict[str, Any], point: list[float]
+) -> list[tuple[str, dict[str, Any]]]:
+    return [
+        (f"엣지 {row['edges']}개가 모이는 점", {"what": "vertices", "edges": row["edges"]}),
+        ("이 자리의 점", {"what": "vertices", "near": point, "limit": 1}),
+    ]
+
+
+def selector_candidates(shape: Shape, pick: dict[str, Any]) -> dict[str, Any]:
+    """3D 에서 **고른 것을 말로 되돌려 준다** — 좌표가 아니라 셀렉터로.
+
+    왜 좌표로 저장하지 않나: 실험계획은 치수를 바꿔 형상을 여러 벌 만든다. 「(30, 15, 5) 의
+    면」 은 두께를 바꾸는 순간 그 자리에 없다. 「아래쪽 면」 · 「반지름 4.25 원통면」 은
+    남는다.
+
+    그래서 후보를 **여럿** 주고 사람이 고르게 한다. 하나만 자동으로 정하면, 「볼트 구멍 넷
+    전부」 를 원했는데 「이 구멍 하나」 가 저장되는 날이 온다 — 그 사실은 설계점 스무 개를
+    돌린 뒤에야 보인다. 그래서 **지금 몇 개에 맞는지**(`matches`)를 함께 돌려준다.
+    """
+    what = pick.get("what", "faces")
+    point = pick.get("point")
+    if not isinstance(point, list) or len(point) != 3:
+        raise ValueError("pick.point: [x, y, z] 가 필요합니다")
+
+    found = find_features(shape, {"what": what, "near": point, "limit": 1})
+    if not found["items"]:
+        return {"picked": None, "candidates": []}
+    row = found["items"][0]
+
+    if what == "faces":
+        pairs = _face_candidates(row, point)
+    elif what == "vertices":
+        pairs = _vertex_candidates(row, point)
+    else:
+        pairs = _edge_candidates(row, point)
+
+    candidates = []
+    for label, select in pairs:
+        matched = find_features(shape, select)
+        # **몇 개에 맞나.** 1 이면 이것 하나, 여럿이면 그 부류 전부다 — 둘 다 쓸모가 있어서
+        # 고르게 한다(볼트 구멍은 넷을 한꺼번에 잡고 싶다).
+        #
+        # 셀렉터가 `limit` 을 들고 있으면 그것이 곧 집는 수다. `total`(거른 뒤 전체)을 세면
+        # 「이 자리의 면」 이 10 개에 맞는다고 말하게 된다 — 사람은 그 수를 보고 고른다.
+        matches = len(matched["items"]) if "limit" in select else matched["total"]
+        candidates.append({"label": label, "select": select, "matches": matches})
+    return {"picked": row, "candidates": candidates}
