@@ -47,8 +47,34 @@ jobs:
             backend/requirements.txt
             backend/requirements-dev.txt
       # OCP(OpenCascade) 가 쓰는 시스템 라이브러리 — 없으면 build123d import 에서 죽는다.
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libglu1-mesa libxrender1 libxext1
+      #
+      # **apt 의 성공을 관문으로 삼지 않는다.** 예전에는 한 줄(`update && install`)이었는데
+      # 러너에서 exit 100 으로 죽어 **백엔드 검증 전체가, 따라서 릴리스가 막혔다** — 정작
+      # 필요한 것은 「apt 가 성공했는가」 가 아니라 「OCP 가 import 되는가」 다. 러너 이미지에
+      # 이미 깔려 있을 수도 있고, 한 꾸러미가 그날 저장소에서 빠질 수도 있다.
+      #
+      # 그래서 여기서는 **최선을 다해 깔고 무엇이 됐는지 찍어만 둔다.** 진짜 판정은 아래
+      # 「OCP 가 import 되는가」 가 한다 — 그것이 실패하면 이 로그가 까닭을 말해 준다.
+      - name: OCP 가 쓰는 시스템 라이브러리 (실패해도 여기서 멈추지 않는다)
+        continue-on-error: true
+        run: |
+          sudo apt-get update -o Acquire::Retries=3 || sudo apt-get update -o Acquire::Retries=3
+          for pkg in libgl1 libglu1-mesa libxrender1 libxext1; do
+            sudo apt-get install -y --no-install-recommends "$pkg" \
+              || { echo "::warning::$pkg 를 깔지 못했습니다"; apt-cache policy "$pkg" || true; }
+          done
+
       - run: pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+
+      # **여기가 진짜 관문이다.** 시험이 형상을 만들려다 죽으면 그 오류는 CAD 커널이 아니라
+      # 시험을 가리킨다 — 무엇이 없는지 여기서 먼저 말하게 한다.
+      - name: OCP 가 import 되는가
+        run: |
+          python - <<'EOF'
+          import build123d
+          from build123d import Box
+          print("build123d", build123d.__version__, "· 상자 부피", Box(1, 1, 1).volume)
+          EOF
       - run: |
           PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE compcore"
           PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE compcore_test"
