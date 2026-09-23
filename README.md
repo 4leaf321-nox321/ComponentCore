@@ -101,7 +101,7 @@ sudo ./deploy.sh setup               # 물어보며 prepare → install (또는 
 
 한 프로세스가 API 와 화면을 같이 서빙하고, 워커(`compcore-worker`)와 MCP 서버(`compcore-mcp`)가
 따로 뜬다. **실험계획의 공유 폴더**는 `DOE_HOST_DIR` 로 정한다 — 해석(ANSYS)이 읽는 자리라
-안 정하면 DOE 를 만들 때 거절된다. 자세한 것은 [deploy/README_OPERATOR.md](deploy/README_OPERATOR.md)
+안 정해도 DOE 는 만들어지고 해석으로 「보내기」 만 막힌다. 자세한 것은 [deploy/README_OPERATOR.md](deploy/README_OPERATOR.md)
 (쉬운 순서는 [deploy/쉬운-설치.md](deploy/쉬운-설치.md)).
 
 ### 서버 없이 코어만

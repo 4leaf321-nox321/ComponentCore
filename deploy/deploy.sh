@@ -132,9 +132,12 @@ fi
 LOG_HOST_DIR="$INSTALL_DIR/logs"
 
 # **실험계획(DOE)이 STEP 을 쏟는 공유 폴더.** 해석(ANSYS)을 도는 쪽이 같은 자리를 본다 —
-# 대개 파일 서버의 마운트(예: /mnt/share/CompCore)다. 안 정하면 유닛에 bind 가 안
-# 걸리고, 그때 DOE 를 만들면 「공유 폴더에 쓸 수 없습니다」 로 **거절된다**(조용히 컨테이너
-# 안에 쓰지 않는다 — 그러면 이미지를 바꾸는 날 결과가 통째로 사라진다).
+# 대개 파일 서버의 마운트(예: /mnt/share/CompCore)다.
+#
+# **안 정해도 DOE 는 만들어진다** — 설계점 STEP 은 서버 보관 폴더(filestore/doe/…)에 쌓인다.
+# 막히는 것은 **「보내기」** 하나다: 유닛에 bind 가 없으면 `POST /doe/{id}/export` 가
+# 「공유 폴더에 쓸 수 없습니다」 로 거절한다(조용히 컨테이너 안에 쓰지 않는다 — 그러면 이미지를
+# 바꾸는 날 결과가 통째로 사라진다). 보관 폴더의 원본은 남으므로 폴더를 정한 뒤 다시 보내면 된다.
 # 공용 스토리지(DATA_DIR)를 쓰면 그 아래를 기본값으로 삼는다.
 DOE_HOST_DIR="${DOE_HOST_DIR:-$(instance_conf_get "$APP_SLUG" DOE_HOST_DIR)}"
 if [[ -z "$DOE_HOST_DIR" && -n "$DATA_DIR" ]]; then DOE_HOST_DIR="$DATA_DIR/doe-export"; fi
@@ -541,8 +544,8 @@ setup_backup_timer() {
 # 만들려는 날에야 드러난다(앱이 미리 보고 거절하지만, 그때는 이미 배포가 끝난 뒤다). ──
 check_doe_dir() {
     [[ -n "$DOE_HOST_DIR" ]] || {
-        warn "실험계획 공유 폴더를 안 정했습니다 — DOE 를 만들 수 없습니다.
-      정하려면: DOE_HOST_DIR=/mnt/share/CompCore sudo ./deploy.sh update"
+        warn "실험계획 공유 폴더를 안 정했습니다 — DOE 는 만들어지지만 해석으로 「보내기」 가 막힙니다.
+      정하려면: DOE_HOST_DIR=/mnt/share/CompCore sudo ./deploy.sh update (이미 만든 것도 그 뒤 보낼 수 있습니다)"
         return 0
     }
     local probe="$DOE_HOST_DIR/.deploy-write-test"
@@ -550,7 +553,7 @@ check_doe_dir() {
         info "실험계획 공유 폴더 쓰기 확인: $DOE_HOST_DIR"
     else
         warn "실험계획 공유 폴더에 못 씁니다: $DOE_HOST_DIR (계정 $OPERATOR)
-      네트워크 마운트면 uid/gid 옵션을 보세요 — 이대로면 DOE 를 만들 때 거절됩니다."
+      네트워크 마운트면 uid/gid 옵션을 보세요 — 이대로면 「보내기」 가 거절됩니다."
     fi
 }
 
@@ -685,7 +688,7 @@ cmd_install() {
   워커   : sudo systemctl status $WORKER_SERVICE_NAME   (부품 평가 · 지그 생성 · 실험계획이 여기서 돈다)
   접속   : $( [[ -n "$HA_ROLE" ]] && echo "https://$PUBLIC_HOST/$APP_SLUG/  (직접: http://$SELF_IP:$APP_PORT/)" || echo "http://<서버주소>:$APP_PORT/" )
   자료   : 작업물 $FILESTORE_HOST_DIR · 설정 $ENV_FILE · 로그 $LOG_HOST_DIR$( [[ -n "$BACKUP_HOST_DIR" ]] && echo " · 백업 $BACKUP_HOST_DIR" )
-  실험계획: ${DOE_HOST_DIR:-(안 정함 — DOE 를 만들 때 거절됩니다. DOE_HOST_DIR=<경로> sudo ./deploy.sh update)}
+  실험계획: ${DOE_HOST_DIR:-(안 정함 — 만들기는 되고 「보내기」 만 막힙니다. DOE_HOST_DIR=<경로> sudo ./deploy.sh update)}
   MCP    : sudo systemctl status $MCP_SERVICE_NAME   (Claude · Gemini 연동, 선택)
 
   위에 찍힌 관리자 임시 비밀번호는 **다시 표시되지 않습니다.**
@@ -798,10 +801,10 @@ cmd_status() {
         if as_op sh -c "touch '$DOE_HOST_DIR/.deploy-write-test' && rm -f '$DOE_HOST_DIR/.deploy-write-test'" 2>/dev/null; then
             echo "  쓰기: 된다 · 스터디 $(find "$DOE_HOST_DIR" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l) 개"
         else
-            echo "  쓰기: **안 된다** — DOE 를 만들면 거절됩니다"
+            echo "  쓰기: **안 된다** — 「보내기」 가 거절됩니다(만들기는 됩니다)"
         fi
     else
-        echo "  안 정함 — DOE 를 만들 수 없습니다 (DOE_HOST_DIR=<경로> sudo ./deploy.sh update)"
+        echo "  안 정함 — 만들기는 되고 「보내기」 만 막힙니다 (DOE_HOST_DIR=<경로> sudo ./deploy.sh update)"
     fi
     if [[ -f "$BACKUP_TIMER_UNIT" ]]; then
         echo
@@ -845,7 +848,7 @@ cmd_setup() {
         APP_PORT="${APP_PORT:-$APP_PORT_DEFAULT}"
         ask EXTENSIONS "켤 확장 모듈, 쉼표로 (없으면 그냥 Enter)" "$(instance_conf_get "$APP_SLUG" EXTENSIONS)"
         # **실험계획의 공유 폴더.** 해석(ANSYS)을 도는 쪽이 같은 자리를 본다 — 대개 파일 서버의
-        # 마운트다. 안 정하면 DOE 를 만들 때 거절된다(조용히 컨테이너 안에 쓰지 않는다).
+        # 마운트다. 안 정해도 DOE 는 만들어지고, 해석으로 「보내기」 만 막힌다.
         ask DOE_HOST_DIR "실험계획이 STEP 을 쏟을 공유 폴더 — 해석이 읽는 자리 (없으면 그냥 Enter)" "$(instance_conf_get "$APP_SLUG" DOE_HOST_DIR)"
     fi
     local peer_account=""

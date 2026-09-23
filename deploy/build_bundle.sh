@@ -136,18 +136,73 @@ chmod +x "$STAGE"/*.sh
 
 # ── 3a. apptainer .deb 동봉 (폐쇄망 대비) ────────────────────────────────────
 # apptainer 는 우분투 기본 저장소에 없다(공식 PPA 전용). 운영 서버가 폐쇄망이면 prepare 가
-# 설치하지 못해 사람이 .deb 를 구해 와야 했다 — 첫 서버 설치 때 실제로 겪었다. 빌드 머신
-# (PPA 있음 · 운영과 같은 우분투 24.04/amd64)에서 미리 받아 두면 deploy.sh 의
-# ensure_apptainer 가 이것을 1순위로 깐다. uidmap · libfuse3-3 은 최소 설치 서버에 없을 수
-# 있는 의존성이다.
+# 설치하지 못해 사람이 .deb 를 구해 와야 했다 — 첫 서버 설치 때 실제로 겪었다. 미리 받아 두면
+# deploy.sh 의 ensure_apptainer 가 이것을 1순위로 깐다.
+#
+# **베타를 운영 서버에 넣지 않는다.** PPA 에는 베타만 올라와 있는 때가 있다 — 2026-09-23 실측:
+# `apt-cache madison apptainer` 가 `1.5.4-b2-1~noble` 하나뿐이었고, 그것이 v0.1.0 번들에 그대로
+# 실렸다. 그래서 순서를 둔다:
+#
+#   1. APPTAINER_VERSION 을 주면 그 버전을 apt 에서 (사람이 정한 것이 이긴다)
+#   2. PPA 후보가 베타가 아니면 그것을 apt 에서 (의존성을 apt 가 풀어 준다)
+#   3. 베타뿐이면 **GitHub 의 최신 안정 릴리스** .deb 를 받는다(`/releases/latest` 는
+#      prerelease 를 건너뛴다). 데비안 13+ 용 `-trixie+` 는 피한다 — 운영은 우분투 24.04 다.
+#
+# uidmap · libfuse3-3 은 최소 설치 서버에 없을 수 있는 의존성이라 어느 길이든 apt 에서 받는다.
 echo "==> [3a/4] apptainer .deb 동봉 (오프라인 설치용)"
 mkdir -p "$STAGE/apptainer_debs"
-if (cd "$STAGE/apptainer_debs" && apt-get download apptainer uidmap libfuse3-3 >/dev/null 2>&1); then
+apptainer_deb_ok=0
+
+ppa_candidate="$(apt-cache madison apptainer 2>/dev/null | awk '{print $3}' | head -n1)"
+wanted="${APPTAINER_VERSION:-}"
+if [[ -z "$wanted" && -n "$ppa_candidate" && ! "$ppa_candidate" =~ -b[0-9]+ ]]; then
+    wanted="$ppa_candidate"
+fi
+
+if [[ -n "$wanted" ]]; then
+    if (cd "$STAGE/apptainer_debs" && apt-get download "apptainer=$wanted" >/dev/null 2>&1); then
+        echo "    apptainer $wanted (apt)"
+        apptainer_deb_ok=1
+    else
+        echo "    ⚠ apt 에서 apptainer=$wanted 를 받지 못했습니다 — GitHub 안정 릴리스로 갑니다."
+    fi
+fi
+
+if [[ $apptainer_deb_ok -eq 0 ]]; then
+    [[ -n "$ppa_candidate" ]] && echo "    PPA 후보가 베타입니다($ppa_candidate) — 건너뜁니다."
+    deb_url="$(curl -fsSL https://api.github.com/repos/apptainer/apptainer/releases/latest 2>/dev/null \
+        | grep -oE 'https://[^"]*/apptainer_[0-9.]+_amd64\.deb' | head -n1)"
+    if [[ -n "$deb_url" ]] && curl -fsSL -o "$STAGE/apptainer_debs/$(basename "$deb_url")" "$deb_url"; then
+        echo "    apptainer $(basename "$deb_url") (GitHub 안정 릴리스)"
+        apptainer_deb_ok=1
+    fi
+fi
+
+# **의존성은 .deb 가 스스로 말하는 것을 따라 담는다.** 손으로 적어 두면 apptainer 가 의존성을
+# 하나 더하는 날 그 사실이 **폐쇄망 서버의 설치 실패**로만 드러난다 — 실제로 GitHub 안정판은
+# PPA 판에 없던 `fakeroot` 를 요구한다(2026-09-23 실측). libc6 · zlib1g 처럼 어디에나 있는 것은
+# 굳이 담지 않는다.
+deps="uidmap libfuse3-3"
+if [[ $apptainer_deb_ok -eq 1 ]]; then
+    apptainer_deb="$(ls "$STAGE"/apptainer_debs/apptainer_*.deb 2>/dev/null | head -n1)"
+    if [[ -n "$apptainer_deb" ]] && command -v dpkg-deb >/dev/null; then
+        deps="$(dpkg-deb -f "$apptainer_deb" Depends 2>/dev/null \
+            | tr ',' '\n' | sed 's/|.*//; s/(.*)//; s/^ *//; s/ *$//' \
+            | grep -vE '^(libc6|zlib1g)$' | sort -u | tr '\n' ' ')"
+    fi
+fi
+missing=""
+for pkg in $deps; do
+    (cd "$STAGE/apptainer_debs" && apt-get download "$pkg" >/dev/null 2>&1) || missing="$missing $pkg"
+done
+[[ -n "$missing" ]] && echo "    ⚠ 의존성을 못 받았습니다:$missing — 최소 설치 서버에서 모자랄 수 있습니다."
+
+if [[ $apptainer_deb_ok -eq 1 ]]; then
     echo "    동봉: $(ls "$STAGE/apptainer_debs" | tr '\n' ' ')"
 else
     rm -rf "$STAGE/apptainer_debs"
-    echo "    ⚠ apt-get download 실패(빌드 머신에 apptainer PPA 가 없나?) — .deb 미동봉."
-    echo "      폐쇄망 서버에서는 ensure_apptainer 가 안내하는 수동 반입이 필요합니다."
+    echo "    ⚠ apptainer .deb 미동봉 — 폐쇄망 서버에서는 ensure_apptainer 가 안내하는 수동 반입이"
+    echo "      필요합니다. (APPTAINER_VERSION=<버전> 으로 지정할 수 있습니다)"
 fi
 
 # ── 3b. MCP 서버 (별도 venv 로 운영 서버에서 돌아감) ──────────────────────────
