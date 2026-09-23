@@ -107,7 +107,9 @@ def _face_row(index: int, face: Face, box_min_z: float, box_max_z: float) -> dic
     return row
 
 
-def find_features(shape: Shape, query: dict[str, Any]) -> dict[str, Any]:
+def find_features(
+    shape: Shape, query: dict[str, Any], tags: dict[str, list[int]] | None = None
+) -> dict[str, Any]:
     """말로 고른 엣지 · 면의 좌표.
 
     query:
@@ -118,6 +120,7 @@ def find_features(shape: Shape, query: dict[str, Any]) -> dict[str, Any]:
       axis        x | y | z (직선 엣지의 방향)
       radius      이 반지름(±0.05)의 원 · 원통만
       min_length / max_length
+      tag         `divide_face` 가 붙인 이름 — 그 패치의 면만. `tags` 를 줘야 듣는다
       edges       이 점에 모이는 엣지 수(점) — 꼭짓점 3 · 구멍 테두리 2
       near        [x, y, z] — 이 점에서 가까운 순으로
       limit       기본 60
@@ -136,6 +139,11 @@ def find_features(shape: Shape, query: dict[str, Any]) -> dict[str, Any]:
         key = "point"
     elif what == "faces":
         rows = [_face_row(i, f, z_lo, z_hi) for i, f in enumerate(shape.faces())]
+        if query.get("tag"):
+            # **번호는 이 평가 안에서만 뜻이 있다.** 그래서 저장하지 않고 평가가 찾아 준
+            # 것(`Evaluation.tags`)을 받아 쓴다 — 설계점이 바뀌면 그때 다시 찾는다.
+            wanted = set((tags or {}).get(str(query["tag"]), []))
+            rows = [r for r in rows if r["index"] in wanted]
         if query.get("kind"):
             rows = [r for r in rows if r["kind"] == query["kind"]]
         if query.get("role"):

@@ -303,6 +303,22 @@ def export_study(db: Session, study: DoeStudy) -> DoeStudy:
     return study
 
 
+def _region_definitions(conditions: dict[str, Any] | None) -> list[dict[str, Any]] | None:
+    """조건의 이름표를 **영역 정의**로 — 내보낼 때 그 이름으로 좌표가 나간다.
+
+    조건이 없으면 None 을 돌려 기본 영역(`fixed_base` · `bolt_holes`)으로 간다. 사람이 이름표를
+    지었으면 그것이 곧 해석이 부를 이름이다 — 우리가 다시 이름 짓지 않는다.
+    """
+    names = (conditions or {}).get("named_selections") or []
+    if not names:
+        return None
+    return [
+        {"name": one["name"], "select": one.get("select") or {}}
+        for one in names
+        if one.get("name")
+    ]
+
+
 def _interference_of(shape: Any) -> dict[str, Any] | None:
     """결과가 이름표 붙은 묶음(조립)일 때만 — 구성품이 하나면 검사할 쌍이 없다(None)."""
     from app.core.interference import check_pairs
@@ -358,7 +374,10 @@ def run_job(
                 # **영역 지문을 STEP 옆에 나란히 쓴다.** STEP 은 이름표를 못 나르므로, 해석이
                 # 「어느 면이 고정면인가」 를 물을 곳은 이 파일뿐이다. 설계점마다 좌표가
                 # 다르므로 점마다 한 장이다(topology.py 머리말).
-                topo = topology.document(evaluation.shape)
+                # **조건의 이름표가 `divide_face` 패치를 가리킬 수 있다.** 그 번호는 이
+                # 평가 안에서만 뜻이 있으므로 평가가 찾아 준 것을 그대로 넘긴다.
+                definitions = _region_definitions(study.conditions)
+                topo = topology.document(evaluation.shape, definitions, tags=evaluation.tags)
                 # **이 점이 무엇인가**를 파일이 스스로 말하게 한다 — 결과가 우리에게 돌아오지
                 # 않으므로, 해석 쪽은 파일만 보고 「이 결과가 두께 8 짜리」 를 알아야 한다.
                 topo["point"] = {

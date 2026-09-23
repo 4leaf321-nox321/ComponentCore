@@ -388,7 +388,10 @@ def test_해석_조건을_붙여_훑으면_점마다_풀려_나간다(
         풀린[number] = (topo["point"]["params"]["두께"], one["loads"][0]["magnitude"])
         # 이름표는 셀렉터 그대로 — 좌표는 topology 가 든다(설계점마다 다르니까).
         assert one["named_selections"][0]["select"] == {"what": "faces", "role": "bottom"}
-        assert topo["regions"]["fixed_base"], "조건이 가리킬 면이 실제로 풀렸다"
+        # **영역 이름은 사람이 지은 이름표다.** 조건이 붙으면 기본 이름(`fixed_base`)이
+        # 아니라 그 이름으로 나간다 — 해석 쪽이 부를 이름을 우리가 다시 짓지 않는다.
+        assert topo["regions"]["바닥"], "조건이 가리킬 면이 실제로 풀렸다"
+        assert "fixed_base" not in topo["regions"]
         # **이 점이 무엇인가**를 파일이 스스로 말한다 — 결과가 우리에게 안 돌아오므로.
         assert topo["point"]["number"] == number
         assert topo["point"]["study"]["name"] == "조건까지 훑기"

@@ -44,7 +44,9 @@ export function pretty(recipe: Recipe): string {
   return JSON.stringify(recipe, null, 2)
 }
 
-const GROUPS = ['스케치', '입체', '조합', '마감', '배치'] as const
+// **「영역」 은 형상을 바꾸지 않는다** — 면을 나눠 이름을 붙일 뿐이다. 그래도 리본에 있는
+// 이유는 그것이 레시피 노드이기 때문이다: 설계점마다 같은 자리에 다시 생겨야 한다.
+const GROUPS = ['스케치', '입체', '조합', '마감', '배치', '영역'] as const
 
 /** 「파일」 탭이 부르는 것들 — 호출부(새 작업 · 내 작업)가 준다. 없는 것은 단추가 안 뜬다. */
 export interface FileActions {

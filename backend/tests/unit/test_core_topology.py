@@ -127,3 +127,70 @@ def test_못_푼_영역은_조용히_빠지지_않는다() -> None:
     )
     assert doc["unresolved"] == ["없는것"]
     assert "없는것" not in doc["regions"]
+
+
+DIVIDED: dict[str, Any] = {
+    "params": {"두께": 10},
+    "nodes": [
+        {
+            "id": "b",
+            "op": "box",
+            "length": 80,
+            "width": 50,
+            "height": "=두께",
+            "align": ["center", "center", "min"],
+        },
+        {
+            "id": "패치",
+            "op": "divide_face",
+            "target": "b",
+            "on": {"role": "top"},
+            "shape": "circle",
+            "radius": 8,
+            "at": [20, 10, 999],
+            "tag": "하중영역",
+        },
+    ],
+}
+
+
+def _divided(두께: float = 10) -> Any:
+    return evaluate(parse({**DIVIDED, "params": {"두께": 두께}}))
+
+
+def test_면을_나눠도_형상은_그대로다() -> None:
+    """**부피가 변하면 안 된다.** 불리언으로 흉내 내면 얇은 판이 생기거나 부피가 흔들린다."""
+    plain = evaluate(parse({**DIVIDED, "nodes": DIVIDED["nodes"][:1]}))
+    divided = _divided()
+    assert len(divided.shape.faces()) == len(plain.shape.faces()) + 1
+    assert abs(divided.shape.volume - plain.shape.volume) < 1e-6
+
+
+def test_패치는_치수를_바꿔도_같은_자리에_남는다() -> None:
+    """**2b 의 완료 기준이다.** 면 번호로 저장하면 두께를 바꾸는 순간 다른 면을 가리킨다."""
+    for 두께 in (4, 10, 20):
+        got = _divided(두께)
+        faces = [got.shape.faces()[i] for i in got.tags["하중영역"]]
+        assert len(faces) == 1, f"두께 {두께}"
+        # π·8² = 201.06 — 패치만 잡혔다(나머지 윗면은 안 잡힌다).
+        assert abs(faces[0].area - 201.06) < 0.1, f"두께 {두께}"
+        assert abs(faces[0].center().Z - 두께) < 1e-6, f"두께 {두께}"
+
+
+def test_태그로_영역을_내보낸다() -> None:
+    got = _divided()
+    doc = document(
+        got.shape,
+        [{"name": "하중영역", "select": {"what": "faces", "tag": "하중영역"}}],
+        tags=got.tags,
+    )
+    assert doc["unresolved"] == []
+    area = doc["regions"]["하중영역"][0]
+    assert abs(area["area"] - 201.06) < 0.1
+    assert area["centroid"][:2] == [20.0, 10.0]
+
+    # **태그를 안 넘기면 못 찾는다** — 번호는 이 평가 안에서만 뜻이 있다는 뜻이다.
+    blind = document(
+        got.shape, [{"name": "하중영역", "select": {"what": "faces", "tag": "하중영역"}}]
+    )
+    assert blind["unresolved"] == ["하중영역"]

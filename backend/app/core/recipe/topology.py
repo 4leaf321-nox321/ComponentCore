@@ -131,7 +131,9 @@ def _axis_matches(row: dict[str, Any], axis: str) -> bool:
 
 
 def regions(
-    shape: Shape, definitions: list[dict[str, Any]] | None = None
+    shape: Shape,
+    definitions: list[dict[str, Any]] | None = None,
+    tags: dict[str, list[int]] | None = None,
 ) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:
     """영역 이름 → 그때의 면(또는 엣지) 지문. 그리고 **못 푼 이름들**.
 
@@ -143,7 +145,7 @@ def regions(
     for definition in definitions if definitions is not None else DEFAULT_REGIONS:
         name = definition["name"]
         select = dict(definition.get("select") or {})
-        answer = find_features(shape, select)
+        answer = find_features(shape, select, tags)
         rows = answer["items"]
         if definition.get("axis"):
             rows = [r for r in rows if _axis_matches(r, str(definition["axis"]))]
@@ -163,9 +165,10 @@ def document(
     definitions: list[dict[str, Any]] | None = None,
     *,
     units: str = "mm",
+    tags: dict[str, list[int]] | None = None,
 ) -> dict[str, Any]:
     """`topology.json` 한 장. 설계점마다 하나씩 쓴다 — 같은 이름이라도 좌표가 다르다."""
-    found, unresolved = regions(shape, definitions)
+    found, unresolved = regions(shape, definitions, tags)
     return {
         "units": units,
         "bodies": bodies(shape),

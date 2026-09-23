@@ -29,6 +29,7 @@ import {
   Wrench,
   Waves,
   Fence,
+  SquareDashedBottom,
   SquareSplitHorizontal,
   Move3d,
   Package,
@@ -83,7 +84,7 @@ export interface FieldSpec {
 export interface OpSpec {
   op: string
   label: string
-  group: '스케치' | '입체' | '조합' | '마감' | '배치'
+  group: '스케치' | '입체' | '조합' | '마감' | '배치' | '영역'
   /** 툴바에 보일 짧은 이름. 없으면 label. */
   short?: string
   icon: LucideIcon
@@ -526,6 +527,21 @@ export const OP_SPECS: OpSpec[] = [
       { key: 'offset', label: '윤곽 여유 (mm)', kind: 'number', step: 0.1 },
     ],
     defaults: { target: '', plane: { name: 'XY', origin: [0, 0, 0] }, offset: 0 },
+  },
+  {
+    op: 'divide_face',
+    icon: SquareDashedBottom,
+    label: '면 나누기',
+    group: '영역',
+    help: '면을 영역으로 나눈다 — 하중 · 접촉을 면의 일부에만 걸 수 있게. 형상은 그대로다(부피가 변하지 않는다). 생긴 조각에 붙인 이름을 「해석 조건」 탭이 이름표로 집는다.',
+    fields: [
+      { key: 'target', label: '대상', kind: 'ref', refKind: 'solid' },
+      { key: 'shape', label: '모양', kind: 'select', options: [{ value: 'circle', label: '원' }, { value: 'rect', label: '사각' }] },
+      { key: 'radius', label: '반지름 (mm)', kind: 'number' },
+      { key: 'at', label: '가운데 (x,y,z)', kind: 'xyz' },
+      { key: 'tag', label: '이름', kind: 'text' },
+    ],
+    defaults: { target: '', on: { role: 'top' }, shape: 'circle', radius: 8, tag: '패치' },
   },
   {
     op: 'chamfer',

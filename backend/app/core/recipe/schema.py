@@ -487,6 +487,29 @@ class ShellNode(_Node):
     """뚫을 면: top · bottom · none(닫힌 속 빈 덩어리) · {"near": [[x,y,z]]}(면 중심 위치)."""
 
 
+class DivideFaceNode(_Node):
+    """면을 **영역으로 나눈다** — 하중 · 접촉을 면의 일부에만 걸 수 있게.
+
+    형상은 그대로다(부피가 변하지 않는다). 면 하나가 둘로 갈릴 뿐이고, 안쪽 조각에 `tag` 가
+    붙어 해석 조건이 그것을 이름표로 집는다. **왜 노드인가**: 면을 나누는 것은 형상의 일이라
+    레시피에 있어야 설계점마다(치수를 바꿔도) 같은 자리에 다시 생긴다.
+    """
+
+    op: Literal["divide_face"]
+    target: str
+    on: dict[str, Any] = Field(default_factory=lambda: {"role": "top"})
+    """나눌 면 고르기 — `query.find_features` 의 말(`role` · `kind` · `radius` · `near`)."""
+    shape: Literal["circle", "rect"] = "circle"
+    radius: Positive | None = None
+    """`circle` 의 반지름."""
+    size: XY | None = None
+    """`rect` 의 가로 · 세로."""
+    at: XYZ | None = None
+    """패치의 한가운데(전역 좌표). 면 위로 투영한다. 비우면 면의 한가운데."""
+    tag: str = Field(min_length=1, max_length=60)
+    """생긴 안쪽 면에 붙는 이름. 조건은 `{"tag": "패드"}` 로 집는다."""
+
+
 class PatternNode(_Node):
     """어떤 노드를 여러 벌 복제한다 — 결과는 한 덩어리(합집합)가 아니라 **복사본들의 묶음**이라
     보통 cut 의 tools 나 union 의 targets 로 쓴다."""
@@ -706,6 +729,7 @@ Node = Annotated[
     | ChamferNode
     | HoleNode
     | ShellNode
+    | DivideFaceNode
     | PatternNode
     | TransformNode
     | MirrorNode

@@ -115,6 +115,11 @@ class Evaluation:
     """보통 Part(입체). `allow_sketch` 로 평가했을 때만 Sketch(면)일 수 있다 — `is_sketch`."""
     nodes: list[NodeInfo] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    tags: dict[str, list[int]] = field(default_factory=dict)
+    """`divide_face` 가 붙인 이름 → **그때의 면 번호들**.
+
+    번호는 이 평가 안에서만 뜻이 있다(다음 설계점에서는 다른 번호다). 그래서 저장하지 않고
+    **평가할 때마다 다시 찾는다** — 그것이 치수를 바꿔도 같은 자리를 가리키는 유일한 길이다."""
 
     @property
     def is_sketch(self) -> bool:
@@ -596,13 +601,111 @@ def _hole(part: Part, node: S.HoleNode) -> Part:
     return result
 
 
+def _tagged_faces(part: Part, patches: dict[str, dict[str, Any]]) -> dict[str, list[int]]:
+    """패치가 있던 자리에서 **지금의 면 번호**를 되찾는다.
+
+    나눈 뒤에 필렛 · 패턴이 그 조각을 또 갈라 놓을 수 있으므로 「나눌 때 본 면」 하나를
+    기억해 두면 틀린다. 패치 안에 들어가고 법선이 같은 면을 **모두** 모은다.
+    """
+    if not patches:
+        return {}
+    rows = [(index, face) for index, face in enumerate(part.faces())]
+    out: dict[str, list[int]] = {}
+    for tag, patch in patches.items():
+        at = Vector(*patch["at"])
+        normal = Vector(*patch["normal"])
+        found = []
+        for index, face in rows:
+            if face.geom_type != GeomType.PLANE:
+                continue
+            if face.normal_at(face.center()).dot(normal) < 0.95:
+                continue
+            # **중심만으로는 안 된다**(실측): 원 패치를 뚫으면 남은 고리 모양 면의 무게중심도
+            # 패치 중심과 같은 자리에 온다. 경계상자가 패치 안에 들어가는지로 가린다 — 조각이
+            # 더 갈렸어도 그 조각들은 모두 안에 들어간다.
+            box = face.bounding_box()
+            half = patch["extent"] + 1e-6
+            inside = all(
+                abs(low - middle) <= half and abs(high - middle) <= half
+                for low, high, middle in (
+                    (box.min.X, box.max.X, at.X),
+                    (box.min.Y, box.max.Y, at.Y),
+                    (box.min.Z, box.max.Z, at.Z),
+                )
+            )
+            if inside:
+                found.append(index)
+        out[tag] = found
+    return out
+
+
+def _divide_face(part: Part, node: S.DivideFaceNode) -> tuple[Part, dict[str, Any]]:
+    """면 하나를 패치와 나머지로 나눈다. 형상은 그대로다 — **부피가 변하지 않는다.**
+
+    OCC 의 `BRepFeat_SplitShape` 는 「이 면 위에 이 선을 그어 나눠라」 를 그대로 하는 도구다
+    (실측: 상자 윗면에 Ø16 원 → 면 6 → 7, 부피 보존). 불리언으로 흉내 내면 얇은 판이 생기거나
+    부피가 미세하게 달라진다.
+
+    돌려주는 둘째 값은 **패치가 어디인가**(중심 · 법선 · 크기)다. 태그는 면 번호로 저장할 수
+    없다 — 뒤의 필렛 하나가 번호를 통째로 밀기 때문이다. 대신 이 자리로 **다시 찾는다.**
+    """
+    from OCP.BRepFeat import BRepFeat_SplitShape
+    from OCP.TopoDS import TopoDS
+
+    from app.core.recipe.query import find_features
+
+    query = {"what": "faces", **dict(node.on)}
+    if node.at is not None and "near" not in query:
+        query["near"] = list(node.at)
+    rows = find_features(part, query)["items"]
+    if not rows:
+        raise RecipeError(node.id, f"나눌 면을 찾지 못했습니다 — on: {node.on}")
+    faces = part.faces()
+    face = faces[rows[0]["index"]]
+    if face.geom_type != GeomType.PLANE:
+        raise RecipeError(
+            node.id, "평면만 나눌 수 있습니다 — 곡면에 띠를 두르는 것은 아직 안 됩니다"
+        )
+
+    plane = Plane(face)
+    center = Vector(*node.at) if node.at is not None else face.center()
+    # 면 위로 투영한 자리 — 사람이 찍은 점이 면에서 조금 떠 있어도 패치는 면 위에 놓인다.
+    local = plane.to_local_coords(center)
+    if node.shape == "circle":
+        if not node.radius:
+            raise RecipeError(node.id, "circle 은 radius 가 있어야 합니다")
+        patch = plane * Pos(local.X, local.Y) * Circle(node.radius)
+        extent = float(node.radius)
+    else:
+        if not node.size:
+            raise RecipeError(node.id, "rect 는 size([가로, 세로])가 있어야 합니다")
+        patch = plane * Pos(local.X, local.Y) * Rectangle(node.size[0], node.size[1])
+        extent = float(max(node.size)) / 2
+
+    splitter = BRepFeat_SplitShape(part.wrapped)
+    splitter.Add(TopoDS.Wire_s(patch.wire().wrapped), TopoDS.Face_s(face.wrapped))
+    splitter.Build()
+    divided = Part(splitter.Shape())
+    if not divided.is_valid or abs(divided.volume - part.volume) > 1e-6:
+        raise RecipeError(node.id, "면을 나누다 형상이 달라졌습니다 — 패치가 면을 넘었나요?")
+
+    at = plane.from_local_coords(Vector(local.X, local.Y, 0))
+    return divided, {
+        "at": [round(float(v), 3) for v in (at.X, at.Y, at.Z)],
+        "normal": [round(float(v), 3) for v in plane.z_dir],
+        "extent": round(extent, 3),
+    }
+
+
 def _evaluate_node(
     node: S.Node,
     made: dict[str, Shape],
     resolve_file: FileResolver | None,
     resolve_component: ComponentResolver | None = None,
     depth: int = 0,
+    patches: dict[str, dict[str, Any]] | None = None,
 ) -> Shape:
+    patches = patches if patches is not None else {}
     if isinstance(node, S.SketchNode):
         return _sketch(node)
     if isinstance(node, S.ExtrudeNode):
@@ -751,6 +854,12 @@ def _evaluate_node(
             ) from failure
     if isinstance(node, S.HoleNode):
         return _hole(_as_part(made[node.target], node.id), node)
+    if isinstance(node, S.DivideFaceNode):
+        # 패치가 어디인지는 여기서 안다. 태그로 되찾는 일은 평가가 끝난 뒤에 한다 —
+        # 뒤의 노드(필렛 · 패턴)가 면을 또 갈라 놓을 수 있기 때문이다.
+        divided, patch = _divide_face(_as_part(made[node.target], node.id), node)
+        patches[node.tag] = patch
+        return divided
     if isinstance(node, S.ShellNode):
         part = _as_part(made[node.target], node.id)
         openings = _faces(part, node.open, node.id)
@@ -968,9 +1077,10 @@ def _evaluate_recipe(
 ) -> Evaluation:
     made: dict[str, Shape] = {}
     infos: list[NodeInfo] = []
+    patches: dict[str, dict[str, Any]] = {}
     for node in recipe.nodes:
         try:
-            shape = _evaluate_node(node, made, resolve_file, resolve_component, depth)
+            shape = _evaluate_node(node, made, resolve_file, resolve_component, depth, patches)
         except RecipeError:
             raise
         except Exception as failure:
@@ -1004,4 +1114,4 @@ def _evaluate_recipe(
     if not part.solids():
         raise RecipeError(recipe.result_id, "결과에 솔리드가 없습니다")
     part.label = "model"
-    return Evaluation(shape=part, nodes=infos)
+    return Evaluation(shape=part, nodes=infos, tags=_tagged_faces(part, patches))
