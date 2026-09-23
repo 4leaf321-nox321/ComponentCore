@@ -44,7 +44,6 @@ class PointOut(BaseModel):
     params: dict[str, Any]
     status: str
     error: str
-    metrics: dict[str, Any] | None
     interference: dict[str, Any] | None = None
     """조립이면 구성품끼리 겹침 보고(ok · items · total_volume). 구성품이 하나면 None."""
     step_file: str

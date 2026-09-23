@@ -105,8 +105,8 @@ def test_설계점마다_STEP_을_공유_폴더에_쓴다(
 
     got = client.get(f"/api/doe/{study['id']}", headers=member.headers).json()
     assert got["done"] == 3 and got["failed"] == 0
-    # 표에는 바꾼 변수와 파일만 — 질량 · 크기는 아직 계산하지 않는다(해석이 붙일 자리).
-    assert all(point["metrics"] is None for point in got["points"])
+    # 표에는 바꾼 변수와 파일만 — 질량 · 크기도 해석 결과도 여기 담지 않는다.
+    assert all("metrics" not in point for point in got["points"])
     assert not export_root.exists() or not any(export_root.iterdir())
 
     sent = client.post(f"/api/doe/{study['id']}/export", headers=member.headers)
@@ -154,13 +154,13 @@ def test_설계점마다_STEP_을_공유_폴더에_쓴다(
     csv_out = client.get(f"/api/doe/{study['id']}/manifest.csv", headers=member.headers)
     assert csv_out.status_code == 200 and "두께" in csv_out.text
 
-    # 부등식 필터 — 값(해석 결과)이 없는 점은 만족하지 않은 것으로 센다. 지금은 모두 비어 있다.
-    kept = client.post(
-        f"/api/doe/{study['id']}/filter",
-        json=[{"key": "mass_g", "op": "lte", "value": 100}],
-        headers=member.headers,
-    )
-    assert kept.status_code == 200 and kept.json() == []
+    # **결과를 받는 길은 없다.** 설계점을 고르는 일은 해석 플랫폼이 한다 — 걸러 보기 ·
+    # 파레토를 여기 두면 영원히 빈 답을 내는 코드가 된다(2026-09-23 결정).
+    # 없는 API 는 404 가 아니라 405 로 온다 — 화면(SPA)을 서빙하는 GET 전용 잡이 경로를
+    # 받아 내기 때문이다. 둘 다 「그런 API 가 없다」 는 뜻이라 함께 받는다.
+    for gone in ("filter", "tradeoff"):
+        answer = client.post(f"/api/doe/{study['id']}/{gone}", json=[], headers=member.headers)
+        assert answer.status_code in (404, 405), gone
 
 
 def test_깨지는_점이_있어도_나머지는_만든다(

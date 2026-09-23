@@ -83,8 +83,6 @@ class DoePoint(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     """pending · ok · failed. **실패해도 남긴다** — 왜 빠졌는지 알아야 범위를 고친다."""
     error: Mapped[str] = mapped_column(Text, default="", server_default="")
-    metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
-    """표에 바로 쓰는 값 — 부피 · 질량 · 크기 · 구멍 수. 치수표에서 추린다."""
     geometry: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     """치수표 전체(면 · 구멍 · 관성)."""
     step_file: Mapped[str] = mapped_column(Text, default="", server_default="")

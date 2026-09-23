@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from app.core import doe as engine
 from app.database import get_db
 from app.modules.accounts.models import User
 from app.modules.doe import export as files
@@ -27,7 +26,6 @@ from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Job
 from app.modules.works.models import Work
 from app.shared.auth import current_user
-from app.shared.errors import AppError, code
 from app.shared.pagination import Page, clamp_limit
 
 router = APIRouter(prefix="/doe", tags=["doe"])
@@ -178,58 +176,6 @@ def manifest(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="doe-{study_id.hex[:8]}.csv"'},
     )
-
-
-@router.post("/{study_id}/filter", response_model=list[PointOut])
-def filter_points(
-    study_id: uuid.UUID,
-    conditions: list[dict[str, Any]],
-    user: User = Depends(current_user),
-    db: Session = Depends(get_db),
-) -> list[PointOut]:
-    """설계 조건(부등식)을 만족하는 점만. 값이 없는 점은 **만족하지 않은 것**으로 센다.
-
-    값(`metrics`)은 해석 결과를 붙이는 자리다 — 아직 붙이는 길이 없어 지금은 모두 비어 있다."""
-    study = services.get_study(db, study_id, user)
-    kept = []
-    for point in services.points(db, study):
-        ok, _why = engine.passes(point.metrics or {}, conditions)
-        if ok:
-            kept.append(_point_out(point))
-    return kept
-
-
-@router.post("/{study_id}/tradeoff")
-def tradeoff(
-    study_id: uuid.UUID,
-    objectives: list[dict[str, Any]],
-    user: User = Depends(current_user),
-    db: Session = Depends(get_db),
-) -> dict[str, Any]:
-    """맞서는 목표에서 **아무한테도 지지 않는 점**(파레토)을 가린다.
-
-    목표 하나는 `{"key": "mass_g", "goal": "min"}` 또는 `{"key": "hz", "goal": "target",
-    "target": 440}`. 가중치로 한 값을 만들지 않는다 — 고르는 것은 사람의 몫이다."""
-    study = services.get_study(db, study_id, user)
-    try:
-        goals = engine.parse_objectives(objectives)
-    except engine.DoeError as failure:
-        raise AppError(code("DOE", 8), str(failure)) from failure
-    rows = [
-        {
-            "id": str(point.id),
-            "number": point.number,
-            "params": point.params,
-            **(point.metrics or {}),
-        }
-        for point in services.points(db, study)
-    ]
-    marked = engine.pareto(rows, goals)
-    return {
-        "objectives": objectives,
-        "points": marked,
-        "pareto_count": sum(1 for one in marked if one["pareto"]),
-    }
 
 
 @router.delete("/{study_id}", status_code=204)

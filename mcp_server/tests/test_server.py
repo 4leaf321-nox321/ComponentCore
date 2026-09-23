@@ -62,7 +62,6 @@ def test_사람이_손으로_하는_일이_도구로_다_있다() -> None:
         "patch_work",  # 부분 수정
         "place_on",  # 면에 얹기
         "search",  # 이름으로 찾기
-        "doe_tradeoff",  # 목표가 맞설 때
         "promote_jig_recipe",  # 손으로 그린 지그
     }
     assert needed <= tools, f"빠진 도구: {sorted(needed - tools)}"

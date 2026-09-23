@@ -542,9 +542,11 @@ async def doe_create(
 
 @mcp.tool()
 async def doe_points(ctx: Context, study_id: str) -> Any:
-    """만들어진 설계점 표 — 바꾼 변수 값 · STEP 파일 이름 · 실패 사유, 그리고 **공유 폴더
-    경로**(`folder`, 아직 안 보냈으면 None — `doe_export` 로 보낸다). `metrics` 는 해석 결과가
-    붙을 자리라 지금은 비어 있다."""
+    """만들어진 설계점 표 — 바꾼 변수 값 · STEP · **영역 지문 파일** · 실패 사유, 그리고
+    **공유 폴더 경로**(`folder`, 아직 안 보냈으면 None — `doe_export` 로 보낸다).
+
+    해석 **결과는 여기 없다** — 이 플랫폼은 형상 · 영역 · 조건 · 설계점을 만들어 넘기고,
+    결과와 설계점 고르기는 해석 플랫폼이 한다."""
     got = await _get(ctx, f"/api/doe/{study_id}")
     if not isinstance(got, dict) or "error" in got:
         return got
@@ -564,9 +566,9 @@ async def doe_points(ctx: Context, study_id: str) -> Any:
                 "number": one["number"],
                 "params": one["params"],
                 "status": one["status"],
-                "metrics": one["metrics"],
                 "interference": one.get("interference"),
                 "step_file": one["step_file"],
+                "topology_file": one.get("topology_file"),
                 "error": one["error"],
             }
             for one in got.get("points", [])
@@ -588,20 +590,6 @@ async def doe_export(ctx: Context, study_id: str) -> Any:
         "folder": got["export_dir_windows"],
         "exported_at": got["exported_at"],
     }
-
-
-@mcp.tool()
-async def doe_tradeoff(ctx: Context, study_id: str, objectives: list[dict[str, Any]]) -> Any:
-    """맞서는 목표에서 **아무한테도 지지 않는 점**(파레토)을 가린다.
-
-    목표 하나는 `{"key": "mass_g", "goal": "min"}` 또는 `{"key": "hz", "goal": "target",
-    "target": 440}` — `key` 는 설계점의 metrics 이름. **metrics 는 해석 결과가 붙을 자리라 아직
-    비어 있다** — 붙이는 길이 생기기 전에는 이 도구가 빈 답을 낸다.
-
-    **가중치로 한 값을 만들지 않는다.** 「무게 0.3, 공진 0.7」 같은 수를 네가 정하면 답이 그
-    수의 것이 된다. 지지 않는 점들을 내놓고 **고르는 것은 사람에게 맡긴다** — 표를 보여 주고
-    무엇을 더 중히 보는지 물어라."""
-    return await _post(ctx, f"/api/doe/{study_id}/tradeoff", objectives)
 
 
 @mcp.tool()

@@ -4062,130 +4062,6 @@
         }
       }
     },
-    "/api/doe/{study_id}/filter": {
-      "post": {
-        "tags": [
-          "doe"
-        ],
-        "summary": "Filter Points",
-        "description": "설계 조건(부등식)을 만족하는 점만. 값이 없는 점은 **만족하지 않은 것**으로 센다.\n\n값(`metrics`)은 해석 결과를 붙이는 자리다 — 아직 붙이는 길이 없어 지금은 모두 비어 있다.",
-        "operationId": "filter_points_api_doe__study_id__filter_post",
-        "parameters": [
-          {
-            "name": "study_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Study Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": true
-                },
-                "title": "Conditions"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/PointOut"
-                  },
-                  "title": "Response Filter Points Api Doe  Study Id  Filter Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/doe/{study_id}/tradeoff": {
-      "post": {
-        "tags": [
-          "doe"
-        ],
-        "summary": "Tradeoff",
-        "description": "맞서는 목표에서 **아무한테도 지지 않는 점**(파레토)을 가린다.\n\n목표 하나는 `{\"key\": \"mass_g\", \"goal\": \"min\"}` 또는 `{\"key\": \"hz\", \"goal\": \"target\",\n\"target\": 440}`. 가중치로 한 값을 만들지 않는다 — 고르는 것은 사람의 몫이다.",
-        "operationId": "tradeoff_api_doe__study_id__tradeoff_post",
-        "parameters": [
-          {
-            "name": "study_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Study Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": true
-                },
-                "title": "Objectives"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Tradeoff Api Doe  Study Id  Tradeoff Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/server/status": {
       "get": {
         "tags": [
@@ -6169,18 +6045,6 @@
             "type": "string",
             "title": "Error"
           },
-          "metrics": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Metrics"
-          },
           "interference": {
             "anyOf": [
               {
@@ -6210,7 +6074,6 @@
           "params",
           "status",
           "error",
-          "metrics",
           "step_file"
         ],
         "title": "PointOut"

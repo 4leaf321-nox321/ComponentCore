@@ -1,4 +1,4 @@
-"""DOE 엔진 — 조합 · LHS · 시드 · 걸러 보기."""
+"""DOE 엔진 — 조합 · LHS · 시드."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from app.core.doe import (
     latin_hypercube,
     levels,
     parse_factors,
-    passes,
 )
 
 FACTORS: list[dict[str, Any]] = [
@@ -71,66 +70,6 @@ def test_틀린_인자는_이름을_짚어_말한다() -> None:
         parse_factors([FACTORS[0], FACTORS[0]])
     with pytest.raises(DoeError, match="숫자가 아닙니다"):
         parse_factors([{"name": "두께", "mode": "range", "start": "많이", "end": 5}])
-
-
-def test_값이_없는_칸은_조건을_만족하지_않는다() -> None:
-    """계산이 실패한 점이 「무게 5 kg 이하」 에 들어가면 안 된다 — 0 으로 읽히던 자리."""
-    ok, why = passes({"mass_g": 120}, [{"key": "mass_g", "op": "lte", "value": 200}])
-    assert ok and why is None
-    ok, why = passes({"mass_g": 250}, [{"key": "mass_g", "op": "lte", "value": 200}])
-    assert not ok and why is not None and "250" in why
-    for empty in (None, "", "계산 실패"):
-        ok, why = passes({"mass_g": empty}, [{"key": "mass_g", "op": "lte", "value": 200}])
-        assert not ok and why is not None and "값이 없습니다" in why
-    # 범위 · 이상
-    assert passes({"v": 5}, [{"key": "v", "op": "between", "value": 1, "value2": 10}])[0]
-    assert not passes({"v": 50}, [{"key": "v", "op": "between", "value": 1, "value2": 10}])[0]
-    assert passes({"v": 5}, [{"key": "v", "op": "gte", "value": 5}])[0]
-    # 쓰다 만 조건(값이 비었음)은 무시한다 — 표가 통째로 사라지면 안 된다
-    assert passes({"v": 5}, [{"key": "v", "op": "lte", "value": None}])[0]
-
-
-def test_맞서는_목표에서는_지지_않는_점만_남긴다() -> None:
-    """두께를 키우면 공진은 목표에 가까워지고 무거워진다 — 합치지 않고 고르게 한다."""
-    from app.core.doe import pareto, parse_objectives
-
-    rows: list[dict[str, Any]] = [
-        {"n": 1, "mass_g": 100, "hz": 300},  # 가볍지만 목표에서 멀다
-        {"n": 2, "mass_g": 150, "hz": 430},  # 둘 다 어중간 — 남는다
-        {"n": 3, "mass_g": 200, "hz": 440},  # 무겁지만 딱 맞는다
-        {"n": 4, "mass_g": 260, "hz": 300},  # 3 보다 무겁고 4 보다 멀다 — 진다
-    ]
-    objectives = parse_objectives(
-        [{"key": "mass_g", "goal": "min"}, {"key": "hz", "goal": "target", "target": 440}]
-    )
-    got = {row["n"]: row for row in pareto(rows, objectives)}
-    assert [n for n, row in got.items() if row["pareto"]] == [1, 2, 3]
-    assert got[4]["pareto"] is False  # 아무 면에서도 낫지 않다
-    # 점수는 훑기용 — 작을수록 앞이지만 순위를 정하는 값이 아니다.
-    assert got[2]["score"] is not None and got[4]["score"] > got[2]["score"]
-
-
-def test_값이_없는_점은_견주지_않는다() -> None:
-    from app.core.doe import pareto, parse_objectives
-
-    rows: list[dict[str, Any]] = [
-        {"n": 1, "mass_g": 100},
-        {"n": 2, "mass_g": None},  # 형상이 깨진 점
-    ]
-    got = pareto(rows, parse_objectives([{"key": "mass_g", "goal": "min"}]))
-    assert got[0]["pareto"] is True and got[0]["comparable"] is True
-    assert got[1]["pareto"] is False and got[1]["comparable"] is False
-
-
-def test_틀린_목표는_이름을_짚어_말한다() -> None:
-    from app.core.doe import parse_objectives
-
-    with pytest.raises(DoeError, match="목표값이 있어야"):
-        parse_objectives([{"key": "hz", "goal": "target"}])
-    with pytest.raises(DoeError, match="min · max · target"):
-        parse_objectives([{"key": "hz", "goal": "가볍게"}])
-    with pytest.raises(DoeError, match="하나는 고르세요"):
-        parse_objectives([])
 
 
 def test_구간_값은_가공_단위로_맞추고_겹치면_하나만() -> None:
