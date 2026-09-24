@@ -244,6 +244,15 @@ export const conditionsApi = {
       { recipe, pick: { what, point } },
     ),
   /**
+   * 선택 그룹의 셀렉터를 **지금 형상에서** 푼다 — 트리에서 고른 그룹을 3D 에 비출 때. 합(`any`) ·
+   * 면 나누기 태그까지 서버가 푼다(바디 그룹은 부르지 않는다 — 파트 이름이 곧 답이다).
+   */
+  resolve: (recipe: Recipe, select: Record<string, unknown>) =>
+    api.post<{ what: string; total: number; items: { index: number; center?: number[]; midpoint?: number[]; point?: number[] }[] }>(
+      '/cad/recipe/find',
+      { recipe, query: select },
+    ),
+  /**
    * **여럿을 한 번에** — 사각형 선택(Shift + 끌기). 도면을 한 번만 만들고 같은 순서로 돌려준다.
    * 하나씩 부르면 스무 개를 고른 사각형이 도면을 스무 번 만든다.
    */

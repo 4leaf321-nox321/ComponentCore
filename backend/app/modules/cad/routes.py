@@ -124,11 +124,14 @@ def recipe_views(payload: ViewsRequest, _: User = Depends(current_user)) -> dict
 @router.post("/recipe/find")
 def recipe_find(payload: FindRequest, _: User = Depends(current_user)) -> dict[str, Any]:
     """말로 고른 엣지 · 면의 좌표 — 「윗면의 바깥 엣지」 「지름 8 구멍의 위 원」. 답의
-    midpoint · center 를 fillet · chamfer 의 near, 스케치의 plane 에 그대로 쓴다."""
-    from app.core.recipe.query import find_features
+    midpoint · center 를 fillet · chamfer 의 near, 스케치의 plane 에 그대로 쓴다.
+
+    **선택 그룹의 셀렉터도 그대로 푼다** — 여럿을 묶은 합(`{"any": [...]}`)과 면 나누기의
+    태그(`tag`)까지. 화면이 트리에서 고른 그룹을 3D 에 비출 때 쓴다."""
+    from app.core.recipe.query import select_features
 
     evaluation = services.build(payload.recipe)
-    return find_features(evaluation.shape, payload.query)
+    return select_features(evaluation.shape, payload.query, evaluation.tags)
 
 
 @router.get("/conditions/schema")

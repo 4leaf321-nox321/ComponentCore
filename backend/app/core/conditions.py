@@ -395,9 +395,12 @@ def converted_material(
     named = keys or {}
     made: dict[str, Any] = {"system": system}
     missed: list[str] = []
-    # **`density_si` 가 있으면 그것이 정본이다**(2026-09-24 MatNexus 가 알려 줬다). `density`
-    # 는 그쪽 화면이 쓰는 표시값이라 단위가 `density_unit` 에 따로 있다 — 둘 중 SI 쪽에서
-    # 출발하는 편이 한 단계 덜 거친다. 없으면 표시값을 그 단위로 환산한다.
+    # **재료 응답의 모양이 둘이다**(MatNexus b64cd5c, 2026-09-25). 그 전: `density` 는 그쪽
+    # 화면 표시값(`density_unit` = tonne/mm3)이고 SI 는 곁의 `density_si`. 그 뒤: `density`
+    # 가 SI(kg/m³)이고 `density_unit` = kg/m3, `density_si` 는 없다. 저장된 조건 · DOE
+    # 스냅샷에는 옛 모양이 남아 있으므로 **둘 다 읽는다** — `density_si` 가 있으면 그것,
+    # 없으면 `density` 를 **`density_unit` 으로** 환산한다. `density` 의 단위를 가정하지
+    # 않는 것이 두 모양을 다 푸는 유일한 길이다.
     si_density = payload.get("density_si")
     if isinstance(si_density, int | float):
         value, name, ok = unit_systems.convert(float(si_density), "kg/m3", system)

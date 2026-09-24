@@ -46,6 +46,8 @@ import { RibbonButton, RibbonGroup } from '@/modules/cad/Ribbon'
 import { useRecipeMesh } from '@/modules/cad/useRecipeMesh'
 import { ConditionForm } from '@/modules/conditions/ConditionForm'
 import { FloatingWindow, SelectionMembers } from '@/modules/conditions/ConditionWindows'
+import { bodyMarks, foundMarks } from '@/modules/conditions/highlight'
+import type { FoundRow } from '@/modules/conditions/highlight'
 import type { Member } from '@/modules/conditions/ConditionWindows'
 import { materialColor, ModelTree, UNASSIGNED_COLOR } from '@/modules/conditions/ModelTree'
 import type { TreeSelection } from '@/modules/conditions/ModelTree'
@@ -349,7 +351,7 @@ export function ConditionsPanel({
    * 담은 것을 3D 에 **번호와 함께** — 목록의 몇 번이 어디인지 보인다. 바디는 그 파트의 면 전부
    * (단품은 면에 파트 이름이 없고 바디가 「전체」 하나다).
    */
-  const marks = useMemo<MeasureMarks | undefined>(() => {
+  const memberMarks = useMemo<MeasureMarks | undefined>(() => {
     if (members.length === 0) return undefined
     const out: MeasureMarks = { points: [], segments: [], labels: [], edges: [], faces: [] }
     members.forEach((member, index) => {
@@ -374,6 +376,43 @@ export function ConditionsPanel({
     })
     return out
   }, [members, mesh])
+
+  /**
+   * **트리에서 고른 선택 그룹을 3D 에 비춘다** — 그 그룹이 지금 형상에서 집는 것들. 규칙은
+   * 서버가 푼다(합 · 태그까지). 바디 그룹은 물을 것이 없다 — 파트 이름이 곧 답이다.
+   */
+  const litGroup = tree?.kind === 'selection' ? names[tree.index] : undefined
+  const litKey = litGroup ? JSON.stringify([litGroup.entity, litGroup.select]) : ''
+  const [lit, setLit] = useState<{ key: string; what: string; rows: FoundRow[] } | null>(null)
+  useEffect(() => {
+    if (!litGroup || litGroup.entity === 'body') return
+    let alive = true
+    conditionsApi
+      .resolve(recipe, litGroup.select)
+      .then((got) => alive && setLit({ key: litKey, what: got.what, rows: got.items }))
+      // 못 풀면 비추지 않을 뿐이다 — 개수 자리에 0 이 보여 「지금 아무것도 안 집는다」 를 말한다.
+      .catch(() => alive && setLit({ key: litKey, what: '', rows: [] }))
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [litKey, recipe])
+  const groupMarks = useMemo<MeasureMarks | undefined>(() => {
+    if (!mesh || !litGroup) return undefined
+    if (litGroup.entity === 'body') return bodyMarks(mesh, litGroup.select)
+    return lit?.key === litKey ? foundMarks(mesh, lit.what, lit.rows) : undefined
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mesh, litKey, lit])
+  /** 지금 형상에서 그 그룹이 몇 개를 집나 — 트리에 적는다. 푸는 중이면 `null`. */
+  const litCount = !litGroup
+    ? null
+    : litGroup.entity === 'body'
+      ? (Array.isArray(litGroup.select.any) ? litGroup.select.any.length : 1)
+      : lit?.key === litKey
+        ? lit.rows.length
+        : null
+  /** 담는 중이면 담은 것, 아니면 트리에서 고른 그룹. */
+  const marks = memberMarks ?? groupMarks
 
   /**
    * 창을 연다 — 초기조건이면 선택 대상을 바디로 바꾼다(바디에만 건다).
@@ -717,6 +756,7 @@ export function ConditionsPanel({
                 .join(' · ')}
               editing={editing}
               selected={tree}
+              selectionCount={litCount}
               onSelect={setTree}
               onAssign={assign}
               onMaterialChange={(index, patch) =>

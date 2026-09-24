@@ -12,7 +12,7 @@ let lastKinds: Record<string, boolean> | undefined
 let lastColors: Record<string, number> | undefined
 let lastEmphasis: string | null | undefined
 /** 3D 에 표시한 것 — 담은 것에 번호가 붙는지 본다. */
-let lastMarks: { labels: { text: string }[] } | undefined
+let lastMarks: { labels: { text: string }[]; faces: unknown[] } | undefined
 vi.mock('@/shared/viewer/PickViewer', () => ({
   default: ({
     onMeasure,
@@ -25,7 +25,7 @@ vi.mock('@/shared/viewer/PickViewer', () => ({
     onMeasure?: (pick: unknown, modifiers: { ctrl: boolean; shift: boolean }) => void
     onBoxSelect?: (picks: unknown[], modifiers: { ctrl: boolean; shift: boolean }) => void
     measureKinds?: Record<string, boolean>
-    measureMarks?: { labels: { text: string }[] }
+    measureMarks?: { labels: { text: string }[]; faces: unknown[] }
     partColors?: Record<string, number>
     emphasis?: string | null
   }) => {
@@ -65,8 +65,13 @@ vi.mock('@/shared/viewer/PickViewer', () => ({
     )
   },
 }))
+/** 면 둘 — 트리에서 고른 그룹을 3D 에 비출 때 서버가 푼 줄과 짝지을 것. */
+const MESH_FACES = [
+  { index: 0, kind: 'plane', center: [0, 0, 0], normal: [0, 0, -1], area: 1, vertices: [0, 0, 0, 1, 0, 0, 1, 1, 0], triangles: [0, 1, 2] },
+  { index: 1, kind: 'plane', center: [5, 0, 9], normal: [0, 0, 1], area: 1, vertices: [5, 0, 9, 6, 0, 9, 6, 1, 9], triangles: [0, 1, 2] },
+]
 vi.mock('@/modules/cad/useRecipeMesh', () => ({
-  useRecipeMesh: () => ({ mesh: { bbox: { min: [0, 0, 0], max: [1, 1, 1] }, faces: [], edges: [] }, problems: [] }),
+  useRecipeMesh: () => ({ mesh: { bbox: { min: [0, 0, 0], max: [1, 1, 1] }, faces: MESH_FACES, edges: [] }, problems: [] }),
 }))
 
 const SCHEMA = {
@@ -219,6 +224,8 @@ vi.mock('@/shared/api/client', async () => {
       // 바디 목록과 셀렉터 후보는 **다른 길**이다 — 물성이 어디에 붙는지가 바디에서 나온다.
       post: vi.fn(async (path: string, body?: { pick?: { point?: number[] }; picks?: { point: number[] }[] }) => {
         if (path.startsWith('/cad/recipe/bodies')) return BODIES
+        // 선택 그룹을 지금 형상에서 푼다 — 바닥 면 하나.
+        if (path.startsWith('/cad/recipe/find')) return { what: 'faces', total: 1, items: [{ index: 0, center: [0, 0, 0] }] }
         const answer = (point?: number[]) =>
           point?.[0] === 5 ? TOP_CANDIDATES : point?.[0] === 40 ? SIDE_CANDIDATES : CANDIDATES
         // 여럿을 한 번에(사각형 선택) — 같은 순서로.
@@ -271,6 +278,21 @@ test('선택하면 좌표가 아니라 **선택 규칙**으로 되돌려 주고,
   await waitFor(() => screen.getByText(/"role": "bottom"/))
   // 트리의 선택 그룹 줄 — 이름과 종류(face). 파트 「바닥판」 과 헷갈리지 않게 끝까지 맞춘다.
   expect(screen.getByRole('button', { name: /^바닥\s*face$/ })).toBeInTheDocument()
+})
+
+test('트리에서 선택 그룹을 누르면 **3D 에 비추고**, 지금 몇 개를 집는지 적는다', async () => {
+  await panel()
+  await makeGroup('면 찍기', '바닥')
+  // 만들자마자 트리에서 펼쳐진다 — 그 그룹이 3D 에 비친다.
+  await waitFor(() => screen.getByText('1 개 (3D 에 표시)'))
+  expect(lastMarks?.faces).toHaveLength(1)
+
+  // 접으면 비추지 않는다.
+  fireEvent.click(screen.getByRole('button', { name: /^바닥\s*face$/ }))
+  await waitFor(() => expect(lastMarks).toBeUndefined())
+  // 다시 펼치면 다시 비춘다.
+  fireEvent.click(screen.getByRole('button', { name: /^바닥\s*face$/ }))
+  await waitFor(() => expect(lastMarks?.faces).toHaveLength(1))
 })
 
 test('**Ctrl · Shift** 로 여럿을 한 그룹에 담고, 그 합으로 저장한다', async () => {

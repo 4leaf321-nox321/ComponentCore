@@ -172,6 +172,20 @@ def test_SI_를_고르면_밀도가_제자리를_찾는다() -> None:
     assert got["materials"][0]["converted"]["density_unit"] == "kg/m3"
 
 
+def test_밀도는_옛_응답도_새_응답도_같은_값으로_옮긴다() -> None:
+    """MatNexus 재료 응답의 **모양이 바뀌었다**(b64cd5c, 2026-09-25): 전에는 `density` 가 화면
+    표시값(tonne/mm3)이고 SI 가 곁의 `density_si` 였는데, 이제 `density` 가 SI(kg/m³)이고
+    `density_si` 는 없다. 저장된 조건 · DOE 스냅샷에는 옛 모양이 남아 있으므로 둘 다 같은 값이
+    나와야 한다 — `density` 의 단위를 가정하면 한쪽이 10¹² 배 틀린다."""
+    옛 = {"density": 7.85e-9, "density_unit": "tonne/mm3", "density_si": 7850.0}
+    새 = {"density": 7850.0, "density_unit": "kg/m3"}
+    for system, 기대 in (("mm_n_tonne", 7.85e-9), ("si", 7850.0)):
+        for payload in (옛, 새):
+            made = conditions.converted_material(payload, system)
+            assert made["density"] == pytest.approx(기대), (system, payload)
+            assert "unconverted" not in made or not made["unconverted"]
+
+
 def test_못_바꾼_것은_못_바꿨다고_적는다() -> None:
     """조용히 원래 값을 남기면 받는 쪽이 그것을 **새 단위인 줄 알고** 그대로 푼다."""
     raw = {

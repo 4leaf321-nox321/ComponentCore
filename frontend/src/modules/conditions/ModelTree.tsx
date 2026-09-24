@@ -82,6 +82,7 @@ export function ModelTree({
   analysis,
   editing,
   selected,
+  selectionCount,
   onSelect,
   onAssign,
   onMaterialChange,
@@ -112,6 +113,8 @@ export function ModelTree({
   analysis: string
   /** 지금 창에서 고치는 조건 — 트리에서도 그 줄이 표시된다. */
   editing: { group: string; index: number | null } | null
+  /** 펼친 선택 그룹이 지금 형상에서 몇 개를 집나(3D 에 비춘 수). 푸는 중이면 `null`. */
+  selectionCount?: number | null
   onRemoveSelection: (index: number) => void
   onOpenItem: (group: string, index: number) => void
   onOpenAnalysis: () => void
@@ -318,6 +321,17 @@ export function ModelTree({
                     <p className="text-muted-foreground">
                       좌표가 아니라 <strong>선택 규칙</strong>으로 저장됩니다 — 치수가 변경되어도 같은 형상을
                       가리킵니다.
+                    </p>
+                    {/* 3D 에 비춘 수 — 0 이면 지금 형상에서 아무것도 안 집는다(규칙을 다시 볼 자리). */}
+                    <p>
+                      <span className="text-muted-foreground">현재 형상에서 </span>
+                      {selectionCount === null || selectionCount === undefined ? (
+                        <span className="text-muted-foreground">확인 중…</span>
+                      ) : selectionCount === 0 ? (
+                        <span className="text-amber-700 dark:text-amber-400">0 개 — 가리키는 형상이 없습니다</span>
+                      ) : (
+                        `${selectionCount} 개 (3D 에 표시)`
+                      )}
                     </p>
                     {fragile && (
                       <p className="rounded border border-amber-300 bg-amber-50 p-1 text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
