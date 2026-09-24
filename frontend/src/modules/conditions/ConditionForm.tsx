@@ -84,7 +84,7 @@ export function ConditionForm({
           <Label>{key === 'target' ? '상대 이름표' : '이름표'}</Label>
           <Select value={String(item[key] ?? '')} onValueChange={(v) => set(key, v)}>
             <SelectTrigger>
-              <SelectValue placeholder="고르세요" />
+              <SelectValue placeholder="선택" />
             </SelectTrigger>
             <SelectContent>
               {names.map((one) => (
@@ -96,7 +96,7 @@ export function ConditionForm({
           </Select>
           {names.length === 0 && (
             <p className="text-muted-foreground text-xs">
-              이름표를 먼저 만드세요 — 3D 에서 면 · 엣지 · 점을 고르면 됩니다.
+              이름표가 없습니다 — 3D 에서 형상을 선택하면 생성됩니다.
             </p>
           )}
         </div>

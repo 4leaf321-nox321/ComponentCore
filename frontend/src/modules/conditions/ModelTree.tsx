@@ -1,10 +1,13 @@
 /**
- * 모델 구성 — 해석 조건 오른쪽 칸의 **기본 화면.** 파트마다 물성을 지정한다.
+ * 모델 구성 — 해석 조건 왼쪽의 트리. **한 벌에 무엇이 있는지 여기서 다 본다.**
  *
- * 예전에는 물성을 왼쪽에 줄줄이 늘어놓고 물성마다 「어느 파트에」 를 고르게 했다. 파트가
- * 여럿이면 물성 하나씩 열어 파트를 고르고 닫기를 되풀이해야 했다. 여기서는 거꾸로 **파트
- * 목록이 먼저** 있고, 파트를 누르면 그 자리에서 담아 둔 물성 중 하나를 고른다 — 한 화면에서
- * 파트를 차례로 누르며 끝낸다.
+ * 도면 편집기의 피처 트리와 같은 자리 · 같은 역할이다: 더하는 것은 위의 리본 단추가 하고,
+ * 트리는 있는 것을 보여 주고 누르면 고친다. 가지는 해석 전처리기의 순서를 따른다 — 파트 ·
+ * 물성 · 이름표 · 조건들 · 해석 설정.
+ *
+ * **물성은 파트가 먼저다.** 물성마다 「어느 파트에」 를 고르게 했더니 파트가 여럿이면 물성
+ * 하나씩 열고 닫기를 되풀이해야 했다. 파트를 누르면 그 자리에서 담아 둔 물성 중 하나를
+ * 고른다 — 한 화면에서 파트를 차례로 누르며 끝낸다.
  *
  * 색은 3D 와 같다 — 줄 앞의 네모 색이 3D 에서 그 파트의 색이고, 아직 비어 있는 파트는
  * 회색이다. 어느 파트가 남았는지 3D 에서도 보인다.
@@ -14,7 +17,7 @@ import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import { ALL_BODIES, appliedTo, materialsOn } from '@/modules/conditions/api'
-import type { Body, MaterialItem } from '@/modules/conditions/api'
+import type { Body, ConditionItem, MaterialItem, NamedSelection } from '@/modules/conditions/api'
 import { Button } from '@/shared/components/ui/button'
 import { Label } from '@/shared/components/ui/label'
 import { Skeleton } from '@/shared/components/ui/skeleton'
@@ -27,8 +30,20 @@ export const UNASSIGNED_COLOR = 0x9ca3af
 export const materialColor = (index: number) => MATERIAL_COLORS[index % MATERIAL_COLORS.length]
 const css = (color: number) => `#${color.toString(16).padStart(6, '0')}`
 
-/** 트리에서 고른 것 — 파트 하나, 또는 담아 둔 물성 하나. */
-export type TreeSelection = { kind: 'part'; name: string } | { kind: 'library'; index: number } | null
+/** 트리에서 펼친 것 — 파트 · 담아 둔 물성 · 이름표 하나. 조건은 펼치지 않고 창으로 연다. */
+export type TreeSelection =
+  | { kind: 'part'; name: string }
+  | { kind: 'library'; index: number }
+  | { kind: 'selection'; index: number }
+  | null
+
+/** 조건 한 줄의 「어디에」 — 접촉은 두 이름표를 잇는다. */
+function targetOf(item: ConditionItem): string {
+  if ('source' in item || 'target' in item) {
+    return [item.source, item.target].map((one) => String(one ?? '') || '?').join(' → ')
+  }
+  return String(item.on ?? '')
+}
 
 const nameOf = (material: MaterialItem | undefined) =>
   String(((material?.ref ?? {}) as Record<string, unknown>).name ?? '이름 없음')
@@ -62,12 +77,19 @@ export function ModelTree({
   bodiesError,
   materials,
   decks,
+  names,
+  groups,
+  analysis,
+  editing,
   selected,
   onSelect,
   onAssign,
   onMaterialChange,
   onRemoveMaterial,
   onPickMaterials,
+  onRemoveSelection,
+  onOpenItem,
+  onOpenAnalysis,
 }: {
   /** `null` 이면 아직 불러오는 중이다. */
   bodies: Body[] | null
@@ -83,6 +105,16 @@ export function ModelTree({
   onRemoveMaterial: (index: number) => void
   /** 물성 탐색기를 연다. */
   onPickMaterials: () => void
+  names: NamedSelection[]
+  /** 조건 묶음들 — 구속 · 하중 · 접촉 · 초기조건 · 메시 힌트. */
+  groups: { key: string; label: string; items: ConditionItem[] }[]
+  /** 해석 설정 한 줄 요약(종류 · 단위계). */
+  analysis: string
+  /** 지금 창에서 고치는 조건 — 트리에서도 그 줄이 표시된다. */
+  editing: { group: string; index: number | null } | null
+  onRemoveSelection: (index: number) => void
+  onOpenItem: (group: string, index: number) => void
+  onOpenAnalysis: () => void
 }) {
   const single = bodies?.length === 1 && bodies[0].name === ALL_BODIES
 
@@ -249,6 +281,89 @@ export function ModelTree({
           })}
         </ul>
       </Branch>
+
+      <Branch title="이름표" count={names.length}>
+        {names.length === 0 && (
+          <p className="text-muted-foreground px-1 text-xs">3D 에서 형상을 선택하여 생성합니다.</p>
+        )}
+        <ul className="space-y-0.5">
+          {names.map((one, index) => {
+            const open = selected?.kind === 'selection' && selected.index === index
+            // 어느 조건이 이 이름표를 쓰나 — 지우기 전에 보여야 한다.
+            const users = groups.flatMap((group) =>
+              group.items
+                .filter((item) => [item.on, item.source, item.target].includes(one.name))
+                .map((item) => String(item.name ?? item.type ?? group.label)),
+            )
+            return (
+              <li key={one.name}>
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  className={`hover:bg-muted flex w-full items-center gap-2 rounded px-2 py-1 text-left ${open ? 'bg-muted' : ''}`}
+                  onClick={() => onSelect(open ? null : { kind: 'selection', index })}
+                >
+                  <span className="truncate">{one.name}</span>
+                  <span className="text-muted-foreground ml-auto shrink-0 text-xs">{one.entity}</span>
+                </button>
+                {open && (
+                  <div className="mt-1 mb-2 ml-4 space-y-2 border-l pl-3 text-xs">
+                    <p className="text-muted-foreground">
+                      좌표가 아니라 <strong>선택 규칙</strong>으로 저장됩니다 — 치수가 변경되어도 같은 형상을
+                      가리킵니다.
+                    </p>
+                    <pre className="bg-muted overflow-x-auto rounded p-2">{JSON.stringify(one.select ?? {}, null, 2)}</pre>
+                    <p>
+                      <span className="text-muted-foreground">사용하는 조건 </span>
+                      {users.length === 0 ? '없음' : users.join(', ')}
+                    </p>
+                    <Button size="sm" variant="ghost" onClick={() => onRemoveSelection(index)}>
+                      이름표 삭제
+                    </Button>
+                  </div>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      </Branch>
+
+      {groups.map((group) => (
+        <Branch key={group.key} title={group.label} count={group.items.length}>
+          <ul className="space-y-0.5">
+            {group.items.map((item, index) => {
+              const where = targetOf(item)
+              const open = editing?.group === group.key && editing.index === index
+              return (
+                <li key={index}>
+                  {/* 조건은 **창으로** 고친다 — 창을 띄운 채 3D 에서 적용 대상을 지정한다. */}
+                  <button
+                    type="button"
+                    className={`hover:bg-muted flex w-full items-center gap-2 rounded px-2 py-1 text-left ${open ? 'bg-muted' : ''}`}
+                    onClick={() => onOpenItem(group.key, index)}
+                  >
+                    <span className="truncate">{String(item.name ?? item.type ?? '')}</span>
+                    <span
+                      className={`ml-auto truncate text-xs ${where && !where.includes('?') ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'}`}
+                    >
+                      {where || '대상 미지정'}
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </Branch>
+      ))}
+
+      <button
+        type="button"
+        className={`hover:bg-muted flex w-full items-center gap-2 rounded px-1 py-1 text-left font-medium ${editing?.group === 'analysis' ? 'bg-muted' : ''}`}
+        onClick={onOpenAnalysis}
+      >
+        해석 설정
+        <span className="text-muted-foreground ml-auto truncate text-xs font-normal">{analysis}</span>
+      </button>
     </div>
   )
 }
