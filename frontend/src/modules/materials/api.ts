@@ -32,6 +32,21 @@ export interface MaterialRow {
   source: string
   /** MatNexus 응답 그대로 — 조건에 실리는 것은 이것이다. */
   payload: Record<string, unknown>
+  /**
+   * 고른 **단위계로 환산한 값**(`?system=` 을 줬을 때만). 원본은 `payload` 에 그대로 있다.
+   *
+   * 화면은 이것만 보고 그린다 — 환산표를 프런트에도 두면 두 벌이 어긋나고, 그때 **화면이
+   * 보여 준 값과 내보낸 값이 달라진다.** 서버는 여기 줄 때와 조건으로 내보낼 때 같은
+   * 함수를 쓴다.
+   */
+  converted?: {
+    system: string
+    density?: number
+    density_unit?: string
+    properties?: { item: string; unit: string; points: { temperature_C?: number | null; value: number }[] }[]
+    /** 표에 없는 단위라 **못 바꾼** 항목 이름. 값은 원래 단위 그대로다. */
+    unconverted?: string[]
+  }
 }
 
 export const materialsApi = {
@@ -39,11 +54,12 @@ export const materialsApi = {
    * 물성 찾기 — **서버가 중계한다**(그쪽 CORS 는 자기 주소만 허용하고, 토큰이 화면에
    * 나가면 안 된다). 못 닿으면 `fallback` 이 참이고 `detail` 에 까닭이 온다.
    */
-  search: (options: { q?: string; family?: string; category?: string; limit?: number } = {}) => {
+  search: (options: { q?: string; family?: string; category?: string; limit?: number; system?: string } = {}) => {
     const query = new URLSearchParams({ limit: String(options.limit ?? 30) })
     if (options.q) query.set('q', options.q)
     if (options.family) query.set('family', options.family)
     if (options.category) query.set('category', options.category)
+    if (options.system) query.set('system', options.system)
     return api.get<{ items: MaterialRow[]; fallback: boolean; detail?: string }>(`/materials?${query}`)
   },
   /**

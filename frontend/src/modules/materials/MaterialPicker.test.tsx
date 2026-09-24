@@ -33,8 +33,7 @@ const STEEL = {
   declared_count: 1,
   source: 'matnexus',
   payload: {
-    // **온도 의존 표가 있을 수 있다** — 「값 하나」 로 가정하면 안 된다(강판 상온 206 GPa,
-    // 400 °C 170 GPa). 온도가 둘 이상이면 나란히 펼친다.
+    // 원본은 SI 그대로 — 이것이 감사의 정본이다.
     declared_properties: [
       {
         item: '탄성계수',
@@ -42,6 +41,28 @@ const STEEL = {
         points: [
           { temperature_C: 22, value_si: 2.06e11 },
           { temperature_C: 400, value_si: 1.7e11 },
+        ],
+      },
+    ],
+  },
+  /**
+   * **서버가 환산해 준다.** 화면은 이것만 보고 그린다 — 환산표를 프런트에도 두면 두 벌이
+   * 어긋나고, 그때 보여 준 값과 내보낸 값이 달라진다.
+   *
+   * **온도 의존 표가 있을 수 있다** — 「값 하나」 로 가정하면 안 된다(강판 상온 206 GPa,
+   * 400 °C 170 GPa). 온도가 둘 이상이면 나란히 펼친다.
+   */
+  converted: {
+    system: 'mm-t-s',
+    density: 7.85e-9,
+    density_unit: 'tonne/mm^3',
+    properties: [
+      {
+        item: '탄성계수',
+        unit: 'MPa',
+        points: [
+          { temperature_C: 22, value: 206000 },
+          { temperature_C: 400, value: 170000 },
         ],
       },
     ],
@@ -94,6 +115,10 @@ test('재료를 고르면 물성을 그대로 펼치고, 이름 둘을 다 보�
   // 구조를 그대로 — 우리가 아는 항목만 보여 주면 없는 줄 안다.
   await waitFor(() => screen.getByText(/22 °C/))
   expect(screen.getByText('탄성계수')).toBeInTheDocument()
+  // **고른 단위계로 보인다.** `2.06e11 Pa` 는 맞는지 눈으로 알 수 없지만 `206000 MPa` 는
+  // 안다 — 사람이 검산할 수 있어야 잘못 고른 재료를 잡는다.
+  expect(screen.getByText(/206000 MPa/)).toBeInTheDocument()
+  expect(screen.getByText(/7\.8500e-9 tonne\/mm\^3/)).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: '이 물성을 쓴다' }))
   expect(picked).toHaveBeenCalledWith(expect.objectContaining({ code: 'M-000001' }))

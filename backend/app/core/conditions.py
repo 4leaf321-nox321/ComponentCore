@@ -26,6 +26,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from app.core import units as unit_systems
 from app.core.recipe.params import ExpressionError, resolve_params
 from app.core.recipe.params import evaluate_expression as _expr
 
@@ -72,6 +73,8 @@ class Material(Base):
     """`topology.bodies` 의 이름. 「전체」 면 모든 바디."""
     ref: MaterialRef = Field(default_factory=MaterialRef)
     payload: dict[str, Any] = Field(default_factory=dict)
+    """물성 플랫폼이 준 것 **그대로.** 저장할 때도 내보낼 때도 우리가 손대지 않는다 —
+    이것이 감사의 정본이다."""
 
 
 # ── 조건들 ────────────────────────────────────────────────────────────────────
@@ -164,11 +167,15 @@ class MeshHint(Base):
 
 
 class Units(Base):
-    length: str = "mm"
-    mass: str = "kg"
-    time: str = "s"
-    force: str = "N"
-    temperature: str = "C"
+    """**계 하나만 고른다.** 나머지 단위는 거기서 계산한다(`core/units.py`).
+
+    낱낱이 적게 두면 **닫히지 않는 계**를 적을 수 있다 — 예전 기본값이 `mm · kg · s · N` 이
+    었는데, mm·kg·s 에서 힘은 N 이 아니라 μN 이다. 아무도 안 볼 때까지 아무 일도 안
+    일어나다가 어느 날 10⁶ 배 틀린다. 그래서 고를 수 있는 것은 **계 이름뿐**이다.
+    """
+
+    system: Literal["mm-t-s", "si"] = unit_systems.DEFAULT_SYSTEM  # type: ignore[assignment]
+    """`mm-t-s`(기본 — CAD 가 mm 라 해석도 mm) 또는 `si`."""
 
 
 class Conditions(Base):
@@ -239,10 +246,77 @@ def parse(raw: dict[str, Any] | None) -> Conditions:
     return conditions
 
 
+def _points_of(one: dict[str, Any]) -> list[dict[str, Any]]:
+    return [p for p in (one.get("points") or []) if isinstance(p, dict)]
+
+
+def converted_material(payload: dict[str, Any], system: str) -> dict[str, Any]:
+    """물성 값을 그 계로 옮긴 **나란한 한 벌.** 원본(`payload`)은 그대로 둔다.
+
+    받는 쪽은 둘을 다 받는다: 감사할 때는 원본, 풀 때는 이것. 한쪽만 주면 「이 값이 어디서
+    나왔나」 와 「그래서 무슨 단위인가」 중 하나를 잃는다.
+
+    **못 바꾼 것은 못 바꿨다고 적는다**(`unconverted`) — 조용히 원래 값을 남기면 그것이
+    새 단위인 줄 알고 그대로 푼다.
+    """
+    made: dict[str, Any] = {"system": system}
+    missed: list[str] = []
+    density = payload.get("density")
+    if isinstance(density, int | float):
+        value, name, ok = unit_systems.convert(
+            float(density), str(payload.get("density_unit") or ""), system
+        )
+        made["density"] = value
+        made["density_unit"] = name
+        if not ok:
+            missed.append(f"밀도({payload.get('density_unit')})")
+    if isinstance(payload.get("poisson_ratio"), int | float):
+        # 무차원이라 바뀌지 않는다 — 그래도 실어 준다. 받는 쪽이 한 곳만 보면 되게.
+        made["poisson_ratio"] = payload["poisson_ratio"]
+
+    rows: list[dict[str, Any]] = []
+    for one in payload.get("declared_properties") or []:
+        if not isinstance(one, dict):
+            continue
+        unit = str(one.get("si_unit") or "")
+        # 단위는 항목마다 하나다 — 점마다 다시 묻지 않고 한 번만 푼다.
+        _, unit_name, ok = unit_systems.convert(1.0, unit, system)
+        points = [
+            {
+                "temperature_C": point.get("temperature_C"),
+                "value": unit_systems.convert(float(point["value_si"]), unit, system)[0],
+            }
+            for point in _points_of(one)
+            if isinstance(point.get("value_si"), int | float)
+        ]
+        if not points:
+            continue
+        rows.append({"item": one.get("item"), "unit": unit_name, "points": points})
+        if not ok:
+            missed.append(f"{one.get('item')}({unit})")
+    if rows:
+        made["properties"] = rows
+    if missed:
+        made["unconverted"] = missed
+    return made
+
+
+def _with_converted(material: dict[str, Any], system: str) -> dict[str, Any]:
+    payload = material.get("payload")
+    if not isinstance(payload, dict) or not payload:
+        return material
+    return {**material, "converted": converted_material(payload, system)}
+
+
 def resolve(raw: dict[str, Any] | None, params: dict[str, Any]) -> dict[str, Any]:
     """`"=식"` 을 그 설계점의 값으로 바꾼 **새 사본**. 레시피와 같은 문법이다.
 
     받는 쪽은 식을 풀 수 없다 — 설계점마다 **풀린 값**을 내보내야 한다.
+
+    여기서 **단위계도 함께 푼다**: `units` 를 닫힌 선언으로 펼치고, 물성마다 그 계로 옮긴
+    값(`converted`)을 **원본 옆에** 놓는다. 원본은 안 건드린다 — 감사할 때는 원본, 풀 때는
+    변환값이다. MatNexus 가 밀도만 `tonne/mm3` 로 주고 나머지는 SI 로 주므로, 이것이 없으면
+    받는 쪽이 밀도는 맞고 탄성계수는 10⁶ 배 틀린 채로 푼다.
     """
     conditions = parse(raw).model_dump()
     values = resolve_params({"params": params})
@@ -257,9 +331,13 @@ def resolve(raw: dict[str, Any] | None, params: dict[str, Any]) -> dict[str, Any
         return value
 
     try:
-        return {key: walk(one) for key, one in conditions.items()}
+        out = {key: walk(one) for key, one in conditions.items()}
     except ExpressionError as failure:
         raise ConditionError(f"조건의 식을 풀지 못했습니다: {failure}") from failure
+    system = str((out.get("units") or {}).get("system") or unit_systems.DEFAULT_SYSTEM)
+    out["units"] = unit_systems.declaration(system)
+    out["materials"] = [_with_converted(one, system) for one in out.get("materials", [])]
+    return out
 
 
 # ── 사양표 — 화면과 AI 가 같은 것을 본다 ─────────────────────────────────────
@@ -285,6 +363,12 @@ def spec() -> dict[str, Any]:
     out: dict[str, Any] = {
         "schema_version": 1,
         "units": Units().model_dump(),
+        # **고를 수 있는 단위계.** 화면에 목록을 박으면 계를 더할 때마다 화면을 고쳐야
+        # 한다 — 조건 종류와 같은 까닭으로 정본은 서버다.
+        "unit_systems": [
+            {"key": one.key, "label": one.label, **one.names}
+            for one in unit_systems.SYSTEMS.values()
+        ],
         "analysis": Analysis.model_json_schema(),
         "groups": {},
     }

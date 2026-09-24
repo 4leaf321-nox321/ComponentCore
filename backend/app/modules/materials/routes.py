@@ -22,6 +22,7 @@ def search_materials(
     q: str = Query(default="", max_length=120),
     family: str = Query(default="", max_length=60),
     category: str = Query(default="", max_length=120),
+    system: str = Query(default="", max_length=20),
     limit: int = Query(default=30, ge=1, le=200),
     _: User = Depends(current_user),
     db: Session = Depends(get_db),
@@ -35,8 +36,14 @@ def search_materials(
 
     줄마다 **어느 부서 것인지**(`workspace`)가 함께 온다 — 두 부서에 같은 이름이 있을 수 있다.
 
+    `system`(`mm-t-s` · `si`)을 주면 줄마다 **그 계로 환산한 값**(`converted`)이 함께 온다.
+    화면이 제 손으로 환산하지 않게 하려는 것이다 — 환산표를 두 벌 두면 어느 날 어긋나고,
+    그때 화면이 보여 준 값과 내보낸 값이 달라진다. **내보낼 때와 같은 함수**를 쓴다.
+
     못 닿으면 올려 둔 카탈로그로 넘어가고, **넘어갔다는 사실을 답에 적는다**(`fallback`)."""
-    return services.search(db, query=q, family=family, category=category, limit=limit)
+    return services.search(
+        db, query=q, family=family, category=category, limit=limit, system=system
+    )
 
 
 @router.get("/classifications")

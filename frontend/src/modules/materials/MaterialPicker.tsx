@@ -38,13 +38,26 @@ import { Skeleton } from '@/shared/components/ui/skeleton'
 /** 한 번에 받아 오는 재료 수. 갈래 하나에 110 건까지 있어 서른으로는 잘린다. */
 const LIMIT = 200
 
-/** 선언 물성 한 줄을 사람의 말로 — 온도 표면 점을 나란히. */
-function propertyText(one: Record<string, unknown>): string {
-  const points = (one.points ?? []) as { temperature_C?: number; value_si?: number }[]
-  const unit = String(one.si_unit ?? '')
-  if (one.scale) return `${one.scale} ${points[0]?.value_si ?? ''}`
-  if (points.length <= 1) return `${points[0]?.value_si ?? '?'} ${unit}`.trim()
-  return points.map((p) => `${p.temperature_C ?? '?'} °C ${p.value_si ?? '?'} ${unit}`.trim()).join(' · ')
+/** 숫자를 읽을 만하게 — 아주 크거나 작으면 지수로. `7.85e-9` 은 `0.00000000785` 보다 낫다. */
+function show(value: number): string {
+  if (!Number.isFinite(value)) return '?'
+  const size = Math.abs(value)
+  if (size !== 0 && (size >= 1e6 || size < 1e-3)) return value.toExponential(4)
+  return String(Number(value.toPrecision(6)))
+}
+
+/**
+ * 물성 한 줄을 사람의 말로 — 온도별 점을 나란히.
+ *
+ * **환산은 서버가 한다**(`converted`). 여기서 또 계산하면 환산표가 두 벌(파이썬 · TS)이 되고,
+ * 어느 날 어긋나면 **화면이 보여 준 값과 내보낸 값이 달라진다.** 서버는 탐색기에 줄 때와
+ * 조건으로 내보낼 때 같은 함수를 쓴다 — 그래서 눈으로 검산한 값이 그대로 나간다.
+ */
+function propertyText(one: { unit?: string; points?: { temperature_C?: number | null; value?: number }[] }): string {
+  const points = one.points ?? []
+  const unit = one.unit ?? ''
+  if (points.length <= 1) return `${show(points[0]?.value ?? NaN)} ${unit}`.trim()
+  return points.map((p) => `${p.temperature_C ?? '?'} °C ${show(p.value ?? NaN)} ${unit}`.trim()).join(' · ')
 }
 
 /** 칸 하나 — 제목과 세로로 흐르는 목록. 네 칸이 같은 모양이라 한 번만 쓴다. */
@@ -88,10 +101,13 @@ export function MaterialPicker({
   open,
   onClose,
   onPick,
+  system = 'mm-t-s',
 }: {
   open: boolean
   onClose: () => void
   onPick: (row: MaterialRow) => void
+  /** 어느 단위계로 **보여 줄 것인가.** 조건 한 벌이 고른 계를 그대로 쓴다. */
+  system?: string
 }) {
   const [query, setQuery] = useState('')
   const [family, setFamily] = useState('')
@@ -123,7 +139,7 @@ export function MaterialPicker({
     // 300ms 쉬었다 묻는다 — 글자마다 부르면 MatNexus 가 우리 때문에 바쁘다.
     const timer = setTimeout(() => {
       materialsApi
-        .search({ q: query, family, category, limit: LIMIT })
+        .search({ q: query, family, category, limit: LIMIT, system })
         .then((got) => {
           if (!alive) return
           setRows(got.items)
@@ -137,7 +153,7 @@ export function MaterialPicker({
       alive = false
       clearTimeout(timer)
     }
-  }, [open, query, family, category])
+  }, [open, query, family, category, system])
 
   const families = useMemo(() => {
     const counted = new Map<string, number>()
@@ -156,6 +172,9 @@ export function MaterialPicker({
         .sort((a, b) => (Number(b.count) || 0) - (Number(a.count) || 0)),
     [groups, family],
   )
+
+  /** 「무슨 계로 보고 있나」 — 칸 머리에 적는다. 안 적으면 숫자만 보고 단위를 짐작한다. */
+  const unitHint = system === 'si' ? 'SI (Pa · kg/m³)' : 'mm·t·s (MPa · tonne/mm³)'
 
   const total = useMemo(
     () => groups.reduce((sum, one) => sum + (Number(one.count) || 0), 0),
@@ -281,28 +300,41 @@ export function MaterialPicker({
             )}
           </Column>
 
-          <Column title="물성값" hint={chosen ? (chosen.alias || chosen.name) : undefined}>
+          {/*
+            값은 **고른 단위계로** 보인다. `2.06e11 Pa` 는 맞는지 눈으로 알 수 없지만
+            `206000 MPa` 는 안다 — 사람이 검산할 수 있어야 잘못 고른 재료를 잡는다.
+          */}
+          <Column title="물성값" hint={unitHint}>
             {chosen ? (
               <dl className="space-y-2 p-1">
                 <div>
                   <dt className="text-muted-foreground text-xs">밀도</dt>
                   <dd className="text-sm">
-                    {chosen.density ?? '(없음)'} {chosen.density_unit}
+                    {chosen.converted?.density === undefined
+                      ? '(없음)'
+                      : `${show(chosen.converted.density)} ${chosen.converted.density_unit ?? ''}`}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-muted-foreground text-xs">푸아송비</dt>
                   <dd className="text-sm">{chosen.poisson_ratio ?? '(없음)'}</dd>
                 </div>
-                {((chosen.payload.declared_properties ?? []) as Record<string, unknown>[]).map((one, index) => (
+                {(chosen.converted?.properties ?? []).map((one, index) => (
                   <div key={index}>
-                    <dt className="text-muted-foreground text-xs">
-                      {String(one.item ?? '')}
-                      {one.source ? ` · ${String(one.source)}` : ''}
-                    </dt>
+                    <dt className="text-muted-foreground text-xs">{one.item}</dt>
                     <dd className="text-sm break-words">{propertyText(one)}</dd>
                   </div>
                 ))}
+                {/*
+                  **못 바꾼 것은 못 바꿨다고 말한다.** 조용히 원래 값을 보여 주면 그것이
+                  새 단위인 줄 알고 그대로 쓴다.
+                */}
+                {(chosen.converted?.unconverted ?? []).length > 0 && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    ⚠ 단위를 못 바꾼 항목: {(chosen.converted?.unconverted ?? []).join(' · ')} — 값은 원래
+                    단위 그대로입니다.
+                  </p>
+                )}
               </dl>
             ) : (
               <p className="text-muted-foreground p-1 text-xs">

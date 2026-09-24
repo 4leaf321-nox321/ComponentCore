@@ -13,18 +13,23 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core import conditions
 from app.modules.materials.models import CatalogMaterial
 from app.shared.clients import matnexus
 from app.shared.errors import AppError, NotFound, code
 
 
-def _row(payload: dict[str, Any], source: str) -> dict[str, Any]:
+def _row(payload: dict[str, Any], source: str, system: str = "") -> dict[str, Any]:
     """화면이 목록에 그리는 한 줄 — **payload 는 통째로 함께 간다.**
 
     요약 칸(밀도 · 푸아송비)을 따로 뽑는 것은 목록을 읽기 쉬우라고다. 조건에 실리는 것은
     요약이 아니라 `payload` 다 — 우리가 고른 몇 개가 아니라 그쪽이 준 전부.
+
+    `system` 을 주면 **그 계로 환산한 값**(`converted`)을 나란히 싣는다. 화면이 제 손으로
+    환산하지 않게 하려는 것이다 — 환산표를 두 벌(파이썬 · TS) 두면 어느 날 어긋나고,
+    그때 화면이 보여 준 값과 내보낸 값이 달라진다. **내보낼 때와 같은 함수**를 쓴다.
     """
-    return {
+    made = {
         "code": str(payload.get("code") or ""),
         "id": str(payload.get("id") or ""),
         "name": str(payload.get("record_name") or payload.get("name") or ""),
@@ -43,10 +48,13 @@ def _row(payload: dict[str, Any], source: str) -> dict[str, Any]:
         "source": source,
         "payload": payload,
     }
+    if system:
+        made["converted"] = conditions.converted_material(payload, system)
+    return made
 
 
 def _from_catalog(
-    db: Session, query: str, family: str, category: str, limit: int
+    db: Session, query: str, family: str, category: str, limit: int, system: str = ""
 ) -> list[dict[str, Any]]:
     stmt = select(CatalogMaterial)
     if query:
@@ -57,7 +65,7 @@ def _from_catalog(
     if family:
         stmt = stmt.where(CatalogMaterial.family == family)
     rows = db.scalars(stmt.order_by(CatalogMaterial.name).limit(limit)).all()
-    out = [_row(one.payload, "catalog") for one in rows]
+    out = [_row(one.payload, "catalog", system) for one in rows]
     # 갈래는 사본에 칸이 없다 — payload 에서 본다(그쪽이 준 것 그대로 싣고 있으므로 있다).
     if category:
         out = [one for one in out if one["category"] == category]
@@ -91,7 +99,13 @@ def classifications(db: Session) -> dict[str, Any]:
 
 
 def search(
-    db: Session, *, query: str = "", family: str = "", category: str = "", limit: int = 30
+    db: Session,
+    *,
+    query: str = "",
+    family: str = "",
+    category: str = "",
+    limit: int = 30,
+    system: str = "",
 ) -> dict[str, Any]:
     """MatNexus 에 묻고, 못 닿으면 올려 둔 카탈로그로 넘어간다.
 
@@ -101,15 +115,18 @@ def search(
     if matnexus.configured():
         try:
             live = matnexus.search(query=query, family=family, category=category, limit=limit)
-            return {"items": [_row(one, "matnexus") for one in live], "fallback": False}
+            return {
+                "items": [_row(one, "matnexus", system) for one in live],
+                "fallback": False,
+            }
         except matnexus.MatNexusUnavailable as failure:
             return {
-                "items": _from_catalog(db, query, family, category, limit),
+                "items": _from_catalog(db, query, family, category, limit, system),
                 "fallback": True,
                 "detail": str(failure),
             }
     return {
-        "items": _from_catalog(db, query, family, category, limit),
+        "items": _from_catalog(db, query, family, category, limit, system),
         "fallback": True,
         "detail": f"{matnexus.missing()} — 올려 둔 카탈로그로 고릅니다",
     }

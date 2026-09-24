@@ -299,6 +299,32 @@ export function ConditionsPanel({
                 {String(draft.analysis?.type ?? '')}
               </span>
             </button>
+
+            {/*
+              **단위계는 한 벌에 하나다.** 조건에 적힌 숫자와 물성 값이 같은 계로 풀려야
+              해석이 맞는다 — MatNexus 는 밀도만 mm·t·s 로 주고 나머지는 SI 로 주므로,
+              이것이 없으면 밀도는 맞고 탄성계수가 10⁶ 배 틀린 채로 나간다.
+            */}
+            <div className="mt-2 border-t pt-2">
+              <label className="text-muted-foreground text-xs" htmlFor="단위계">
+                단위계
+              </label>
+              <select
+                id="단위계"
+                className="mt-1 w-full rounded border px-2 py-1 text-sm"
+                value={draft.units?.system ?? 'mm-t-s'}
+                onChange={(e) => setDraft({ ...draft, units: { system: e.target.value } })}
+              >
+                {(spec.unit_systems ?? []).map((one) => (
+                  <option key={one.key} value={one.key}>
+                    {one.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-muted-foreground mt-1 text-xs">
+                물성은 이 계로 환산해 **원본과 나란히** 내보냅니다 — 원본은 손대지 않습니다.
+              </p>
+            </div>
           </CardContent>
         </Card>
 
@@ -413,6 +439,8 @@ export function ConditionsPanel({
       <MaterialPicker
         open={picking}
         onClose={() => setPicking(false)}
+        // 조건 한 벌이 고른 계로 보여 준다 — 검산한 값이 그대로 나가야 한다.
+        system={draft.units?.system ?? 'mm-t-s'}
         onPick={(row) => {
           // **payload 통째로** 싣는다 — 「어느 것이 영률인가」 는 솔버를 아는 쪽의 일이다.
           setDraft({

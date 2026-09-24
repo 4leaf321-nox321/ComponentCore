@@ -27,9 +27,26 @@ export interface GroupSchema {
   required: string[]
 }
 
+/** 고를 수 있는 단위계 하나 — 서버가 정본이다(화면에 목록을 박지 않는다). */
+export interface UnitSystem {
+  key: string
+  label: string
+  length: string
+  mass: string
+  force: string
+  stress: string
+  density: string
+  [field: string]: string
+}
+
 export interface ConditionsSchema {
   schema_version: number
-  units: Record<string, string>
+  units: { system: string }
+  /**
+   * **닫히는 계만 고를 수 있다.** 낱낱이 적게 두면 `mm·kg·s·N` 같은 조합을 적을 수 있는데,
+   * 그 계의 힘은 N 이 아니라 μN 이다 — 아무도 안 볼 때까지 조용하다가 10⁶ 배 틀린다.
+   */
+  unit_systems: UnitSystem[]
   analysis: { properties?: Record<string, FieldSchema> }
   groups: Record<string, GroupSchema>
   entities: string[]
@@ -51,7 +68,7 @@ export interface ConditionItem {
 
 export interface Conditions {
   schema_version?: number
-  units?: Record<string, string>
+  units?: { system: string }
   named_selections: NamedSelection[]
   materials: ConditionItem[]
   constraints: ConditionItem[]
@@ -74,6 +91,8 @@ export const GROUP_KEYS = [
 export function emptyConditions(): Conditions {
   return {
     schema_version: 1,
+    // 기본은 mm·t·s — CAD 가 mm 라 해석도 mm 으로 푼다(FE 의 사실상 표준).
+    units: { system: 'mm-t-s' },
     named_selections: [],
     materials: [],
     constraints: [],
