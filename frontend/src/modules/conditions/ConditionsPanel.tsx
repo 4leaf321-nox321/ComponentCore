@@ -224,7 +224,19 @@ export function ConditionsPanel({
    * **조기 반환보다 위**에 있어야 한다. 아래에 두면 로딩 중 렌더와 그 뒤 렌더의 훅 수가
    * 달라져 React 가 상태를 잘못 잇는다(시험이 그걸 잡았다).
    */
-  const fill = useFillHeight<HTMLDivElement>({ min: 420, gap: 8, deps: [chosen?.kind, names.length] })
+  const fill = useFillHeight<HTMLDivElement>({
+    /**
+     * **바닥값은 격자 전체의 높이다** — 예전의 420 은 그 안 *뷰어* 높이였다.
+     *
+     * 격자에는 3D 말고도 Card 의 세로 여백(`py-4` + `gap-4` = 48px)과 「찍을 것」 줄
+     * (~34px)이 들어간다. 420 을 그대로 쓰면 뷰어가 **338px** 로 떨어져, 같은 일을 하는
+     * 조립 편집기(520)보다 한참 좁아진다(실측 2026-09-24).
+     */
+    min: 520 + 82,
+    /** 격자 **아래**에 「조건 저장」 줄이 있다 — 그만큼 남겨야 페이지가 안 밀린다. */
+    gap: 56,
+    deps: [chosen?.kind, names.length],
+  })
 
   /**
    * 물성이 붙을 수 있는 자리 — 조립이면 구성품마다, 단품이면 「전체」 하나.
@@ -283,7 +295,12 @@ export function ConditionsPanel({
       */}
       <div ref={fill.ref} style={fill.style} className="grid min-h-0 gap-3 lg:grid-cols-[260px_1fr_300px]">
         {/* ── 조건 목록 ── */}
-        <Card className="min-h-0 overflow-hidden">
+        {/*
+          `py-0` — `h-full` 은 Card 높이의 100% 라, Card 에 세로 여백이 있으면 그만큼
+          **넘쳐서 잘린다**(`overflow-hidden`). 목록 맨 아래 줄이 안 보이던 자리다.
+          여백은 안쪽(`p-3`)이 갖는다.
+        */}
+        <Card className="min-h-0 overflow-hidden py-0">
           <CardContent className="h-full space-y-3 overflow-y-auto p-3 text-sm">
             <div>
               <p className="mb-1 font-medium">
@@ -445,7 +462,8 @@ export function ConditionsPanel({
         </Card>
 
         {/* ── 3D ── */}
-        <Card className="flex min-h-0 flex-col overflow-hidden">
+        {/* `py-0` — 3D 는 칸을 통째로 쓴다. Card 의 세로 여백이 그만큼 뷰어를 깎았다. */}
+        <Card className="flex min-h-0 flex-col gap-0 overflow-hidden py-0">
           {/*
             **무엇을 찍을지 먼저 고른다.** 없을 때는 엣지를 고르려는데 점이 먼저 잡혔다 —
             뷰어가 점 · 엣지 · 면 순으로 걸고, 그 순서를 사람이 바꿀 길이 없었다.
@@ -493,7 +511,12 @@ export function ConditionsPanel({
         </Card>
 
         {/* ── 속성 ── */}
-        <Card className="min-h-0 overflow-hidden">
+        {/*
+          `py-0` — `h-full` 은 Card 높이의 100% 라, Card 에 세로 여백이 있으면 그만큼
+          **넘쳐서 잘린다**(`overflow-hidden`). 목록 맨 아래 줄이 안 보이던 자리다.
+          여백은 안쪽(`p-3`)이 갖는다.
+        */}
+        <Card className="min-h-0 overflow-hidden py-0">
           <CardContent className="h-full space-y-3 overflow-y-auto p-3 text-sm">
             {candidates ? (
               <div className="space-y-2">
