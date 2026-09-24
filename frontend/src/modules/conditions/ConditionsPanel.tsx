@@ -19,6 +19,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { Recipe } from '@/modules/cad/api'
 import { useRecipeMesh } from '@/modules/cad/useRecipeMesh'
 import { ConditionForm } from '@/modules/conditions/ConditionForm'
+import { MaterialAssign } from '@/modules/conditions/MaterialAssign'
 import { materialsApi } from '@/modules/materials/api'
 import { MaterialPicker } from '@/modules/materials/MaterialPicker'
 import { asConditions, conditionsApi, GROUP_KEYS } from '@/modules/conditions/api'
@@ -31,13 +32,6 @@ import type {
 } from '@/modules/conditions/api'
 import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/shared/components/ui/dialog'
 import { useFillHeight } from '@/shared/hooks/useFillHeight'
 import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
@@ -66,7 +60,7 @@ function toPick(pick: MeasurePick): { what: string; point: number[]; label: stri
 }
 
 /**
- * **무엇을 찍을 것인가.** 켠 것 하나만 잡힌다.
+ * **무엇을 선택 대상인가.** 켠 것 하나만 잡힌다.
  *
  * 이것이 없으면 엣지를 고르려는데 점이 먼저 잡힌다 — 뷰어가 점 · 엣지 · 면 순으로 걸기
  * 때문이고, 그 순서를 사람이 바꿀 길이 없었다.
@@ -127,7 +121,27 @@ export function ConditionsPanel({
     [draft],
   )
 
+  /**
+   * 3D 에서 선택한 형상을 **지금 편집 중인 것**에 연결한다.
+   *
+   * 물성을 편집 중이면 바디 선택이 곧 적용 대상 지정이다 — 대화상자를 열고 닫을 필요가
+   * 없다. 연결할 곳이 없으면 거짓을 반환하고, 평소대로 이름표 생성으로 넘어간다.
+   */
+  function assignToOpen(pick: MeasurePick): boolean {
+    if (chosen?.kind === 'material' && pick.kind === 'body') {
+      setDraft({
+        ...draft,
+        materials: draft.materials.map((one, i) =>
+          i === chosen.index ? { ...one, apply_to: pick.name } : one,
+        ),
+      })
+      return true
+    }
+    return false
+  }
+
   async function ask(pick: MeasurePick) {
+    if (assignToOpen(pick)) return
     const { what, point, label } = toPick(pick)
     setError(null)
     // **바디는 서버에 물을 것이 없다.** 면 · 엣지 · 점은 「이 자리를 무엇으로 부를까」 를
@@ -162,12 +176,22 @@ export function ConditionsPanel({
     }
     const entity =
       PICK_KINDS.find((one) => one.what === candidates.what)?.entity ?? 'face'
-    setDraft({
+    const next: Conditions = {
       ...draft,
       named_selections: [...names, { name, entity, select: candidate.select }],
-    })
+    }
+    // **조건을 편집 중이었으면 그대로 연결한다.** 이름표를 만들고 다시 조건으로 돌아가
+    // 목록에서 고르게 하면, 형상을 지정하는 한 가지 일이 세 걸음이 된다.
+    const 편집중 = chosen?.kind === 'item' ? chosen : null
+    if (편집중 && 'on' in (schema.data?.groups[편집중.group]?.fields ?? {})) {
+      const list = [...(next[편집중.group as keyof Conditions] as ConditionItem[])]
+      list[편집중.index] = { ...list[편집중.index], on: name }
+      next[편집중.group as keyof Conditions] = list as never
+    }
+    setDraft(next)
     setCandidates(null)
-    setChosen({ kind: 'selection', index: names.length })
+    // 조건을 편집 중이면 그 자리에 머문다 — 방금 지정한 결과를 그 자리에서 본다.
+    if (!편집중) setChosen({ kind: 'selection', index: names.length })
   }
 
   /**
@@ -228,7 +252,7 @@ export function ConditionsPanel({
     /**
      * **바닥값은 격자 전체의 높이다** — 예전의 420 은 그 안 *뷰어* 높이였다.
      *
-     * 격자에는 3D 말고도 Card 의 세로 여백(`py-4` + `gap-4` = 48px)과 「찍을 것」 줄
+     * 격자에는 3D 말고도 Card 의 세로 여백(`py-4` + `gap-4` = 48px)과 「선택 대상」 줄
      * (~34px)이 들어간다. 420 을 그대로 쓰면 뷰어가 **338px** 로 떨어져, 같은 일을 하는
      * 조립 편집기(520)보다 한참 좁아진다(실측 2026-09-24).
      */
@@ -308,7 +332,7 @@ export function ConditionsPanel({
               </p>
               {names.length === 0 && (
                 <p className="text-muted-foreground text-xs">
-                  3D 에서 면 · 엣지 · 점을 찍어 만드세요.
+                  3D 에서 면 · 엣지 · 꼭짓점을 선택하여 생성합니다.
                 </p>
               )}
               <ul className="space-y-1">
@@ -340,7 +364,7 @@ export function ConditionsPanel({
                   size="sm"
                   variant="ghost"
                   className="h-6 px-2"
-                  aria-label="물성 더하기"
+                  aria-label="물성 추가"
                   onClick={() => setPicking(true)}
                 >
                   +
@@ -389,7 +413,7 @@ export function ConditionsPanel({
                     size="sm"
                     variant="ghost"
                     className="h-6 px-2"
-                    aria-label={`${spec.groups[group]?.label ?? group} 더하기`}
+                    aria-label={`${spec.groups[group]?.label ?? group} 추가`}
                     onClick={() => addItem(group)}
                   >
                     +
@@ -455,7 +479,7 @@ export function ConditionsPanel({
                 ))}
               </select>
               <p className="text-muted-foreground mt-1 text-xs">
-                물성은 이 계로 환산해 **원본과 나란히** 내보냅니다 — 원본은 손대지 않습니다.
+                물성은 이 단위계로 환산하여 **원본과 함께** 전달됩니다 — 원본은 변경하지 않습니다.
               </p>
             </div>
           </CardContent>
@@ -469,7 +493,7 @@ export function ConditionsPanel({
             뷰어가 점 · 엣지 · 면 순으로 걸고, 그 순서를 사람이 바꿀 길이 없었다.
           */}
           <div className="flex shrink-0 flex-wrap items-center gap-1 border-b px-2 py-1.5">
-            <span className="text-muted-foreground mr-1 text-xs">찍을 것</span>
+            <span className="text-muted-foreground mr-1 text-xs">선택 대상</span>
             {PICK_KINDS.map((one) => (
               <button
                 key={one.key}
@@ -490,7 +514,7 @@ export function ConditionsPanel({
               </button>
             ))}
             <span className="text-muted-foreground ml-auto text-xs">
-              {pickKind === 'body' ? '면을 누르면 그 덩어리를 집습니다' : '3D 에서 눌러 이름표를 만듭니다'}
+              {pickKind === 'body' ? '면을 클릭하면 해당 바디가 선택됩니다' : '3D 에서 클릭하여 이름표를 생성합니다'}
             </span>
           </div>
           <CardContent className="min-h-0 flex-1 p-0">
@@ -520,9 +544,9 @@ export function ConditionsPanel({
           <CardContent className="h-full space-y-3 overflow-y-auto p-3 text-sm">
             {candidates ? (
               <div className="space-y-2">
-                <p className="font-medium">{candidates.label}을 찍었습니다</p>
+                <p className="font-medium">{candidates.label} 선택됨</p>
                 <p className="text-muted-foreground text-xs">
-                  **좌표가 아니라 말로 저장합니다** — 치수를 바꿔도 같은 것을 가리키도록.
+                  좌표가 아니라 **선택 규칙**으로 저장합니다 — 치수가 변경되어도 같은 형상을 가리킵니다.
                 </p>
                 <ul className="space-y-1">
                   {candidates.list.map((one, index) => (
@@ -536,7 +560,7 @@ export function ConditionsPanel({
                       >
                         {one.label}
                         <span className="text-muted-foreground ml-2 text-xs">
-                          지금 {one.matches}개
+                          현재 {one.matches} 개
                         </span>
                       </button>
                     </li>
@@ -553,7 +577,7 @@ export function ConditionsPanel({
                 </div>
                 <div className="flex gap-2">
                   <Button size="sm" onClick={addSelection}>
-                    이름표 만들기
+                    이름표 생성
                   </Button>
                   <Button size="sm" variant="ghost" onClick={() => setCandidates(null)}>
                     취소
@@ -570,12 +594,63 @@ export function ConditionsPanel({
                   {JSON.stringify(names[chosen.index]?.select ?? {}, null, 2)}
                 </pre>
                 <Button size="sm" variant="ghost" onClick={removeChosen}>
-                  지우기
+                  삭제
                 </Button>
               </div>
-            ) : chosen?.kind === 'item' || chosen?.kind === 'material' ? (
-              // 고치는 것은 **편집창**에서 — 오른쪽 칸은 3D 에서 찍은 것을 받는 자리다.
-              <p className="text-muted-foreground text-xs">편집창에서 고치는 중입니다.</p>
+            ) : chosen?.kind === 'item' ? (
+              <div className="space-y-2">
+                <p className="font-medium">
+                  {spec.groups[chosen.group]?.label ?? chosen.group} 수정
+                </p>
+                {/*
+                  **대화상자로 덮지 않는다.** 조건이 해당하는 형상을 3D 에서 선택해야 하는데,
+                  모달이 뒤를 가리면 그 선택을 할 수 없다 — 열고 닫기를 되풀이하게 된다.
+                */}
+                <p className="text-muted-foreground text-xs">
+                  3D 에서 형상을 선택하면 이 조건의 적용 대상으로 지정됩니다.
+                </p>
+                <ConditionForm
+                  group={spec.groups[chosen.group]}
+                  item={(draft[chosen.group as keyof Conditions] as ConditionItem[])[chosen.index]}
+                  names={namesFor(chosen.group)}
+                  onChange={(next) => {
+                    const list = [...(draft[chosen.group as keyof Conditions] as ConditionItem[])]
+                    list[chosen.index] = next
+                    setDraft({ ...draft, [chosen.group]: list })
+                  }}
+                />
+                <Button size="sm" variant="ghost" onClick={removeChosen}>
+                  삭제
+                </Button>
+              </div>
+            ) : chosen?.kind === 'material' ? (
+              <MaterialAssign
+                material={draft.materials[chosen.index]}
+                bodies={bodies.data?.items ?? []}
+                decks={
+                  deckChoices[
+                    String(
+                      ((draft.materials[chosen.index]?.ref ?? {}) as Record<string, unknown>)
+                        .material_id ?? '',
+                    )
+                  ] ?? []
+                }
+                onChange={(next) =>
+                  setDraft({
+                    ...draft,
+                    materials: draft.materials.map((m, i) =>
+                      i === chosen.index ? { ...m, ...next } : m,
+                    ),
+                  })
+                }
+                onRemove={() => {
+                  setDraft({
+                    ...draft,
+                    materials: draft.materials.filter((_, i) => i !== chosen.index),
+                  })
+                  setChosen(null)
+                }}
+              />
             ) : chosen?.kind === 'analysis' ? (
               <ConditionForm
                 group={{
@@ -590,169 +665,14 @@ export function ConditionsPanel({
               />
             ) : (
               <p className="text-muted-foreground text-xs">
-                왼쪽에서 고르거나, 3D 에서 면 · 엣지 · 점을 찍어 이름표를 만드세요.
+                왼쪽 목록에서 선택하거나, 3D 에서 형상을 선택하여 이름표를 생성합니다.
               </p>
             )}
           </CardContent>
         </Card>
       </div>
 
-      {/*
-        **더할 때 바로 고친다.** 예전에는 왼쪽 목록에 줄만 생기고 오른쪽 칸에서 고쳤는데,
-        「구속을 더했다」 와 「무엇을 어디에 거는가」 사이가 떨어져 있어 빈 줄을 만들어 놓고
-        잊는 일이 생겼다. 더하면 곧바로 물어본다.
-      */}
-      <Dialog
-        open={chosen?.kind === 'item'}
-        onOpenChange={(next) => !next && setChosen(null)}
-      >
-        <DialogContent className="sm:max-w-lg">
-          {chosen?.kind === 'item' && (
-            <>
-              <DialogHeader>
-                <DialogTitle>
-                  {spec.groups[chosen.group]?.label ?? chosen.group} 고치기
-                </DialogTitle>
-                <DialogDescription>
-                  종류를 고르고 값을 넣습니다. **어디에** 는 이름표로 가리킵니다 — 3D 에서
-                  찍어 만든 그 이름입니다.
-                </DialogDescription>
-              </DialogHeader>
-              <ConditionForm
-                group={spec.groups[chosen.group]}
-                item={(draft[chosen.group as keyof Conditions] as ConditionItem[])[chosen.index]}
-                names={namesFor(chosen.group)}
-                onChange={(next) => {
-                  const list = [...(draft[chosen.group as keyof Conditions] as ConditionItem[])]
-                  list[chosen.index] = next
-                  setDraft({ ...draft, [chosen.group]: list })
-                }}
-              />
-              <div className="flex justify-end gap-2">
-                <Button size="sm" variant="ghost" onClick={removeChosen}>
-                  지우기
-                </Button>
-                <Button size="sm" onClick={() => setChosen(null)}>
-                  닫기
-                </Button>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
 
-      {/*
-        **고른 물성을 어디에 붙일지 여기서 정한다.** 예전에는 왼쪽 목록 줄에 칸을 늘어놓아
-        물성이 셋만 돼도 읽을 수 없었고, 고르자마자 묻지 않아 「전체」 인 채로 두고 잊었다.
-      */}
-      <Dialog
-        open={chosen?.kind === 'material'}
-        onOpenChange={(next) => !next && setChosen(null)}
-      >
-        <DialogContent className="sm:max-w-lg">
-          {chosen?.kind === 'material' &&
-            (() => {
-              const one = draft.materials[chosen.index]
-              if (!one) return null
-              const ref = (one.ref ?? {}) as Record<string, unknown>
-              const 이름 = String(ref.name ?? '이름 없음')
-              const 덱후보 = (deckChoices[String(ref.material_id ?? '')] ?? []).filter((f) => f.ready)
-              const 고른덱 = (one as { deck_formats?: string[] }).deck_formats ?? []
-              const 고치기 = (next: Record<string, unknown>) =>
-                setDraft({
-                  ...draft,
-                  materials: draft.materials.map((m, i) => (i === chosen.index ? { ...m, ...next } : m)),
-                })
-              return (
-                <>
-                  <DialogHeader>
-                    <DialogTitle>{이름}</DialogTitle>
-                    <DialogDescription>
-                      이 물성을 **어느 바디에** 붙일지 정합니다. 값은 MatNexus 가 준 그대로
-                      나갑니다 — 우리가 고치지 않습니다.
-                    </DialogDescription>
-                  </DialogHeader>
-
-                  <div className="space-y-1">
-                    <Label htmlFor="mat-body">붙일 자리</Label>
-                    <select
-                      id="mat-body"
-                      className="w-full rounded border px-2 py-1 text-sm"
-                      value={String(one.apply_to ?? '전체')}
-                      onChange={(e) => 고치기({ apply_to: e.target.value })}
-                    >
-                      <option value="전체">
-                        전체{bodyNames.length > 1 ? ` (${bodyNames.length} 개 바디)` : ''}
-                      </option>
-                      {(bodies.data?.items ?? []).map((body) => (
-                        <option key={body.name} value={body.name}>
-                          {body.name}
-                          {body.volume ? ` — ${Math.round(body.volume).toLocaleString()} mm³` : ''}
-                        </option>
-                      ))}
-                    </select>
-                    {bodyNames.length <= 1 && (
-                      <p className="text-muted-foreground text-xs">
-                        이 도면은 덩어리가 하나입니다 — 고를 것이 「전체」 뿐입니다.
-                      </p>
-                    )}
-                  </div>
-
-                  {덱후보.length > 0 && (
-                    <div className="space-y-1">
-                      <Label>솔버 덱 함께 보내기</Label>
-                      <p className="text-muted-foreground text-xs">
-                        받는 쪽이 제 덱을 손으로 짜는 대신 그대로 씁니다. 중립 물성은 그대로
-                        나가고 이것은 **옆에** 붙습니다.
-                      </p>
-                      <div className="flex flex-wrap gap-1">
-                        {덱후보.map((f) => {
-                          const 켬 = 고른덱.includes(f.key)
-                          return (
-                            <button
-                              key={f.key}
-                              type="button"
-                              aria-pressed={켬}
-                              className={`rounded border px-2 py-0.5 text-xs ${켬 ? 'border-primary bg-accent' : 'text-muted-foreground'}`}
-                              onClick={() =>
-                                고치기({
-                                  deck_formats: 켬
-                                    ? 고른덱.filter((x) => x !== f.key)
-                                    : [...고른덱, f.key],
-                                })
-                              }
-                            >
-                              {f.key}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        setDraft({
-                          ...draft,
-                          materials: draft.materials.filter((_, i) => i !== chosen.index),
-                        })
-                        setChosen(null)
-                      }}
-                    >
-                      빼기
-                    </Button>
-                    <Button size="sm" onClick={() => setChosen(null)}>
-                      닫기
-                    </Button>
-                  </div>
-                </>
-              )
-            })()}
-        </DialogContent>
-      </Dialog>
 
       <MaterialPicker
         open={picking}

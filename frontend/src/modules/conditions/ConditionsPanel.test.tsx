@@ -156,16 +156,16 @@ async function panel(onSave = vi.fn()) {
   return onSave
 }
 
-test('찍으면 좌표가 아니라 **말**로 되돌려 주고, 고른 것이 이름표가 된다', async () => {
+test('선택하면 좌표가 아니라 **선택 규칙**으로 되돌려 주고, 그것이 이름표가 된다', async () => {
   await panel()
 
   fireEvent.click(screen.getByText('면 찍기'))
   // 후보마다 「지금 몇 개에 맞나」 가 보여야 한다 — 하나만 집을지 부류 전부를 집을지 고른다.
   await waitFor(() => screen.getByText('bottom 면'))
-  expect(screen.getAllByText(/지금 1개/)).toHaveLength(2)
+  expect(screen.getAllByText(/현재 1 개/)).toHaveLength(2)
 
   fireEvent.change(screen.getByLabelText('이름표 이름'), { target: { value: '바닥' } })
-  fireEvent.click(screen.getByText('이름표 만들기'))
+  fireEvent.click(screen.getByText('이름표 생성'))
 
   // 왼쪽 목록과 오른쪽 속성 양쪽에 뜬다 — 고른 것이 무엇인지 두 자리에서 보인다.
   await waitFor(() => expect(screen.getAllByText('바닥').length).toBeGreaterThan(0))
@@ -179,11 +179,11 @@ test('조건은 이름표를 가리키고, 저장하면 그 한 벌이 그대로
   fireEvent.click(screen.getByText('면 찍기'))
   await waitFor(() => screen.getByText('bottom 면'))
   fireEvent.change(screen.getByLabelText('이름표 이름'), { target: { value: '바닥' } })
-  fireEvent.click(screen.getByText('이름표 만들기'))
+  fireEvent.click(screen.getByText('이름표 생성'))
   await waitFor(() => expect(screen.getAllByText('바닥').length).toBeGreaterThan(0))
 
   // 구속을 더하면 **첫 이름표를 가리킨 채** 생긴다 — 빈 칸으로 두면 저장에서 막힌다.
-  fireEvent.click(screen.getByRole('button', { name: '구속 더하기' }))
+  fireEvent.click(screen.getByRole('button', { name: '구속 추가' }))
   await waitFor(() => screen.getByLabelText('이름'))
 
   fireEvent.click(screen.getByText('조건 저장'))
@@ -197,42 +197,42 @@ test('조건은 이름표를 가리키고, 저장하면 그 한 벌이 그대로
   expect(saved.constraints[0].type).toBe('fixed_support')
 })
 
-test('점을 찍으면 점 이름표가 된다 — 면 · 엣지 · 점을 모두 고른다', async () => {
+test('꼭짓점을 선택하면 꼭짓점 이름표가 된다 — 면 · 엣지 · 꼭짓점을 모두 선택한다', async () => {
   const onSave = await panel()
 
   fireEvent.click(screen.getByText('점 찍기'))
   await waitFor(() => screen.getByText('bottom 면')) // 가짜 서버가 같은 후보를 준다
   fireEvent.change(screen.getByLabelText('이름표 이름'), { target: { value: '측정점' } })
-  fireEvent.click(screen.getByText('이름표 만들기'))
+  fireEvent.click(screen.getByText('이름표 생성'))
 
   fireEvent.click(screen.getByText('조건 저장'))
   await waitFor(() => expect(onSave).toHaveBeenCalled())
   expect(onSave.mock.calls[0][0].named_selections[0].entity).toBe('vertex')
 })
 
-test('같은 이름을 두 번 쓰면 막는다 — 조건이 어느 것을 가리킬지 알 수 없다', async () => {
+test('같은 이름을 두 번 사용하면 거절한다 — 조건이 어느 것을 가리킬지 알 수 없다', async () => {
   await panel()
 
   for (const name of ['바닥', '바닥']) {
     fireEvent.click(screen.getByText('면 찍기'))
     await waitFor(() => screen.getByText('bottom 면'))
     fireEvent.change(screen.getByLabelText('이름표 이름'), { target: { value: name } })
-    fireEvent.click(screen.getByText('이름표 만들기'))
+    fireEvent.click(screen.getByText('이름표 생성'))
   }
   await waitFor(() => screen.getByText(/이미 있습니다/))
 })
 
-test('물성은 MatNexus 에서 골라 **payload 째로** 실린다', async () => {
+test('물성은 MatNexus 에서 선택하여 **payload 전체**가 실린다', async () => {
   const onSave = await panel()
 
-  fireEvent.click(screen.getByRole('button', { name: '물성 더하기' }))
+  fireEvent.click(screen.getByRole('button', { name: '물성 추가' }))
   await waitFor(() => screen.getByText('물성 고르기'))
   await waitFor(() => screen.getByText('SPCC 1.2t'))
 
   fireEvent.click(screen.getByText('SPCC 1.2t'))
   // 구조를 그대로 펼친다 — 우리가 아는 항목만 보여 주면 없는 줄 안다.
   await waitFor(() => screen.getByText(/22 °C/))
-  fireEvent.click(screen.getByText('이 물성을 쓴다'))
+  fireEvent.click(screen.getByText('물성 적용'))
 
   fireEvent.click(screen.getByText('조건 저장'))
   await waitFor(() => expect(onSave).toHaveBeenCalled())
@@ -243,19 +243,21 @@ test('물성은 MatNexus 에서 골라 **payload 째로** 실린다', async () =
   expect(saved.materials[0].payload.declared_properties[0].si_unit).toBe('Pa')
 })
 
-test('물성을 **어느 바디에** 붙일지 고른다', async () => {
+test('물성을 **어느 바디에** 적용할지 선택한다', async () => {
   const onSave = await panel()
 
-  fireEvent.click(screen.getByRole('button', { name: '물성 더하기' }))
+  fireEvent.click(screen.getByRole('button', { name: '물성 추가' }))
   await waitFor(() => screen.getByText('물성 고르기'))
   await waitFor(() => screen.getByText('SPCC 1.2t'))
   fireEvent.click(screen.getByText('SPCC 1.2t'))
-  fireEvent.click(screen.getByText('이 물성을 쓴다'))
+  fireEvent.click(screen.getByText('물성 적용'))
 
-  // 바디가 둘 이상일 때만 칸이 뜬다 — 단품이면 고를 것이 「전체」 하나뿐이다.
-  const where = await screen.findByLabelText(/붙일 자리/)
-  expect((where as HTMLSelectElement).value).toBe('전체')
-  fireEvent.change(where, { target: { value: '기둥' } })
+  // **대화상자가 아니라 옆 패널이다** — 3D 를 보면서 바디를 골라야 하므로 뒤를 가리면 안 된다.
+  await waitFor(() => screen.getByText('적용 대상'))
+  // 「전체」 는 목록 맨 위와 왼쪽 배지 양쪽에 나온다 — 누를 수 있는 것으로 좁힌다.
+  const 자리 = screen.getAllByRole('button', { name: /전체/ })
+  expect(자리.some((one) => one.getAttribute('aria-pressed') === 'true')).toBe(true)
+  fireEvent.click(screen.getByRole('button', { name: /기둥/ }))
 
   fireEvent.click(screen.getByText('조건 저장'))
   await waitFor(() => expect(onSave).toHaveBeenCalled())
@@ -263,7 +265,7 @@ test('물성을 **어느 바디에** 붙일지 고른다', async () => {
   expect(onSave.mock.calls[0][0].materials[0].apply_to).toBe('기둥')
 })
 
-test('찍을 종류를 고르면 **그것만** 잡힌다', async () => {
+test('선택 대상을 지정하면 **그 종류만** 선택된다', async () => {
   await panel()
   // 기본은 면 — 조건이 가장 많이 붙는 자리다.
   expect(lastKinds).toEqual({ point: false, edge: false, face: true, body: false })
@@ -277,7 +279,7 @@ test('찍을 종류를 고르면 **그것만** 잡힌다', async () => {
   await waitFor(() => expect(lastKinds).toEqual({ point: false, edge: false, face: false, body: true }))
 })
 
-test('바디는 서버에 안 묻는다 — 이름이 곧 답이다', async () => {
+test('바디는 서버에 조회하지 않는다 — 이름이 곧 답이다', async () => {
   const calls = vi.mocked((await import('@/shared/api/client')).api.post)
   await panel()
   fireEvent.click(screen.getByRole('button', { name: '바디' }))
@@ -290,45 +292,60 @@ test('바디는 서버에 안 묻는다 — 이름이 곧 답이다', async () =
     calls.mock.calls.slice(before).filter((one) => String(one[0]).includes('selectors')),
   ).toHaveLength(0)
 
-  fireEvent.click(screen.getByText('이름표 만들기'))
+  fireEvent.click(screen.getByText('이름표 생성'))
   await waitFor(() => screen.getByRole('button', { name: /기둥/ }))
 })
 
-test('조건을 더하면 **편집창**이 뜬다 — 빈 줄을 만들어 놓고 잊지 않게', async () => {
+test('조건을 추가하면 **옆 패널**에서 바로 수정한다 — 3D 를 가리지 않는다', async () => {
   await panel()
-  fireEvent.click(screen.getByRole('button', { name: '구속 더하기' }))
-  // 더하자마자 종류와 값을 묻는다.
-  await waitFor(() => screen.getByText('구속 고치기'))
-  expect(screen.getByRole('dialog')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '구속 추가' }))
+  await waitFor(() => screen.getByText('구속 수정'))
+
+  // **대화상자를 쓰지 않는다.** 조건이 해당하는 형상을 3D 에서 선택해야 하는데, 모달이
+  // 뒤를 가리면 그 선택을 할 수 없어 열고 닫기를 되풀이하게 된다.
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(screen.getByText('면 찍기')).toBeInTheDocument()
+})
+
+test('조건을 수정하는 중에 형상을 선택하면 **그 조건의 적용 대상**이 된다', async () => {
+  const onSave = await panel()
+  fireEvent.click(screen.getByRole('button', { name: '구속 추가' }))
+  await waitFor(() => screen.getByText('구속 수정'))
+
+  // 이름표를 따로 만들고 조건으로 돌아가 목록에서 고르면 한 가지 일이 세 걸음이 된다.
+  fireEvent.click(screen.getByText('면 찍기'))
+  await waitFor(() => screen.getByText('bottom 면'))
+  fireEvent.change(screen.getByLabelText('이름표 이름'), { target: { value: '바닥' } })
+  fireEvent.click(screen.getByText('이름표 생성'))
+
+  // 수정하던 자리에 머문다 — 방금 지정한 결과를 그 자리에서 확인한다.
+  await waitFor(() => screen.getByText('구속 수정'))
+  fireEvent.click(screen.getByText('조건 저장'))
+  await waitFor(() => expect(onSave).toHaveBeenCalled())
+  expect(onSave.mock.calls[0][0].constraints[0].on).toBe('바닥')
 })
 
 test('초기조건은 **바디만** 가리킨다', async () => {
-  await panel()
+  const onSave = await panel()
 
   // 면 이름표 하나와 바디 이름표 하나를 만든다.
   fireEvent.click(screen.getByText('면 찍기'))
   await waitFor(() => screen.getByText('bottom 면'))
   fireEvent.change(screen.getByLabelText('이름표 이름'), { target: { value: '바닥면' } })
-  fireEvent.click(screen.getByText('이름표 만들기'))
+  fireEvent.click(screen.getByText('이름표 생성'))
 
   fireEvent.click(screen.getByRole('button', { name: '바디' }))
   fireEvent.click(screen.getByText('바디 찍기'))
   await waitFor(() => screen.getByText(/바디 「기둥」/))
   fireEvent.change(screen.getByLabelText('이름표 이름'), { target: { value: '기둥몸' } })
-  fireEvent.click(screen.getByText('이름표 만들기'))
+  fireEvent.click(screen.getByText('이름표 생성'))
 
   // **온도 · 속도 · 예응력은 몸 전체의 상태다** — 한 면에 걸 수 없다. 면 이름표를 고를 수
   // 있게 두면 해석 쪽에서야 「그 자리에 못 건다」 를 안다.
-  fireEvent.click(screen.getByRole('button', { name: '초기조건 더하기' }))
-  await waitFor(() => screen.getByText('초기조건 고치기'))
-  // 더할 때 **바디 이름표가 기본으로 잡힌다**(면 이름표가 먼저 만들어졌는데도).
-  const 창 = screen.getByRole('dialog')
-  expect(창).toHaveTextContent('기둥몸')
-  expect(창).not.toHaveTextContent('바닥면')
-
-  // 구속은 그 반대다 — 면 · 엣지 · 점 · 바디 아무것이나 가리킬 수 있다.
-  fireEvent.click(screen.getByRole('button', { name: '닫기' }))
-  fireEvent.click(screen.getByRole('button', { name: '구속 더하기' }))
-  await waitFor(() => screen.getByText('구속 고치기'))
-  expect(screen.getByRole('dialog')).toHaveTextContent('바닥면')
+  // **바디 이름표가 기본으로 지정된다** — 면 이름표를 먼저 만들었는데도.
+  fireEvent.click(screen.getByRole('button', { name: '초기조건 추가' }))
+  await waitFor(() => screen.getByText('초기조건 수정'))
+  fireEvent.click(screen.getByText('조건 저장'))
+  await waitFor(() => expect(onSave).toHaveBeenCalled())
+  expect(onSave.mock.calls[0][0].initial[0].on).toBe('기둥몸')
 })

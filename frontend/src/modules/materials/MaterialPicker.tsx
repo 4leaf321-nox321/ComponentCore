@@ -10,11 +10,11 @@
  *
  * ## 왜 네 칸인가
  *
- * 재료가 백 몇십이고 갈래 하나(Steel)에만 110 건이 몰려 있다. 이름을 아는 사람은 검색하면
- * 되지만, **모르고 찾으러 온 사람**은 목록을 끝없이 넘기게 된다. 쪽(族) → 갈래 → 재료로
+ * 재료가 백 몇십이고 분류 하나(Steel)에만 110 건이 몰려 있다. 이름을 아는 사람은 검색하면
+ * 되지만, **모르고 찾으러 온 사람**은 목록을 끝없이 넘기게 된다. 계열 → 분류 → 재료로
  * 좁혀 들어가면 한 칸에 몇 줄씩만 보면 된다.
  *
- * 쪽과 갈래는 **검색 결과에서 뽑지 않는다**(`/materials/classifications`). 목록은 상한만큼만
+ * 쪽과 분류는 **검색 결과에서 뽑지 않는다**(`/materials/classifications`). 목록은 상한만큼만
  * 오므로 그렇게 만들면 「앞 서른 줄에 있는 쪽」 만 보이고, 사람은 나머지가 없는 줄 안다.
  */
 
@@ -35,7 +35,7 @@ import {
 import { Input } from '@/shared/components/ui/input'
 import { Skeleton } from '@/shared/components/ui/skeleton'
 
-/** 한 번에 받아 오는 재료 수. 갈래 하나에 110 건까지 있어 서른으로는 잘린다. */
+/** 한 번에 받아 오는 재료 수. 분류 하나에 110 건까지 있어 서른으로는 잘린다. */
 const LIMIT = 200
 
 /** 숫자를 읽을 만하게 — 아주 크거나 작으면 지수로. `7.85e-9` 은 `0.00000000785` 보다 낫다. */
@@ -141,7 +141,7 @@ export function MaterialPicker({
       .finally(() => setFilling(false))
   }
 
-  // 쪽 · 갈래는 창고를 바꿀 때만 — 재료가 바뀌는 일보다 훨씬 드물다.
+  // 쪽 · 분류는 창고를 바꿀 때만 — 재료가 바뀌는 일보다 훨씬 드물다.
   useEffect(() => {
     if (!open) return
     let alive = true
@@ -209,7 +209,7 @@ export function MaterialPicker({
         <DialogHeader>
           <DialogTitle>물성 고르기</DialogTitle>
           <DialogDescription>
-            MatNexus 의 재료를 <b>통째로</b> 가져옵니다 — 항목 이름도 단위도 우리가 고치지 않습니다.
+            MatNexus 의 재료를 <b>전체</b> 가져옵니다 — 항목 이름과 단위를 변경하지 않습니다.
           </DialogDescription>
         </DialogHeader>
 
@@ -220,7 +220,7 @@ export function MaterialPicker({
         */}
         <div className="flex items-center gap-2">
           {/* `shrink-0` — 검색칸이 늘어나며 토글을 밀어 줄바꿈시키던 것을 막는다. */}
-          <div className="flex shrink-0 rounded-md border p-0.5" role="group" aria-label="물성 창고">
+          <div className="flex shrink-0 rounded-md border p-0.5" role="group" aria-label="물성 출처">
             {(
               [
                 ['registered', '등록 재료'],
@@ -252,17 +252,17 @@ export function MaterialPicker({
             onChange={(e) => setQuery(e.target.value)}
             placeholder={
               source === 'literature'
-                ? '이름 · 제조사로 찾기 (예: EMC, Al 6061) — 고른 하위계 · 갈래 안에서'
-                : '이름 · 별칭 · 번호로 찾기 (예: SPCC, M-000123) — 고른 쪽 · 갈래 안에서'
+                ? '이름 · 제조사로 검색 (예: EMC, Al 6061) — 고른 분야 · 분류 안에서'
+                : '이름 · 별칭 · 번호로 검색 (예: SPCC, M-000123) — 선택한 계열 · 분류 내에서'
             }
           />
         </div>
         {fallback && <p className="text-muted-foreground text-xs">⚠ MatNexus 에 닿지 못했습니다 — {fallback}</p>}
         {error && <ErrorNotice error={error} />}
 
-        {/* 재료 칸과 물성 칸이 넓어야 한다 — 쪽 · 갈래는 이름만 보면 된다. */}
+        {/* 재료 칸과 물성 칸이 넓어야 한다 — 쪽 · 분류는 이름만 보면 된다. */}
         <div className="grid min-h-0 flex-1 gap-2 md:grid-cols-[1fr_1.4fr_1.6fr_2fr]">
-          <Column title={source === 'literature' ? '하위계' : '쪽(族)'} hint={`${families.length}`}>
+          <Column title={source === 'literature' ? '분야' : '계열'} hint={`${families.length}`}>
             <Row
               chosen={!family}
               onClick={() => {
@@ -278,7 +278,7 @@ export function MaterialPicker({
                 chosen={family === name}
                 onClick={() => {
                   setFamily(name)
-                  // 쪽을 바꾸면 갈래는 남길 수 없다 — 다른 쪽에는 없는 갈래다.
+                  // 쪽을 바꾸면 분류는 남길 수 없다 — 다른 쪽에는 없는 분류다.
                   setCategory('')
                 }}
               >
@@ -287,7 +287,7 @@ export function MaterialPicker({
             ))}
           </Column>
 
-          <Column title="갈래" hint={family || (source === 'literature' ? '모든 하위계' : '모든 쪽')}>
+          <Column title="분류" hint={family || (source === 'literature' ? '모든 분야' : '전체 계열')}>
             <Row chosen={!category} onClick={() => setCategory('')}>
               전체{' '}
               <span className="text-muted-foreground text-xs">
@@ -300,7 +300,7 @@ export function MaterialPicker({
                 chosen={category === one.category}
                 onClick={() => {
                   setCategory(one.category)
-                  // 갈래는 쪽에 속한다 — 「모든 쪽」 에서 골랐으면 쪽도 따라 정해진다.
+                  // 분류는 쪽에 속한다 — 「전체 계열」 에서 골랐으면 쪽도 따라 정해진다.
                   if (!family) setFamily(one.family)
                 }}
               >
@@ -310,9 +310,9 @@ export function MaterialPicker({
             ))}
           </Column>
 
-          <Column title="재료" hint={loading ? '찾는 중…' : `${rows.length}`}>
+          <Column title="재료" hint={loading ? '검색 중…' : `${rows.length}`}>
             {loading && <Skeleton className="h-24 w-full" />}
-            {!loading && rows.length === 0 && <p className="text-muted-foreground p-1 text-xs">찾은 재료가 없습니다.</p>}
+            {!loading && rows.length === 0 && <p className="text-muted-foreground p-1 text-xs">검색 결과가 없습니다.</p>}
             {rows.map((row) => (
               <Row key={row.id || row.code} chosen={chosen?.id === row.id} onClick={() => choose(row)}>
                 <span className="font-medium">{source === 'literature' ? row.name : row.alias || row.name}</span>
@@ -356,7 +356,7 @@ export function MaterialPicker({
             ))}
             {!loading && rows.length >= LIMIT && (
               <p className="text-muted-foreground p-1 text-xs">
-                {LIMIT} 건까지만 보입니다 — 갈래를 좁히거나 이름으로 찾으세요.
+                {LIMIT} 건까지만 보입니다 — 분류를 좁히거나 이름으로 찾으세요.
               </p>
             )}
           </Column>
@@ -365,7 +365,7 @@ export function MaterialPicker({
             값은 **고른 단위계로** 보인다. `2.06e11 Pa` 는 맞는지 눈으로 알 수 없지만
             `206000 MPa` 는 안다 — 사람이 검산할 수 있어야 잘못 고른 재료를 잡는다.
           */}
-          <Column title="물성값" hint={filling ? '받는 중…' : unitHint}>
+          <Column title="물성값" hint={filling ? '조회 중…' : unitHint}>
             {filling && <Skeleton className="h-24 w-full" />}
             {!filling && chosen ? (
               <dl className="space-y-2 p-1">
@@ -410,8 +410,8 @@ export function MaterialPicker({
                 */}
                 {(chosen.converted?.missing_structural ?? []).length > 0 ? (
                   <p className="rounded border border-amber-300 bg-amber-50 p-1 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                    ⚠ 구조 해석에 빠진 것: {(chosen.converted?.missing_structural ?? []).join(' · ')} — 이대로
-                    넘기면 해석이 기본값으로 풉니다.
+                    ⚠ 구조 해석에 빠진 것: {(chosen.converted?.missing_structural ?? []).join(' · ')} — 이 상태로
+                    전달하면 해석이 기본값으로 계산합니다.
                   </p>
                 ) : (
                   chosen.converted?.properties && (
@@ -434,7 +434,7 @@ export function MaterialPicker({
             ) : (
               !filling && (
                 <p className="text-muted-foreground p-1 text-xs">
-                  재료를 고르면 그것이 가진 물성을 <b>그대로</b> 펼쳐 보여 줍니다.
+                  재료를 선택하면 보유한 물성을 <b>그대로</b> 표시합니다.
                 </p>
               )
             )}
@@ -444,7 +444,7 @@ export function MaterialPicker({
         <div className="flex items-center justify-end gap-2">
           {chosen && (
             <span className="text-muted-foreground mr-auto truncate text-xs">
-              고른 것: {chosen.alias || chosen.name} ({chosen.code})
+              선택: {chosen.alias || chosen.name} ({chosen.code})
             </span>
           )}
           <Button variant="ghost" onClick={onClose}>
@@ -456,7 +456,7 @@ export function MaterialPicker({
               if (chosen) onPick(chosen)
             }}
           >
-            이 물성을 쓴다
+            물성 적용
           </Button>
         </div>
       </DialogContent>

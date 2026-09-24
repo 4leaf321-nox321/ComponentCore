@@ -80,7 +80,7 @@ beforeEach(() => {
   })
 })
 
-test('쪽 → 갈래로 좁히면 그만큼만 묻는다', async () => {
+test('계열 → 분류로 좁히면 그만큼만 조회한다', async () => {
   render(<MaterialPicker open onClose={() => {}} onPick={() => {}} />)
 
   // 쪽과 갈래는 **분류에서** 온다 — 목록에서 뽑으면 앞 서른 줄에 있는 쪽만 보인다.
@@ -98,7 +98,7 @@ test('쪽 → 갈래로 좁히면 그만큼만 묻는다', async () => {
   await waitFor(() => expect(asked.some((one) => one.includes('family=Metal') && one.includes('category=Steel'))).toBe(true))
 })
 
-test('재료를 고르면 물성을 그대로 펼치고, 이름 둘을 다 보인다', async () => {
+test('재료를 선택하면 물성을 그대로 표시하고, 이름 둘을 모두 표시한다', async () => {
   const picked = vi.fn()
   render(<MaterialPicker open onClose={() => {}} onPick={picked} />)
 
@@ -110,7 +110,7 @@ test('재료를 고르면 물성을 그대로 펼치고, 이름 둘을 다 보�
   // 어느 부서 것인지도 — 두 부서에 같은 이름이 있을 수 있다.
   expect(screen.getByText('기본 부서')).toBeInTheDocument()
 
-  expect(screen.getByRole('button', { name: '이 물성을 쓴다' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: '물성 적용' })).toBeDisabled()
   fireEvent.click(screen.getByText('냉연강판'))
   // 구조를 그대로 — 우리가 아는 항목만 보여 주면 없는 줄 안다.
   await waitFor(() => screen.getByText(/22 °C/))
@@ -120,11 +120,11 @@ test('재료를 고르면 물성을 그대로 펼치고, 이름 둘을 다 보�
   expect(screen.getByText(/206000 MPa/)).toBeInTheDocument()
   expect(screen.getByText(/7\.8500e-9 tonne\/mm3/)).toBeInTheDocument()
 
-  fireEvent.click(screen.getByRole('button', { name: '이 물성을 쓴다' }))
+  fireEvent.click(screen.getByRole('button', { name: '물성 적용' }))
   expect(picked).toHaveBeenCalledWith(expect.objectContaining({ code: 'M-000001' }))
 })
 
-test('분류가 개수를 안 줘도 NaN 을 그리지 않는다', async () => {
+test('분류에 개수가 없어도 NaN 을 표시하지 않는다', async () => {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
     const url = String(input)
     const body = url.includes('/classifications')
@@ -180,7 +180,7 @@ const EMC_FULL = {
   },
 }
 
-test('문헌에서도 고를 수 있고, 값은 **고른 뒤에** 받아 온다', async () => {
+test('문헌에서도 선택할 수 있고, 값은 **선택한 뒤에** 조회한다', async () => {
   const seen: string[] = []
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
     const url = String(input)
@@ -204,7 +204,7 @@ test('문헌에서도 고를 수 있고, 값은 **고른 뒤에** 받아 온다'
   // 창고가 바뀌면 **다른 분류**를 본다 — 하위계 · 갈래다.
   await waitFor(() => expect(seen.some((one) => one.includes('/catalog/classifications'))).toBe(true))
   await waitFor(() => screen.getByRole('button', { name: 'packaging 116' }))
-  expect(screen.getByText('하위계')).toBeInTheDocument()
+  expect(screen.getByText('분야')).toBeInTheDocument()
 
   // 목록에는 값이 없다 — 고르면 그때 받는다(2663건을 값째로 끌 수 없다).
   await waitFor(() => screen.getByText('Epoxy Molding Compound (EMC)'))
