@@ -67,6 +67,11 @@ export type MeasurePick =
   | { kind: 'point'; at: [number, number, number] }
   | { kind: 'edge'; edge: MeshEdge }
   | { kind: 'face'; face: MeshFace }
+  /**
+   * **바디** — 면을 눌렀지만 가리키는 것은 그 면이 속한 덩어리다(조립의 구성품, 단품이면
+   * 「전체」). 초기조건처럼 몸 전체에 걸리는 것이 이것을 쓴다.
+   */
+  | { kind: 'body'; name: string }
 
 export interface PickViewerProps {
   mesh: MeshData | null
@@ -81,7 +86,11 @@ export interface PickViewerProps {
    * measure 모드에서 **고를 수 있는 종류** — 없으면 셋 다. 끄면 그 종류는 레이캐스트에서
    * 빠진다: 면만 켜면 빽빽한 모서리 사이에서도 면이 잡힌다.
    */
-  measureKinds?: { point: boolean; edge: boolean; face: boolean }
+  /**
+   * **무엇을 찍을 수 있나.** 끈 종류는 눌러도 안 잡힌다 — 엣지를 고르려는데 점이 먼저
+   * 잡히는 것을 막는 유일한 길이다(점은 엣지보다 앞서 걸린다).
+   */
+  measureKinds?: { point?: boolean; edge?: boolean; face?: boolean; body?: boolean }
   measureMarks?: MeasureMarks
   /** 조립: 구성품 id → 색. 없는 구성품(과 조립이 아닌 면)은 기본색. */
   partColors?: Record<string, number>
@@ -527,6 +536,12 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
           const local = state.current!.group.worldToLocal(hit.point.clone())
           // 면을 눌렀으면 그 면 자체와 누른 점 둘 다 뜻이 있다 — 면(넓이 · 법선)을 준다.
           callbacks.current.onMeasure?.({ kind: 'face', face: { ...(data.face as MeshFace), center: [local.x, local.y, local.z] } })
+        }
+        // **바디는 면을 눌러 고른다** — 덩어리 자체를 겨눌 화면 요소가 따로 없다. 면이
+        // 어느 구성품인지는 메시가 이미 들고 있다(`face.part`), 단품이면 「전체」 하나다.
+        else if (data.face && kinds.body) {
+          const face = data.face as MeshFace
+          callbacks.current.onMeasure?.({ kind: 'body', name: face.part || '전체' })
         }
       }
     }

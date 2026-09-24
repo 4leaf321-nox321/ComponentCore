@@ -3,15 +3,27 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ConditionsPanel } from '@/modules/conditions/ConditionsPanel'
 
 /** 3D 대신 단추 셋 — 면 · 엣지 · 점을 찍는 것만 흉내 낸다. */
+/** 뷰어가 받은 거르개 — 「켠 것 하나만」 을 시험이 볼 수 있게 내놓는다. */
+let lastKinds: Record<string, boolean> | undefined
 vi.mock('@/shared/viewer/PickViewer', () => ({
-  default: ({ onMeasure }: { onMeasure?: (pick: unknown) => void }) => (
-    <div>
-      <button onClick={() => onMeasure?.({ kind: 'face', face: { center: [0, 0, 0] } })}>
-        면 찍기
-      </button>
-      <button onClick={() => onMeasure?.({ kind: 'point', at: [1, 2, 3] })}>점 찍기</button>
-    </div>
-  ),
+  default: ({
+    onMeasure,
+    measureKinds,
+  }: {
+    onMeasure?: (pick: unknown) => void
+    measureKinds?: Record<string, boolean>
+  }) => {
+    lastKinds = measureKinds
+    return (
+      <div>
+        <button onClick={() => onMeasure?.({ kind: 'face', face: { center: [0, 0, 0] } })}>
+          면 찍기
+        </button>
+        <button onClick={() => onMeasure?.({ kind: 'point', at: [1, 2, 3] })}>점 찍기</button>
+        <button onClick={() => onMeasure?.({ kind: 'body', name: '기둥' })}>바디 찍기</button>
+      </div>
+    )
+  },
 }))
 vi.mock('@/modules/cad/useRecipeMesh', () => ({
   useRecipeMesh: () => ({ mesh: { bbox: { min: [0, 0, 0], max: [1, 1, 1] }, faces: [], edges: [] }, problems: [] }),
@@ -249,4 +261,74 @@ test('물성을 **어느 바디에** 붙일지 고른다', async () => {
   await waitFor(() => expect(onSave).toHaveBeenCalled())
   // **이것이 없으면 조립을 훑어도 물성이 늘 「전체」** 라, 판과 기둥에 다른 재료를 못 준다.
   expect(onSave.mock.calls[0][0].materials[0].apply_to).toBe('기둥')
+})
+
+test('찍을 종류를 고르면 **그것만** 잡힌다', async () => {
+  await panel()
+  // 기본은 면 — 조건이 가장 많이 붙는 자리다.
+  expect(lastKinds).toEqual({ point: false, edge: false, face: true, body: false })
+
+  // **엣지를 고르려는데 점이 먼저 잡히던 것**이 이 거르개가 없어서였다.
+  fireEvent.click(screen.getByRole('button', { name: '엣지' }))
+  await waitFor(() => expect(lastKinds).toEqual({ point: false, edge: true, face: false, body: false }))
+
+  // 바디는 면을 눌러 고르므로 면과 함께 켜면 안 된다 — 하나씩만 켜는 것이 그 문제도 푼다.
+  fireEvent.click(screen.getByRole('button', { name: '바디' }))
+  await waitFor(() => expect(lastKinds).toEqual({ point: false, edge: false, face: false, body: true }))
+})
+
+test('바디는 서버에 안 묻는다 — 이름이 곧 답이다', async () => {
+  const calls = vi.mocked((await import('@/shared/api/client')).api.post)
+  await panel()
+  fireEvent.click(screen.getByRole('button', { name: '바디' }))
+  const before = calls.mock.calls.length
+
+  fireEvent.click(screen.getByText('바디 찍기'))
+  await waitFor(() => screen.getByText(/바디 「기둥」/))
+  // 면 · 엣지 · 점은 「이 자리를 무엇으로 부를까」 를 서버에 되묻지만, 바디는 그럴 것이 없다.
+  expect(
+    calls.mock.calls.slice(before).filter((one) => String(one[0]).includes('selectors')),
+  ).toHaveLength(0)
+
+  fireEvent.click(screen.getByText('이름표 만들기'))
+  await waitFor(() => screen.getByRole('button', { name: /기둥/ }))
+})
+
+test('조건을 더하면 **편집창**이 뜬다 — 빈 줄을 만들어 놓고 잊지 않게', async () => {
+  await panel()
+  fireEvent.click(screen.getByRole('button', { name: '구속 더하기' }))
+  // 더하자마자 종류와 값을 묻는다.
+  await waitFor(() => screen.getByText('구속 고치기'))
+  expect(screen.getByRole('dialog')).toBeInTheDocument()
+})
+
+test('초기조건은 **바디만** 가리킨다', async () => {
+  await panel()
+
+  // 면 이름표 하나와 바디 이름표 하나를 만든다.
+  fireEvent.click(screen.getByText('면 찍기'))
+  await waitFor(() => screen.getByText('bottom 면'))
+  fireEvent.change(screen.getByLabelText('이름표 이름'), { target: { value: '바닥면' } })
+  fireEvent.click(screen.getByText('이름표 만들기'))
+
+  fireEvent.click(screen.getByRole('button', { name: '바디' }))
+  fireEvent.click(screen.getByText('바디 찍기'))
+  await waitFor(() => screen.getByText(/바디 「기둥」/))
+  fireEvent.change(screen.getByLabelText('이름표 이름'), { target: { value: '기둥몸' } })
+  fireEvent.click(screen.getByText('이름표 만들기'))
+
+  // **온도 · 속도 · 예응력은 몸 전체의 상태다** — 한 면에 걸 수 없다. 면 이름표를 고를 수
+  // 있게 두면 해석 쪽에서야 「그 자리에 못 건다」 를 안다.
+  fireEvent.click(screen.getByRole('button', { name: '초기조건 더하기' }))
+  await waitFor(() => screen.getByText('초기조건 고치기'))
+  // 더할 때 **바디 이름표가 기본으로 잡힌다**(면 이름표가 먼저 만들어졌는데도).
+  const 창 = screen.getByRole('dialog')
+  expect(창).toHaveTextContent('기둥몸')
+  expect(창).not.toHaveTextContent('바닥면')
+
+  // 구속은 그 반대다 — 면 · 엣지 · 점 · 바디 아무것이나 가리킬 수 있다.
+  fireEvent.click(screen.getByRole('button', { name: '닫기' }))
+  fireEvent.click(screen.getByRole('button', { name: '구속 더하기' }))
+  await waitFor(() => screen.getByText('구속 고치기'))
+  expect(screen.getByRole('dialog')).toHaveTextContent('바닥면')
 })

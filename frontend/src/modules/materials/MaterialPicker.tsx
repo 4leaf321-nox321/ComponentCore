@@ -219,7 +219,8 @@ export function MaterialPicker({
           한 목록에 섞으면 「이 값이 어디서 왔나」 가 흐려진다.
         */}
         <div className="flex items-center gap-2">
-          <div className="flex rounded-md border p-0.5" role="group" aria-label="물성 창고">
+          {/* `shrink-0` — 검색칸이 늘어나며 토글을 밀어 줄바꿈시키던 것을 막는다. */}
+          <div className="flex shrink-0 rounded-md border p-0.5" role="group" aria-label="물성 창고">
             {(
               [
                 ['registered', '등록 재료'],
@@ -230,7 +231,7 @@ export function MaterialPicker({
                 key={key}
                 type="button"
                 aria-pressed={source === key}
-                className={`rounded px-3 py-1 text-sm ${source === key ? 'bg-accent font-medium' : 'text-muted-foreground'}`}
+                className={`rounded px-3 py-1 text-sm whitespace-nowrap ${source === key ? 'bg-accent font-medium' : 'text-muted-foreground'}`}
                 onClick={() => {
                   if (source === key) return
                   setSource(key)
@@ -246,6 +247,7 @@ export function MaterialPicker({
           </div>
           <Input
             autoFocus
+            className="min-w-0 flex-1"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={

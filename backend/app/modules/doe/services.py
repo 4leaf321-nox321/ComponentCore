@@ -787,10 +787,13 @@ def _region_definitions(conditions: dict[str, Any] | None) -> list[dict[str, Any
     names = (conditions or {}).get("named_selections") or []
     if not names:
         return None
+    # **바디 이름표는 면으로 풀지 않는다.** 영역은 면의 지문이고 바디는 덩어리다 — 섞으면
+    # 바디마다 「못 풀었다」 가 하나씩 쌓이고, 그 표가 「이 점을 해석에 쓸 수 있나」 를
+    # 말하는 자리라 못 믿게 된다. 바디는 점 파일의 `bodies` 가 이름으로 들고 있다.
     return [
         {"name": one["name"], "select": one.get("select") or {}}
         for one in names
-        if one.get("name")
+        if one.get("name") and one.get("entity", "face") != "body"
     ]
 
 

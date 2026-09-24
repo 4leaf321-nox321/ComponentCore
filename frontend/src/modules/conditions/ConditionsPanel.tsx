@@ -31,6 +31,13 @@ import type {
 } from '@/modules/conditions/api'
 import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/shared/components/ui/dialog'
 import { useFillHeight } from '@/shared/hooks/useFillHeight'
 import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
@@ -46,6 +53,7 @@ import PickViewer from '@/shared/viewer/PickViewer'
 type Chosen =
   | { kind: 'selection'; index: number }
   | { kind: 'item'; group: string; index: number }
+  | { kind: 'material'; index: number }
   | { kind: 'analysis' }
   | null
 
@@ -53,8 +61,27 @@ type Chosen =
 function toPick(pick: MeasurePick): { what: string; point: number[]; label: string } {
   if (pick.kind === 'point') return { what: 'vertices', point: pick.at, label: '점' }
   if (pick.kind === 'edge') return { what: 'edges', point: pick.edge.midpoint, label: '엣지' }
+  if (pick.kind === 'body') return { what: 'bodies', point: [], label: '바디' }
   return { what: 'faces', point: pick.face.center, label: '면' }
 }
+
+/**
+ * **무엇을 찍을 것인가.** 켠 것 하나만 잡힌다.
+ *
+ * 이것이 없으면 엣지를 고르려는데 점이 먼저 잡힌다 — 뷰어가 점 · 엣지 · 면 순으로 걸기
+ * 때문이고, 그 순서를 사람이 바꿀 길이 없었다.
+ *
+ * 바디는 면을 눌러 고른다(덩어리를 겨눌 화면 요소가 따로 없다) — 그래서 면과 바디는
+ * 동시에 켜면 안 된다. 하나씩만 켜는 것이 곧 그 문제도 푼다.
+ */
+const PICK_KINDS = [
+  { key: 'face', label: '면', entity: 'face', what: 'faces' },
+  { key: 'edge', label: '엣지', entity: 'edge', what: 'edges' },
+  { key: 'point', label: '점', entity: 'vertex', what: 'vertices' },
+  { key: 'body', label: '바디', entity: 'body', what: 'bodies' },
+] as const
+
+type PickKind = (typeof PICK_KINDS)[number]['key']
 
 const GROUP_ICON: Record<string, string> = {
   constraints: '구속',
@@ -85,6 +112,8 @@ export function ConditionsPanel({
   const [newName, setNewName] = useState('')
   const [picked, setPicked] = useState<number | null>(null)
   const [picking, setPicking] = useState(false)
+  /** 지금 찍을 종류 — 하나만. 기본은 면(조건이 가장 많이 붙는 자리다). */
+  const [pickKind, setPickKind] = useState<PickKind>('face')
   const [error, setError] = useState<Error | null>(null)
 
   const schema = useResource<ConditionsSchema>(() => conditionsApi.schema(), [])
@@ -101,6 +130,18 @@ export function ConditionsPanel({
   async function ask(pick: MeasurePick) {
     const { what, point, label } = toPick(pick)
     setError(null)
+    // **바디는 서버에 물을 것이 없다.** 면 · 엣지 · 점은 「이 자리를 무엇으로 부를까」 를
+    // 셀렉터 후보로 되받아야 하지만, 바디는 **이름이 곧 답**이다(`topology.bodies`).
+    if (pick.kind === 'body') {
+      setCandidates({
+        what,
+        label,
+        list: [{ label: `바디 「${pick.name}」`, select: { body: pick.name }, matches: 1 }],
+      })
+      setPicked(0)
+      setNewName(pick.name)
+      return
+    }
     try {
       const got = await conditionsApi.selectors(recipe, what, point)
       setCandidates({ what, label, list: got.candidates })
@@ -120,7 +161,7 @@ export function ConditionsPanel({
       return
     }
     const entity =
-      candidates.what === 'faces' ? 'face' : candidates.what === 'edges' ? 'edge' : 'vertex'
+      PICK_KINDS.find((one) => one.what === candidates.what)?.entity ?? 'face'
     setDraft({
       ...draft,
       named_selections: [...names, { name, entity, select: candidate.select }],
@@ -129,12 +170,23 @@ export function ConditionsPanel({
     setChosen({ kind: 'selection', index: names.length })
   }
 
+  /**
+   * 그 조건이 가리킬 수 있는 이름표만.
+   *
+   * **초기조건은 바디에 건다** — 온도 · 속도 · 예응력은 몸 전체의 상태이지 한 면의 것이
+   * 아니다. 면 이름표를 고를 수 있게 두면 해석 쪽에서야 「그 자리에 못 건다」 를 안다.
+   */
+  function namesFor(group: string): NamedSelection[] {
+    if (group === 'initial') return names.filter((one) => one.entity === 'body')
+    return names
+  }
+
   function addItem(group: string) {
     const spec = schema.data?.groups[group]
     if (!spec) return
     const item: ConditionItem = { type: spec.types[0] }
     if ('name' in spec.fields) item.name = `${GROUP_ICON[group] ?? group} ${counts[group] + 1}`
-    if ('on' in spec.fields) item.on = names[0]?.name ?? ''
+    if ('on' in spec.fields) item.on = namesFor(group)[0]?.name ?? ''
     const list = [...(draft[group as keyof Conditions] as ConditionItem[]), item]
     setDraft({ ...draft, [group]: list })
     setChosen({ kind: 'item', group, index: list.length - 1 })
@@ -278,101 +330,32 @@ export function ConditionsPanel({
                 </Button>
               </div>
               <ul className="space-y-1">
+                {/*
+                  **목록에서는 고르기만 한다.** 붙일 자리 · 솔버 덱은 편집창에서 — 줄마다
+                  칸을 늘어놓으면 물성이 셋만 돼도 왼쪽이 읽을 수 없게 된다.
+                */}
                 {draft.materials.map((one, index) => (
-                  <li key={index} className="px-2 py-1">
-                    <div className="flex items-center gap-1">
-                      <span className="truncate">{String((one.ref as Record<string, unknown>)?.name ?? '이름 없음')}</span>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="ml-auto h-6 px-1"
-                        aria-label={`${String((one.ref as Record<string, unknown>)?.name ?? '물성')} 빼기`}
-                        onClick={() =>
-                          setDraft({ ...draft, materials: draft.materials.filter((_, i) => i !== index) })
-                        }
-                      >
-                        ×
-                      </Button>
-                    </div>
-                    {/*
-                      **어느 바디에 붙나.** 이것이 없으면 조립을 훑어도 물성이 늘 「전체」 라,
-                      판과 기둥에 다른 재료를 줄 수 없다. 단품이면 고를 것이 「전체」 하나라
-                      칸을 안 그린다 — 누를 수 없는 줄은 없느니만 못하다.
-                    */}
-                    {bodyNames.length > 1 && (
-                      <select
-                        aria-label={`${String((one.ref as Record<string, unknown>)?.name ?? '물성')} 붙일 자리`}
-                        className="mt-1 w-full rounded border px-1 py-0.5 text-xs"
-                        value={String(one.apply_to ?? '전체')}
-                        onChange={(e) =>
-                          setDraft({
-                            ...draft,
-                            materials: draft.materials.map((m, i) =>
-                              i === index ? { ...m, apply_to: e.target.value } : m,
-                            ),
-                          })
-                        }
-                      >
-                        <option value="전체">전체 ({bodyNames.length} 개 바디)</option>
-                        {(bodies.data?.items ?? []).map((body) => (
-                          <option key={body.name} value={body.name}>
-                            {body.name}
-                            {body.volume ? ` — ${Math.round(body.volume).toLocaleString()} mm³` : ''}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    {bodyNames.length <= 1 && (
-                      <span className="text-muted-foreground text-xs">전체</span>
-                    )}
-                    {/*
-                      **솔버 덱을 덤으로.** 받는 쪽이 `MP,EX,…` 를 손으로 짜는 대신 그대로
-                      쓴다 — MatNexus 가 단위계까지 박아 만들어 주므로 손으로 짜다 틀릴
-                      자리가 없어진다. 중립 물성은 그대로 나가고 이것은 옆에 붙는다.
-                    */}
-                    {(deckChoices[String(((one.ref ?? {}) as Record<string, unknown>).material_id ?? '')] ?? [])
-                      .filter((f) => f.ready)
-                      .length > 0 && (
-                      <details className="mt-1">
-                        <summary className="text-muted-foreground cursor-pointer text-xs">
-                          솔버 덱 함께 보내기
-                          {((one as { deck_formats?: string[] }).deck_formats ?? []).length > 0 &&
-                            ` (${((one as { deck_formats?: string[] }).deck_formats ?? []).length})`}
-                        </summary>
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {(deckChoices[String(((one.ref ?? {}) as Record<string, unknown>).material_id ?? '')] ?? [])
-                            .filter((f) => f.ready)
-                            .map((f) => {
-                              const 고름 = ((one as { deck_formats?: string[] }).deck_formats ?? []).includes(f.key)
-                              return (
-                                <button
-                                  key={f.key}
-                                  type="button"
-                                  aria-pressed={고름}
-                                  className={`rounded border px-1.5 py-0.5 text-xs ${고름 ? 'border-primary bg-accent' : 'text-muted-foreground'}`}
-                                  onClick={() =>
-                                    setDraft({
-                                      ...draft,
-                                      materials: draft.materials.map((m, i) => {
-                                        if (i !== index) return m
-                                        const now = (m as { deck_formats?: string[] }).deck_formats ?? []
-                                        return {
-                                          ...m,
-                                          deck_formats: 고름
-                                            ? now.filter((x) => x !== f.key)
-                                            : [...now, f.key],
-                                        }
-                                      }),
-                                    })
-                                  }
-                                >
-                                  {f.key}
-                                </button>
-                              )
-                            })}
-                        </div>
-                      </details>
-                    )}
+                  <li key={index}>
+                    <button
+                      type="button"
+                      className={`flex w-full items-center gap-1 rounded px-2 py-1 text-left hover:bg-muted ${
+                        chosen?.kind === 'material' && chosen.index === index ? 'bg-muted' : ''
+                      }`}
+                      onClick={() => setChosen({ kind: 'material', index })}
+                    >
+                      <span className="truncate">
+                        {String((one.ref as Record<string, unknown>)?.name ?? '이름 없음')}
+                      </span>
+                      {/* 어디에 붙였나 — 한눈에 보여야 「전체로 둔 채 잊는 것」 을 잡는다. */}
+                      <Badge variant="outline" className="ml-auto shrink-0 font-normal">
+                        {String(one.apply_to ?? '전체')}
+                      </Badge>
+                      {((one as { deck_formats?: string[] }).deck_formats ?? []).length > 0 && (
+                        <Badge variant="secondary" className="shrink-0 font-normal">
+                          덱 {((one as { deck_formats?: string[] }).deck_formats ?? []).length}
+                        </Badge>
+                      )}
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -462,12 +445,47 @@ export function ConditionsPanel({
         </Card>
 
         {/* ── 3D ── */}
-        <Card className="min-h-0 overflow-hidden">
-          <CardContent className="h-full p-0">
+        <Card className="flex min-h-0 flex-col overflow-hidden">
+          {/*
+            **무엇을 찍을지 먼저 고른다.** 없을 때는 엣지를 고르려는데 점이 먼저 잡혔다 —
+            뷰어가 점 · 엣지 · 면 순으로 걸고, 그 순서를 사람이 바꿀 길이 없었다.
+          */}
+          <div className="flex shrink-0 flex-wrap items-center gap-1 border-b px-2 py-1.5">
+            <span className="text-muted-foreground mr-1 text-xs">찍을 것</span>
+            {PICK_KINDS.map((one) => (
+              <button
+                key={one.key}
+                type="button"
+                aria-pressed={pickKind === one.key}
+                className={`rounded border px-2 py-0.5 text-xs ${
+                  pickKind === one.key
+                    ? 'border-primary bg-accent font-medium'
+                    : 'text-muted-foreground hover:bg-accent/50'
+                }`}
+                onClick={() => {
+                  setPickKind(one.key)
+                  // 종류를 바꾸면 고르던 후보는 뜻을 잃는다.
+                  setCandidates(null)
+                }}
+              >
+                {one.label}
+              </button>
+            ))}
+            <span className="text-muted-foreground ml-auto text-xs">
+              {pickKind === 'body' ? '면을 누르면 그 덩어리를 집습니다' : '3D 에서 눌러 이름표를 만듭니다'}
+            </span>
+          </div>
+          <CardContent className="min-h-0 flex-1 p-0">
             <PickViewer
               mesh={mesh}
               mode="measure"
-              measureKinds={{ point: true, edge: true, face: true }}
+              // **켠 것 하나만.** 바디는 면을 눌러 고르므로 면과 함께 켜면 안 된다.
+              measureKinds={{
+                point: pickKind === 'point',
+                edge: pickKind === 'edge',
+                face: pickKind === 'face',
+                body: pickKind === 'body',
+              }}
               onMeasure={(pick) => void ask(pick)}
               className="h-full w-full"
             />
@@ -532,22 +550,9 @@ export function ConditionsPanel({
                   지우기
                 </Button>
               </div>
-            ) : chosen?.kind === 'item' ? (
-              <div className="space-y-2">
-                <ConditionForm
-                  group={spec.groups[chosen.group]}
-                  item={(draft[chosen.group as keyof Conditions] as ConditionItem[])[chosen.index]}
-                  names={names}
-                  onChange={(next) => {
-                    const list = [...(draft[chosen.group as keyof Conditions] as ConditionItem[])]
-                    list[chosen.index] = next
-                    setDraft({ ...draft, [chosen.group]: list })
-                  }}
-                />
-                <Button size="sm" variant="ghost" onClick={removeChosen}>
-                  지우기
-                </Button>
-              </div>
+            ) : chosen?.kind === 'item' || chosen?.kind === 'material' ? (
+              // 고치는 것은 **편집창**에서 — 오른쪽 칸은 3D 에서 찍은 것을 받는 자리다.
+              <p className="text-muted-foreground text-xs">편집창에서 고치는 중입니다.</p>
             ) : chosen?.kind === 'analysis' ? (
               <ConditionForm
                 group={{
@@ -568,6 +573,163 @@ export function ConditionsPanel({
           </CardContent>
         </Card>
       </div>
+
+      {/*
+        **더할 때 바로 고친다.** 예전에는 왼쪽 목록에 줄만 생기고 오른쪽 칸에서 고쳤는데,
+        「구속을 더했다」 와 「무엇을 어디에 거는가」 사이가 떨어져 있어 빈 줄을 만들어 놓고
+        잊는 일이 생겼다. 더하면 곧바로 물어본다.
+      */}
+      <Dialog
+        open={chosen?.kind === 'item'}
+        onOpenChange={(next) => !next && setChosen(null)}
+      >
+        <DialogContent className="sm:max-w-lg">
+          {chosen?.kind === 'item' && (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  {spec.groups[chosen.group]?.label ?? chosen.group} 고치기
+                </DialogTitle>
+                <DialogDescription>
+                  종류를 고르고 값을 넣습니다. **어디에** 는 이름표로 가리킵니다 — 3D 에서
+                  찍어 만든 그 이름입니다.
+                </DialogDescription>
+              </DialogHeader>
+              <ConditionForm
+                group={spec.groups[chosen.group]}
+                item={(draft[chosen.group as keyof Conditions] as ConditionItem[])[chosen.index]}
+                names={namesFor(chosen.group)}
+                onChange={(next) => {
+                  const list = [...(draft[chosen.group as keyof Conditions] as ConditionItem[])]
+                  list[chosen.index] = next
+                  setDraft({ ...draft, [chosen.group]: list })
+                }}
+              />
+              <div className="flex justify-end gap-2">
+                <Button size="sm" variant="ghost" onClick={removeChosen}>
+                  지우기
+                </Button>
+                <Button size="sm" onClick={() => setChosen(null)}>
+                  닫기
+                </Button>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/*
+        **고른 물성을 어디에 붙일지 여기서 정한다.** 예전에는 왼쪽 목록 줄에 칸을 늘어놓아
+        물성이 셋만 돼도 읽을 수 없었고, 고르자마자 묻지 않아 「전체」 인 채로 두고 잊었다.
+      */}
+      <Dialog
+        open={chosen?.kind === 'material'}
+        onOpenChange={(next) => !next && setChosen(null)}
+      >
+        <DialogContent className="sm:max-w-lg">
+          {chosen?.kind === 'material' &&
+            (() => {
+              const one = draft.materials[chosen.index]
+              if (!one) return null
+              const ref = (one.ref ?? {}) as Record<string, unknown>
+              const 이름 = String(ref.name ?? '이름 없음')
+              const 덱후보 = (deckChoices[String(ref.material_id ?? '')] ?? []).filter((f) => f.ready)
+              const 고른덱 = (one as { deck_formats?: string[] }).deck_formats ?? []
+              const 고치기 = (next: Record<string, unknown>) =>
+                setDraft({
+                  ...draft,
+                  materials: draft.materials.map((m, i) => (i === chosen.index ? { ...m, ...next } : m)),
+                })
+              return (
+                <>
+                  <DialogHeader>
+                    <DialogTitle>{이름}</DialogTitle>
+                    <DialogDescription>
+                      이 물성을 **어느 바디에** 붙일지 정합니다. 값은 MatNexus 가 준 그대로
+                      나갑니다 — 우리가 고치지 않습니다.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="mat-body">붙일 자리</Label>
+                    <select
+                      id="mat-body"
+                      className="w-full rounded border px-2 py-1 text-sm"
+                      value={String(one.apply_to ?? '전체')}
+                      onChange={(e) => 고치기({ apply_to: e.target.value })}
+                    >
+                      <option value="전체">
+                        전체{bodyNames.length > 1 ? ` (${bodyNames.length} 개 바디)` : ''}
+                      </option>
+                      {(bodies.data?.items ?? []).map((body) => (
+                        <option key={body.name} value={body.name}>
+                          {body.name}
+                          {body.volume ? ` — ${Math.round(body.volume).toLocaleString()} mm³` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {bodyNames.length <= 1 && (
+                      <p className="text-muted-foreground text-xs">
+                        이 도면은 덩어리가 하나입니다 — 고를 것이 「전체」 뿐입니다.
+                      </p>
+                    )}
+                  </div>
+
+                  {덱후보.length > 0 && (
+                    <div className="space-y-1">
+                      <Label>솔버 덱 함께 보내기</Label>
+                      <p className="text-muted-foreground text-xs">
+                        받는 쪽이 제 덱을 손으로 짜는 대신 그대로 씁니다. 중립 물성은 그대로
+                        나가고 이것은 **옆에** 붙습니다.
+                      </p>
+                      <div className="flex flex-wrap gap-1">
+                        {덱후보.map((f) => {
+                          const 켬 = 고른덱.includes(f.key)
+                          return (
+                            <button
+                              key={f.key}
+                              type="button"
+                              aria-pressed={켬}
+                              className={`rounded border px-2 py-0.5 text-xs ${켬 ? 'border-primary bg-accent' : 'text-muted-foreground'}`}
+                              onClick={() =>
+                                고치기({
+                                  deck_formats: 켬
+                                    ? 고른덱.filter((x) => x !== f.key)
+                                    : [...고른덱, f.key],
+                                })
+                              }
+                            >
+                              {f.key}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setDraft({
+                          ...draft,
+                          materials: draft.materials.filter((_, i) => i !== chosen.index),
+                        })
+                        setChosen(null)
+                      }}
+                    >
+                      빼기
+                    </Button>
+                    <Button size="sm" onClick={() => setChosen(null)}>
+                      닫기
+                    </Button>
+                  </div>
+                </>
+              )
+            })()}
+        </DialogContent>
+      </Dialog>
 
       <MaterialPicker
         open={picking}
@@ -601,6 +763,8 @@ export function ConditionsPanel({
             ],
           })
           setPicking(false)
+          // **고르자마자 「어디에」 를 묻는다** — 나중으로 미루면 「전체」 인 채로 잊는다.
+          setChosen({ kind: 'material', index: draft.materials.length })
         }}
       />
 
