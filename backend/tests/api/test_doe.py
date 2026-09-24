@@ -404,6 +404,64 @@ def test_해석_조건을_붙여_훑으면_점마다_풀려_나간다(
     assert sorted(풀린.values()) == [(6.0, 2.0), (6.0, 3.0), (10.0, 2.0), (10.0, 3.0)]
 
 
+def test_좌표가_든_선택_그룹은_설계점마다_치수를_따라간다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    """「이 자리의 면」(좌표만)은 치수가 바뀌면 **딴 면을 말없이 집는다** — 판 길이 80 → 130
+    에서 +X 옆면 자리에 구멍 원통면이 더 가깝다(실측 2026-09-24). 내보낼 때 그 면이 변수마다
+    움직이는 양을 한 번 재 두고 설계점마다 옮겨 찾으므로, 점 파일에는 늘 +X 옆면이 나간다."""
+    recipe = {
+        "params": {"길이": 80.0, "두께": 10.0},
+        "nodes": [
+            {
+                "id": "b",
+                "op": "box",
+                "length": "=길이",
+                "width": 50,
+                "height": "=두께",
+                "align": ["center", "center", "min"],
+            },
+            {
+                "id": "h",
+                "op": "hole",
+                "target": "b",
+                "at": [[-30, -15], [30, -15], [-30, 15], [30, 15]],
+                "diameter": 8.5,
+            },
+        ],
+    }
+    conditions = {
+        "named_selections": [
+            {
+                "name": "옆면",
+                "entity": "face",
+                "select": {"what": "faces", "near": [40, 0, 5], "limit": 1},
+            }
+        ],
+    }
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "따라가기",
+            "recipe": recipe,
+            "conditions": conditions,
+            "factors": [{"name": "길이", "mode": "list", "values": [80, 130]}],
+        },
+        headers=member.headers,
+    )
+    assert made.status_code == 201, made.text
+    client.post(f"/api/doe/{made.json()['id']}/export", headers=member.headers)
+    folder = next(one for one in export_root.iterdir() if one.name.startswith("따라가기"))
+
+    for number, 길이 in ((1, 80), (2, 130)):
+        topo = json.loads((folder / "points" / f"p{number:04d}.json").read_text("utf-8"))
+        assert topo["unresolved"] == [] and "drift" not in topo
+        옆면 = topo["regions"]["옆면"]
+        assert len(옆면) == 1
+        assert 옆면[0]["normal"] == [1.0, 0.0, 0.0], f"길이 {길이}: 구멍이 아니라 옆면"
+        assert 옆면[0]["centroid"][0] == 길이 / 2
+
+
 def test_없는_이름표를_가리키는_조건은_만들기_전에_막는다(
     client: TestClient, member: Signed
 ) -> None:

@@ -29,7 +29,7 @@ from app.config import get_settings
 from app.core import conditions as condition_model
 from app.core import doe as engine
 from app.core import export as shapes
-from app.core.recipe import RecipeError, evaluate, params, parse, topology
+from app.core.recipe import RecipeError, evaluate, follow, params, parse, topology
 from app.core.recipe.mesh import mesh
 from app.core.recipe.schema import RecipeValidationError
 from app.modules.accounts.models import User
@@ -788,6 +788,35 @@ def _write_decks(folder: Path, conditions: dict[str, Any] | None) -> list[dict[s
     return out
 
 
+def _builder(recipe: dict[str, Any]) -> follow.Build:
+    """덮어쓸 변수만 바꿔 형상을 만든다 — 나머지 식(「=길이 * 0.5」)은 그대로 따라 풀린다."""
+
+    def build(overrides: dict[str, float]) -> tuple[Any, dict[str, list[int]] | None]:
+        made = evaluate(
+            parse({**recipe, "params": {**(recipe.get("params") or {}), **overrides}}),
+            resolve_file=resolve_import,
+            resolve_component=resolve_component,
+        )
+        return made.shape, made.tags
+
+    return build
+
+
+def _mark_drift(topo: dict[str, Any], drifted: dict[str, float]) -> None:
+    """예측한 자리에서 먼 것을 집은 그룹은 **「못 풀었다」 로 돌린다** — 딴 면을 집었을 수
+    있다.
+
+    영역에서 빼고 `unresolved` 에 넣는다. 말없이 딴 면에 하중이 걸리는 것보다, 받는 쪽이 그
+    설계점을 건너뛰게 하는 편이 낫다. 얼마나 멀었는지는 `drift` 에 남긴다."""
+    if not drifted:
+        return
+    topo["drift"] = [{"name": name, "distance": gap} for name, gap in drifted.items()]
+    for name in drifted:
+        topo["regions"].pop(name, None)
+        if name not in topo["unresolved"]:
+            topo["unresolved"].append(name)
+
+
 def _region_definitions(conditions: dict[str, Any] | None) -> list[dict[str, Any]] | None:
     """조건의 이름표를 **영역 정의**로 — 내보낼 때 그 이름으로 좌표가 나간다.
 
@@ -876,6 +905,20 @@ def run_job(
         shared = {one for one, many in Counter(digests.values()).items() if one and many > 1}
         #: 지문 → 이미 만든 것(파일 경로 · 영역 지문). 값이 있으면 **다시 만들지 않는다.**
         built: dict[str, dict[str, Any]] = {}
+        # **좌표가 든 선택 규칙은 치수를 따라간다**(core/recipe/follow.py) — 변수마다 조금씩
+        # 바꿔 그 면이 얼마나 움직이는지 **한 번** 재 두고, 설계점마다 그만큼 옮겨 찾는다.
+        # 못 재면 따라가지 않을 뿐 스터디는 돈다(예전과 같다).
+        definitions = _region_definitions(study.conditions)
+        base_values: dict[str, float] = {}
+        tracks: dict[tuple[int, int], follow.Track] = {}
+        if definitions:
+            try:
+                base_values = params.resolve_params(study.recipe)
+                tracks = follow.measure(
+                    definitions, base_values, factor_names, _builder(study.recipe)
+                )
+            except (RecipeError, RecipeValidationError, params.ExpressionError):
+                tracks = {}
         for point in all_points:
             started = time.perf_counter()
             if not _needs_build(folder, point, only):
@@ -926,10 +969,23 @@ def run_job(
                     # 좌표가 다르므로 점마다 한 장이다(topology.py 머리말).
                     # **조건의 이름표가 `divide_face` 패치를 가리킬 수 있다.** 그 번호는 이
                     # 평가 안에서만 뜻이 있으므로 평가가 찾아 준 것을 그대로 넘긴다.
-                    definitions = _region_definitions(study.conditions)
-                    topo = topology.document(
-                        evaluation.shape, definitions, tags=evaluation.tags
+                    moved = (
+                        follow.follow(definitions, tracks, base_values, point.params)
+                        if definitions
+                        else definitions
                     )
+                    topo = topology.document(evaluation.shape, moved, tags=evaluation.tags)
+                    if moved and tracks:
+                        _mark_drift(
+                            topo,
+                            follow.drift(
+                                moved,
+                                tracks,
+                                evaluation.shape,
+                                evaluation.tags,
+                                follow.tolerance_for(evaluation.shape),
+                            ),
+                        )
                     # 조립이면 구성품끼리 겹치는지 — 변수를 바꾸다 부품이 판에 파묻히는 것을
                     # 잡는다. 형상이 같으면 겹침도 같다.
                     interference = _interference_of(evaluation.shape)
