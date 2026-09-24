@@ -56,6 +56,7 @@ import {
   asConditions,
   assignBody,
   conditionsApi,
+  defaultRule,
   GROUP_KEYS,
   materialsOn,
 } from '@/modules/conditions/api'
@@ -217,9 +218,10 @@ export function ConditionsPanel({
       }
     }
     if (candidates.length === 0) return
-    // 기본 규칙은 **고른 그것 하나**를 가리키는 것 — 하나씩 골라 묶는 중이므로. 같은 반지름의
-    // 구멍 넷처럼 부류 전부가 필요하면 목록에서 바꾼다(몇 개에 맞는지 함께 보인다).
-    const chosen = Math.max(0, candidates.findIndex((one) => one.matches === 1))
+    // 기본 규칙은 **고른 그것 하나**를 가리키고 치수에 흔들리지 않는 것 — 하나씩 골라 묶는
+    // 중이므로. 좌표만 쓰는 규칙은 DOE 에서 딴 형상을 집으므로 기본으로 두지 않는다. 같은
+    // 반지름의 구멍 넷처럼 부류 전부가 필요하면 목록에서 바꾼다(몇 개에 맞는지 함께 보인다).
+    const chosen = defaultRule(candidates)
     const entity = PICK_KINDS.find((one) => one.what === what)?.entity ?? 'face'
     const member: Member = { key, label, entity, pick, candidates, chosen }
     setMembers((now) => {
@@ -262,7 +264,7 @@ export function ConditionsPanel({
           ? [{ label: `바디 「${pick.name}」`, select: { body: pick.name }, matches: 1 }]
           : (answers[at++]?.candidates ?? [])
       if (candidates.length === 0) continue
-      const chosen = Math.max(0, candidates.findIndex((one) => one.matches === 1))
+      const chosen = defaultRule(candidates)
       const entity = PICK_KINDS.find((one) => one.what === what)?.entity ?? 'face'
       made.push({ key: memberKey(pick), label, entity, pick, candidates, chosen })
     }

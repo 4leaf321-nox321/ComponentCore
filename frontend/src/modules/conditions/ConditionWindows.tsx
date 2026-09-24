@@ -131,7 +131,7 @@ export function SelectionMembers({
               >
                 {member.candidates.map((one, at) => (
                   <option key={one.label} value={at}>
-                    {one.label} (현재 {one.matches} 개)
+                    {one.label} (현재 {one.matches} 개){one.stable === false ? ' — 치수 변경에 취약' : ''}
                   </option>
                 ))}
               </select>
@@ -146,6 +146,16 @@ export function SelectionMembers({
             </li>
           ))}
         </ol>
+      )}
+      {/*
+        **좌표만 쓰는 규칙은 말없이 헛집는다** — DOE 가 치수를 바꾸면 못 찾는 게 아니라 가장
+        가까운 딴 형상을 집는다. 고른 사람이 알고 고르게 한다.
+      */}
+      {members.some((one) => one.candidates[one.chosen]?.stable === false) && (
+        <p className="rounded border border-amber-300 bg-amber-50 p-1 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+          ⚠ 좌표 기준 규칙이 있습니다 — DOE 로 치수가 바뀌면 다른 형상을 선택할 수 있습니다. 방향으로 거른 규칙(「… 중 이
+          면」)을 권장합니다.
+        </p>
       )}
       <p className="text-muted-foreground text-[11px]">
         좌표가 아니라 <strong>선택 규칙</strong>으로 저장합니다 — 치수가 변경되어도 같은 형상을 가리킵니다. Ctrl 로 다시

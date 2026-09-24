@@ -279,10 +279,13 @@ def test_그림_찾기_재기_는_AI_가_좌표를_짐작하지_않게_한다(
         "role": "top",
     }
     assert labels["top 면"]["matches"] == 1
-    # 「이 자리의 면」 은 **찍은 자리**를 그대로 쓴다(원통면의 center 는 표면 위의 점이라
-    # 사람이 읽으면 엉뚱해 보인다). 그리고 하나만 집는다.
-    assert labels["이 자리의 면"]["select"]["near"] == [0, 0, 10]
-    assert labels["이 자리의 면"]["matches"] == 1
+    # 「좌표에 가장 가까운 면」 은 **찍은 자리**를 그대로 쓴다(원통면의 center 는 표면 위의
+    # 점이라 사람이 읽으면 엉뚱해 보인다). 그리고 하나만 집는다 — 다만 치수가 바뀌면 딴 면을
+    # 집을 수 있어 `stable` 이 거짓이다.
+    assert labels["좌표에 가장 가까운 면"]["select"]["near"] == [0, 0, 10]
+    assert labels["좌표에 가장 가까운 면"]["matches"] == 1
+    assert labels["좌표에 가장 가까운 면"]["stable"] is False
+    assert labels["+Z 방향 평면 중 이 면"]["stable"] is True
 
     # 구멍을 찍으면 **그 부류를 잡는 후보**가 함께 온다(이 레시피엔 구멍이 하나라 1).
     # 여럿일 때 한꺼번에 잡는 것은 `test_core_query.py` 가 못 박는다.

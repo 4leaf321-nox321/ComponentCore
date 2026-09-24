@@ -184,6 +184,37 @@ export interface SelectorCandidate {
   select: Record<string, unknown>
   /** 지금 몇 개에 맞나 — 1 이면 이것 하나, 여럿이면 그 부류 전부. */
   matches: number
+  /**
+   * **치수가 바뀌어도 같은 것을 가리키나.** 좌표만 쓰는 규칙은 거짓이다 — DOE 가 치수를 바꾸면
+   * 못 찾는 게 아니라 가장 가까운 **딴 것**을 말없이 집는다(판 길이 80 → 130 에서 +X 옆면 대신
+   * 구멍, 실측). 없으면 참으로 본다(예전 서버).
+   */
+  stable?: boolean
+}
+
+/**
+ * 고른 것 하나의 **기본 규칙** — 그것 하나에 맞고(`matches` 1) 치수에 흔들리지 않는 것을
+ * 먼저. 없으면 하나에 맞는 것, 그것도 없으면 첫 후보.
+ */
+export function defaultRule(candidates: SelectorCandidate[]): number {
+  const steady = candidates.findIndex((one) => one.matches === 1 && one.stable !== false)
+  if (steady >= 0) return steady
+  return Math.max(0, candidates.findIndex((one) => one.matches === 1))
+}
+
+/** 이 선택 규칙이 **좌표만** 쓰나 — 종류 · 방향 같은 거르개 없이 「가장 가까운 것」 만. */
+function coordinateOnly(rule: Record<string, unknown>): boolean {
+  const filters = ['kind', 'normal', 'axis', 'role', 'radius', 'edges', 'tag', 'of_face_role', 'body']
+  return rule.near !== undefined && !filters.some((key) => key in rule)
+}
+
+/**
+ * 선택 그룹에 **좌표만 쓰는 규칙**이 들어 있나 — DOE 로 치수가 바뀌면 딴 형상을 집을 수 있다.
+ * 예전에 만든 그룹(「이 자리의 면」)이 이렇다.
+ */
+export function hasCoordinateOnlyRule(select: Record<string, unknown>): boolean {
+  const rules = Array.isArray(select.any) ? (select.any as Record<string, unknown>[]) : [select]
+  return rules.some(coordinateOnly)
 }
 
 /** 도면의 바디 하나 — 물성이 붙는 자리. 내보낼 때의 `topology.bodies` 와 같은 줄이다. */

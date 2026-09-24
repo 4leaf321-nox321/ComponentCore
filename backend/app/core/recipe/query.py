@@ -13,6 +13,28 @@ from typing import Any
 from build123d import Edge, Face, GeomType, Shape, Vector, Vertex
 
 _AXIS_COS = 0.95
+#: 「같은 방향」 의 문턱 — 법선 · 축이 이만큼 나란하면 같다(약 2.6°). 반올림한 값끼리
+#: 견줘도 된다.
+_SAME_DIRECTION = 0.999
+_AXIS_VECTORS = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}
+
+
+def _unit(v: Any) -> tuple[float, float, float] | None:
+    """「x」 · 「y」 · 「z」 또는 [x, y, z] → 단위 벡터. 못 알아들으면 None."""
+    if isinstance(v, str):
+        return _AXIS_VECTORS.get(v.lower())
+    if isinstance(v, (list, tuple)) and len(v) == 3:
+        size = sum(float(one) ** 2 for one in v) ** 0.5
+        if size > 0:
+            return (float(v[0]) / size, float(v[1]) / size, float(v[2]) / size)
+    return None
+
+
+def _dot(a: Any, b: tuple[float, float, float]) -> float:
+    unit = _unit(a)
+    return sum(x * y for x, y in zip(unit, b, strict=True)) if unit else 0.0
+
+
 _LIMIT = 60
 
 
@@ -117,7 +139,8 @@ def find_features(
       kind        line | circle | arc | plane | cylinder … (엣지 · 면의 기하 종류)
       role        top | bottom | side | step | underside (면)
       of_face_role  이 역할의 **가장 넓은 면**에 속한 엣지만 (예: top → 윗면 테두리)
-      axis        x | y | z (직선 엣지의 방향)
+      axis        x | y | z (직선 엣지의 방향) — 면이면 원통 · 원뿔의 축(`[x, y, z]` 도 된다)
+      normal      [x, y, z] 또는 x | y | z — 이 방향을 보는 평면만(면)
       radius      이 반지름(±0.05)의 원 · 원통만
       min_length / max_length
       tag         `divide_face` 가 붙인 이름 — 그 패치의 면만. `tags` 를 줘야 듣는다
@@ -151,6 +174,22 @@ def find_features(
         if query.get("radius") is not None:
             rows = [
                 r for r in rows if abs(r.get("radius", -1) - float(query["radius"])) <= 0.05
+            ]
+        # **방향으로 거른다** — 평면은 법선, 원통 · 원뿔은 축. 치수가 바뀌어도 방향은 대개
+        # 그대로라 「이 방향의 면들 중 가장 가까운 것」 은 좌표만으로 고르는 것보다 훨씬 덜
+        # 헛집는다.
+        if query.get("normal") is not None and (want := _unit(query["normal"])):
+            rows = [
+                r
+                for r in rows
+                if r.get("normal") and _dot(r["normal"], want) > _SAME_DIRECTION
+            ]
+        if query.get("axis") is not None and (want := _unit(query["axis"])):
+            rows = [
+                r
+                for r in rows
+                if isinstance(r.get("axis"), dict)
+                and abs(_dot(r["axis"]["direction"], want)) > _SAME_DIRECTION
             ]
         key = "center"
     else:
@@ -296,35 +335,93 @@ def measure(shape: Shape, a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any
 # --- 고른 것을 말로 되돌려 주기 -------------------------------------------------
 
 
-def _face_candidates(
-    row: dict[str, Any], point: list[float]
-) -> list[tuple[str, dict[str, Any]]]:
-    out: list[tuple[str, dict[str, Any]]] = []
+def _direction_label(v: Any, *, signed: bool) -> str:
+    """사람이 읽을 방향 — 축과 나란하면 「+X」 · 「Z」, 아니면 벡터 그대로."""
+    unit = _unit(v)
+    if unit is None:
+        return "?"
+    for name, axis in _AXIS_VECTORS.items():
+        dot = sum(x * y for x, y in zip(unit, axis, strict=True))
+        if abs(dot) > _SAME_DIRECTION:
+            return f"{'+' if dot > 0 else '-'}{name.upper()}" if signed else name.upper()
+    return "(" + ", ".join(f"{one:.2f}" for one in unit) + ")"
+
+
+def _rounded(v: Any) -> list[float]:
+    return [round(float(one), 4) for one in v]
+
+
+#: 후보 하나 — (말, 셀렉터, **치수가 바뀌어도 같은 것을 가리키나**).
+Candidate = tuple[str, dict[str, Any], bool]
+
+_KIND_LABEL = {"cylinder": "원통면", "cone": "원뿔면", "sphere": "구면", "torus": "토러스면"}
+
+
+def _face_candidates(row: dict[str, Any], point: list[float]) -> list[Candidate]:
+    """면 하나를 부를 말들 — **좌표에 기대지 않는 것부터.**
+
+    「이 좌표에 가장 가까운 면」 은 치수가 바뀌면 **말없이 다른 면을 집는다** — 못 찾는 게
+    아니라 가장 가까운 딴 면을 준다(실측 2026-09-24: 판 길이를 80 → 130 으로 늘리면 +X
+    옆면 대신 구멍 원통면이 잡혔다). 그래서 한 면을 고르는 기본은 **같은 종류 · 같은 방향
+    중 가장 가까운 것**이다 — 방향은 치수가 바뀌어도 대개 그대로라, 헛집으려면 같은 방향의
+    딴 면이 더 가까워야 한다. 좌표만 쓰는 후보는 맨 끝에 두고 `stable=False` 로 알린다.
+    """
+    out: list[Candidate] = []
     role = row.get("role")
     if role:
-        out.append((f"{role} 면", {"what": "faces", "role": role}))
+        out.append((f"{role} 면", {"what": "faces", "role": role}, True))
     if row.get("radius") is not None:
         out.append(
             (
                 f"반지름 {row['radius']} 원통면",
                 {"what": "faces", "kind": row["kind"], "radius": row["radius"]},
+                True,
+            )
+        )
+    if row["kind"] == "plane" and row.get("normal"):
+        out.append(
+            (
+                f"{_direction_label(row['normal'], signed=True)} 방향 평면 중 이 면",
+                {
+                    "what": "faces",
+                    "kind": "plane",
+                    "normal": _rounded(row["normal"]),
+                    "near": point,
+                    "limit": 1,
+                },
+                True,
+            )
+        )
+    elif isinstance(row.get("axis"), dict):
+        direction = row["axis"]["direction"]
+        kind = _KIND_LABEL.get(row["kind"], f"{row['kind']} 면")
+        out.append(
+            (
+                f"{_direction_label(direction, signed=False)}축 {kind} 중 이 면",
+                {
+                    "what": "faces",
+                    "kind": row["kind"],
+                    "axis": _rounded(direction),
+                    "near": point,
+                    "limit": 1,
+                },
+                True,
             )
         )
     # **찍은 자리를 그대로 쓴다.** 원통면의 `center` 는 축이 아니라 표면 위의 점이라
     # (topology.py 머리말) 사람이 읽으면 엉뚱한 좌표로 보인다.
-    out.append(("이 자리의 면", {"what": "faces", "near": point, "limit": 1}))
+    out.append(("좌표에 가장 가까운 면", {"what": "faces", "near": point, "limit": 1}, False))
     return out
 
 
-def _edge_candidates(
-    row: dict[str, Any], point: list[float]
-) -> list[tuple[str, dict[str, Any]]]:
-    out: list[tuple[str, dict[str, Any]]] = []
+def _edge_candidates(row: dict[str, Any], point: list[float]) -> list[Candidate]:
+    out: list[Candidate] = []
     if row.get("radius") is not None:
         out.append(
             (
                 f"반지름 {row['radius']} 원",
                 {"what": "edges", "kind": row["kind"], "radius": row["radius"]},
+                True,
             )
         )
     if row.get("axis"):
@@ -332,18 +429,51 @@ def _edge_candidates(
             (
                 f"{row['axis']} 방향 직선 엣지",
                 {"what": "edges", "kind": row["kind"], "axis": row["axis"]},
+                True,
             )
         )
-    out.append(("이 자리의 엣지", {"what": "edges", "near": point, "limit": 1}))
+        # 같은 방향의 직선 중 가장 가까운 것 — 면과 같은 까닭으로 좌표만 쓰는 것보다 낫다.
+        out.append(
+            (
+                f"{row['axis']} 방향 직선 엣지 중 이 엣지",
+                {
+                    "what": "edges",
+                    "kind": row["kind"],
+                    "axis": row["axis"],
+                    "near": point,
+                    "limit": 1,
+                },
+                True,
+            )
+        )
+    elif row["kind"] in ("circle", "ellipse"):
+        # 반지름은 실험계획이 훑는 치수일 수 있다 — 종류로만 거르고 가장 가까운 것.
+        out.append(
+            (
+                "원 엣지 중 이 엣지",
+                {"what": "edges", "kind": row["kind"], "near": point, "limit": 1},
+                True,
+            )
+        )
+    out.append(
+        ("좌표에 가장 가까운 엣지", {"what": "edges", "near": point, "limit": 1}, False)
+    )
     return out
 
 
-def _vertex_candidates(
-    row: dict[str, Any], point: list[float]
-) -> list[tuple[str, dict[str, Any]]]:
+def _vertex_candidates(row: dict[str, Any], point: list[float]) -> list[Candidate]:
     return [
-        (f"엣지 {row['edges']}개가 모이는 점", {"what": "vertices", "edges": row["edges"]}),
-        ("이 자리의 점", {"what": "vertices", "near": point, "limit": 1}),
+        (
+            f"엣지 {row['edges']}개가 모이는 점",
+            {"what": "vertices", "edges": row["edges"]},
+            True,
+        ),
+        (
+            f"엣지 {row['edges']}개가 모이는 점 중 이 점",
+            {"what": "vertices", "edges": row["edges"], "near": point, "limit": 1},
+            True,
+        ),
+        ("좌표에 가장 가까운 점", {"what": "vertices", "near": point, "limit": 1}, False),
     ]
 
 
@@ -376,13 +506,19 @@ def selector_candidates(shape: Shape, pick: dict[str, Any]) -> dict[str, Any]:
         pairs = _edge_candidates(row, point)
 
     candidates = []
-    for label, select in pairs:
+    for label, select, stable in pairs:
         matched = find_features(shape, select)
         # **몇 개에 맞나.** 1 이면 이것 하나, 여럿이면 그 부류 전부다 — 둘 다 쓸모가 있어서
         # 고르게 한다(볼트 구멍은 넷을 한꺼번에 잡고 싶다).
         #
         # 셀렉터가 `limit` 을 들고 있으면 그것이 곧 집는 수다. `total`(거른 뒤 전체)을 세면
-        # 「이 자리의 면」 이 10 개에 맞는다고 말하게 된다 — 사람은 그 수를 보고 고른다.
+        # 「좌표에 가장 가까운 면」 이 10 개에 맞는다고 말하게 된다 — 사람은 그 수를 보고
+        # 고른다.
         matches = len(matched["items"]) if "limit" in select else matched["total"]
-        candidates.append({"label": label, "select": select, "matches": matches})
+        # `stable` — 치수가 바뀌어도 같은 것을 가리키나. 좌표만 쓰는 후보는 거짓이다: 못
+        # 찾는 게 아니라 가장 가까운 **딴 것**을 말없이 집는다. 화면은 이것을 기본으로 고르지
+        # 않는다.
+        candidates.append(
+            {"label": label, "select": select, "matches": matches, "stable": stable}
+        )
     return {"picked": row, "candidates": candidates}

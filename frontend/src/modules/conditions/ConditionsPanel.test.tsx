@@ -42,6 +42,9 @@ vi.mock('@/shared/viewer/PickViewer', () => ({
         <button onClick={(e) => onMeasure?.({ kind: 'face', face: { index: 1, center: [5, 0, 9] } }, keys(e))}>
           다른 면 찍기
         </button>
+        <button onClick={(e) => onMeasure?.({ kind: 'face', face: { index: 2, center: [40, 0, 5] } }, keys(e))}>
+          옆면 찍기
+        </button>
         <button onClick={(e) => onMeasure?.({ kind: 'point', at: [1, 2, 3] }, keys(e))}>점 찍기</button>
         <button onClick={(e) => onMeasure?.({ kind: 'body', name: '기둥' }, keys(e))}>바디 찍기</button>
         {/* Shift + 끌기 — 사각형 안의 두 면(아래 · 위). */}
@@ -98,16 +101,30 @@ const SCHEMA = {
 const CANDIDATES = {
   picked: { kind: 'plane' },
   candidates: [
-    { label: 'bottom 면', select: { what: 'faces', role: 'bottom' }, matches: 1 },
-    { label: '이 자리의 면', select: { what: 'faces', near: [0, 0, 0], limit: 1 }, matches: 1 },
+    { label: 'bottom 면', select: { what: 'faces', role: 'bottom' }, matches: 1, stable: true },
+    { label: '좌표에 가장 가까운 면', select: { what: 'faces', near: [0, 0, 0], limit: 1 }, matches: 1, stable: false },
   ],
 }
 /** 다른 자리(윗면)를 찍으면 다른 후보가 온다 — 여럿을 묶는 시험이 쓴다. */
 const TOP_CANDIDATES = {
   picked: { kind: 'plane' },
   candidates: [
-    { label: 'top 면', select: { what: 'faces', role: 'top' }, matches: 1 },
-    { label: '이 자리의 면', select: { what: 'faces', near: [5, 0, 9], limit: 1 }, matches: 1 },
+    { label: 'top 면', select: { what: 'faces', role: 'top' }, matches: 1, stable: true },
+    { label: '좌표에 가장 가까운 면', select: { what: 'faces', near: [5, 0, 9], limit: 1 }, matches: 1, stable: false },
+  ],
+}
+/** 옆면 — 역할(side)은 넷에 맞고, 하나에 맞는 것은 좌표 기준과 방향 기준. 좌표 기준이 **앞에** 있다. */
+const SIDE_CANDIDATES = {
+  picked: { kind: 'plane' },
+  candidates: [
+    { label: 'side 면', select: { what: 'faces', role: 'side' }, matches: 4, stable: true },
+    { label: '좌표에 가장 가까운 면', select: { what: 'faces', near: [40, 0, 5], limit: 1 }, matches: 1, stable: false },
+    {
+      label: '+X 방향 평면 중 이 면',
+      select: { what: 'faces', kind: 'plane', normal: [1, 0, 0], near: [40, 0, 5], limit: 1 },
+      matches: 1,
+      stable: true,
+    },
   ],
 }
 
@@ -202,7 +219,8 @@ vi.mock('@/shared/api/client', async () => {
       // 바디 목록과 셀렉터 후보는 **다른 길**이다 — 물성이 어디에 붙는지가 바디에서 나온다.
       post: vi.fn(async (path: string, body?: { pick?: { point?: number[] }; picks?: { point: number[] }[] }) => {
         if (path.startsWith('/cad/recipe/bodies')) return BODIES
-        const answer = (point?: number[]) => (point?.[0] === 5 ? TOP_CANDIDATES : CANDIDATES)
+        const answer = (point?: number[]) =>
+          point?.[0] === 5 ? TOP_CANDIDATES : point?.[0] === 40 ? SIDE_CANDIDATES : CANDIDATES
         // 여럿을 한 번에(사각형 선택) — 같은 순서로.
         if (body?.picks) return { items: body.picks.map((one) => answer(one.point)) }
         return answer(body?.pick?.point)
@@ -243,7 +261,8 @@ test('선택하면 좌표가 아니라 **선택 규칙**으로 되돌려 주고,
   await waitFor(() => screen.getByRole('dialog', { name: '선택 그룹 추가' }))
   // 후보마다 「지금 몇 개에 맞나」 가 보여야 한다 — 하나만 집을지 부류 전부를 집을지 고른다.
   await waitFor(() => screen.getByRole('option', { name: 'bottom 면 (현재 1 개)' }))
-  expect(screen.getByRole('option', { name: '이 자리의 면 (현재 1 개)' })).toBeInTheDocument()
+  // 좌표만 쓰는 규칙은 **치수 변경에 취약하다고** 적혀 있다.
+  expect(screen.getByRole('option', { name: '좌표에 가장 가까운 면 (현재 1 개) — 치수 변경에 취약' })).toBeInTheDocument()
 
   fireEvent.change(screen.getByLabelText('그룹 이름'), { target: { value: '바닥' } })
   fireEvent.click(screen.getByRole('button', { name: '생성' }))
@@ -317,6 +336,30 @@ test('**Shift + 끌기**(사각형)로 고른 것들을 더하고, 규칙은 서
   })
 })
 
+test('좌표만 쓰는 규칙은 **기본이 아니고**, 고르면 경고한다 — DOE 에서 딴 면을 집는다', async () => {
+  const onSave = await panel()
+  fireEvent.click(screen.getByText('옆면 찍기'))
+  await waitFor(() => screen.getByLabelText('1번 선택 규칙'))
+  // 좌표 기준이 앞에 있어도 **방향으로 거른 규칙**이 기본이다.
+  expect(screen.getByLabelText('1번 선택 규칙')).toHaveValue('2')
+  expect(screen.queryByText(/좌표 기준 규칙이 있습니다/)).toBeNull()
+
+  fireEvent.change(screen.getByLabelText('1번 선택 규칙'), { target: { value: '1' } })
+  await waitFor(() => screen.getByText(/좌표 기준 규칙이 있습니다/))
+  fireEvent.change(screen.getByLabelText('1번 선택 규칙'), { target: { value: '2' } })
+
+  fireEvent.change(screen.getByLabelText('그룹 이름'), { target: { value: '+X 옆면' } })
+  fireEvent.click(screen.getByRole('button', { name: '생성' }))
+  await waitFor(() => screen.getByText(/"normal"/))
+  expect((await save(onSave)).named_selections[0].select).toEqual({
+    what: 'faces',
+    kind: 'plane',
+    normal: [1, 0, 0],
+    near: [40, 0, 5],
+    limit: 1,
+  })
+})
+
 test('아무 키 없이 선택하면 **새로 고른다**', async () => {
   await panel()
   fireEvent.click(screen.getByText('면 찍기'))
@@ -367,7 +410,7 @@ test('꼭짓점을 선택하면 꼭짓점 그룹이 된다 — 점 · 엣지 · 
 test('같은 이름을 두 번 사용하면 거절한다 — 조건이 어느 것을 가리킬지 알 수 없다', async () => {
   await panel()
   await makeGroup('면 찍기', '바닥')
-  // 다른 규칙(「이 자리의 면」)에 같은 이름을 붙인다.
+  // 다른 규칙(「좌표에 가장 가까운 면」)에 같은 이름을 붙인다.
   await makeGroup('면 찍기', '바닥', '1')
   await waitFor(() => screen.getByText(/이미 있습니다/))
 })

@@ -16,7 +16,7 @@
 import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react'
 import { useState } from 'react'
 
-import { ALL_BODIES, appliedTo, materialsOn } from '@/modules/conditions/api'
+import { ALL_BODIES, appliedTo, hasCoordinateOnlyRule, materialsOn } from '@/modules/conditions/api'
 import type { Body, ConditionItem, MaterialItem, NamedSelection } from '@/modules/conditions/api'
 import { Button } from '@/shared/components/ui/button'
 import { Label } from '@/shared/components/ui/label'
@@ -289,6 +289,8 @@ export function ModelTree({
         <ul className="space-y-0.5">
           {names.map((one, index) => {
             const open = selected?.kind === 'selection' && selected.index === index
+            /** 좌표만 쓰는 규칙이 있나 — DOE 로 치수가 바뀌면 딴 형상을 집을 수 있다. */
+            const fragile = hasCoordinateOnlyRule(one.select ?? {})
             // 어느 조건이 이 그룹을 쓰나 — 지우기 전에 보여야 한다.
             const users = groups.flatMap((group) =>
               group.items
@@ -304,6 +306,11 @@ export function ModelTree({
                   onClick={() => onSelect(open ? null : { kind: 'selection', index })}
                 >
                   <span className="truncate">{one.name}</span>
+                  {fragile && (
+                    <span className="shrink-0 text-xs text-amber-700 dark:text-amber-400" title="좌표 기준 규칙">
+                      ⚠
+                    </span>
+                  )}
                   <span className="text-muted-foreground ml-auto shrink-0 text-xs">{one.entity}</span>
                 </button>
                 {open && (
@@ -312,6 +319,12 @@ export function ModelTree({
                       좌표가 아니라 <strong>선택 규칙</strong>으로 저장됩니다 — 치수가 변경되어도 같은 형상을
                       가리킵니다.
                     </p>
+                    {fragile && (
+                      <p className="rounded border border-amber-300 bg-amber-50 p-1 text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                        ⚠ 좌표만 쓰는 규칙이 있습니다 — DOE 로 치수가 바뀌면 다른 형상을 선택할 수 있습니다. 삭제하고 다시
+                        선택하면 방향으로 거른 규칙이 기본입니다.
+                      </p>
+                    )}
                     {/* 여럿을 묶은 그룹은 규칙들의 합이다 — 몇 개를 묶었는지 먼저 말한다. */}
                     {Array.isArray((one.select as { any?: unknown[] }).any) && (
                       <p>
