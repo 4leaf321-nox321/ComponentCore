@@ -27,6 +27,7 @@ import type { RecipeNode } from '@/modules/cad/recipeSpec'
 import { SketchCanvas } from '@/modules/cad/SketchCanvas'
 import type { SketchShape } from '@/modules/cad/SketchCanvas'
 import { ApiError } from '@/shared/api/client'
+import { useFillHeight } from '@/shared/hooks/useFillHeight'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { Boxes, Braces, BookmarkPlus, Download, FileAxis3d, FileUp, GripVertical, Image, FilePlus, FolderOpen, Files, Maximize2, Minimize2, Pencil, Redo2, Ruler, Save, SquareDashedMousePointer, Trash2, Undo2 } from 'lucide-react'
 
@@ -304,7 +305,21 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
   const valid = problems.length === 0
   const failedNode = error instanceof ApiError ? (error.details.node_id as string | undefined) : undefined
 
-  const viewerHeight = fullscreen ? 'h-[calc(100vh-11rem)]' : 'h-[600px]'
+  /**
+   * 3D 는 **남은 높이를 다 쓴다.** `h-[600px]` 로 굳혀 두면 큰 화면에서는 아래가 남고 작은
+   * 화면에서는 페이지가 스크롤된다 — 둘 다 도면을 좁게 만든다.
+   *
+   * 전체화면은 `fixed inset-0` 안이라 스크롤 영역이 없다(훅이 잴 곳이 없다). 거기서는
+   * flex 가 알아서 늘리므로 계산이 필요 없다.
+   */
+  const fill = useFillHeight<HTMLDivElement>({
+    min: 360,
+    // 뷰 아래에 스케치 안내가 붙는 일이 있다 — 그만큼 남겨 둔다.
+    gap: 12,
+    deps: [fullscreen, mesh !== null, Boolean(summary?.is_sketch), pickMode],
+  })
+  // 전체화면은 flex 가 늘려 주므로 잰 높이를 안 쓴다(`min-h-0 flex-1`).
+  const viewerStyle = fullscreen ? undefined : fill.style
 
   return (
     <div ref={frame} className={fullscreen ? 'bg-background fixed inset-0 z-50 flex flex-col gap-2 overflow-hidden p-3' : 'space-y-2'}>
@@ -648,8 +663,8 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
             <ErrorNotice error={error} className="mt-2" />
           </div>
 
-          {/* 3D — 넓게 */}
-          <div className="lg:col-span-9">
+          {/* 3D — 넓게. 세로로도 **남은 만큼 다 쓴다.** */}
+          <div className={`lg:col-span-9 ${fullscreen ? 'flex min-h-0 flex-col' : ''}`}>
             <p className="text-muted-foreground mb-1 text-xs">
               {pickMode === 'face'
                 ? faceTarget === 'sketch'
@@ -668,8 +683,13 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                 </button>
               )}
             </p>
+            {/*
+              **재는 자리는 뷰어 바로 위다.** 칸 맨 위(안내 문구 포함)에서 재면 그 문구
+              높이만큼 넘쳐 페이지가 스크롤된다.
+            */}
+            <div ref={fill.ref} className={fullscreen ? 'min-h-0 flex-1' : ''} style={viewerStyle}>
             {mesh ? (
-              <Suspense fallback={<Skeleton className={`${viewerHeight} w-full`} />}>
+              <Suspense fallback={<Skeleton className="h-full w-full" />}>
                 <PickViewer
                   mesh={mesh}
                   mode={pickMode}
@@ -679,14 +699,15 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                   onMeasure={(pick) => setMeasures((m) => (m.length >= 3 ? [pick] : [...m, pick]))}
                   measureKinds={{ point: measureKinds.has('point'), edge: measureKinds.has('edge'), face: measureKinds.has('face') }}
                   measureMarks={pickMode === 'measure' || kept.length > 0 ? measureMarks(measures, kept) : undefined}
-                  className={`${viewerHeight} w-full rounded-md border`}
+                  className="h-full w-full rounded-md border"
                 />
               </Suspense>
             ) : (
-              <div className={`text-muted-foreground flex ${viewerHeight} items-center justify-center rounded-md border border-dashed text-sm`}>
+              <div className="text-muted-foreground flex h-full items-center justify-center rounded-md border border-dashed text-sm">
                 {nodes.length === 0 ? '피처를 더하면 여기에 그려집니다.' : valid ? '그리는 중…' : '도면이 맞으면 여기에 그려집니다.'}
               </div>
             )}
+            </div>
             {summary?.is_sketch && (
               <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs">
                 <span>아직 스케치(2D)입니다. 입체로 만들려면:</span>

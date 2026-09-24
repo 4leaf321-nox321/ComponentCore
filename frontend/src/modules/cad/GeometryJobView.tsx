@@ -9,6 +9,7 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 import { isFinished, jobsApi } from '@/modules/jobs/api'
 import type { Job } from '@/modules/jobs/api'
 import { useJobPolling } from '@/modules/jobs/useJobPolling'
+import { useFillHeight } from '@/shared/hooks/useFillHeight'
 import { downloadFile } from '@/shared/api/client'
 import { StatusBadge } from '@/shared/components/StatusBadge'
 import { Button } from '@/shared/components/ui/button'
@@ -23,16 +24,25 @@ export function GeometryJobView({
   title,
   stepName,
   onFinished,
-  height = 'h-[420px]',
+  height,
 }: {
   job: Job | null
   title: string
   /** 주면 뷰어 머리에 「STEP 받기」 가 뜬다. 도구줄이 따로 있는 화면은 안 준다 — 받는 단추가 두 군데면 헷갈린다. */
   stepName?: string
   onFinished?: () => void
+  /**
+   * 굳은 높이(`h-[420px]` 같은 것). **안 주면 남은 높이를 다 쓴다** — 화면 아래를 비워 두면
+   * 형상이 그만큼 작게 보인다. 좁은 칸에 끼워 넣는 쪽만 값을 준다.
+   */
   height?: string
 }) {
   const job = useJobPolling(initial)
+  /**
+   * 굳은 높이를 안 받았으면 **남은 높이를 다 쓴다.** 조기 반환보다 **위**에 있어야 한다 —
+   * 아래에 두면 작업이 없을 때와 있을 때의 훅 수가 달라진다.
+   */
+  const fill = useFillHeight<HTMLDivElement>({ min: 360, gap: 12, deps: [job?.status, title] })
   const [url, setUrl] = useState<string | null>(null)
   const full = useFullscreen()
   const glb = job?.artifacts.find((one) => one.kind === 'model_glb')
@@ -69,7 +79,9 @@ export function GeometryJobView({
     )
   }
   const summary = job.summary as { volume?: number; bbox?: { size: number[] }; face_count?: number } | null
-  const box = full.active ? 'h-[calc(100vh-4rem)]' : height
+  const box = full.active ? 'h-[calc(100vh-4rem)]' : (height ?? 'h-full')
+  // 굳은 높이를 안 받았고 전체화면도 아니면 **잰 높이**로 채운다.
+  const boxStyle = full.active || height ? undefined : fill.style
   return (
     <div ref={full.frame} className={frameClass(full.active) || 'space-y-2'}>
       <div className="flex flex-wrap items-center gap-2">
@@ -91,9 +103,11 @@ export function GeometryJobView({
       </div>
       {job.status === 'failed' && <p className="text-destructive text-sm">{job.error}</p>}
       {url ? (
-        <Suspense fallback={<Skeleton className={`${box} w-full`} />}>
-          <ModelViewer models={[{ url, color: VIEWER_COLORS.product }]} className={`${box} w-full rounded-md border`} />
-        </Suspense>
+        <div ref={fill.ref} style={boxStyle}>
+          <Suspense fallback={<Skeleton className={`${box} w-full`} />}>
+            <ModelViewer models={[{ url, color: VIEWER_COLORS.product }]} className={`${box} w-full rounded-md border`} />
+          </Suspense>
+        </div>
       ) : (
         !isFinished(job) && <Skeleton className={`${box} w-full`} />
       )}

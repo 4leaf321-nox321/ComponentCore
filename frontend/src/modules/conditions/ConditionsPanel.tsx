@@ -30,6 +30,7 @@ import type {
 } from '@/modules/conditions/api'
 import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
+import { useFillHeight } from '@/shared/hooks/useFillHeight'
 import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
 import { Card, CardContent } from '@/shared/components/ui/card'
@@ -164,6 +165,14 @@ export function ConditionsPanel({
     setChosen(null)
   }
 
+  /**
+   * 세 칸이 함께 쓸 높이 — 화면 아래까지. 위쪽 줄이 바뀌면 다시 잰다.
+   *
+   * **조기 반환보다 위**에 있어야 한다. 아래에 두면 로딩 중 렌더와 그 뒤 렌더의 훅 수가
+   * 달라져 React 가 상태를 잘못 잇는다(시험이 그걸 잡았다).
+   */
+  const fill = useFillHeight<HTMLDivElement>({ min: 420, gap: 8, deps: [chosen?.kind, names.length] })
+
   if (schema.loading) return <Skeleton className="h-96 w-full" />
   if (schema.error) return <ErrorNotice error={schema.error} />
   const spec = schema.data!
@@ -177,10 +186,15 @@ export function ConditionsPanel({
         </p>
       )}
 
-      <div className="grid gap-3 lg:grid-cols-[260px_1fr_300px]">
+      {/*
+        **세 칸이 남은 높이를 함께 쓴다.** 3D 를 420px 로 굳혀 두면 큰 화면에서 아래가 비고,
+        면을 고르려고 돌려 볼 자리가 모자란다. 옆 칸(이름표 목록 · 속성)은 길어질 수 있으므로
+        **칸 안에서 스크롤**한다 — 페이지가 통째로 늘어나면 3D 가 화면 밖으로 밀린다.
+      */}
+      <div ref={fill.ref} style={fill.style} className="grid min-h-0 gap-3 lg:grid-cols-[260px_1fr_300px]">
         {/* ── 조건 목록 ── */}
-        <Card>
-          <CardContent className="space-y-3 p-3 text-sm">
+        <Card className="min-h-0 overflow-hidden">
+          <CardContent className="h-full space-y-3 overflow-y-auto p-3 text-sm">
             <div>
               <p className="mb-1 font-medium">
                 이름표 <span className="text-muted-foreground">{names.length}</span>
@@ -329,8 +343,8 @@ export function ConditionsPanel({
         </Card>
 
         {/* ── 3D ── */}
-        <Card className="min-h-[420px]">
-          <CardContent className="h-[420px] p-0">
+        <Card className="min-h-0 overflow-hidden">
+          <CardContent className="h-full p-0">
             <PickViewer
               mesh={mesh}
               mode="measure"
@@ -342,8 +356,8 @@ export function ConditionsPanel({
         </Card>
 
         {/* ── 속성 ── */}
-        <Card>
-          <CardContent className="space-y-3 p-3 text-sm">
+        <Card className="min-h-0 overflow-hidden">
+          <CardContent className="h-full space-y-3 overflow-y-auto p-3 text-sm">
             {candidates ? (
               <div className="space-y-2">
                 <p className="font-medium">{candidates.label}을 찍었습니다</p>

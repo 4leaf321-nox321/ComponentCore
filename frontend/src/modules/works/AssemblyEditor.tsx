@@ -27,6 +27,7 @@ import { Button } from '@/shared/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog'
 import { Input } from '@/shared/components/ui/input'
 import { Skeleton } from '@/shared/components/ui/skeleton'
+import { useFillHeight } from '@/shared/hooks/useFillHeight'
 import { useResource } from '@/shared/hooks/useResource'
 
 const PickViewer = lazy(() => import('@/shared/viewer/PickViewer'))
@@ -175,7 +176,16 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
   }
 
   const editingNode = placed.find((one) => one.id === editing) ?? null
-  const viewerHeight = 'h-[520px]'
+  /**
+   * 3D 는 **남은 높이를 다 쓴다.** `h-[520px]` 로 굳혀 두면 큰 화면에서는 아래가 남고 작은
+   * 화면에서는 페이지가 스크롤된다 — 둘 다 조립을 좁게 만든다.
+   */
+  const fill = useFillHeight<HTMLDivElement>({
+    min: 360,
+    // 뷰 아래에 문제 목록과 겹침 보고가 붙는다 — 그만큼 남겨 둔다.
+    gap: 16,
+    deps: [placed.length, problems.length, mesh !== null, selected],
+  })
 
   return (
     <div className="grid gap-3 lg:grid-cols-12">
@@ -325,8 +335,10 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
             {dragNote && <span className="text-destructive">{dragNote}</span>}
           </div>
         )}
+        {/* 재는 자리는 **뷰어 바로 위**다 — 위의 안내 줄까지 포함해 재면 그만큼 넘친다. */}
+        <div ref={fill.ref} style={fill.style}>
         {mesh ? (
-          <Suspense fallback={<Skeleton className={`${viewerHeight} w-full`} />}>
+          <Suspense fallback={<Skeleton className="h-full w-full" />}>
             <PickViewer
               mesh={mesh}
               mode="none"
@@ -335,14 +347,15 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
               dragPart={selected}
               dragMode={dragMode}
               onMoved={moved}
-              className={`${viewerHeight} w-full rounded-md border`}
+              className="h-full w-full rounded-md border"
             />
           </Suspense>
         ) : (
-          <div className={`text-muted-foreground flex ${viewerHeight} items-center justify-center rounded-md border border-dashed text-sm`}>
+          <div className="text-muted-foreground flex h-full items-center justify-center rounded-md border border-dashed text-sm">
             {placed.length === 0 ? '왼쪽 「가져오기」 에서 부품이나 지그를 누르세요.' : problems.length > 0 ? '도면이 맞으면 여기에 그려집니다.' : '그리는 중…'}
           </div>
         )}
+        </div>
         {problems.length > 0 && (
           <ul className="text-destructive list-disc pl-5 text-xs">
             {problems.map((one) => (
