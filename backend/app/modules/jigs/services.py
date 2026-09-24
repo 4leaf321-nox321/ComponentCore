@@ -85,6 +85,7 @@ def jig_out(db: Session, jig: Jig) -> JigOut:
         version_count=count,
         current=version_out(db, current) if current else None,
         created_at=jig.created_at,
+        tags=list(jig.tags or []),
         updated_at=jig.updated_at,
     )
 
@@ -105,12 +106,19 @@ def jig_summary(db: Session, jig: Jig) -> JigSummaryOut:
         part_name=part.name if part else None,
         current_version=jig.current_version,
         interference_ok=ok,
+        tags=list(jig.tags or []),
         updated_at=jig.updated_at,
     )
 
 
 def list_jigs(
-    db: Session, *, part_id: uuid.UUID | None, limit: int, offset: int, query: str = ""
+    db: Session,
+    *,
+    part_id: uuid.UUID | None,
+    limit: int,
+    offset: int,
+    query: str = "",
+    tag: str = "",
 ) -> tuple[list[Jig], int]:
     base = select(Jig).where(Jig.deleted_at.is_(None))
     if part_id is not None:
@@ -118,6 +126,8 @@ def list_jigs(
     if query.strip():
         like = f"%{query.strip()}%"
         base = base.where(or_(Jig.name.ilike(like), Jig.description.ilike(like)))
+    if tag.strip():
+        base = base.where(Jig.tags.contains([tag.strip()]))
     total = int(db.scalar(select(func.count()).select_from(base.subquery())) or 0)
     rows = list(db.scalars(base.order_by(Jig.updated_at.desc()).limit(limit).offset(offset)))
     return rows, total
@@ -145,3 +155,12 @@ def update_jig(db: Session, jig: Jig, *, fields: dict[str, Any]) -> Jig:
 def delete_jig(db: Session, jig: Jig) -> None:
     jig.deleted_at = datetime.now(UTC)
     db.commit()
+
+
+def all_tags(db: Session) -> list[str]:
+    """지그 카탈로그의 꼬리표 전부 — 부품 쪽과 같은 모양."""
+    seen: dict[str, int] = {}
+    for tags in db.scalars(select(Jig.tags).where(Jig.deleted_at.is_(None))):
+        for one in tags or []:
+            seen[one] = seen.get(one, 0) + 1
+    return sorted(seen, key=lambda t: (-seen[t], t))

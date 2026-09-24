@@ -26,16 +26,27 @@ from app.shared.pagination import Page, clamp_limit
 router = APIRouter(prefix="/parts", tags=["parts"])
 
 
+@router.get("/tags", response_model=list[str])
+def part_tags(_: User = Depends(current_user), db: Session = Depends(get_db)) -> list[str]:
+    """카탈로그에 붙은 꼬리표 전부 — 거르개 · 자동 완성. 많이 쓰인 것이 앞이다.
+
+    **승격이 내 작업의 것을 물려받는다** — 붙여 둔 것이 공용 공간으로 나가면서 없어지던
+    것을 고쳤다(2026-09-24). 내 작업은 열두 개쯤이라 이름으로 찾지만, 공용 공간은 남의
+    것까지 쌓여 이름만으로는 못 찾는다."""
+    return services.all_tags(db)
+
+
 @router.get("", response_model=Page[PartSummaryOut])
 def list_parts(
     limit: int | None = Query(default=None, ge=1),
     offset: int = Query(default=0, ge=0),
     q: str = Query(default="", max_length=120),
+    tag: str = Query(default="", max_length=40),
     _: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> Page[PartSummaryOut]:
     size = clamp_limit(limit)
-    rows, total = services.list_parts(db, limit=size, offset=offset, query=q)
+    rows, total = services.list_parts(db, limit=size, offset=offset, query=q, tag=tag)
     return Page(
         items=[services.part_summary(db, one) for one in rows],
         total=total,

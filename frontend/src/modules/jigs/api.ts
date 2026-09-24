@@ -65,6 +65,8 @@ export interface Jig {
 }
 
 export interface JigCatalogSummary {
+  /** 꼬리표 — 승격이 내 작업의 것을 물려받는다. `?tag=` 로 거른다. */
+  tags: string[]
   id: string
   name: string
   description: string
@@ -77,14 +79,20 @@ export interface JigCatalogSummary {
 }
 
 export const jigsApi = {
-  list: (params: { part_id?: string; offset?: number; limit?: number; q?: string } = {}) => {
+  list: (params: { part_id?: string; offset?: number; limit?: number; q?: string; tag?: string } = {}) => {
     const query = new URLSearchParams()
     if (params.part_id) query.set('part_id', params.part_id)
     if (params.q) query.set('q', params.q)
+    if (params.tag) query.set('tag', params.tag)
     query.set('offset', String(params.offset ?? 0))
     query.set('limit', String(params.limit ?? 50))
     return api.get<Page<JigCatalogSummary>>(`/jigs?${query.toString()}`)
   },
+  /**
+   * 꼬리표 전부 — 거르개 · 자동 완성. **승격이 내 작업의 것을 물려받는다**(붙여 둔 것이
+   * 공용 공간으로 나가면서 없어지던 것을 고쳤다, 2026-09-24).
+   */
+  tags: () => api.get<string[]>('/jigs/tags'),
   get: (id: string) => api.get<Jig>(`/jigs/${id}`),
   versions: (id: string) => api.get<JigVersion[]>(`/jigs/${id}/versions`),
   update: (id: string, body: { name?: string; description?: string }) => api.patch<Jig>(`/jigs/${id}`, body),

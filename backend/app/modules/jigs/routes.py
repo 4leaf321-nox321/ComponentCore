@@ -17,17 +17,26 @@ from app.shared.pagination import Page, clamp_limit
 router = APIRouter(prefix="/jigs", tags=["jigs"])
 
 
+@router.get("/tags", response_model=list[str])
+def jig_tags(_: User = Depends(current_user), db: Session = Depends(get_db)) -> list[str]:
+    """지그 카탈로그의 꼬리표 전부 — 부품 쪽과 같은 모양."""
+    return services.all_tags(db)
+
+
 @router.get("", response_model=Page[JigSummaryOut])
 def list_jigs(
     part_id: uuid.UUID | None = None,
     limit: int | None = Query(default=None, ge=1),
     offset: int = Query(default=0, ge=0),
     q: str = Query(default="", max_length=120),
+    tag: str = Query(default="", max_length=40),
     _: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> Page[JigSummaryOut]:
     size = clamp_limit(limit)
-    rows, total = services.list_jigs(db, part_id=part_id, limit=size, offset=offset, query=q)
+    rows, total = services.list_jigs(
+        db, part_id=part_id, limit=size, offset=offset, query=q, tag=tag
+    )
     return Page(
         items=[services.jig_summary(db, one) for one in rows],
         total=total,

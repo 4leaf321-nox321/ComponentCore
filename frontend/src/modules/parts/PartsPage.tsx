@@ -18,6 +18,7 @@ import {
   TableRow,
 } from '@/shared/components/ui/table'
 import { useDisplay } from '@/shared/api/display'
+import { TagFilter } from '@/shared/components/TagFilter'
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
@@ -25,8 +26,11 @@ import { shownDateTime } from '@/shared/lib/datetime'
 export default function PartsPage() {
   const [offset, setOffset] = useState(0)
   const [q, setQ] = useState('')
+  /** 고른 꼬리표 — 빈 문자열이면 안 거른다. */
+  const [tag, setTag] = useState('')
   const PAGE = useDisplay().list_page_size
-  const page = useResource(() => partsApi.list(offset, PAGE, q), [offset, q, PAGE])
+  const page = useResource(() => partsApi.list(offset, PAGE, q, tag), [offset, q, tag, PAGE])
+  const tags = useResource(() => partsApi.tags(), [page.data])
   const rows = page.data?.items ?? []
 
   return (
@@ -34,6 +38,7 @@ export default function PartsPage() {
       <PageHeader title="부품" description="내 작업에서 승격된 부품. 버전은 바뀌지 않고, 고치려면 내 공간으로 복사합니다." />
       <div className="mb-4">
         <SearchBox value={q} onChange={(next) => { setQ(next); setOffset(0) }} />
+        <TagFilter tags={tags.data ?? []} value={tag} onChange={(next) => { setTag(next); setOffset(0) }} />
       </div>
       <ErrorNotice error={page.error} className="mb-4" />
       {rows.length === 0 && !page.loading ? (

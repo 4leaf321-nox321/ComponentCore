@@ -30,6 +30,9 @@ class Jig(Base):
     owner_id: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), index=True
     )
+    tags: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
+    """꼬리표 — 승격할 때 **내 작업의 것을 그대로 물려받는다.** 공용 공간은 남의 것까지
+    쌓이므로 이름만으로는 못 찾는다(내 작업은 열두 개쯤이라 이름으로 충분하다)."""
     work_id: Mapped[uuid.UUID | None] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("works.id", ondelete="SET NULL"), nullable=True
     )

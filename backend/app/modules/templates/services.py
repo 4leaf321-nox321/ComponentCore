@@ -45,6 +45,7 @@ def template_summary(
         is_shared=template.is_shared,
         mine=template.owner_id == viewer.id,
         node_count=_node_count(template.recipe),
+        tags=list(template.tags or []),
         updated_at=template.updated_at,
     )
 
@@ -56,7 +57,14 @@ def template_out(db: Session, template: RecipeTemplate, viewer: User) -> Templat
 
 
 def list_templates(
-    db: Session, viewer: User, *, scope: str = "all", query: str = "", limit: int, offset: int
+    db: Session,
+    viewer: User,
+    *,
+    scope: str = "all",
+    query: str = "",
+    tag: str = "",
+    limit: int,
+    offset: int,
 ) -> tuple[list[RecipeTemplate], int]:
     """`scope` 는 mine(내 것) · shared(공용) · all(둘 다). 내 것이 먼저 온다."""
     if scope not in SCOPES:
@@ -72,6 +80,8 @@ def list_templates(
         statement = statement.where(
             or_(RecipeTemplate.name.ilike(like), RecipeTemplate.description.ilike(like))
         )
+    if tag.strip():
+        statement = statement.where(RecipeTemplate.tags.contains([tag.strip()]))
     total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0
     rows = db.scalars(
         statement.order_by(
@@ -117,6 +127,7 @@ def create_template(
     description: str,
     recipe: dict[str, Any],
     is_shared: bool,
+    tags: list[str] | None = None,
 ) -> RecipeTemplate:
     template = RecipeTemplate(
         name=name.strip(),
@@ -124,6 +135,9 @@ def create_template(
         owner_id=owner.id,
         recipe=_checked(recipe),
         is_shared=is_shared,
+        # 템플릿은 작업과의 연결을 안 남기므로 **저장할 때 받는다**(부품 · 지그는 승격이
+        # 물려받는다). 화면이 그때 보던 작업의 꼬리표를 건넨다.
+        tags=sorted({one.strip() for one in (tags or []) if one.strip()}),
     )
     db.add(template)
     db.commit()
@@ -161,3 +175,13 @@ def copy_to_mine(db: Session, template: RecipeTemplate, *, owner: User) -> Recip
 def delete_template(db: Session, template: RecipeTemplate) -> None:
     db.delete(template)
     db.commit()
+
+
+def all_tags(db: Session, viewer: User) -> list[str]:
+    """볼 수 있는 템플릿의 꼬리표 전부 — 부품 · 지그와 같은 모양."""
+    visible = or_(RecipeTemplate.owner_id == viewer.id, RecipeTemplate.is_shared.is_(True))
+    seen: dict[str, int] = {}
+    for tags in db.scalars(select(RecipeTemplate.tags).where(visible)):
+        for one in tags or []:
+            seen[one] = seen.get(one, 0) + 1
+    return sorted(seen, key=lambda t: (-seen[t], t))

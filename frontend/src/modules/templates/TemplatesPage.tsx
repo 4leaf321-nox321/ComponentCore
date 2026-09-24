@@ -30,6 +30,7 @@ import {
   TableRow,
 } from '@/shared/components/ui/table'
 import { useDisplay } from '@/shared/api/display'
+import { TagFilter } from '@/shared/components/TagFilter'
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
@@ -44,12 +45,15 @@ export default function TemplatesPage() {
   const navigate = useNavigate()
   const [scope, setScope] = useState<TemplateScope>('all')
   const [query, setQuery] = useState('')
+  /** 고른 꼬리표 — 빈 문자열이면 안 거른다. */
+  const [tag, setTag] = useState('')
   const [offset, setOffset] = useState(0)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [removing, setRemoving] = useState<TemplateSummary | null>(null)
   const PAGE = useDisplay().list_page_size
-  const page = useResource(() => templatesApi.list({ scope, q: query, offset, limit: PAGE }), [scope, query, offset, PAGE])
+  const page = useResource(() => templatesApi.list({ scope, q: query, tag, offset, limit: PAGE }), [scope, query, tag, offset, PAGE])
+  const tags = useResource(() => templatesApi.tags(), [page.data])
   const rows = page.data?.items ?? []
 
   async function act(run: () => Promise<unknown>, id: string) {
@@ -103,6 +107,7 @@ export default function TemplatesPage() {
           className="h-9 w-64"
           aria-label="템플릿 찾기"
         />
+        <TagFilter tags={tags.data ?? []} value={tag} onChange={(next) => { setTag(next); setOffset(0) }} />
         <span className="text-muted-foreground text-xs">{SCOPES.find((one) => one.value === scope)?.hint}</span>
       </div>
 

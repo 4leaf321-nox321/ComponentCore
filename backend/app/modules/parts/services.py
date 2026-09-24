@@ -83,6 +83,7 @@ def part_out(db: Session, part: Part) -> PartOut:
         current=version_out(db, current) if current else None,
         jig_count=_jig_count(db, part.id),
         created_at=part.created_at,
+        tags=list(part.tags or []),
         updated_at=part.updated_at,
     )
 
@@ -96,17 +97,20 @@ def part_summary(db: Session, part: Part) -> PartSummaryOut:
         owner_name=owner.display_name if owner else "(삭제된 계정)",
         current_version=part.current_version,
         jig_count=_jig_count(db, part.id),
+        tags=list(part.tags or []),
         updated_at=part.updated_at,
     )
 
 
 def list_parts(
-    db: Session, *, limit: int, offset: int, query: str = ""
+    db: Session, *, limit: int, offset: int, query: str = "", tag: str = ""
 ) -> tuple[list[Part], int]:
     base = select(Part).where(Part.deleted_at.is_(None))
     if query.strip():
         like = f"%{query.strip()}%"
         base = base.where(or_(Part.name.ilike(like), Part.description.ilike(like)))
+    if tag.strip():
+        base = base.where(Part.tags.contains([tag.strip()]))
     total = int(db.scalar(select(func.count()).select_from(base.subquery())) or 0)
     rows = list(db.scalars(base.order_by(Part.updated_at.desc()).limit(limit).offset(offset)))
     return rows, total
@@ -134,3 +138,15 @@ def update_part(db: Session, part: Part, *, fields: dict[str, Any]) -> Part:
 def delete_part(db: Session, part: Part) -> None:
     part.deleted_at = datetime.now(UTC)
     db.commit()
+
+
+def all_tags(db: Session) -> list[str]:
+    """카탈로그에 붙은 꼬리표 전부 — 거르개 · 자동 완성. 많이 쓰인 것이 앞이다.
+
+    내 작업의 `my_tags` 와 **같은 모양**이다(화면이 한 벌이면 된다). 다만 여기는 **남의
+    것까지** 센다 — 공용 공간이라 그것이 맞다."""
+    seen: dict[str, int] = {}
+    for tags in db.scalars(select(Part.tags).where(Part.deleted_at.is_(None))):
+        for one in tags or []:
+            seen[one] = seen.get(one, 0) + 1
+    return sorted(seen, key=lambda t: (-seen[t], t))

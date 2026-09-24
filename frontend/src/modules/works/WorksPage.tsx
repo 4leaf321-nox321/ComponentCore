@@ -23,6 +23,7 @@ import {
   TableRow,
 } from '@/shared/components/ui/table'
 import { useDisplay } from '@/shared/api/display'
+import { TagFilter } from '@/shared/components/TagFilter'
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
@@ -116,22 +117,7 @@ export default function WorksPage() {
           </button>
         ))}
         </div>
-        {(tags.data ?? []).length > 0 && (
-          <div className="flex flex-wrap items-center gap-1">
-            <span className="text-muted-foreground text-xs">꼬리표</span>
-            {(tags.data ?? []).map((one) => (
-              <button
-                key={one}
-                type="button"
-                onClick={() => { setTag(tag === one ? '' : one); setOffset(0) }}
-                aria-pressed={tag === one}
-                className={`rounded-full border px-2 py-0.5 text-xs ${tag === one ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-accent'}`}
-              >
-                {one}
-              </button>
-            ))}
-          </div>
-        )}
+        <TagFilter tags={tags.data ?? []} value={tag} onChange={(next) => { setTag(next); setOffset(0) }} />
         <button type="button" onClick={() => { setTrashed(!trashed); setOffset(0) }} aria-pressed={trashed} className={`ml-auto rounded-md border px-3 py-1 text-sm ${trashed ? 'bg-destructive/10 border-destructive/40' : 'hover:bg-accent'}`}>
           {trashed ? '휴지통 보는 중 — 내 작업으로' : '휴지통'}
         </button>

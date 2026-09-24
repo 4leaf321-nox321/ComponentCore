@@ -21,7 +21,11 @@ function mockFetch(items: unknown[]) {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input)
     calls.push({ url, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : null })
-    const body = url.includes('/templates?') ? { items, total: items.length, limit: 20, offset: 0 } : {}
+    const body = url.includes('/templates/tags')
+      ? ['브래킷']
+      : url.includes('/templates?')
+        ? { items, total: items.length, limit: 20, offset: 0 }
+        : {}
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
   })
   return calls

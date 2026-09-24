@@ -787,11 +787,17 @@ def promote_part(
             description=work.description,
             owner_id=by.id,
             work_id=work.id,
+            # **꼬리표를 물려받는다.** 안 옮기면 사람이 붙여 둔 것이 공용 공간으로 나가는
+            # 순간 없어진다 — 정작 남이 찾아야 하는 자리에서.
+            tags=list(work.tags or []),
         )
         db.add(part)
         db.flush()
     elif part.owner_id != by.id and not by.is_system_admin:
         raise Forbidden(code("WORKS", 11), "이 부품에 버전을 올릴 권한이 없습니다.")
+    # **버전을 올릴 때도 따라온다** — 첫 승격 뒤에 작업에 꼬리표를 더했으면 그것도 와야 한다.
+    # 카탈로그에서 뺀 것을 되살리지는 않는다(거기서 지운 것은 뜻이 있다) — 더하기만 한다.
+    part.tags = sorted({*(part.tags or []), *(work.tags or [])})
 
     promoted = PartVersion(
         part_id=part.id,
@@ -883,11 +889,13 @@ def _jig_for(
             owner_id=by.id,
             work_id=work.id,
             part_id=part_version.part_id if part_version else None,
+            tags=list(work.tags or []),
         )
         db.add(jig)
         db.flush()
     elif jig.owner_id != by.id and not by.is_system_admin:
         raise Forbidden(code("WORKS", 15), "이 지그에 버전을 올릴 권한이 없습니다.")
+    jig.tags = sorted({*(jig.tags or []), *(work.tags or [])})
     if part_version is not None:
         jig.part_id = part_version.part_id
     return jig

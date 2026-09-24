@@ -22,10 +22,19 @@ from app.shared.pagination import Page, clamp_limit
 router = APIRouter(prefix="/templates", tags=["templates"])
 
 
+@router.get("/tags", response_model=list[str])
+def template_tags(
+    user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> list[str]:
+    """볼 수 있는 템플릿의 꼬리표 전부 — 부품 · 지그와 같은 모양."""
+    return services.all_tags(db, user)
+
+
 @router.get("", response_model=Page[TemplateSummaryOut])
 def list_templates(
     scope: str = Query(default="all", description="mine · shared · all"),
     q: str = Query(default="", max_length=120),
+    tag: str = Query(default="", max_length=40),
     limit: int | None = Query(default=None, ge=1),
     offset: int = Query(default=0, ge=0),
     user: User = Depends(current_user),
@@ -34,7 +43,7 @@ def list_templates(
     """내 템플릿 · 공용 템플릿. 내장 넷은 `cad/recipe/schema` 의 templates 에 있다."""
     size = clamp_limit(limit)
     rows, total = services.list_templates(
-        db, user, scope=scope, query=q, limit=size, offset=offset
+        db, user, scope=scope, query=q, tag=tag, limit=size, offset=offset
     )
     return Page(
         items=[services.template_summary(db, one, user) for one in rows],
@@ -65,6 +74,7 @@ def create_template(
         description=payload.description,
         recipe=payload.recipe,
         is_shared=payload.is_shared,
+        tags=payload.tags,
     )
     return services.template_out(db, made, user)
 

@@ -19,6 +19,7 @@ import {
   TableRow,
 } from '@/shared/components/ui/table'
 import { useDisplay } from '@/shared/api/display'
+import { TagFilter } from '@/shared/components/TagFilter'
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
@@ -26,8 +27,11 @@ import { shownDateTime } from '@/shared/lib/datetime'
 export default function JigsPage() {
   const [offset, setOffset] = useState(0)
   const [q, setQ] = useState('')
+  /** 고른 꼬리표 — 빈 문자열이면 안 거른다. */
+  const [tag, setTag] = useState('')
   const PAGE = useDisplay().list_page_size
-  const page = useResource(() => jigsApi.list({ offset, limit: PAGE, q }), [offset, q, PAGE])
+  const page = useResource(() => jigsApi.list({ offset, limit: PAGE, q, tag }), [offset, q, tag, PAGE])
+  const tags = useResource(() => jigsApi.tags(), [page.data])
   const rows = page.data?.items ?? []
 
   return (
@@ -35,6 +39,7 @@ export default function JigsPage() {
       <PageHeader title="지그" description="내 작업에서 승격된 지그. 어느 부품 버전의 지그인지 함께 적혀 있습니다." />
       <div className="mb-4">
         <SearchBox value={q} onChange={(next) => { setQ(next); setOffset(0) }} />
+        <TagFilter tags={tags.data ?? []} value={tag} onChange={(next) => { setTag(next); setOffset(0) }} />
       </div>
       <ErrorNotice error={page.error} className="mb-4" />
       {rows.length === 0 && !page.loading ? (

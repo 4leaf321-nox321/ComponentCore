@@ -29,6 +29,8 @@ class PartOut(BaseModel):
 
     id: uuid.UUID
     name: str
+    tags: list[str] = Field(default_factory=list)
+    """꼬리표 — 승격이 내 작업의 것을 물려받는다. 목록에서 이것으로 거른다(`?tag=`)."""
     description: str
     owner_id: uuid.UUID
     owner_name: str
@@ -47,6 +49,8 @@ class PartSummaryOut(BaseModel):
 
     id: uuid.UUID
     name: str
+    tags: list[str] = Field(default_factory=list)
+    """꼬리표 — **목록에도 보여야 한다.** 거르개로 쓰는 자리가 목록이다."""
     description: str
     owner_name: str
     current_version: int

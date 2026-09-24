@@ -27,6 +27,9 @@ class RecipeTemplate(Base):
     )
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(Text, default="", server_default="")
+    tags: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
+    """꼬리표 — 템플릿은 **작업과의 연결을 안 남기므로** 저장할 때 받는다(부품 · 지그는
+    승격이 물려받는다)."""
     owner_id: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
