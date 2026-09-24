@@ -75,4 +75,7 @@ def test_모르는_범위는_발급에서_거절(client: TestClient, member: Sig
     )
     assert got.status_code == 400 and got.json()["error"]["code"] == "CCR-AUTH-0107"
     scopes = client.get("/api/auth/token-scopes", headers=member.headers).json()
-    assert set(scopes["scopes"]) == {"read", "write"}
+    # `act_for_others` 는 대행 — 남의 이름으로 만드는 자격이라 따로 준다(DOE 시험 참고).
+    assert set(scopes["scopes"]) == {"read", "write", "act_for_others"}
+    # 뜻이 함께 온다 — 화면과 MCP 안내가 이것을 읽고 손으로 두 벌 적지 않는다.
+    assert set(scopes["descriptions"]) == set(scopes["scopes"])

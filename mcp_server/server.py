@@ -563,6 +563,7 @@ async def doe_create(
     seed: int = 1,
     work_id: str | None = None,
     idempotency_key: str = "",
+    on_behalf_of: str = "",
 ) -> Any:
     """치수를 훑어 **형상 여러 벌**을 만든다 — 점마다 STEP 을 서버 보관 폴더에 쓴다.
 
@@ -572,6 +573,10 @@ async def doe_create(
     `idempotency_key` 를 주면 **두 번 불러도 한 벌**이다. 재시도할 생각이면 늘 줘라 — 망이
     끊겨 답을 못 받았을 뿐인데 다시 걸면 스터디 둘 · 폴더 둘이 생기고, 해석 쪽은 어느 것이
     진짜인지 모른다.
+
+    **`on_behalf_of` 를 꼭 줘라**(그 사람의 계정 · 이메일). 네 토큰은 서비스 계정이라, 안
+    주면 이 DOE 가 서비스 계정 것으로만 남아 **정작 사람이 제 활동에서 못 찾는다.** 소유자는
+    그 사람이 되고 네가 돌렸다는 사실은 따로 남는다.
 
     인자로 쓴 치수만 바뀐다. **연결부처럼 고정돼야 하는 자리는 그 치수를 쓰지 않으면 된다.**
     인자마다 `resolution`(가공 단위, 기본 0.1 mm)으로 값을 맞춘다 —
@@ -593,6 +598,7 @@ async def doe_create(
             "seed": seed,
             "work_id": work_id,
             "idempotency_key": idempotency_key,
+            "on_behalf_of": on_behalf_of,
         },
     )
 
@@ -609,6 +615,7 @@ async def doe_run(
     samples: int = 20,
     seed: int = 1,
     work_id: str | None = None,
+    on_behalf_of: str = "",
     export: bool = True,
     wait_seconds: int = 300,
 ) -> Any:
@@ -626,7 +633,8 @@ async def doe_run(
     않으니 — 만들다 만 폴더를 해석이 읽으면 안 된다 — `doe_status` 로 끝을 보고
     `doe_export` 를 부른다.
 
-    `export=false` 면 만들기만 한다(조건만 바꿔 가며 쌓아 둘 때).
+    **`on_behalf_of` 를 꼭 줘라**(그 사람의 계정 · 이메일) — 안 주면 사람이 제 활동에서 이
+    DOE 를 못 찾는다. `export=false` 면 만들기만 한다(조건만 바꿔 가며 쌓아 둘 때).
     """
     query = f"?wait_seconds={wait_seconds}&export={'true' if export else 'false'}"
     got = await _post(
@@ -642,6 +650,7 @@ async def doe_run(
             "seed": seed,
             "work_id": work_id,
             "idempotency_key": idempotency_key,
+            "on_behalf_of": on_behalf_of,
         },
     )
     if not isinstance(got, dict) or "error" in got:
@@ -649,6 +658,7 @@ async def doe_run(
     return {
         "study_id": got["id"],
         "name": got["name"],
+        "owner": got.get("owner_name"),
         "folder": got["export_dir_windows"] or None,
         "files_ready": got.get("local_ready", True),
         "points": got["point_count"],
@@ -789,9 +799,14 @@ async def doe_keep(ctx: Context, study_id: str, keep: bool = True) -> Any:
 
 
 @mcp.tool()
-async def doe_studies(ctx: Context, work_id: str | None = None, limit: int = 20) -> Any:
-    """실험계획 목록 — 무엇을 언제 훑었나."""
-    query: dict[str, Any] = {"limit": limit}
+async def doe_studies(
+    ctx: Context, work_id: str | None = None, limit: int = 20, scope: str = "mine"
+) -> Any:
+    """실험계획 목록 — 무엇을 언제 훑었나.
+
+    `scope="mine"`(기본) 은 네 토큰의 계정 것, `"all"` 은 **공개된 것까지**. 남이 이미 같은
+    훑기를 돌았는지 보려면 `all` 로 찾아라 — 같은 것을 다시 도는 것이 가장 큰 낭비다."""
+    query: dict[str, Any] = {"limit": limit, "scope": scope}
     if work_id:
         query["work_id"] = work_id
     page = await _get(ctx, "/api/doe", query)

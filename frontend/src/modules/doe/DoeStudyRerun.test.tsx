@@ -6,18 +6,18 @@
  * 왜 안 눌리는지 모른 채로 두면 사람은 스터디를 다시 만든다.
  */
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { MemoryRouter } from "react-router-dom"
 
-import type { DoeStudy } from "@/modules/doe/api";
-import { DoeStudyView } from "@/modules/doe/DoeStudyView";
+import type { DoeStudy } from "@/modules/doe/api"
+import { DoeStudyView } from "@/modules/doe/DoeStudyView"
 
 vi.mock("@/shared/viewer/PickViewer", () => ({
   default: () => <div data-testid="viewer" />,
-}));
+}))
 vi.mock("@/shared/viewer/GridViewer", () => ({
   GridViewer: () => <div data-testid="grid" />,
-}));
+}))
 
 const study = (over: Partial<DoeStudy>) =>
   ({
@@ -29,6 +29,9 @@ const study = (over: Partial<DoeStudy>) =>
     done: 2,
     failed: 0,
     local_ready: true,
+    visibility: 'read',
+    owner_name: '김설계',
+    requested_by_name: '',
     job: { status: "done", artifacts: [], progress: [] },
     export_dir_windows: "",
     exported_at: null,
@@ -52,66 +55,66 @@ const study = (over: Partial<DoeStudy>) =>
       },
     ],
     ...over,
-  }) as unknown as DoeStudy;
+  }) as unknown as DoeStudy
 
 function mockFetch(seen: string[]) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-    const url = String(input);
-    seen.push(`${(init?.method ?? "GET").toUpperCase()} ${url}`);
+    const url = String(input)
+    seen.push(`${(init?.method ?? "GET").toUpperCase()} ${url}`)
     const body = url.includes("/server/display")
       ? { doe_gallery_max: 24, list_page_size: 20 }
-      : {};
+      : {}
     return new Response(JSON.stringify(body), {
       status: 200,
       headers: { "Content-Type": "application/json" },
-    });
-  });
+    })
+  })
 }
 
 test("파일이 치워졌으면 사정과 할 일을 말하고, 「보내기」 는 막는다", async () => {
-  const seen: string[] = [];
-  mockFetch(seen);
-  const reload = vi.fn();
+  const seen: string[] = []
+  mockFetch(seen)
+  const reload = vi.fn()
   render(
     <MemoryRouter>
       <DoeStudyView study={study({ local_ready: false })} onReload={reload} />
     </MemoryRouter>,
-  );
+  )
 
   expect(
     screen.getByText(/보관 기한을 지나 정리되었습니다/),
-  ).toBeInTheDocument();
+  ).toBeInTheDocument()
   // **설정은 남아 있다** — 사람이 스터디를 다시 만들지 않게 그것부터 말한다.
   expect(
     screen.getByText(/설정\(레시피 · 인자 · 시드 · 조건\)은 그대로 남아/),
-  ).toBeInTheDocument();
+  ).toBeInTheDocument()
   expect(
     screen.getByRole("button", { name: /공유 폴더로 보내기/ }),
-  ).toBeDisabled();
+  ).toBeDisabled()
 
-  fireEvent.click(screen.getByRole("button", { name: "다시 만들기" }));
+  fireEvent.click(screen.getByRole("button", { name: "다시 만들기" }))
   await waitFor(() =>
     expect(seen).toContain("POST /api/doe/s1/rerun?only=all"),
-  );
-  await waitFor(() => expect(reload).toHaveBeenCalled());
-});
+  )
+  await waitFor(() => expect(reload).toHaveBeenCalled())
+})
 
 test("파일이 있으면 그 안내는 안 뜨고 보낼 수 있다", () => {
-  mockFetch([]);
+  mockFetch([])
   render(
     <MemoryRouter>
       <DoeStudyView study={study({})} onReload={() => {}} />
     </MemoryRouter>,
-  );
-  expect(screen.queryByText(/정리되었습니다/)).toBeNull();
+  )
+  expect(screen.queryByText(/정리되었습니다/)).toBeNull()
   expect(
     screen.getByRole("button", { name: /공유 폴더로 보내기/ }),
-  ).toBeEnabled();
-});
+  ).toBeEnabled()
+})
 
 test("실패한 점만 다시 — 성한 것을 다시 만들지 않으려고 따로 둔다", async () => {
-  const seen: string[] = [];
-  mockFetch(seen);
+  const seen: string[] = []
+  mockFetch(seen)
   render(
     <MemoryRouter>
       <DoeStudyView
@@ -140,9 +143,24 @@ test("실패한 점만 다시 — 성한 것을 다시 만들지 않으려고 �
         onReload={() => {}}
       />
     </MemoryRouter>,
-  );
-  fireEvent.click(screen.getByRole("button", { name: /실패한 1 점만 다시/ }));
+  )
+  fireEvent.click(screen.getByRole("button", { name: /실패한 1 점만 다시/ }))
   await waitFor(() =>
     expect(seen).toContain("POST /api/doe/s1/rerun?only=failed"),
-  );
-});
+  )
+})
+
+test('누가 만들었고 누가 돌렸는지, 누가 보는지 말한다', async () => {
+  const seen: string[] = []
+  mockFetch(seen)
+  render(
+    <MemoryRouter>
+      <DoeStudyView study={study({ owner_name: '김설계', requested_by_name: '오케스트레이터' } as unknown as Partial<DoeStudy>)} onReload={() => {}} />
+    </MemoryRouter>,
+  )
+  // 기계가 대행하면 둘이 다르다 — 소유자는 사람, 돌린 것은 서비스 계정.
+  expect(screen.getByText('오케스트레이터 대행', { exact: false })).toBeInTheDocument()
+  // 기본은 공개 — 감추는 것이 예외다.
+  fireEvent.click(screen.getByRole('button', { name: /모두 봅니다/ }))
+  await waitFor(() => expect(seen).toContain('POST /api/doe/s1/visibility?value=private'))
+})

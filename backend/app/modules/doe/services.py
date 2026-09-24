@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -177,6 +177,7 @@ def create_study(
     work_id: uuid.UUID | None,
     conditions: dict[str, Any] | None = None,
     idempotency_key: str = "",
+    requested_by: User | None = None,
 ) -> tuple[DoeStudy, bool]:
     """스터디를 만들고 작업을 건다. 레시피와 **해석 조건**을 스냅샷으로 박는다.
 
@@ -186,6 +187,10 @@ def create_study(
     `idempotency_key` 를 주면 **두 번 불러도 한 벌**이다 — 이미 있으면 그것을 돌려준다
     (돌려준 것인지는 두 번째 값이 말한다). 기계는 재시도하고, 망이 끊겨 답을 못 받았을 뿐인데
     다시 걸면 스터디 둘 · 폴더 둘이 생겨 해석 쪽이 어느 것이 진짜인지 모른다.
+
+    `requested_by` 는 **대행**일 때만 찬다 — `owner` 는 그 DOE 가 누구 것인가(사람)이고,
+    `requested_by` 는 누가 실제로 돌렸나(오케스트레이터의 서비스 계정)다. 둘을 한 칸에
+    욱여넣으면 「내 DOE 목록」 과 「누가 돌렸나」 중 하나를 잃는다.
 
     **열쇠를 우리가 지어 내지 않는다.** 「없으면 레시피 다이제스트로」 도 생각했지만, 그러면
     사람이 **같은 설정으로 한 벌 더** 만드는 정상적인 일이 막힌다(비교하려고 두 번 돌리는
@@ -245,6 +250,7 @@ def create_study(
         name=name.strip(),
         description=description.strip(),
         owner_id=owner.id,
+        requested_by_id=requested_by.id if requested_by else None,
         idempotency_key=idempotency_key,
         work_id=work_id,
         recipe=recipe,
@@ -264,7 +270,8 @@ def create_study(
     job = jobs.enqueue(
         db,
         kind=JOB_KIND,
-        requested_by=owner,
+        # 작업 기록에는 **실제로 부른 쪽**을 적는다 — 그 표의 물음이 그것이다.
+        requested_by=requested_by or owner,
         work_id=work_id,
         input={"study_id": str(study.id)},
         options={},
@@ -276,18 +283,62 @@ def create_study(
 
 
 def get_study(db: Session, study_id: uuid.UUID, viewer: User) -> DoeStudy:
+    """**보기**는 공개된 것이면 누구나. 고치는 일은 `owner_of` 가 따로 막는다.
+
+    기계가 대행으로 만들기 시작하면 「누구 것인가」 가 흐려진다 — 보는 것까지 닫아 두면
+    아무도 못 찾는 이력이 쌓인다(`DoeStudy.visibility`)."""
     study = db.get(DoeStudy, study_id)
     if study is None:
         raise NotFound(code("DOE", 6), "실험계획을 찾을 수 없습니다.")
+    if study.visibility == "read":
+        return study
     if study.owner_id != viewer.id and not viewer.is_system_admin:
-        raise Forbidden(code("DOE", 7), "남의 실험계획입니다.")
+        raise Forbidden(code("DOE", 7), "비공개 실험계획입니다.")
+    return study
+
+
+def owned_study(db: Session, study_id: uuid.UUID, viewer: User) -> DoeStudy:
+    """**고치러 왔을 때** — 보내기 · 영구보관 · 다시 만들기 · 지우기 · 공개 바꾸기.
+
+    읽기가 공개라고 해서 쓰기까지 공개는 아니다. 남의 DOE 를 공유 폴더로 보내거나 지울 수
+    있으면, 「읽기 공개」 가 사실상 「모두가 주인」 이 된다."""
+    study = get_study(db, study_id, viewer)
+    if study.owner_id != viewer.id and not viewer.is_system_admin:
+        raise Forbidden(
+            code("DOE", 7), "남의 실험계획입니다 — 볼 수는 있지만 고치지는 못합니다."
+        )
+    return study
+
+
+def set_visibility(db: Session, study: DoeStudy, value: str) -> DoeStudy:
+    """`read` 또는 `private`. 기본은 `read` 이고, 감추는 것이 예외다."""
+    if value not in ("read", "private"):
+        raise AppError(code("DOE", 19), "공개는 read 또는 private 입니다.")
+    study.visibility = value
+    db.commit()
+    db.refresh(study)
     return study
 
 
 def list_studies(
-    db: Session, viewer: User, *, work_id: uuid.UUID | None, limit: int, offset: int
+    db: Session,
+    viewer: User,
+    *,
+    work_id: uuid.UUID | None,
+    limit: int,
+    offset: int,
+    scope: str = "mine",
 ) -> tuple[list[DoeStudy], int]:
-    statement = select(DoeStudy).where(DoeStudy.owner_id == viewer.id)
+    """`scope="mine"` 은 내 것(대행으로 내 이름이 된 것 포함), `"all"` 은 공개된 것까지.
+
+    기본이 「내 것」 인 까닭: 「내 활동」 화면이 이것을 쓴다. 공개를 기본으로 하면 남의 것이
+    내 활동에 섞인다 — 찾는 것은 `scope=all` 로 따로 묻는다."""
+    if scope == "all":
+        statement = select(DoeStudy).where(
+            or_(DoeStudy.visibility == "read", DoeStudy.owner_id == viewer.id)
+        )
+    else:
+        statement = select(DoeStudy).where(DoeStudy.owner_id == viewer.id)
     if work_id is not None:
         statement = statement.where(DoeStudy.work_id == work_id)
     total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0
@@ -617,12 +668,17 @@ def cleanup_locals(db: Session, *, dry_run: bool = False) -> dict[str, Any]:
     return {"removed": removed, "count": len(removed), "dry_run": dry_run}
 
 
-def _owner_of(db: Session, study: DoeStudy) -> dict[str, str]:
-    """만든 사람 — 이름과 계정. 없으면 빈 칸이지 거짓말은 안 한다."""
-    user = db.get(User, study.owner_id) if study.owner_id else None
+def _person(db: Session, user_id: uuid.UUID | None) -> dict[str, str]:
+    """이름과 계정. 없으면 빈 칸이지 거짓말은 안 한다."""
+    user = db.get(User, user_id) if user_id else None
     if user is None:
         return {"name": "", "email": ""}
     return {"name": user.display_name or "", "email": user.email or ""}
+
+
+def _owner_of(db: Session, study: DoeStudy) -> dict[str, str]:
+    """이 DOE 가 **누구 것인가.** 대행이면 대행 대상인 사람이다."""
+    return _person(db, study.owner_id)
 
 
 def _region_definitions(conditions: dict[str, Any] | None) -> list[dict[str, Any]] | None:
@@ -801,6 +857,12 @@ def run_job(
                 # 있었다 — 해석하는 사람이 폴더를 열고 누구에게 물어야 할지 몰랐다.
                 # 기계(오케스트레이터)가 만들면 더 그렇다.
                 "owner": _owner_of(db, study),
+                # **누가 실제로 돌렸나** — 기계가 대행했으면 여기가 그 서비스 계정이다.
+                # 폴더를 연 사람이 「이게 뭐고 누구에게 물어야 하나」 를 폴더만 보고 알아야
+                # 한다: 물어볼 사람은 owner 이고, 다시 돌릴 쪽은 requested_by 다.
+                "requested_by": (
+                    _person(db, study.requested_by_id) if study.requested_by_id else None
+                ),
             },
         )
         files.write_conditions(folder, study.conditions)

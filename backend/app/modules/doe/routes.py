@@ -7,12 +7,14 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.database import get_db
 from app.modules.accounts.models import User
+from app.modules.auth import services as auth_services
 from app.modules.doe import export as files
 from app.modules.doe import services
 from app.modules.doe.models import DoeStudy
@@ -26,7 +28,8 @@ from app.modules.doe.schemas import (
 from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Job
 from app.modules.works.models import Work
-from app.shared.auth import current_user
+from app.shared.auth import current_user, granted_scopes
+from app.shared.errors import AppError, Forbidden, code
 from app.shared.pagination import Page, clamp_limit
 
 router = APIRouter(prefix="/doe", tags=["doe"])
@@ -51,7 +54,15 @@ def _summary(db: Session, study: DoeStudy) -> StudySummaryOut:
         },
         work_name=work.name if work else None,
         work_kind=work.kind if work else None,
+        owner_name=_name_of(db, study.owner_id),
+        visibility=study.visibility,
     )
+
+
+def _name_of(db: Session, user_id: uuid.UUID | None) -> str:
+    """사람의 표시 이름. 지워진 계정이면 빈 칸이지, 없는 이름을 지어 내지 않는다."""
+    person = db.get(User, user_id) if user_id else None
+    return (person.display_name or person.email) if person else ""
 
 
 def _point_out(point: Any) -> PointOut:
@@ -67,6 +78,7 @@ def _out(db: Session, study: DoeStudy) -> StudyOut:
         **_summary(db, study).model_dump(),
         recipe=study.recipe,
         conditions=study.conditions,
+        requested_by_name=_name_of(db, study.requested_by_id),
         keep_forever=study.keep_forever,
         released_at=study.released_at,
         local_ready=services.local_ready(study),
@@ -93,22 +105,67 @@ def preview(
 @router.get("", response_model=Page[StudySummaryOut])
 def list_studies(
     work_id: uuid.UUID | None = Query(default=None),
+    scope: str = Query(default="mine", pattern="^(mine|all)$"),
     limit: int | None = Query(default=None, ge=1),
     offset: int = Query(default=0, ge=0),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> Page[StudySummaryOut]:
+    """`scope=mine`(기본) 은 내 것, `all` 은 **공개된 것까지.**
+
+    기본이 「내 것」 인 까닭: 「내 활동」 화면이 이것을 쓴다. 공개를 기본으로 하면 남의 것이
+    내 활동에 섞인다 — 남의 이력을 찾는 것은 다른 물음이라 따로 묻게 한다."""
     size = clamp_limit(limit)
-    rows, total = services.list_studies(db, user, work_id=work_id, limit=size, offset=offset)
+    rows, total = services.list_studies(
+        db, user, work_id=work_id, limit=size, offset=offset, scope=scope
+    )
     return Page(
         items=[_summary(db, one) for one in rows], total=total, limit=size, offset=offset
     )
 
 
-def _create(db: Session, user: User, payload: StudyCreateRequest) -> tuple[DoeStudy, bool]:
+def _acting_for(db: Session, caller: User, request: Request, asked: str) -> User | None:
+    """`on_behalf_of` 를 사람으로 푼다 — **대행 자격이 있는 토큰만.**
+
+    기계가 PAT 으로 만들면 소유자가 서비스 계정이 되고, 그러면 정작 사람이 제 활동에서 못
+    찾는다. 그래서 「누구를 위해」 를 밝히게 한다. 다만 **남의 이름을 빌리는 일**이라 아무나
+    못 한다: 토큰에 `act_for_others` 범위가 있어야 한다(관리자가 그 토큰을 만들 때 준다).
+    사람 세션에는 범위가 없으므로 이 길로 못 온다 — 그쪽은 제 이름으로 만들면 된다.
+    """
+    if not asked:
+        return None
+    if "act_for_others" not in granted_scopes(request):
+        raise Forbidden(
+            code("DOE", 20),
+            "이 토큰에는 대행(act_for_others) 자격이 없습니다 — 남의 이름으로는 못 만듭니다.",
+        )
+    person = db.scalar(select(User).where(User.email == asked))
+    if person is None and _looks_like_uuid(asked):
+        person = db.get(User, uuid.UUID(asked))
+    if person is None:
+        raise AppError(code("DOE", 21), f"그런 사용자가 없습니다: {asked}")
+    # 떠난 사람 · 정지된 계정 이름으로 만들지 않는다 — 그 이름은 아무도 안 본다.
+    auth_services.ensure_can_sign_in(person)
+    return person
+
+
+def _looks_like_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _create(
+    db: Session, user: User, payload: StudyCreateRequest, request: Request
+) -> tuple[DoeStudy, bool]:
+    """대행이면 **소유자는 그 사람**, 부른 쪽은 기계다."""
+    person = _acting_for(db, user, request, payload.on_behalf_of)
     return services.create_study(
         db,
-        owner=user,
+        owner=person or user,
+        requested_by=user if person else None,
         name=payload.name,
         description=payload.description,
         recipe=payload.recipe,
@@ -125,6 +182,7 @@ def _create(db: Session, user: User, payload: StudyCreateRequest) -> tuple[DoeSt
 @router.post("", response_model=StudyOut, status_code=201)
 def create_study(
     payload: StudyCreateRequest,
+    request: Request,
     response: Response,
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
@@ -133,7 +191,7 @@ def create_study(
 
     `idempotency_key` 를 주면 **두 번 불러도 한 벌**이다. 이미 있던 것을 돌려줄 때는
     **201 이 아니라 200** 이다 — 기계가 「새로 생겼나」 를 그 자리에서 알 수 있어야 한다."""
-    study, reused = _create(db, user, payload)
+    study, reused = _create(db, user, payload, request)
     if reused:
         response.status_code = 200
     return _out(db, study)
@@ -150,8 +208,11 @@ def get_study(
 def export_study(
     study_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)
 ) -> StudyOut:
-    """서버 보관 폴더의 STEP · 표를 **공유 폴더로 보낸다.** 해석은 그때부터 읽는다."""
-    return _out(db, services.export_study(db, services.get_study(db, study_id, user)))
+    """서버 보관 폴더의 STEP · 표를 **공유 폴더로 보낸다.** 해석은 그때부터 읽는다.
+
+    보는 것은 공개라도 **보내는 것은 소유자만** — 남의 DOE 를 해석에 넘길 수 있으면
+    「읽기 공개」 가 사실상 「모두가 주인」 이 된다."""
+    return _out(db, services.export_study(db, services.owned_study(db, study_id, user)))
 
 
 @router.get("/{study_id}/status")
@@ -203,6 +264,7 @@ async def wait_for_study(
 @router.post("/run", response_model=StudyOut)
 async def run_study(
     payload: StudyCreateRequest,
+    request: Request,
     wait_seconds: int = Query(default=300, ge=0, le=1800),
     export: bool = Query(default=True),
     user: User = Depends(current_user),
@@ -221,8 +283,8 @@ async def run_study(
 
     def make() -> tuple[uuid.UUID, bool]:
         with SessionLocal() as fresh:
-            person = fresh.merge(user)
-            study, reused = _create(fresh, person, payload)
+            caller = fresh.merge(user)
+            study, reused = _create(fresh, caller, payload, request)
             return study.id, reused
 
     study_id, _ = await run_in_threadpool(make)
@@ -265,7 +327,7 @@ def rerun_study(
     사라진 점은 `ok` 였어도 다시 만든다).
 
     범위를 고쳐 다시 돌리는 것은 이것이 아니다 — 그건 새 스터디다."""
-    study = services.get_study(db, study_id, user)
+    study = services.owned_study(db, study_id, user)
     return _out(db, services.rerun_study(db, study, requester=user, only=only))
 
 
@@ -321,7 +383,7 @@ def keep_study(
 
     기한은 기본값이고 이것이 예외다. 지우는 일은 되돌릴 수 없으니, 「이건 남겨야 한다」 를
     아는 사람이 그때 켤 수 있어야 한다."""
-    study = services.get_study(db, study_id, user)
+    study = services.owned_study(db, study_id, user)
     return _out(db, services.set_keep(db, study, keep))
 
 
@@ -335,8 +397,27 @@ def release_study(
 
     「성공했다」 가 아니라 「더 안 읽는다」 는 뜻이다. 실패해서 다시 돌릴 생각이면 알리지
     마라 — 알린 폴더는 기한을 기다리지 않고 먼저 치워진다."""
-    study = services.get_study(db, study_id, user)
+    study = services.owned_study(db, study_id, user)
     return _out(db, services.release(db, study))
+
+
+@router.post("/{study_id}/visibility", response_model=StudyOut)
+def set_visibility(
+    study_id: uuid.UUID,
+    value: str = Query(pattern="^(read|private)$"),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> StudyOut:
+    """**누가 보나** — `read`(기본, 모두) 또는 `private`(나와 관리자만).
+
+    기본이 공개인 까닭: DOE 는 이 조직의 설계 이력이고, 옆 사람이 같은 훑기를 다시 도는 것이
+    더 큰 손해다. 그리고 기계가 대행으로 만들기 시작하면 「누구 것인가」 가 흐려지므로, 보는
+    것까지 닫아 두면 아무도 못 찾는 것이 쌓인다.
+
+    쓰는 일(보내기 · 영구보관 · 다시 만들기 · 지우기)은 이 설정과 **무관하다** — 공개해도
+    고치는 것은 소유자와 관리자뿐이다."""
+    study = services.owned_study(db, study_id, user)
+    return _out(db, services.set_visibility(db, study, value))
 
 
 @router.delete("/{study_id}", status_code=204)
@@ -345,4 +426,4 @@ def delete_study(
 ) -> None:
     """스터디와 **서버 보관 폴더**를 지운다 — 공유 폴더의 사본은 남는다(해석이 보고 있을 수
     있다)."""
-    services.delete_study(db, services.get_study(db, study_id, user))
+    services.delete_study(db, services.owned_study(db, study_id, user))

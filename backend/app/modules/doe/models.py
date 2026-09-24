@@ -40,6 +40,24 @@ class DoeStudy(Base):
         index=True,
     )
     """어느 작업에서 시작했나. 지워져도 DOE 는 남는다 — 스냅샷이 있으니 혼자 선다."""
+    requested_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    """**실제로 부른 쪽** — 대행일 때만 찬다(오케스트레이터의 서비스 계정).
+
+    소유자(`owner_id`)는 그때 **대행 대상인 사람**이 된다. 만든 책임은 사람에게 두고 실행은
+    기계가 한다 — 한 칸에 욱여넣으면 「내 DOE 목록」 과 「누가 돌렸나」 중 하나를 잃는다."""
+    visibility: Mapped[str] = mapped_column(String(20), default="read", server_default="read")
+    """`read`(기본) · `private`. **읽기는 모두에게**가 기본이다.
+
+    DOE 는 이 조직의 설계 이력이고, 옆 사람이 같은 훑기를 다시 도는 것이 더 큰 손해다. 그리고
+    기계가 대행으로 만들기 시작하면 「누구 것인가」 가 흐려지므로, 보는 것을 닫아 두면 아무도
+    못 찾는 것이 쌓인다.
+
+    **쓰는 일은 공개와 무관하다** — 보내기 · 영구보관 · 다시 만들기 · 지우기는 소유자와
+    관리자만 한다."""
     recipe: Mapped[dict[str, Any]] = mapped_column(JSONB)
     conditions: Mapped[dict[str, Any]] = mapped_column(
         JSONB, default=dict, server_default="{}"

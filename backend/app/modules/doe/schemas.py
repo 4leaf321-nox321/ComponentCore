@@ -37,6 +37,14 @@ class StudyCreateRequest(PreviewRequest):
     """해석 조건 한 벌 — 대상 버전의 것을 그대로 넘기면 스냅샷으로 박힌다.
     비면 형상만 훑는다."""
     work_id: uuid.UUID | None = None
+    on_behalf_of: str = Field(default="", max_length=200)
+    """**누구를 위해 만드나** — 계정(이메일) 또는 사용자 id. 기계(오케스트레이터)가 쓴다.
+
+    이것을 주면 그 DOE 의 **소유자는 그 사람**이 되고, 부른 쪽(서비스 계정)은 「누가 돌렸나」
+    칸에 남는다. 안 그러면 기계가 만든 DOE 가 서비스 계정 것으로만 남아 정작 사람이 제
+    활동에서 못 찾는다.
+
+    **남의 이름을 빌리는 일이라** 토큰에 `act_for_others` 범위가 있어야 한다."""
     idempotency_key: str = Field(default="", max_length=200)
     """**두 번 불러도 한 벌.** 같은 열쇠로 다시 부르면 이미 만든 것을 돌려준다(201 대신 200).
 
@@ -75,6 +83,12 @@ class StudySummaryOut(BaseModel):
     seed: int
     point_count: int
     created_at: datetime
+    owner_name: str = ""
+    """이 DOE 가 **누구 것인가.** 대행이면 대행 대상인 사람이다 — `scope=all` 로 찾으면 남의
+    것이 섞이므로 목록에도 있어야 한다."""
+    visibility: str = "read"
+    """`read`(기본) · `private`. **읽기는 모두에게**가 기본이고 감추는 것이 예외다.
+    쓰는 일(보내기 · 지우기 · 영구보관)은 공개와 무관하게 소유자와 관리자만."""
 
 
 class StudyOut(StudySummaryOut):
@@ -82,6 +96,8 @@ class StudyOut(StudySummaryOut):
     conditions: dict[str, Any] = Field(default_factory=dict)
     """이 스터디가 돌던 때의 해석 조건 — 작업이 나중에 바뀌어도 여기 남는다."""
     factors: list[dict[str, Any]]
+    requested_by_name: str = ""
+    """**누가 실제로 돌렸나** — 대행일 때만 찬다(오케스트레이터의 서비스 계정)."""
     keep_forever: bool = False
     """영구보관 — 보관 기한이 지나도 공유 폴더를 남긴다."""
     released_at: datetime | None = None

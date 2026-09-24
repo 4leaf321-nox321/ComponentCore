@@ -778,3 +778,141 @@ def test_기다려_주는_자리는_끝나면_바로_돌아온다(client: TestCl
     # 상한은 2분 — 오래 물면 프록시가 먼저 끊고, 그때 「실패」 와 「아직」 을 구별 못 한다.
     너무김 = client.post(f"/api/doe/{made['id']}/wait?seconds=999", headers=member.headers)
     assert 너무김.status_code == 422
+
+
+def _pat(client: TestClient, who: Signed, scopes: list[str]) -> dict[str, str]:
+    """이 사람 자격의 **기계 토큰**. 범위는 관리자가 토큰을 만들 때 준다."""
+    made = client.post(
+        "/api/auth/tokens",
+        json={"name": "오케스트레이터", "scopes": scopes},
+        headers=who.headers,
+    )
+    assert made.status_code == 201, made.text
+    return {"Authorization": f"Bearer {made.json()['token']}"}
+
+
+def test_기계가_대행하면_소유자는_사람이고_누가_돌렸는지도_남는다(
+    client: TestClient, member: Signed, admin: Signed, db: Any
+) -> None:
+    """**PAT 으로 만들면 소유자가 서비스 계정이 된다** — 그러면 정작 사람이 제 활동에서 못
+    찾고 403 을 받는다. 그래서 「누구를 위해」 를 밝히게 한다.
+
+    둘을 한 칸에 욱여넣지 않는다: 소유자는 사람(내 DOE 목록), 부른 쪽은 기계(누가 돌렸나)."""
+    machine = _pat(client, admin, ["read", "write", "act_for_others"])
+    got = client.post(
+        "/api/doe",
+        json={
+            "name": "기계가 만든 것",
+            "recipe": JIG,
+            "factors": [{"name": "두께", "mode": "list", "values": [6]}],
+            "on_behalf_of": member.email,
+        },
+        headers=machine,
+    )
+    assert got.status_code == 201, got.text
+    body = got.json()
+    assert body["owner_name"] == "member", "소유자는 대행 대상인 사람"
+    assert body["requested_by_name"] == "admin", "누가 돌렸는지도 남는다"
+
+    # **사람이 제 활동에서 찾는다** — 이것이 대행의 이유다.
+    mine = client.get("/api/doe", headers=member.headers).json()
+    assert [one["id"] for one in mine["items"]] == [body["id"]]
+
+    # 폴더도 둘 다 말한다 — 폴더를 연 사람이 「누구에게 물어야 하나」 를 알아야 한다.
+    from app.database import SessionLocal
+    from app.modules.doe.models import DoeStudy
+
+    with SessionLocal() as fresh:
+        row = fresh.get(DoeStudy, __import__("uuid").UUID(body["id"]))
+        assert row is not None
+        written = json.loads((Path(row.local_dir) / "study.json").read_text(encoding="utf-8"))
+    assert written["owner"]["email"] == member.email
+    assert written["requested_by"]["email"] == admin.email
+
+
+def test_대행은_아무_토큰이나_못_한다(
+    client: TestClient, member: Signed, admin: Signed
+) -> None:
+    """**남의 이름을 빌리는 일이다.** 자격은 사람이 아니라 그 토큰에 붙는다."""
+    plain = _pat(client, admin, ["read", "write"])
+    got = client.post(
+        "/api/doe",
+        json={
+            "name": "몰래",
+            "recipe": JIG,
+            "factors": [{"name": "두께", "mode": "list", "values": [6]}],
+            "on_behalf_of": member.email,
+        },
+        headers=plain,
+    )
+    assert got.status_code == 403
+    assert "대행" in got.json()["error"]["message"]
+
+    # 사람 세션에도 범위가 없다 — 제 이름으로 만들면 된다.
+    사람 = client.post(
+        "/api/doe",
+        json={
+            "name": "몰래",
+            "recipe": JIG,
+            "factors": [{"name": "두께", "mode": "list", "values": [6]}],
+            "on_behalf_of": member.email,
+        },
+        headers=admin.headers,
+    )
+    assert 사람.status_code == 403
+
+    # 없는 사람 이름으로도 못 만든다.
+    없는사람 = client.post(
+        "/api/doe",
+        json={
+            "name": "없는 사람",
+            "recipe": JIG,
+            "factors": [{"name": "두께", "mode": "list", "values": [6]}],
+            "on_behalf_of": "nobody@example.local",
+        },
+        headers=_pat(client, admin, ["read", "write", "act_for_others"]),
+    )
+    assert 없는사람.status_code == 400
+
+
+def test_읽기는_공개_쓰기는_소유자(client: TestClient, member: Signed, admin: Signed) -> None:
+    """DOE 는 이 조직의 설계 이력이다 — 옆 사람이 같은 훑기를 다시 도는 것이 더 큰 손해다.
+
+    그렇다고 남의 것을 해석에 넘기거나 지울 수 있으면 「읽기 공개」 가 「모두가 주인」 이 된다.
+    """
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "남의 것",
+            "recipe": JIG,
+            "factors": [{"name": "두께", "mode": "list", "values": [6]}],
+        },
+        headers=admin.headers,
+    ).json()
+    assert made["visibility"] == "read", "기본은 공개"
+
+    # 남이 **본다** — 상세도 진행도.
+    assert client.get(f"/api/doe/{made['id']}", headers=member.headers).status_code == 200
+    assert (
+        client.get(f"/api/doe/{made['id']}/status", headers=member.headers).status_code == 200
+    )
+    # 내 활동에는 안 섞인다 — 찾는 것은 다른 물음이다.
+    assert client.get("/api/doe", headers=member.headers).json()["total"] == 0
+    # (다른 시험이 만든 공개 스터디도 함께 보인다 — 그것이 `all` 의 뜻이다.)
+    찾기 = client.get("/api/doe?scope=all&limit=200", headers=member.headers).json()
+    남의것 = next(one for one in 찾기["items"] if one["id"] == made["id"])
+    assert 남의것["owner_name"] == "admin"
+
+    # **고치지는 못한다.**
+    for path in ("export", "release", "rerun", "keep"):
+        블록 = client.post(f"/api/doe/{made['id']}/{path}", headers=member.headers)
+        assert 블록.status_code == 403, path
+    assert client.delete(f"/api/doe/{made['id']}", headers=member.headers).status_code == 403
+
+    # 감추면 남이 못 본다 — 기본이 공개이고 감추는 것이 예외다.
+    감추기 = f"/api/doe/{made['id']}/visibility?value=private"
+    숨김 = client.post(감추기, headers=admin.headers)
+    assert 숨김.status_code == 200 and 숨김.json()["visibility"] == "private"
+    assert client.get(f"/api/doe/{made['id']}", headers=member.headers).status_code == 403
+    뒤에 = client.get("/api/doe?scope=all&limit=200", headers=member.headers).json()
+    assert made["id"] not in [one["id"] for one in 뒤에["items"]]

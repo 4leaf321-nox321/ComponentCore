@@ -56,6 +56,7 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
                 details={"granted": list(pat.scopes or [])},
             )
         request.state.token_name = pat.name
+        request.state.token_scopes = list(pat.scopes or [])
         request.scope[USER_ID_SCOPE_KEY] = user.id
         return user
 
@@ -70,6 +71,14 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     services.ensure_can_sign_in(signed_in)
     request.scope[USER_ID_SCOPE_KEY] = signed_in.id
     return signed_in
+
+
+def granted_scopes(request: Request) -> list[str]:
+    """이 요청이 들고 온 **토큰의 범위.** 사람 세션이면 빈 목록이다.
+
+    빈 목록을 「아무것도 못 한다」 로 읽으면 안 된다 — 사람 세션에는 범위를 걸지 않는다(그
+    사람의 권한이 이미 한계다). 범위는 **기계 자격에만** 거는 울타리다."""
+    return list(getattr(request.state, "token_scopes", []) or [])
 
 
 def require_system_admin(user: User = Depends(current_user)) -> User:
