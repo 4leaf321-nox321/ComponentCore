@@ -191,6 +191,27 @@ def unit_systems() -> list[dict[str, Any]]:
     return [one for one in (rows or []) if isinstance(one, dict)]
 
 
+def published_cards(limit: int = 50) -> list[dict[str, Any]]:
+    """**확정 물성 카드** 중 펴낸 것. 사람이 확인해 굳힌 값이라 문헌 값보다 세다."""
+    got = _get("/api/fitting/cards", {"limit": limit})
+    rows = got.get("items") if isinstance(got, dict) else got
+    return [
+        one
+        for one in (rows or [])
+        if isinstance(one, dict) and one.get("status") == "published"
+    ]
+
+
+def card_export(card_id: str, system: str) -> dict[str, Any]:
+    """카드를 **중립 JSON** 으로, 그 단위계로. 그쪽이 환산해 준 정답지다.
+
+    우리가 쓰려는 것이 아니라 **우리 환산이 맞는지 맞춰 보려는 것**이다 — 기호 이름만
+    맞추면 배수가 틀려도 모른다(`core/units_check.py`).
+    """
+    got = _get(f"/api/fitting/cards/{card_id}/export", {"format": "json", "units": system})
+    return got if isinstance(got, dict) else {}
+
+
 def ping() -> dict[str, Any]:
     """닿나 · **누구로** 닿았나 · 몇 건 보이나.
 

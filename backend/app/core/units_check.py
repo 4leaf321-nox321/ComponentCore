@@ -13,6 +13,52 @@ from typing import Any
 
 from app.core import units
 
+#: 카드의 SI 단위 선언 — 우리가 그 값을 어떤 단위로 읽어야 하는가.
+_CARD_SI: dict[str, str] = {
+    "density": "kg/m3",
+    "youngs_modulus": "Pa",
+    "shear_modulus": "Pa",
+    "yield_stress": "Pa",
+    "equilibrium_pa": "Pa",
+    "instantaneous_pa": "Pa",
+    "specific_heat": "J/(kg.K)",
+    "conductivity": "W/(m.K)",
+    "thermal_expansion": "1/K",
+}
+
+
+def compare_numbers(
+    si_card: dict[str, Any], their_card: dict[str, Any], system: str
+) -> dict[str, Any]:
+    """**숫자까지 맞춰 본다** — 같은 카드를 SI 와 그 계로 각각 받아, SI 값을 우리가 환산한
+    것이 그쪽 값과 같은가.
+
+    기호 이름만 맞추면 **배수가 틀려도 모른다.** 그쪽이 환산해 준 것이 정답지다.
+    """
+    problems: list[str] = []
+    checked = 0
+    for name, block in (si_card.get("blocks") or {}).items():
+        theirs_block = (their_card.get("blocks") or {}).get(name) or {}
+        si_values = (block or {}).get("values") or {}
+        their_values = theirs_block.get("values") or {}
+        for field, si_value in si_values.items():
+            unit = _CARD_SI.get(field)
+            if unit is None or not isinstance(si_value, int | float):
+                continue
+            expected = their_values.get(field)
+            if not isinstance(expected, int | float):
+                continue
+            made, _, ok = units.convert(float(si_value), unit, system)
+            checked += 1
+            if not ok:
+                problems.append(f"{name}.{field}: 우리가 {unit} 를 못 읽는다")
+            elif expected == 0:
+                if made != 0:
+                    problems.append(f"{name}.{field}: 그쪽 0 · 우리 {made}")
+            elif abs(made - expected) / abs(expected) > 1e-9:
+                problems.append(f"{name}.{field}: 그쪽 {expected!r} · 우리 {made!r}")
+    return {"ok": not problems, "problems": problems, "checked": checked}
+
 
 def compare(theirs: list[dict[str, Any]]) -> dict[str, Any]:
     """그쪽 등록부와 우리 표를 맞춰 본다 — **다른 것만** 돌려준다.

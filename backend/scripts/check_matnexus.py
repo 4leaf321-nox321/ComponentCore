@@ -67,7 +67,7 @@ def main() -> int:
 
     # **단위계가 그쪽과 같은 말을 하나.** 그쪽은 지금도 고쳐지고 있다(이 대화 중에
     # `density_si` 칸이 생겼다) — 사람이 눈으로 맞춰 보는 것은 오래 못 간다.
-    from app.core import units_check
+    from app.core import units, units_check
 
     try:
         같나 = units_check.compare(matnexus.unit_systems())
@@ -80,6 +80,29 @@ def main() -> int:
             print("\n단위계 : **어긋납니다** — 환산한 물성이 그쪽과 다르게 나갑니다")
             for one in 같나["problems"]:
                 print(f"       ⚠ {one}")
+
+    # **숫자까지 맞춰 본다.** 기호 이름만 맞추면 배수가 틀려도 모른다 — 그쪽이 확정 카드를
+    # 각 단위계로 내보내 주므로 그것이 정답지다.
+    try:
+        cards = matnexus.published_cards(limit=20)
+    except (matnexus.MatNexusUnavailable, AppError) as failure:
+        print(f"숫자   : 못 맞춰 봤습니다 — {failure}")
+    else:
+        if not cards:
+            print("숫자   : 펴낸 확정 카드가 없어 못 맞춰 봤습니다")
+        틀린것, 센것 = [], 0
+        for card in cards:
+            si = matnexus.card_export(str(card["id"]), "si")
+            for system in units.SYSTEMS:
+                got = units_check.compare_numbers(
+                    si, matnexus.card_export(str(card["id"]), system), system
+                )
+                센것 += got["checked"]
+                틀린것 += [f"{str(card['id'])[:8]}/{system}: {one}" for one in got["problems"]]
+        if cards and not 틀린것:
+            print(f"숫자   : 확정 카드 {len(cards)} 장 · 값 {센것} 개가 그쪽과 같습니다")
+        for one in 틀린것:
+            print(f"       ⚠ {one}")
 
     rows = matnexus.search(limit=3)
     print()
