@@ -28,7 +28,13 @@ export interface MaterialRow {
   density_unit: string
   poisson_ratio: number | null
   declared_count: number
-  /** `matnexus`(살아 있는 API) · `catalog`(올려 둔 사본). */
+  /**
+   * 어디서 왔나 — `matnexus`(등록 재료) · `literature`(문헌 물성 카탈로그) ·
+   * `catalog`(MatNexus 에 못 닿아 올려 둔 사본).
+   *
+   * **`literature` 는 목록에 값이 안 딸려 온다**(2663건을 값째로 끌면 수십 MB). 고른 뒤
+   * `materialsApi.one(id, …)` 으로 그 재료만 값까지 받는다.
+   */
   source: string
   /** MatNexus 응답 그대로 — 조건에 실리는 것은 이것이다. */
   payload: Record<string, unknown>
@@ -43,7 +49,20 @@ export interface MaterialRow {
     system: string
     density?: number
     density_unit?: string
-    properties?: { item: string; unit: string; points: { temperature_C?: number | null; value: number }[] }[]
+    properties?: {
+      item: string
+      unit: string
+      points: { temperature_C?: number | null; value: number }[]
+      /** 문헌 쪽에만 — `mechanical.youngs_modulus` 처럼 **기계가 읽을 이름**. */
+      key?: string
+      /**
+       * 문헌 쪽에만 — **어떤 조건에서 잰 값인가**(`{test: "85°C/85%RH 168hr"}`).
+       * 조건이 값의 일부다: 85°C 흡습률을 상온 값으로 쓰면 틀린다.
+       */
+      conditions?: Record<string, unknown>
+      /** 문헌 쪽에만 — 출처 등급(1 이 가장 좋다). */
+      tier?: number
+    }[]
     /** 표에 없는 단위라 **못 바꾼** 항목 이름. 값은 원래 단위 그대로다. */
     unconverted?: string[]
   }
@@ -54,13 +73,21 @@ export const materialsApi = {
    * 물성 찾기 — **서버가 중계한다**(그쪽 CORS 는 자기 주소만 허용하고, 토큰이 화면에
    * 나가면 안 된다). 못 닿으면 `fallback` 이 참이고 `detail` 에 까닭이 온다.
    */
-  search: (options: { q?: string; family?: string; category?: string; limit?: number; system?: string } = {}) => {
+  search: (options: { q?: string; family?: string; category?: string; limit?: number; system?: string; source?: string } = {}) => {
     const query = new URLSearchParams({ limit: String(options.limit ?? 30) })
     if (options.q) query.set('q', options.q)
     if (options.family) query.set('family', options.family)
     if (options.category) query.set('category', options.category)
     if (options.system) query.set('system', options.system)
+    if (options.source) query.set('source', options.source)
     return api.get<{ items: MaterialRow[]; fallback: boolean; detail?: string }>(`/materials?${query}`)
+  },
+  /** 재료 하나 — **문헌은 여기서 값이 온다**(목록에는 안 딸려 온다). */
+  one: (id: string, options: { system?: string; source?: string } = {}) => {
+    const query = new URLSearchParams()
+    if (options.system) query.set('system', options.system)
+    if (options.source) query.set('source', options.source)
+    return api.get<MaterialRow>(`/materials/${encodeURIComponent(id)}?${query}`)
   },
   /**
    * 쪽(族) · 갈래와 그 **개수** — 탐색기의 첫 두 칸이 여기서 나온다.
@@ -69,6 +96,11 @@ export const materialsApi = {
    * 만 보이고, 사람은 나머지가 없는 줄 안다. 개수가 함께 오니 빈 갈래를 눌러 보게 하지도
    * 않는다.
    */
+  /** **문헌 카탈로그**의 하위계 · 갈래 — 등록 재료 쪽과 같은 모양이라 화면이 한 벌이면 된다. */
+  catalogClassifications: () =>
+    api.get<{ items: { family: string; category: string; count: number }[]; fallback: boolean; total?: number }>(
+      '/materials/catalog/classifications',
+    ),
   classifications: () =>
     api.get<{ items: { family: string; category: string; count: number }[]; fallback: boolean; detail?: string }>(
       '/materials/classifications',

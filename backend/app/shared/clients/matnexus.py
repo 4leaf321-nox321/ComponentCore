@@ -191,6 +191,50 @@ def unit_systems() -> list[dict[str, Any]]:
     return [one for one in (rows or []) if isinstance(one, dict)]
 
 
+# ── 문헌 물성 카탈로그 ─────────────────────────────────────────────────────────
+#
+# **등록 재료와 다른 창고다.** 등록 재료(`/api/materials`)는 우리 조직이 시험하고 등록한
+# 것이라 135건이고, 문헌 카탈로그(`/api/catalog`)는 데이터시트 · 논문에서 모은 2663건이다
+# (2026-09-24). 탄성계수를 가진 재료만 1025개라 **고를 것이 훨씬 많다.**
+#
+# 값의 모양도 다르다: 등록 재료는 `declared_properties[].points[].value_si`(온도 표), 문헌은
+# `values[]` 에 `property_key` · `value_num` · `unit` · `conditions` · `source`(출처 URL 까지)
+# 가 한 줄씩이다. **우리가 한 모양으로 고치지 않는다** — payload 는 그대로 나르고, 한 모양이
+# 필요한 쪽은 `converted` 를 본다(`core/conditions.converted_material`).
+
+
+def catalog_summary() -> dict[str, Any]:
+    """문헌 카탈로그의 분류와 개수 — 탐색기의 첫 두 칸(하위계 · 갈래)이 여기서 나온다."""
+    got = _get("/api/catalog/summary")
+    return got if isinstance(got, dict) else {}
+
+
+def catalog_search(
+    query: str = "", subsystem: str = "", category: str = "", limit: int = 30
+) -> list[dict[str, Any]]:
+    """문헌 재료 목록. **값은 안 딸려 온다** — 고른 뒤에 `catalog_get` 으로 받는다."""
+    params: dict[str, Any] = {"limit": limit}
+    if query:
+        params["q"] = query
+    if subsystem:
+        params["subsystem"] = subsystem
+    if category:
+        params["category"] = category
+    got = _get("/api/catalog/materials", params)
+    rows = got.get("items") if isinstance(got, dict) else got
+    return [one for one in (rows or []) if isinstance(one, dict)]
+
+
+def catalog_get(material_id: str) -> dict[str, Any]:
+    """문헌 재료 하나 — **값까지 통째로.**
+
+    재료 하나에 값이 중앙값 6개지만 **최대 786개**(2.6 MB)다. 설계점마다 점 파일에 실리므로
+    부르는 쪽이 골라 담는다(`representative` 만 등).
+    """
+    got = _get(f"/api/catalog/materials/{material_id}")
+    return got if isinstance(got, dict) else {}
+
+
 def published_cards(limit: int = 50) -> list[dict[str, Any]]:
     """**확정 물성 카드** 중 펴낸 것. 사람이 확인해 굳힌 값이라 문헌 값보다 세다."""
     got = _get("/api/fitting/cards", {"limit": limit})

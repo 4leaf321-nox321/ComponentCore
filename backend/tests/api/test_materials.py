@@ -270,3 +270,140 @@ def test_못_닿으면_사본에서_세어_준다(
     body = got.json()
     assert body["fallback"] is True and body["detail"]
     assert body["items"] == [{"family": "강판", "category": "냉연", "count": 1}]
+
+
+#: 문헌 카탈로그가 주는 모양 — 등록 재료와 **다르다**(값이 `values[]` 에 한 줄씩).
+EMC: dict[str, Any] = {
+    "id": "8ec6d1a1-df90-41de-97b4-f7b73751bf4f",
+    "name": "Epoxy Molding Compound (EMC)",
+    "material_code": "PKG-EMC",
+    "category": "composite",
+    "subsystem": "packaging",
+    "manufacturer": "Resonac Corporation",
+    "material_class": "epoxy molding compound",
+    "values": [
+        {
+            "property_key": "mechanical.youngs_modulus",
+            "property_name": "영률",
+            "value_num": 1.833e10,
+            "unit": "Pa",
+            "quality_tier": 1,
+            "representative": True,
+            "conditions": {"temperature_k": 298},
+        },
+        {
+            "property_key": "physical.density",
+            "property_name": "밀도",
+            "value_num": 1990.0,
+            "unit": "kg/m^3",
+            "representative": True,
+        },
+        {
+            "property_key": "chemical.outgassing_tml",
+            "property_name": "아웃가싱 TML",
+            "value_num": 0.008,
+            "unit": "1",
+            "representative": False,
+        },
+    ],
+}
+
+
+@pytest.fixture
+def fake_catalog(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, Any]]:
+    """가짜 문헌 카탈로그 — 목록에는 **값이 없고**, 상세에만 있다(진짜가 그렇다)."""
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.setdefault("urls", []).append(str(request.url))
+        if request.url.path.endswith("/summary"):
+            return httpx.Response(
+                200,
+                json={
+                    "materials": 2663,
+                    "subsystems": {"packaging": 116, "pcb": 182, "": 1835},
+                    "categories": {"composite": 739, "metal": 320},
+                },
+            )
+        if request.url.path.rstrip("/").endswith(str(EMC["id"])):
+            return httpx.Response(200, json=EMC)
+        목록 = {**EMC}
+        목록.pop("values")
+        return httpx.Response(200, json={"items": [목록], "total": 1})
+
+    monkeypatch.setattr(matnexus, "configured", lambda: True)
+    monkeypatch.setattr(
+        matnexus,
+        "_client",
+        lambda: httpx.Client(
+            base_url="http://matnexus.test", transport=httpx.MockTransport(handler)
+        ),
+    )
+    yield seen
+
+
+def test_문헌에서도_고를_수_있다_그리고_값은_고른_뒤에_온다(
+    client: TestClient, member: Signed, fake_catalog: dict[str, Any]
+) -> None:
+    """**등록 재료와 다른 창고다.** 우리 조직이 등록한 것은 백 몇십 건이고 문헌은 2663건이라,
+    고를 것이 훨씬 많다.
+
+    목록에 값을 딸려 보내지 않는 까닭: 재료 하나에 값이 최대 786개(2.6 MB)다 — 2663건을
+    값째로 끌면 한 번에 수십 MB 다."""
+    목록 = client.get(
+        "/api/materials",
+        params={"source": "literature", "q": "EMC", "system": "mm_n_tonne"},
+        headers=member.headers,
+    )
+    assert 목록.status_code == 200, 목록.text
+    한줄 = 목록.json()["items"][0]
+    assert 한줄["source"] == "literature"
+    assert 한줄["name"] == "Epoxy Molding Compound (EMC)"
+    # 문헌은 번호가 없는 것이 많아 **만든 곳**을 대신 보인다.
+    assert 한줄["alias"] == "Resonac Corporation"
+    assert 한줄["family"] == "packaging" and 한줄["category"] == "composite"
+    assert not 한줄["payload"].get("values"), "목록에는 값이 안 온다"
+
+    하나 = client.get(
+        f"/api/materials/{EMC['id']}",
+        params={"source": "literature", "system": "mm_n_tonne"},
+        headers=member.headers,
+    )
+    assert 하나.status_code == 200, 하나.text
+    got = 하나.json()
+    # **대표값만 담는다** — 셋 중 둘이 representative 다.
+    assert got["declared_count"] == 2
+    푼것 = {one["key"]: one for one in got["converted"]["properties"]}
+    assert 푼것["mechanical.youngs_modulus"]["points"][0]["value"] == pytest.approx(18330.0)
+    assert 푼것["mechanical.youngs_modulus"]["unit"] == "MPa"
+    assert 푼것["physical.density"]["points"][0]["value"] == pytest.approx(1.99e-09)
+    # **조건과 등급이 값의 일부다** — 85°C 에서 잰 값을 상온 값으로 쓰면 틀린다.
+    assert 푼것["mechanical.youngs_modulus"]["conditions"] == {"temperature_k": 298}
+    assert 푼것["mechanical.youngs_modulus"]["tier"] == 1
+
+
+def test_문헌_분류는_하위계와_갈래다(
+    client: TestClient, member: Signed, fake_catalog: dict[str, Any]
+) -> None:
+    """등록 재료 쪽과 **같은 모양**으로 준다 — 화면이 칸 그리는 코드를 두 벌 안 쓰게."""
+    got = client.get("/api/materials/catalog/classifications", headers=member.headers)
+    assert got.status_code == 200, got.text
+    body = got.json()
+    assert body["total"] == 2663
+    있는것 = {(one["family"], one["category"]): one["count"] for one in body["items"]}
+    assert 있는것[("packaging", "")] == 116
+    assert 있는것[("", "composite")] == 739
+    # 이름 없는 하위계(1835건)는 칸에 안 올린다 — 누를 수 없는 줄이 된다.
+    assert ("", "") not in 있는것
+
+
+def test_문헌은_사본이_없으니_못_닿으면_빈손으로_말한다(
+    client: TestClient, member: Signed, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """등록 재료의 사본을 문헌인 척 내주면 **사람이 없는 것을 골랐다고 믿는다.**"""
+    monkeypatch.setattr(matnexus, "configured", lambda: False)
+    got = client.get("/api/materials", params={"source": "literature"}, headers=member.headers)
+    assert got.status_code == 200
+    assert got.json()["items"] == []
+    assert got.json()["fallback"] is True
+    assert "문헌 물성은 MatNexus 에만" in got.json()["detail"]

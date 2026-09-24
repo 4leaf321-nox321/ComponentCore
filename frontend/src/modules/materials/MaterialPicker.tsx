@@ -109,6 +109,11 @@ export function MaterialPicker({
   /** 어느 단위계로 **보여 줄 것인가.** 조건 한 벌이 고른 계를 그대로 쓴다. */
   system?: string
 }) {
+  /**
+   * 어느 창고에서 고르나. **둘은 크기도 모양도 다르다**: 등록 재료는 우리 조직이 시험하고
+   * 등록한 135건, 문헌은 데이터시트 · 논문에서 모은 2663건(탄성계수를 가진 것만 1025개)이다.
+   */
+  const [source, setSource] = useState<'registered' | 'literature'>('registered')
   const [query, setQuery] = useState('')
   const [family, setFamily] = useState('')
   const [category, setCategory] = useState('')
@@ -117,20 +122,36 @@ export function MaterialPicker({
   const [fallback, setFallback] = useState<string | null>(null)
   const [chosen, setChosen] = useState<MaterialRow | null>(null)
   const [loading, setLoading] = useState(false)
+  const [filling, setFilling] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
-  // 쪽 · 갈래는 열 때 한 번만 — 재료가 바뀌는 일보다 훨씬 드물다.
+  /**
+   * 재료를 고른다. **문헌은 목록에 값이 없다** — 2663건을 값째로 끌면 수십 MB 라 목록은
+   * 이름만 오고, 고른 그 하나만 값까지 받는다. 받아 온 것으로 갈아 끼워야 「이 물성을
+   * 쓴다」 가 빈 payload 를 싣지 않는다.
+   */
+  function choose(row: MaterialRow) {
+    setChosen(row)
+    if (row.source !== 'literature') return
+    setFilling(true)
+    materialsApi
+      .one(row.id, { system, source: 'literature' })
+      .then((full) => setChosen((now) => (now?.id === row.id ? full : now)))
+      .catch((failure) => setError(failure as Error))
+      .finally(() => setFilling(false))
+  }
+
+  // 쪽 · 갈래는 창고를 바꿀 때만 — 재료가 바뀌는 일보다 훨씬 드물다.
   useEffect(() => {
     if (!open) return
     let alive = true
-    materialsApi
-      .classifications()
-      .then((got) => alive && setGroups(got.items))
-      .catch(() => alive && setGroups([]))
+    const asking =
+      source === 'literature' ? materialsApi.catalogClassifications() : materialsApi.classifications()
+    asking.then((got) => alive && setGroups(got.items)).catch(() => alive && setGroups([]))
     return () => {
       alive = false
     }
-  }, [open])
+  }, [open, source])
 
   useEffect(() => {
     if (!open) return
@@ -139,7 +160,7 @@ export function MaterialPicker({
     // 300ms 쉬었다 묻는다 — 글자마다 부르면 MatNexus 가 우리 때문에 바쁘다.
     const timer = setTimeout(() => {
       materialsApi
-        .search({ q: query, family, category, limit: LIMIT, system })
+        .search({ q: query, family, category, limit: LIMIT, system, source })
         .then((got) => {
           if (!alive) return
           setRows(got.items)
@@ -153,7 +174,7 @@ export function MaterialPicker({
       alive = false
       clearTimeout(timer)
     }
-  }, [open, query, family, category, system])
+  }, [open, query, family, category, system, source])
 
   const families = useMemo(() => {
     const counted = new Map<string, number>()
@@ -192,18 +213,54 @@ export function MaterialPicker({
           </DialogDescription>
         </DialogHeader>
 
-        <Input
-          autoFocus
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="이름 · 별칭 · 번호로 찾기 (예: SPCC, M-000123) — 고른 쪽 · 갈래 안에서 찾습니다"
-        />
+        {/*
+          **어느 창고에서 고르나.** 등록 재료는 우리 조직이 시험해 등록한 것이고, 문헌은
+          데이터시트 · 논문에서 모은 것이다 — 값의 모양도 다르고 수도 스무 배 차이 난다.
+          한 목록에 섞으면 「이 값이 어디서 왔나」 가 흐려진다.
+        */}
+        <div className="flex items-center gap-2">
+          <div className="flex rounded-md border p-0.5" role="group" aria-label="물성 창고">
+            {(
+              [
+                ['registered', '등록 재료'],
+                ['literature', '문헌'],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={source === key}
+                className={`rounded px-3 py-1 text-sm ${source === key ? 'bg-accent font-medium' : 'text-muted-foreground'}`}
+                onClick={() => {
+                  if (source === key) return
+                  setSource(key)
+                  // 창고가 바뀌면 좁혀 둔 것과 고른 것은 뜻을 잃는다.
+                  setFamily('')
+                  setCategory('')
+                  setChosen(null)
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <Input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={
+              source === 'literature'
+                ? '이름 · 제조사로 찾기 (예: EMC, Al 6061) — 고른 하위계 · 갈래 안에서'
+                : '이름 · 별칭 · 번호로 찾기 (예: SPCC, M-000123) — 고른 쪽 · 갈래 안에서'
+            }
+          />
+        </div>
         {fallback && <p className="text-muted-foreground text-xs">⚠ MatNexus 에 닿지 못했습니다 — {fallback}</p>}
         {error && <ErrorNotice error={error} />}
 
         {/* 재료 칸과 물성 칸이 넓어야 한다 — 쪽 · 갈래는 이름만 보면 된다. */}
         <div className="grid min-h-0 flex-1 gap-2 md:grid-cols-[1fr_1.4fr_1.6fr_2fr]">
-          <Column title="쪽(族)" hint={`${families.length}`}>
+          <Column title={source === 'literature' ? '하위계' : '쪽(族)'} hint={`${families.length}`}>
             <Row
               chosen={!family}
               onClick={() => {
@@ -228,7 +285,7 @@ export function MaterialPicker({
             ))}
           </Column>
 
-          <Column title="갈래" hint={family || '모든 쪽'}>
+          <Column title="갈래" hint={family || (source === 'literature' ? '모든 하위계' : '모든 쪽')}>
             <Row chosen={!category} onClick={() => setCategory('')}>
               전체{' '}
               <span className="text-muted-foreground text-xs">
@@ -255,20 +312,22 @@ export function MaterialPicker({
             {loading && <Skeleton className="h-24 w-full" />}
             {!loading && rows.length === 0 && <p className="text-muted-foreground p-1 text-xs">찾은 재료가 없습니다.</p>}
             {rows.map((row) => (
-              <Row key={row.code} chosen={chosen?.code === row.code} onClick={() => setChosen(row)}>
-                <span className="font-medium">{row.alias || row.name}</span>
+              <Row key={row.id || row.code} chosen={chosen?.id === row.id} onClick={() => choose(row)}>
+                <span className="font-medium">{source === 'literature' ? row.name : row.alias || row.name}</span>
                 {/*
                   가운뎃점은 **제 요소로** 둔다. 값에 붙여 `· 이름` 으로 쓰면 그 글자가
                   값의 일부가 되어, 이름으로 찾는 쪽(사람의 Ctrl+F 도, 시험도)이 못 찾는다.
                 */}
                 <div className="text-muted-foreground flex flex-wrap items-center gap-1 text-xs">
-                  <span>{row.code}</span>
+                  {/* 문헌은 번호가 없는 것이 많다 — 대신 만든 곳이 사람에게 쓸모 있다. */}
+                  <span>{source === 'literature' ? row.alias || row.grade || '(출처 미상)' : row.code}</span>
                   {/*
-                    이름이 둘이다 — `record_name` 은 기계가 지은 것(`SRCDEMO_-_-`)이고
-                    `alias` 가 사람이 읽는 이름이다. 하나만 보이면 나머지로 기억하던
-                    사람이 못 찾는다.
+                    **등록 재료만 이름이 둘이다** — `record_name` 은 기계가 지은 것
+                    (`SRCDEMO_-_-`)이고 `alias` 가 사람이 읽는 이름이다. 하나만 보이면
+                    나머지로 기억하던 사람이 못 찾는다.
+                    문헌은 이름이 하나뿐이고 위에 이미 있다 — 여기 또 적으면 같은 말이 두 번이다.
                   */}
-                  {row.alias && row.name && row.alias !== row.name && (
+                  {source !== 'literature' && row.alias && row.name && row.alias !== row.name && (
                     <>
                       <span aria-hidden>·</span>
                       <span>{row.name}</span>
@@ -304,8 +363,9 @@ export function MaterialPicker({
             값은 **고른 단위계로** 보인다. `2.06e11 Pa` 는 맞는지 눈으로 알 수 없지만
             `206000 MPa` 는 안다 — 사람이 검산할 수 있어야 잘못 고른 재료를 잡는다.
           */}
-          <Column title="물성값" hint={unitHint}>
-            {chosen ? (
+          <Column title="물성값" hint={filling ? '받는 중…' : unitHint}>
+            {filling && <Skeleton className="h-24 w-full" />}
+            {!filling && chosen ? (
               <dl className="space-y-2 p-1">
                 <div>
                   <dt className="text-muted-foreground text-xs">밀도</dt>
@@ -321,8 +381,23 @@ export function MaterialPicker({
                 </div>
                 {(chosen.converted?.properties ?? []).map((one, index) => (
                   <div key={index}>
-                    <dt className="text-muted-foreground text-xs">{one.item}</dt>
+                    <dt className="text-muted-foreground flex flex-wrap items-baseline gap-1 text-xs">
+                      <span>{one.item}</span>
+                      {/* 출처 등급 — 1 이 가장 좋다. 4 를 1 인 줄 알고 쓰면 안 된다. */}
+                      {one.tier !== undefined && <span className="opacity-70">tier {one.tier}</span>}
+                    </dt>
                     <dd className="text-sm break-words">{propertyText(one)}</dd>
+                    {/*
+                      **조건이 값의 일부다.** 「85°C/85%RH 168hr」 에서 잰 흡습률을 상온
+                      값으로 쓰면 틀린다 — 안 보이면 그것을 알 길이 없다.
+                    */}
+                    {one.conditions && Object.keys(one.conditions).length > 0 && (
+                      <dd className="text-muted-foreground text-xs break-words">
+                        {Object.entries(one.conditions)
+                          .map(([key, value]) => `${key} ${String(value)}`)
+                          .join(' · ')}
+                      </dd>
+                    )}
                   </div>
                 ))}
                 {/*
@@ -337,9 +412,11 @@ export function MaterialPicker({
                 )}
               </dl>
             ) : (
-              <p className="text-muted-foreground p-1 text-xs">
-                재료를 고르면 그것이 가진 물성을 <b>그대로</b> 펼쳐 보여 줍니다.
-              </p>
+              !filling && (
+                <p className="text-muted-foreground p-1 text-xs">
+                  재료를 고르면 그것이 가진 물성을 <b>그대로</b> 펼쳐 보여 줍니다.
+                </p>
+              )
             )}
           </Column>
         </div>

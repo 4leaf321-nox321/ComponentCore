@@ -136,3 +136,84 @@ test('분류가 개수를 안 줘도 NaN 을 그리지 않는다', async () => {
   await waitFor(() => screen.getByRole('button', { name: /Metal/ }))
   expect(screen.queryByText(/NaN/)).toBeNull()
 })
+
+const CAT_CLASSES = {
+  fallback: false,
+  total: 2663,
+  items: [
+    { family: 'packaging', category: '', count: 116 },
+    { family: '', category: 'composite', count: 739 },
+  ],
+}
+const EMC_ROW = {
+  id: 'emc-1',
+  code: 'PKG-EMC',
+  name: 'Epoxy Molding Compound (EMC)',
+  alias: 'Resonac Corporation',
+  family: 'packaging',
+  category: 'composite',
+  grade: 'epoxy molding compound',
+  workspace: '문헌',
+  density: null,
+  density_unit: '',
+  poisson_ratio: null,
+  declared_count: 0,
+  source: 'literature',
+  payload: {},
+}
+const EMC_FULL = {
+  ...EMC_ROW,
+  declared_count: 2,
+  payload: { values: [{}, {}] },
+  converted: {
+    system: 'mm_n_tonne',
+    properties: [
+      {
+        item: '영률',
+        key: 'mechanical.youngs_modulus',
+        unit: 'MPa',
+        points: [{ temperature_C: null, value: 18330 }],
+        tier: 1,
+        conditions: { temperature_k: 298 },
+      },
+    ],
+  },
+}
+
+test('문헌에서도 고를 수 있고, 값은 **고른 뒤에** 받아 온다', async () => {
+  const seen: string[] = []
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = String(input)
+    seen.push(url)
+    const body = url.includes('/catalog/classifications')
+      ? CAT_CLASSES
+      : url.includes('/classifications')
+        ? CLASSES
+        : url.includes('source=literature') && url.includes('/materials/emc-1')
+          ? EMC_FULL
+          : url.includes('source=literature')
+            ? { fallback: false, items: [EMC_ROW] }
+            : { fallback: false, items: [STEEL] }
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  })
+  render(<MaterialPicker open onClose={() => {}} onPick={() => {}} />)
+
+  await waitFor(() => screen.getByText('냉연강판'))
+  fireEvent.click(screen.getByRole('button', { name: '문헌' }))
+
+  // 창고가 바뀌면 **다른 분류**를 본다 — 하위계 · 갈래다.
+  await waitFor(() => expect(seen.some((one) => one.includes('/catalog/classifications'))).toBe(true))
+  await waitFor(() => screen.getByRole('button', { name: 'packaging 116' }))
+  expect(screen.getByText('하위계')).toBeInTheDocument()
+
+  // 목록에는 값이 없다 — 고르면 그때 받는다(2663건을 값째로 끌 수 없다).
+  await waitFor(() => screen.getByText('Epoxy Molding Compound (EMC)'))
+  expect(screen.getByText('Resonac Corporation')).toBeInTheDocument()
+  fireEvent.click(screen.getByText('Epoxy Molding Compound (EMC)'))
+  await waitFor(() => expect(seen.some((one) => one.includes('/materials/emc-1'))).toBe(true))
+
+  // 받아 온 값이 고른 단위계로 보이고, **조건과 등급이 함께** 보인다.
+  await waitFor(() => screen.getByText(/18330 MPa/))
+  expect(screen.getByText(/tier 1/)).toBeInTheDocument()
+  expect(screen.getByText(/temperature_k 298/)).toBeInTheDocument()
+})

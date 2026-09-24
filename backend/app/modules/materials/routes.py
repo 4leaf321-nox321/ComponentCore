@@ -23,6 +23,7 @@ def search_materials(
     family: str = Query(default="", max_length=60),
     category: str = Query(default="", max_length=120),
     system: str = Query(default="", max_length=20),
+    source: str = Query(default="registered", pattern="^(registered|literature)$"),
     limit: int = Query(default=30, ge=1, le=200),
     _: User = Depends(current_user),
     db: Session = Depends(get_db),
@@ -40,10 +41,31 @@ def search_materials(
     화면이 제 손으로 환산하지 않게 하려는 것이다 — 환산표를 두 벌 두면 어느 날 어긋나고,
     그때 화면이 보여 준 값과 내보낸 값이 달라진다. **내보낼 때와 같은 함수**를 쓴다.
 
+    `source` 가 **창고를 가른다**:
+
+    - `registered`(기본) — 우리 조직이 시험하고 등록한 재료(135건). 못 닿으면 올려 둔
+      카탈로그로 넘어간다.
+    - `literature` — **문헌 물성 카탈로그**(데이터시트 · 논문에서 모은 2663건). 탄성계수를
+      가진 재료만 1025개라 고를 것이 훨씬 많다. 목록에는 **값이 안 딸려 온다** — 고른 뒤
+      `GET /materials/{id}?source=literature` 가 그 재료만 값까지 준다. 문헌에는 올려 둔
+      사본이 없으므로 못 닿으면 빈손으로 그 사실을 말한다.
+
     못 닿으면 올려 둔 카탈로그로 넘어가고, **넘어갔다는 사실을 답에 적는다**(`fallback`)."""
     return services.search(
-        db, query=q, family=family, category=category, limit=limit, system=system
+        db,
+        query=q,
+        family=family,
+        category=category,
+        limit=limit,
+        system=system,
+        source=source,
     )
+
+
+@router.get("/catalog/classifications")
+def catalog_classifications(_: User = Depends(current_user)) -> dict[str, Any]:
+    """**문헌 카탈로그**의 하위계 · 갈래와 개수 — 등록 재료 쪽과 같은 모양으로 준다."""
+    return services.catalog_classifications()
 
 
 @router.get("/classifications")
@@ -89,7 +111,14 @@ async def upload_catalog(
 
 @router.get("/{code_or_id}")
 def get_material(
-    code_or_id: str, _: User = Depends(current_user), db: Session = Depends(get_db)
+    code_or_id: str,
+    system: str = Query(default="", max_length=20),
+    source: str = Query(default="registered", pattern="^(registered|literature)$"),
+    _: User = Depends(current_user),
+    db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    """재료 하나 — `payload` 는 **받은 그대로**다. 우리가 고치지 않는다."""
-    return services.one(db, code_or_id)
+    """재료 하나 — `payload` 는 **받은 그대로**다. 우리가 고치지 않는다.
+
+    `source=literature` 면 문헌 카탈로그에서 받고 **대표값만** 담는다 — 재료 하나에 값이
+    최대 786개(2.6 MB)라 다 담으면 설계점마다 그것이 실린다."""
+    return services.one(db, code_or_id, system=system, source=source)

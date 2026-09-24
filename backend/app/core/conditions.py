@@ -282,6 +282,32 @@ def converted_material(payload: dict[str, Any], system: str) -> dict[str, Any]:
         made["poisson_ratio"] = payload["poisson_ratio"]
 
     rows: list[dict[str, Any]] = []
+    # **문헌 카탈로그는 값의 모양이 다르다**(`values[]` 에 `property_key` · `value_num` ·
+    # `unit`). 우리가 payload 를 한 모양으로 고치지 않기로 했으므로(감사의 정본이다) 여기서
+    # 둘을 받아 **한 모양으로 내놓는다** — 받는 쪽은 `converted` 하나만 보면 된다.
+    for one in payload.get("values") or []:
+        if not isinstance(one, dict) or not isinstance(one.get("value_num"), int | float):
+            continue
+        unit = str(one.get("unit") or "")
+        value, unit_name, ok = unit_systems.convert(float(one["value_num"]), unit, system)
+        rows.append(
+            {
+                "item": one.get("property_name") or one.get("property_key"),
+                # 열쇠도 싣는다 — 문헌 쪽은 `mechanical.youngs_modulus` 처럼 **기계가 읽을
+                # 이름**이 있다. 「어느 것이 영률인가」 를 받는 쪽이 이름으로 풀 수 있다.
+                "key": one.get("property_key"),
+                "unit": unit_name,
+                "points": [{"temperature_C": None, "value": value}],
+                # 문헌 값은 **조건과 출처가 값의 일부**다 — 「85°C/85%RH 168hr」 인 흡습률을
+                # 상온 값으로 쓰면 틀린다. 등급(tier)도 그대로 나른다.
+                **({"conditions": one["conditions"]} if one.get("conditions") else {}),
+                **({"tier": one["quality_tier"]} if one.get("quality_tier") else {}),
+                **({"representative": True} if one.get("representative") else {}),
+            }
+        )
+        if not ok:
+            missed.append(f"{one.get('property_name') or one.get('property_key')}({unit})")
+
     for one in payload.get("declared_properties") or []:
         if not isinstance(one, dict):
             continue

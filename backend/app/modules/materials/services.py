@@ -72,6 +72,69 @@ def _from_catalog(
     return out
 
 
+#: 문헌 재료 하나에 값이 **최대 786개**(2.6 MB)다. 설계점마다 점 파일에 실리므로 다 담을 수
+#: 없다 — 그쪽이 「이것이 대표값」 이라고 표시해 둔 것만 담는다(중앙값 4개 · 최대 49개).
+#: 대표가 하나도 없으면 그때는 전부 담는다(없는 것보다 낫다).
+def _pick_values(values: list[Any]) -> list[Any]:
+    rep = [one for one in values if isinstance(one, dict) and one.get("representative")]
+    return rep or [one for one in values if isinstance(one, dict)]
+
+
+def _catalog_row(payload: dict[str, Any], system: str = "") -> dict[str, Any]:
+    """문헌 재료를 **목록 한 줄**로. 등록 재료와 같은 칸 이름을 쓴다 — 화면이 한 벌이면 된다.
+
+    `payload` 는 그쪽이 준 그대로다(값까지 왔으면 값까지). 우리가 모양을 고치지 않는다."""
+    made = {
+        "code": str(payload.get("material_code") or payload.get("id") or ""),
+        "id": str(payload.get("id") or ""),
+        "name": str(payload.get("name") or ""),
+        # 문헌 쪽은 별칭 대신 **만든 곳**이 사람에게 쓸모 있다.
+        "alias": str(payload.get("manufacturer") or ""),
+        "family": str(payload.get("subsystem") or ""),
+        "category": str(payload.get("category") or ""),
+        "grade": str(payload.get("grade") or payload.get("material_class") or ""),
+        "workspace": "문헌",
+        "density": None,
+        "density_unit": "",
+        "poisson_ratio": None,
+        "declared_count": len(payload.get("values") or []),
+        "source": "literature",
+        "payload": payload,
+    }
+    if system:
+        made["converted"] = conditions.converted_material(payload, system)
+    return made
+
+
+def _literature(
+    query: str, subsystem: str, category: str, limit: int, system: str
+) -> dict[str, Any]:
+    """문헌 카탈로그에서 찾는다. **목록에는 값이 안 딸려 온다** — 2663건을 값째로 끌면
+    한 번에 수십 MB다. 고른 뒤 `one()` 이 그 재료만 값까지 받는다."""
+    rows = matnexus.catalog_search(
+        query=query, subsystem=subsystem, category=category, limit=limit
+    )
+    return {"items": [_catalog_row(one, system) for one in rows], "fallback": False}
+
+
+def catalog_classifications() -> dict[str, Any]:
+    """문헌 카탈로그의 하위계 · 갈래와 개수 — 탐색기의 첫 두 칸."""
+    summary = matnexus.catalog_summary()
+    subsystems = summary.get("subsystems") or {}
+    categories = summary.get("categories") or {}
+    # 등록 재료 쪽과 **같은 모양**으로 내놓는다(`family` · `category` · `count`) — 화면이
+    # 두 벌의 칸 그리기를 안 하게. 문헌 쪽은 둘이 교차하지 않으므로 각각 한 줄씩이다.
+    items = [
+        {"family": str(name), "category": "", "count": int(how_many)}
+        for name, how_many in subsystems.items()
+        if name
+    ] + [
+        {"family": "", "category": str(name), "count": int(how_many)}
+        for name, how_many in categories.items()
+    ]
+    return {"items": items, "fallback": False, "total": summary.get("materials")}
+
+
 def classifications(db: Session) -> dict[str, Any]:
     """쪽(族) · 갈래와 그 개수 — 화면이 좁혀 들어갈 두 칸.
 
@@ -106,12 +169,31 @@ def search(
     category: str = "",
     limit: int = 30,
     system: str = "",
+    source: str = "registered",
 ) -> dict[str, Any]:
     """MatNexus 에 묻고, 못 닿으면 올려 둔 카탈로그로 넘어간다.
+
+    `source` 가 창고를 가른다: `registered`(우리 조직이 등록한 135건) · `literature`(데이터
+    시트 · 논문에서 모은 문헌 카탈로그 2663건). **둘은 값의 모양도 다르다** — payload 는
+    그대로 나르고, 한 모양이 필요한 쪽은 `converted` 를 본다.
 
     **못 닿았다는 사실을 숨기지 않는다**(`fallback` · `detail`). 조용히 옛 사본을 주면 사람은
     어제 받은 값을 오늘 것으로 믿는다.
     """
+    if source == "literature":
+        # **문헌은 올려 둔 사본이 없다.** 못 닿으면 못 닿았다고 말한다 — 등록 재료의 사본을
+        # 문헌인 척 내주면 사람이 없는 것을 골랐다고 믿는다.
+        if not matnexus.configured():
+            return {
+                "items": [],
+                "fallback": True,
+                "detail": f"{matnexus.missing()} — 문헌 물성은 MatNexus 에만 있습니다",
+            }
+        try:
+            return _literature(query, family, category, limit, system)
+        except matnexus.MatNexusUnavailable as failure:
+            return {"items": [], "fallback": True, "detail": str(failure)}
+
     if matnexus.configured():
         try:
             live = matnexus.search(query=query, family=family, category=category, limit=limit)
@@ -132,19 +214,30 @@ def search(
     }
 
 
-def one(db: Session, code_or_id: str) -> dict[str, Any]:
-    """재료 하나 — 살아 있는 쪽이 우선, 없으면 사본."""
+def one(
+    db: Session, code_or_id: str, *, system: str = "", source: str = "registered"
+) -> dict[str, Any]:
+    """재료 하나 — 살아 있는 쪽이 우선, 없으면 사본.
+
+    **문헌은 여기서 값을 받는다.** 목록에는 값이 안 딸려 오므로(2663건을 값째로 끌면 수십
+    MB 다) 고른 뒤 이 자리에서 그 재료만 받아 **대표값만** 담는다."""
+    if source == "literature":
+        full = matnexus.catalog_get(code_or_id)
+        if not full:
+            raise NotFound(code("MATERIALS", 3), f"그런 문헌 재료가 없습니다: {code_or_id}")
+        picked = {**full, "values": _pick_values(full.get("values") or [])}
+        return _catalog_row(picked, system)
     if matnexus.configured():
         try:
             live = matnexus.get(code_or_id)
             if live is not None:
-                return _row(live, "matnexus")
+                return _row(live, "matnexus", system)
         except matnexus.MatNexusUnavailable:
             pass
     row = db.scalar(select(CatalogMaterial).where(CatalogMaterial.code == code_or_id))
     if row is None:
         raise NotFound(code("MATERIALS", 3), f"그런 재료가 없습니다: {code_or_id}")
-    return _row(row.payload, "catalog")
+    return _row(row.payload, "catalog", system)
 
 
 def load_catalog(db: Session, payload: Any, *, filename: str) -> dict[str, Any]:

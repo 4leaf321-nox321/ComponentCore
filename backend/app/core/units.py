@@ -41,6 +41,12 @@ TEMPERATURE: Dimension = (0, 0, 0, 1)
 TIME: Dimension = (0, 0, 1, 0)
 FREQUENCY: Dimension = (0, 0, -1, 0)
 VISCOSITY: Dimension = (1, -1, -1, 0)  # Pa·s
+LENGTH: Dimension = (0, 1, 0, 0)
+FORCE: Dimension = (1, 1, -2, 0)
+FORCE_PER_LENGTH: Dimension = (1, 0, -2, 0)  # N/m — 표면장력 · 단위길이 강성
+ENERGY_PER_AREA: Dimension = (1, 0, -2, 0)  # J/m² — 파괴에너지. N/m 과 **같은 차원이다**
+DIFFUSIVITY: Dimension = (0, 2, -1, 0)  # m²/s
+ENERGY: Dimension = (1, 2, -2, 0)
 NONE: Dimension = (0, 0, 0, 0)
 
 
@@ -89,9 +95,48 @@ KNOWN: dict[str, Unit] = {
     "Hz": Unit(1.0, FREQUENCY),
     "Pa.s": Unit(1.0, VISCOSITY),
     "N.s/mm2": Unit(1e6, VISCOSITY),
+    # **문헌 물성 카탈로그**(`/api/catalog`)가 쓰는 것들. 그쪽은 곱을 `*` 로 적고 재료 API 는
+    # `.` 로 적는다 — 같은 뜻이라 둘 다 든다(2026-09-24 실측).
+    "J/(kg*K)": Unit(1.0, SPECIFIC_HEAT),
+    "kJ/(kg*K)": Unit(1e3, SPECIFIC_HEAT),
+    "Pa*s": Unit(1.0, VISCOSITY),
+    "m": Unit(1.0, LENGTH),
+    "mm": Unit(1e-3, LENGTH),
+    "um": Unit(1e-6, LENGTH),
+    "N": Unit(1.0, FORCE),
+    "kN": Unit(1e3, FORCE),
+    "N/m": Unit(1.0, FORCE_PER_LENGTH),
+    "N/mm": Unit(1e3, FORCE_PER_LENGTH),
+    "J/m^2": Unit(1.0, ENERGY_PER_AREA),
+    "J": Unit(1.0, ENERGY),
+    "mJ": Unit(1e-3, ENERGY),
+    "m^2/s": Unit(1.0, DIFFUSIVITY),
+    "mm^2/s": Unit(1e-6, DIFFUSIVITY),
     "1": Unit(1.0, NONE),
     "": Unit(1.0, NONE),
 }
+
+#: **환산하지 않기로 한 것.** 차원이 우리 넷(M·L·T·Θ)에 안 담기거나(전기 · 자기 · 몰),
+#: 단위가 아니라 **척도**다(경도 HV). 「모른다」 와 구별해 두면, 나중에 표를 늘릴 때 무엇이
+#: 빠졌고 무엇이 일부러 빠졌는지 안다.
+OUT_OF_SCOPE: frozenset[str] = frozenset(
+    {
+        "ohm*m",
+        "ohm",
+        "S/m",
+        "V/m",
+        "A/m",
+        "T",
+        "eV",
+        "J/mol",
+        "mol/(m*s*Pa)",
+        "kg/(m^2*s)",
+        "HV",
+        "Pa*m^0.5",
+        "deg",
+        "1/Pa",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -145,6 +190,9 @@ SYSTEMS: dict[str, System] = {
             "duration": "s",
             "frequency": "1/s",
             "viscosity": "N.s/mm2",
+            "force_per_length": "N/mm",
+            "diffusivity": "mm^2/s",
+            "energy": "mJ",
         },
     ),
     "si": System(
@@ -169,6 +217,9 @@ SYSTEMS: dict[str, System] = {
             "duration": "s",
             "frequency": "1/s",
             "viscosity": "Pa.s",
+            "force_per_length": "N/m",
+            "diffusivity": "m^2/s",
+            "energy": "J",
         },
     ),
 }
@@ -187,6 +238,12 @@ _NAME_OF: dict[Dimension, str] = {
     TIME: "duration",
     FREQUENCY: "frequency",
     VISCOSITY: "viscosity",
+    LENGTH: "length",
+    FORCE: "force",
+    # N/m 과 J/m² 는 차원이 같아 한 이름으로 나온다 — 값은 맞고, 이름만 그쪽 것을 잃는다.
+    FORCE_PER_LENGTH: "force_per_length",
+    DIFFUSIVITY: "diffusivity",
+    ENERGY: "energy",
 }
 
 
