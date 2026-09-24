@@ -49,6 +49,10 @@ export interface MaterialRow {
     system: string
     density?: number
     density_unit?: string
+    /** `physical.density` — **기계가 읽을 이름**. 등록 재료든 문헌이든 같다. */
+    density_key?: string
+    poisson_ratio?: number
+    poisson_key?: string
     properties?: {
       item: string
       unit: string
@@ -65,6 +69,13 @@ export interface MaterialRow {
     }[]
     /** 표에 없는 단위라 **못 바꾼** 항목 이름. 값은 원래 단위 그대로다. */
     unconverted?: string[]
+    /**
+     * **선형 탄성으로 풀려면 빠진 것**(탄성계수 · 푸아송비 · 밀도). 다 있으면 없는 칸이다.
+     *
+     * 목록 한 줄에는 값이 안 딸려 오므로 **거기서는 아예 안 온다** — 「아직 안 봤다」 와
+     * 「없다」 는 다르다. 고른 뒤에야 진짜를 말한다.
+     */
+    missing_structural?: string[]
   }
 }
 

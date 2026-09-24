@@ -265,7 +265,37 @@ def _points_of(one: dict[str, Any]) -> list[dict[str, Any]]:
     return [p for p in (one.get("points") or []) if isinstance(p, dict)]
 
 
-def converted_material(payload: dict[str, Any], system: str) -> dict[str, Any]:
+#: **선형 탄성 해석이 필요로 하는 것.** 이 셋이 없으면 해석은 기본값(구조용 강)으로 풀고,
+#: 그 사실은 고유진동수가 틀린 뒤에야 드러난다 — 고를 때 말해 주는 편이 낫다.
+STRUCTURAL_KEYS: dict[str, str] = {
+    "mechanical.youngs_modulus": "탄성계수",
+    "mechanical.poisson_ratio": "푸아송비",
+    "physical.density": "밀도",
+}
+
+
+def missing_structural(converted: dict[str, Any]) -> list[str]:
+    """**선형 탄성으로 풀려면 빠진 것** — 사람이 읽을 이름으로. 다 있으면 빈 목록.
+
+    문헌 카탈로그는 2663건 중 탄성계수를 가진 것이 1025건이다 — 고른 재료에 그것이
+    없을 수 있다는 뜻이다."""
+    있음 = {one.get("key") for one in converted.get("properties") or []}
+    if converted.get("density") is not None:
+        있음.add(converted.get("density_key"))
+    if converted.get("poisson_ratio") is not None:
+        있음.add(converted.get("poisson_key"))
+    return [label for key, label in STRUCTURAL_KEYS.items() if key not in 있음]
+
+
+#: 밀도 · 푸아송비의 표준 열쇠 — 등록 재료는 이 둘을 **컬럼**으로 주므로 줄에 열쇠가 없다.
+#: 받는 쪽이 한 규칙으로 찾게 여기서도 같은 이름을 붙인다.
+DENSITY_KEY = "physical.density"
+POISSON_KEY = "mechanical.poisson_ratio"
+
+
+def converted_material(
+    payload: dict[str, Any], system: str, keys: dict[str, str] | None = None
+) -> dict[str, Any]:
     """물성 값을 그 계로 옮긴 **나란한 한 벌.** 원본(`payload`)은 그대로 둔다.
 
     받는 쪽은 둘을 다 받는다: 감사할 때는 원본, 풀 때는 이것. 한쪽만 주면 「이 값이 어디서
@@ -273,7 +303,12 @@ def converted_material(payload: dict[str, Any], system: str) -> dict[str, Any]:
 
     **못 바꾼 것은 못 바꿨다고 적는다**(`unconverted`) — 조용히 원래 값을 남기면 그것이
     새 단위인 줄 알고 그대로 푼다.
+
+    `keys` 는 `{사람이 쓰는 이름: 표준 열쇠}`(MatNexus 물성 사전). 등록 재료의 물성 줄에는
+    **기계가 읽을 이름이 없어서**(한글 라벨뿐) 이것으로 붙여 준다 — 그러면 받는 쪽이 출처를
+    가리지 않고 `key` 하나로 「어느 것이 영률인가」 를 푼다. 못 붙이면 그냥 없다(덤이다).
     """
+    named = keys or {}
     made: dict[str, Any] = {"system": system}
     missed: list[str] = []
     # **`density_si` 가 있으면 그것이 정본이다**(2026-09-24 MatNexus 가 알려 줬다). `density`
@@ -284,17 +319,20 @@ def converted_material(payload: dict[str, Any], system: str) -> dict[str, Any]:
         value, name, ok = unit_systems.convert(float(si_density), "kg/m3", system)
         made["density"] = value
         made["density_unit"] = name
+        made["density_key"] = DENSITY_KEY
     elif isinstance(payload.get("density"), int | float):
         value, name, ok = unit_systems.convert(
             float(payload["density"]), str(payload.get("density_unit") or ""), system
         )
         made["density"] = value
         made["density_unit"] = name
+        made["density_key"] = DENSITY_KEY
         if not ok:
             missed.append(f"밀도({payload.get('density_unit')})")
     if isinstance(payload.get("poisson_ratio"), int | float):
         # 무차원이라 바뀌지 않는다 — 그래도 실어 준다. 받는 쪽이 한 곳만 보면 되게.
         made["poisson_ratio"] = payload["poisson_ratio"]
+        made["poisson_key"] = POISSON_KEY
 
     rows: list[dict[str, Any]] = []
     # **문헌 카탈로그는 값의 모양이 다르다**(`values[]` 에 `property_key` · `value_num` ·
@@ -339,7 +377,17 @@ def converted_material(payload: dict[str, Any], system: str) -> dict[str, Any]:
         ]
         if not points:
             continue
-        rows.append({"item": one.get("item"), "unit": unit_name, "points": points})
+        # **등록 재료에는 기계가 읽을 이름이 없다** — 사전으로 붙여 준다(문헌은 이미 있다).
+        item = one.get("item")
+        key = named.get(str(item).strip()) if item else None
+        rows.append(
+            {
+                "item": item,
+                **({"key": key} if key else {}),
+                "unit": unit_name,
+                "points": points,
+            }
+        )
         if not ok:
             missed.append(f"{one.get('item')}({unit})")
     if rows:
@@ -355,24 +403,44 @@ def converted_material(payload: dict[str, Any], system: str) -> dict[str, Any]:
         if found is None:
             continue
         made[field] = found["points"][0]["value"]
+        made["density_key" if field == "density" else "poisson_key"] = key
         if field == "density":
             made["density_unit"] = found["unit"]
     if missed:
         made["unconverted"] = missed
+    # **선형 탄성으로 풀 수 있나.** 빠진 것이 있으면 고를 때 말해 준다 — 없으면 해석이
+    # 기본값(구조용 강)으로 풀고, 그 사실은 고유진동수가 틀린 뒤에야 드러난다.
+    #
+    # 다만 **모르는 것과 없는 것을 가른다**: 목록 한 줄에는 값이 아예 안 딸려 온다(문헌은
+    # 2663건을 값째로 끌 수 없다). 그때 「다 빠졌다」 고 하면 거짓말이다 — 아직 안 봤을 뿐이다.
+    if payload.get("values") is not None or payload.get("declared_properties") is not None:
+        빠진것 = missing_structural(made)
+        if 빠진것:
+            made["missing_structural"] = 빠진것
     return made
 
 
-def _with_converted(material: dict[str, Any], system: str) -> dict[str, Any]:
+def _with_converted(
+    material: dict[str, Any], system: str, keys: dict[str, str]
+) -> dict[str, Any]:
     payload = material.get("payload")
     if not isinstance(payload, dict) or not payload:
         return material
-    return {**material, "converted": converted_material(payload, system)}
+    return {**material, "converted": converted_material(payload, system, keys)}
 
 
-def resolve(raw: dict[str, Any] | None, params: dict[str, Any]) -> dict[str, Any]:
+def resolve(
+    raw: dict[str, Any] | None,
+    params: dict[str, Any],
+    keys: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """`"=식"` 을 그 설계점의 값으로 바꾼 **새 사본**. 레시피와 같은 문법이다.
 
     받는 쪽은 식을 풀 수 없다 — 설계점마다 **풀린 값**을 내보내야 한다.
+
+    `keys` 는 물성 이름 사전(`{사람이 쓰는 이름: 표준 열쇠}`)이다. **코어는 그것을 가져오지
+    않는다** — 네트워크는 바깥 층의 일이고(아키텍처 시험이 지킨다), 여기는 받은 것으로 풀기만
+    한다. 안 주면 표준 열쇠만 안 붙는다(값은 그대로 나간다).
 
     여기서 **단위계도 함께 푼다**: `units` 를 닫힌 선언으로 펼치고, 물성마다 그 계로 옮긴
     값(`converted`)을 **원본 옆에** 놓는다. 원본은 안 건드린다 — 감사할 때는 원본, 풀 때는
@@ -397,7 +465,9 @@ def resolve(raw: dict[str, Any] | None, params: dict[str, Any]) -> dict[str, Any
         raise ConditionError(f"조건의 식을 풀지 못했습니다: {failure}") from failure
     system = str((out.get("units") or {}).get("system") or unit_systems.DEFAULT_SYSTEM)
     out["units"] = unit_systems.declaration(system)
-    out["materials"] = [_with_converted(one, system) for one in out.get("materials", [])]
+    out["materials"] = [
+        _with_converted(one, system, keys or {}) for one in out.get("materials", [])
+    ]
     return out
 
 

@@ -401,6 +401,24 @@ export function MaterialPicker({
                   </div>
                 ))}
                 {/*
+                  **해석에 바로 쓸 수 있나.** 탄성계수 · 푸아송비 · 밀도 중 빠진 것이 있으면
+                  해석이 기본값(구조용 강)으로 풀고, 그 사실은 고유진동수가 틀린 뒤에야
+                  드러난다 — 고를 때 말해 주는 편이 낫다. 문헌 2663건 중 탄성계수를 가진
+                  것은 1025건이다.
+                */}
+                {(chosen.converted?.missing_structural ?? []).length > 0 ? (
+                  <p className="rounded border border-amber-300 bg-amber-50 p-1 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                    ⚠ 구조 해석에 빠진 것: {(chosen.converted?.missing_structural ?? []).join(' · ')} — 이대로
+                    넘기면 해석이 기본값으로 풉니다.
+                  </p>
+                ) : (
+                  chosen.converted?.properties && (
+                    <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                      ✓ 탄성계수 · 푸아송비 · 밀도가 다 있습니다
+                    </p>
+                  )
+                )}
+                {/*
                   **못 바꾼 것은 못 바꿨다고 말한다.** 조용히 원래 값을 보여 주면 그것이
                   새 단위인 줄 알고 그대로 쓴다.
                 */}

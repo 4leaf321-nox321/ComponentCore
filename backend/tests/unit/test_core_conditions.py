@@ -233,3 +233,85 @@ def test_converted_는_출처가_달라도_한_모양이다() -> None:
         assert made["density"] == pytest.approx(2.68e-09)
         assert made["density_unit"] == "tonne/mm3"
         assert made["poisson_ratio"] == pytest.approx(0.33)
+
+
+def test_두_창고가_같은_열쇠를_내놓는다() -> None:
+    """**등록 재료의 물성 줄에는 기계가 읽을 이름이 없다**(한글 라벨 `item` 뿐). 문헌은
+    `property_key` 가 있다 — 그대로 두면 받는 쪽이 출처에 따라 다른 규칙으로 「어느 것이
+    영률인가」 를 풀어야 한다.
+
+    MatNexus 물성 사전이 그 다리를 이미 들고 있다(`internal_items`). 우리가 한글 표를 따로
+    만들면 그쪽이 항목을 하나 더하는 날 우리만 모른다."""
+    사전 = {"탄성계수": "mechanical.youngs_modulus", "비열": "thermal.specific_heat"}
+    등록 = conditions.converted_material(
+        {
+            "density_si": 2680.0,
+            "poisson_ratio": 0.33,
+            "declared_properties": [
+                {"item": "탄성계수", "si_unit": "Pa", "points": [{"value_si": 7.0e10}]}
+            ],
+        },
+        "mm_n_tonne",
+        사전,
+    )
+    문헌 = conditions.converted_material(
+        {
+            "values": [
+                {"property_key": "physical.density", "value_num": 2680.0, "unit": "kg/m^3"},
+                {
+                    "property_key": "mechanical.poisson_ratio",
+                    "value_num": 0.33,
+                    "unit": "1",
+                },
+                {
+                    "property_key": "mechanical.youngs_modulus",
+                    "value_num": 7.0e10,
+                    "unit": "Pa",
+                },
+            ]
+        },
+        "mm_n_tonne",
+        사전,
+    )
+    for made in (등록, 문헌):
+        assert made["density_key"] == "physical.density"
+        assert made["poisson_key"] == "mechanical.poisson_ratio"
+        # **열쇠로 찾는다** — 그것이 이 기능의 요점이다(한글 라벨로 찾지 않는다).
+        E = next(
+            one for one in made["properties"] if one.get("key") == "mechanical.youngs_modulus"
+        )
+        assert E["points"][0]["value"] == pytest.approx(70000.0)
+        # 셋이 다 있으니 해석에 바로 쓸 수 있다.
+        assert "missing_structural" not in made
+
+    # 사전이 없으면 열쇠만 없다 — 값은 그대로 나간다(열쇠는 덤이다).
+    없이 = conditions.converted_material(
+        {
+            "declared_properties": [
+                {"item": "탄성계수", "si_unit": "Pa", "points": [{"value_si": 7.0e10}]}
+            ]
+        },
+        "mm_n_tonne",
+    )
+    assert "key" not in 없이["properties"][0]
+    assert 없이["properties"][0]["points"][0]["value"] == pytest.approx(70000.0)
+
+
+def test_해석에_빠진_것을_고를_때_말한다() -> None:
+    """탄성계수 · 푸아송비 · 밀도가 없으면 해석이 **기본값(구조용 강)** 으로 푼다 — 값이 안
+    나오는 게 아니라 고유진동수가 틀린 뒤에야 드러난다. 문헌 2663건 중 탄성계수를 가진 것은
+    1025건뿐이다."""
+    모자람 = conditions.converted_material(
+        {
+            "values": [
+                {"property_key": "physical.density", "value_num": 2680.0, "unit": "kg/m^3"}
+            ]
+        },
+        "mm_n_tonne",
+    )
+    assert 모자람["missing_structural"] == ["탄성계수", "푸아송비"]
+
+    # **모르는 것과 없는 것은 다르다.** 목록 한 줄에는 값이 아예 안 딸려 온다(2663건을
+    # 값째로 끌 수 없다) — 그때 「다 빠졌다」 고 하면 거짓말이다.
+    아직 = conditions.converted_material({"name": "무언가"}, "mm_n_tonne")
+    assert "missing_structural" not in 아직

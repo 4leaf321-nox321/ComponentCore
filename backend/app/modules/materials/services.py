@@ -49,7 +49,9 @@ def _row(payload: dict[str, Any], source: str, system: str = "") -> dict[str, An
         "payload": payload,
     }
     if system:
-        made["converted"] = conditions.converted_material(payload, system)
+        made["converted"] = conditions.converted_material(
+            payload, system, matnexus.property_keys()
+        )
     return made
 
 
@@ -102,7 +104,9 @@ def _catalog_row(payload: dict[str, Any], system: str = "") -> dict[str, Any]:
         "payload": payload,
     }
     if system:
-        made["converted"] = conditions.converted_material(payload, system)
+        made["converted"] = conditions.converted_material(
+            payload, system, matnexus.property_keys()
+        )
     return made
 
 

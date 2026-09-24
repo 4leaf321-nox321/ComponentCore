@@ -203,6 +203,54 @@ def unit_systems() -> list[dict[str, Any]]:
 # 필요한 쪽은 `converted` 를 본다(`core/conditions.converted_material`).
 
 
+#: 물성 사전은 좀처럼 안 바뀌고(271개 · 그쪽 버전과 함께 간다) 환산할 때마다 부르면 느리다.
+#: 프로세스가 사는 동안만 든다 — MatNexus 를 고쳤으면 서버를 다시 띄우면 된다.
+_DICTIONARY: dict[str, Any] | None = None
+
+
+def property_dictionary() -> dict[str, Any]:
+    """**물성 이름 사전** — 사내 항목 이름(`탄성계수`) · 별칭 → 표준 열쇠
+    (`mechanical.youngs_modulus`).
+
+    등록 재료의 물성 줄에는 **기계가 읽을 이름이 없다**(한글 라벨 `item` 뿐이다). 문헌 쪽은
+    `property_key` 가 있으므로, 이 사전으로 등록 쪽에도 같은 열쇠를 붙여 주면 **받는 쪽이
+    출처를 가리지 않고 한 규칙으로** 「어느 것이 영률인가」 를 푼다.
+
+    사전이 그것을 이미 들고 있다(`internal_items`) — 우리가 한글 표를 따로 만들면 그쪽이
+    항목을 하나 더하는 날 우리만 모른다.
+    """
+    global _DICTIONARY
+    if _DICTIONARY is None:
+        got = _get("/api/catalog/properties/dictionary")
+        _DICTIONARY = got if isinstance(got, dict) else {}
+    return _DICTIONARY
+
+
+def property_keys() -> dict[str, str]:
+    """`{사람이 쓰는 이름: 표준 열쇠}`. 못 가져오면 **빈 표** — 열쇠를 안 붙일 뿐이다.
+
+    열쇠는 덤이지 필수가 아니다. 못 붙였다고 물성을 못 나르면 안 된다.
+    """
+    try:
+        said = property_dictionary()
+    except (MatNexusUnavailable, AppError):
+        return {}
+    out: dict[str, str] = {}
+    for one in said.get("properties") or []:
+        if not isinstance(one, dict) or one.get("deprecated"):
+            continue
+        key = str(one.get("key") or "")
+        if not key:
+            continue
+        # 사내 항목 이름이 가장 정확하다(그쪽이 우리 등록 재료를 보고 걸어 둔 것이다).
+        # 별칭과 표시 이름도 받아 둔다 — 겹치면 먼저 걸린 것이 이긴다.
+        for name in [*(one.get("internal_items") or []), *(one.get("aliases") or [])]:
+            out.setdefault(str(name).strip(), key)
+        if one.get("name"):
+            out.setdefault(str(one["name"]).strip(), key)
+    return out
+
+
 def catalog_summary() -> dict[str, Any]:
     """문헌 카탈로그의 분류와 개수 — 탐색기의 첫 두 칸(하위계 · 갈래)이 여기서 나온다."""
     got = _get("/api/catalog/summary")

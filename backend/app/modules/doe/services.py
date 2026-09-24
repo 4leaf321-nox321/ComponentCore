@@ -794,6 +794,11 @@ def run_job(
         rows: list[dict[str, Any]] = []
         made = 0
         failed = 0
+        # **물성 이름 사전은 한 번만 가져온다.** 설계점마다 부르면 MatNexus 가 우리 때문에
+        # 바쁘다. 못 가져와도 값은 나간다 — 표준 열쇠만 안 붙는다(덤이다).
+        from app.shared.clients import matnexus as _matnexus
+
+        names = _matnexus.property_keys()
         only = str(input.get("only") or "all")
         all_points = points(db, study)
         # **만들기 전에** 어느 점끼리 형상이 같은지 안다 — 식을 푸는 것은 산수라 거저다.
@@ -896,7 +901,7 @@ def run_job(
                 # 「하나는 있고 하나는 없는」 상태가 생길 자리만 는다.
                 if study.conditions:
                     topo["conditions"] = condition_model.resolve(
-                        study.conditions, point.params
+                        study.conditions, point.params, names
                     )
                 point_name = f"p{point.number:04d}.json"
                 (folder / "points" / point_name).write_text(
