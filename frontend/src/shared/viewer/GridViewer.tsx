@@ -13,6 +13,7 @@ import * as THREE from 'three'
 import { CameraRig } from '@/shared/viewer/cameraRig'
 import type { MeshData } from '@/shared/viewer/PickViewer'
 import { ViewerToolbar } from '@/shared/viewer/ViewerToolbar'
+import { mountCanvas } from '@/shared/viewer/canvas'
 
 export interface GridItem {
   key: string
@@ -91,13 +92,9 @@ export function GridViewer({ items, columns, cellClass, className }: { items: Gr
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     renderer.setPixelRatio(window.devicePixelRatio)
     renderer.setScissorTest(true)
-    renderer.domElement.style.position = 'absolute'
-    renderer.domElement.style.inset = '0'
-    renderer.domElement.style.width = '100%'
-    renderer.domElement.style.height = '100%'
     // 캔버스는 React 자식들 **뒤에** 붙는다 — 그대로 두면 이름표 · 도구줄을 덮는다.
     renderer.domElement.style.zIndex = '0'
-    container.appendChild(renderer.domElement)
+    mountCanvas(container, renderer.domElement)
     const rig = new CameraRig(renderer.domElement)
     const controls = rig.controls
     state.current = { renderer, rig, scenes: new Map(), fitted: false }

@@ -16,15 +16,26 @@
  * (2026-09-24: 도면 편집기를 `h-[600px]` 에서 바꾸며 바닥값을 360 으로 줘서, 내 작업에서
  * 3D 가 눈에 띄게 작아졌다). 바닥값을 원래 높이로 두면 **여유가 있을 때만 이득이고 없을
  * 때도 손해는 아니다.**
+ *
+ * ## 요소가 **붙는 순간** 잰다
+ *
+ * `ref` 는 콜백이다 — 요소를 상태로 들고, 붙거나 바뀌면 다시 잰다. 예전에는 ref 객체를
+ * 두고 `deps` 가 바뀔 때만 쟀는데, ref 객체는 붙어도 렌더를 일으키지 않는다. 그래서 요소가
+ * **조기 반환 뒤에** 나타나는 화면(불러오는 동안은 뼈대만 그린다)에서는 첫 측정 때 요소가
+ * 없어 건너뛰고, 그 뒤로 **한 번도 안 쟀다.** 해석 조건의 3D 가 바닥값(602)에 머물다가 무엇을
+ * 누르면(deps 가 바뀌면) 그제야 945 로 늘었다 — 사람에게는 「높이가 들쭉날쭉 줄어든다」 로
+ * 보였다(실측 2026-09-24, 헤드리스 크로미움 1920×1305).
  */
 
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useState } from 'react'
 
 const DEFAULT_MIN = 320
 
 export function useFillHeight<T extends HTMLElement>(options: { min?: number; gap?: number; deps?: unknown[] } = {}) {
   const { min = DEFAULT_MIN, gap = 0, deps = [] } = options
-  const ref = useRef<T | null>(null)
+  const [element, setElement] = useState<T | null>(null)
+  /** 콜백 ref — 붙으면 요소가 상태로 들어와 재는 효과가 다시 돈다. */
+  const ref = useCallback((node: T | null) => setElement(node), [])
   /**
    * **재기 전에도 높이가 있다.** `null` 로 두었더니 `style` 이 없는 순간이 생기고, 그때
    * 자식의 `h-full` 이 부모의 auto 높이를 100% 로 잡아 **3D 가 0 으로 찌그러졌다**
@@ -36,7 +47,7 @@ export function useFillHeight<T extends HTMLElement>(options: { min?: number; ga
   const [height, setHeight] = useState<number>(min)
 
   useLayoutEffect(() => {
-    const el = ref.current
+    const el = element
     if (!el) return
     const scroller = (el.closest('main') as HTMLElement | null) ?? document.documentElement
     function measure() {
@@ -57,7 +68,7 @@ export function useFillHeight<T extends HTMLElement>(options: { min?: number; ga
       window.removeEventListener('resize', measure)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps)
+  }, [element, min, gap, ...deps])
 
   return { ref, height, style: { height } }
 }

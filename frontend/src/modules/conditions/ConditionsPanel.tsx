@@ -294,10 +294,6 @@ export function ConditionsPanel({
       alive = false
     }
   }, [draft.materials, deckChoices])
-  const bodyNames = useMemo(
-    () => (bodies.data?.items ?? []).map((one) => one.name),
-    [bodies.data],
-  )
 
   if (schema.loading) return <Skeleton className="h-96 w-full" />
   if (schema.error) return <ErrorNotice error={schema.error} />
@@ -479,7 +475,7 @@ export function ConditionsPanel({
                 ))}
               </select>
               <p className="text-muted-foreground mt-1 text-xs">
-                물성은 이 단위계로 환산하여 **원본과 함께** 전달됩니다 — 원본은 변경하지 않습니다.
+                물성은 이 단위계로 환산하여 <strong>원본과 함께</strong> 전달됩니다 — 원본은 변경하지 않습니다.
               </p>
             </div>
           </CardContent>
@@ -546,7 +542,7 @@ export function ConditionsPanel({
               <div className="space-y-2">
                 <p className="font-medium">{candidates.label} 선택됨</p>
                 <p className="text-muted-foreground text-xs">
-                  좌표가 아니라 **선택 규칙**으로 저장합니다 — 치수가 변경되어도 같은 형상을 가리킵니다.
+                  좌표가 아니라 <strong>선택 규칙</strong>으로 저장합니다 — 치수가 변경되어도 같은 형상을 가리킵니다.
                 </p>
                 <ul className="space-y-1">
                   {candidates.list.map((one, index) => (

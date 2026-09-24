@@ -14,6 +14,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
 import { CameraRig } from '@/shared/viewer/cameraRig'
 import { ViewerToolbar } from '@/shared/viewer/ViewerToolbar'
+import { mountCanvas } from '@/shared/viewer/canvas'
 
 export interface ViewerModel {
   /** Blob URL 또는 내려받을 수 있는 주소. */
@@ -37,7 +38,7 @@ export function ModelViewer({ models, className }: { models: ViewerModel[]; clas
 
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     renderer.setPixelRatio(window.devicePixelRatio)
-    container.appendChild(renderer.domElement)
+    mountCanvas(container, renderer.domElement)
 
     scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2))
     const sun = new THREE.DirectionalLight(0xffffff, 1.5)
@@ -133,7 +134,7 @@ export function ModelViewer({ models, className }: { models: ViewerModel[]; clas
 
   return (
     <div className={`relative ${className ?? 'h-[480px] w-full rounded-md border'}`}>
-      <div ref={mount} className="h-full w-full" />
+      <div ref={mount} className="relative h-full w-full" />
       <ViewerToolbar rig={rigOf} />
     </div>
   )

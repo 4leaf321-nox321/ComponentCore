@@ -661,7 +661,7 @@ function ShapeForm({
       {(shape.type === 'polyline' || shape.type === 'path') && (
         <div className="space-y-1">
           <Label className="text-xs">
-            구간 (시작 {((shape.start as number[]) ?? [0, 0]).join(', ')}) — 호는 **반지름** 이나 **접선** 으로 주는 것이 쉽습니다
+            구간 (시작 {((shape.start as number[]) ?? [0, 0]).join(', ')}) — 호는 <strong>반지름</strong> 이나 <strong>접선</strong> 으로 주는 것이 쉽습니다
           </Label>
           {((shape.segments as Segment[]) ?? []).map((g, i) => {
             const segs = shape.segments as Segment[]

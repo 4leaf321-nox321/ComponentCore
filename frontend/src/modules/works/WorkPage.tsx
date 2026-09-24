@@ -549,8 +549,8 @@ export default function WorkPage() {
               <DialogTitle>{promoting === 'part' ? '공용 부품으로 승격' : '공용 지그로 승격'}</DialogTitle>
               <DialogDescription>
                 {promoting === 'part'
-                  ? `부품 v${w.current_version} 이 **공용 부품**으로 올라갑니다. 올라간 버전은 바뀌지 않습니다 — 고치려면 여기서 고쳐 다시 승격합니다.`
-                  : `지금 도면(v${w.current_version})을 **공용 지그**로 올립니다. 형상과 STEP 이 올라가고, 잡는 부품이 이어져 있으면 함께 적힙니다.`}
+                  ? `부품 v${w.current_version} 이 공용 부품으로 올라갑니다. 올라간 버전은 바뀌지 않습니다 — 고치려면 여기서 고쳐 다시 승격합니다.`
+                  : `지금 도면(v${w.current_version})을 공용 지그로 올립니다. 형상과 STEP 이 올라가고, 잡는 부품이 이어져 있으면 함께 적힙니다.`}
               </DialogDescription>
             </DialogHeader>
             {!(promoting === 'part' ? w.promoted_part_id : w.promoted_jig_id) && (

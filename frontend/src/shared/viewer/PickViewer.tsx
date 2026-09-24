@@ -15,6 +15,7 @@ import { TransformControls } from 'three/examples/jsm/controls/TransformControls
 import { CameraRig } from '@/shared/viewer/cameraRig'
 import type { CameraSync } from '@/shared/viewer/cameraSync'
 import { ViewerToolbar } from '@/shared/viewer/ViewerToolbar'
+import { mountCanvas } from '@/shared/viewer/canvas'
 
 export interface MeshFace {
   index: number
@@ -339,7 +340,7 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     scene.background = new THREE.Color(dark ? '#18181b' : '#f4f4f5')
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     renderer.setPixelRatio(window.devicePixelRatio)
-    container.appendChild(renderer.domElement)
+    mountCanvas(container, renderer.domElement)
     scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2))
     const sun = new THREE.DirectionalLight(0xffffff, 1.5)
     sun.position.set(1, 2, 3)
@@ -847,7 +848,7 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
 
   return (
     <div className={`relative ${className ?? 'h-[480px] w-full rounded-md border'}`}>
-      <div ref={mount} className="h-full w-full" />
+      <div ref={mount} className="relative h-full w-full" />
       <ViewerToolbar rig={rigOf} />
     </div>
   )

@@ -173,7 +173,7 @@ export function DoeForm({
     return (
       <div className="space-y-3 rounded-md border border-dashed p-4 text-sm">
         <p className="font-medium">먼저 도면에 「변수」 를 만들어야 합니다.</p>
-        <p className="text-muted-foreground">DOE 는 **변수**만 훑습니다 — 값에 이름이 없으면 무엇을 바꿔야 할지 알 수 없습니다.</p>
+        <p className="text-muted-foreground">DOE 는 <strong>변수</strong>만 훑습니다 — 값에 이름이 없으면 무엇을 바꿔야 할지 알 수 없습니다.</p>
         <ol className="text-muted-foreground list-inside list-decimal space-y-1 text-xs">
           <li>「수정」 을 눌러 편집기를 엽니다.</li>
           <li>
@@ -314,7 +314,7 @@ export function DoeForm({
         </Button>
       </div>
       {method === 'lhs' && (
-        <p className="text-muted-foreground text-xs">시드를 적어 두면 **같은 표**를 다시 만들 수 있습니다 — 해석 결과와 형상을 잇는 열쇠입니다.</p>
+        <p className="text-muted-foreground text-xs">시드를 적어 두면 <strong>같은 표</strong>를 다시 만들 수 있습니다 — 해석 결과와 형상을 잇는 열쇠입니다.</p>
       )}
       <ErrorNotice error={error} />
     </div>

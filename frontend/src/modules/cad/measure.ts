@@ -10,8 +10,13 @@ import type { MeasurePick, MeshEdge, MeshFace } from '@/shared/viewer/PickViewer
 
 export type Vec = [number, number, number]
 
-/** 고른 것 하나 — 3D 뷰어가 만든다(그 쪽 타입이 정본). */
-export type Pick = MeasurePick
+/**
+ * 고른 것 하나 — 3D 뷰어가 만든다(그 쪽 타입이 정본).
+ *
+ * **바디는 빠진다.** 바디 선택은 해석 조건이 「어느 덩어리에 거나」 를 고르는 손잡이이고,
+ * 잴 거리 · 넓이가 있는 형상이 아니다 — 측정 도구는 바디 선택을 켜지 않는다.
+ */
+export type Pick = Exclude<MeasurePick, { kind: 'body' }>
 
 /** 측정 한 줄 — 이름과 값, 그리고 3D 에 띄울 짧은 글. */
 export interface Row {

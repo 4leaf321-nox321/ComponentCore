@@ -15,6 +15,7 @@ import type { WorkKind } from '@/modules/works/api'
 import { LoadRecipeDialog, LoadWorkDialog } from '@/modules/cad/LoadDialogs'
 import { keptLabel, MeasureDialog } from '@/modules/cad/MeasureDialog'
 import type { KeptMeasure, PickKind } from '@/modules/cad/MeasureDialog'
+import type { Pick } from '@/modules/cad/measure'
 import { measureMarks } from '@/modules/cad/measureMarks'
 import { useRecipeEmit } from '@/modules/cad/useRecipeEmit'
 import { useRecipeMesh } from '@/modules/cad/useRecipeMesh'
@@ -32,7 +33,7 @@ import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { Boxes, Braces, BookmarkPlus, Download, FileAxis3d, FileUp, GripVertical, Image, FilePlus, FolderOpen, Files, Maximize2, Minimize2, Pencil, Redo2, Ruler, Save, SquareDashedMousePointer, Trash2, Undo2 } from 'lucide-react'
 
 import { useFullscreen } from '@/shared/viewer/FullscreenFrame'
-import type { MeasurePick, MeshEdge, MeshFace, PickMode } from '@/shared/viewer/PickViewer'
+import type { MeshEdge, MeshFace, PickMode } from '@/shared/viewer/PickViewer'
 import { Button } from '@/shared/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog'
 import { Skeleton } from '@/shared/components/ui/skeleton'
@@ -74,7 +75,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
   const [pickMode, setPickMode] = useState<PickMode>('none')
   /** 면을 골라 어디에 쓰나 — 새 스케치 · 쉘의 open · 구멍의 plane. */
   const [faceTarget, setFaceTarget] = useState<'sketch' | 'shell-open' | 'hole-plane'>('sketch')
-  const [measures, setMeasures] = useState<MeasurePick[]>([])
+  const [measures, setMeasures] = useState<Pick[]>([])
   /** 담아 둔 측정 — 3D 에 남아 여러 곳을 한 화면에서 비교한다. */
   const [kept, setKept] = useState<KeptMeasure[]>([])
   const [measureKinds, setMeasureKinds] = useState<Set<PickKind>>(new Set<PickKind>(['point', 'edge', 'face']))
@@ -703,7 +704,10 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                   highlightEdgesNear={isNear(selected?.edges) ? (selected!.edges as { near: number[][] }).near : undefined}
                   onPickFace={onFacePicked}
                   onPickEdge={toggleEdge}
-                  onMeasure={(pick) => setMeasures((m) => (m.length >= 3 ? [pick] : [...m, pick]))}
+                  onMeasure={(pick) => {
+                    if (pick.kind === 'body') return
+                    setMeasures((m) => (m.length >= 3 ? [pick] : [...m, pick]))
+                  }}
                   measureKinds={{ point: measureKinds.has('point'), edge: measureKinds.has('edge'), face: measureKinds.has('face') }}
                   measureMarks={pickMode === 'measure' || kept.length > 0 ? measureMarks(measures, kept) : undefined}
                   className="h-full w-full rounded-md border"
