@@ -16,7 +16,8 @@ import json
 import shutil
 import time
 import uuid
-from collections import OrderedDict
+from collections import Counter, OrderedDict
+from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -28,7 +29,7 @@ from app.config import get_settings
 from app.core import conditions as condition_model
 from app.core import doe as engine
 from app.core import export as shapes
-from app.core.recipe import RecipeError, evaluate, parse, topology
+from app.core.recipe import RecipeError, evaluate, params, parse, topology
 from app.core.recipe.mesh import mesh
 from app.core.recipe.schema import RecipeValidationError
 from app.modules.accounts.models import User
@@ -358,12 +359,16 @@ def points(db: Session, study: DoeStudy) -> list[DoePoint]:
 
 #: 점 메시는 다시 계산하면 그만이라 DB 에 두지 않는다. 화면이 「하나씩 · 겹쳐 · 나란히」 넘길
 #: 때 같은 점을 거듭 묻으므로 최근 것을 든다. 스냅샷은 바뀌지 않으니 (study, number) 로 족하다.
-_MESH_CACHE: OrderedDict[tuple[uuid.UUID, int], dict[str, Any]] = OrderedDict()
+#: 열쇠는 (스터디, 점 번호) 또는 (스터디, **형상 지문**) — 뒤엣것이 형상이 같은 점들을 묶는다.
+_MESH_CACHE: OrderedDict[tuple[uuid.UUID, int | str], dict[str, Any]] = OrderedDict()
 _MESH_CACHE_SIZE = 64
 
 
 def point_mesh(db: Session, study: DoeStudy, number: int) -> dict[str, Any]:
     """설계점 하나의 형상 — 스냅샷 레시피에 그 점의 값을 넣어 **다시 만든다.**
+
+    형상이 같은 점끼리는 한 번만 만든다(`shape_digest`) — 조건만 훑으면 모든 점이 같은
+    형상이라, 나란히 보기로 스물넷을 열면 같은 것을 스물네 번 만들게 된다.
 
     STEP 을 읽는 것보다 **빠르지는 않다**(구멍 24 짜리 판에서 만들기 257 ms 대 읽기 28 ms; 둘
     다 여기에 메시 144 ms 가 더 붙는다). 그런데도 다시 만드는 이유는 **STEP 이 없을 수 있기
@@ -387,13 +392,23 @@ def point_mesh(db: Session, study: DoeStudy, number: int) -> dict[str, Any]:
         **study.recipe,
         "params": {**(study.recipe.get("params") or {}), **point.params},
     }
-    evaluation = cad.build(recipe)
-    made = {
-        "number": number,
-        "params": point.params,
-        "summary": evaluation.summary(),
-        "mesh": mesh(evaluation.shape),
-    }
+    # **형상이 같은 점은 만들지 않는다.** 조건만 훑으면 모든 점의 형상이 같다 — 나란히 보기로
+    # 스물넷을 열면 같은 것을 스물네 번 만들게 된다. 지문은 식을 푸는 산수라 거저다.
+    digest = shape_digest(recipe)
+    twin = _MESH_CACHE.get((study.id, digest)) if digest else None
+    if twin is not None:
+        _MESH_CACHE.move_to_end((study.id, digest))
+        made = {**twin, "number": number, "params": point.params}
+    else:
+        evaluation = cad.build(recipe)
+        made = {
+            "number": number,
+            "params": point.params,
+            "summary": evaluation.summary(),
+            "mesh": mesh(evaluation.shape),
+        }
+        if digest:
+            _MESH_CACHE[(study.id, digest)] = made
     _MESH_CACHE[key] = made
     if len(_MESH_CACHE) > _MESH_CACHE_SIZE:
         _MESH_CACHE.popitem(last=False)
@@ -435,6 +450,27 @@ def status_of(db: Session, study: DoeStudy) -> dict[str, Any]:
         "released_at": study.released_at.isoformat() if study.released_at else None,
         "keep_forever": study.keep_forever,
     }
+
+
+def shape_digest(recipe: dict[str, Any]) -> str:
+    """이 레시피가 **어떤 형상을 만드나**의 지문 — 만들어 보기 전에 안다.
+
+    식을 다 푼 뒤의 노드만 본다(`params` 는 뺀다). 그러면 **아무 노드도 안 쓰는 치수**는
+    지문에 안 들어간다 — 조건에만 쓰이는 `압력` 을 2 · 3 MPa 로 훑으면 설계점 둘의 지문이
+    같고, 형상은 실제로 같다.
+
+    그래서 조건 훑기는 형상을 **한 번만** 만든다. 이것이 없으면 똑같은 STEP 을 N 벌 만들어
+    N 벌 쓴다 — 시간도 파일도 N 배다.
+
+    못 풀면 빈 문자열이다(그 점은 어차피 만들다 실패한다) — 겹치지 않게 두는 편이 안전하다.
+    """
+    try:
+        resolved = params.resolve(recipe)
+    except Exception:  # 못 풀면 겹침을 포기한다 — 만들기가 제대로 실패한다.
+        return ""
+    body = {key: value for key, value in resolved.items() if key != "params"}
+    raw = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
 
 
 def _needs_build(folder: Path, point: DoePoint, only: str) -> bool:
@@ -721,7 +757,11 @@ def run_job(
 
     `input["only"] == "failed"` 면 실패한 점만 다시 한다. 다만 **파일이 사라진 점은 `ok`
     였어도 다시 만든다** — 폴더가 치워진 뒤의 「다시 만들기」 가 이 길로 오고, 그때 반쪽짜리
-    폴더를 내주면 안 된다. 건너뛴 점도 표에는 제 줄을 그대로 쓴다(표는 늘 온전해야 한다)."""
+    폴더를 내주면 안 된다. 건너뛴 점도 표에는 제 줄을 그대로 쓴다(표는 늘 온전해야 한다).
+
+    **같은 형상은 한 번만 만든다.** 조건만 훑으면(압력 2 · 3 MPa) 설계점마다 형상이 똑같다 —
+    그것을 N 벌 만들어 N 벌 쓰면 시간도 파일도 N 배다. 만들기 전에 지문으로 가려내고
+    (`shape_digest`), 둘 이상이 나눠 쓰는 형상은 `shapes/<지문>.step` 에 한 벌만 둔다."""
     del options, out_dir
     from app.database import SessionLocal
 
@@ -738,7 +778,23 @@ def run_job(
         made = 0
         failed = 0
         only = str(input.get("only") or "all")
-        for point in points(db, study):
+        all_points = points(db, study)
+        # **만들기 전에** 어느 점끼리 형상이 같은지 안다 — 식을 푸는 것은 산수라 거저다.
+        digests = {
+            one.number: shape_digest(
+                {
+                    **study.recipe,
+                    "params": {**(study.recipe.get("params") or {}), **one.params},
+                }
+            )
+            for one in all_points
+        }
+        # 둘 이상이 나눠 쓰는 것만 `shapes/` 로 뺀다 — 형상 훑기(흔한 쪽)에서는 이름이 예전
+        # 그대로 `points/pNNNN.step` 이고, 이름이 바뀌면 그것이 곧 「나눠 쓴다」 는 뜻이다.
+        shared = {one for one, many in Counter(digests.values()).items() if one and many > 1}
+        #: 지문 → 이미 만든 것(파일 경로 · 영역 지문). 값이 있으면 **다시 만들지 않는다.**
+        built: dict[str, dict[str, Any]] = {}
+        for point in all_points:
             started = time.perf_counter()
             if not _needs_build(folder, point, only):
                 made += 1
@@ -759,23 +815,49 @@ def run_job(
                 **study.recipe,
                 "params": {**(study.recipe.get("params") or {}), **point.params},
             }
+            digest = digests.get(point.number, "")
             try:
-                evaluation = evaluate(
-                    parse(recipe),
-                    resolve_file=resolve_import,
-                    resolve_component=resolve_component,
-                )
-                name = f"p{point.number:04d}.step"
-                shapes.write_step(evaluation.shape, folder / "points" / name)
+                if digest and digest in built:
+                    # **이미 만든 형상이다.** 다시 만들지도, 다시 쓰지도 않는다 — 영역 지문도
+                    # 형상에서만 나오므로 그대로 쓴다. 점마다 다른 것은 아래의 `point` 와
+                    # `conditions` 뿐이다.
+                    same = built[digest]
+                    point.step_file = str(same["step_file"])
+                    topo = deepcopy(same["topology"])
+                    interference = deepcopy(same["interference"])
+                else:
+                    evaluation = evaluate(
+                        parse(recipe),
+                        resolve_file=resolve_import,
+                        resolve_component=resolve_component,
+                    )
+                    if digest in shared:
+                        name = f"{digest}.step"
+                        shapes.write_step(evaluation.shape, folder / "shapes" / name)
+                        point.step_file = f"shapes/{name}"
+                    else:
+                        name = f"p{point.number:04d}.step"
+                        shapes.write_step(evaluation.shape, folder / "points" / name)
+                        point.step_file = f"points/{name}"
+                    # **영역 지문을 STEP 옆에 나란히 쓴다.** STEP 은 이름표를 못 나르므로,
+                    # 해석이 「어느 면이 고정면인가」 를 물을 곳은 이 파일뿐이다. 설계점마다
+                    # 좌표가 다르므로 점마다 한 장이다(topology.py 머리말).
+                    # **조건의 이름표가 `divide_face` 패치를 가리킬 수 있다.** 그 번호는 이
+                    # 평가 안에서만 뜻이 있으므로 평가가 찾아 준 것을 그대로 넘긴다.
+                    definitions = _region_definitions(study.conditions)
+                    topo = topology.document(
+                        evaluation.shape, definitions, tags=evaluation.tags
+                    )
+                    # 조립이면 구성품끼리 겹치는지 — 변수를 바꾸다 부품이 판에 파묻히는 것을
+                    # 잡는다. 형상이 같으면 겹침도 같다.
+                    interference = _interference_of(evaluation.shape)
+                    if digest:
+                        built[digest] = {
+                            "step_file": point.step_file,
+                            "topology": deepcopy(topo),
+                            "interference": deepcopy(interference),
+                        }
                 point.status = "ok"
-                point.step_file = f"points/{name}"
-                # **영역 지문을 STEP 옆에 나란히 쓴다.** STEP 은 이름표를 못 나르므로, 해석이
-                # 「어느 면이 고정면인가」 를 물을 곳은 이 파일뿐이다. 설계점마다 좌표가
-                # 다르므로 점마다 한 장이다(topology.py 머리말).
-                # **조건의 이름표가 `divide_face` 패치를 가리킬 수 있다.** 그 번호는 이
-                # 평가 안에서만 뜻이 있으므로 평가가 찾아 준 것을 그대로 넘긴다.
-                definitions = _region_definitions(study.conditions)
-                topo = topology.document(evaluation.shape, definitions, tags=evaluation.tags)
                 # **이 점이 무엇인가**를 파일이 스스로 말하게 한다 — 결과가 우리에게 돌아오지
                 # 않으므로, 해석 쪽은 파일만 보고 「이 결과가 두께 8 짜리」 를 알아야 한다.
                 topo["point"] = {
@@ -800,10 +882,8 @@ def run_job(
                     json.dumps(topo, ensure_ascii=False, indent=2), encoding="utf-8"
                 )
                 point.point_file = f"points/{point_name}"
-                # 조립이면 구성품끼리 겹치는지 — 변수를 바꾸다 부품이 판에 파묻히는 것을
-                # 잡는다.
                 point.geometry = {
-                    "interference": _interference_of(evaluation.shape),
+                    "interference": interference,
                     # manifest.csv 를 나중에 다시 그릴 때(내려받기 API)도
                     # 같은 값을 적어야 한다.
                     "topology_unresolved": topo["unresolved"],

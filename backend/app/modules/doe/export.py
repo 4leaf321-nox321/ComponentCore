@@ -6,7 +6,8 @@
     ├─ manifest.csv   설계점 · 바꾼 변수 값 · 파일 이름 · 상태
     ├─ study.json     기준 레시피 · 인자 정의 · 시드(같은 표를 다시 만들 때)
     ├─ README.txt     사람이 열어 볼 한 장
-    └─ points/p0001.step …
+    ├─ points/p0001.step · p0001.json …
+    └─ shapes/<지문>.step   **여러 점이 나눠 쓰는 형상**(조건만 훑었을 때). 없을 수도 있다
 
 CSV 를 정본으로 두는 이유: 해석 쪽에서 파일 이름만 보고 치수를 되짚을 수 없다. 번호 → 치수 →
 결과를 잇는 표가 한 장 있어야 형상과 해석 결과가 붙는다.
@@ -125,7 +126,7 @@ def write_study(folder: Path, study: dict[str, Any]) -> Path:
 def write_conditions(folder: Path, conditions: dict[str, Any]) -> Path | None:
     """스터디의 해석 조건 — **식이 있는 그대로**(사람이 읽는 정본).
 
-    설계점마다 풀린 값은 `points/pNNNN.conditions.json` 이 따로 든다. 받는 쪽은 식을 풀 수
+    설계점마다 **풀린** 값은 그 점의 `points/pNNNN.json` 안에 있다. 받는 쪽은 식을 풀 수
     없기 때문이다 — 그렇다고 이 파일을 안 쓰면 「무엇을 훑은 조건인가」 가 사라진다.
     """
     if not conditions:
@@ -158,9 +159,15 @@ def write_readme(folder: Path, study: dict[str, Any], point_count: int) -> Path:
   study.json     기준 레시피와 인자 정의 전부(다시 만들 때)
   conditions.json  해석 조건 한 벌 — 이름표 · 구속 · 하중 · 접촉 · 초기 · 해석 설정 · 물성
                    (숫자 칸에 "=식" 이 있을 수 있다. 푼 값은 점 파일 안에)
-  points/        p0001.step   형상
+  points/        p0001.step   형상 (그 점만 쓰는 것)
                  p0001.json   이 점의 모든 것 — 변수 값 · 영역과 바디의 좌표 지문 ·
-                              그 변수로 **풀린** 조건
+                              그 변수로 **풀린** 조건 · 이 점이 쓰는 STEP 파일
+  shapes/        <지문>.step  **여러 점이 나눠 쓰는 형상.** 조건만 훑으면(압력 2 · 3 MPa)
+                              형상이 모든 점에서 같으므로 한 벌만 둔다. 이 폴더가 없으면
+                              점마다 형상이 다른 것이다.
+
+어느 점이 어느 STEP 을 쓰는지는 **표와 점 파일의 `step_file`** 이 말한다 — 파일 이름을
+짐작하지 마라. 같은 STEP 을 가리키는 점들은 메시도 한 번만 만들면 된다.
 
 STEP 은 mm 단위이며, 바꾸지 않은 치수(연결부 등)는 모든 점에서 똑같다.
 해석 결과는 이 폴더로 돌아오지 않는다 — 푸는 쪽이 들고 거기서 본다.

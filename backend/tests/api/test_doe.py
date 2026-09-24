@@ -916,3 +916,107 @@ def test_읽기는_공개_쓰기는_소유자(client: TestClient, member: Signed
     assert client.get(f"/api/doe/{made['id']}", headers=member.headers).status_code == 403
     뒤에 = client.get("/api/doe?scope=all&limit=200", headers=member.headers).json()
     assert made["id"] not in [one["id"] for one in 뒤에["items"]]
+
+
+def test_조건만_훑으면_형상은_한_벌만_만든다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    """**압력 2 · 3 MPa 를 훑으면 STEP 이 전부 같다.** 그것을 N 벌 만들어 N 벌 쓰면 시간도
+    파일도 N 배다.
+
+    지문은 **식을 다 푼 노드**에서 나오므로, 아무 노드도 안 쓰는 치수(`압력`)는 지문에 안
+    들어간다 — 만들어 보기 전에 같다는 것을 안다.
+    """
+    recipe = {**JIG, "params": {**JIG["params"], "압력": 2.0}}
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "조건만 훑기",
+            "recipe": recipe,
+            "factors": [{"name": "압력", "mode": "list", "values": [2, 3, 4]}],
+            "conditions": {
+                "named_selections": [
+                    {"name": "윗면", "entity": "face", "select": {"role": "top"}}
+                ],
+                "loads": [
+                    {
+                        "name": "누름",
+                        "type": "pressure",
+                        "on": "윗면",
+                        "magnitude": "=압력",
+                    }
+                ],
+            },
+        },
+        headers=member.headers,
+    )
+    assert made.status_code == 201, made.text
+    body = made.json()
+    assert body["done"] == 3
+
+    # 세 점이 **같은 STEP 한 벌**을 가리킨다.
+    쓰는것 = {one["step_file"] for one in body["points"]}
+    assert len(쓰는것) == 1, f"형상이 같은데 파일이 여럿이다: {쓰는것}"
+    assert next(iter(쓰는것)).startswith("shapes/"), "나눠 쓰는 것은 이름이 그렇게 말한다"
+
+    client.post(f"/api/doe/{body['id']}/export", headers=member.headers)
+    folder = next(export_root.iterdir())
+    assert len(list((folder / "shapes").glob("*.step"))) == 1
+    assert list((folder / "points").glob("*.step")) == [], "점 폴더에는 형상이 없다"
+    # 점 파일은 **점마다** 있다 — 조건이 다르니까.
+    assert len(list((folder / "points").glob("*.json"))) == 3
+    풀린값 = [
+        json.loads(one.read_text(encoding="utf-8"))["conditions"]["loads"][0]["magnitude"]
+        for one in sorted((folder / "points").glob("*.json"))
+    ]
+    assert 풀린값 == [2.0, 3.0, 4.0], "형상은 같아도 조건은 점마다 풀린다"
+
+
+def test_형상이_다르면_예전처럼_점마다_한_벌(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    """겹침 제거가 **흔한 쪽을 바꾸지 않는다** — 치수 훑기는 파일 이름이 그대로다."""
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "치수 훑기",
+            "recipe": JIG,
+            "factors": [{"name": "두께", "mode": "list", "values": [6, 8]}],
+        },
+        headers=member.headers,
+    ).json()
+    assert [one["step_file"] for one in made["points"]] == [
+        "points/p0001.step",
+        "points/p0002.step",
+    ]
+    client.post(f"/api/doe/{made['id']}/export", headers=member.headers)
+    folder = next(one for one in export_root.iterdir() if one.name.startswith("치수"))
+    assert not (folder / "shapes").exists(), "나눠 쓰는 것이 없으면 그 폴더도 없다"
+
+
+def test_형상이_같은_점은_메시도_한_번만_만든다(client: TestClient, member: Signed) -> None:
+    """나란히 보기로 스물넷을 열면 같은 것을 스물네 번 만들게 된다 — 조건 훑기에서는 전부
+    같은 형상이다."""
+    recipe = {**JIG, "params": {**JIG["params"], "압력": 2.0}}
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "메시 나눠 쓰기",
+            "recipe": recipe,
+            "factors": [{"name": "압력", "mode": "list", "values": [2, 3]}],
+        },
+        headers=member.headers,
+    ).json()
+
+    from app.modules.doe import services
+
+    services._MESH_CACHE.clear()
+    첫째 = client.get(f"/api/doe/{made['id']}/points/1/mesh", headers=member.headers).json()
+    지문개수 = sum(1 for key in services._MESH_CACHE if isinstance(key[1], str))
+    둘째 = client.get(f"/api/doe/{made['id']}/points/2/mesh", headers=member.headers).json()
+    # 형상 지문은 하나뿐 — 둘째 점이 새 형상을 만들지 않았다.
+    assert sum(1 for key in services._MESH_CACHE if isinstance(key[1], str)) == 지문개수 == 1
+    # 그래도 **제 번호와 제 변수 값**을 말한다 — 화면이 어느 점인지 알아야 한다.
+    assert 첫째["number"] == 1 and 둘째["number"] == 2
+    assert 첫째["params"]["압력"] == 2.0 and 둘째["params"]["압력"] == 3.0
+    assert 첫째["mesh"] == 둘째["mesh"]
