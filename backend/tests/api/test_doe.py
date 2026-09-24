@@ -498,3 +498,152 @@ def test_영구보관은_기한보다_세다(
     with SessionLocal() as db:
         assert services.cleanup_exports(db)["count"] == 0
     assert next(export_root.iterdir()).exists()
+
+
+def test_서버_보관_폴더도_기한이_있고_치워져도_다시_만들_수_있다(
+    client: TestClient, member: Signed, admin: Signed
+) -> None:
+    """**이력이 남는다는 말이 헛말이 되지 않게.**
+
+    설계점 파일은 두 폴더 모두 수명이 있다. 그런데 다시 만들 재료(레시피 · 인자 · 시드 ·
+    조건)는 스냅샷으로 DB 에 남으므로, 파일이 치워져도 화면은 그대로 뜨고 「다시 만들기」 가
+    같은 것을 되살린다. 그 길이 있어야 지우는 것이 안전하다 — 그래서 한 시험에 둔다.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from app.database import SessionLocal
+    from app.modules.doe import services
+    from app.modules.doe.models import DoeStudy
+
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "되살아날 것",
+            "recipe": JIG,
+            "factors": [{"name": "두께", "mode": "list", "values": [6, 8]}],
+        },
+        headers=member.headers,
+    ).json()
+    study_id = made["id"]
+    assert made["local_ready"] is True
+
+    client.put(
+        "/api/server/settings/doe_local_ttl_days", json={"value": 30}, headers=admin.headers
+    )
+
+    with SessionLocal() as db:
+        # **아직 공유 폴더에 나가 있으면 안 치운다** — 복사원을 먼저 지우면 「다시 보내
+        # 달라」 에 답할 길이 없다.
+        row = db.get(DoeStudy, __import__("uuid").UUID(study_id))
+        assert row is not None
+        folder = Path(row.local_dir)
+        row.created_at = datetime.now(UTC) - timedelta(days=90)
+        row.export_dir = "/어딘가/공유"
+        db.commit()
+        assert services.cleanup_locals(db)["count"] == 0, "나가 있는 것은 안 치운다"
+
+        row = db.get(DoeStudy, __import__("uuid").UUID(study_id))
+        assert row is not None
+        row.export_dir = ""
+        db.commit()
+        assert services.cleanup_locals(db)["count"] == 1
+    assert not folder.exists(), "서버 보관 폴더의 파일은 치워진다"
+
+    # **화면은 그대로 뜬다** — 표는 DB 에서, 3D 는 레시피로 다시 만든다.
+    got = client.get(f"/api/doe/{study_id}", headers=member.headers).json()
+    assert got["point_count"] == 2 and got["done"] == 2
+    assert got["local_ready"] is False, "파일이 없다는 것을 화면에 말해 준다"
+    표 = client.get(f"/api/doe/{study_id}/manifest.csv", headers=member.headers)
+    형상 = client.get(f"/api/doe/{study_id}/points/1/mesh", headers=member.headers)
+    assert 표.status_code == 200 and 형상.status_code == 200
+
+    # 「보내기」 는 막히고, **무엇을 하라는지 말한다.**
+    blocked = client.post(f"/api/doe/{study_id}/export", headers=member.headers)
+    assert blocked.status_code == 400
+    assert "다시 만들기" in blocked.json()["error"]["message"]
+
+    # 다시 만들면 같은 파일이 같은 자리에 선다 — 그리고 보낼 수 있다.
+    again = client.post(f"/api/doe/{study_id}/rerun", headers=member.headers)
+    assert again.status_code == 200, again.text
+    assert again.json()["local_ready"] is True and again.json()["done"] == 2
+    assert (folder / "manifest.csv").exists()
+    assert sorted(one.name for one in (folder / "points").glob("*.step")) == [
+        "p0001.step",
+        "p0002.step",
+    ]
+    sent = client.post(f"/api/doe/{study_id}/export", headers=member.headers)
+    assert sent.status_code == 200
+
+
+def test_실패한_점만_다시_할_수_있다_성한_것은_안_건드린다(
+    client: TestClient, member: Signed
+) -> None:
+    """같은 값으로 한 번 더 해 보는 것이다 — 범위를 고칠 생각이면 새 스터디다.
+
+    성한 점을 다시 만들지 않는 것이 요점이다: 수천 점짜리에서 하나가 깨졌다고 전부 다시
+    만들면 몇 시간이 든다."""
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "실패만 다시",
+            "recipe": JIG,
+            "factors": [{"name": "두께", "mode": "list", "values": [-5, 6]}],
+        },
+        headers=member.headers,
+    ).json()
+    assert made["failed"] == 1 and made["done"] == 1
+
+    from app.database import SessionLocal
+    from app.modules.doe.models import DoeStudy
+
+    with SessionLocal() as db:
+        row = db.get(DoeStudy, __import__("uuid").UUID(made["id"]))
+        assert row is not None
+        step = Path(row.local_dir) / "points" / "p0002.step"
+    before = step.stat().st_mtime_ns
+
+    got = client.post(f"/api/doe/{made['id']}/rerun?only=failed", headers=member.headers)
+    assert got.status_code == 200, got.text
+    assert got.json()["failed"] == 1 and got.json()["done"] == 1
+    assert step.stat().st_mtime_ns == before, "성한 점은 다시 만들지 않는다"
+    # 표는 그래도 온전하다 — 건너뛴 점도 제 줄을 쓴다.
+    rows = list(
+        csv.DictReader(
+            (step.parent.parent / "manifest.csv").read_text(encoding="utf-8-sig").splitlines()
+        )
+    )
+    assert [row["status"] for row in rows] == ["failed", "ok"]
+
+    엉뚱 = client.post(f"/api/doe/{made['id']}/rerun?only=엉뚱", headers=member.headers)
+    assert 엉뚱.status_code == 422
+
+
+def test_스터디를_지우면_서버_보관_폴더도_지우고_공유_폴더는_남긴다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    """누가 읽느냐가 다르다 — 서버 보관 폴더는 우리 것이라 줄이 사라지면 찾을 수 없는
+    쓰레기가 되고, 공유 폴더는 해석이 제 결과를 덧붙여 두었을 수 있다."""
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "지울 것",
+            "recipe": JIG,
+            "factors": [{"name": "두께", "mode": "list", "values": [6]}],
+        },
+        headers=member.headers,
+    ).json()
+    client.post(f"/api/doe/{made['id']}/export", headers=member.headers)
+
+    from app.database import SessionLocal
+    from app.modules.doe.models import DoeStudy
+
+    with SessionLocal() as db:
+        row = db.get(DoeStudy, __import__("uuid").UUID(made["id"]))
+        assert row is not None
+        local = Path(row.local_dir)
+    shared = next(export_root.iterdir())
+    assert local.exists() and shared.exists()
+
+    assert client.delete(f"/api/doe/{made['id']}", headers=member.headers).status_code == 204
+    assert not local.exists(), "우리 것은 치운다"
+    assert shared.exists(), "남의 도구가 읽는 것은 말없이 지우지 않는다"

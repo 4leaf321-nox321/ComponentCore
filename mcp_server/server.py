@@ -603,6 +603,9 @@ async def doe_points(ctx: Context, study_id: str) -> Any:
         "name": got["name"],
         "folder": got["export_dir_windows"] or None,
         "exported_at": got.get("exported_at"),
+        # 서버 보관 폴더에 파일이 남아 있나. False 면 보관 기한이 지나 치워진 것이라
+        # `doe_export` 가 막힌다 — `doe_rerun` 으로 먼저 되살린다.
+        "files_ready": got.get("local_ready", True),
         "method": got["method"],
         "seed": got["seed"],
         "points_total": got["point_count"],
@@ -621,6 +624,34 @@ async def doe_points(ctx: Context, study_id: str) -> Any:
             }
             for one in got.get("points", [])
         ],
+    }
+
+
+@mcp.tool()
+async def doe_rerun(ctx: Context, study_id: str, only: str = "all") -> Any:
+    """**다시 만들기** — 스냅샷으로 설계점 파일(STEP · 점 파일)을 되살린다. 같은 스터디다.
+
+    언제 부르나:
+
+    - `doe_points` 의 `files_ready` 가 False 일 때. 보관 기한이 지나 파일이 치워진 것이고,
+      그 상태로는 `doe_export` 가 막힌다. 이것을 먼저 부르고 끝나면 보낸다.
+    - 실패한 점을 한 번 더 해 볼 때 — `only="failed"`.
+
+    **같은 재료로 같은 것이 나온다**(레시피 · 인자 · 시드 · 조건이 스냅샷으로 박혀 있다).
+    범위를 고쳐 다시 돌리는 것은 이것이 아니다 — 그건 `doe_create` 로 새 스터디다.
+
+    작업을 걸고 **바로** 돌아온다. 끝났는지는 `doe_points` 의 `job` 으로 본다."""
+    if only not in ("all", "failed"):
+        return {"error": "only 는 all 또는 failed 입니다."}
+    got = await _post(ctx, f"/api/doe/{study_id}/rerun?only={only}", None)
+    if not isinstance(got, dict) or "error" in got:
+        return got
+    return {
+        "study_id": got["id"],
+        "name": got["name"],
+        "only": only,
+        "points_total": got["point_count"],
+        "job": _slim_job(got.get("job")),
     }
 
 
@@ -654,9 +685,13 @@ async def doe_release(ctx: Context, study_id: str) -> Any:
 
 @mcp.tool()
 async def doe_keep(ctx: Context, study_id: str, keep: bool = True) -> Any:
-    """**영구보관** — 보관 기한이 지나도 공유 폴더를 남긴다(기본 30일, 관리자가 바꾼다).
+    """**영구보관** — 보관 기한이 지나도 **두 폴더를 다 남긴다.**
 
-    기한은 기본값이고 이것이 예외다. 「이건 남겨야 한다」 를 아는 사람(또는 너)이 켠다."""
+    공유 폴더(기본 30일)와 서버 보관 폴더(기본 180일) 모두에 걸린다 — 한쪽만 켜게 하면
+    나머지가 조용히 사라지는 날이 온다. 기한은 기본값이고 이것이 예외다.
+
+    「이건 남겨야 한다」 를 아는 사람(또는 너)이 켠다. 안 켜도 잃는 것은 파일뿐이고
+    `doe_rerun` 이 되살리지만, 수천 점이면 그 시간이 아깝다."""
     flag = "true" if keep else "false"
     return await _post(ctx, f"/api/doe/{study_id}/keep?keep={flag}", None)
 

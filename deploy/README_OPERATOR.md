@@ -303,6 +303,35 @@ sudo ./deploy.sh status          # 「실험계획 공유 폴더」 에 쓰기 �
 - 네트워크 마운트(CIFS·NFS)면 **운영 계정이 쓸 수 있어야** 한다. `chown` 이 안 먹는 마운트가
   흔하므로 `uid=`/`gid=` 옵션으로 맞춘다. `deploy.sh install`/`status` 가 실제로 써 보고 말해 준다.
 - 화면에는 윈도우 경로로 보인다(`/mnt/f/...` → `F:\...`). 해석 쪽이 윈도우면 그대로 열린다.
+### 폴더는 둘이고, 둘 다 **수명이 있다**
+
+| | 어디 | 누가 읽나 | 기본 기한 |
+| --- | --- | --- | --- |
+| 서버 보관 폴더 | `filestore/doe/<이름>-<id8>/` | CompCore(내려받기 · 「보내기」 의 복사원) | **180일** |
+| 공유 폴더 | 위에서 정한 자리 | 해석 플랫폼 | **30일**(「다 읽었다」 면 즉시) |
+
+`<slug>-cleanup.timer` 가 매일 04:10(대기 서버는 04:40)에 지난 것을 치운다. 백업이 끝난 뒤다 —
+지워질 폴더도 그날 백업에는 한 번 들어가게.
+
+**지우는 것은 파일뿐이다.** 스터디 · 설계점 · 레시피 스냅샷은 DB 에 남으므로 화면은 그대로
+뜨고(표는 DB 에서, 3D 는 도면에서 다시 만든다), 스터디 화면의 **「다시 만들기」** 를 누르면
+같은 파일이 다시 선다. 공유 폴더 청소가 먼저 돌고, 아직 해석에 나가 있는 스터디의 서버 보관
+폴더는 건드리지 않는다.
+
+```bash
+# 무엇이 지워질지 먼저 본다 — 지우지는 않는다
+sudo -u <운영계정> apptainer exec --bind <env>:/opt/app/backend/.env:ro \
+  --bind <filestore>:/data/filestore <설치폴더>/app.sif \
+  sh -c 'cd /opt/app/backend && /opt/app/venv/bin/python scripts/cleanup_doe_exports.py --dry-run'
+
+sudo systemctl start <slug>-cleanup     # 지금 한 번 돌린다
+sudo ./deploy.sh status                 # 다음 차례가 언제인지
+```
+
+기한은 **화면(관리 › 서버 › 설정)** 에서 바꾼다 — `DOE_EXPORT_TTL_DAYS` · `DOE_LOCAL_TTL_DAYS`
+는 그 기본값일 뿐이다. **0 이면 자동 삭제를 안 한다.** 남겨야 할 스터디가 있으면 그 스터디에서
+**「영구보관」** 을 켠다 — 두 폴더 모두에 걸리고, 기한보다 세다.
+
 - **백업 대상이 아니다.** 주인이 따로 있고, 안의 STEP 은 도면과 설계점에서 다시 만들 수 있다.
 - 한 번에 만드는 설계점 · LHS 표본 수의 상한은 **화면(관리 › 서버 › 설정)** 에서 바꾼다.
   `.env` 의 `DOE_MAX_POINTS` · `DOE_MAX_SAMPLES` 는 그 기본값일 뿐이다.

@@ -75,6 +75,20 @@ KNOWN: dict[str, Known] = {
         minimum=0,
         maximum=3650,
     ),
+    "doe_local_ttl_days": Known(
+        key="doe_local_ttl_days",
+        label="실험계획 서버 보관 폴더 보관 기한(일)",
+        description=(
+            "서버가 설계점 파일(STEP · 점 파일)을 며칠 두는가. 지나면 **파일만** 지운다 — "
+            "스터디와 설계점 목록 · 레시피 스냅샷은 남으므로 화면은 그대로 뜨고, "
+            "「다시 만들기」 를 누르면 같은 파일이 다시 선다. 공유 폴더보다 길게 잡는다 "
+            "(여기가 「보내기」 의 복사원이다). 0 이면 자동 삭제를 안 한다. 스터디마다 "
+            "「영구보관」 을 켜면 두 폴더 모두 기한과 무관하게 남는다."
+        ),
+        default=lambda: get_settings().doe_local_ttl_days,
+        minimum=0,
+        maximum=3650,
+    ),
     "doe_max_samples": Known(
         key="doe_max_samples",
         label="DOE LHS 표본 수 상한",

@@ -80,6 +80,12 @@ class StudyOut(StudySummaryOut):
     """영구보관 — 보관 기한이 지나도 공유 폴더를 남긴다."""
     released_at: datetime | None = None
     """해석이 「다 읽었다」 고 알린 때 — 알린 폴더는 먼저 치워진다."""
+    local_ready: bool = True
+    """서버 보관 폴더에 설계점 파일이 **아직 있나.** 보관 기한이 지나 치워졌으면 False 다 —
+    그때 화면은 「다시 만들기」 를 권하고, 내려받기 · 「보내기」 는 막힌다.
+
+    DB 칸이 아니라 **폴더를 보고 그때그때 답한다**(`services.local_ready`). 두 곳에 적으면
+    청소 · 백업 복원 · 사람 손에 어긋나는 날이 온다."""
     export_dir_windows: str
     """공유 폴더 경로(F:\\…). 아직 안 보냈으면 빈 문자열."""
     exported_at: datetime | None

@@ -1,0 +1,12 @@
+[Unit]
+Description=@@APP_NAME@@ 실험계획 폴더 청소 매일
+
+[Timer]
+OnCalendar=*-*-* @@AT@@:00
+# 그 시각에 꺼져 있었으면 켜진 뒤 바로. 하루쯤 건너뛰어도 큰일은 아니지만, 빼 두면 늘 꺼져
+# 있는 서버에서는 **영영** 안 돌고 폴더만 쌓인다.
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

@@ -540,6 +540,27 @@ setup_backup_timer() {
         || warn "백업 타이머 기동 실패 — 'systemctl status ${BACKUP_SERVICE_NAME}.timer' 확인"
 }
 
+# ── 실험계획 폴더 청소 타이머 — 두 폴더의 기한 지난 **파일만** 치운다. 스터디 · 설계점 ·
+# 레시피 스냅샷은 DB 에 남고 「다시 만들기」 가 되살리므로 되돌릴 수 없는 일이 아니다.
+# 이중화면 두 서버 모두 걸려도 된다(지울 것이 없으면 아무 일도 안 한다). 비치명적. ──
+CLEANUP_SERVICE_NAME="${APP_SLUG}-cleanup"
+CLEANUP_SERVICE_UNIT="/etc/systemd/system/${CLEANUP_SERVICE_NAME}.service"
+CLEANUP_TIMER_UNIT="/etc/systemd/system/${CLEANUP_SERVICE_NAME}.timer"
+setup_cleanup_timer() {
+    [[ -f "$HERE/cleanup.service.template" && -f "$HERE/cleanup.timer.template" ]] \
+        || { warn "cleanup.*.template 없음 — 청소 타이머 건너뜀"; return 0; }
+    # 백업(03:00/03:30)이 끝난 뒤에 — 지워질 폴더도 그날 백업에는 한 번 들어가게.
+    local at="04:10"; [[ "$HA_ROLE" == "backup" ]] && at="04:40"
+    info "청소 타이머 렌더 → $CLEANUP_TIMER_UNIT (매일 $at)"
+    render_unit_paths "$HERE/cleanup.service.template" > "$CLEANUP_SERVICE_UNIT"
+    sed -e "s|@@APP_NAME@@|$APP_NAME|g" -e "s|@@AT@@|$at|g" "$HERE/cleanup.timer.template" > "$CLEANUP_TIMER_UNIT"
+    chmod 644 "$CLEANUP_SERVICE_UNIT" "$CLEANUP_TIMER_UNIT"
+    systemctl daemon-reload
+    systemctl enable --now "${CLEANUP_SERVICE_NAME}.timer" >/dev/null 2>&1 \
+        || warn "청소 타이머 기동 실패 — 'systemctl status ${CLEANUP_SERVICE_NAME}.timer' 확인"
+    info "청소 타이머: 매일 $at, 기한 지난 실험계획 폴더의 파일만 (journalctl -u $CLEANUP_SERVICE_NAME)"
+}
+
 # ── 실험계획 공유 폴더 — **쓸 수 있는지 지금 본다.** 못 쓰면 그 사실은 사람이 설계점 48개를
 # 만들려는 날에야 드러난다(앱이 미리 보고 거절하지만, 그때는 이미 배포가 끝난 뒤다). ──
 check_doe_dir() {
@@ -678,6 +699,7 @@ cmd_install() {
     setup_mcp || warn "MCP 설정 건너뜀(비치명적)"
     setup_sync_timer || warn "동기화 타이머 건너뜀(비치명적)"
     setup_backup_timer || warn "백업 타이머 건너뜀(비치명적)"
+    setup_cleanup_timer || warn "청소 타이머 건너뜀(비치명적)"
     setup_lb
     check_doe_dir
 
@@ -727,6 +749,7 @@ cmd_update() {
     setup_mcp || warn "MCP 설정 건너뜀(비치명적)"
     setup_sync_timer || warn "동기화 타이머 건너뜀(비치명적)"
     setup_backup_timer || warn "백업 타이머 건너뜀(비치명적)"
+    setup_cleanup_timer || warn "청소 타이머 건너뜀(비치명적)"
     setup_lb
 
     cat <<MSG
@@ -812,6 +835,12 @@ cmd_status() {
         systemctl --no-pager list-timers "${BACKUP_SERVICE_NAME}.timer" || true
         [[ -f "$BACKUP_HOST_DIR/LAST_BACKUP.txt" ]] && head -n1 "$BACKUP_HOST_DIR/LAST_BACKUP.txt"
     fi
+    if [[ -f "$CLEANUP_TIMER_UNIT" ]]; then
+        echo
+        echo "== 실험계획 폴더 청소 타이머 ($CLEANUP_SERVICE_NAME.timer) =="
+        systemctl --no-pager list-timers "${CLEANUP_SERVICE_NAME}.timer" || true
+        echo "  기한은 관리자 화면(서버 > 설정)에서 — 공유 폴더 기본 30일 · 서버 보관 폴더 180일, 0 이면 안 지움"
+    fi
     echo
     ha_status
 }
@@ -870,6 +899,8 @@ cmd_setup() {
     MCP_SERVICE_NAME="${APP_SLUG}-mcp"; MCP_SERVICE_UNIT="/etc/systemd/system/${MCP_SERVICE_NAME}.service"
     BACKUP_SERVICE_NAME="${APP_SLUG}-backup"; BACKUP_SERVICE_UNIT="/etc/systemd/system/${BACKUP_SERVICE_NAME}.service"
     BACKUP_TIMER_UNIT="/etc/systemd/system/${BACKUP_SERVICE_NAME}.timer"
+    CLEANUP_SERVICE_NAME="${APP_SLUG}-cleanup"; CLEANUP_SERVICE_UNIT="/etc/systemd/system/${CLEANUP_SERVICE_NAME}.service"
+    CLEANUP_TIMER_UNIT="/etc/systemd/system/${CLEANUP_SERVICE_NAME}.timer"
     MCP_PORT=$((APP_PORT + 2)); MCP_API_BASE="http://127.0.0.1:$APP_PORT"
     [[ -n "$HA_ROLE" ]] && MCP_HOST="0.0.0.0"
     SELF_IP="${SELF_IP_GIVEN:-}"   # 상대 IP 를 이제 아니, 그쪽으로 나가는 내 주소를 다시 잰다
@@ -968,7 +999,7 @@ cmd_remove() {
     cat <<MSG
 
   ⚠ 인스턴스 삭제 — $APP_NAME ($APP_SLUG). 다음이 **전부 사라집니다**:
-      유닛     : $SERVICE_NAME · $WORKER_SERVICE_NAME · $MCP_SERVICE_NAME · $SYNC_SERVICE_NAME.timer · $BACKUP_SERVICE_NAME.timer
+      유닛     : $SERVICE_NAME · $WORKER_SERVICE_NAME · $MCP_SERVICE_NAME · $SYNC_SERVICE_NAME.timer · $BACKUP_SERVICE_NAME.timer · $CLEANUP_SERVICE_NAME.timer
       DB       : $DB_NAME 과 역할 $DB_USER (이 서버의 PostgreSQL 이 주일 때)
       설치 폴더: $INSTALL_DIR (SIF · .env · 로그$( [[ -z "$DATA_DIR" ]] && echo ' · 첨부' ))
       기록     : $INSTANCES_DIR/$APP_SLUG.conf
@@ -980,7 +1011,8 @@ MSG
 
     local unit
     for unit in "$SERVICE_NAME.service" "$WORKER_SERVICE_NAME.service" "$MCP_SERVICE_NAME.service" "$SYNC_SERVICE_NAME.timer" \
-                "$SYNC_SERVICE_NAME.service" "$BACKUP_SERVICE_NAME.timer" "$BACKUP_SERVICE_NAME.service"; do
+                "$SYNC_SERVICE_NAME.service" "$BACKUP_SERVICE_NAME.timer" "$BACKUP_SERVICE_NAME.service" \
+                "$CLEANUP_SERVICE_NAME.timer" "$CLEANUP_SERVICE_NAME.service"; do
         systemctl disable --now "$unit" >/dev/null 2>&1 || true
         rm -f "/etc/systemd/system/$unit"
     done
@@ -1017,13 +1049,14 @@ cmd_render() {
     mkdir -p "$ETC/etc/systemd/system"
     # 설정 파일도 그 아래에 — 실제 배포가 남길 것과 같은 모양을 본다.
     instance_save; ha_save
-    for tpl in app.service worker.service sync.service backup.service; do
+    for tpl in app.service worker.service sync.service backup.service cleanup.service; do
         [[ -f "$HERE/$tpl.template" ]] || continue
         case "$tpl" in
-            app.service)    unit="$SERVICE_NAME.service" ;;
-            worker.service) unit="$WORKER_SERVICE_NAME.service" ;;
-            sync.service)   unit="$SYNC_SERVICE_NAME.service" ;;
-            *)              unit="$BACKUP_SERVICE_NAME.service" ;;
+            app.service)     unit="$SERVICE_NAME.service" ;;
+            worker.service)  unit="$WORKER_SERVICE_NAME.service" ;;
+            sync.service)    unit="$SYNC_SERVICE_NAME.service" ;;
+            cleanup.service) unit="$CLEANUP_SERVICE_NAME.service" ;;
+            *)               unit="$BACKUP_SERVICE_NAME.service" ;;
         esac
         render_unit_paths "$HERE/$tpl.template" > "$ETC/etc/systemd/system/$unit"
     done

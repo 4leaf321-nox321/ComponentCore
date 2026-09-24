@@ -125,6 +125,8 @@ cp deploy/mcp.service.template       "$STAGE/"
 cp deploy/worker.service.template    "$STAGE/"
 cp deploy/backup.service.template    "$STAGE/"
 cp deploy/backup.timer.template      "$STAGE/"
+cp deploy/cleanup.service.template   "$STAGE/"
+cp deploy/cleanup.timer.template     "$STAGE/"
 # 이중화 — deploy.sh 가 source 하는 ha.sh 와, 서버에 /usr/local/sbin/pg-ha 로 깔리는 pg-ha.sh.
 # **ha.sh 가 없으면 deploy.sh 가 단독 서버에서도 안 돈다**(첫 줄에서 찾는다).
 cp deploy/ha.sh                      "$STAGE/"

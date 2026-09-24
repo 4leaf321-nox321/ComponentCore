@@ -235,8 +235,12 @@ _MESH_CACHE_SIZE = 64
 
 
 def point_mesh(db: Session, study: DoeStudy, number: int) -> dict[str, Any]:
-    """설계점 하나의 형상 — 스냅샷 레시피에 그 점의 값을 넣어 다시 만든다(STEP 을 읽는 것보다
-    빠르고, 같은 규칙이다). 면마다 어느 점인지는 화면이 붙인다."""
+    """설계점 하나의 형상 — 스냅샷 레시피에 그 점의 값을 넣어 **다시 만든다.**
+
+    STEP 을 읽는 것보다 **빠르지는 않다**(구멍 24 짜리 판에서 만들기 257 ms 대 읽기 28 ms; 둘
+    다 여기에 메시 144 ms 가 더 붙는다). 그런데도 다시 만드는 이유는 **STEP 이 없을 수 있기
+    때문이다** — 공유 폴더는 전달 큐라 기한이 지나면 치워지고, 그때도 화면은 떠야 한다.
+    레시피는 DB 에 남으므로 이 길은 언제나 있다. 면마다 어느 점인지는 화면이 붙인다."""
     key = (study.id, number)
     if key in _MESH_CACHE:
         _MESH_CACHE.move_to_end(key)
@@ -268,9 +272,75 @@ def point_mesh(db: Session, study: DoeStudy, number: int) -> dict[str, Any]:
     return made
 
 
+def _needs_build(folder: Path, point: DoePoint, only: str) -> bool:
+    """이 점을 다시 만들어야 하나 — 다 하라고 했거나, 실패했거나, **파일이 사라졌거나.**
+
+    작업 함수와 「다시 만들기」 가 **같은 규칙을 본다.** 다르면 화면의 진행 표시가 건너뛴 점을
+    두고 거짓말을 한다."""
+    if only != "failed" or point.status != "ok":
+        return True
+    return not (point.step_file and (folder / point.step_file).exists())
+
+
+def rerun_study(
+    db: Session, study: DoeStudy, *, requester: User, only: str = "all"
+) -> DoeStudy:
+    """스냅샷으로 **설계점 파일을 다시 만든다.** 새 스터디가 아니라 같은 스터디다.
+
+    왜 있어야 하나: 폴더는 수명이 있고(공유 폴더 30일, 서버 보관 폴더도 기한이 있다) 파일이
+    치워지면 내려받기도 「보내기」 도 못 한다. 그런데 **다시 만들 재료는 DB 에 다 있다** —
+    레시피 · 인자 · 시드 · 조건이 스냅샷으로 박혀 있으니 같은 것이 그대로 나온다. 이력이
+    의미를 가지려면 이 길이 있어야 한다.
+
+    `only="failed"` 는 실패한 점만 — 범위를 고쳐 다시 돌리는 게 아니라(그건 새 스터디다),
+    같은 값으로 한 번 더 해 보는 것이다. 파일이 사라진 점은 `ok` 였어도 다시 만든다.
+    """
+    if only not in ("all", "failed"):
+        raise AppError(code("DOE", 16), "only 는 all 또는 failed 입니다.")
+    job = db.get(Job, study.job_id) if study.job_id else None
+    if job is not None and job.status in ("queued", "running"):
+        raise AppError(code("DOE", 17), "아직 만드는 중입니다 — 끝나면 다시 만들 수 있습니다.")
+    # 폴더 경로가 비어 있던 옛 줄도 여기서 제 자리를 얻는다.
+    if not study.local_dir:
+        study.local_dir = str(
+            files.study_dir(filestore.root() / "doe", study.name, str(study.id))
+        )
+    # 다시 만들 점은 먼저 pending 으로 — 안 그러면 화면이 옛 결과를 진행으로 보여 준다.
+    folder = Path(study.local_dir)
+    for point in points(db, study):
+        if _needs_build(folder, point, only):
+            point.status = "pending"
+            point.error = ""
+    fresh = jobs.enqueue(
+        db,
+        kind=JOB_KIND,
+        requested_by=requester,
+        work_id=study.work_id,
+        input={"study_id": str(study.id), "only": only},
+        options={},
+    )
+    study.job_id = fresh.id
+    db.commit()
+    db.refresh(study)
+    return study
+
+
+def local_ready(study: DoeStudy) -> bool:
+    """서버 보관 폴더에 **쓸 만한 것이 있나.** 표가 있으면 있는 것이다.
+
+    이것을 DB 칸으로 두지 않는 까닭: 폴더는 청소 · 백업 복원 · 사람 손으로도 바뀐다. 두 곳에
+    적으면 어긋나는 날이 오고, 그때 화면은 있다고 하는데 내려받기는 없다고 한다."""
+    return bool(study.local_dir) and (Path(study.local_dir) / "manifest.csv").exists()
+
+
 def delete_study(db: Session, study: DoeStudy) -> None:
-    """DB 에서만 지운다 — **공유 폴더의 파일은 남긴다.** 해석이 이미 그 폴더를 보고 있을 수
-    있고, 남의 도구가 읽는 파일을 말없이 지우면 안 된다."""
+    """스터디와 **서버 보관 폴더**를 지운다. 공유 폴더의 사본은 **남긴다.**
+
+    둘을 다르게 다루는 까닭은 누가 읽느냐다. 서버 보관 폴더는 우리 것이고 이 줄이 사라지면
+    아무도 찾을 수 없는 쓰레기가 된다. 공유 폴더는 해석이 이미 열어 보고 있을 수 있고 제
+    결과를 덧붙여 두었을 수도 있다 — 남의 도구가 읽는 파일을 말없이 지우지 않는다."""
+    if study.local_dir:
+        shutil.rmtree(Path(study.local_dir), ignore_errors=True)
     db.delete(study)
     db.commit()
 
@@ -284,8 +354,14 @@ def export_study(db: Session, study: DoeStudy) -> DoeStudy:
         raise AppError(code("DOE", 9), "아직 만드는 중입니다 — 끝나면 보낼 수 있습니다.")
     source = Path(study.local_dir)
     if not (source / "manifest.csv").exists():
+        # 둘을 갈라 말한다 — 「없다」 는 같아도 할 일이 다르다. 만들다 만 것이면 기다릴 일,
+        # 치워진 것이면 「다시 만들기」 를 누를 일이다.
+        made = any(one.status == "ok" for one in points(db, study))
         raise AppError(
-            code("DOE", 10), "보낼 것이 없습니다 — 설계점이 하나도 만들어지지 않았습니다."
+            code("DOE", 10),
+            "서버 보관 폴더가 정리되었습니다 — 「다시 만들기」 를 먼저 누르세요."
+            if made
+            else "보낼 것이 없습니다 — 설계점이 하나도 만들어지지 않았습니다.",
         )
     root = check_root()
     target = files.study_dir(root, study.name, str(study.id))
@@ -373,6 +449,60 @@ def cleanup_exports(db: Session, *, dry_run: bool = False) -> dict[str, Any]:
     return {"removed": removed, "count": len(removed), "dry_run": dry_run}
 
 
+def expired_locals(db: Session, *, now: datetime | None = None) -> list[DoeStudy]:
+    """서버 보관 폴더를 치울 때가 된 것.
+
+    공유 폴더보다 **한 단계 더 조심한다** — 여기가 복사원이라, 지우면 「보내기」 가 곧바로
+    막힌다(「다시 만들기」 로 돌아오기는 한다). 그래서 셋을 다 보고 고른다:
+
+    - **아직 공유 폴더에 나가 있으면 건드리지 않는다**(`export_dir`). 해석이 읽는 중일 때
+      복사원을 치워 두면, 다시 보내 달라는 말에 답할 길이 없다. 공유 폴더 청소가 먼저 돌아
+      그 칸을 비우면 그때 차례가 온다.
+    - **만드는 중이면 건드리지 않는다.** 작업이 쓰고 있는 폴더다.
+    - 영구보관과 기한 0 은 공유 폴더와 같은 뜻이다.
+    """
+    now = now or datetime.now(UTC)
+    days = settings_store.get_int(db, "doe_local_ttl_days")
+    if days <= 0:
+        return []
+    rows = db.scalars(
+        select(DoeStudy).where(
+            DoeStudy.local_dir != "",
+            DoeStudy.export_dir == "",
+            DoeStudy.keep_forever.is_(False),
+        )
+    ).all()
+    out = []
+    for study in rows:
+        job = db.get(Job, study.job_id) if study.job_id else None
+        if job is not None and job.status in ("queued", "running"):
+            continue
+        # 마지막으로 쓴 때 — 내보낸 적이 있으면 그때, 없으면 만든 때.
+        touched = study.exported_at or study.created_at
+        if touched is not None and (now - touched).days >= days:
+            out.append(study)
+    return out
+
+
+def cleanup_locals(db: Session, *, dry_run: bool = False) -> dict[str, Any]:
+    """서버 보관 폴더의 **파일만** 지운다. DB 의 스터디 · 설계점 · 스냅샷은 그대로.
+
+    그래서 화면은 그대로 뜬다 — 3D 는 어차피 레시피로 다시 만들고(`point_mesh`), 표는 DB 에서
+    다시 그린다(`manifest.csv` 라우터). 없어지는 것은 STEP 과 점 파일뿐이고, 그것은
+    「다시 만들기」(`rerun_study`) 가 스냅샷으로 되살린다.
+
+    `local_dir` 은 **비우지 않는다** — 다시 만들 자리가 거기다. 폴더가 있나 없나는 파일이
+    말하게 둔다(`local_ready`); 그 상태를 DB 에도 적으면 언젠가 둘이 어긋난다.
+    """
+    removed = []
+    for study in expired_locals(db):
+        folder = Path(study.local_dir)
+        if not dry_run:
+            shutil.rmtree(folder, ignore_errors=True)
+        removed.append({"id": str(study.id), "name": study.name, "folder": str(folder)})
+    return {"removed": removed, "count": len(removed), "dry_run": dry_run}
+
+
 def _owner_of(db: Session, study: DoeStudy) -> dict[str, str]:
     """만든 사람 — 이름과 계정. 없으면 빈 칸이지 거짓말은 안 한다."""
     user = db.get(User, study.owner_id) if study.owner_id else None
@@ -414,10 +544,14 @@ def _interference_of(shape: Any) -> dict[str, Any] | None:
 def run_job(
     input: dict[str, Any], options: dict[str, Any], out_dir: Path, progress: registry.Progress
 ) -> registry.Outcome:
-    """Job kind="doe" — 점마다 형상을 만들어 공유 폴더에 STEP 을 쓴다.
+    """Job kind="doe" — 점마다 형상을 만들어 **서버 보관 폴더**에 STEP 을 쓴다.
 
     작업 함수는 웹을 모르지만 **DB 는 본다** — 설계점이 수십 개라 결과를 그때그때 적어야
-    화면이 진행을 보여 줄 수 있다(다 끝나고 한꺼번에 적으면 5 분 동안 빈 표를 본다)."""
+    화면이 진행을 보여 줄 수 있다(다 끝나고 한꺼번에 적으면 5 분 동안 빈 표를 본다).
+
+    `input["only"] == "failed"` 면 실패한 점만 다시 한다. 다만 **파일이 사라진 점은 `ok`
+    였어도 다시 만든다** — 폴더가 치워진 뒤의 「다시 만들기」 가 이 길로 오고, 그때 반쪽짜리
+    폴더를 내주면 안 된다. 건너뛴 점도 표에는 제 줄을 그대로 쓴다(표는 늘 온전해야 한다)."""
     del options, out_dir
     from app.database import SessionLocal
 
@@ -433,8 +567,24 @@ def run_job(
         rows: list[dict[str, Any]] = []
         made = 0
         failed = 0
+        only = str(input.get("only") or "all")
         for point in points(db, study):
             started = time.perf_counter()
+            if not _needs_build(folder, point, only):
+                made += 1
+                rows.append(
+                    files.manifest_row(
+                        point.number,
+                        point.params,
+                        factor_names,
+                        status="ok",
+                        step_file=point.step_file,
+                        point_file=point.point_file,
+                        unresolved=(point.geometry or {}).get("topology_unresolved"),
+                        interference=(point.geometry or {}).get("interference"),
+                    )
+                )
+                continue
             recipe = {
                 **study.recipe,
                 "params": {**(study.recipe.get("params") or {}), **point.params},

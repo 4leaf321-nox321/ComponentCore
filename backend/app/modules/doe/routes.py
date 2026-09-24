@@ -68,6 +68,7 @@ def _out(db: Session, study: DoeStudy) -> StudyOut:
         conditions=study.conditions,
         keep_forever=study.keep_forever,
         released_at=study.released_at,
+        local_ready=services.local_ready(study),
         factors=study.factors,
         export_dir_windows=files.windows_path(Path(study.export_dir))
         if study.export_dir
@@ -139,6 +140,24 @@ def export_study(
 ) -> StudyOut:
     """서버 보관 폴더의 STEP · 표를 **공유 폴더로 보낸다.** 해석은 그때부터 읽는다."""
     return _out(db, services.export_study(db, services.get_study(db, study_id, user)))
+
+
+@router.post("/{study_id}/rerun", response_model=StudyOut)
+def rerun_study(
+    study_id: uuid.UUID,
+    only: str = Query(default="all", pattern="^(all|failed)$"),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> StudyOut:
+    """**다시 만들기** — 스냅샷(레시피 · 인자 · 시드 · 조건)으로 설계점 파일을 되살린다.
+
+    보관 기한이 지나 파일이 치워졌거나, 실패한 점을 한 번 더 해 볼 때. 새 스터디가 아니라
+    **같은 스터디**다 — 같은 재료로 같은 것이 나온다. `only=failed` 면 실패한 점만(파일이
+    사라진 점은 `ok` 였어도 다시 만든다).
+
+    범위를 고쳐 다시 돌리는 것은 이것이 아니다 — 그건 새 스터디다."""
+    study = services.get_study(db, study_id, user)
+    return _out(db, services.rerun_study(db, study, requester=user, only=only))
 
 
 @router.get("/{study_id}/points/{number}/mesh")
@@ -215,5 +234,6 @@ def release_study(
 def delete_study(
     study_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)
 ) -> None:
-    """DB 에서만 지운다 — 공유 폴더의 파일은 남는다(해석이 보고 있을 수 있다)."""
+    """스터디와 **서버 보관 폴더**를 지운다 — 공유 폴더의 사본은 남는다(해석이 보고 있을 수
+    있다)."""
     services.delete_study(db, services.get_study(db, study_id, user))
