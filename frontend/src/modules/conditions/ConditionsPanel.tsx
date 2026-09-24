@@ -19,6 +19,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { Recipe } from '@/modules/cad/api'
 import { useRecipeMesh } from '@/modules/cad/useRecipeMesh'
 import { ConditionForm } from '@/modules/conditions/ConditionForm'
+import { materialsApi } from '@/modules/materials/api'
 import { MaterialPicker } from '@/modules/materials/MaterialPicker'
 import { asConditions, conditionsApi, GROUP_KEYS } from '@/modules/conditions/api'
 import type {
@@ -180,6 +181,31 @@ export function ConditionsPanel({
    * 어긋나는 날이 오고, 그때 사람이 고른 바디가 폴더에 없는 이름이 된다.
    */
   const bodies = useResource(() => conditionsApi.bodies(recipe), [recipe])
+
+  /**
+   * 물성마다 **낼 수 있는 솔버 덱 형식.** 고른 것은 중립 물성 옆에 덤으로 나간다 —
+   * 받는 쪽이 제 덱을 손으로 짜는 대신 그대로 쓴다.
+   *
+   * **기본은 안 담는다.** 덱은 솔버별이라 담는 순간 솔버를 고르는 것이고, 우리 계약은
+   * 솔버를 모르는 것이다. 고르는 것은 사람이다.
+   */
+  const [deckChoices, setDeckChoices] = useState<Record<string, { key: string; ready: boolean }[]>>({})
+  useEffect(() => {
+    let alive = true
+    for (const one of draft.materials) {
+      const ref = (one.ref ?? {}) as Record<string, unknown>
+      const id = String(ref.material_id ?? '')
+      if (!id || deckChoices[id]) continue
+      const source = String(ref.source ?? '').includes('literature') ? 'literature' : 'registered'
+      void materialsApi
+        .deckFormats(id, source)
+        .then((got) => alive && setDeckChoices((now) => ({ ...now, [id]: got.items })))
+        .catch(() => alive && setDeckChoices((now) => ({ ...now, [id]: [] })))
+    }
+    return () => {
+      alive = false
+    }
+  }, [draft.materials, deckChoices])
   const bodyNames = useMemo(
     () => (bodies.data?.items ?? []).map((one) => one.name),
     [bodies.data],
@@ -298,6 +324,54 @@ export function ConditionsPanel({
                     )}
                     {bodyNames.length <= 1 && (
                       <span className="text-muted-foreground text-xs">전체</span>
+                    )}
+                    {/*
+                      **솔버 덱을 덤으로.** 받는 쪽이 `MP,EX,…` 를 손으로 짜는 대신 그대로
+                      쓴다 — MatNexus 가 단위계까지 박아 만들어 주므로 손으로 짜다 틀릴
+                      자리가 없어진다. 중립 물성은 그대로 나가고 이것은 옆에 붙는다.
+                    */}
+                    {(deckChoices[String(((one.ref ?? {}) as Record<string, unknown>).material_id ?? '')] ?? [])
+                      .filter((f) => f.ready)
+                      .length > 0 && (
+                      <details className="mt-1">
+                        <summary className="text-muted-foreground cursor-pointer text-xs">
+                          솔버 덱 함께 보내기
+                          {((one as { deck_formats?: string[] }).deck_formats ?? []).length > 0 &&
+                            ` (${((one as { deck_formats?: string[] }).deck_formats ?? []).length})`}
+                        </summary>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {(deckChoices[String(((one.ref ?? {}) as Record<string, unknown>).material_id ?? '')] ?? [])
+                            .filter((f) => f.ready)
+                            .map((f) => {
+                              const 고름 = ((one as { deck_formats?: string[] }).deck_formats ?? []).includes(f.key)
+                              return (
+                                <button
+                                  key={f.key}
+                                  type="button"
+                                  aria-pressed={고름}
+                                  className={`rounded border px-1.5 py-0.5 text-xs ${고름 ? 'border-primary bg-accent' : 'text-muted-foreground'}`}
+                                  onClick={() =>
+                                    setDraft({
+                                      ...draft,
+                                      materials: draft.materials.map((m, i) => {
+                                        if (i !== index) return m
+                                        const now = (m as { deck_formats?: string[] }).deck_formats ?? []
+                                        return {
+                                          ...m,
+                                          deck_formats: 고름
+                                            ? now.filter((x) => x !== f.key)
+                                            : [...now, f.key],
+                                        }
+                                      }),
+                                    })
+                                  }
+                                >
+                                  {f.key}
+                                </button>
+                              )
+                            })}
+                        </div>
+                      </details>
                     )}
                   </li>
                 ))}
@@ -509,7 +583,15 @@ export function ConditionsPanel({
               {
                 apply_to: '전체',
                 ref: {
-                  source: row.source === 'catalog' ? 'matnexus-catalog' : 'matnexus',
+                  source:
+                    row.source === 'catalog'
+                      ? 'matnexus-catalog'
+                      : row.source === 'literature'
+                        ? 'matnexus-literature'
+                        : 'matnexus',
+                  // **그쪽 id** — 덱을 뽑으려면 이것이 필요하다(번호로는 카드를 못 찾고,
+                  // 문헌은 번호가 없는 것이 많다).
+                  material_id: row.id,
                   code: row.code,
                   name: row.name,
                   fetched_at: new Date().toISOString(),

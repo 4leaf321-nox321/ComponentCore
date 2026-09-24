@@ -61,6 +61,9 @@ class MaterialRef(Base):
     source: str = "matnexus"
     code: str = ""
     """MatNexus 의 불변 번호(`M-000123`). 손입력이면 비어 있다."""
+    material_id: str = ""
+    """그쪽의 UUID. **덱을 뽑을 때 이것이 필요하다** — 번호로는 카드를 못 찾는다.
+    문헌 재료는 번호가 없는 것이 많아 이 칸이 유일한 손잡이일 때도 있다."""
     name: str = ""
     fetched_at: str = ""
 
@@ -75,6 +78,15 @@ class Material(Base):
     payload: dict[str, Any] = Field(default_factory=dict)
     """물성 플랫폼이 준 것 **그대로.** 저장할 때도 내보낼 때도 우리가 손대지 않는다 —
     이것이 감사의 정본이다."""
+    deck_formats: list[str] = Field(default_factory=list)
+    """**함께 내보낼 솔버 덱**(`ansys` · `nastran` · `dyna_elastic` …). 비면 안 만든다.
+
+    중립 payload 를 **대신하지 않고 덤으로** 간다. 받는 쪽이 제 솔버 덱을 손으로 짜는 대신
+    그대로 쓸 수 있고, 우리 계약은 여전히 솔버를 모른다 — 어느 형식을 담을지는 **사람이나
+    오케스트레이터가 고른다.**
+
+    글월은 여기 안 담는다. **내보낼 때 그때 뽑는다** — 재료가 여럿이면 덱 안의 재료 번호
+    (`mid`)가 서로 달라야 하는데, 그 번호는 한 벌이 다 모여야 정해진다."""
 
 
 # ── 조건들 ────────────────────────────────────────────────────────────────────

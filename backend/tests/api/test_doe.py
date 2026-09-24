@@ -1032,3 +1032,112 @@ def test_형상이_같은_점은_메시도_한_번만_만든다(client: TestClie
     assert 첫째["number"] == 1 and 둘째["number"] == 2
     assert 첫째["params"]["압력"] == 2.0 and 둘째["params"]["압력"] == 3.0
     assert 첫째["mesh"] == 둘째["mesh"]
+
+
+def test_솔버_덱을_덤으로_함께_보낸다(
+    client: TestClient, member: Signed, export_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """받는 쪽은 `MP,EX,matid,…` 를 손으로 짠다. MatNexus 가 같은 것을 **더 완전하게**
+    만들어 준다(CTE · 비열 · 전도율 · 소성, 그리고 단위계가 덱 머리에 박힌다).
+
+    그래도 **중립 물성을 대신하지 않는다** — 덱은 솔버별이라 담는 순간 솔버를 고르는
+    것이고, 받는 쪽이 하나가 아니다. 옆에 붙는다.
+    """
+    from app.shared.clients import matnexus
+
+    불린것: list[dict[str, Any]] = []
+
+    def 가짜덱(card_id: str, deck_format: str, system: str, mid: int | None = None) -> str:
+        불린것.append({"card": card_id, "format": deck_format, "units": system, "mid": mid})
+        return f"! Consistent units: {system}\n/PREP7\nMP,EX,{mid},7.03E+04\n"
+
+    monkeypatch.setattr(
+        matnexus,
+        "deck_formats",
+        lambda material_id: [{"key": "ansys", "ready": True, "card_id": "카드1"}],
+    )
+    monkeypatch.setattr(matnexus, "card_deck", 가짜덱)
+
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "덱 함께",
+            "recipe": JIG,
+            "factors": [{"name": "두께", "mode": "list", "values": [6]}],
+            "conditions": {
+                "units": {"system": "mm_n_tonne"},
+                "materials": [
+                    {
+                        "apply_to": "전체",
+                        "ref": {"source": "matnexus", "name": "Al5052", "material_id": "m-1"},
+                        "payload": {"density_si": 2680.0},
+                        "deck_formats": ["ansys"],
+                    }
+                ],
+            },
+        },
+        headers=member.headers,
+    )
+    assert made.status_code == 201, made.text
+    client.post(f"/api/doe/{made.json()['id']}/export", headers=member.headers)
+    folder = next(one for one in export_root.iterdir() if one.name.startswith("덱_함께"))
+
+    # **단위계는 우리가 선언한 그 계로** 뽑는다 — 덱 안 숫자에는 단위가 없다.
+    assert 불린것 == [{"card": "카드1", "format": "ansys", "units": "mm_n_tonne", "mid": 1}]
+    written = (folder / "materials" / "m1-ansys.dat").read_text(encoding="utf-8")
+    assert "MP,EX,1," in written
+
+    # 점 파일이 **가리키기만** 한다 — 덱은 폴더에 한 벌이고 점마다 같다.
+    point = json.loads(
+        next((folder / "points").glob("p0001.json")).read_text(encoding="utf-8")
+    )
+    assert point["material_decks"] == [
+        {
+            "apply_to": "전체",
+            "material": "Al5052",
+            "format": "ansys",
+            "units": "mm_n_tonne",
+            "mid": 1,
+            "file": "materials/m1-ansys.dat",
+        }
+    ]
+    # **중립 물성은 그대로 있다.** 덱은 덤이다.
+    assert point["conditions"]["materials"][0]["converted"]["density"] == pytest.approx(
+        2.68e-09
+    )
+
+
+def test_덱을_못_뽑아도_폴더는_나가고_까닭이_남는다(
+    client: TestClient, member: Signed, export_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """덱은 덤이다 — 못 뽑았다고 폴더를 막으면, 중립 물성만 있으면 되는 받는 쪽까지 멈춘다.
+    대신 **왜인지 폴더에 적는다**: 안 그러면 「덱이 없네, 왜지」 를 우리에게 묻는다."""
+    from app.shared.clients import matnexus
+
+    monkeypatch.setattr(
+        matnexus, "deck_formats", lambda material_id: [{"key": "ansys", "ready": False}]
+    )
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "덱 실패",
+            "recipe": JIG,
+            "factors": [{"name": "두께", "mode": "list", "values": [6]}],
+            "conditions": {
+                "materials": [
+                    {
+                        "ref": {"source": "matnexus", "name": "무언가", "material_id": "m-9"},
+                        "payload": {"density_si": 2680.0},
+                        "deck_formats": ["ansys"],
+                    }
+                ]
+            },
+        },
+        headers=member.headers,
+    ).json()
+    assert made["done"] == 1, "덱이 안 나와도 설계점은 만들어진다"
+    client.post(f"/api/doe/{made['id']}/export", headers=member.headers)
+    folder = next(one for one in export_root.iterdir() if one.name.startswith("덱_실패"))
+    까닭 = (folder / "materials" / "README.txt").read_text(encoding="utf-8")
+    assert "무언가/ansys" in 까닭 and "중립 물성" in 까닭
+    assert not list((folder / "materials").glob("*.dat"))

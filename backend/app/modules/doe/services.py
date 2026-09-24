@@ -734,6 +734,50 @@ def _owner_of(db: Session, study: DoeStudy) -> dict[str, str]:
     return _person(db, study.owner_id)
 
 
+def _write_decks(folder: Path, conditions: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """고른 솔버 덱을 `materials/` 에 쓴다. 점 파일이 가리킬 **목록**을 돌려준다.
+
+    **재료마다 덱 안의 번호(`mid`)를 1 부터 매긴다** — 한 해석에 재료가 여럿이면 서로
+    달라야 한다. 그 번호는 한 벌이 다 모여야 정해지므로 고를 때가 아니라 여기서 뽑는다.
+
+    못 뽑아도 넘어간다(덤이다) — 대신 `notes` 에 왜인지 적어 폴더에 남긴다."""
+    from app.modules.materials import decks as deck_maker
+
+    materials = (conditions or {}).get("materials") or []
+    if not any((one or {}).get("deck_formats") for one in materials):
+        return []
+    system = str(((conditions or {}).get("units") or {}).get("system") or "")
+    out: list[dict[str, Any]] = []
+    notes: list[str] = []
+    for mid, material in enumerate(materials, start=1):
+        made = deck_maker.build(material, system, mid)
+        notes.extend(made["notes"])
+        for deck in made["decks"]:
+            name = f"m{mid}-{deck['format']}.{deck_maker.extension(deck['format'])}"
+            (folder / "materials").mkdir(parents=True, exist_ok=True)
+            (folder / "materials" / name).write_text(deck["text"], encoding="utf-8")
+            out.append(
+                {
+                    "apply_to": material.get("apply_to") or "전체",
+                    "material": (material.get("ref") or {}).get("name") or "",
+                    "format": deck["format"],
+                    "units": deck["units"],
+                    "mid": mid,
+                    "file": f"materials/{name}",
+                }
+            )
+    if notes:
+        (folder / "materials").mkdir(parents=True, exist_ok=True)
+        (folder / "materials" / "README.txt").write_text(
+            "솔버 덱을 다 뽑지는 못했습니다 — 중립 물성(점 파일의 conditions.materials)은\n"
+            "그대로 있습니다. 못 뽑은 까닭:\n\n"
+            + "\n".join(f"- {one}" for one in notes)
+            + "\n",
+            encoding="utf-8",
+        )
+    return out
+
+
 def _region_definitions(conditions: dict[str, Any] | None) -> list[dict[str, Any]] | None:
     """조건의 이름표를 **영역 정의**로 — 내보낼 때 그 이름으로 좌표가 나간다.
 
@@ -799,6 +843,9 @@ def run_job(
         from app.shared.clients import matnexus as _matnexus
 
         names = _matnexus.property_keys()
+        # **솔버 덱은 스터디마다 한 번.** 설계점이 달라도 물성은 같다 — 점마다 뽑으면 같은
+        # 파일을 200번 만든다. 폴더 하나에 한 벌 두고 점 파일이 그것을 가리킨다.
+        decks = _write_decks(folder, study.conditions)
         only = str(input.get("only") or "all")
         all_points = points(db, study)
         # **만들기 전에** 어느 점끼리 형상이 같은지 안다 — 식을 푸는 것은 산수라 거저다.
@@ -903,6 +950,9 @@ def run_job(
                     topo["conditions"] = condition_model.resolve(
                         study.conditions, point.params, names
                     )
+                # **솔버 덱은 폴더에 한 벌**이고 점마다 같다 — 점 파일은 가리키기만 한다.
+                if decks:
+                    topo["material_decks"] = decks
                 point_name = f"p{point.number:04d}.json"
                 (folder / "points" / point_name).write_text(
                     json.dumps(topo, ensure_ascii=False, indent=2), encoding="utf-8"

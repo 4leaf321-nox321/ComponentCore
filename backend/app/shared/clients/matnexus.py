@@ -80,6 +80,25 @@ def _client() -> httpx.Client:
     )
 
 
+def _post(path: str, body: dict[str, Any]) -> Any:
+    """그쪽에 물어보는 POST — **읽기다**(덱을 만들어 달라는 것이지 저장이 아니다)."""
+    if not configured():
+        raise MatNexusUnavailable(missing())
+    try:
+        with _client() as client:
+            answer = client.post(path, json=body)
+    except httpx.HTTPError as failure:
+        raise MatNexusUnavailable(f"MatNexus 에 닿지 못했습니다: {failure}") from failure
+    if answer.status_code == 401:
+        raise MatNexusUnavailable("MatNexus 토큰이 거절됐습니다 — .env 의 MATNEXUS_TOKEN")
+    if answer.status_code >= 400:
+        raise AppError(
+            code("MATERIALS", 1),
+            f"MatNexus 가 거절했습니다 (HTTP {answer.status_code}): {answer.text[:200]}",
+        )
+    return answer.json()
+
+
 def _get(path: str, params: dict[str, Any] | None = None) -> Any:
     if not configured():
         raise MatNexusUnavailable(missing())
@@ -280,6 +299,70 @@ def catalog_get(material_id: str) -> dict[str, Any]:
     부르는 쪽이 골라 담는다(`representative` 만 등).
     """
     got = _get(f"/api/catalog/materials/{material_id}")
+    return got if isinstance(got, dict) else {}
+
+
+# ── 솔버 카드덱 ────────────────────────────────────────────────────────────────
+#
+# **MatNexus 가 솔버별 덱을 만들어 준다.** 형식이 스물넷이고 소성만 있는 게 아니다 —
+# `nastran`(탄성계수 · 푸아송비만) · `dyna_elastic` · `*_thermal` 은 소성 없이 나온다.
+# 그리고 단위계를 골라 뽑으므로 덱 머리에 단위가 박혀 나간다:
+#
+#     ! Consistent units: tonne, mm, s, MPa
+#     MP,EX,1,7.030000000000E+04
+#
+# **받는 쪽이 손으로 쓰던 것이 바로 이것**이고, 그쪽 것보다 완전하다(CTE · 비열 · 전도율 ·
+# 소성 표까지). 그래서 중립 payload 옆에 **덤으로** 실어 보낸다 — 대신하지 않는다.
+# 우리 계약은 여전히 솔버를 모르는 것이고, 받는 쪽이 하나가 아니다.
+
+
+def deck_formats(material_id: str) -> list[dict[str, Any]]:
+    """이 재료로 **낼 수 있는 덱 형식**과 왜 못 내는지. 카드가 있어야 나온다.
+
+    `ready` 가 참인 것만 쓸 수 있고, `card_id` 가 그 덱을 만들 카드다. 못 내는 것은
+    `missing` 이 무엇이 빠졌는지 말한다(점탄성 · 소성 표 …)."""
+    got = _get(f"/api/fitting/materials/{material_id}/deck-readiness")
+    return [one for one in ((got or {}).get("formats") or []) if isinstance(one, dict)]
+
+
+def card_deck(card_id: str, deck_format: str, system: str, mid: int | None = None) -> str:
+    """확정 카드 → **솔버 덱 글월**. 단위계는 우리가 선언한 그 계다.
+
+    `mid` 는 덱 안의 재료 번호 — 한 해석에 재료가 여럿이면 서로 달라야 한다(안 주면 카드
+    id 에서 만든 수가 들어가 겹치지는 않지만 사람이 읽기 어렵다)."""
+    params: dict[str, Any] = {"format": deck_format, "units": system}
+    if mid is not None:
+        params["mid"] = mid
+    if not configured():
+        raise MatNexusUnavailable(missing())
+    try:
+        with _client() as client:
+            answer = client.get(f"/api/fitting/cards/{card_id}/export", params=params)
+    except httpx.HTTPError as failure:
+        raise MatNexusUnavailable(f"MatNexus 에 닿지 못했습니다: {failure}") from failure
+    if answer.status_code >= 400:
+        raise AppError(
+            code("MATERIALS", 7),
+            f"덱을 못 만들었습니다 ({deck_format}): {answer.text[:200]}",
+        )
+    return answer.text
+
+
+def catalog_deck(
+    catalog_material_id: str, deck_format: str, system: str, mid: int = 1
+) -> dict[str, Any]:
+    """문헌 재료 → 덱. **카드 없이 나오지만 형식이 둘뿐**이다(`dyna_elastic`·`dyna_thermal`).
+
+    곡선이 필요한 덱(소성 · 점탄성)은 시험 → 카드 경로로만 나온다 — 문헌 스칼라로는 못
+    만든다는 뜻이고, 그쪽이 기본값으로 채우느니 거절하는 것이 옳다."""
+    got = _post(
+        "/api/catalog/deck/build",
+        {
+            "items": [{"mid": mid, "catalog_material_id": catalog_material_id}],
+            "format": deck_format,
+            "units": system,
+        },
+    )
     return got if isinstance(got, dict) else {}
 
 

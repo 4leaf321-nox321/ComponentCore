@@ -59,6 +59,20 @@ export interface NamedSelection {
   select: Record<string, unknown>
 }
 
+/** 조건 한 벌에 실린 물성 하나. */
+export interface MaterialItem extends ConditionItem {
+  apply_to?: string
+  ref?: Record<string, unknown>
+  payload?: Record<string, unknown>
+  /**
+   * **함께 내보낼 솔버 덱 형식**(`ansys` · `nastran` …). 비면 안 만든다.
+   *
+   * 중립 payload 를 대신하지 않고 덤으로 간다 — 글월은 여기 안 담고 **내보낼 때** 뽑는다
+   * (재료가 여럿이면 덱 안의 번호가 서로 달라야 하는데, 그건 한 벌이 다 모여야 정해진다).
+   */
+  deck_formats?: string[]
+}
+
 export interface ConditionItem {
   [key: string]: unknown
   name?: string

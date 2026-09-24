@@ -107,6 +107,17 @@ export const materialsApi = {
    * 만 보이고, 사람은 나머지가 없는 줄 안다. 개수가 함께 오니 빈 갈래를 눌러 보게 하지도
    * 않는다.
    */
+  /**
+   * 이 재료로 **낼 수 있는 솔버 덱 형식**. 중립 물성 옆에 **덤으로** 실어 보낼 수 있다 —
+   * 받는 쪽이 제 덱을 손으로 짜는 대신 그대로 쓴다.
+   *
+   * 담는 순간 솔버를 고르는 것이라 **기본은 안 담는다**. 사람이나 오케스트레이터가 고른다.
+   */
+  deckFormats: (materialId: string, source = 'registered') =>
+    api.get<{
+      items: { key: string; label: string; ready: boolean; missing?: { label?: string }[] }[]
+      note?: string
+    }>(`/materials/${encodeURIComponent(materialId)}/decks?source=${source}`),
   /** **문헌 카탈로그**의 하위계 · 갈래 — 등록 재료 쪽과 같은 모양이라 화면이 한 벌이면 된다. */
   catalogClassifications: () =>
     api.get<{ items: { family: string; category: string; count: number }[]; fallback: boolean; total?: number }>(

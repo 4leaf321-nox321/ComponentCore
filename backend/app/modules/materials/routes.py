@@ -12,6 +12,7 @@ from app.database import get_db
 from app.modules.accounts.models import User
 from app.modules.materials import services
 from app.shared.auth import current_user, require_system_admin
+from app.shared.clients import matnexus
 from app.shared.errors import AppError, code
 
 router = APIRouter(prefix="/materials", tags=["materials"])
@@ -107,6 +108,34 @@ async def upload_catalog(
             code("MATERIALS", 6), f"JSON 을 읽지 못했습니다: {failure}"
         ) from failure
     return services.load_catalog(db, payload, filename=file.filename or "")
+
+
+@router.get("/{material_id}/decks")
+def material_decks(
+    material_id: str,
+    source: str = Query(default="registered", pattern="^(registered|literature)$"),
+    _: User = Depends(current_user),
+) -> dict[str, Any]:
+    """이 재료로 **낼 수 있는 솔버 덱 형식**과 왜 못 내는지.
+
+    받는 쪽이 제 솔버 덱을 손으로 짜는 대신 그대로 쓸 수 있게, 중립 물성 **옆에 덤으로**
+    실어 보낼 수 있다(`Material.deck_formats`). 어느 형식을 담을지는 사람이나 오케스트레이터가
+    고른다 — 덱은 솔버별이라 담는 순간 솔버를 고르는 것이고, 우리 계약은 그렇지 않다.
+
+    문헌 재료는 **카드가 없어 형식이 둘뿐**이다(`dyna_elastic` · `dyna_thermal`). 곡선이
+    필요한 덱(소성 · 점탄성)은 시험 → 카드 경로로만 나온다."""
+    if source == "literature":
+        return {
+            "items": [
+                {"key": one, "label": one, "ready": True, "missing": []}
+                for one in ("dyna_elastic", "dyna_thermal")
+            ],
+            "note": "문헌 재료는 카드가 없어 선형 탄성 · 열물성 덱만 나옵니다.",
+        }
+    try:
+        return {"items": matnexus.deck_formats(material_id), "note": ""}
+    except matnexus.MatNexusUnavailable as failure:
+        return {"items": [], "note": str(failure)}
 
 
 @router.get("/{code_or_id}")
