@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 
 import type { Recipe } from '@/modules/cad/api'
-import { AssemblyEditor } from '@/modules/works/AssemblyEditor'
+import { AssemblyEditor, sourceLink } from '@/modules/works/AssemblyEditor'
 
 const WORKS = {
   items: [
@@ -165,4 +165,26 @@ test('놓인 것의 자리와 구성품 치수에 변수를 물릴 수 있다', 
   const now = recipeNow()
   expect(now.params).toEqual({ 지그_높이: 30 })
   expect((now.nodes[0] as { params: Record<string, string> }).params).toEqual({ 높이: '=지그_높이' })
+})
+
+test('구성품마다 **원본 도면으로 가는 길**이 있다 — 여기선 자리만 고친다', async () => {
+  const placed: Recipe = {
+    version: 1,
+    nodes: [{ id: 'c1', op: 'component', source: 'work:w-part', label: '센서 브래킷' }],
+  } as unknown as Recipe
+  render(<AssemblyEditor value={placed} onChange={vi.fn()} />)
+
+  const link = await screen.findByRole('link', { name: /원본 열기/ })
+  expect(link.getAttribute('href')).toBe('/works/w-part')
+  // 새 탭 — 고치던 배치를 잃지 않게.
+  expect(link.getAttribute('target')).toBe('_blank')
+  // 어디서 무엇을 고치는지 한 줄로 말해 준다(모양을 고치러 온 사람이 막히던 자리).
+  expect(screen.getByText(/자리 · 회전 · 치수 덮어쓰기/)).toBeTruthy()
+})
+
+test('공용 부품 · 지그도 제 화면으로 간다', () => {
+  expect(sourceLink('part:p1')).toBe('/parts/p1')
+  expect(sourceLink('jig:j1')).toBe('/jigs/j1')
+  // 모르는 꼴이면 단추를 안 그린다 — 엉뚱한 데로 보내는 것보다 없는 편이 낫다.
+  expect(sourceLink('알수없음')).toBeNull()
 })

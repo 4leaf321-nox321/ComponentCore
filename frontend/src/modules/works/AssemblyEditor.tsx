@@ -8,7 +8,7 @@
  * — 그래야 조립을 실험계획으로 훑는 뜻이 있다.
  */
 
-import { Boxes, Layers, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Boxes, ExternalLink, Layers, Pencil, Plus, Trash2 } from 'lucide-react'
 import { lazy, Suspense, useMemo, useState } from 'react'
 
 import { cadApi } from '@/modules/cad/api'
@@ -50,6 +50,14 @@ const colorOf = (index: number) => PALETTE[index % PALETTE.length]
 const cssColor = (color: number) => `#${color.toString(16).padStart(6, '0')}`
 
 const SOURCE_LABEL: Record<string, string> = { work: '내 도면', part: '공용 부품', jig: '공용 지그' }
+
+/** `work:… · part:… · jig:…` → 그 화면의 주소. 모르는 꼴이면 null(단추를 안 그린다). */
+export function sourceLink(source: string): string | null {
+  const [kind, id] = source.split(':')
+  if (!id) return null
+  const path = { work: 'works', part: 'parts', jig: 'jigs' }[kind]
+  return path ? `/${path}/${id}` : null
+}
 
 function nodesOf(recipe: Recipe): Record<string, unknown>[] {
   return (recipe.nodes ?? []) as Record<string, unknown>[]
@@ -178,6 +186,13 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
           {placed.length === 0 ? (
             <p className="text-muted-foreground p-2 text-xs">아직 없습니다 — 아래 「가져오기」 에서 부품이나 지그를 고르세요.</p>
           ) : (
+            <>
+              {/* **여기서 고치는 것은 자리뿐이다.** 모양을 고치러 온 사람이 「편집」 을
+                  눌렀다가 자리 · 회전만 나와 막히는 자리라, 어디로 가야 하는지 적어 둔다. */}
+              <p className="text-muted-foreground border-b px-2 py-1 text-[11px]">
+                여기서는 <b>자리 · 회전 · 치수 덮어쓰기</b>만 고칩니다. 모양 자체는 원본
+                도면에서 — 줄 끝의 <ExternalLink className="inline size-3" /> 로 엽니다.
+              </p>
             <ul className="p-1">
               {placed.map((one, index) => {
                 const isCurrent = one.id === selected
@@ -204,6 +219,23 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
                       >
                         <Pencil className="size-3.5" />
                       </button>
+                      {/* **원본으로 가는 길.** 여기서 고치는 것은 「어디에 놓나」 뿐이고,
+                          모양 자체는 가져온 도면의 것이다 — 그 도면이 어디 있는지 모르면
+                          사용자는 조립 화면에서 모양을 고치려다 막힌다. 새 탭으로 연다:
+                          여기 고치던 배치를 잃지 않게. */}
+                      {sourceLink(one.source) && (
+                        <a
+                          className="text-muted-foreground hover:text-foreground rounded p-1"
+                          href={sourceLink(one.source)!}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label={`${one.label ?? one.id} 원본 열기`}
+                          title="원본 도면 열기 (새 탭) — 모양은 거기서 고친다"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <ExternalLink className="size-3.5" />
+                        </a>
+                      )}
                       <button
                         type="button"
                         className="text-muted-foreground hover:text-destructive rounded p-1"
@@ -217,6 +249,7 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
                 )
               })}
             </ul>
+            </>
           )}
         </div>
 
