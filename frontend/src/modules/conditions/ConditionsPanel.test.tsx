@@ -2,34 +2,46 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 
 import { ConditionsPanel } from '@/modules/conditions/ConditionsPanel'
 
-/** 3D 대신 단추 셋 — 면 · 엣지 · 점을 찍는 것만 흉내 낸다. */
+/**
+ * 3D 대신 단추 몇 개 — 면 둘 · 점 · 바디를 찍는 것만 흉내 낸다. 누를 때 Ctrl · Shift 를
+ * 함께 누르면(`fireEvent.click(단추, { ctrlKey: true })`) 뷰어처럼 그 키를 넘긴다.
+ */
 /** 뷰어가 받은 거르개 — 「켠 것 하나만」 을 시험이 볼 수 있게 내놓는다. */
 let lastKinds: Record<string, boolean> | undefined
 /** 3D 가 받은 파트 색 · 강조 — 트리에서 지정한 것이 3D 에도 보이는지 본다. */
 let lastColors: Record<string, number> | undefined
 let lastEmphasis: string | null | undefined
+/** 3D 에 표시한 것 — 담은 것에 번호가 붙는지 본다. */
+let lastMarks: { labels: { text: string }[] } | undefined
 vi.mock('@/shared/viewer/PickViewer', () => ({
   default: ({
     onMeasure,
     measureKinds,
+    measureMarks,
     partColors,
     emphasis,
   }: {
-    onMeasure?: (pick: unknown) => void
+    onMeasure?: (pick: unknown, modifiers: { ctrl: boolean; shift: boolean }) => void
     measureKinds?: Record<string, boolean>
+    measureMarks?: { labels: { text: string }[] }
     partColors?: Record<string, number>
     emphasis?: string | null
   }) => {
     lastKinds = measureKinds
     lastColors = partColors
     lastEmphasis = emphasis
+    lastMarks = measureMarks
+    const keys = (e: React.MouseEvent) => ({ ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey })
     return (
       <div>
-        <button onClick={() => onMeasure?.({ kind: 'face', face: { center: [0, 0, 0] } })}>
+        <button onClick={(e) => onMeasure?.({ kind: 'face', face: { index: 0, center: [0, 0, 0] } }, keys(e))}>
           면 찍기
         </button>
-        <button onClick={() => onMeasure?.({ kind: 'point', at: [1, 2, 3] })}>점 찍기</button>
-        <button onClick={() => onMeasure?.({ kind: 'body', name: '기둥' })}>바디 찍기</button>
+        <button onClick={(e) => onMeasure?.({ kind: 'face', face: { index: 1, center: [5, 0, 9] } }, keys(e))}>
+          다른 면 찍기
+        </button>
+        <button onClick={(e) => onMeasure?.({ kind: 'point', at: [1, 2, 3] }, keys(e))}>점 찍기</button>
+        <button onClick={(e) => onMeasure?.({ kind: 'body', name: '기둥' }, keys(e))}>바디 찍기</button>
       </div>
     )
   },
@@ -72,6 +84,14 @@ const CANDIDATES = {
   candidates: [
     { label: 'bottom 면', select: { what: 'faces', role: 'bottom' }, matches: 1 },
     { label: '이 자리의 면', select: { what: 'faces', near: [0, 0, 0], limit: 1 }, matches: 1 },
+  ],
+}
+/** 다른 자리(윗면)를 찍으면 다른 후보가 온다 — 여럿을 묶는 시험이 쓴다. */
+const TOP_CANDIDATES = {
+  picked: { kind: 'plane' },
+  candidates: [
+    { label: 'top 면', select: { what: 'faces', role: 'top' }, matches: 1 },
+    { label: '이 자리의 면', select: { what: 'faces', near: [5, 0, 9], limit: 1 }, matches: 1 },
   ],
 }
 
@@ -164,7 +184,9 @@ vi.mock('@/shared/api/client', async () => {
             : SCHEMA,
       ),
       // 바디 목록과 셀렉터 후보는 **다른 길**이다 — 물성이 어디에 붙는지가 바디에서 나온다.
-      post: vi.fn(async (path: string) => (path.startsWith('/cad/recipe/bodies') ? BODIES : CANDIDATES)),
+      post: vi.fn(async (path: string, body?: { pick?: { point?: number[] } }) =>
+        path.startsWith('/cad/recipe/bodies') ? BODIES : body?.pick?.point?.[0] === 5 ? TOP_CANDIDATES : CANDIDATES,
+      ),
       put: vi.fn(async () => ({ conditions: {} })),
     },
   }
@@ -183,41 +205,92 @@ async function save(onSave: ReturnType<typeof vi.fn>) {
   return onSave.mock.calls[onSave.mock.calls.length - 1][0]
 }
 
-/** 창 없이 3D 를 선택해 이름표를 만든다. */
-async function makeName(pick: string, name: string, candidate = 'bottom 면') {
+/** 3D 를 선택해 선택 그룹을 만든다 — 규칙(`rule`, 후보의 순번)을 바꿀 수도 있다. */
+async function makeGroup(pick: string, name: string, rule?: string) {
   fireEvent.click(screen.getByText(pick))
-  await waitFor(() => screen.getByText(candidate))
-  fireEvent.click(screen.getByText(candidate))
-  fireEvent.change(screen.getByLabelText('이름표 이름'), { target: { value: name } })
-  fireEvent.click(screen.getByRole('button', { name: '이름표 생성' }))
+  await waitFor(() => screen.getByRole('dialog', { name: '선택 그룹 추가' }))
+  await waitFor(() => screen.getByLabelText('1번 선택 규칙'))
+  if (rule) fireEvent.change(screen.getByLabelText('1번 선택 규칙'), { target: { value: rule } })
+  fireEvent.change(screen.getByLabelText('그룹 이름'), { target: { value: name } })
+  fireEvent.click(screen.getByRole('button', { name: '생성' }))
 }
 
-test('선택하면 좌표가 아니라 **선택 규칙**으로 되돌려 주고, 그것이 이름표가 된다', async () => {
+test('선택하면 좌표가 아니라 **선택 규칙**으로 되돌려 주고, 그것이 선택 그룹이 된다', async () => {
   await panel()
 
   fireEvent.click(screen.getByText('면 찍기'))
+  // 창 없이 3D 를 선택하면 「선택 그룹 추가」 창이 열린다.
+  await waitFor(() => screen.getByRole('dialog', { name: '선택 그룹 추가' }))
   // 후보마다 「지금 몇 개에 맞나」 가 보여야 한다 — 하나만 집을지 부류 전부를 집을지 고른다.
-  await waitFor(() => screen.getByText('bottom 면'))
-  expect(screen.getAllByText(/현재 1 개/)).toHaveLength(2)
+  await waitFor(() => screen.getByRole('option', { name: 'bottom 면 (현재 1 개)' }))
+  expect(screen.getByRole('option', { name: '이 자리의 면 (현재 1 개)' })).toBeInTheDocument()
 
-  fireEvent.change(screen.getByLabelText('이름표 이름'), { target: { value: '바닥' } })
-  fireEvent.click(screen.getByRole('button', { name: '이름표 생성' }))
+  fireEvent.change(screen.getByLabelText('그룹 이름'), { target: { value: '바닥' } })
+  fireEvent.click(screen.getByRole('button', { name: '생성' }))
 
   // 트리에 생기고 펼쳐진다 — 셀렉터가 그대로 보인다(좌표가 아니라 「아래쪽 면」 이 저장된다).
   await waitFor(() => screen.getByText(/"role": "bottom"/))
-  // 트리의 이름표 줄 — 이름과 종류(face). 파트 「바닥판」 과 헷갈리지 않게 끝까지 맞춘다.
+  // 트리의 선택 그룹 줄 — 이름과 종류(face). 파트 「바닥판」 과 헷갈리지 않게 끝까지 맞춘다.
   expect(screen.getByRole('button', { name: /^바닥\s*face$/ })).toBeInTheDocument()
+})
+
+test('**Ctrl · Shift** 로 여럿을 한 그룹에 담고, 그 합으로 저장한다', async () => {
+  const onSave = await panel()
+  // 리본의 「선택 그룹」 으로 연다.
+  fireEvent.click(screen.getByRole('button', { name: '선택 그룹' }))
+  await waitFor(() => screen.getByRole('dialog', { name: '선택 그룹 추가' }))
+
+  fireEvent.click(screen.getByText('면 찍기'))
+  await waitFor(() => screen.getByLabelText('1번 선택 규칙'))
+  // Ctrl 은 더한다.
+  fireEvent.click(screen.getByText('다른 면 찍기'), { ctrlKey: true })
+  await waitFor(() => screen.getByLabelText('2번 선택 규칙'))
+  // Shift 도 더한다 — 이미 담긴 것은 그대로.
+  fireEvent.click(screen.getByText('면 찍기'), { shiftKey: true })
+  expect(screen.queryByLabelText('3번 선택 규칙')).toBeNull()
+  // Ctrl 로 담긴 것을 다시 누르면 뺀다.
+  fireEvent.click(screen.getByText('면 찍기'), { ctrlKey: true })
+  await waitFor(() => expect(screen.queryByLabelText('2번 선택 규칙')).toBeNull())
+  // Shift 로 다시 더한다.
+  fireEvent.click(screen.getByText('면 찍기'), { shiftKey: true })
+  await waitFor(() => screen.getByLabelText('2번 선택 규칙'))
+  // 3D 에 번호가 붙는다 — 목록의 몇 번이 어디인지.
+  expect(lastMarks?.labels.map((one) => one.text)).toEqual(['1', '2'])
+
+  fireEvent.change(screen.getByLabelText('그룹 이름'), { target: { value: '윗면과 바닥' } })
+  fireEvent.click(screen.getByRole('button', { name: '생성' }))
+  // 트리가 「선택 규칙 2 개의 합」 이라고 말한다(숫자와 말만 그 줄의 제 글자다).
+  await waitFor(() => screen.getByText(/^2 개의 합$/))
+
+  const saved = await save(onSave)
+  // **규칙 하나로는 이 모음을 말할 수 없다** — 고른 것마다의 규칙의 합이다.
+  expect(saved.named_selections).toEqual([
+    {
+      name: '윗면과 바닥',
+      entity: 'face',
+      select: { any: [{ what: 'faces', role: 'top' }, { what: 'faces', role: 'bottom' }] },
+    },
+  ])
+})
+
+test('아무 키 없이 선택하면 **새로 고른다**', async () => {
+  await panel()
+  fireEvent.click(screen.getByText('면 찍기'))
+  await waitFor(() => screen.getByRole('option', { name: 'bottom 면 (현재 1 개)' }))
+  fireEvent.click(screen.getByText('다른 면 찍기'))
+  await waitFor(() => screen.getByRole('option', { name: 'top 면 (현재 1 개)' }))
+  expect(screen.queryByLabelText('2번 선택 규칙')).toBeNull()
 })
 
 test('리본에서 조건을 추가하면 **창**이 뜨고, 확인해야 한 벌에 들어간다', async () => {
   const onSave = await panel()
-  await makeName('면 찍기', '바닥')
+  await makeGroup('면 찍기', '바닥')
   await waitFor(() => screen.getByText(/"role": "bottom"/))
 
   // 도면 편집기와 같이 **더하는 것은 리본**이다.
   fireEvent.click(screen.getByRole('button', { name: '구속' }))
   await waitFor(() => screen.getByRole('dialog', { name: '구속 추가' }))
-  // 첫 이름표를 가리킨 채 생긴다 — 빈 칸으로 두면 저장에서 막힌다.
+  // 첫 선택 그룹을 가리킨 채 생긴다 — 빈 칸으로 두면 저장에서 막힌다.
   fireEvent.click(screen.getByRole('button', { name: '확인' }))
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
 
@@ -240,27 +313,27 @@ test('창을 취소하면 아무것도 더해지지 않는다', async () => {
   expect((await save(onSave)).loads).toHaveLength(0)
 })
 
-test('꼭짓점을 선택하면 꼭짓점 이름표가 된다 — 면 · 엣지 · 꼭짓점을 모두 선택한다', async () => {
+test('꼭짓점을 선택하면 꼭짓점 그룹이 된다 — 점 · 엣지 · 면 · 바디를 모두 선택한다', async () => {
   const onSave = await panel()
-  await makeName('점 찍기', '측정점')
+  await makeGroup('점 찍기', '측정점')
   await waitFor(() => screen.getByText(/"role": "bottom"/))
   expect((await save(onSave)).named_selections[0].entity).toBe('vertex')
 })
 
 test('같은 이름을 두 번 사용하면 거절한다 — 조건이 어느 것을 가리킬지 알 수 없다', async () => {
   await panel()
-  await makeName('면 찍기', '바닥')
+  await makeGroup('면 찍기', '바닥')
   // 다른 규칙(「이 자리의 면」)에 같은 이름을 붙인다.
-  await makeName('면 찍기', '바닥', '이 자리의 면')
+  await makeGroup('면 찍기', '바닥', '1')
   await waitFor(() => screen.getByText(/이미 있습니다/))
 })
 
-test('같은 자리를 다시 선택하면 **이름표를 새로 만들지 않는다**', async () => {
+test('같은 자리를 다시 선택하면 **선택 그룹을 새로 만들지 않는다**', async () => {
   const onSave = await panel()
-  await makeName('면 찍기', '바닥')
+  await makeGroup('면 찍기', '바닥')
   await waitFor(() => screen.getByText(/"role": "bottom"/))
 
-  // 조건마다 같은 면을 가리키는 일이 흔하다 — 그때마다 이름표가 늘면 목록을 못 읽는다.
+  // 조건마다 같은 면을 가리키는 일이 흔하다 — 그때마다 그룹이 늘면 목록을 못 읽는다.
   fireEvent.click(screen.getByRole('button', { name: '하중' }))
   await waitFor(() => screen.getByRole('dialog', { name: '하중 추가' }))
   fireEvent.click(screen.getByText('면 찍기'))
@@ -293,10 +366,11 @@ test('물성은 MatNexus 에서 선택하여 **payload 전체**가 실린다', a
   const onSave = await panel()
 
   await openPicker()
+  // **줄을 누르면 담긴다** — 작은 확인란을 겨눌 필요가 없다.
   fireEvent.click(screen.getByText('SPCC 1.2t'))
   // 구조를 그대로 펼친다 — 우리가 아는 항목만 보여 주면 없는 줄 안다.
   await waitFor(() => screen.getByText(/22 °C/))
-  fireEvent.click(screen.getByRole('button', { name: '물성 추가' }))
+  fireEvent.click(screen.getByRole('button', { name: '물성 추가 (1)' }))
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
 
   const saved = await save(onSave)
@@ -352,6 +426,10 @@ test('파트 하나에는 물성 하나 — 다른 물성을 고르면 먼저 �
 
 test('선택 대상을 지정하면 **그 종류만** 선택된다', async () => {
   await panel()
+  // 작은 것에서 큰 것으로 — 점 · 엣지 · 면 · 바디.
+  expect(
+    screen.getAllByRole('button', { name: /^(점|엣지|면|바디)$/ }).map((one) => one.textContent),
+  ).toEqual(['점', '엣지', '면', '바디'])
   // 기본은 면 — 조건이 가장 많이 붙는 자리다.
   expect(lastKinds).toEqual({ point: false, edge: false, face: true, body: false })
 
@@ -371,13 +449,13 @@ test('바디는 서버에 조회하지 않는다 — 이름이 곧 답이다', a
   const before = calls.mock.calls.length
 
   fireEvent.click(screen.getByText('바디 찍기'))
-  await waitFor(() => screen.getByText(/바디 「기둥」/))
+  await waitFor(() => screen.getByRole('option', { name: /바디 「기둥」/ }))
   // 면 · 엣지 · 점은 「이 자리를 무엇으로 부를까」 를 서버에 되묻지만, 바디는 그럴 것이 없다.
   expect(
     calls.mock.calls.slice(before).filter((one) => String(one[0]).includes('selectors')),
   ).toHaveLength(0)
 
-  fireEvent.click(screen.getByRole('button', { name: '이름표 생성' }))
+  fireEvent.click(screen.getByRole('button', { name: '생성' }))
   await waitFor(() => screen.getByText(/"body": "기둥"/))
 })
 
@@ -390,7 +468,7 @@ test('조건 창은 **3D 를 가리지 않는다** — 띄운 채 3D 를 선택�
   // 되풀이하게 된다. 측정 창과 같이 **막 없는 창**이다.
   expect(screen.getByText('면 찍기')).toBeInTheDocument()
   fireEvent.click(screen.getByText('면 찍기'))
-  await waitFor(() => within(screen.getByRole('dialog', { name: '구속 추가' })).getByText('bottom 면'))
+  await waitFor(() => within(screen.getByRole('dialog', { name: '구속 추가' })).getByLabelText('1번 선택 규칙'))
 })
 
 test('조건 창을 띄운 채 형상을 선택하면 **그 조건의 적용 대상**이 된다', async () => {
@@ -398,14 +476,14 @@ test('조건 창을 띄운 채 형상을 선택하면 **그 조건의 적용 대
   fireEvent.click(screen.getByRole('button', { name: '구속' }))
   await waitFor(() => screen.getByRole('dialog', { name: '구속 추가' }))
 
-  // 이름표를 따로 만들고 조건으로 돌아가 목록에서 고르면 한 가지 일이 세 걸음이 된다.
+  // 그룹을 따로 만들고 조건으로 돌아가 목록에서 고르면 한 가지 일이 세 걸음이 된다.
   fireEvent.click(screen.getByText('면 찍기'))
-  await waitFor(() => screen.getByText('bottom 면'))
-  fireEvent.change(screen.getByLabelText('이름표 이름'), { target: { value: '바닥' } })
+  await waitFor(() => screen.getByLabelText('1번 선택 규칙'))
+  fireEvent.change(screen.getByLabelText('그룹 이름'), { target: { value: '바닥' } })
   fireEvent.click(screen.getByRole('button', { name: '적용 대상으로 지정' }))
 
   // 창은 그대로 — 방금 지정한 결과를 그 자리에서 확인한다.
-  await waitFor(() => expect(screen.queryByText('bottom 면')).toBeNull())
+  await waitFor(() => expect(screen.queryByLabelText('1번 선택 규칙')).toBeNull())
   expect(screen.getByRole('dialog', { name: '구속 추가' })).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '확인' }))
 
@@ -431,18 +509,17 @@ test('트리의 조건을 누르면 **수정 창**이 뜨고, 거기서 삭제�
 test('초기조건은 **바디만** 가리킨다', async () => {
   const onSave = await panel()
 
-  // 면 이름표 하나와 바디 이름표 하나를 만든다.
-  await makeName('면 찍기', '바닥면')
+  // 면 그룹 하나와 바디 그룹 하나를 만든다.
+  await makeGroup('면 찍기', '바닥면')
+  await waitFor(() => screen.getByText(/"role": "bottom"/))
   fireEvent.click(screen.getByRole('button', { name: '바디' }))
-  fireEvent.click(screen.getByText('바디 찍기'))
-  await waitFor(() => screen.getByText(/바디 「기둥」/))
-  fireEvent.change(screen.getByLabelText('이름표 이름'), { target: { value: '기둥몸' } })
-  fireEvent.click(screen.getByRole('button', { name: '이름표 생성' }))
+  await makeGroup('바디 찍기', '기둥몸')
+  await waitFor(() => screen.getByText(/"body": "기둥"/))
   fireEvent.click(screen.getByRole('button', { name: '면' }))
 
-  // **온도 · 속도 · 예응력은 몸 전체의 상태다** — 한 면에 걸 수 없다. 면 이름표를 고를 수
+  // **온도 · 속도 · 예응력은 몸 전체의 상태다** — 한 면에 걸 수 없다. 면 그룹을 고를 수
   // 있게 두면 해석 쪽에서야 「그 자리에 못 건다」 를 안다.
-  // **바디 이름표가 기본으로 지정된다** — 면 이름표를 먼저 만들었는데도.
+  // **바디 그룹이 기본으로 지정된다** — 면 그룹을 먼저 만들었는데도.
   fireEvent.click(screen.getByRole('button', { name: '초기조건' }))
   await waitFor(() => screen.getByRole('dialog', { name: '초기조건 추가' }))
   // 창이 떠 있는 동안 선택 대상은 바디뿐이다.

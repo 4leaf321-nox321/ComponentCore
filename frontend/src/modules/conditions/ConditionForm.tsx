@@ -40,7 +40,7 @@ export function ConditionForm({
 }: {
   group: GroupSchema
   item: ConditionItem
-  /** 있는 이름표 — 조건은 **이름표만** 가리킨다(좌표를 박으면 설계점이 바뀔 때 어긋난다). */
+  /** 있는 선택 그룹 — 조건은 **선택 그룹만** 가리킨다(좌표를 박으면 설계점이 바뀔 때 어긋난다). */
   names: NamedSelection[]
   onChange: (next: ConditionItem) => void
 }) {
@@ -81,7 +81,7 @@ export function ConditionForm({
 
       {targets.map((key) => (
         <div key={key} className="space-y-1">
-          <Label>{key === 'target' ? '상대 이름표' : '이름표'}</Label>
+          <Label>{key === 'target' ? '상대 선택 그룹' : '선택 그룹'}</Label>
           <Select value={String(item[key] ?? '')} onValueChange={(v) => set(key, v)}>
             <SelectTrigger>
               <SelectValue placeholder="선택" />
@@ -96,7 +96,7 @@ export function ConditionForm({
           </Select>
           {names.length === 0 && (
             <p className="text-muted-foreground text-xs">
-              이름표가 없습니다 — 3D 에서 형상을 선택하면 생성됩니다.
+              선택 그룹이 없습니다 — 3D 에서 형상을 선택하면 생성됩니다.
             </p>
           )}
         </div>

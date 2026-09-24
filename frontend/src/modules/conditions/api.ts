@@ -52,7 +52,10 @@ export interface ConditionsSchema {
   entities: string[]
 }
 
-/** 이름표 — 조건이 붙는 유일한 창구. 좌표가 아니라 **셀렉터**로 적힌다. */
+/**
+ * 선택 그룹(`named_selections`) — 조건이 붙는 유일한 창구. 좌표가 아니라 **셀렉터**로 적힌다.
+ * 여럿을 묶은 그룹은 `select` 가 `{ any: [셀렉터, …] }` — 고른 것마다의 규칙의 합이다.
+ */
 export interface NamedSelection {
   name: string
   entity: string
@@ -143,7 +146,7 @@ export interface Conditions {
   mesh_hints: ConditionItem[]
 }
 
-/** 조건이 담기는 묶음들 — 이름표와 해석 설정은 따로 다룬다. */
+/** 조건이 담기는 묶음들 — 선택 그룹과 해석 설정은 따로 다룬다. */
 export const GROUP_KEYS = [
   'constraints',
   'loads',

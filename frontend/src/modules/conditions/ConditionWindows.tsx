@@ -7,6 +7,7 @@
  */
 
 import type { SelectorCandidate } from '@/modules/conditions/api'
+import type { MeasurePick } from '@/shared/viewer/PickViewer'
 import { Button } from '@/shared/components/ui/button'
 import {
   Dialog,
@@ -58,87 +59,111 @@ export function FloatingWindow({
   )
 }
 
-export interface Candidates {
-  what: string
+/** 3D 에서 고른 것 하나 — 그 자리를 부를 **규칙 후보들**과 지금 고른 후보. */
+export interface Member {
+  /** 같은 것을 다시 눌렀는지 가르는 열쇠(면 · 엣지 번호, 점 좌표, 바디 이름). */
+  key: string
   /** 사람이 읽을 종류 — 면 · 엣지 · 점 · 바디. */
   label: string
-  list: SelectorCandidate[]
+  /** 선택 그룹의 종류(`face` · `edge` · `vertex` · `body`) — **한 그룹은 한 종류**다. */
+  entity: string
+  /** 3D 에서 누른 그것 — 담은 것을 3D 에 번호와 함께 표시한다. */
+  pick: MeasurePick
+  candidates: SelectorCandidate[]
+  chosen: number
 }
 
 /**
- * 3D 에서 선택한 자리를 **무엇으로 부를지** 고른다 — 좌표가 아니라 선택 규칙으로.
+ * 선택 그룹에 담긴 것들 — 고른 것마다 **무엇으로 부를지**(규칙)를 고른다.
  *
- * 서버가 후보를 여럿 준다(「아래쪽 면」 · 「반지름 4.25 원통면」). 하나를 자동으로 정하면
- * 「볼트 구멍 넷」 을 원했는데 「이 구멍 하나」 가 저장되는 날이 온다 — 그래서 **지금 몇 개에
- * 맞는지**를 함께 보여 사람이 고른다.
+ * 좌표가 아니라 규칙으로 저장한다(「아래쪽 면」 · 「반지름 4.25 원통면」) — 치수가 바뀌어도
+ * 같은 것을 가리키게. 규칙이 지금 몇 개에 맞는지 함께 보인다: 구멍 하나를 골랐어도 「같은
+ * 반지름 원통면(4 개)」 을 고르면 넷이 한꺼번에 들어간다. 기본은 **고른 그것 하나**다 —
+ * 하나씩 골라 묶는 중이므로.
  */
-export function CandidatePicker({
-  candidates,
-  picked,
-  onPicked,
+export function SelectionMembers({
+  members,
+  onChoose,
+  onRemove,
+  onClear,
   name,
   onName,
+  placeholder,
   existing,
-  confirmLabel,
-  onConfirm,
-  onCancel,
+  actions,
 }: {
-  candidates: Candidates
-  picked: number
-  onPicked: (index: number) => void
+  members: Member[]
+  onChoose: (index: number, candidate: number) => void
+  onRemove: (index: number) => void
+  onClear: () => void
   name: string
   onName: (next: string) => void
-  /** 고른 규칙과 **같은 이름표가 이미 있으면** 그 이름 — 새로 만들지 않고 그것을 쓴다. */
+  placeholder: string
+  /** 같은 규칙의 선택 그룹이 이미 있으면 그 이름 — 새로 만들지 않고 그것을 쓴다. */
   existing: string | null
-  confirmLabel: string
-  onConfirm: () => void
-  onCancel: () => void
+  actions?: React.ReactNode
 }) {
   return (
     <div className="bg-muted/40 space-y-2 rounded-md border p-2">
-      <p className="font-medium">{candidates.label} 선택됨</p>
-      <p className="text-muted-foreground text-xs">
-        좌표가 아니라 <strong>선택 규칙</strong>으로 저장합니다 — 치수가 변경되어도 같은 형상을 가리킵니다.
-      </p>
-      <ul className="space-y-1">
-        {candidates.list.map((one, index) => (
-          <li key={one.label}>
-            <button
-              type="button"
-              aria-pressed={picked === index}
-              className={`bg-background w-full rounded border px-2 py-1 text-left ${picked === index ? 'border-primary' : ''}`}
-              onClick={() => onPicked(index)}
-            >
-              {one.label}
-              <span className="text-muted-foreground ml-2 text-xs">현재 {one.matches} 개</span>
-            </button>
-          </li>
-        ))}
-      </ul>
-      {existing ? (
-        // 같은 자리를 두 번 선택해도 이름표가 둘이 되지 않는다 — 조건마다 같은 면을 가리키는 일이 흔하다.
-        <p className="text-muted-foreground text-xs">
-          같은 선택 규칙의 이름표 「{existing}」 이(가) 이미 있습니다 — 그 이름표를 사용합니다.
+      <div className="flex items-center justify-between">
+        <p className="font-medium">
+          선택 {members.length} {members[0] && <span className="text-muted-foreground text-xs">({members[0].label})</span>}
         </p>
-      ) : (
-        <div className="space-y-1">
-          <Label htmlFor="ns-name">이름표 이름</Label>
-          <Input
-            id="ns-name"
-            value={name}
-            placeholder={candidates.list[picked]?.label ?? ''}
-            onChange={(e) => onName(e.target.value)}
-          />
-        </div>
-      )}
-      <div className="flex gap-2">
-        <Button size="sm" onClick={onConfirm}>
-          {confirmLabel}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={onCancel}>
-          취소
+        <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={onClear} disabled={members.length === 0}>
+          비우기
         </Button>
       </div>
+      {members.length === 0 ? (
+        <p className="text-muted-foreground rounded-md border border-dashed p-2 text-xs">
+          3D 에서 형상을 선택합니다. Ctrl 또는 Shift 를 누른 채 선택하면 더해집니다.
+        </p>
+      ) : (
+        <ol className="space-y-1">
+          {members.map((member, index) => (
+            <li key={member.key} className="flex items-center gap-1">
+              <span className="text-muted-foreground w-5 shrink-0 text-center font-mono text-xs">{index + 1}</span>
+              <select
+                aria-label={`${index + 1}번 선택 규칙`}
+                className="bg-background min-w-0 flex-1 rounded border px-1 py-0.5 text-xs"
+                value={member.chosen}
+                onChange={(e) => onChoose(index, Number(e.target.value))}
+              >
+                {member.candidates.map((one, at) => (
+                  <option key={one.label} value={at}>
+                    {one.label} (현재 {one.matches} 개)
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                aria-label={`${index + 1}번 제외`}
+                className="text-muted-foreground hover:text-destructive rounded px-1"
+                onClick={() => onRemove(index)}
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+      <p className="text-muted-foreground text-[11px]">
+        좌표가 아니라 <strong>선택 규칙</strong>으로 저장합니다 — 치수가 변경되어도 같은 형상을 가리킵니다. Ctrl 로 다시
+        누르면 제외됩니다.
+      </p>
+      {existing ? (
+        // 같은 자리를 두 번 선택해도 그룹이 둘이 되지 않는다 — 조건마다 같은 면을 가리키는 일이 흔하다.
+        <p className="text-muted-foreground text-xs">
+          같은 선택 규칙의 선택 그룹 「{existing}」 이(가) 이미 있습니다 — 그 그룹을 사용합니다.
+        </p>
+      ) : (
+        members.length > 0 && (
+          <div className="space-y-1">
+            <Label htmlFor="group-name">그룹 이름</Label>
+            <Input id="group-name" value={name} placeholder={placeholder} onChange={(e) => onName(e.target.value)} />
+          </div>
+        )
+      )}
+      {actions && <div className="flex gap-2">{actions}</div>}
     </div>
   )
 }

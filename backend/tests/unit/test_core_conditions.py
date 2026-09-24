@@ -53,7 +53,7 @@ def test_한_벌을_읽고_되돌려_준다() -> None:
 
 def test_없는_이름표를_가리키면_지금_말한다() -> None:
     """내보낸 뒤 해석 쪽에서 0 개를 집으면 **하중 없는 해석**이 끝까지 돈다."""
-    with pytest.raises(ConditionError, match="이름표가 없습니다"):
+    with pytest.raises(ConditionError, match="선택 그룹이 없습니다"):
         parse(
             {**FULL, "constraints": [{"name": "고정", "type": "fixed_support", "on": "옆면"}]}
         )
@@ -360,3 +360,24 @@ def test_해석에_빠진_것을_고를_때_말한다() -> None:
     # 값째로 끌 수 없다) — 그때 「다 빠졌다」 고 하면 거짓말이다.
     아직 = conditions.converted_material({"name": "무언가"}, "mm_n_tonne")
     assert "missing_structural" not in 아직
+
+
+def test_여럿을_묶은_선택_그룹은_한_종류여야_한다() -> None:
+    """면과 엣지를 섞으면 받는 쪽이 지문을 어느 쪽으로 짝지을지 모른다."""
+    묶음 = {
+        "name": "바닥과 구멍",
+        "entity": "face",
+        "select": {
+            "any": [{"what": "faces", "role": "bottom"}, {"what": "faces", "radius": 4.25}]
+        },
+    }
+    assert parse({"named_selections": [묶음]}).named_selections[0].select == 묶음["select"]
+
+    섞음 = {
+        **묶음,
+        "select": {"any": [{"what": "faces", "role": "bottom"}, {"what": "edges"}]},
+    }
+    with pytest.raises(ConditionError, match="한 종류여야 합니다"):
+        parse({"named_selections": [섞음]})
+    with pytest.raises(ConditionError, match="하나 이상"):
+        parse({"named_selections": [{**묶음, "select": {"any": []}}]})

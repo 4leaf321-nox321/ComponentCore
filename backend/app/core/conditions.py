@@ -7,8 +7,9 @@
 
 ## 조건은 면을 직접 가리키지 않는다
 
-모든 조건은 **이름표(named_selections)** 만 가리킨다. 이름표는 좌표가 아니라 **셀렉터**
-(`query.find_features` 의 말)로 적혀 있어서, 실험계획이 치수를 바꿔도 설계점마다 다시 풀린다.
+모든 조건은 **선택 그룹(named_selections)** 만 가리킨다. 선택 그룹은 좌표가 아니라
+**셀렉터**(`query.find_features` 의 말)로 적혀 있어서, 실험계획이 치수를 바꿔도 설계점마다 다시
+풀린다. (화면의 말은 「선택 그룹」 이다 — 예전 문서 · 주석의 「이름표」 와 같은 것이다.)
 「(30, 15, 5) 의 면」 은 두께를 바꾸는 순간 그 자리에 없지만 「아래쪽 면」 은 남는다.
 
 그리고 같은 면에 하중과 메시 힌트를 따로 걸어도 **고칠 자리가 하나**다.
@@ -42,16 +43,39 @@ class Base(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-# ── 이름표 ────────────────────────────────────────────────────────────────────
+# ── 선택 그룹 ─────────────────────────────────────────────────────────────────
 
 
 class NamedSelection(Base):
-    """조건이 붙는 **유일한 창구**. 셀렉터로 적고 설계점마다 다시 푼다."""
+    """선택 그룹 — 조건이 붙는 **유일한 창구**. 셀렉터로 적고 설계점마다 다시 푼다."""
 
     name: str = Field(min_length=1, max_length=60)
     entity: Literal["face", "edge", "vertex", "body"] = "face"
     select: dict[str, Any] = Field(default_factory=dict)
-    """`query.find_features` 의 질의. `body` 면 `topology.bodies` 의 이름을 가리킨다."""
+    """`query.find_features` 의 질의. `body` 면 `topology.bodies` 의 이름을 가리킨다.
+
+    **여럿을 묶으면 `{"any": [셀렉터, …]}`** — 3D 에서 Ctrl · Shift 로 하나씩 고른 것들의
+    합이다(`query.select_features`). 고른 것마다 제 규칙을 두므로 치수를 바꿔도 같은 것들을
+    가리킨다."""
+
+    @field_validator("select")
+    @classmethod
+    def _members(cls, value: dict[str, Any]) -> dict[str, Any]:
+        members = value.get("any")
+        if members is None:
+            return value
+        if not isinstance(members, list) or not members:
+            raise ValueError("select.any 는 셀렉터를 하나 이상 담은 목록이어야 합니다")
+        if not all(isinstance(one, dict) for one in members):
+            raise ValueError("select.any 의 항목은 셀렉터(객체)여야 합니다")
+        # **한 그룹은 한 종류다** — 면과 엣지를 섞으면 받는 쪽이 지문을 어느 쪽으로 짝지을지
+        # 모른다. 바디(`body`)는 `what` 이 없다.
+        kinds = {str(one.get("what", "body" if "body" in one else "faces")) for one in members}
+        if len(kinds) > 1:
+            raise ValueError(
+                f"select.any 의 셀렉터는 한 종류여야 합니다(지금: {', '.join(sorted(kinds))})"
+            )
+        return value
 
 
 # ── 물성 ──────────────────────────────────────────────────────────────────────
@@ -165,7 +189,7 @@ class Load(Base):
 
 
 class Contact(Base):
-    """접촉 — 두 이름표가 만나는 자리."""
+    """접촉 — 두 선택 그룹이 만나는 자리."""
 
     name: str = Field(min_length=1, max_length=60)
     type: Literal["bonded", "no_separation", "frictional", "frictionless", "rough"]
@@ -266,10 +290,10 @@ def parse(raw: dict[str, Any] | None, bodies: list[str] | None = None) -> Condit
     names = _known_names(conditions)
     if len(names) != len(conditions.named_selections):
         raise ConditionError(
-            "이름표 이름이 겹칩니다 — 조건이 어느 것을 가리킬지 알 수 없습니다"
+            "선택 그룹 이름이 겹칩니다 — 조건이 어느 것을 가리킬지 알 수 없습니다"
         )
 
-    # **가리키는 이름표가 없으면 지금 말한다.** 안 그러면 내보낸 뒤 해석 쪽에서 0 개를 집고,
+    # **가리키는 선택 그룹이 없으면 지금 말한다.** 안 그러면 내보낸 뒤 해석 쪽에서 0 개를 집고,
     # 하중 없는 해석이 끝까지 돈다.
     for group, items in (
         ("constraints", conditions.constraints),
@@ -288,7 +312,7 @@ def parse(raw: dict[str, Any] | None, bodies: list[str] | None = None) -> Condit
             for target in targets:
                 if target not in names:
                     raise ConditionError(
-                        f"{group}[{index}]: 「{target}」 라는 이름표가 없습니다 "
+                        f"{group}[{index}]: 「{target}」 라는 선택 그룹이 없습니다 "
                         f"(있는 것: {', '.join(sorted(names)) or '없음'})"
                     )
 

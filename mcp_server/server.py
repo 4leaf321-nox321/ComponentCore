@@ -351,7 +351,7 @@ async def recipe_selectors(ctx: Context, recipe: dict[str, Any], pick: dict[str,
     `select`(셀렉터)와 `matches`(지금 몇 개에 맞나)가 있다.
 
     **좌표를 그대로 조건에 박지 마라.** 실험계획이 치수를 바꾸면 그 자리에 아무것도 없다.
-    이 셀렉터를 영역 이름표 · 조건에 쓰면 설계점마다 다시 풀린다."""
+    이 셀렉터를 선택 그룹(named_selections)에 쓰면 설계점마다 다시 풀린다."""
     return await _post(ctx, "/api/cad/recipe/selectors", {"recipe": recipe, "pick": pick})
 
 
@@ -513,9 +513,10 @@ async def set_conditions(
 ) -> Any:
     """작업 버전에 **해석 조건**을 붙인다 — 경계 · 하중 · 접촉 · 초기조건 · 해석 설정 · 물성.
 
-    **조건은 면을 직접 가리키지 않는다.** `named_selections` 에 이름표를 만들고(셀렉터는
+    **조건은 면을 직접 가리키지 않는다.** `named_selections` 에 선택 그룹을 만들고(셀렉터는
     `recipe_selectors` 로 받는다) 조건은 그 이름만 가리킨다. 좌표를 박으면 실험계획이 치수를
-    바꾸는 순간 그 자리에 아무것도 없다.
+    바꾸는 순간 그 자리에 아무것도 없다. 여러 자리를 한 그룹으로 묶으려면
+    `select` 를 `{"any": [셀렉터, …]}` 로 준다(한 종류끼리 — 면이면 면만).
 
     숫자 칸에는 레시피와 **같은 식**을 쓸 수 있다(`"=압력"`) — 변수는 레시피의 `params` 다.
     그 변수를 실험계획으로 훑으면 형상과 하중이 함께 움직인다.

@@ -74,6 +74,15 @@ export type MeasurePick =
    */
   | { kind: 'body'; name: string }
 
+/**
+ * 누를 때 함께 누른 키 — **여럿을 고르는 손짓**이다. Ctrl(맥은 ⌘)은 넣고 빼기, Shift 는
+ * 더하기. 아무것도 안 누르면 새로 고른다 — CAD 에서 손에 익은 그대로다.
+ */
+export interface PickModifiers {
+  ctrl: boolean
+  shift: boolean
+}
+
 export interface PickViewerProps {
   mesh: MeshData | null
   mode: PickMode
@@ -82,7 +91,7 @@ export interface PickViewerProps {
   onPickFace?: (face: MeshFace) => void
   onPickEdge?: (edge: MeshEdge) => void
   /** measure 모드: 누른 것을 알려 준다. 표시(점 · 선 · 글자)는 `measureMarks` 로 돌려준다. */
-  onMeasure?: (pick: MeasurePick) => void
+  onMeasure?: (pick: MeasurePick, modifiers: PickModifiers) => void
   /**
    * measure 모드에서 **고를 수 있는 종류** — 없으면 셋 다. 끄면 그 종류는 레이캐스트에서
    * 빠진다: 면만 켜면 빽빽한 모서리 사이에서도 면이 잡힌다.
@@ -527,22 +536,23 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       if (callbacks.current.mode === 'edge' && data.edge) callbacks.current.onPickEdge?.(data.edge as MeshEdge)
       if (callbacks.current.mode === 'measure') {
         const kinds = callbacks.current.measureKinds ?? { point: true, edge: true, face: true }
+        const modifiers: PickModifiers = { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey }
         const dots = state.current?.dots
         // 점을 눌렀으면 **그 점의 좌표 그대로** — 화면에서 본 자리와 잰 자리가 같아야 한다.
         const onDot = dots?.object && hit.object === dots.object && hit.index !== undefined ? dots.at[hit.index] : null
         const snapped = onDot ?? (kinds.point ? snapVertex(hit.point) : null)
-        if (snapped) callbacks.current.onMeasure?.({ kind: 'point', at: [snapped[0], snapped[1], snapped[2]] })
-        else if (data.edge && kinds.edge) callbacks.current.onMeasure?.({ kind: 'edge', edge: data.edge as MeshEdge })
+        if (snapped) callbacks.current.onMeasure?.({ kind: 'point', at: [snapped[0], snapped[1], snapped[2]] }, modifiers)
+        else if (data.edge && kinds.edge) callbacks.current.onMeasure?.({ kind: 'edge', edge: data.edge as MeshEdge }, modifiers)
         else if (data.face && kinds.face) {
           const local = state.current!.group.worldToLocal(hit.point.clone())
           // 면을 눌렀으면 그 면 자체와 누른 점 둘 다 뜻이 있다 — 면(넓이 · 법선)을 준다.
-          callbacks.current.onMeasure?.({ kind: 'face', face: { ...(data.face as MeshFace), center: [local.x, local.y, local.z] } })
+          callbacks.current.onMeasure?.({ kind: 'face', face: { ...(data.face as MeshFace), center: [local.x, local.y, local.z] } }, modifiers)
         }
         // **바디는 면을 눌러 고른다** — 덩어리 자체를 겨눌 화면 요소가 따로 없다. 면이
         // 어느 구성품인지는 메시가 이미 들고 있다(`face.part`), 단품이면 「전체」 하나다.
         else if (data.face && kinds.body) {
           const face = data.face as MeshFace
-          callbacks.current.onMeasure?.({ kind: 'body', name: face.part || '전체' })
+          callbacks.current.onMeasure?.({ kind: 'body', name: face.part || '전체' }, modifiers)
         }
       }
     }

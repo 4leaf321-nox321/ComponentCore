@@ -157,7 +157,7 @@ def write_readme(folder: Path, study: dict[str, Any], point_count: int) -> Path:
 파일
   manifest.csv   설계점마다 바꾼 변수 값 · 파일 이름 · 상태
   study.json     기준 레시피와 인자 정의 전부(다시 만들 때)
-  conditions.json  해석 조건 한 벌 — 이름표 · 구속 · 하중 · 접촉 · 초기 · 해석 설정 · 물성
+  conditions.json  해석 조건 한 벌 — 선택 그룹 · 구속 · 하중 · 접촉 · 초기 · 해석 설정 · 물성
                    (숫자 칸에 "=식" 이 있을 수 있다. 푼 값은 점 파일 안에)
   points/        p0001.step   형상 (그 점만 쓰는 것)
                  p0001.json   이 점의 모든 것 — 변수 값 · 영역과 바디의 좌표 지문 ·

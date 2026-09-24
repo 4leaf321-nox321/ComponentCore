@@ -24,7 +24,7 @@ from typing import Any
 
 from build123d import Shape
 
-from app.core.recipe.query import find_features
+from app.core.recipe.query import select_features
 
 #: 기본 영역 — **지그 생성기가 이미 아는 것**을 이름으로 낸다. 사람이 조건 편집기에서 더 고르기
 #: 전에도 「바닥 고정 모달」 한 줄기는 이것만으로 돈다.
@@ -145,14 +145,15 @@ def regions(
     for definition in definitions if definitions is not None else DEFAULT_REGIONS:
         name = definition["name"]
         select = dict(definition.get("select") or {})
-        answer = find_features(shape, select, tags)
+        # 3D 에서 여럿을 골라 묶은 그룹이면 규칙들의 합이다(`{"any": [...]}`).
+        answer = select_features(shape, select, tags)
         rows = answer["items"]
         if definition.get("axis"):
             rows = [r for r in rows if _axis_matches(r, str(definition["axis"]))]
         if not rows:
             unresolved.append(name)
             continue
-        if select.get("what") == "faces":
+        if answer["what"] == "faces":
             faces = shape.faces()
             found[name] = [_face_fingerprint(r, faces[r["index"]]) for r in rows]
         else:

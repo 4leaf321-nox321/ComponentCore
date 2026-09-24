@@ -190,6 +190,36 @@ def find_features(
     return {"what": what, "total": len(rows), "items": rows[:limit]}
 
 
+def select_features(
+    shape: Shape, select: dict[str, Any], tags: dict[str, list[int]] | None = None
+) -> dict[str, Any]:
+    """선택 그룹의 셀렉터를 푼다 — 하나면 `find_features` 그대로, `{"any": [...]}` 면 **합**.
+
+    3D 에서 면을 하나씩 골라(Ctrl · Shift) 한 그룹으로 묶으면, 규칙 하나로는 그 모음을 말할 수
+    없다(「윗면과 왼쪽 구멍 하나」). 그래서 고른 것마다 제 규칙을 두고 그 합을 그룹으로 한다 —
+    규칙마다 설계점에서 다시 풀리므로 치수를 바꿔도 같은 것들을 가리킨다.
+
+    두 규칙이 같은 것을 집으면 **한 번만** 센다(번호로 가른다) — 안 그러면 받는 쪽이 같은 면에
+    하중을 두 번 건다.
+    """
+    members = select.get("any")
+    if not isinstance(members, list):
+        return find_features(shape, select, tags)
+    what = next(
+        (one.get("what") for one in members if isinstance(one, dict) and one.get("what")),
+        "faces",
+    )
+    seen: set[int] = set()
+    items: list[dict[str, Any]] = []
+    for member in members:
+        for row in find_features(shape, member, tags)["items"]:
+            if row["index"] in seen:
+                continue
+            seen.add(row["index"])
+            items.append(row)
+    return {"what": what, "total": len(items), "items": items}
+
+
 # --- 재기 -------------------------------------------------------------------------
 
 

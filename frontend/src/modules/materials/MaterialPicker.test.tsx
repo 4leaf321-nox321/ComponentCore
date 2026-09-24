@@ -111,7 +111,9 @@ test('재료를 선택하면 물성을 그대로 표시하고, 이름 둘을 모
   expect(screen.getByText('기본 부서')).toBeInTheDocument()
 
   expect(screen.getByRole('button', { name: '물성 추가' })).toBeDisabled()
+  // **줄을 누르면 담긴다** — 작은 확인란을 겨눌 필요가 없다. 값도 함께 보인다.
   fireEvent.click(screen.getByText('냉연강판'))
+  expect(screen.getByRole('checkbox', { name: '냉연강판 선택' })).toBeChecked()
   // 구조를 그대로 — 우리가 아는 항목만 보여 주면 없는 줄 안다.
   await waitFor(() => screen.getByText(/22 °C/))
   expect(screen.getByText('탄성계수')).toBeInTheDocument()
@@ -120,8 +122,7 @@ test('재료를 선택하면 물성을 그대로 표시하고, 이름 둘을 모
   expect(screen.getByText(/206000 MPa/)).toBeInTheDocument()
   expect(screen.getByText(/7\.8500e-9 tonne\/mm3/)).toBeInTheDocument()
 
-  // 담은 것이 없으면 **보고 있는 재료 하나**를 추가한다 — 하나만 고르는 흔한 경우의 한 걸음.
-  fireEvent.click(screen.getByRole('button', { name: '물성 추가' }))
+  fireEvent.click(screen.getByRole('button', { name: '물성 추가 (1)' }))
   await waitFor(() => expect(picked).toHaveBeenCalledWith([expect.objectContaining({ code: 'M-000001' })]))
 })
 
@@ -239,7 +240,6 @@ test('여러 개를 담아 **한 번에** 추가한다 — 창고를 바꿔도 �
   render(<MaterialPicker open onClose={() => {}} onAdd={added} />)
 
   await waitFor(() => screen.getByText('냉연강판'))
-  // 담기는 **확인란**이다 — 값을 보려고 줄을 누른 것이 담기면 안 된다.
   fireEvent.click(screen.getByRole('checkbox', { name: '냉연강판 선택' }))
   fireEvent.click(screen.getByRole('button', { name: '문헌' }))
   await waitFor(() => screen.getByText('Epoxy Molding Compound (EMC)'))
@@ -266,8 +266,21 @@ test('이미 담긴 재료는 「추가됨」 으로 보이고 다시 담지 않
   expect(screen.getByText('추가됨')).toBeInTheDocument()
   const box = screen.getByRole('checkbox', { name: '냉연강판 선택' })
   expect(box).toBeChecked()
-  expect(box).toBeDisabled()
-  // 값을 보려고 눌러도 추가할 것은 없다 — 같은 재료가 두 번 실리면 덱 번호가 둘이 된다.
+  expect(box).toHaveAttribute('aria-disabled', 'true')
+  // 눌러도 값만 보이고 담기지 않는다 — 같은 재료가 두 번 실리면 덱 번호가 둘이 된다.
   fireEvent.click(screen.getByText('냉연강판'))
+  await waitFor(() => screen.getByText(/206000 MPa/))
+  expect(screen.getByRole('button', { name: '물성 추가' })).toBeDisabled()
+})
+
+test('줄을 다시 누르면 빠진다', async () => {
+  render(<MaterialPicker open onClose={() => {}} onAdd={() => {}} />)
+  await waitFor(() => screen.getByText('냉연강판'))
+
+  fireEvent.click(screen.getByText('냉연강판'))
+  expect(screen.getByRole('button', { name: '물성 추가 (1)' })).toBeEnabled()
+  // 담긴 것은 바닥에도 이름이 보이므로 줄은 제 이름(확인란)으로 집는다.
+  fireEvent.click(screen.getByRole('checkbox', { name: '냉연강판 선택' }))
+  expect(screen.getByRole('checkbox', { name: '냉연강판 선택' })).not.toBeChecked()
   expect(screen.getByRole('button', { name: '물성 추가' })).toBeDisabled()
 })

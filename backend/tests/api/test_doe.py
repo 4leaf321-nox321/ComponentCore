@@ -421,7 +421,7 @@ def test_없는_이름표를_가리키는_조건은_만들기_전에_막는다(
         headers=member.headers,
     )
     assert bad.status_code == 400
-    assert "이름표가 없습니다" in bad.json()["error"]["message"]
+    assert "선택 그룹이 없습니다" in bad.json()["error"]["message"]
 
 
 def test_공유_폴더는_전달_큐다_기한이_지나면_사본만_치운다(

@@ -20,10 +20,12 @@
  * ## 여러 개를 한 번에 담는다
  *
  * 조립이면 파트마다 재료가 다르다. 하나 고르고 닫고 다시 여는 것을 파트 수만큼 되풀이하지
- * 않게, 재료 줄마다 확인란이 있어 **여러 개를 담아 한 번에 추가**한다. 줄을 누르는 것은 값을
- * 보는 것이고(오른쪽 칸), 담는 것은 확인란이다 — 값을 보려고 누른 것이 담기면 안 된다.
+ * 않게 **여러 개를 담아 한 번에 추가**한다. **줄을 누르면 담긴다**(다시 누르면 빠진다) — 처음에는
+ * 담기를 작은 확인란에만 걸었는데, 누르기 어렵다는 지적을 받았다. 누른 줄의 값은 오른쪽 칸에
+ * 보인다.
  */
 
+import { Check } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
 import { materialsApi } from '@/modules/materials/api'
@@ -149,9 +151,9 @@ export function MaterialPicker({
     setBasket((now) => (now.some((one) => one.id === row.id) ? now.filter((one) => one.id !== row.id) : [...now, row]))
   }
 
-  /** 담은 것을 추가한다 — 담은 것이 없으면 지금 보고 있는 재료 하나. */
+  /** 담은 것을 추가한다. */
   async function add() {
-    const rows = basket.length > 0 ? basket : chosen && !added.includes(chosen.id) ? [chosen] : []
+    const rows = basket
     if (rows.length === 0) return
     setAdding(true)
     setError(null)
@@ -369,27 +371,32 @@ export function MaterialPicker({
               const 추가됨 = added.includes(row.id)
               const 담김 = 추가됨 || basket.some((one) => one.id === row.id)
               return (
-              <div
+              // **줄 전체가 확인란이다** — 누르면 담기고(다시 누르면 빠진다) 값이 오른쪽에 보인다.
+              // 이미 추가된 재료는 담기지 않고 값만 보인다.
+              <button
                 key={row.id || row.code}
-                className={`mb-0.5 flex items-start gap-2 rounded border px-2 py-1 ${
+                type="button"
+                role="checkbox"
+                aria-checked={담김}
+                aria-disabled={추가됨 || undefined}
+                aria-label={`${label} 선택`}
+                className={`mb-0.5 flex w-full items-start gap-2 rounded border px-2 py-1.5 text-left text-sm ${
                   chosen?.id === row.id ? 'border-primary bg-accent' : 'hover:bg-accent/50 border-transparent'
                 }`}
+                onClick={() => {
+                  choose(row)
+                  if (!추가됨) toggle(row)
+                }}
               >
-                {/* 담기는 확인란으로만 — 값을 보려고 줄을 누른 것이 담기면 안 된다. */}
-                <input
-                  type="checkbox"
-                  className="mt-1 shrink-0"
-                  aria-label={`${label} 선택`}
-                  checked={담김}
-                  disabled={추가됨}
-                  onChange={() => toggle(row)}
-                />
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 text-left text-sm"
-                  aria-current={chosen?.id === row.id ? 'true' : undefined}
-                  onClick={() => choose(row)}
+                <span
+                  aria-hidden
+                  className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border ${
+                    담김 ? 'border-primary bg-primary text-primary-foreground' : 'bg-background'
+                  } ${추가됨 ? 'opacity-50' : ''}`}
                 >
+                  {담김 && <Check className="size-3" />}
+                </span>
+                <span className="min-w-0 flex-1">
                 <span className="font-medium">{label}</span>
                 {추가됨 && (
                   <Badge variant="outline" className="ml-1 font-normal">
@@ -432,8 +439,8 @@ export function MaterialPicker({
                   )}
                   {row.source === 'catalog' && <Badge variant="outline">사본</Badge>}
                 </div>
-                </button>
-              </div>
+                </span>
+              </button>
               )
             })}
             {!loading && rows.length >= LIMIT && (
@@ -528,7 +535,7 @@ export function MaterialPicker({
           <div className="mr-auto flex min-w-0 flex-wrap items-center gap-1 text-xs">
             {basket.length === 0 ? (
               <span className="text-muted-foreground">
-                재료 앞의 확인란으로 여러 개를 함께 선택합니다.
+                재료 행을 클릭하여 선택합니다 — 여러 개를 함께 선택할 수 있습니다.
               </span>
             ) : (
               <>
@@ -547,10 +554,7 @@ export function MaterialPicker({
           <Button variant="ghost" onClick={onClose}>
             취소
           </Button>
-          <Button
-            disabled={adding || (basket.length === 0 && (!chosen || added.includes(chosen.id)))}
-            onClick={() => void add()}
-          >
+          <Button disabled={adding || basket.length === 0} onClick={() => void add()}>
             {adding ? '불러오는 중…' : basket.length > 0 ? `물성 추가 (${basket.length})` : '물성 추가'}
           </Button>
         </div>

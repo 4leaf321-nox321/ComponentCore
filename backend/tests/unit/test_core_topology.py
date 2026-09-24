@@ -7,7 +7,7 @@ from typing import Any
 from build123d import Box, Compound, Location, Shape
 
 from app.core.recipe import evaluate, parse
-from app.core.recipe.topology import bodies, document, slug
+from app.core.recipe.topology import bodies, document, regions, slug
 
 #: 볼트 고정 지그의 모양 — 판 + 수직 관통 구멍 넷. 두께는 변수다(설계점마다 바뀐다).
 PLATE: dict[str, Any] = {
@@ -194,3 +194,27 @@ def test_태그로_영역을_내보낸다() -> None:
         got.shape, [{"name": "하중영역", "select": {"what": "faces", "tag": "하중영역"}}]
     )
     assert blind["unresolved"] == ["하중영역"]
+
+
+def test_여럿을_묶은_선택_그룹도_영역으로_풀린다() -> None:
+    """화면에서 면을 여럿 골라 만든 그룹(`{"any": [...]}`)이 내보낼 때 **각 면의 지문**으로
+    나간다 — 받는 쪽은 규칙을 몰라도 면을 짝짓는다."""
+    found, unresolved = regions(
+        _shape(),
+        [
+            {
+                "name": "바닥과 구멍",
+                "select": {
+                    "any": [
+                        {"what": "faces", "role": "bottom"},
+                        {"what": "faces", "near": [-30, -15, 5], "limit": 1},
+                    ]
+                },
+            }
+        ],
+    )
+    assert unresolved == []
+    assert len(found["바닥과 구멍"]) == 2
+    # 하나는 바닥(법선 -Z), 하나는 구멍(반지름이 있다) — 면 지문으로 나간다.
+    assert any(one.get("normal") == [0.0, 0.0, -1.0] for one in found["바닥과 구멍"])
+    assert any(abs(one.get("radius", 0) - 4.25) < 0.01 for one in found["바닥과 구멍"])

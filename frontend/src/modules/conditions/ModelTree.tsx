@@ -3,7 +3,7 @@
  *
  * 도면 편집기의 피처 트리와 같은 자리 · 같은 역할이다: 더하는 것은 위의 리본 단추가 하고,
  * 트리는 있는 것을 보여 주고 누르면 고친다. 가지는 해석 전처리기의 순서를 따른다 — 파트 ·
- * 물성 · 이름표 · 조건들 · 해석 설정.
+ * 물성 · 선택 그룹 · 조건들 · 해석 설정.
  *
  * **물성은 파트가 먼저다.** 물성마다 「어느 파트에」 를 고르게 했더니 파트가 여럿이면 물성
  * 하나씩 열고 닫기를 되풀이해야 했다. 파트를 누르면 그 자리에서 담아 둔 물성 중 하나를
@@ -30,14 +30,14 @@ export const UNASSIGNED_COLOR = 0x9ca3af
 export const materialColor = (index: number) => MATERIAL_COLORS[index % MATERIAL_COLORS.length]
 const css = (color: number) => `#${color.toString(16).padStart(6, '0')}`
 
-/** 트리에서 펼친 것 — 파트 · 담아 둔 물성 · 이름표 하나. 조건은 펼치지 않고 창으로 연다. */
+/** 트리에서 펼친 것 — 파트 · 담아 둔 물성 · 선택 그룹 하나. 조건은 펼치지 않고 창으로 연다. */
 export type TreeSelection =
   | { kind: 'part'; name: string }
   | { kind: 'library'; index: number }
   | { kind: 'selection'; index: number }
   | null
 
-/** 조건 한 줄의 「어디에」 — 접촉은 두 이름표를 잇는다. */
+/** 조건 한 줄의 「어디에」 — 접촉은 두 선택 그룹을 잇는다. */
 function targetOf(item: ConditionItem): string {
   if ('source' in item || 'target' in item) {
     return [item.source, item.target].map((one) => String(one ?? '') || '?').join(' → ')
@@ -282,14 +282,14 @@ export function ModelTree({
         </ul>
       </Branch>
 
-      <Branch title="이름표" count={names.length}>
+      <Branch title="선택 그룹" count={names.length}>
         {names.length === 0 && (
-          <p className="text-muted-foreground px-1 text-xs">3D 에서 형상을 선택하여 생성합니다.</p>
+          <p className="text-muted-foreground px-1 text-xs">리본의 「선택 그룹」 또는 3D 선택으로 생성합니다.</p>
         )}
         <ul className="space-y-0.5">
           {names.map((one, index) => {
             const open = selected?.kind === 'selection' && selected.index === index
-            // 어느 조건이 이 이름표를 쓰나 — 지우기 전에 보여야 한다.
+            // 어느 조건이 이 그룹을 쓰나 — 지우기 전에 보여야 한다.
             const users = groups.flatMap((group) =>
               group.items
                 .filter((item) => [item.on, item.source, item.target].includes(one.name))
@@ -312,13 +312,20 @@ export function ModelTree({
                       좌표가 아니라 <strong>선택 규칙</strong>으로 저장됩니다 — 치수가 변경되어도 같은 형상을
                       가리킵니다.
                     </p>
+                    {/* 여럿을 묶은 그룹은 규칙들의 합이다 — 몇 개를 묶었는지 먼저 말한다. */}
+                    {Array.isArray((one.select as { any?: unknown[] }).any) && (
+                      <p>
+                        <span className="text-muted-foreground">선택 규칙 </span>
+                        {(one.select as { any: unknown[] }).any.length} 개의 합
+                      </p>
+                    )}
                     <pre className="bg-muted overflow-x-auto rounded p-2">{JSON.stringify(one.select ?? {}, null, 2)}</pre>
                     <p>
                       <span className="text-muted-foreground">사용하는 조건 </span>
                       {users.length === 0 ? '없음' : users.join(', ')}
                     </p>
                     <Button size="sm" variant="ghost" onClick={() => onRemoveSelection(index)}>
-                      이름표 삭제
+                      선택 그룹 삭제
                     </Button>
                   </div>
                 )}

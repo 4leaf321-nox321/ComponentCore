@@ -651,7 +651,7 @@ def test_해석_조건은_버전에_붙고_새_버전을_만들지_않는다(
         },
         headers=member.headers,
     )
-    assert bad.status_code == 400 and "이름표가 없습니다" in bad.json()["error"]["message"]
+    assert bad.status_code == 400 and "선택 그룹이 없습니다" in bad.json()["error"]["message"]
 
     # 조건의 칸 사양표 — 화면과 AI 가 같은 것을 본다.
     spec = client.get("/api/cad/conditions/schema", headers=member.headers).json()

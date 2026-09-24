@@ -6,19 +6,23 @@
  *
  * ## 도면 편집기와 같은 모양
  *
- * 위에 **리본**(더하는 단추 — 물성 · 구속 · 하중 …), 왼쪽에 **모델 구성 트리**(있는 것 —
- * 파트 · 물성 · 이름표 · 조건), 나머지는 3D 다. 부품 · 지그를 그리는 화면과 같은 자리에 같은
+ * 위에 **리본**(더하는 단추 — 선택 그룹 · 물성 · 구속 · 하중 …), 왼쪽에 **모델 구성
+ * 트리**(있는 것 — 파트 · 물성 · 선택 그룹 · 조건), 나머지는 3D 다. 부품 · 지그를 그리는 화면과 같은 자리에 같은
  * 일이 있어야 두 모드를 오갈 때 손이 헤매지 않는다.
  *
  * 조건은 **3D 를 가리지 않는 창**에서 고친다 — 창을 띄운 채 3D 에서 적용 대상을 선택하면
  * 그 조건의 대상으로 지정된다(`ConditionWindows`).
  *
- * ## 이름표를 먼저, 조건은 그 위에
+ * ## 선택 그룹을 먼저, 조건은 그 위에
  *
- * 조건은 면을 직접 가리키지 않고 **이름표만** 가리킨다. 이름표는 좌표가 아니라 셀렉터로
- * 저장되므로(「아래쪽 면」 · 「반지름 4.25 원통면」) 실험계획이 치수를 바꿔도 설계점마다 다시
- * 풀린다. 3D 에서 선택하면 서버가 후보를 주고(`/cad/recipe/selectors`) **사람이 고른다** —
- * 하나를 자동으로 정하면 「볼트 구멍 넷」 을 원했는데 「이 구멍 하나」 가 저장되는 날이 온다.
+ * 조건은 면을 직접 가리키지 않고 **선택 그룹만** 가리킨다(데이터의 `named_selections` —
+ * 화면의 말은 「선택 그룹」 이다). 선택 그룹은 좌표가 아니라 셀렉터로 저장되므로(「아래쪽 면」 ·
+ * 「반지름 4.25 원통면」) 실험계획이 치수를 바꿔도 설계점마다 다시 풀린다. 3D 에서 선택하면
+ * 서버가 후보를 주고(`/cad/recipe/selectors`) **사람이 고른다** — 하나를 자동으로 정하면
+ * 「볼트 구멍 넷」 을 원했는데 「이 구멍 하나」 가 저장되는 날이 온다.
+ *
+ * **여럿을 한 그룹으로 묶는다** — Ctrl(⌘)은 넣고 빼기, Shift 는 더하기. 고른 것마다 제 규칙을
+ * 두고 그 합을 그룹으로 한다(`{"any": [...]}`, 서버의 `query.select_features`).
  */
 
 import {
@@ -26,6 +30,7 @@ import {
   ArrowDownToLine,
   FlaskConical,
   Grid3x3,
+  Group,
   Link2,
   Save,
   Scale,
@@ -39,8 +44,8 @@ import type { Recipe } from '@/modules/cad/api'
 import { RibbonButton, RibbonGroup } from '@/modules/cad/Ribbon'
 import { useRecipeMesh } from '@/modules/cad/useRecipeMesh'
 import { ConditionForm } from '@/modules/conditions/ConditionForm'
-import { CandidatePicker, FloatingWindow } from '@/modules/conditions/ConditionWindows'
-import type { Candidates } from '@/modules/conditions/ConditionWindows'
+import { FloatingWindow, SelectionMembers } from '@/modules/conditions/ConditionWindows'
+import type { Member } from '@/modules/conditions/ConditionWindows'
 import { materialColor, ModelTree, UNASSIGNED_COLOR } from '@/modules/conditions/ModelTree'
 import type { TreeSelection } from '@/modules/conditions/ModelTree'
 import { materialsApi } from '@/modules/materials/api'
@@ -60,6 +65,7 @@ import type {
   GroupSchema,
   MaterialItem,
   NamedSelection,
+  SelectorCandidate,
 } from '@/modules/conditions/api'
 import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
@@ -68,13 +74,13 @@ import { Button } from '@/shared/components/ui/button'
 import { Card, CardContent } from '@/shared/components/ui/card'
 import { Skeleton } from '@/shared/components/ui/skeleton'
 import { useResource } from '@/shared/hooks/useResource'
-import type { MeasurePick } from '@/shared/viewer/PickViewer'
+import type { MeasureMarks, MeasurePick, PickModifiers } from '@/shared/viewer/PickViewer'
 import PickViewer from '@/shared/viewer/PickViewer'
 
 /**
  * 창에서 고치는 조건 하나 — **확인을 눌러야 한 벌에 들어간다.** `index` 가 `null` 이면 새로
- * 더하는 것이다. 취소하면 아무것도 안 바뀐다(3D 에서 만든 이름표는 남는다 — 그것은 그것대로
- * 쓸모가 있다).
+ * 더하는 것이다. 취소하면 아무것도 안 바뀐다(3D 에서 만든 선택 그룹은 남는다 — 그것은
+ * 그것대로 쓸모가 있다).
  */
 type Editing = { group: string; index: number | null; item: ConditionItem } | null
 
@@ -96,9 +102,10 @@ function toPick(pick: MeasurePick): { what: string; point: number[]; label: stri
  * 동시에 켜면 안 된다. 하나씩만 켜는 것이 곧 그 문제도 푼다.
  */
 const PICK_KINDS = [
-  { key: 'face', label: '면', entity: 'face', what: 'faces' },
-  { key: 'edge', label: '엣지', entity: 'edge', what: 'edges' },
+  // 작은 것에서 큰 것으로 — 점 · 엣지 · 면 · 바디.
   { key: 'point', label: '점', entity: 'vertex', what: 'vertices' },
+  { key: 'edge', label: '엣지', entity: 'edge', what: 'edges' },
+  { key: 'face', label: '면', entity: 'face', what: 'faces' },
   { key: 'body', label: '바디', entity: 'body', what: 'bodies' },
 ] as const
 
@@ -113,7 +120,7 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
   mesh_hints: Grid3x3,
 }
 
-/** 이 묶음의 조건이 이름표를 가리키는 칸 — 접촉은 둘(원본 · 상대)이다. */
+/** 이 묶음의 조건이 선택 그룹을 가리키는 칸 — 접촉은 둘(원본 · 상대)이다. */
 function targetFields(group: GroupSchema | undefined): string[] {
   if (!group) return []
   if ('source' in group.fields) return ['source', 'target']
@@ -132,12 +139,14 @@ export function ConditionsPanel({
   saving?: boolean
 }) {
   const [draft, setDraft] = useState<Conditions>(() => asConditions(value))
-  /** 트리에서 펼친 것 — 파트 · 물성 · 이름표. */
+  /** 트리에서 펼친 것 — 파트 · 물성 · 선택 그룹. */
   const [tree, setTree] = useState<TreeSelection>(null)
   const [editing, setEditing] = useState<Editing>(null)
-  const [candidates, setCandidates] = useState<Candidates | null>(null)
-  const [newName, setNewName] = useState('')
-  const [picked, setPicked] = useState(0)
+  /** 3D 에서 고른 것들 — 「선택 그룹 추가」 창이나 조건 창이 이것으로 그룹을 만든다. */
+  const [members, setMembers] = useState<Member[]>([])
+  /** 「선택 그룹 추가」 창이 떠 있나. */
+  const [grouping, setGrouping] = useState(false)
+  const [groupName, setGroupName] = useState('')
   const [picking, setPicking] = useState(false)
   /** 지금 선택할 종류 — 하나만. 기본은 면(조건이 가장 많이 붙는 자리다). */
   const [pickKind, setPickKind] = useState<PickKind>('face')
@@ -155,98 +164,172 @@ export function ConditionsPanel({
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(asConditions(value)), [draft, value])
 
   /**
-   * 그 조건이 가리킬 수 있는 이름표만.
+   * 그 조건이 가리킬 수 있는 선택 그룹만.
    *
    * **초기조건은 바디에 건다** — 온도 · 속도 · 예응력은 몸 전체의 상태이지 한 면의 것이
-   * 아니다. 면 이름표를 고를 수 있게 두면 해석 쪽에서야 「그 자리에 못 건다」 를 안다.
+   * 아니다. 면 그룹을 고를 수 있게 두면 해석 쪽에서야 「그 자리에 못 건다」 를 안다.
    */
   function namesFor(group: string): NamedSelection[] {
     if (group === 'initial') return names.filter((one) => one.entity === 'body')
     return names
   }
 
-  /** 창에서 고치는 조건이 3D 선택을 받는가 — 이름표를 가리키는 칸이 있어야 한다. */
+  /** 창에서 고치는 조건이 3D 선택을 받는가 — 선택 그룹을 가리키는 칸이 있어야 한다. */
   const editingTargets = editing ? targetFields(schema.data?.groups[editing.group]) : []
 
-  async function ask(pick: MeasurePick) {
-    const { what, point, label } = toPick(pick)
+  /** 같은 것을 다시 눌렀는지 가르는 열쇠 — 면 · 엣지는 번호, 점은 좌표, 바디는 이름. */
+  function memberKey(pick: MeasurePick): string {
+    if (pick.kind === 'point') return `point:${pick.at.map((v) => v.toFixed(3)).join(',')}`
+    if (pick.kind === 'edge') return `edge:${pick.edge.index}`
+    if (pick.kind === 'face') return `face:${pick.face.index}`
+    return `body:${pick.name}`
+  }
+
+  /**
+   * 3D 에서 누른 것을 **담는다.** 아무것도 안 누르면 새로 고르고, Ctrl(⌘)은 넣고 빼기, Shift 는
+   * 더하기다 — CAD 에서 손에 익은 그대로.
+   *
+   * 조건 창이 떠 있으면 그 창이 받고, 아니면 「선택 그룹 추가」 창이 받는다(없으면 연다).
+   */
+  async function ask(pick: MeasurePick, mods: PickModifiers = { ctrl: false, shift: false }) {
     setError(null)
+    if (!editing || editingTargets.length === 0) setGrouping(true)
+    const key = memberKey(pick)
+    const had = members.some((one) => one.key === key)
+    if (mods.ctrl && had) {
+      setMembers((now) => now.filter((one) => one.key !== key))
+      return
+    }
+    if (mods.shift && had) return
+    const { what, point, label } = toPick(pick)
+    let candidates: SelectorCandidate[]
     // **바디는 서버에 물을 것이 없다.** 면 · 엣지 · 점은 「이 자리를 무엇으로 부를까」 를
     // 셀렉터 후보로 되받아야 하지만, 바디는 **이름이 곧 답**이다(`topology.bodies`).
     if (pick.kind === 'body') {
-      setCandidates({
-        what,
-        label,
-        list: [{ label: `바디 「${pick.name}」`, select: { body: pick.name }, matches: 1 }],
-      })
-      setPicked(0)
-      setNewName(pick.name)
-      return
+      candidates = [{ label: `바디 「${pick.name}」`, select: { body: pick.name }, matches: 1 }]
+    } else {
+      try {
+        candidates = (await conditionsApi.selectors(recipe, what, point)).candidates
+      } catch (failure) {
+        setError(failure instanceof ApiError ? failure : new Error(String(failure)))
+        return
+      }
     }
-    try {
-      const got = await conditionsApi.selectors(recipe, what, point)
-      setCandidates({ what, label, list: got.candidates })
-      setPicked(0)
-      setNewName('')
-    } catch (failure) {
-      setError(failure instanceof ApiError ? failure : new Error(String(failure)))
-    }
+    if (candidates.length === 0) return
+    // 기본 규칙은 **고른 그것 하나**를 가리키는 것 — 하나씩 골라 묶는 중이므로. 같은 반지름의
+    // 구멍 넷처럼 부류 전부가 필요하면 목록에서 바꾼다(몇 개에 맞는지 함께 보인다).
+    const chosen = Math.max(0, candidates.findIndex((one) => one.matches === 1))
+    const entity = PICK_KINDS.find((one) => one.what === what)?.entity ?? 'face'
+    const member: Member = { key, label, entity, pick, candidates, chosen }
+    setMembers((now) => {
+      if (!mods.ctrl && !mods.shift) return [member]
+      return now.some((one) => one.key === key) ? now : [...now, member]
+    })
   }
 
-  /** 고른 후보와 **같은 규칙의 이름표**가 이미 있으면 그 이름. */
+  /** 담은 것들의 규칙 — 하나면 그 규칙, 여럿이면 **합**(`{"any": [...]}`). */
+  function groupSelect(list: Member[]): Record<string, unknown> {
+    const rules = list.map((one) => one.candidates[one.chosen].select)
+    return rules.length === 1 ? rules[0] : { any: rules }
+  }
+
+  /** 같은 규칙의 선택 그룹이 이미 있으면 그 이름 — 새로 만들지 않고 그것을 쓴다. */
   const existing = useMemo(() => {
-    const candidate = candidates?.list[picked]
-    if (!candidates || !candidate) return null
-    const entity = PICK_KINDS.find((one) => one.what === candidates.what)?.entity ?? 'face'
-    const same = names.find(
-      (one) => one.entity === entity && JSON.stringify(one.select) === JSON.stringify(candidate.select),
-    )
+    if (members.length === 0) return null
+    const select = JSON.stringify(groupSelect(members))
+    const same = names.find((one) => one.entity === members[0].entity && JSON.stringify(one.select) === select)
     return same?.name ?? null
-  }, [candidates, picked, names])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [members, names])
+
+  /** 이름을 안 적으면 — 첫 규칙의 말에 「외 N」. */
+  const defaultName =
+    members.length === 0
+      ? ''
+      : `${members[0].candidates[members[0].chosen].label}${members.length > 1 ? ` 외 ${members.length - 1}` : ''}`
 
   /**
-   * 고른 후보로 이름표를 만든다 — 같은 규칙의 이름표가 있으면 새로 만들지 않고 그것을 쓴다.
-   * 쓸 이름을 돌려준다(못 만들면 `null`).
+   * 담은 것으로 선택 그룹을 만든다 — 같은 규칙의 그룹이 있으면 새로 만들지 않고 그것을 쓴다.
+   * 쓸 이름과 새 한 벌을 돌려준다(못 만들면 `null`).
    */
-  function makeSelection(): { name: string; draft: Conditions } | null {
-    if (!candidates) return null
-    const candidate = candidates.list[picked]
-    if (!candidate) return null
+  function makeGroup(): { name: string; draft: Conditions } | null {
+    if (members.length === 0) return null
     if (existing) return { name: existing, draft }
-    const name = newName.trim() || candidate.label
+    const name = groupName.trim() || defaultName
     if (names.some((one) => one.name === name)) {
-      setError(new Error(`「${name}」 이름표가 이미 있습니다 — 다른 이름을 입력하세요.`))
+      setError(new Error(`「${name}」 선택 그룹이 이미 있습니다 — 다른 이름을 입력하세요.`))
       return null
     }
-    const entity = PICK_KINDS.find((one) => one.what === candidates.what)?.entity ?? 'face'
-    return { name, draft: { ...draft, named_selections: [...names, { name, entity, select: candidate.select }] } }
+    const made: NamedSelection = { name, entity: members[0].entity, select: groupSelect(members) }
+    return { name, draft: { ...draft, named_selections: [...names, made] } }
   }
 
-  /** 창 없이 3D 를 선택했을 때 — 이름표만 만들고 트리에서 펼쳐 보인다. */
-  function createSelection() {
-    const made = makeSelection()
+  function clearMembers() {
+    setMembers([])
+    setGroupName('')
+  }
+
+  function closeGroup() {
+    setGrouping(false)
+    clearMembers()
+  }
+
+  /** 「선택 그룹 추가」 창의 생성 — 만든 그룹을 트리에서 펼쳐 보인다. */
+  function createGroup() {
+    const made = makeGroup()
     if (!made) return
     setDraft(made.draft)
-    setCandidates(null)
+    setGrouping(false)
+    clearMembers()
     setError(null)
     setTree({ kind: 'selection', index: made.draft.named_selections.findIndex((one) => one.name === made.name) })
   }
 
   /**
-   * 조건 창을 띄운 채 3D 를 선택했을 때 — 이름표를 만들고 **그 조건의 대상으로 지정한다.**
-   * 이름표를 따로 만들고 다시 조건으로 돌아가 목록에서 고르면 한 가지 일이 세 걸음이 된다.
+   * 조건 창을 띄운 채 3D 를 선택했을 때 — 그룹을 만들고 **그 조건의 대상으로 지정한다.**
+   * 그룹을 따로 만들고 다시 조건으로 돌아가 목록에서 고르면 한 가지 일이 세 걸음이 된다.
    * 접촉은 원본이 비었으면 원본, 아니면 상대에 넣는다.
    */
-  function assignSelection() {
+  function assignGroup() {
     if (!editing) return
-    const made = makeSelection()
+    const made = makeGroup()
     if (!made) return
     const key = editingTargets.find((one) => !editing.item[one]) ?? editingTargets[editingTargets.length - 1]
     setDraft(made.draft)
     setEditing({ ...editing, item: { ...editing.item, [key]: made.name } })
-    setCandidates(null)
+    clearMembers()
     setError(null)
   }
+
+  /**
+   * 담은 것을 3D 에 **번호와 함께** — 목록의 몇 번이 어디인지 보인다. 바디는 그 파트의 면 전부
+   * (단품은 면에 파트 이름이 없고 바디가 「전체」 하나다).
+   */
+  const marks = useMemo<MeasureMarks | undefined>(() => {
+    if (members.length === 0) return undefined
+    const out: MeasureMarks = { points: [], segments: [], labels: [], edges: [], faces: [] }
+    members.forEach((member, index) => {
+      const text = String(index + 1)
+      const pick = member.pick
+      if (pick.kind === 'point') {
+        out.points.push(pick.at)
+        out.labels.push({ at: pick.at, text, tone: 'entity' })
+      } else if (pick.kind === 'edge') {
+        out.edges.push({ points: pick.edge.points, tone: 'live' })
+        out.labels.push({ at: pick.edge.midpoint, text, tone: 'entity' })
+      } else if (pick.kind === 'face') {
+        out.faces.push({ vertices: pick.face.vertices, triangles: pick.face.triangles, tone: 'live' })
+        out.labels.push({ at: pick.face.center, text, tone: 'entity' })
+      } else {
+        for (const face of mesh?.faces ?? []) {
+          if ((face.part || '전체') === pick.name) {
+            out.faces.push({ vertices: face.vertices, triangles: face.triangles, tone: 'live' })
+          }
+        }
+      }
+    })
+    return out
+  }, [members, mesh])
 
   /**
    * 창을 연다 — 초기조건이면 선택 대상을 바디로 바꾼다(바디에만 건다).
@@ -255,9 +338,14 @@ export function ConditionsPanel({
    * 적용 대상을 선택할 3D 가 흐리게 남는다.
    */
   function openWindow(next: NonNullable<Editing>) {
-    setCandidates(null)
     setError(null)
     setTree(null)
+    // 적용 대상을 받는 창이면 「선택 그룹 추가」 창은 닫되 **담은 것은 넘긴다** — 먼저 고르고
+    // 조건을 더하는 순서(해석 전처리기에서 흔한 순서)도 된다. 초기조건은 바디만 받는다.
+    if (targetFields(schema.data?.groups[next.group]).length > 0) {
+      setGrouping(false)
+      if (next.group === 'initial' && members.some((one) => one.entity !== 'body')) clearMembers()
+    }
     if (next.group === 'initial' && pickKind !== 'body') {
       pickKindBefore.current = pickKind
       setPickKind('body')
@@ -266,8 +354,8 @@ export function ConditionsPanel({
   }
 
   function closeWindow() {
+    if (editingTargets.length > 0) clearMembers()
     setEditing(null)
-    setCandidates(null)
     if (pickKindBefore.current) {
       setPickKind(pickKindBefore.current)
       pickKindBefore.current = null
@@ -384,7 +472,7 @@ export function ConditionsPanel({
    * 3D 의 파트 색 = 그 파트에 지정한 물성의 색(트리의 네모와 같다). 아직 없는 파트는 회색.
    *
    * **물성을 하나도 안 담았으면 칠하지 않는다** — 전부 회색이 되어 조건을 붙이는 화면이 흐려
-   * 보인다. 단품은 면에 파트 이름표가 없어 칠할 수 없고, 칠할 까닭도 없다(파트가 하나다).
+   * 보인다. 단품은 면에 파트 이름이 없어 칠할 수 없고, 칠할 까닭도 없다(파트가 하나다).
    *
    * 뷰어는 이 값이 바뀌면 장면을 다시 짓는다 — 그래서 물성 지정이 바뀔 때만 새로 만든다.
    */
@@ -479,6 +567,24 @@ export function ConditionsPanel({
             active={dirty}
             disabled={saving || !!editing}
             onClick={() => onSave(draft)}
+          />
+        </RibbonGroup>
+        <RibbonGroup title="선택">
+          <RibbonButton
+            icon={Group}
+            label="선택 그룹"
+            title={
+              editing && editingTargets.length > 0
+                ? '열린 조건 창에서 3D 를 선택하면 그 조건의 선택 그룹이 됩니다'
+                : '선택 그룹 추가 — 3D 에서 Ctrl · Shift 로 여럿을 선택합니다'
+            }
+            active={grouping}
+            disabled={!!editing && editingTargets.length > 0}
+            onClick={() => {
+              if (grouping) return closeGroup()
+              clearMembers()
+              setGrouping(true)
+            }}
           />
         </RibbonGroup>
         <RibbonGroup title="물성">
@@ -611,20 +717,22 @@ export function ConditionsPanel({
                     : 'text-muted-foreground hover:bg-accent/50'
                 }`}
                 onClick={() => {
+                  if (one.key === pickKind) return
                   setPickKind(one.key)
-                  // 종류를 바꾸면 고르던 후보는 뜻을 잃는다.
-                  setCandidates(null)
+                  // **한 그룹은 한 종류다** — 종류를 바꾸면 담아 둔 것은 비운다.
+                  clearMembers()
                 }}
               >
                 {one.label}
               </button>
             ))}
             <span className="text-muted-foreground ml-auto text-xs">
+              {pickKind === 'body' && '면을 클릭하면 그 바디가 선택됩니다 · '}
               {editing && editingTargets.length > 0
-                ? '3D 에서 선택하면 열린 조건의 적용 대상으로 지정됩니다'
-                : pickKind === 'body'
-                  ? '면을 클릭하면 해당 바디가 선택됩니다'
-                  : '3D 에서 클릭하여 이름표를 생성합니다'}
+                ? '선택하면 열린 조건의 적용 대상이 됩니다 — Ctrl · Shift 로 여럿'
+                : grouping
+                  ? 'Ctrl 또는 Shift 를 누른 채 선택하면 선택 그룹에 더해집니다'
+                  : '3D 에서 선택하면 선택 그룹을 만듭니다'}
             </span>
           </div>
           <CardContent className="min-h-0 flex-1 p-0">
@@ -638,7 +746,9 @@ export function ConditionsPanel({
                 face: pickKind === 'face',
                 body: pickKind === 'body',
               }}
-              onMeasure={(pick) => void ask(pick)}
+              onMeasure={(pick, mods) => void ask(pick, mods)}
+              // 담은 것을 번호와 함께 표시한다 — 목록의 몇 번이 어디인지.
+              measureMarks={marks}
               partColors={partColors}
               // 트리에서 파트를 누르면 3D 에서도 그 파트만 또렷하게 — 어느 것에 지정하는지 보인다.
               emphasis={tree?.kind === 'part' && bodyNames.length > 1 ? tree.name : null}
@@ -661,7 +771,7 @@ export function ConditionsPanel({
             ? undefined
             : bodyOnly
               ? '초기조건은 바디에만 적용됩니다 — 3D 에서 바디를 선택하면 적용 대상으로 지정됩니다.'
-              : '3D 에서 형상을 선택하면 적용 대상으로 지정됩니다.'
+              : '3D 에서 형상을 선택하면 적용 대상으로 지정됩니다 — Ctrl · Shift 로 여럿을 묶습니다.'
         }
         onClose={closeWindow}
         footer={
@@ -680,17 +790,23 @@ export function ConditionsPanel({
       >
         {editing && editingSpec && (
           <>
-            {candidates && editingTargets.length > 0 && (
-              <CandidatePicker
-                candidates={candidates}
-                picked={picked}
-                onPicked={setPicked}
-                name={newName}
-                onName={setNewName}
+            {members.length > 0 && editingTargets.length > 0 && (
+              <SelectionMembers
+                members={members}
+                onChoose={(index, candidate) =>
+                  setMembers((now) => now.map((one, i) => (i === index ? { ...one, chosen: candidate } : one)))
+                }
+                onRemove={(index) => setMembers((now) => now.filter((_, i) => i !== index))}
+                onClear={clearMembers}
+                name={groupName}
+                onName={setGroupName}
+                placeholder={defaultName}
                 existing={existing}
-                confirmLabel="적용 대상으로 지정"
-                onConfirm={assignSelection}
-                onCancel={() => setCandidates(null)}
+                actions={
+                  <Button size="sm" onClick={assignGroup}>
+                    적용 대상으로 지정
+                  </Button>
+                }
               />
             )}
             <ConditionForm
@@ -703,27 +819,40 @@ export function ConditionsPanel({
         )}
       </FloatingWindow>
 
-      {/* ── 창 없이 3D 를 선택했을 때 — 이름표 생성 ── */}
+      {/*
+        ── 선택 그룹 추가 — 리본 단추로 열거나, 창 없이 3D 를 선택하면 열린다. Ctrl(⌘)은 넣고
+        빼기, Shift 는 더하기. 여럿이면 규칙들의 합으로 저장된다.
+      */}
       <FloatingWindow
-        open={!!candidates && (!editing || editingTargets.length === 0)}
-        title="이름표 생성"
-        onClose={() => setCandidates(null)}
+        open={grouping}
+        title="선택 그룹 추가"
+        description="3D 에서 형상을 선택합니다 — Ctrl 또는 Shift 를 누른 채 선택하면 여럿을 담습니다. 한 그룹은 한 종류(점 · 엣지 · 면 · 바디)입니다."
+        onClose={closeGroup}
         // 해석 설정 창과 함께 뜨는 드문 경우 겹치지 않게 조금 아래에 세운다.
         className={editing ? 'top-56' : 'top-24'}
+        footer={
+          <>
+            <Button variant="ghost" onClick={closeGroup}>
+              취소
+            </Button>
+            <Button onClick={createGroup} disabled={members.length === 0 || !!existing}>
+              생성
+            </Button>
+          </>
+        }
       >
-        {candidates && (
-          <CandidatePicker
-            candidates={candidates}
-            picked={picked}
-            onPicked={setPicked}
-            name={newName}
-            onName={setNewName}
-            existing={existing}
-            confirmLabel="이름표 생성"
-            onConfirm={createSelection}
-            onCancel={() => setCandidates(null)}
-          />
-        )}
+        <SelectionMembers
+          members={members}
+          onChoose={(index, candidate) =>
+            setMembers((now) => now.map((one, i) => (i === index ? { ...one, chosen: candidate } : one)))
+          }
+          onRemove={(index) => setMembers((now) => now.filter((_, i) => i !== index))}
+          onClear={clearMembers}
+          name={groupName}
+          onName={setGroupName}
+          placeholder={defaultName}
+          existing={existing}
+        />
       </FloatingWindow>
 
       <MaterialPicker

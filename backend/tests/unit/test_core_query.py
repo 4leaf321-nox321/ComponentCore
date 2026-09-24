@@ -8,7 +8,7 @@ import pytest
 from build123d import Shape
 
 from app.core.recipe import evaluate, parse
-from app.core.recipe.query import find_features, selector_candidates
+from app.core.recipe.query import find_features, select_features, selector_candidates
 
 #: 볼트 구멍 넷짜리 판. 두께는 변수다.
 PLATE: dict[str, Any] = {
@@ -85,3 +85,26 @@ def test_찍은_자리를_그대로_쓴다() -> None:
 def test_자리를_안_주면_말해_준다() -> None:
     with pytest.raises(ValueError, match="point"):
         selector_candidates(_shape(), {"what": "faces"})
+
+
+def test_여럿을_골라_묶으면_규칙들의_합이고_겹치면_한_번이다() -> None:
+    """3D 에서 Ctrl · Shift 로 하나씩 고른 것을 한 그룹으로 — 규칙 하나로는 「바닥과 구멍
+    하나」 를 말할 수 없다. 두 규칙이 같은 면을 집으면 한 번만 센다(안 그러면 하중이 두 번
+    걸린다)."""
+    바닥 = {"what": "faces", "role": "bottom"}
+    구멍하나 = {"what": "faces", "near": [-30, -15, 5], "limit": 1}
+    구멍넷 = {"what": "faces", "kind": "cylinder", "radius": 4.25}
+
+    both = select_features(_shape(), {"any": [바닥, 구멍하나]})
+    assert both["what"] == "faces" and both["total"] == 2
+
+    # 구멍 하나는 구멍 넷 안에 있다 — 합은 다섯(바닥 + 구멍 넷)이지 여섯이 아니다.
+    겹침 = select_features(_shape(), {"any": [바닥, 구멍넷, 구멍하나]})
+    assert 겹침["total"] == 5
+    assert len({row["index"] for row in 겹침["items"]}) == 5
+
+    # **치수를 바꿔도** 같은 것들을 가리킨다 — 규칙마다 설계점에서 다시 풀린다.
+    assert select_features(_shape(6), {"any": [바닥, 구멍하나]})["total"] == 2
+
+    # 하나짜리는 예전 그대로다.
+    assert select_features(_shape(), 바닥)["total"] == find_features(_shape(), 바닥)["total"]
