@@ -85,13 +85,21 @@ const MATERIALS = {
   ],
 }
 
+/** 쪽(族) · 갈래 — 탐색기가 좁혀 들어갈 두 칸. 개수는 그쪽이 세어 준다. */
+const CLASSES = { fallback: false, items: [{ family: '강판', category: '냉연', count: 1 }] }
+
 vi.mock('@/shared/api/client', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('@/shared/api/client')
   return {
     ...actual,
     api: {
       get: vi.fn(async (path: string) =>
-        path.startsWith('/materials') ? MATERIALS : SCHEMA,
+        // **분류와 목록은 다른 길이다** — 탐색기의 첫 두 칸이 분류에서 나온다.
+        path.startsWith('/materials/classifications')
+          ? CLASSES
+          : path.startsWith('/materials')
+            ? MATERIALS
+            : SCHEMA,
       ),
       post: vi.fn(async () => CANDIDATES),
       put: vi.fn(async () => ({ conditions: {} })),

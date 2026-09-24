@@ -21,6 +21,7 @@ router = APIRouter(prefix="/materials", tags=["materials"])
 def search_materials(
     q: str = Query(default="", max_length=120),
     family: str = Query(default="", max_length=60),
+    category: str = Query(default="", max_length=120),
     limit: int = Query(default=30, ge=1, le=200),
     _: User = Depends(current_user),
     db: Session = Depends(get_db),
@@ -35,7 +36,20 @@ def search_materials(
     줄마다 **어느 부서 것인지**(`workspace`)가 함께 온다 — 두 부서에 같은 이름이 있을 수 있다.
 
     못 닿으면 올려 둔 카탈로그로 넘어가고, **넘어갔다는 사실을 답에 적는다**(`fallback`)."""
-    return services.search(db, query=q, family=family, limit=limit)
+    return services.search(db, query=q, family=family, category=category, limit=limit)
+
+
+@router.get("/classifications")
+def material_classifications(
+    _: User = Depends(current_user), db: Session = Depends(get_db)
+) -> dict[str, Any]:
+    """쪽(族) · 갈래와 그 개수 — `[{family, category, count}]`.
+
+    화면이 **쪽 → 갈래 → 재료**로 좁혀 들어가는 두 칸이 여기서 나온다. 검색 결과에서 뽑아
+    만들면 「앞 서른 줄에 있는 쪽」 만 보이고, 사람은 나머지가 없는 줄 안다.
+
+    못 닿으면 올려 둔 카탈로그에서 같은 모양으로 세어 준다(`fallback`)."""
+    return services.classifications(db)
 
 
 @router.get("/status")

@@ -45,7 +45,9 @@ def _row(payload: dict[str, Any], source: str) -> dict[str, Any]:
     }
 
 
-def _from_catalog(db: Session, query: str, family: str, limit: int) -> list[dict[str, Any]]:
+def _from_catalog(
+    db: Session, query: str, family: str, category: str, limit: int
+) -> list[dict[str, Any]]:
     stmt = select(CatalogMaterial)
     if query:
         like = f"%{query}%"
@@ -55,11 +57,41 @@ def _from_catalog(db: Session, query: str, family: str, limit: int) -> list[dict
     if family:
         stmt = stmt.where(CatalogMaterial.family == family)
     rows = db.scalars(stmt.order_by(CatalogMaterial.name).limit(limit)).all()
-    return [_row(one.payload, "catalog") for one in rows]
+    out = [_row(one.payload, "catalog") for one in rows]
+    # 갈래는 사본에 칸이 없다 — payload 에서 본다(그쪽이 준 것 그대로 싣고 있으므로 있다).
+    if category:
+        out = [one for one in out if one["category"] == category]
+    return out
+
+
+def classifications(db: Session) -> dict[str, Any]:
+    """쪽(族) · 갈래와 그 개수 — 화면이 좁혀 들어갈 두 칸.
+
+    못 닿으면 **올려 둔 사본에서 같은 모양으로 세어 준다.** 여기서 빈손을 주면 화면의 첫
+    칸이 비고, 사람은 재료가 하나도 없는 줄 안다 — 실은 카탈로그에 있는데도."""
+    if matnexus.configured():
+        try:
+            return {"items": matnexus.classifications(), "fallback": False}
+        except matnexus.MatNexusUnavailable as failure:
+            detail = str(failure)
+        except AppError as failure:
+            detail = failure.message
+    else:
+        detail = f"{matnexus.missing()} — 올려 둔 카탈로그로 고릅니다"
+    counted: dict[tuple[str, str], int] = {}
+    for row in db.scalars(select(CatalogMaterial)).all():
+        payload = row.payload or {}
+        key = (str(payload.get("family") or ""), str(payload.get("category") or ""))
+        counted[key] = counted.get(key, 0) + 1
+    items = [
+        {"family": family, "category": category, "count": how_many}
+        for (family, category), how_many in sorted(counted.items())
+    ]
+    return {"items": items, "fallback": True, "detail": detail}
 
 
 def search(
-    db: Session, *, query: str = "", family: str = "", limit: int = 30
+    db: Session, *, query: str = "", family: str = "", category: str = "", limit: int = 30
 ) -> dict[str, Any]:
     """MatNexus 에 묻고, 못 닿으면 올려 둔 카탈로그로 넘어간다.
 
@@ -68,16 +100,16 @@ def search(
     """
     if matnexus.configured():
         try:
-            live = matnexus.search(query=query, family=family, limit=limit)
+            live = matnexus.search(query=query, family=family, category=category, limit=limit)
             return {"items": [_row(one, "matnexus") for one in live], "fallback": False}
         except matnexus.MatNexusUnavailable as failure:
             return {
-                "items": _from_catalog(db, query, family, limit),
+                "items": _from_catalog(db, query, family, category, limit),
                 "fallback": True,
                 "detail": str(failure),
             }
     return {
-        "items": _from_catalog(db, query, family, limit),
+        "items": _from_catalog(db, query, family, category, limit),
         "fallback": True,
         "detail": f"{matnexus.missing()} — 올려 둔 카탈로그로 고릅니다",
     }

@@ -39,9 +39,23 @@ export const materialsApi = {
    * 물성 찾기 — **서버가 중계한다**(그쪽 CORS 는 자기 주소만 허용하고, 토큰이 화면에
    * 나가면 안 된다). 못 닿으면 `fallback` 이 참이고 `detail` 에 까닭이 온다.
    */
-  search: (q = '', limit = 30) =>
-    api.get<{ items: MaterialRow[]; fallback: boolean; detail?: string }>(
-      `/materials?q=${encodeURIComponent(q)}&limit=${limit}`,
+  search: (options: { q?: string; family?: string; category?: string; limit?: number } = {}) => {
+    const query = new URLSearchParams({ limit: String(options.limit ?? 30) })
+    if (options.q) query.set('q', options.q)
+    if (options.family) query.set('family', options.family)
+    if (options.category) query.set('category', options.category)
+    return api.get<{ items: MaterialRow[]; fallback: boolean; detail?: string }>(`/materials?${query}`)
+  },
+  /**
+   * 쪽(族) · 갈래와 그 **개수** — 탐색기의 첫 두 칸이 여기서 나온다.
+   *
+   * 검색 결과에서 뽑아 만들지 않는 까닭: 목록은 상한만큼만 오므로 「앞 서른 줄에 있는 쪽」
+   * 만 보이고, 사람은 나머지가 없는 줄 안다. 개수가 함께 오니 빈 갈래를 눌러 보게 하지도
+   * 않는다.
+   */
+  classifications: () =>
+    api.get<{ items: { family: string; category: string; count: number }[]; fallback: boolean; detail?: string }>(
+      '/materials/classifications',
     ),
   status: () =>
     api.get<{

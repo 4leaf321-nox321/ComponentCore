@@ -99,7 +99,20 @@ def _get(path: str, params: dict[str, Any] | None = None) -> Any:
     return answer.json()
 
 
-def search(query: str = "", family: str = "", limit: int = 30) -> list[dict[str, Any]]:
+def classifications() -> list[dict[str, Any]]:
+    """**무엇이 있나** — `[{family, category, count}]`. 그쪽이 이미 세어 준다.
+
+    화면이 쪽(族) → 갈래 → 재료로 좁혀 들어가려면 **목록에 나온 것 말고 전부**가 필요하다.
+    검색 결과에서 뽑아 만들면 「앞 서른 줄에 있는 쪽」 만 보이고, 사람은 나머지가 없는 줄
+    안다. 개수가 함께 오므로 빈 갈래를 눌러 보게 하지도 않는다.
+    """
+    got = _get("/api/materials/classifications")
+    return [one for one in (got or []) if isinstance(one, dict)]
+
+
+def search(
+    query: str = "", family: str = "", category: str = "", limit: int = 30
+) -> list[dict[str, Any]]:
     """재료 목록 — 이름 · 별칭 · 번호로 찾는다.
 
     목록 응답에 `declared_properties` 가 통째로 들어 있어(그쪽 `MaterialOut`) 한 번 부르면
@@ -110,6 +123,8 @@ def search(query: str = "", family: str = "", limit: int = 30) -> list[dict[str,
         params["q"] = query
     if family:
         params["family"] = family
+    if category:
+        params["category"] = category
     if workspace := get_settings().matnexus_workspace:
         params["workspace"] = workspace
     got = _get("/api/materials", params)

@@ -209,3 +209,64 @@ def test_무엇이_비었는지_이름을_댄다(
     monkeypatch.setattr(settings, "matnexus_base_url", "", raising=False)
     both = client.get("/api/materials", headers=member.headers).json()
     assert "MATNEXUS_BASE_URL" in both["detail"] and "MATNEXUS_TOKEN" in both["detail"]
+
+
+def test_쪽과_갈래는_따로_묻는다_목록에서_뽑지_않는다(
+    client: TestClient, member: Signed, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """탐색기의 첫 두 칸(쪽 · 갈래)은 **분류**에서 온다.
+
+    검색 결과에서 뽑아 만들면 「앞 서른 줄에 있는 쪽」 만 보이고, 사람은 나머지가 없는 줄
+    안다. 개수가 함께 오므로 빈 갈래를 눌러 보게 하지도 않는다."""
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        return httpx.Response(
+            200,
+            json=[
+                {"family": "Metal", "category": "Steel", "count": 110},
+                {"family": "Polymer", "category": "EPDM", "count": 9},
+            ],
+        )
+
+    monkeypatch.setattr(matnexus, "configured", lambda: True)
+    monkeypatch.setattr(
+        matnexus,
+        "_client",
+        lambda: httpx.Client(
+            base_url="http://matnexus.test", transport=httpx.MockTransport(handler)
+        ),
+    )
+    got = client.get("/api/materials/classifications", headers=member.headers)
+    assert got.status_code == 200, got.text
+    assert "/api/materials/classifications" in seen["url"]
+    body = got.json()
+    assert body["fallback"] is False
+    assert body["items"][0] == {"family": "Metal", "category": "Steel", "count": 110}
+
+
+def test_못_닿으면_사본에서_세어_준다(
+    client: TestClient, member: Signed, admin: Signed, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """여기서 빈손을 주면 화면의 첫 칸이 비고, 사람은 재료가 하나도 없는 줄 안다 — 실은
+    올려 둔 카탈로그에 있는데도."""
+    upload = client.post(
+        "/api/materials/catalog",
+        files={
+            "file": (
+                "catalog.json",
+                json.dumps([SPCC]).encode("utf-8"),
+                "application/json",
+            )
+        },
+        headers=admin.headers,
+    )
+    assert upload.status_code == 200, upload.text
+
+    monkeypatch.setattr(matnexus, "configured", lambda: False)
+    got = client.get("/api/materials/classifications", headers=member.headers)
+    assert got.status_code == 200
+    body = got.json()
+    assert body["fallback"] is True and body["detail"]
+    assert body["items"] == [{"family": "강판", "category": "냉연", "count": 1}]
