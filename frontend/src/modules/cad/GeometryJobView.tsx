@@ -42,7 +42,8 @@ export function GeometryJobView({
    * 굳은 높이를 안 받았으면 **남은 높이를 다 쓴다.** 조기 반환보다 **위**에 있어야 한다 —
    * 아래에 두면 작업이 없을 때와 있을 때의 훅 수가 달라진다.
    */
-  const fill = useFillHeight<HTMLDivElement>({ min: 360, gap: 12, deps: [job?.status, title] })
+  // 바닥값은 이 자리가 원래 쓰던 높이(`h-[420px]`) — 낮게 잡으면 채우기가 오히려 줄인다.
+  const fill = useFillHeight<HTMLDivElement>({ min: 420, gap: 12, deps: [job?.status, title] })
   const [url, setUrl] = useState<string | null>(null)
   const full = useFullscreen()
   const glb = job?.artifacts.find((one) => one.kind === 'model_glb')

@@ -313,7 +313,14 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
    * flex 가 알아서 늘리므로 계산이 필요 없다.
    */
   const fill = useFillHeight<HTMLDivElement>({
-    min: 360,
+    /**
+     * **바닥값은 이 자리가 원래 쓰던 높이다.** 낮게 잡으면 「채우기」 가 오히려 줄인다 —
+     * 3D 위에 쌓인 것이 많은 화면(내 작업: 머리 · 꼬리표 · 탭 · 카드 머리 · 리본 · 안내)
+     * 에서는 화면 아래까지 재도 남는 것이 얼마 없어 바닥값으로 떨어지기 때문이다.
+     *
+     * 그러면 채우기는 **여유가 있을 때만 이득**이고, 없을 때도 손해는 아니다.
+     */
+    min: 600,
     // 뷰 아래에 스케치 안내가 붙는 일이 있다 — 그만큼 남겨 둔다.
     gap: 12,
     deps: [fullscreen, mesh !== null, Boolean(summary?.is_sketch), pickMode],

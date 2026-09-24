@@ -181,7 +181,9 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
    * 화면에서는 페이지가 스크롤된다 — 둘 다 조립을 좁게 만든다.
    */
   const fill = useFillHeight<HTMLDivElement>({
-    min: 360,
+    // 바닥값은 이 자리가 원래 쓰던 높이 — 낮게 잡으면 「채우기」 가 오히려 줄인다
+    // (`RecipeEditor` 의 같은 자리 참고).
+    min: 520,
     // 뷰 아래에 문제 목록과 겹침 보고가 붙는다 — 그만큼 남겨 둔다.
     gap: 16,
     deps: [placed.length, problems.length, mesh !== null, selected],
