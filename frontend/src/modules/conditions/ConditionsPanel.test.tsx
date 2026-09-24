@@ -16,12 +16,14 @@ let lastMarks: { labels: { text: string }[] } | undefined
 vi.mock('@/shared/viewer/PickViewer', () => ({
   default: ({
     onMeasure,
+    onBoxSelect,
     measureKinds,
     measureMarks,
     partColors,
     emphasis,
   }: {
     onMeasure?: (pick: unknown, modifiers: { ctrl: boolean; shift: boolean }) => void
+    onBoxSelect?: (picks: unknown[], modifiers: { ctrl: boolean; shift: boolean }) => void
     measureKinds?: Record<string, boolean>
     measureMarks?: { labels: { text: string }[] }
     partColors?: Record<string, number>
@@ -42,6 +44,20 @@ vi.mock('@/shared/viewer/PickViewer', () => ({
         </button>
         <button onClick={(e) => onMeasure?.({ kind: 'point', at: [1, 2, 3] }, keys(e))}>점 찍기</button>
         <button onClick={(e) => onMeasure?.({ kind: 'body', name: '기둥' }, keys(e))}>바디 찍기</button>
+        {/* Shift + 끌기 — 사각형 안의 두 면(아래 · 위). */}
+        <button
+          onClick={() =>
+            onBoxSelect?.(
+              [
+                { kind: 'face', face: { index: 0, center: [0, 0, 0] } },
+                { kind: 'face', face: { index: 1, center: [5, 0, 9] } },
+              ],
+              { ctrl: false, shift: true },
+            )
+          }
+        >
+          사각형 선택
+        </button>
       </div>
     )
   },
@@ -184,9 +200,13 @@ vi.mock('@/shared/api/client', async () => {
             : SCHEMA,
       ),
       // 바디 목록과 셀렉터 후보는 **다른 길**이다 — 물성이 어디에 붙는지가 바디에서 나온다.
-      post: vi.fn(async (path: string, body?: { pick?: { point?: number[] } }) =>
-        path.startsWith('/cad/recipe/bodies') ? BODIES : body?.pick?.point?.[0] === 5 ? TOP_CANDIDATES : CANDIDATES,
-      ),
+      post: vi.fn(async (path: string, body?: { pick?: { point?: number[] }; picks?: { point: number[] }[] }) => {
+        if (path.startsWith('/cad/recipe/bodies')) return BODIES
+        const answer = (point?: number[]) => (point?.[0] === 5 ? TOP_CANDIDATES : CANDIDATES)
+        // 여럿을 한 번에(사각형 선택) — 같은 순서로.
+        if (body?.picks) return { items: body.picks.map((one) => answer(one.point)) }
+        return answer(body?.pick?.point)
+      }),
       put: vi.fn(async () => ({ conditions: {} })),
     },
   }
@@ -271,6 +291,30 @@ test('**Ctrl · Shift** 로 여럿을 한 그룹에 담고, 그 합으로 저장
       select: { any: [{ what: 'faces', role: 'top' }, { what: 'faces', role: 'bottom' }] },
     },
   ])
+})
+
+test('**Shift + 끌기**(사각형)로 고른 것들을 더하고, 규칙은 서버에 한 번에 묻는다', async () => {
+  const calls = vi.mocked((await import('@/shared/api/client')).api.post)
+  const onSave = await panel()
+  // 하나를 먼저 고른 뒤 사각형으로 더한다 — 이미 담긴 것(아래 면)은 한 번만.
+  fireEvent.click(screen.getByText('면 찍기'))
+  await waitFor(() => screen.getByLabelText('1번 선택 규칙'))
+  const before = calls.mock.calls.length
+
+  fireEvent.click(screen.getByText('사각형 선택'))
+  await waitFor(() => screen.getByLabelText('2번 선택 규칙'))
+  expect(screen.queryByLabelText('3번 선택 규칙')).toBeNull()
+  // 도면을 고른 수만큼 다시 만들지 않는다 — 묻는 것은 한 번, 새로 담을 것만.
+  const asked = calls.mock.calls.slice(before).filter((one) => String(one[0]).includes('selectors'))
+  expect(asked).toHaveLength(1)
+  expect((asked[0][1] as { picks: unknown[] }).picks).toHaveLength(1)
+
+  fireEvent.change(screen.getByLabelText('그룹 이름'), { target: { value: '위아래' } })
+  fireEvent.click(screen.getByRole('button', { name: '생성' }))
+  await waitFor(() => screen.getByText(/^2 개의 합$/))
+  expect((await save(onSave)).named_selections[0].select).toEqual({
+    any: [{ what: 'faces', role: 'bottom' }, { what: 'faces', role: 'top' }],
+  })
 })
 
 test('아무 키 없이 선택하면 **새로 고른다**', async () => {

@@ -25,6 +25,10 @@ class FindRequest(RecipeRequest):
 class SelectorsRequest(RecipeRequest):
     pick: dict[str, Any] = Field(default_factory=dict)
     """`what`(faces · edges · vertices) 와 `point`([x, y, z] — 3D 에서 찍은 자리)."""
+    picks: list[dict[str, Any]] | None = Field(default=None, max_length=500)
+    """**여럿을 한 번에** — 화면의 사각형 선택(Shift + 끌기). 주면 `pick` 대신 이것을 보고
+    `{"items": [후보 한 벌, …]}` 을 같은 순서로 돌려준다. 도면을 **한 번만** 만든다 — 하나씩
+    부르면 스무 개를 고른 사각형이 도면을 스무 번 만든다."""
 
 
 class MeasureRequest(RecipeRequest):

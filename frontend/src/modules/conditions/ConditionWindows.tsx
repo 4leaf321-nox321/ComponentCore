@@ -115,7 +115,8 @@ export function SelectionMembers({
       </div>
       {members.length === 0 ? (
         <p className="text-muted-foreground rounded-md border border-dashed p-2 text-xs">
-          3D 에서 형상을 선택합니다. Ctrl 또는 Shift 를 누른 채 선택하면 더해집니다.
+          3D 에서 형상을 선택합니다. Ctrl 또는 Shift 를 누른 채 선택하면 더해지고, Shift 를 누른 채 끌면 사각형
+          안의 것이 더해집니다.
         </p>
       ) : (
         <ol className="space-y-1">

@@ -301,6 +301,24 @@ def test_그림_찾기_재기_는_AI_가_좌표를_짐작하지_않게_한다(
     )
     assert bad_pick.status_code == 400 and "point" in bad_pick.json()["error"]["message"]
 
+    # **여럿을 한 번에**(사각형 선택) — 같은 순서로 돌려준다. 도면은 한 번만 만든다.
+    many = client.post(
+        "/api/cad/recipe/selectors",
+        json={
+            "recipe": recipe,
+            "picks": [
+                {"what": "faces", "point": [0, 0, 10]},
+                {"what": "faces", "point": [20, 10, 5]},
+            ],
+        },
+        headers=member.headers,
+    ).json()
+    assert len(many["items"]) == 2
+    assert many["items"][0]["candidates"][0]["label"] == "top 면"
+    assert any(
+        one["select"].get("kind") == "cylinder" for one in many["items"][1]["candidates"]
+    )
+
     # 재기 — 윗면과 바닥면 사이(두께), 구멍 중심에서 모서리까지.
     got = client.post(
         "/api/cad/recipe/measure",

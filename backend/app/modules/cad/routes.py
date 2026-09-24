@@ -148,11 +148,17 @@ def recipe_selectors(
     """3D 에서 **고른 것을 말로 되돌려 준다** — 「아래쪽 면」 · 「반지름 4.25 원통면(4개)」.
 
     좌표로 저장하면 실험계획이 치수를 바꾸는 순간 그 자리에 아무것도 없다. 후보를 여럿 주고
-    **지금 몇 개에 맞는지**(`matches`)를 함께 보여 사람이 고르게 한다."""
+    **지금 몇 개에 맞는지**(`matches`)를 함께 보여 사람이 고르게 한다.
+
+    `picks`(목록)를 주면 여럿을 한 번에 — `{"items": [...]}` 를 같은 순서로 돌려준다(사각형
+    선택). 도면은 한 번만 만든다."""
     from app.core.recipe.query import selector_candidates
 
     evaluation = services.build(payload.recipe)
     try:
+        if payload.picks is not None:
+            shape = evaluation.shape
+            return {"items": [selector_candidates(shape, one) for one in payload.picks]}
         return selector_candidates(evaluation.shape, payload.pick)
     except ValueError as failure:
         raise AppError(code("CAD", 13), str(failure)) from failure

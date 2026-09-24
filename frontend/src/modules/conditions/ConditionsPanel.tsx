@@ -21,8 +21,9 @@
  * 서버가 후보를 주고(`/cad/recipe/selectors`) **사람이 고른다** — 하나를 자동으로 정하면
  * 「볼트 구멍 넷」 을 원했는데 「이 구멍 하나」 가 저장되는 날이 온다.
  *
- * **여럿을 한 그룹으로 묶는다** — Ctrl(⌘)은 넣고 빼기, Shift 는 더하기. 고른 것마다 제 규칙을
- * 두고 그 합을 그룹으로 한다(`{"any": [...]}`, 서버의 `query.select_features`).
+ * **여럿을 한 그룹으로 묶는다** — Ctrl(⌘)은 넣고 빼기, Shift 는 더하기, **Shift + 끌기는 사각형
+ * 선택**(온전히 든 것 · 가려진 것은 빼고). 고른 것마다 제 규칙을 두고 그 합을 그룹으로 한다
+ * (`{"any": [...]}`, 서버의 `query.select_features`).
  */
 
 import {
@@ -225,6 +226,47 @@ export function ConditionsPanel({
       if (!mods.ctrl && !mods.shift) return [member]
       return now.some((one) => one.key === key) ? now : [...now, member]
     })
+  }
+
+  /**
+   * 사각형으로 고른 것들을 **더한다**(Shift). 이미 담긴 것은 건너뛰고, 규칙 후보는 서버에
+   * **한 번에** 묻는다 — 하나씩 물으면 고른 수만큼 도면을 다시 만든다.
+   */
+  async function addMany(picks: MeasurePick[]) {
+    if (picks.length === 0) return
+    setError(null)
+    if (!editing || editingTargets.length === 0) setGrouping(true)
+    const seen = new Set(members.map((one) => one.key))
+    const fresh = picks.filter((pick) => {
+      const key = memberKey(pick)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    const asking = fresh.filter((pick) => pick.kind !== 'body').map(toPick)
+    let answers: { candidates: SelectorCandidate[] }[] = []
+    if (asking.length > 0) {
+      try {
+        answers = (await conditionsApi.selectorsMany(recipe, asking.map(({ what, point }) => ({ what, point })))).items
+      } catch (failure) {
+        setError(failure instanceof ApiError ? failure : new Error(String(failure)))
+        return
+      }
+    }
+    let at = 0
+    const made: Member[] = []
+    for (const pick of fresh) {
+      const { what, label } = toPick(pick)
+      const candidates =
+        pick.kind === 'body'
+          ? [{ label: `바디 「${pick.name}」`, select: { body: pick.name }, matches: 1 }]
+          : (answers[at++]?.candidates ?? [])
+      if (candidates.length === 0) continue
+      const chosen = Math.max(0, candidates.findIndex((one) => one.matches === 1))
+      const entity = PICK_KINDS.find((one) => one.what === what)?.entity ?? 'face'
+      made.push({ key: memberKey(pick), label, entity, pick, candidates, chosen })
+    }
+    setMembers((now) => [...now, ...made.filter((one) => !now.some((have) => have.key === one.key))])
   }
 
   /** 담은 것들의 규칙 — 하나면 그 규칙, 여럿이면 **합**(`{"any": [...]}`). */
@@ -729,9 +771,9 @@ export function ConditionsPanel({
             <span className="text-muted-foreground ml-auto text-xs">
               {pickKind === 'body' && '면을 클릭하면 그 바디가 선택됩니다 · '}
               {editing && editingTargets.length > 0
-                ? '선택하면 열린 조건의 적용 대상이 됩니다 — Ctrl · Shift 로 여럿'
+                ? '선택하면 열린 조건의 적용 대상이 됩니다 — Ctrl · Shift 로 여럿, Shift + 끌기는 사각형'
                 : grouping
-                  ? 'Ctrl 또는 Shift 를 누른 채 선택하면 선택 그룹에 더해집니다'
+                  ? 'Ctrl · Shift 로 더하고, Shift + 끌기로 사각형 안의 것을 더합니다'
                   : '3D 에서 선택하면 선택 그룹을 만듭니다'}
             </span>
           </div>
@@ -747,6 +789,8 @@ export function ConditionsPanel({
                 body: pickKind === 'body',
               }}
               onMeasure={(pick, mods) => void ask(pick, mods)}
+              // Shift + 끌기 — 사각형 안에 온전히 든 것(가려진 것은 빼고)을 더한다.
+              onBoxSelect={(picks) => void addMany(picks)}
               // 담은 것을 번호와 함께 표시한다 — 목록의 몇 번이 어디인지.
               measureMarks={marks}
               partColors={partColors}
@@ -826,7 +870,7 @@ export function ConditionsPanel({
       <FloatingWindow
         open={grouping}
         title="선택 그룹 추가"
-        description="3D 에서 형상을 선택합니다 — Ctrl 또는 Shift 를 누른 채 선택하면 여럿을 담습니다. 한 그룹은 한 종류(점 · 엣지 · 면 · 바디)입니다."
+        description="3D 에서 형상을 선택합니다 — Ctrl 또는 Shift 를 누른 채 선택하면 여럿을 담고, Shift 를 누른 채 끌면 사각형 안에 온전히 든 것을 담습니다. 한 그룹은 한 종류(점 · 엣지 · 면 · 바디)입니다."
         onClose={closeGroup}
         // 해석 설정 창과 함께 뜨는 드문 경우 겹치지 않게 조금 아래에 세운다.
         className={editing ? 'top-56' : 'top-24'}

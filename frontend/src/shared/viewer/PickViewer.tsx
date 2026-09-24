@@ -16,6 +16,8 @@ import { CameraRig } from '@/shared/viewer/cameraRig'
 import type { CameraSync } from '@/shared/viewer/cameraSync'
 import { ViewerToolbar } from '@/shared/viewer/ViewerToolbar'
 import { mountCanvas } from '@/shared/viewer/canvas'
+import { boxPicks, rectOf, triangleCentroids } from '@/shared/viewer/boxSelect'
+import type { ScreenPoint, ScreenRect } from '@/shared/viewer/boxSelect'
 
 export interface MeshFace {
   index: number
@@ -92,6 +94,11 @@ export interface PickViewerProps {
   onPickEdge?: (edge: MeshEdge) => void
   /** measure 모드: 누른 것을 알려 준다. 표시(점 · 선 · 글자)는 `measureMarks` 로 돌려준다. */
   onMeasure?: (pick: MeasurePick, modifiers: PickModifiers) => void
+  /**
+   * measure 모드: **Shift + 끌기로 사각형 선택** — 사각형 안에 온전히 든 것(켠 종류만, 가려진
+   * 것은 빼고)을 한꺼번에 알린다. 안 주면 Shift + 끌기는 예전처럼 화면을 옮긴다.
+   */
+  onBoxSelect?: (picks: MeasurePick[], modifiers: PickModifiers) => void
   /**
    * measure 모드에서 **고를 수 있는 종류** — 없으면 셋 다. 끄면 그 종류는 레이캐스트에서
    * 빠진다: 면만 켜면 빽빽한 모서리 사이에서도 면이 잡힌다.
@@ -307,7 +314,7 @@ function gatherDots(mesh: MeshData): { at: number[][]; kinds: string[] } {
 }
 
 /** 표준 방향 — 뒤에서 카메라가 설 자리(중심 기준 단위 벡터, CAD Z-up 기준). */
-export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, measureKinds, measureMarks, partColors, emphasis, sync, dragPart, dragMode = 'translate', onMoved, className }: PickViewerProps) {
+export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, onBoxSelect, measureKinds, measureMarks, partColors, emphasis, sync, dragPart, dragMode = 'translate', onMoved, className }: PickViewerProps) {
   const syncId = useRef(`viewer-${Math.random().toString(36).slice(2)}`)
   const syncRef = useRef(sync)
   syncRef.current = sync
@@ -335,8 +342,8 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     parts: Map<string, THREE.Group>
     gizmo: TransformControls | null
   } | null>(null)
-  const callbacks = useRef({ mode, onPickFace, onPickEdge, onMeasure, measureKinds, onMoved })
-  callbacks.current = { mode, onPickFace, onPickEdge, onMeasure, measureKinds, onMoved }
+  const callbacks = useRef({ mode, onPickFace, onPickEdge, onMeasure, onBoxSelect, measureKinds, onMoved })
+  callbacks.current = { mode, onPickFace, onPickEdge, onMeasure, onBoxSelect, measureKinds, onMoved }
 
   const rigOf = useCallback(() => state.current?.rig ?? null, [])
 
@@ -401,6 +408,8 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     raycaster.params.Line = { threshold: 1.5 }
     let downAt: [number, number] | null = null
     let hovered: THREE.Mesh | THREE.Line | null = null
+    /** 그리는 중인 사각형(뷰어 안 px) — Shift + 끌기. */
+    let band: { x0: number; y0: number } | null = null
 
     function pick(event: PointerEvent): THREE.Intersection | null {
       const s = state.current
@@ -515,6 +524,7 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       downAt = [e.clientX, e.clientY]
     }
     const onMove = (e: PointerEvent) => {
+      if (band) return // 사각형을 그리는 동안은 손 아래를 짚지 않는다
       if (callbacks.current.mode === 'none') {
         setHoverDot(null)
         return setHover(null)
@@ -560,6 +570,108 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     renderer.domElement.addEventListener('pointermove', onMove)
     renderer.domElement.addEventListener('pointerup', onUp)
 
+    // ── 사각형 선택 — Shift + 끌기 ──
+    //
+    // 궤도 컨트롤은 Shift + 끌기를 **화면 옮기기**로 쓴다. 그보다 먼저 잡아야 하므로 부모에서
+    // 잡기(capture) 단계로 듣고, 그리는 동안 컨트롤을 끈다. 받는 쪽(`onBoxSelect`)이 없으면
+    // 손대지 않는다 — 도면 편집기의 측정은 예전처럼 화면을 옮긴다.
+    const bandBox = document.createElement('div')
+    bandBox.style.cssText =
+      'position:absolute;display:none;pointer-events:none;z-index:5;border:1px dashed #2563eb;background:rgba(37,99,235,0.08)'
+    container.appendChild(bandBox)
+    const inViewer = (e: PointerEvent): [number, number] => {
+      const r = renderer.domElement.getBoundingClientRect()
+      return [e.clientX - r.left, e.clientY - r.top]
+    }
+    const endBand = () => {
+      if (!band) return
+      band = null
+      bandBox.style.display = 'none'
+      controls.enabled = true
+    }
+    const onBandDown = (e: PointerEvent) => {
+      if (!e.shiftKey || e.button !== 0) return
+      if (callbacks.current.mode !== 'measure' || !callbacks.current.onBoxSelect) return
+      const [x, y] = inViewer(e)
+      band = { x0: x, y0: y }
+      controls.enabled = false
+      renderer.domElement.setPointerCapture?.(e.pointerId)
+    }
+    const onBandMove = (e: PointerEvent) => {
+      if (!band) return
+      const [x, y] = inViewer(e)
+      if (Math.hypot(x - band.x0, y - band.y0) <= 4) return
+      const r = rectOf(band.x0, band.y0, x, y)
+      Object.assign(bandBox.style, {
+        display: 'block',
+        left: `${r.left}px`,
+        top: `${r.top}px`,
+        width: `${r.right - r.left}px`,
+        height: `${r.bottom - r.top}px`,
+      })
+    }
+    const onBandUp = (e: PointerEvent) => {
+      if (!band) return
+      const from = band
+      const [x, y] = inViewer(e)
+      endBand()
+      // 거의 안 움직였으면 **클릭**이다 — Shift + 클릭(하나 더하기)은 위의 onUp 이 했다.
+      if (Math.hypot(x - from.x0, y - from.y0) <= 4) return
+      const picks = picksInBand(rectOf(from.x0, from.y0, x, y))
+      callbacks.current.onBoxSelect?.(picks, { ctrl: e.ctrlKey || e.metaKey, shift: true })
+    }
+    /** 사각형 안의 것 — 켠 종류만, 가려진 것은 빼고(`boxSelect`). */
+    function picksInBand(rect: ScreenRect): MeasurePick[] {
+      const s = state.current
+      if (!s) return []
+      const w = renderer.domElement.clientWidth
+      const h = renderer.domElement.clientHeight
+      const camera = rig.camera
+      camera.updateMatrixWorld()
+      s.group.updateMatrixWorld(true)
+      const world = (p: number[]) => new THREE.Vector3(p[0], p[1], p[2]).applyMatrix4(s.group.matrixWorld)
+      const project = (p: number[]): ScreenPoint => {
+        const v = world(p).project(camera)
+        return { x: ((v.x + 1) / 2) * w, y: ((1 - v.y) / 2) * h, behind: v.z > 1 || v.z < -1 }
+      }
+      const tolerance = Math.max(1e-3, ((s.group.userData.size as number) || 1) / 300)
+      const caster = new THREE.Raycaster()
+      /** 카메라에서 그 점으로 쏜다 — 먼저 맞는 면이 그 점보다 한참 앞이면 가려진 것이다. */
+      const firstHit = (p: number[]) => {
+        const target = world(p)
+        const ndc = target.clone().project(camera)
+        caster.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), camera)
+        return { hit: caster.intersectObjects(s.faces, false)[0], distance: caster.ray.origin.distanceTo(target) }
+      }
+      const visiblePoint = (p: number[]) => {
+        const { hit, distance } = firstHit(p)
+        return !hit || hit.distance >= distance - tolerance
+      }
+      const visibleFace = (face: MeshFace) =>
+        // 면 위의 점 몇 곳(큰 삼각형부터) — 하나라도 보이면 보이는 면이다. `center` 는 곡면이면 면 위가 아니다.
+        triangleCentroids(face)
+          .slice(0, 6)
+          .some((p) => {
+            const { hit, distance } = firstHit(p)
+            if (!hit) return true
+            return (hit.object.userData.face as MeshFace | undefined)?.index === face.index || hit.distance >= distance - tolerance
+          })
+      return boxPicks({
+        faces: s.faces.map((one) => one.userData.face as MeshFace),
+        edges: s.edges.map((one) => one.userData.edge as MeshEdge),
+        kinds: callbacks.current.measureKinds ?? { point: true, edge: true, face: true },
+        rect,
+        project,
+        visibleFace,
+        visiblePoint,
+      })
+    }
+    container.addEventListener('pointerdown', onBandDown, true)
+    renderer.domElement.addEventListener('pointermove', onBandMove)
+    renderer.domElement.addEventListener('pointerup', onBandUp)
+    renderer.domElement.addEventListener('pointercancel', endBand)
+    renderer.domElement.addEventListener('lostpointercapture', endBand)
+
     // 카메라 맞추기 — 내가 움직이면 알리고, 남이 움직이면 그대로 놓는다. 되받은 자세를 다시
     // 보내지 않게 `following` 동안은 알리지 않는다.
     let following = false
@@ -599,6 +711,12 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       renderer.domElement.removeEventListener('pointerdown', onDown)
       renderer.domElement.removeEventListener('pointermove', onMove)
       renderer.domElement.removeEventListener('pointerup', onUp)
+      container.removeEventListener('pointerdown', onBandDown, true)
+      renderer.domElement.removeEventListener('pointermove', onBandMove)
+      renderer.domElement.removeEventListener('pointerup', onBandUp)
+      renderer.domElement.removeEventListener('pointercancel', endBand)
+      renderer.domElement.removeEventListener('lostpointercapture', endBand)
+      bandBox.remove()
       state.current?.gizmo?.dispose()
       rig.dispose()
       renderer.dispose()

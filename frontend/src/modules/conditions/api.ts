@@ -212,6 +212,15 @@ export const conditionsApi = {
       '/cad/recipe/selectors',
       { recipe, pick: { what, point } },
     ),
+  /**
+   * **여럿을 한 번에** — 사각형 선택(Shift + 끌기). 도면을 한 번만 만들고 같은 순서로 돌려준다.
+   * 하나씩 부르면 스무 개를 고른 사각형이 도면을 스무 번 만든다.
+   */
+  selectorsMany: (recipe: Recipe, picks: { what: string; point: number[] }[]) =>
+    api.post<{ items: { picked: Record<string, unknown> | null; candidates: SelectorCandidate[] }[] }>(
+      '/cad/recipe/selectors',
+      { recipe, picks },
+    ),
 
   /** 버전에 붙인다 — **새 버전을 만들지 않는다**(도면이 안 바뀌었으니까). */
   save: (workId: string, number: number, conditions: Conditions) =>
