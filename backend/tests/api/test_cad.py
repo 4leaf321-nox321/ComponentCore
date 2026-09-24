@@ -322,3 +322,40 @@ def test_그림_찾기_재기_는_AI_가_좌표를_짐작하지_않게_한다(
         headers=member.headers,
     ).json()
     assert got["a"]["diameter"] == 8 and got["delta"] == [-60, -35, 0]
+
+
+def test_바디_목록은_물성이_붙을_자리를_말한다(client: TestClient, member: Signed) -> None:
+    """물성이 「어디에」 붙는지 고르려면 고를 것이 무엇인지 알아야 한다.
+
+    **화면이 메시의 면에서 지어내지 않는다** — 내보낼 때 쓰는 이름은 `topology.bodies` 가
+    정하므로, 두 곳이 어긋나면 사람이 고른 바디가 폴더에 없는 이름이 된다."""
+    단품 = client.post(
+        "/api/cad/recipe/bodies",
+        json={
+            "recipe": {
+                "nodes": [{"id": "판", "op": "box", "length": 10, "width": 10, "height": 2}]
+            }
+        },
+        headers=member.headers,
+    )
+    assert 단품.status_code == 200, 단품.text
+    assert [one["name"] for one in 단품.json()["items"]] == ["전체"]
+
+    조립 = client.post(
+        "/api/cad/recipe/bodies",
+        json={
+            "recipe": {
+                "nodes": [
+                    {"id": "바닥판", "op": "box", "length": 80, "width": 60, "height": 8},
+                    {"id": "기둥", "op": "cylinder", "radius": 10, "height": 30},
+                    {"id": "조립", "op": "group", "targets": ["바닥판", "기둥"]},
+                ]
+            }
+        },
+        headers=member.headers,
+    )
+    assert 조립.status_code == 200, 조립.text
+    items = 조립.json()["items"]
+    assert [one["name"] for one in items] == ["바닥판", "기둥"]
+    # 부피가 함께 온다 — 이름이 비슷할 때 어느 것이 어느 것인지 가른다.
+    assert items[0]["volume"] > items[1]["volume"]

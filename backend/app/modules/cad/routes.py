@@ -158,6 +158,21 @@ def recipe_selectors(
         raise AppError(code("CAD", 13), str(failure)) from failure
 
 
+@router.post("/recipe/bodies")
+def recipe_bodies(payload: RecipeRequest, _: User = Depends(current_user)) -> dict[str, Any]:
+    """이 도면의 **바디 목록** — 물성이 「어디에」 붙는지 고를 손잡이.
+
+    조립이면 이름표 붙은 구성품마다 하나, 단품이면 「전체」 하나다. 이름은 **내보낼 때와
+    같은 것**이다(`topology.bodies`) — 화면이 메시의 면에서 지어내면 두 곳이 어긋나는 날
+    사람이 고른 이름이 폴더에 없는 이름이 된다.
+
+    부피와 무게중심도 함께 준다 — 이름만으로는 어느 것이 어느 것인지 모를 때가 있다."""
+    from app.core.recipe import topology
+
+    evaluation = services.build(payload.recipe)
+    return {"items": topology.bodies(evaluation.shape)}
+
+
 @router.post("/recipe/measure")
 def recipe_measure(payload: MeasureRequest, _: User = Depends(current_user)) -> dict[str, Any]:
     """둘 사이를 잰다 — 점 · 구멍 중심 · 면 · 엣지. 거리(축별 차) · 평면끼리 각도 · 간격."""

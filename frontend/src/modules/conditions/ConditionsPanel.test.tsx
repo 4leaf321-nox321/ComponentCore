@@ -110,6 +110,14 @@ const MATERIALS = {
 /** 쪽(族) · 갈래 — 탐색기가 좁혀 들어갈 두 칸. 개수는 그쪽이 세어 준다. */
 const CLASSES = { fallback: false, items: [{ family: '강판', category: '냉연', count: 1 }] }
 
+/** 조립의 바디 둘 — 물성이 붙을 자리. 단품이면 「전체」 하나뿐이라 칸이 안 뜬다. */
+const BODIES = {
+  items: [
+    { name: '바닥판', volume: 38400, step_product: 'body_1' },
+    { name: '기둥', volume: 9425, step_product: 'body_2' },
+  ],
+}
+
 vi.mock('@/shared/api/client', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('@/shared/api/client')
   return {
@@ -123,7 +131,8 @@ vi.mock('@/shared/api/client', async () => {
             ? MATERIALS
             : SCHEMA,
       ),
-      post: vi.fn(async () => CANDIDATES),
+      // 바디 목록과 셀렉터 후보는 **다른 길**이다 — 물성이 어디에 붙는지가 바디에서 나온다.
+      post: vi.fn(async (path: string) => (path.startsWith('/cad/recipe/bodies') ? BODIES : CANDIDATES)),
       put: vi.fn(async () => ({ conditions: {} })),
     },
   }
@@ -220,4 +229,24 @@ test('물성은 MatNexus 에서 골라 **payload 째로** 실린다', async () =
   expect(saved.materials[0].ref.code).toBe('M-000123')
   // **값을 해석하지 않는다** — 단위도 온도 표도 받은 그대로 실린다.
   expect(saved.materials[0].payload.declared_properties[0].si_unit).toBe('Pa')
+})
+
+test('물성을 **어느 바디에** 붙일지 고른다', async () => {
+  const onSave = await panel()
+
+  fireEvent.click(screen.getByRole('button', { name: '물성 더하기' }))
+  await waitFor(() => screen.getByText('물성 고르기'))
+  await waitFor(() => screen.getByText('SPCC 1.2t'))
+  fireEvent.click(screen.getByText('SPCC 1.2t'))
+  fireEvent.click(screen.getByText('이 물성을 쓴다'))
+
+  // 바디가 둘 이상일 때만 칸이 뜬다 — 단품이면 고를 것이 「전체」 하나뿐이다.
+  const where = await screen.findByLabelText(/붙일 자리/)
+  expect((where as HTMLSelectElement).value).toBe('전체')
+  fireEvent.change(where, { target: { value: '기둥' } })
+
+  fireEvent.click(screen.getByText('조건 저장'))
+  await waitFor(() => expect(onSave).toHaveBeenCalled())
+  // **이것이 없으면 조립을 훑어도 물성이 늘 「전체」** 라, 판과 기둥에 다른 재료를 못 준다.
+  expect(onSave.mock.calls[0][0].materials[0].apply_to).toBe('기둥')
 })

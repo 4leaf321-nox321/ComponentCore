@@ -191,3 +191,45 @@ def test_못_바꾼_것은_못_바꿨다고_적는다() -> None:
     assert made["density"] == 1.0, "짐작해서 바꾸지 않는다"
     assert "밀도(furlong/fortnight)" in made["unconverted"]
     assert any("이상한것" in one for one in made["unconverted"])
+
+
+def test_없는_바디에_물성을_붙이면_막는다() -> None:
+    """물성을 없는 바디에 붙이면 해석이 그 바디를 **맨몸으로** 푼다 — 값이 안 나오는 게
+    아니라 기본값으로 풀려 그럴듯한 답이 나온다. 이름표를 가리킬 때와 같은 까닭이다."""
+    raw = {"materials": [{"apply_to": "기둥", "payload": {}}]}
+    # 바디를 안 주면 검사하지 않는다 — 도면을 못 만드는 자리에서 저장이 막히면 안 된다.
+    assert parse(raw).materials[0].apply_to == "기둥"
+
+    parse(raw, ["바닥판", "기둥"])  # 있으면 통과
+    with pytest.raises(ConditionError) as failure:
+        parse(raw, ["바닥판"])
+    assert "「기둥」 라는 바디가 없습니다" in str(failure.value)
+    assert "있는 것: 바닥판" in str(failure.value), "무엇을 고를 수 있는지 말해 준다"
+
+    # 「전체」 는 언제나 된다 — 모든 바디라는 뜻이다.
+    parse({"materials": [{"apply_to": "전체", "payload": {}}]}, ["바닥판"])
+
+
+def test_converted_는_출처가_달라도_한_모양이다() -> None:
+    """등록 재료는 밀도 · 푸아송비가 payload 의 **칸**으로 오고 문헌은 `values[]` 안에
+    **줄**로 온다. 그대로 두면 받는 쪽이 출처에 따라 두 군데를 봐야 한다."""
+    등록 = conditions.converted_material(
+        {"density_si": 2680.0, "poisson_ratio": 0.33}, "mm_n_tonne"
+    )
+    문헌 = conditions.converted_material(
+        {
+            "values": [
+                {"property_key": "physical.density", "value_num": 2680.0, "unit": "kg/m^3"},
+                {
+                    "property_key": "mechanical.poisson_ratio",
+                    "value_num": 0.33,
+                    "unit": "1",
+                },
+            ]
+        },
+        "mm_n_tonne",
+    )
+    for made in (등록, 문헌):
+        assert made["density"] == pytest.approx(2.68e-09)
+        assert made["density_unit"] == "tonne/mm3"
+        assert made["poisson_ratio"] == pytest.approx(0.33)

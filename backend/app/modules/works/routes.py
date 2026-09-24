@@ -225,14 +225,36 @@ def set_conditions(
     버전이 늘면 「무엇이 달라졌나」 를 되짚을 수 없다. 실험계획은 이것을 스냅샷 뜬다."""
     work = _mine(db, work_id, user)
     version = services.get_version(db, work, number)
+    # **물성이 붙은 바디가 진짜 있는지도 본다.** 도면을 평가해야 알 수 있으므로 여기서
+    # 한 번 만든다 — 없는 이름에 물성을 붙이면 해석이 그 바디를 맨몸으로 푼다.
     try:
-        conditions.parse(payload.conditions)
+        known = _body_names(version.recipe)
+    except AppError:
+        known = None
+    try:
+        conditions.parse(payload.conditions, known)
     except conditions.ConditionError as failure:
         raise AppError(code("WORKS", 12), str(failure)) from failure
     version.conditions = payload.conditions
     db.commit()
     db.refresh(version)
     return services.version_out(db, version)
+
+
+def _body_names(recipe: dict[str, Any] | None) -> list[str] | None:
+    """이 도면의 바디 이름들. **못 만들면 None** — 그때는 바디 검사를 건너뛴다.
+
+    도면이 깨져 있을 수도 있고(그건 다른 오류로 이미 말한다) 평가가 무거울 수도 있다.
+    검사 하나 때문에 조건 저장이 막히면, 사람은 고치던 것을 잃는다."""
+    if not recipe:
+        return None
+    from app.core.recipe import topology
+    from app.modules.cad import services as cad
+
+    try:
+        return [str(one["name"]) for one in topology.bodies(cad.build(recipe).shape)]
+    except Exception:  # 도면이 안 서면 바디도 없다 — 검사를 건너뛴다.
+        return None
 
 
 @router.post(

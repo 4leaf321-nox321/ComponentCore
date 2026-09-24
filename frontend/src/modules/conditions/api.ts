@@ -119,7 +119,24 @@ export interface SelectorCandidate {
   matches: number
 }
 
+/** 도면의 바디 하나 — 물성이 붙는 자리. 내보낼 때의 `topology.bodies` 와 같은 줄이다. */
+export interface Body {
+  name: string
+  /** STEP 안에서의 이름(`body_1`) — 해석 쪽이 짝지을 때 쓴다. */
+  step_product?: string
+  volume?: number
+  centroid?: number[]
+  bbox?: number[][]
+}
+
 export const conditionsApi = {
+  /**
+   * 이 도면의 **바디 목록** — 물성이 「어디에」 붙는지 고를 손잡이.
+   *
+   * 메시의 면에서 지어내지 않는 까닭: 내보낼 때 쓰는 이름은 `topology.bodies` 가 정한다.
+   * 화면이 따로 지으면 두 곳이 어긋나는 날 **사람이 고른 이름이 폴더에 없는 이름**이 된다.
+   */
+  bodies: (recipe: Recipe) => api.post<{ items: Body[] }>('/cad/recipe/bodies', { recipe }),
   schema: () => api.get<ConditionsSchema>('/cad/conditions/schema'),
 
   /** 찍은 자리를 말로 되돌려 받는다. `what` 은 faces · edges · vertices. */

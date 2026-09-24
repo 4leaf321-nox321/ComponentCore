@@ -124,6 +124,15 @@ def _points(db: Session, raw: dict[str, Any]) -> list[dict[str, float]]:
         raise AppError(code("DOE", 3), str(failure)) from failure
 
 
+def _body_names(recipe: dict[str, Any]) -> list[str] | None:
+    """이 도면의 바디 이름들. **못 만들면 None** — 그때는 바디 검사를 건너뛴다(도면이
+    깨진 것은 다른 오류가 이미 말한다)."""
+    try:
+        return [str(one["name"]) for one in topology.bodies(cad.build(recipe).shape)]
+    except Exception:
+        return None
+
+
 def _request_digest(
     *,
     recipe: dict[str, Any],
@@ -240,8 +249,11 @@ def create_study(
         )
     # **조건을 지금 검증한다.** 설계점 마흔 개를 만든 뒤에 「그런 이름표가 없다」 를 알면
     # 늦다 — 그때는 폴더에 반쪽짜리가 남는다.
+    #
+    # 바디 이름까지 본다: 물성을 없는 바디에 붙이면 해석이 그 바디를 **맨몸으로** 푼다.
+    # 여기가 정작 해석으로 나가는 자리라 작업 저장보다 더 중요하다.
     try:
-        condition_model.parse(conditions)
+        condition_model.parse(conditions, _body_names(recipe))
     except condition_model.ConditionError as failure:
         raise AppError(code("DOE", 15), f"해석 조건: {failure}") from failure
     rows = _points(

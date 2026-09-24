@@ -173,6 +173,18 @@ export function ConditionsPanel({
    */
   const fill = useFillHeight<HTMLDivElement>({ min: 420, gap: 8, deps: [chosen?.kind, names.length] })
 
+  /**
+   * 물성이 붙을 수 있는 자리 — 조립이면 구성품마다, 단품이면 「전체」 하나.
+   *
+   * **서버가 정하는 이름을 그대로 받는다.** 메시의 면에서 지어내면 내보낼 때 쓰는 이름과
+   * 어긋나는 날이 오고, 그때 사람이 고른 바디가 폴더에 없는 이름이 된다.
+   */
+  const bodies = useResource(() => conditionsApi.bodies(recipe), [recipe])
+  const bodyNames = useMemo(
+    () => (bodies.data?.items ?? []).map((one) => one.name),
+    [bodies.data],
+  )
+
   if (schema.loading) return <Skeleton className="h-96 w-full" />
   if (schema.error) return <ErrorNotice error={schema.error} />
   const spec = schema.data!
@@ -241,19 +253,52 @@ export function ConditionsPanel({
               </div>
               <ul className="space-y-1">
                 {draft.materials.map((one, index) => (
-                  <li key={index} className="flex items-center gap-1 px-2 py-1">
-                    <span className="truncate">{String((one.ref as Record<string, unknown>)?.name ?? '이름 없음')}</span>
-                    <span className="text-muted-foreground text-xs">{String(one.apply_to ?? '전체')}</span>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="ml-auto h-6 px-1"
-                      onClick={() =>
-                        setDraft({ ...draft, materials: draft.materials.filter((_, i) => i !== index) })
-                      }
-                    >
-                      ×
-                    </Button>
+                  <li key={index} className="px-2 py-1">
+                    <div className="flex items-center gap-1">
+                      <span className="truncate">{String((one.ref as Record<string, unknown>)?.name ?? '이름 없음')}</span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="ml-auto h-6 px-1"
+                        aria-label={`${String((one.ref as Record<string, unknown>)?.name ?? '물성')} 빼기`}
+                        onClick={() =>
+                          setDraft({ ...draft, materials: draft.materials.filter((_, i) => i !== index) })
+                        }
+                      >
+                        ×
+                      </Button>
+                    </div>
+                    {/*
+                      **어느 바디에 붙나.** 이것이 없으면 조립을 훑어도 물성이 늘 「전체」 라,
+                      판과 기둥에 다른 재료를 줄 수 없다. 단품이면 고를 것이 「전체」 하나라
+                      칸을 안 그린다 — 누를 수 없는 줄은 없느니만 못하다.
+                    */}
+                    {bodyNames.length > 1 && (
+                      <select
+                        aria-label={`${String((one.ref as Record<string, unknown>)?.name ?? '물성')} 붙일 자리`}
+                        className="mt-1 w-full rounded border px-1 py-0.5 text-xs"
+                        value={String(one.apply_to ?? '전체')}
+                        onChange={(e) =>
+                          setDraft({
+                            ...draft,
+                            materials: draft.materials.map((m, i) =>
+                              i === index ? { ...m, apply_to: e.target.value } : m,
+                            ),
+                          })
+                        }
+                      >
+                        <option value="전체">전체 ({bodyNames.length} 개 바디)</option>
+                        {(bodies.data?.items ?? []).map((body) => (
+                          <option key={body.name} value={body.name}>
+                            {body.name}
+                            {body.volume ? ` — ${Math.round(body.volume).toLocaleString()} mm³` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {bodyNames.length <= 1 && (
+                      <span className="text-muted-foreground text-xs">전체</span>
+                    )}
                   </li>
                 ))}
               </ul>

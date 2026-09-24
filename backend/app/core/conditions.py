@@ -203,9 +203,13 @@ def _known_names(conditions: Conditions) -> set[str]:
     return {one.name for one in conditions.named_selections}
 
 
-def parse(raw: dict[str, Any] | None) -> Conditions:
-    """읽어서 검증한다. **틀린 자리를 짚어 말한다** — 「조건이 잘못됐습니다」 로는
-    못 고친다."""
+def parse(raw: dict[str, Any] | None, bodies: list[str] | None = None) -> Conditions:
+    """읽어서 검증한다. **틀린 자리를 짚어 말한다** — 「조건이 잘못됐습니다」 로는 못 고친다.
+
+    `bodies` 를 주면 **물성이 붙은 바디가 진짜 있는지**도 본다(`topology.bodies` 의 이름).
+    없는 이름에 물성을 붙이면 해석 쪽이 그 바디에 아무 물성도 못 얹고, 그 사실은 푸는
+    날에야 드러난다 — 이름표를 가리킬 때와 같은 까닭이다.
+    """
     if not raw:
         return Conditions()
     try:
@@ -243,6 +247,17 @@ def parse(raw: dict[str, Any] | None) -> Conditions:
                         f"{group}[{index}]: 「{target}」 라는 이름표가 없습니다 "
                         f"(있는 것: {', '.join(sorted(names)) or '없음'})"
                     )
+
+    # **물성이 붙은 바디가 진짜 있나.** 「전체」 는 늘 된다(모든 바디).
+    if bodies is not None:
+        known = set(bodies)
+        for index, material in enumerate(conditions.materials):
+            where = material.apply_to
+            if where and where != "전체" and where not in known:
+                raise ConditionError(
+                    f"materials[{index}]: 「{where}」 라는 바디가 없습니다 "
+                    f"(있는 것: {', '.join(sorted(known)) or '없음'})"
+                )
     return conditions
 
 
@@ -329,6 +344,19 @@ def converted_material(payload: dict[str, Any], system: str) -> dict[str, Any]:
             missed.append(f"{one.get('item')}({unit})")
     if rows:
         made["properties"] = rows
+    # **`converted` 는 한 모양이어야 한다.** 등록 재료는 밀도 · 푸아송비가 payload 의 칸으로
+    # 오고 문헌은 `values[]` 안에 줄로 온다 — 그대로 두면 받는 쪽이 출처에 따라 두 군데를
+    # 봐야 한다. 위에서 못 채웠으면 목록에서 끌어올린다.
+    LIFT = (("density", "physical.density"), ("poisson_ratio", "mechanical.poisson_ratio"))
+    for field, key in LIFT:
+        if field in made:
+            continue
+        found = next((one for one in rows if one.get("key") == key), None)
+        if found is None:
+            continue
+        made[field] = found["points"][0]["value"]
+        if field == "density":
+            made["density_unit"] = found["unit"]
     if missed:
         made["unconverted"] = missed
     return made
