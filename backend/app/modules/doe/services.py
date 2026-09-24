@@ -302,13 +302,18 @@ def owned_study(db: Session, study_id: uuid.UUID, viewer: User) -> DoeStudy:
     """**고치러 왔을 때** — 보내기 · 영구보관 · 다시 만들기 · 지우기 · 공개 바꾸기.
 
     읽기가 공개라고 해서 쓰기까지 공개는 아니다. 남의 DOE 를 공유 폴더로 보내거나 지울 수
-    있으면, 「읽기 공개」 가 사실상 「모두가 주인」 이 된다."""
+    있으면, 「읽기 공개」 가 사실상 「모두가 주인」 이 된다.
+
+    **대행으로 만든 기계도 고칠 수 있다.** 소유자는 사람이지만 그 DOE 를 돌리고 · 보내고 ·
+    「다 읽었다」 고 알리는 것은 기계다. 이것이 없으면 오케스트레이터가 제가 만든 것을 제가
+    못 내보낸다 — 문서의 한 바퀴를 실제로 돌려 보다가 잡았다(2026-09-24).
+    """
     study = get_study(db, study_id, viewer)
-    if study.owner_id != viewer.id and not viewer.is_system_admin:
-        raise Forbidden(
-            code("DOE", 7), "남의 실험계획입니다 — 볼 수는 있지만 고치지는 못합니다."
-        )
-    return study
+    if viewer.is_system_admin:
+        return study
+    if viewer.id in (study.owner_id, study.requested_by_id):
+        return study
+    raise Forbidden(code("DOE", 7), "남의 실험계획입니다 — 볼 수는 있지만 고치지는 못합니다.")
 
 
 def set_visibility(db: Session, study: DoeStudy, value: str) -> DoeStudy:

@@ -28,6 +28,9 @@
 
 구조와 규칙은 [AGENTS.md](AGENTS.md), 설계 결정은 [docs/adr/](docs/adr/).
 
+밖에서 붙이려면 [docs/공개-API.md](docs/공개-API.md) — PAT 하나로 형상을 만들고 DOE 를
+돌려 해석 플랫폼으로 넘기는 한 바퀴가 거기 있다. 도는 서버에서는 `/api/docs`.
+
 ## 개발 환경
 
 ### 1. PostgreSQL

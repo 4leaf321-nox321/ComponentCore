@@ -9,13 +9,14 @@ from __future__ import annotations
 import logging
 import re
 from html import escape as html_escape
+from typing import Any
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import handlers, version
+from app import api_docs, handlers, version
 from app.config import Settings, get_settings
 from app.database import SessionLocal, engine
 from app.logging_setup import setup_logging
@@ -132,18 +133,48 @@ def _guard_writable_paths(settings: Settings) -> None:
             ) from failure
 
 
+def _describe_auth(app: FastAPI) -> None:
+    """`/api/docs` 의 **Authorize** 단추가 PAT 으로 돌게 한다.
+
+    우리 인증은 의존성 하나(`current_user`)라 FastAPI 가 스스로 알아내지 못한다. 적어 두지
+    않으면 문서를 연 사람이 「어떻게 붙지」 를 코드에서 찾아야 한다 — 공개 API 라면서."""
+    original = app.openapi
+
+    def described() -> dict[str, Any]:
+        spec = original()
+        spec.setdefault("components", {})["securitySchemes"] = {
+            "PAT": {
+                "type": "http",
+                "scheme": "bearer",
+                "description": (
+                    "개인 토큰(PAT) 또는 로그인 세션의 액세스 토큰. "
+                    "PAT 은 화면의 「내 정보 → 토큰」 에서 만든다."
+                ),
+            }
+        }
+        spec["security"] = [{"PAT": []}]
+        return spec
+
+    app.openapi = described  # type: ignore[method-assign]
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     _guard_writable_paths(settings)
     setup_logging(settings)
     _guard_production_secrets(settings)
 
+    # **문서는 코드에서 자란다.** 묶음 설명과 머리말은 `api_docs` 한 곳에만 적는다 —
+    # `/api/docs`(사람) 와 `/api/openapi.json`(기계)가 둘 다 거기서 나온다.
     app = FastAPI(
         title=f"{settings.app_name} API",
         version=version.current(),
+        description=api_docs.DESCRIPTION,
+        openapi_tags=api_docs.TAGS,
         docs_url=f"{API_PREFIX}/docs",
         openapi_url=f"{API_PREFIX}/openapi.json",
     )
+    _describe_auth(app)
 
     # 나중에 더한 것이 바깥 — RequestId(바깥) -> AccessLog(안쪽).
     app.add_middleware(AccessLogMiddleware)

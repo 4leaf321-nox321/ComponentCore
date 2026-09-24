@@ -818,6 +818,11 @@ def test_기계가_대행하면_소유자는_사람이고_누가_돌렸는지도
     mine = client.get("/api/doe", headers=member.headers).json()
     assert [one["id"] for one in mine["items"]] == [body["id"]]
 
+    # **대행한 기계는 제가 만든 것을 제가 몰 수 있다.** 소유자는 사람이지만 돌리고 · 보내고
+    # · 「다 읽었다」 고 알리는 것은 기계다 — 이것이 없으면 오케스트레이터가 반 바퀴에서 선다.
+    assert client.post(f"/api/doe/{body['id']}/export", headers=machine).status_code == 200
+    assert client.post(f"/api/doe/{body['id']}/release", headers=machine).status_code == 200
+
     # 폴더도 둘 다 말한다 — 폴더를 연 사람이 「누구에게 물어야 하나」 를 알아야 한다.
     from app.database import SessionLocal
     from app.modules.doe.models import DoeStudy

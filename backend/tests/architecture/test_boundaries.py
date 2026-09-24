@@ -97,3 +97,37 @@ def test_오류_코드를_손으로_잇지_않는다() -> None:
             continue
         found = pattern.findall(path.read_text(encoding="utf-8"))
         assert not found, f"{path.relative_to(BACKEND)} 에 손으로 이은 코드: {found}"
+
+
+def test_모든_묶음에_설명이_있다() -> None:
+    """**공개 API 라면서 묶음 이름만 있으면 안 된다.** `/api/docs` 를 연 사람이 「이건 뭐
+    하는 곳이지」 를 코드에서 찾게 된다.
+
+    새 라우터를 더하면 `app/api_docs.TAGS` 에 한 줄 더하라는 뜻이다 — 정본이 거기 한 곳이다.
+    """
+    from app.api_docs import TAGS
+    from app.main import app
+
+    spec = app.openapi()
+    쓰는것 = {
+        tag
+        for ops in spec["paths"].values()
+        for op in ops.values()
+        for tag in op.get("tags", [])
+    }
+    적은것 = {one["name"] for one in TAGS}
+    없는설명 = sorted(쓰는것 - 적은것)
+    assert not 없는설명, f"app/api_docs.TAGS 에 설명이 없는 묶음: {없는설명}"
+    # 반대쪽도 — 안 쓰는 설명을 남겨 두면 없는 곳을 안내한다.
+    빈설명 = sorted(적은것 - 쓰는것)
+    assert not 빈설명, f"라우터가 없는데 설명만 남은 묶음: {빈설명}"
+
+
+def test_문서가_PAT_으로_붙는_법을_말한다() -> None:
+    """우리 인증은 의존성 하나라 FastAPI 가 스스로 알아내지 못한다 — 적어 두지 않으면
+    `/api/docs` 의 **Authorize** 가 안 돈다."""
+    from app.main import app
+
+    spec = app.openapi()
+    assert "PAT" in spec["components"]["securitySchemes"]
+    assert spec["security"] == [{"PAT": []}]
