@@ -25,7 +25,15 @@ const DEFAULT_MIN = 320
 export function useFillHeight<T extends HTMLElement>(options: { min?: number; gap?: number; deps?: unknown[] } = {}) {
   const { min = DEFAULT_MIN, gap = 0, deps = [] } = options
   const ref = useRef<T | null>(null)
-  const [height, setHeight] = useState<number | null>(null)
+  /**
+   * **재기 전에도 높이가 있다.** `null` 로 두었더니 `style` 이 없는 순간이 생기고, 그때
+   * 자식의 `h-full` 이 부모의 auto 높이를 100% 로 잡아 **3D 가 0 으로 찌그러졌다**
+   * (실측 2026-09-24: `ref` 가 조건부 안에 있어 끝내 안 붙은 자리에서 그랬다).
+   *
+   * 바닥값으로 시작하면 재기 전에도 제 높이가 있고, 재는 것은 `useLayoutEffect` 라 그리기
+   * 전에 끝나므로 깜빡임도 없다.
+   */
+  const [height, setHeight] = useState<number>(min)
 
   useLayoutEffect(() => {
     const el = ref.current
@@ -51,5 +59,5 @@ export function useFillHeight<T extends HTMLElement>(options: { min?: number; ga
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
 
-  return { ref, height, style: height === null ? undefined : { height } }
+  return { ref, height, style: { height } }
 }

@@ -19,6 +19,9 @@ import { VIEWER_COLORS } from '@/shared/viewer/colors'
 
 const ModelViewer = lazy(() => import('@/shared/viewer/ModelViewer'))
 
+/** **작업이 없을 때** 쓰는 높이 — 그 분기에는 재는 자리(`ref`)가 없다. */
+const FALLBACK = 'h-[420px]'
+
 export function GeometryJobView({
   job: initial,
   title,
@@ -74,15 +77,17 @@ export function GeometryJobView({
 
   if (!job) {
     return (
-      <div className={`text-muted-foreground flex ${height} items-center justify-center rounded-md border border-dashed text-sm`}>
+      <div
+        className={`text-muted-foreground flex ${height ?? FALLBACK} items-center justify-center rounded-md border border-dashed text-sm`}
+      >
         아직 부품이 없습니다.
       </div>
     )
   }
   const summary = job.summary as { volume?: number; bbox?: { size: number[] }; face_count?: number } | null
-  const box = full.active ? 'h-[calc(100vh-4rem)]' : (height ?? 'h-full')
   // 굳은 높이를 안 받았고 전체화면도 아니면 **잰 높이**로 채운다.
   const boxStyle = full.active || height ? undefined : fill.style
+  const box = full.active ? 'h-[calc(100vh-4rem)]' : (height ?? 'h-full')
   return (
     <div ref={full.frame} className={frameClass(full.active) || 'space-y-2'}>
       <div className="flex flex-wrap items-center gap-2">
@@ -103,15 +108,20 @@ export function GeometryJobView({
         )}
       </div>
       {job.status === 'failed' && <p className="text-destructive text-sm">{job.error}</p>}
+      {/*
+        **재는 자리는 늘 있어야 한다.** 여기 `ref` 를 조건부 안에 뒀더니, glTF 주소가
+        나중에 오는 동안 붙지 않아 높이가 끝내 `null` 이었다 — 그러면 `h-full` 이 부모의
+        auto 높이를 100% 로 잡아 3D 가 사라진다(실측 2026-09-24).
+      */}
+      <div ref={fill.ref} style={boxStyle}>
       {url ? (
-        <div ref={fill.ref} style={boxStyle}>
-          <Suspense fallback={<Skeleton className={`${box} w-full`} />}>
-            <ModelViewer models={[{ url, color: VIEWER_COLORS.product }]} className={`${box} w-full rounded-md border`} />
-          </Suspense>
-        </div>
+        <Suspense fallback={<Skeleton className={`${box} w-full`} />}>
+          <ModelViewer models={[{ url, color: VIEWER_COLORS.product }]} className={`${box} w-full rounded-md border`} />
+        </Suspense>
       ) : (
         !isFinished(job) && <Skeleton className={`${box} w-full`} />
       )}
+      </div>
     </div>
   )
 }
