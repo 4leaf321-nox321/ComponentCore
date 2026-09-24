@@ -25,11 +25,16 @@ def search_materials(
     _: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    """물성 탐색기가 쓰는 목록 — **전역 재료만** 본다.
+    """물성 탐색기가 쓰는 목록.
 
-    MatNexus 의 PAT 에는 범위가 없어서, 서비스 계정으로 부르면서 작업공간 재료까지 보여 주면
-    그쪽 권한 구분이 이쪽에서 무너진다. 못 닿으면 올려 둔 카탈로그로 넘어가고, **넘어갔다는
-    사실을 답에 적는다**(`fallback`)."""
+    **무엇이 보이나는 MatNexus 가 정한다**(2026-09-24 권한 개편) — 그쪽은 부서 트리로 권한을
+    나누고, 우리 토큰의 계정이 속한 부서의 재료가 보인다. 우리가 질의로 그것을 흉내 내지
+    않는다(예전의 `scope=global` 은 개편으로 사라졌고, 그 뒤로는 아무 필터도 아니었다).
+    좁히려면 `.env` 의 `MATNEXUS_WORKSPACE`(부서 slug).
+
+    줄마다 **어느 부서 것인지**(`workspace`)가 함께 온다 — 두 부서에 같은 이름이 있을 수 있다.
+
+    못 닿으면 올려 둔 카탈로그로 넘어가고, **넘어갔다는 사실을 답에 적는다**(`fallback`)."""
     return services.search(db, query=q, family=family, limit=limit)
 
 

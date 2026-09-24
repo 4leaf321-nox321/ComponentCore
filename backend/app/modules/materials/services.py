@@ -32,6 +32,10 @@ def _row(payload: dict[str, Any], source: str) -> dict[str, Any]:
         "family": payload.get("family") or "",
         "category": payload.get("category") or "",
         "grade": payload.get("grade") or "",
+        # **어느 부서 것인가**(2026-09-24 권한 개편). MatNexus 는 부서로 권한을 나누고, 두
+        # 부서에 같은 이름의 재료가 있을 수 있다 — 어디서 온 것인지 안 보이면 고르는 사람이
+        # 그 둘을 구별할 수 없다. 올려 둔 카탈로그에는 없을 수 있으니 빈 칸을 허용한다.
+        "workspace": payload.get("owner_workspace_name") or "",
         "density": payload.get("density"),
         "density_unit": payload.get("density_unit") or "",
         "poisson_ratio": payload.get("poisson_ratio"),

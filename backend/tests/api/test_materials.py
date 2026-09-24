@@ -23,6 +23,8 @@ SPCC: dict[str, Any] = {
     "family": "강판",
     "category": "냉연",
     "grade": "SPCC",
+    "owner_workspace_id": "99334981-ed64-45ff-a869-e2731a2972ee",
+    "owner_workspace_name": "기본 부서",
     "density": 7850.0,
     "density_unit": "kg/m^3",
     "poisson_ratio": 0.3,
@@ -63,14 +65,20 @@ def fake_matnexus(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, Any]]:
     yield seen
 
 
-def test_전역_재료만_묻는다(
+def test_권한은_그쪽이_정한다_우리가_질의로_흉내_내지_않는다(
     client: TestClient, member: Signed, fake_matnexus: dict[str, Any]
 ) -> None:
-    """**PAT 에 범위가 없다.** 서비스 계정으로 부르면서 작업공간 재료까지 보여 주면 그쪽
-    권한 구분이 이쪽에서 무너진다 — `scope` 는 사람이 바꿀 수 있는 칸이 아니다."""
+    """**PAT 에 범위가 없고**(2026-09-24 재확인) 권한은 부서 소속으로 정해진다 — 무엇이
+    보이나는 「이 토큰이 누구냐」 하나다.
+
+    전에는 `scope=global` 을 박았다. 그 칸은 개편으로 **없어졌고**, MatNexus 는 모르는 질의를
+    조용히 무시하므로 그 뒤로는 아무 필터도 아니었다. **살아 있는 척하는 이름을 다시 만들지
+    않는다** — 그래서 이 시험은 그것이 안 나가는 것을 못 박는다."""
     got = client.get("/api/materials", params={"q": "SPCC"}, headers=member.headers)
     assert got.status_code == 200, got.text
-    assert "scope=global" in fake_matnexus["url"]
+    assert "scope" not in fake_matnexus["url"], "없어진 칸을 계속 보내면 안 된다"
+    # 좁히지 않았으면 workspace 도 안 보낸다 — 그 계정이 보는 것을 그대로 본다.
+    assert "workspace" not in fake_matnexus["url"]
     assert "q=SPCC" in fake_matnexus["url"]
     assert fake_matnexus["auth"].startswith("Bearer mnx_pat_")
 
@@ -82,6 +90,24 @@ def test_전역_재료만_묻는다(
     assert one["payload"]["declared_properties"][0]["si_unit"] == "Pa"
     assert one["payload"]["declared_properties"][0]["points"][1]["value_si"] == 1.7e11
     assert one["density"] == 7850.0 and one["density_unit"] == "kg/m^3"
+    # **어느 부서 것인지**도 줄에 온다 — 두 부서에 같은 이름이 있을 수 있다.
+    assert one["workspace"] == "기본 부서"
+
+
+def test_부서를_정해_두면_그것만_묻는다(
+    client: TestClient,
+    member: Signed,
+    fake_matnexus: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """**권한이 아니라 좁히기다.** 토큰이 볼 수 있는 것보다 넓힐 수는 없다 — 부서가 여럿인
+    계정으로 붙었는데 남의 부서 재료까지 쏟아질 때 쓴다."""
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "matnexus_workspace", "polymer")
+    got = client.get("/api/materials", params={"q": "SPCC"}, headers=member.headers)
+    assert got.status_code == 200, got.text
+    assert "workspace=polymer" in fake_matnexus["url"]
 
 
 def test_못_닿으면_올려_둔_카탈로그로_넘어가고_그_사실을_말한다(

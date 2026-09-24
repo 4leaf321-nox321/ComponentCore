@@ -119,6 +119,15 @@ export function MaterialPicker({
                 <span className="text-muted-foreground ml-2 text-xs">
                   {[row.family, row.category, row.grade].filter(Boolean).join(' · ')}
                 </span>
+                {/*
+                  어느 부서 것인지 — MatNexus 가 부서로 권한을 나누므로 두 부서에 같은 이름이
+                  있을 수 있다. 안 보이면 고르는 사람이 그 둘을 구별할 수 없다.
+                */}
+                {row.workspace && (
+                  <Badge variant="secondary" className="ml-2 font-normal">
+                    {row.workspace}
+                  </Badge>
+                )}
                 {row.source === 'catalog' && (
                   <Badge variant="outline" className="ml-2">
                     사본

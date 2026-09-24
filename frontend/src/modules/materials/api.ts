@@ -16,6 +16,14 @@ export interface MaterialRow {
   family: string
   category: string
   grade: string
+  /**
+   * 어느 **부서**의 재료인가(MatNexus 의 `owner_workspace_name`).
+   *
+   * MatNexus 는 부서 트리로 권한을 나눈다 — 두 부서에 같은 이름의 재료가 있을 수 있어서,
+   * 이것이 안 보이면 고르는 사람이 그 둘을 구별할 수 없다. 올려 둔 카탈로그에는 없을 수
+   * 있으므로 빈 문자열이 올 수 있다.
+   */
+  workspace: string
   density: number | null
   density_unit: string
   poisson_ratio: number | null
@@ -36,7 +44,19 @@ export const materialsApi = {
       `/materials?q=${encodeURIComponent(q)}&limit=${limit}`,
     ),
   status: () =>
-    api.get<{ configured: boolean; ok: boolean; detail: string; catalog_count: number; catalog_fetched_at: string | null }>(
-      '/materials/status',
-    ),
+    api.get<{
+      configured: boolean
+      ok: boolean
+      detail: string
+      /** 어느 계정으로 붙었나 — MatNexus 의 권한은 계정으로 정해진다. */
+      account?: string
+      /** 시스템 관리자 토큰이면 참 — 읽기만 하는 연동에는 과하다. 관리자에게 알린다. */
+      system_admin?: boolean
+      /** `.env` 로 좁힌 부서 slug. 비면 그 계정이 보는 전부. */
+      workspace?: string
+      /** 그 계정에게 보이는 재료 수. */
+      materials?: number | null
+      catalog_count: number
+      catalog_fetched_at: string | null
+    }>('/materials/status'),
 }
