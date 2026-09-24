@@ -6501,9 +6501,9 @@
             "type": "string",
             "title": "Step File"
           },
-          "topology_file": {
+          "point_file": {
             "type": "string",
-            "title": "Topology File",
+            "title": "Point File",
             "default": ""
           }
         },

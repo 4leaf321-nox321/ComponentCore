@@ -3,7 +3,7 @@
 폴더 하나가 곧 한 번의 DOE 다:
 
     73_AutoJigGenerator/브래킷_튜닝-3f9a21/
-    ├─ manifest.csv   설계점 · 바꾼 변수 값 · 파일 이름 · 상태 (해석 결과는 여기에 붙인다)
+    ├─ manifest.csv   설계점 · 바꾼 변수 값 · 파일 이름 · 상태
     ├─ study.json     기준 레시피 · 인자 정의 · 시드(같은 표를 다시 만들 때)
     ├─ README.txt     사람이 열어 볼 한 장
     └─ points/p0001.step …
@@ -50,7 +50,7 @@ def manifest_columns(factor_names: list[str]) -> list[str]:
     """표의 열 — 되짚는 열쇠(번호 · 상태), 바꾼 변수, 파일, 실패 사유. 해석 결과 열은 해석이
     붙인다.
 
-    `topology` · `unresolved` 는 **해석이 이 점을 쓸 수 있는가**를 말한다. 영역을 하나도 못
+    `point_file` · `unresolved` 는 **해석이 이 점을 쓸 수 있는가**를 말한다. 영역을 하나도 못
     풀었으면 경계조건을 붙일 자리가 없고, 그 사실은 표에서 한눈에 보여야 한다 — 설계점 200개를
     보내 놓고 「왜 절반이 실패했지」 를 로그에서 찾게 하지 않는다."""
     return [
@@ -58,7 +58,7 @@ def manifest_columns(factor_names: list[str]) -> list[str]:
         "status",
         *factor_names,
         "step_file",
-        "topology",
+        "point_file",
         "unresolved",
         "interference",
         "error",
@@ -74,7 +74,7 @@ def manifest_row(
     step_file: str = "",
     error: str = "",
     interference: dict[str, Any] | None = None,
-    topology_file: str = "",
+    point_file: str = "",
     unresolved: list[str] | None = None,
 ) -> dict[str, Any]:
     # 조립이면 겹침 — ok 또는 「N건 (총 부피)」. 구성품이 하나면 빈 칸.
@@ -90,7 +90,7 @@ def manifest_row(
         "status": status,
         **{name: params.get(name, "") for name in factor_names},
         "step_file": step_file,
-        "topology": topology_file,
+        "point_file": point_file,
         # 못 푼 영역 이름을 **그대로** 적는다 — 개수만 적으면 어느 것이 빠졌는지
         # 다시 물어야 한다.
         "unresolved": " ".join(unresolved or []),
@@ -157,10 +157,10 @@ def write_readme(folder: Path, study: dict[str, Any], point_count: int) -> Path:
   manifest.csv   설계점마다 바꾼 변수 값 · 파일 이름 · 상태
   study.json     기준 레시피와 인자 정의 전부(다시 만들 때)
   conditions.json  해석 조건 한 벌 — 이름표 · 구속 · 하중 · 접촉 · 초기 · 해석 설정 · 물성
-                   (숫자 칸에 "=식" 이 있을 수 있다. 푼 값은 점마다 아래 파일에)
-  points/        p0001.step              형상
-                 p0001.topology.json     영역 · 바디의 좌표 지문 + 이 점의 변수 값
-                 p0001.conditions.json   그 변수로 **풀린** 조건
+                   (숫자 칸에 "=식" 이 있을 수 있다. 푼 값은 점 파일 안에)
+  points/        p0001.step   형상
+                 p0001.json   이 점의 모든 것 — 변수 값 · 영역과 바디의 좌표 지문 ·
+                              그 변수로 **풀린** 조건
 
 STEP 은 mm 단위이며, 바꾸지 않은 치수(연결부 등)는 모든 점에서 똑같다.
 해석 결과는 이 폴더로 돌아오지 않는다 — 푸는 쪽이 들고 거기서 본다.

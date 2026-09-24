@@ -168,7 +168,7 @@ def manifest(
             names,
             status=point.status,
             step_file=point.step_file,
-            topology_file=point.topology_file,
+            point_file=point.point_file,
             unresolved=(point.geometry or {}).get("topology_unresolved"),
             error=point.error,
             interference=(point.geometry or {}).get("interference"),

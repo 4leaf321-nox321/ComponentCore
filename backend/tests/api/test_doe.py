@@ -133,7 +133,7 @@ def test_설계점마다_STEP_을_공유_폴더에_쓴다(
         "status",
         "두께",
         "step_file",
-        "topology",
+        "point_file",
         "unresolved",
         "interference",
         "error",
@@ -141,14 +141,19 @@ def test_설계점마다_STEP_을_공유_폴더에_쓴다(
 
     # **영역 지문이 STEP 옆에 나란히 있다.** STEP 은 이름표를 못 나르므로 해석이 「어느 면이
     # 고정면인가」 를 물을 곳은 이 파일뿐이다.
-    assert rows[0]["topology"] == "points/p0001.topology.json"
+    assert rows[0]["point_file"] == "points/p0001.json"
     assert rows[0]["unresolved"] == "", "영역을 못 풀면 그 이름이 여기 적힌다"
-    topo = json.loads((folder / "points" / "p0001.topology.json").read_text(encoding="utf-8"))
+    # **폴더가 자기를 설명한다** — 해석하는 사람이 「이거 누구한테 물어보지」 로 막히지 않게.
+    spec = json.loads((folder / "study.json").read_text(encoding="utf-8"))
+    assert spec["owner"]["email"] == member.email
+    assert spec["factors"] and spec["seed"] is not None, "무엇을 훑었나도 함께"
+
+    topo = json.loads((folder / "points" / "p0001.json").read_text(encoding="utf-8"))
     assert topo["units"] == "mm"
     assert topo["regions"]["fixed_base"], "바닥 고정 모달의 자리"
     assert topo["bodies"][0]["volume"] > 0
     # 설계점마다 좌표가 다르다 — 그래서 점마다 한 장이다.
-    other = json.loads((folder / "points" / "p0003.topology.json").read_text(encoding="utf-8"))
+    other = json.loads((folder / "points" / "p0003.json").read_text(encoding="utf-8"))
     assert other["bodies"][0]["volume"] != topo["bodies"][0]["volume"]
 
     # 내려받는 표도 같은 값이다.
@@ -381,10 +386,10 @@ def test_해석_조건을_붙여_훑으면_점마다_풀려_나간다(
     # 점마다 **풀린** 값. 두께 · 압력 조합이 그대로 보인다.
     풀린 = {}
     for number in (1, 2, 3, 4):
-        conditions_file = folder / "points" / f"p{number:04d}.conditions.json"
-        topo_file = folder / "points" / f"p{number:04d}.topology.json"
-        one = json.loads(conditions_file.read_text(encoding="utf-8"))
-        topo = json.loads(topo_file.read_text(encoding="utf-8"))
+        # **점 하나 = 파일 하나** — 영역과 조건이 한 자리에 있다.
+        point_file = folder / "points" / f"p{number:04d}.json"
+        topo = json.loads(point_file.read_text(encoding="utf-8"))
+        one = topo["conditions"]
         풀린[number] = (topo["point"]["params"]["두께"], one["loads"][0]["magnitude"])
         # 이름표는 셀렉터 그대로 — 좌표는 topology 가 든다(설계점마다 다르니까).
         assert one["named_selections"][0]["select"] == {"what": "faces", "role": "bottom"}

@@ -373,6 +373,14 @@ def cleanup_exports(db: Session, *, dry_run: bool = False) -> dict[str, Any]:
     return {"removed": removed, "count": len(removed), "dry_run": dry_run}
 
 
+def _owner_of(db: Session, study: DoeStudy) -> dict[str, str]:
+    """만든 사람 — 이름과 계정. 없으면 빈 칸이지 거짓말은 안 한다."""
+    user = db.get(User, study.owner_id) if study.owner_id else None
+    if user is None:
+        return {"name": "", "email": ""}
+    return {"name": user.display_name or "", "email": user.email or ""}
+
+
 def _region_definitions(conditions: dict[str, Any] | None) -> list[dict[str, Any]] | None:
     """조건의 이름표를 **영역 정의**로 — 내보낼 때 그 이름으로 좌표가 나간다.
 
@@ -461,17 +469,17 @@ def run_job(
                     "params": point.params,
                     "step_file": f"points/{name}",
                 }
-                topo_name = f"p{point.number:04d}.topology.json"
-                (folder / "points" / topo_name).write_text(
+                # **점 하나 = 파일 하나.** 영역과 조건은 늘 짝으로 읽히므로 나눠 두면
+                # 「하나는 있고 하나는 없는」 상태가 생길 자리만 는다.
+                if study.conditions:
+                    topo["conditions"] = condition_model.resolve(
+                        study.conditions, point.params
+                    )
+                point_name = f"p{point.number:04d}.json"
+                (folder / "points" / point_name).write_text(
                     json.dumps(topo, ensure_ascii=False, indent=2), encoding="utf-8"
                 )
-                point.topology_file = f"points/{topo_name}"
-                # **조건의 식을 이 점의 값으로 푼다.** 받는 쪽은 `"=압력"` 을 풀 수 없다.
-                if study.conditions:
-                    resolved = condition_model.resolve(study.conditions, point.params)
-                    (folder / "points" / f"p{point.number:04d}.conditions.json").write_text(
-                        json.dumps(resolved, ensure_ascii=False, indent=2), encoding="utf-8"
-                    )
+                point.point_file = f"points/{point_name}"
                 # 조립이면 구성품끼리 겹치는지 — 변수를 바꾸다 부품이 판에 파묻히는 것을
                 # 잡는다.
                 point.geometry = {
@@ -488,7 +496,7 @@ def run_job(
                         factor_names,
                         status="ok",
                         step_file=point.step_file,
-                        topology_file=point.topology_file,
+                        point_file=point.point_file,
                         unresolved=topo["unresolved"],
                         interference=point.geometry["interference"],
                     )
@@ -525,6 +533,10 @@ def run_job(
                 "factors": study.factors,
                 "recipe": study.recipe,
                 "conditions": study.conditions,
+                # **누가 시켰나.** 「폴더 하나가 자기를 설명한다」 는 원칙을 이 칸이 어기고
+                # 있었다 — 해석하는 사람이 폴더를 열고 누구에게 물어야 할지 몰랐다.
+                # 기계(오케스트레이터)가 만들면 더 그렇다.
+                "owner": _owner_of(db, study),
             },
         )
         files.write_conditions(folder, study.conditions)

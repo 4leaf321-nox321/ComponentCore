@@ -590,7 +590,7 @@ async def doe_create(
 
 @mcp.tool()
 async def doe_points(ctx: Context, study_id: str) -> Any:
-    """만들어진 설계점 표 — 바꾼 변수 값 · STEP · **영역 지문 파일** · 실패 사유, 그리고
+    """만들어진 설계점 표 — 바꾼 변수 값 · STEP · **점 파일**(영역 · 풀린 조건) · 실패 사유,
     **공유 폴더 경로**(`folder`, 아직 안 보냈으면 None — `doe_export` 로 보낸다).
 
     해석 **결과는 여기 없다** — 이 플랫폼은 형상 · 영역 · 조건 · 설계점을 만들어 넘기고,
@@ -616,7 +616,7 @@ async def doe_points(ctx: Context, study_id: str) -> Any:
                 "status": one["status"],
                 "interference": one.get("interference"),
                 "step_file": one["step_file"],
-                "topology_file": one.get("topology_file"),
+                "point_file": one.get("point_file"),
                 "error": one["error"],
             }
             for one in got.get("points", [])

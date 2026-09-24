@@ -50,8 +50,8 @@ class PointOut(BaseModel):
     interference: dict[str, Any] | None = None
     """조립이면 구성품끼리 겹침 보고(ok · items · total_volume). 구성품이 하나면 None."""
     step_file: str
-    topology_file: str = ""
-    """영역 · 바디의 좌표 지문. 해석이 경계조건을 붙일 유일한 창구다."""
+    point_file: str = ""
+    """이 점의 모든 것(변수 · 영역 · 풀린 조건). 해석이 물을 유일한 창구다."""
 
 
 class StudySummaryOut(BaseModel):
