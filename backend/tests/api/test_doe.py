@@ -976,6 +976,13 @@ def test_조건만_훑으면_형상은_한_벌만_만든다(
     ]
     assert 풀린값 == [2.0, 3.0, 4.0], "형상은 같아도 조건은 점마다 풀린다"
 
+    # **점 파일이 가리키는 STEP 이 진짜로 있어야 한다.** 해석 쪽이 형상을 찾을 곳은 이 칸
+    # 뿐인데, 여기서 경로를 다시 지어 `points/` 라고 적고 있었다(살아 있는 서버로 한 바퀴
+    # 돌려 보다 잡았다). 표와 DB 는 맞았고 이 파일만 거짓말을 했다.
+    for one in sorted((folder / "points").glob("*.json")):
+        말한것 = json.loads(one.read_text(encoding="utf-8"))["point"]["step_file"]
+        assert (folder / 말한것).exists(), f"{one.name} 이 없는 파일을 가리킨다: {말한것}"
+
 
 def test_형상이_다르면_예전처럼_점마다_한_벌(
     client: TestClient, member: Signed, export_root: Path

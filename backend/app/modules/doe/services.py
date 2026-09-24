@@ -874,7 +874,11 @@ def run_job(
                         "seed": study.seed,
                     },
                     "params": point.params,
-                    "step_file": f"points/{name}",
+                    # **`point.step_file` 을 그대로 쓴다.** 여기서 경로를 다시 지으면
+                    # 어긋난다 — 나눠 쓰는 형상은 `shapes/` 에 있는데 `points/` 라고 적어
+                    # 두고 있었다(살아 있는 서버로 한 바퀴 돌려 보다 잡았다, 2026-09-24).
+                    # 해석 쪽이 형상을 찾을 곳은 이 칸뿐이다.
+                    "step_file": point.step_file,
                 }
                 # **점 하나 = 파일 하나.** 영역과 조건은 늘 짝으로 읽히므로 나눠 두면
                 # 「하나는 있고 하나는 없는」 상태가 생길 자리만 는다.
