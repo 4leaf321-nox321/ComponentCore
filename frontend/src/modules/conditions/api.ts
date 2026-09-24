@@ -44,7 +44,7 @@ export interface ConditionsSchema {
   units: { system: string }
   /**
    * **닫히는 계만 고를 수 있다.** 낱낱이 적게 두면 `mm·kg·s·N` 같은 조합을 적을 수 있는데,
-   * 그 계의 힘은 N 이 아니라 μN 이다 — 아무도 안 볼 때까지 조용하다가 10⁶ 배 틀린다.
+   * 그 계의 힘은 N 이 아니라 mN 이고 응력은 kPa 다 — 조용하다가 어느 날 10³ 배 틀린다.
    */
   unit_systems: UnitSystem[]
   analysis: { properties?: Record<string, FieldSchema> }
@@ -92,7 +92,7 @@ export function emptyConditions(): Conditions {
   return {
     schema_version: 1,
     // 기본은 mm·t·s — CAD 가 mm 라 해석도 mm 으로 푼다(FE 의 사실상 표준).
-    units: { system: 'mm-t-s' },
+    units: { system: 'mm_n_tonne' },
     named_selections: [],
     materials: [],
     constraints: [],

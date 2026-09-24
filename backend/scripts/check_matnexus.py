@@ -10,6 +10,11 @@
 나누고 PAT 에는 범위가 없다 — 그래서 **무엇이 보이나는 그 토큰이 누구냐**로 정해진다. 붙기는
 붙는데 계정이 달라 하나도 안 보이거나, 반대로 시스템 관리자 토큰이라 전부 보이는 일이 생긴다.
 그래서 이 스크립트는 **누구로 붙었는지**까지 말한다.
+
+그리고 **단위계가 그쪽과 같은 말을 하는지** 맞춰 본다. MatNexus 는 단위계를 1급으로 들고
+있고(`/api/fitting/unit-systems`) 우리도 제 표를 든다 — 런타임에 그쪽을 의존하지 않으려는
+것이다(꺼져 있어도, 올려 둔 사본으로 골라도 내보내기는 돼야 한다). 대신 **어긋나면 여기서
+말한다.** 물성 값이 조용히 다른 단위로 나가는 것보다는 낫다.
 """
 
 from __future__ import annotations
@@ -21,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import get_settings
 from app.shared.clients import matnexus
+from app.shared.errors import AppError
 
 
 def main() -> int:
@@ -58,6 +64,22 @@ def main() -> int:
             "\n⚠ 보이는 재료가 없습니다 — 이 계정이 속한 부서에 재료가 없습니다.\n"
             "  MatNexus 에서 그 계정을 재료가 있는 부서에 넣어 주세요."
         )
+
+    # **단위계가 그쪽과 같은 말을 하나.** 그쪽은 지금도 고쳐지고 있다(이 대화 중에
+    # `density_si` 칸이 생겼다) — 사람이 눈으로 맞춰 보는 것은 오래 못 간다.
+    from app.core import units_check
+
+    try:
+        같나 = units_check.compare(matnexus.unit_systems())
+    except (matnexus.MatNexusUnavailable, AppError) as failure:
+        print(f"\n단위계 : 못 맞춰 봤습니다 — {failure}")
+    else:
+        if 같나["ok"]:
+            print(f"\n단위계 : 같은 말을 합니다 ({' · '.join(같나['compared'])})")
+        else:
+            print("\n단위계 : **어긋납니다** — 환산한 물성이 그쪽과 다르게 나갑니다")
+            for one in 같나["problems"]:
+                print(f"       ⚠ {one}")
 
     rows = matnexus.search(limit=3)
     print()

@@ -312,7 +312,7 @@ export function ConditionsPanel({
               <select
                 id="단위계"
                 className="mt-1 w-full rounded border px-2 py-1 text-sm"
-                value={draft.units?.system ?? 'mm-t-s'}
+                value={draft.units?.system ?? 'mm_n_tonne'}
                 onChange={(e) => setDraft({ ...draft, units: { system: e.target.value } })}
               >
                 {(spec.unit_systems ?? []).map((one) => (
@@ -440,7 +440,7 @@ export function ConditionsPanel({
         open={picking}
         onClose={() => setPicking(false)}
         // 조건 한 벌이 고른 계로 보여 준다 — 검산한 값이 그대로 나가야 한다.
-        system={draft.units?.system ?? 'mm-t-s'}
+        system={draft.units?.system ?? 'mm_n_tonne'}
         onPick={(row) => {
           // **payload 통째로** 싣는다 — 「어느 것이 영률인가」 는 솔버를 아는 쪽의 일이다.
           setDraft({

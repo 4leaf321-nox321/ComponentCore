@@ -179,6 +179,18 @@ def _account_line(me: dict[str, Any]) -> str:
     return f"{who} — 부서 {len(rooms)}곳({names}{more})"
 
 
+def unit_systems() -> list[dict[str, Any]]:
+    """그쪽의 **단위계 등록부**(`/api/fitting/unit-systems`).
+
+    MatNexus 는 단위계를 1급으로 들고 있고 기호표(`symbols`)까지 준다. 우리는 그것을 런타임에
+    의존하지 않는다 — MatNexus 가 꺼져 있어도, 올려 둔 사본으로 골라도 내보내기는 돼야 한다.
+    대신 **어긋나면 알아차리려고** 가져와 맞춰 본다(`scripts/check_matnexus.py`).
+    """
+    got = _get("/api/fitting/unit-systems")
+    rows = got.get("items") if isinstance(got, dict) else got
+    return [one for one in (rows or []) if isinstance(one, dict)]
+
+
 def ping() -> dict[str, Any]:
     """닿나 · **누구로** 닿았나 · 몇 건 보이나.
 

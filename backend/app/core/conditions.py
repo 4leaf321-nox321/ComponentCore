@@ -170,12 +170,12 @@ class Units(Base):
     """**계 하나만 고른다.** 나머지 단위는 거기서 계산한다(`core/units.py`).
 
     낱낱이 적게 두면 **닫히지 않는 계**를 적을 수 있다 — 예전 기본값이 `mm · kg · s · N` 이
-    었는데, mm·kg·s 에서 힘은 N 이 아니라 μN 이다. 아무도 안 볼 때까지 아무 일도 안
-    일어나다가 어느 날 10⁶ 배 틀린다. 그래서 고를 수 있는 것은 **계 이름뿐**이다.
+    었는데, mm·kg·s 에서 힘은 N 이 아니라 **mN** 이고 응력은 kPa 다. 아무도 안 볼 때까지
+    아무 일도 안 일어나다가 어느 날 10³ 배 틀린다. 그래서 고를 수 있는 것은 **계 이름뿐**이다.
     """
 
-    system: Literal["mm-t-s", "si"] = unit_systems.DEFAULT_SYSTEM  # type: ignore[assignment]
-    """`mm-t-s`(기본 — CAD 가 mm 라 해석도 mm) 또는 `si`."""
+    system: Literal["mm_n_tonne", "si"] = unit_systems.DEFAULT_SYSTEM  # type: ignore[assignment]
+    """`mm_n_tonne`(기본 — CAD 가 mm 라 해석도 mm) 또는 `si`."""
 
 
 class Conditions(Base):
@@ -261,10 +261,17 @@ def converted_material(payload: dict[str, Any], system: str) -> dict[str, Any]:
     """
     made: dict[str, Any] = {"system": system}
     missed: list[str] = []
-    density = payload.get("density")
-    if isinstance(density, int | float):
+    # **`density_si` 가 있으면 그것이 정본이다**(2026-09-24 MatNexus 가 알려 줬다). `density`
+    # 는 그쪽 화면이 쓰는 표시값이라 단위가 `density_unit` 에 따로 있다 — 둘 중 SI 쪽에서
+    # 출발하는 편이 한 단계 덜 거친다. 없으면 표시값을 그 단위로 환산한다.
+    si_density = payload.get("density_si")
+    if isinstance(si_density, int | float):
+        value, name, ok = unit_systems.convert(float(si_density), "kg/m3", system)
+        made["density"] = value
+        made["density_unit"] = name
+    elif isinstance(payload.get("density"), int | float):
         value, name, ok = unit_systems.convert(
-            float(density), str(payload.get("density_unit") or ""), system
+            float(payload["density"]), str(payload.get("density_unit") or ""), system
         )
         made["density"] = value
         made["density_unit"] = name

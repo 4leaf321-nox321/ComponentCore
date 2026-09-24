@@ -22,7 +22,7 @@ FULL: dict[str, Any] = {
         {
             "apply_to": "전체",
             "ref": {"source": "matnexus", "code": "M-000123", "name": "SPCC"},
-            "payload": {"density": 7850.0, "density_unit": "kg/m^3"},
+            "payload": {"density": 7850.0, "density_unit": "kg/m3"},
         }
     ],
     "constraints": [{"name": "고정", "type": "fixed_support", "on": "바닥"}],
@@ -45,10 +45,10 @@ def test_한_벌을_읽고_되돌려_준다() -> None:
     assert [one.name for one in got.named_selections] == ["바닥", "볼트구멍"]
     assert got.analysis.type == "modal" and got.analysis.modes == 6
     # 물성은 **해석하지 않는다** — 받은 것을 그대로 들고 있는다.
-    assert got.materials[0].payload["density_unit"] == "kg/m^3"
+    assert got.materials[0].payload["density_unit"] == "kg/m3"
     # 단위계는 **이름 하나**다 — 낱낱이 적게 두면 닫히지 않는 계(`mm·kg·s·N`)를 적을 수
     # 있고, 그런 것은 아무도 안 볼 때까지 조용하다가 어느 날 10⁶ 배 틀린다.
-    assert got.units.system == "mm-t-s"
+    assert got.units.system == "mm_n_tonne"
 
 
 def test_없는_이름표를_가리키면_지금_말한다() -> None:
@@ -119,7 +119,7 @@ def test_물성은_원본_옆에_변환값을_나란히_싣는다() -> None:
     풀 때는 변환값이다.
     """
     raw = {
-        "units": {"system": "mm-t-s"},
+        "units": {"system": "mm_n_tonne"},
         "materials": [
             {
                 "payload": {
@@ -144,7 +144,7 @@ def test_물성은_원본_옆에_변환값을_나란히_싣는다() -> None:
     got = conditions.resolve(raw, {})
 
     # 선언이 **닫힌 계 전부**를 편다 — 받는 쪽이 제멋대로 가정하지 않게.
-    assert got["units"]["system"] == "mm-t-s"
+    assert got["units"]["system"] == "mm_n_tonne"
     assert got["units"]["stress"] == "MPa" and got["units"]["mass"] == "tonne"
 
     made = got["materials"][0]["converted"]
@@ -169,7 +169,7 @@ def test_SI_를_고르면_밀도가_제자리를_찾는다() -> None:
     got = conditions.resolve(raw, {})
     assert got["units"]["stress"] == "Pa"
     assert got["materials"][0]["converted"]["density"] == pytest.approx(7930.0)
-    assert got["materials"][0]["converted"]["density_unit"] == "kg/m^3"
+    assert got["materials"][0]["converted"]["density_unit"] == "kg/m3"
 
 
 def test_못_바꾼_것은_못_바꿨다고_적는다() -> None:

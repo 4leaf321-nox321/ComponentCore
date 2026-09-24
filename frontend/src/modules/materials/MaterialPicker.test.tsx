@@ -53,9 +53,9 @@ const STEEL = {
    * 400 °C 170 GPa). 온도가 둘 이상이면 나란히 펼친다.
    */
   converted: {
-    system: 'mm-t-s',
+    system: 'mm_n_tonne',
     density: 7.85e-9,
-    density_unit: 'tonne/mm^3',
+    density_unit: 'tonne/mm3',
     properties: [
       {
         item: '탄성계수',
@@ -118,7 +118,7 @@ test('재료를 고르면 물성을 그대로 펼치고, 이름 둘을 다 보�
   // **고른 단위계로 보인다.** `2.06e11 Pa` 는 맞는지 눈으로 알 수 없지만 `206000 MPa` 는
   // 안다 — 사람이 검산할 수 있어야 잘못 고른 재료를 잡는다.
   expect(screen.getByText(/206000 MPa/)).toBeInTheDocument()
-  expect(screen.getByText(/7\.8500e-9 tonne\/mm\^3/)).toBeInTheDocument()
+  expect(screen.getByText(/7\.8500e-9 tonne\/mm3/)).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: '이 물성을 쓴다' }))
   expect(picked).toHaveBeenCalledWith(expect.objectContaining({ code: 'M-000001' }))

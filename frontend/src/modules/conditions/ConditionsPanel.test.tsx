@@ -19,10 +19,10 @@ vi.mock('@/modules/cad/useRecipeMesh', () => ({
 
 const SCHEMA = {
   schema_version: 1,
-  units: { system: 'mm-t-s' },
+  units: { system: 'mm_n_tonne' },
   // **닫히는 계만** 고를 수 있다 — 낱낱이 적게 두면 `mm·kg·s·N` 같은 조합이 새어 든다.
   unit_systems: [
-    { key: 'mm-t-s', label: 'mm · tonne · s (힘 N · 응력 MPa)', stress: 'MPa', mass: 'tonne' },
+    { key: 'mm_n_tonne', label: 'mm · tonne · s (힘 N · 응력 MPa)', stress: 'MPa', mass: 'tonne' },
     { key: 'si', label: 'SI — m · kg · s (힘 N · 응력 Pa)', stress: 'Pa', mass: 'kg' },
   ],
   analysis: { properties: { type: { enum: ['modal', 'static'] }, modes: { type: 'integer' } } },
@@ -76,9 +76,9 @@ const MATERIALS = {
       // **서버가 환산해 준다** — 화면은 제 손으로 계산하지 않는다(환산표가 두 벌이 되면
       // 어느 날 어긋나고, 그때 보여 준 값과 내보낸 값이 달라진다). 206 GPa → 206000 MPa.
       converted: {
-        system: 'mm-t-s',
+        system: 'mm_n_tonne',
         density: 7.85e-9,
-        density_unit: 'tonne/mm^3',
+        density_unit: 'tonne/mm3',
         properties: [
           {
             item: '탄성계수',

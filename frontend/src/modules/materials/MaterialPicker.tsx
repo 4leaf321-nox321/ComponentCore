@@ -101,7 +101,7 @@ export function MaterialPicker({
   open,
   onClose,
   onPick,
-  system = 'mm-t-s',
+  system = 'mm_n_tonne',
 }: {
   open: boolean
   onClose: () => void
@@ -174,7 +174,7 @@ export function MaterialPicker({
   )
 
   /** 「무슨 계로 보고 있나」 — 칸 머리에 적는다. 안 적으면 숫자만 보고 단위를 짐작한다. */
-  const unitHint = system === 'si' ? 'SI (Pa · kg/m³)' : 'mm·t·s (MPa · tonne/mm³)'
+  const unitHint = system === 'si' ? 'SI (Pa · kg/m3)' : 'mm · N · tonne (MPa · tonne/mm3)'
 
   const total = useMemo(
     () => groups.reduce((sum, one) => sum + (Number(one.count) || 0), 0),
