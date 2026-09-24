@@ -50,6 +50,16 @@ class DoeStudy(Base):
     method: Mapped[str] = mapped_column(String(20), default="factorial")
     samples: Mapped[int] = mapped_column(Integer, default=20)
     seed: Mapped[int] = mapped_column(Integer, default=1)
+    idempotency_key: Mapped[str] = mapped_column(Text, default="", server_default="")
+    """**두 번 불러도 한 벌.** 기계가 재시도할 때 쓰는 열쇠 — 같으면 이미 있는 것을 돌려준다.
+
+    망이 끊겨 답을 못 받았을 뿐인데 다시 걸면 스터디 둘 · 폴더 둘이 생기고, 해석 쪽은 어느
+    것이 진짜인지 모른다.
+
+    **빈 값은 「멱등하지 않다」 는 뜻이다**(유일 인덱스에서 빠진다). 사람은 열쇠 없이 부르고,
+    같은 설정으로 한 벌 더 만드는 것은 정상이다 — 우리가 레시피 다이제스트로 열쇠를 지어
+    내면 그 정상적인 일이 막힌다."""
+
     local_dir: Mapped[str] = mapped_column(Text, default="", server_default="")
     """서버 보관 폴더(filestore/doe/…). 설계점은 먼저 여기에 만들어진다."""
     export_dir: Mapped[str] = mapped_column(Text, default="", server_default="")

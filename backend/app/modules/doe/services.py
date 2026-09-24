@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import time
@@ -122,6 +123,46 @@ def _points(db: Session, raw: dict[str, Any]) -> list[dict[str, float]]:
         raise AppError(code("DOE", 3), str(failure)) from failure
 
 
+def _request_digest(
+    *,
+    recipe: dict[str, Any],
+    factors: list[dict[str, Any]],
+    method: str,
+    samples: int,
+    seed: int,
+    conditions: dict[str, Any] | None,
+    work_id: uuid.UUID | None,
+) -> str:
+    """이 요청이 **무엇을 만들라는 것인가**의 지문. 멱등 열쇠가 같은데 이것이 다르면 사고다.
+
+    열쇠만 보고 돌려주면, 열쇠를 재사용한 다른 요청이 **엉뚱한 스터디를 받아 간다** — 기계는
+    그것을 제가 방금 시킨 것으로 믿는다. 그래서 지문을 맞춰 보고 다르면 거절한다."""
+    payload = {
+        "recipe": recipe,
+        "factors": factors,
+        "method": method,
+        "samples": samples,
+        "seed": seed,
+        "conditions": conditions or {},
+        "work_id": str(work_id) if work_id else None,
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def digest_of(study: DoeStudy) -> str:
+    """이미 있는 스터디에서 같은 지문을 다시 뽑는다 — 칸을 하나 더 두지 않으려고."""
+    return _request_digest(
+        recipe=study.recipe,
+        factors=study.factors,
+        method=study.method,
+        samples=study.samples,
+        seed=study.seed,
+        conditions=study.conditions,
+        work_id=study.work_id,
+    )
+
+
 def create_study(
     db: Session,
     *,
@@ -135,11 +176,46 @@ def create_study(
     seed: int,
     work_id: uuid.UUID | None,
     conditions: dict[str, Any] | None = None,
-) -> DoeStudy:
+    idempotency_key: str = "",
+) -> tuple[DoeStudy, bool]:
     """스터디를 만들고 작업을 건다. 레시피와 **해석 조건**을 스냅샷으로 박는다.
 
     설계점은 **서버 보관 폴더**에 만든다. 공유 폴더로는 다 만들어진 뒤 「보내기」 로 간다 —
-    해석이 읽는 폴더에 만들다 만 것이 보이면 안 된다."""
+    해석이 읽는 폴더에 만들다 만 것이 보이면 안 된다.
+
+    `idempotency_key` 를 주면 **두 번 불러도 한 벌**이다 — 이미 있으면 그것을 돌려준다
+    (돌려준 것인지는 두 번째 값이 말한다). 기계는 재시도하고, 망이 끊겨 답을 못 받았을 뿐인데
+    다시 걸면 스터디 둘 · 폴더 둘이 생겨 해석 쪽이 어느 것이 진짜인지 모른다.
+
+    **열쇠를 우리가 지어 내지 않는다.** 「없으면 레시피 다이제스트로」 도 생각했지만, 그러면
+    사람이 **같은 설정으로 한 벌 더** 만드는 정상적인 일이 막힌다(비교하려고 두 번 돌리는
+    것은 흔하다). 열쇠를 안 주면 「멱등하지 않다」 는 뜻이고, 그것이 사람의 기본값이다.
+    """
+    if idempotency_key:
+        found = db.scalar(
+            select(DoeStudy).where(
+                DoeStudy.owner_id == owner.id,
+                DoeStudy.idempotency_key == idempotency_key,
+            )
+        )
+        if found is not None:
+            asked = _request_digest(
+                recipe=recipe,
+                factors=factors,
+                method=method,
+                samples=samples,
+                seed=seed,
+                conditions=conditions,
+                work_id=work_id,
+            )
+            if digest_of(found) != asked:
+                raise AppError(
+                    code("DOE", 18),
+                    f"같은 멱등 열쇠({idempotency_key})로 **다른 요청**이 왔습니다 — 이미 "
+                    f"「{found.name}」 이 그 열쇠를 쓰고 있습니다. 열쇠를 바꾸거나 설정을 "
+                    "맞추세요.",
+                )
+            return found, True
     try:
         parse(recipe)
     except RecipeValidationError as failure:
@@ -169,6 +245,7 @@ def create_study(
         name=name.strip(),
         description=description.strip(),
         owner_id=owner.id,
+        idempotency_key=idempotency_key,
         work_id=work_id,
         recipe=recipe,
         conditions=conditions or {},
@@ -195,7 +272,7 @@ def create_study(
     study.job_id = job.id
     db.commit()
     db.refresh(study)
-    return study
+    return study, False
 
 
 def get_study(db: Session, study_id: uuid.UUID, viewer: User) -> DoeStudy:
@@ -270,6 +347,43 @@ def point_mesh(db: Session, study: DoeStudy, number: int) -> dict[str, Any]:
     if len(_MESH_CACHE) > _MESH_CACHE_SIZE:
         _MESH_CACHE.popitem(last=False)
     return made
+
+
+def status_of(db: Session, study: DoeStudy) -> dict[str, Any]:
+    """**진행만** 묻는 자리 — 표 전체를 주지 않는다.
+
+    `doe_points` 는 설계점 200줄을 통째로 준다. 기계가 「끝났나」 만 보려고 그것을 되풀이해
+    받으면 오가는 양이 곧 비용이다. 여기는 세는 것만 한다(DB 에서 센다 — 줄을 안 싣는다).
+    """
+    job = db.get(Job, study.job_id) if study.job_id else None
+    counted: dict[str, int] = {
+        str(name): int(how_many)
+        for name, how_many in db.execute(
+            select(DoePoint.status, func.count())
+            .where(DoePoint.study_id == study.id)
+            .group_by(DoePoint.status)
+        ).all()
+    }
+    done = int(counted.get("ok", 0))
+    failed = int(counted.get("failed", 0))
+    return {
+        "study_id": str(study.id),
+        "name": study.name,
+        # 작업이 없으면(아주 옛 줄) 끝난 것으로 본다 — 영원히 기다리게 두지 않는다.
+        "status": job.status if job else "done",
+        "running": bool(job and job.status in ("queued", "running")),
+        "points_total": study.point_count,
+        "done": done,
+        "failed": failed,
+        "pending": max(0, study.point_count - done - failed),
+        "error": job.error if job else None,
+        # 파일이 아직 있나 · 해석에 나가 있나 — 다음에 무엇을 부를지가 여기서 갈린다.
+        "files_ready": local_ready(study),
+        "folder": files.windows_path(Path(study.export_dir)) if study.export_dir else None,
+        "exported_at": study.exported_at.isoformat() if study.exported_at else None,
+        "released_at": study.released_at.isoformat() if study.released_at else None,
+        "keep_forever": study.keep_forever,
+    }
 
 
 def _needs_build(folder: Path, point: DoePoint, only: str) -> bool:

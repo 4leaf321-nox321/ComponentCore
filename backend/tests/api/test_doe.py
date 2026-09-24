@@ -647,3 +647,134 @@ def test_스터디를_지우면_서버_보관_폴더도_지우고_공유_폴더�
     assert client.delete(f"/api/doe/{made['id']}", headers=member.headers).status_code == 204
     assert not local.exists(), "우리 것은 치운다"
     assert shared.exists(), "남의 도구가 읽는 것은 말없이 지우지 않는다"
+
+
+def test_같은_열쇠로_두_번_불러도_한_벌이다(client: TestClient, member: Signed) -> None:
+    """**기계는 재시도한다.** 망이 끊겨 답을 못 받았을 뿐인데 다시 걸면 스터디 둘 · 폴더 둘이
+    생기고, 해석 쪽은 어느 것이 진짜인지 모른다."""
+    body = {
+        "name": "한 벌",
+        "recipe": JIG,
+        "factors": [{"name": "두께", "mode": "list", "values": [6]}],
+        "idempotency_key": "orch-2026-09-24-001",
+    }
+    first = client.post("/api/doe", json=body, headers=member.headers)
+    assert first.status_code == 201, first.text
+
+    again = client.post("/api/doe", json=body, headers=member.headers)
+    # **201 이 아니라 200** — 기계가 「새로 생겼나」 를 그 자리에서 알아야 한다.
+    assert again.status_code == 200, again.text
+    assert again.json()["id"] == first.json()["id"]
+
+    # 같은 열쇠에 **다른 요청**이면 거절한다 — 열쇠를 재사용한 쪽이 엉뚱한 스터디를
+    # 제가 시킨 것으로 믿으면 그것이야말로 사고다.
+    bad = client.post(
+        "/api/doe",
+        json={**body, "factors": [{"name": "두께", "mode": "list", "values": [8]}]},
+        headers=member.headers,
+    )
+    assert bad.status_code == 400
+    assert "다른 요청" in bad.json()["error"]["message"]
+
+    # **열쇠를 안 주면 멱등하지 않다** — 같은 설정으로 한 벌 더 만드는 것은 정상이다.
+    plain = {k: v for k, v in body.items() if k != "idempotency_key"}
+    one = client.post("/api/doe", json=plain, headers=member.headers)
+    two = client.post("/api/doe", json=plain, headers=member.headers)
+    assert one.status_code == 201 and two.status_code == 201
+    assert one.json()["id"] != two.json()["id"]
+
+
+def test_진행만_묻는_자리가_따로_있다(client: TestClient, member: Signed) -> None:
+    """「끝났나」 만 보려고 설계점 200줄을 되풀이해 받게 하지 않는다."""
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "진행 보기",
+            "recipe": JIG,
+            "factors": [{"name": "두께", "mode": "list", "values": [-5, 6]}],
+        },
+        headers=member.headers,
+    ).json()
+
+    got = client.get(f"/api/doe/{made['id']}/status", headers=member.headers)
+    assert got.status_code == 200, got.text
+    state = got.json()
+    assert state["points_total"] == 2 and state["done"] == 1 and state["failed"] == 1
+    assert state["pending"] == 0 and state["running"] is False
+    assert state["files_ready"] is True and state["folder"] is None
+    # **표는 없다.** 이 자리의 존재 이유가 그것이다.
+    assert "points" not in state
+
+
+def test_한_번_부르면_폴더까지(client: TestClient, member: Signed, export_root: Path) -> None:
+    """오케스트레이터가 쓰는 자리 — 만들고 · 기다리고 · 보낸다. 다음 단계로 바로 간다."""
+    got = client.post(
+        "/api/doe/run",
+        json={
+            "name": "한 번에",
+            "recipe": JIG,
+            "factors": [{"name": "두께", "mode": "list", "values": [6, 8]}],
+            "idempotency_key": "orch-run-1",
+        },
+        headers=member.headers,
+    )
+    assert got.status_code == 200, got.text
+    body = got.json()
+    assert body["done"] == 2 and body["failed"] == 0
+    # 공유 폴더 경로가 답에 있다 — 이것 하나로 해석을 걸 수 있다.
+    assert body["export_dir_windows"] and body["exported_at"]
+    assert (next(export_root.iterdir()) / "manifest.csv").exists()
+
+    # **재시도해도 한 벌** — 이 도구는 오래 기다리므로 중간에 끊기는 일이 정상이다.
+    again = client.post(
+        "/api/doe/run",
+        json={
+            "name": "한 번에",
+            "recipe": JIG,
+            "factors": [{"name": "두께", "mode": "list", "values": [6, 8]}],
+            "idempotency_key": "orch-run-1",
+        },
+        headers=member.headers,
+    )
+    assert again.status_code == 200 and again.json()["id"] == body["id"]
+    assert len(list(export_root.iterdir())) == 1, "폴더가 둘이 되면 안 된다"
+
+
+def test_보내지_말라면_안_보낸다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    """조건만 바꿔 가며 쌓아 둘 때 — 만들기는 하되 해석에 넘기지 않는다."""
+    got = client.post(
+        "/api/doe/run?export=false",
+        json={
+            "name": "쌓아 두기",
+            "recipe": JIG,
+            "factors": [{"name": "두께", "mode": "list", "values": [6]}],
+            "idempotency_key": "orch-run-2",
+        },
+        headers=member.headers,
+    )
+    assert got.status_code == 200, got.text
+    assert got.json()["done"] == 1
+    assert got.json()["export_dir_windows"] == ""
+    # 공유 폴더에 아무것도 안 생긴다 — 폴더 자체가 안 서 있을 수도 있다.
+    assert not export_root.exists() or list(export_root.iterdir()) == []
+
+
+def test_기다려_주는_자리는_끝나면_바로_돌아온다(client: TestClient, member: Signed) -> None:
+    """부르는 쪽마다 폴링 루프를 만들지 않게. 끝을 보장하지는 않는다 — 상한까지만 문다."""
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "기다리기",
+            "recipe": JIG,
+            "factors": [{"name": "두께", "mode": "list", "values": [6]}],
+        },
+        headers=member.headers,
+    ).json()
+    got = client.post(f"/api/doe/{made['id']}/wait?seconds=5", headers=member.headers)
+    assert got.status_code == 200, got.text
+    assert got.json()["running"] is False and got.json()["waited_out"] is False
+    # 상한은 2분 — 오래 물면 프록시가 먼저 끊고, 그때 「실패」 와 「아직」 을 구별 못 한다.
+    너무김 = client.post(f"/api/doe/{made['id']}/wait?seconds=999", headers=member.headers)
+    assert 너무김.status_code == 422

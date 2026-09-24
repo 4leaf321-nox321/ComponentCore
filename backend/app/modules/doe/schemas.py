@@ -37,6 +37,12 @@ class StudyCreateRequest(PreviewRequest):
     """해석 조건 한 벌 — 대상 버전의 것을 그대로 넘기면 스냅샷으로 박힌다.
     비면 형상만 훑는다."""
     work_id: uuid.UUID | None = None
+    idempotency_key: str = Field(default="", max_length=200)
+    """**두 번 불러도 한 벌.** 같은 열쇠로 다시 부르면 이미 만든 것을 돌려준다(201 대신 200).
+
+    기계는 재시도한다 — 망이 끊겨 답을 못 받았을 뿐인데 다시 걸면 스터디 둘 · 폴더 둘이
+    생기고, 해석 쪽은 어느 것이 진짜인지 모른다. 사람은 비워 두면 된다(같은 설정으로 한 벌
+    더 만드는 것은 정상이다)."""
 
 
 class PointOut(BaseModel):

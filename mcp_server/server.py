@@ -562,8 +562,16 @@ async def doe_create(
     samples: int = 20,
     seed: int = 1,
     work_id: str | None = None,
+    idempotency_key: str = "",
 ) -> Any:
-    """치수를 훑어 **형상 여러 벌**을 만든다 — 점마다 STEP 을 공유 폴더에 쓴다(해석이 읽는 곳).
+    """치수를 훑어 **형상 여러 벌**을 만든다 — 점마다 STEP 을 서버 보관 폴더에 쓴다.
+
+    **걸고 바로 돌아온다.** 끝까지 기다렸다가 공유 폴더로 보내는 것까지 한 번에 하려면
+    `doe_run` 을 써라 — 네가 폴링 루프를 만들 이유가 없다.
+
+    `idempotency_key` 를 주면 **두 번 불러도 한 벌**이다. 재시도할 생각이면 늘 줘라 — 망이
+    끊겨 답을 못 받았을 뿐인데 다시 걸면 스터디 둘 · 폴더 둘이 생기고, 해석 쪽은 어느 것이
+    진짜인지 모른다.
 
     인자로 쓴 치수만 바뀐다. **연결부처럼 고정돼야 하는 자리는 그 치수를 쓰지 않으면 된다.**
     인자마다 `resolution`(가공 단위, 기본 0.1 mm)으로 값을 맞춘다 —
@@ -584,8 +592,92 @@ async def doe_create(
             "samples": samples,
             "seed": seed,
             "work_id": work_id,
+            "idempotency_key": idempotency_key,
         },
     )
+
+
+@mcp.tool()
+async def doe_run(
+    ctx: Context,
+    name: str,
+    recipe: dict[str, Any],
+    factors: list[dict[str, Any]],
+    idempotency_key: str,
+    description: str = "",
+    method: str = "factorial",
+    samples: int = 20,
+    seed: int = 1,
+    work_id: str | None = None,
+    export: bool = True,
+    wait_seconds: int = 300,
+) -> Any:
+    """**한 번 부르면 폴더까지** — 만들고 · 기다리고 · 공유 폴더로 보낸다.
+
+    지휘하는 쪽(오케스트레이터)이 쓸 자리다. 이것 하나로 다음 단계(해석 걸기)로 갈 수 있다 —
+    `doe_create` 는 걸고 바로 돌아오므로 네가 폴링 루프를 만들어야 한다.
+
+    **`idempotency_key` 는 필수다.** 이 도구는 오래 기다리므로 중간에 끊길 수 있고, 그때
+    다시 부르는 것이 정상이다. 열쇠가 같으면 이미 만든 것을 이어서 본다 — 없으면 끊길
+    때마다 스터디가 하나씩 는다.
+
+    답: `folder`(해석이 여는 경로 — 아직 못 보냈으면 None) · `points` · `done` · `failed` ·
+    `job`. **안 끝나도 답은 온다**(`wait_seconds` 가 다 되면 그때 상태로). 그 경우 보내지
+    않으니 — 만들다 만 폴더를 해석이 읽으면 안 된다 — `doe_status` 로 끝을 보고
+    `doe_export` 를 부른다.
+
+    `export=false` 면 만들기만 한다(조건만 바꿔 가며 쌓아 둘 때).
+    """
+    query = f"?wait_seconds={wait_seconds}&export={'true' if export else 'false'}"
+    got = await _post(
+        ctx,
+        f"/api/doe/run{query}",
+        {
+            "name": name,
+            "description": description,
+            "recipe": recipe,
+            "factors": factors,
+            "method": method,
+            "samples": samples,
+            "seed": seed,
+            "work_id": work_id,
+            "idempotency_key": idempotency_key,
+        },
+    )
+    if not isinstance(got, dict) or "error" in got:
+        return got
+    return {
+        "study_id": got["id"],
+        "name": got["name"],
+        "folder": got["export_dir_windows"] or None,
+        "files_ready": got.get("local_ready", True),
+        "points": got["point_count"],
+        "done": got["done"],
+        "failed": got["failed"],
+        "job": _slim_job(got.get("job")),
+    }
+
+
+@mcp.tool()
+async def doe_status(ctx: Context, study_id: str) -> Any:
+    """**진행만** — 끝났나 · 몇 점 됐나 · 폴더는 어디인가. 설계점 표는 안 준다.
+
+    `doe_points` 는 설계점 200줄을 통째로 준다. 「끝났나」 만 보려고 그것을 되풀이해 받지
+    마라 — 여기는 세는 것만 한다.
+
+    `files_ready` 가 거짓이면 보관 기한이 지나 파일이 치워진 것이다(`doe_rerun` 으로 되살린다).
+    """
+    return await _get(ctx, f"/api/doe/{study_id}/status")
+
+
+@mcp.tool()
+async def doe_wait(ctx: Context, study_id: str, seconds: int = 30) -> Any:
+    """끝날 때까지 **기다려 준다**(한 번에 최대 2분). 끝났든 시간이 다 됐든 지금 상태를 준다.
+
+    `doe_run` 을 썼는데 시간 안에 안 끝났을 때 이어서 기다리는 자리다. `waited_out` 이 참이면
+    아직 도는 중이니 다시 부르면 된다 — 1초마다 `doe_status` 를 두드리지 마라.
+    """
+    return await _post(ctx, f"/api/doe/{study_id}/wait?seconds={seconds}", None)
 
 
 @mcp.tool()
