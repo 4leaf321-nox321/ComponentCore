@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.core import units as unit_systems
 from app.core.recipe.params import ExpressionError, resolve_params
@@ -68,12 +68,34 @@ class MaterialRef(Base):
     fetched_at: str = ""
 
 
+#: 바디 이름 대신 쓰는 말 — **모든 바디.** 단품은 바디가 이것 하나다(`topology.bodies`).
+ALL_BODIES = "전체"
+
+
+def applied_bodies(value: Any) -> list[str]:
+    """`apply_to` 를 **목록으로** — 옛 값(문자열 하나)도 읽는다. 같은 이름은 한 번만.
+
+    2026-09-24 까지는 문자열 하나였다. 저장된 조건 · DOE 스냅샷에는 그 모양이 남아 있으므로
+    읽는 곳마다 이것을 거친다."""
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    if isinstance(value, list) and all(isinstance(one, str) for one in value):
+        return list(dict.fromkeys(one for one in value if one.strip()))
+    return []
+
+
 class Material(Base):
     """**값을 해석하지 않는다.** 물성 플랫폼이 준 것을 통째로 나른다 — 「어느 것이 영률인가」
     는 솔버를 아는 쪽의 일이다(설계 문서 6장)."""
 
-    apply_to: str = "전체"
-    """`topology.bodies` 의 이름. 「전체」 면 모든 바디."""
+    apply_to: list[str] = Field(default_factory=lambda: [ALL_BODIES])
+    """이 물성이 붙은 **바디들**(`topology.bodies` 의 이름). 「전체」 면 모든 바디.
+
+    **비어 있으면 아직 아무 데도 안 붙은 것이다.** 조건 화면은 재료를 먼저 몇 개 담아 두고
+    파트마다 고르게 하므로, 담았지만 아직 안 고른 재료가 있다 — 그 재료로는 덱을 안 뽑는다.
+
+    예전에는 문자열 하나였다. 파트 셋에 같은 재료를 주려면 같은 재료를 세 번 담아야 했고,
+    그러면 덱의 재료 번호(`mid`)도 셋이 되어 받는 쪽이 같은 재료인지 알 수 없었다."""
     ref: MaterialRef = Field(default_factory=MaterialRef)
     payload: dict[str, Any] = Field(default_factory=dict)
     """물성 플랫폼이 준 것 **그대로.** 저장할 때도 내보낼 때도 우리가 손대지 않는다 —
@@ -87,6 +109,16 @@ class Material(Base):
 
     글월은 여기 안 담는다. **내보낼 때 그때 뽑는다** — 재료가 여럿이면 덱 안의 재료 번호
     (`mid`)가 서로 달라야 하는데, 그 번호는 한 벌이 다 모여야 정해진다."""
+
+    @field_validator("apply_to", mode="before")
+    @classmethod
+    def _one_or_many(cls, value: Any) -> Any:
+        # 목록이 아닌 이상한 값은 그대로 넘겨 Pydantic 이 「무엇이 틀렸나」 를 말하게 한다.
+        if isinstance(value, str) or (
+            isinstance(value, list) and all(isinstance(one, str) for one in value)
+        ):
+            return applied_bodies(value)
+        return value
 
 
 # ── 조건들 ────────────────────────────────────────────────────────────────────
@@ -261,15 +293,31 @@ def parse(raw: dict[str, Any] | None, bodies: list[str] | None = None) -> Condit
                     )
 
     # **물성이 붙은 바디가 진짜 있나.** 「전체」 는 늘 된다(모든 바디).
-    if bodies is not None:
-        known = set(bodies)
-        for index, material in enumerate(conditions.materials):
-            where = material.apply_to
-            if where and where != "전체" and where not in known:
+    known = set(bodies) if bodies is not None else None
+    owner: dict[str, int] = {}
+    for index, material in enumerate(conditions.materials):
+        for where in material.apply_to:
+            if known is not None and where != ALL_BODIES and where not in known:
                 raise ConditionError(
                     f"materials[{index}]: 「{where}」 라는 바디가 없습니다 "
                     f"(있는 것: {', '.join(sorted(known)) or '없음'})"
                 )
+            # **바디 하나에 물성 하나.** 둘이면 해석 쪽이 어느 것으로 풀지 모른다 — 먼저 온
+            # 것을 쓰든 나중 것을 쓰든, 사람이 고른 것과 다를 수 있다.
+            if where in owner:
+                raise ConditionError(
+                    f"materials[{index}]: 「{where}」 에 물성이 둘 붙었습니다 — "
+                    f"materials[{owner[where]}] 와 겹칩니다. "
+                    "바디 하나에는 물성 하나만 붙습니다."
+                )
+            owner[where] = index
+    if ALL_BODIES in owner and len(owner) > 1:
+        other = next(name for name in owner if name != ALL_BODIES)
+        raise ConditionError(
+            f"materials[{owner[ALL_BODIES]}] 이 「{ALL_BODIES}」 에 붙어 있는데 "
+            f"materials[{owner[other]}] 이 「{other}」 에 또 붙었습니다 — "
+            f"「{other}」 에 물성이 둘이 됩니다."
+        )
     return conditions
 
 

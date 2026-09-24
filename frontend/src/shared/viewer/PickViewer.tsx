@@ -708,6 +708,10 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
   }, [dragPart, dragMode, mesh])
 
   // 고른 구성품만 또렷하게 — 재질만 만지고 메시는 그대로 둔다(고를 때마다 다시 만들면 느리다).
+  //
+  // **장면을 다시 지으면 다시 건다.** 색(`partColors`)이 바뀌면 위에서 재질을 새로 만드는데,
+  // 여기가 `emphasis` 에만 걸려 있으면 강조가 풀린 채 남는다 — 해석 조건에서 파트를 펼쳐
+  // 물성을 지정하는 순간 나머지가 다시 불투명해졌다(실측 2026-09-24).
   useEffect(() => {
     const s = state.current
     if (!s) return
@@ -728,7 +732,7 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       material.opacity = dim ? 0.2 : 1
       material.needsUpdate = true
     }
-  }, [mesh, emphasis])
+  }, [mesh, emphasis, partColors, highlightEdgesNear])
 
   // 모드를 끄면 손이 올라가 있던 표시도 함께 걷는다 — 다음에 마우스를 움직일 때까지 남으면
   // 「아직 측정 중인가?」 싶다.

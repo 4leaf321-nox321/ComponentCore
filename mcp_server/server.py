@@ -520,6 +520,10 @@ async def set_conditions(
     숫자 칸에는 레시피와 **같은 식**을 쓸 수 있다(`"=압력"`) — 변수는 레시피의 `params` 다.
     그 변수를 실험계획으로 훑으면 형상과 하중이 함께 움직인다.
 
+    물성은 `materials[].apply_to` 에 **바디 이름 목록**을 준다(`/api/cad/recipe/bodies` 의
+    `name` — 단품이면 `["전체"]`). **바디 하나에 물성 하나**다 — 둘이 한 바디를 가리키면
+    거절된다. 빈 목록은 「담아만 둔 재료」 라 내보낼 때 덱을 안 뽑는다.
+
     새 버전을 만들지 않는다 — 도면이 안 바뀌었으니까. `number` 를 안 주면 현재 버전."""
     if number is None:
         got = await _get(ctx, f"/api/works/{work_id}")

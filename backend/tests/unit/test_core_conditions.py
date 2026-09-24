@@ -196,9 +196,9 @@ def test_못_바꾼_것은_못_바꿨다고_적는다() -> None:
 def test_없는_바디에_물성을_붙이면_막는다() -> None:
     """물성을 없는 바디에 붙이면 해석이 그 바디를 **맨몸으로** 푼다 — 값이 안 나오는 게
     아니라 기본값으로 풀려 그럴듯한 답이 나온다. 이름표를 가리킬 때와 같은 까닭이다."""
-    raw = {"materials": [{"apply_to": "기둥", "payload": {}}]}
+    raw = {"materials": [{"apply_to": ["기둥"], "payload": {}}]}
     # 바디를 안 주면 검사하지 않는다 — 도면을 못 만드는 자리에서 저장이 막히면 안 된다.
-    assert parse(raw).materials[0].apply_to == "기둥"
+    assert parse(raw).materials[0].apply_to == ["기둥"]
 
     parse(raw, ["바닥판", "기둥"])  # 있으면 통과
     with pytest.raises(ConditionError) as failure:
@@ -207,7 +207,52 @@ def test_없는_바디에_물성을_붙이면_막는다() -> None:
     assert "있는 것: 바닥판" in str(failure.value), "무엇을 고를 수 있는지 말해 준다"
 
     # 「전체」 는 언제나 된다 — 모든 바디라는 뜻이다.
-    parse({"materials": [{"apply_to": "전체", "payload": {}}]}, ["바닥판"])
+    parse({"materials": [{"apply_to": ["전체"], "payload": {}}]}, ["바닥판"])
+
+
+def test_물성은_바디_여럿에_붙고_옛_문자열도_읽는다() -> None:
+    """파트 셋에 같은 재료를 줄 때 **한 번만 담는다.** 예전(문자열 하나)에는 같은 재료를 세 번
+    담아야 했고, 덱의 재료 번호도 셋이 되어 받는 쪽이 같은 재료인지 알 수 없었다."""
+    raw = {"materials": [{"apply_to": ["바닥판", "기둥", "기둥"], "payload": {}}]}
+    assert parse(raw, ["바닥판", "기둥"]).materials[0].apply_to == ["바닥판", "기둥"]
+
+    # 저장된 조건 · DOE 스냅샷에는 옛 모양이 남아 있다 — 읽을 수 있어야 한다.
+    assert parse({"materials": [{"apply_to": "기둥", "payload": {}}]}).materials[
+        0
+    ].apply_to == ["기둥"]
+    # 칸을 안 주면 예전처럼 모든 바디다(부르는 쪽이 안 적었을 때의 뜻을 바꾸지 않는다).
+    assert parse({"materials": [{"payload": {}}]}).materials[0].apply_to == ["전체"]
+    # **빈 목록은 「아직 안 붙었다」** 다 — 담아 두고 파트마다 고르는 동안의 모양.
+    assert parse({"materials": [{"apply_to": [], "payload": {}}]}).materials[0].apply_to == []
+
+
+def test_바디_하나에_물성_둘은_막는다() -> None:
+    """둘이면 해석 쪽이 어느 것으로 풀지 모른다 — 사람이 고른 것과 다를 수 있다."""
+    둘 = {
+        "materials": [
+            {"apply_to": ["기둥"], "payload": {}},
+            {"apply_to": ["바닥판", "기둥"], "payload": {}},
+        ]
+    }
+    with pytest.raises(ConditionError) as failure:
+        parse(둘)
+    assert "「기둥」 에 물성이 둘 붙었습니다" in str(failure.value)
+    assert "materials[0]" in str(failure.value), "어느 것과 겹치는지 말한다"
+
+    # 「전체」 는 모든 바디라서, 다른 재료가 한 바디라도 가리키면 겹친다.
+    with pytest.raises(ConditionError) as failure:
+        parse(
+            {
+                "materials": [
+                    {"apply_to": ["전체"], "payload": {}},
+                    {"apply_to": ["기둥"], "payload": {}},
+                ]
+            }
+        )
+    assert "「기둥」 에 물성이 둘이 됩니다" in str(failure.value)
+
+    # 담아만 둔 재료(빈 목록)는 몇 개든 겹치지 않는다.
+    parse({"materials": [{"apply_to": [], "payload": {}}, {"apply_to": [], "payload": {}}]})
 
 
 def test_converted_는_출처가_달라도_한_모양이다() -> None:

@@ -81,7 +81,7 @@ beforeEach(() => {
 })
 
 test('계열 → 분류로 좁히면 그만큼만 조회한다', async () => {
-  render(<MaterialPicker open onClose={() => {}} onPick={() => {}} />)
+  render(<MaterialPicker open onClose={() => {}} onAdd={() => {}} />)
 
   // 쪽과 갈래는 **분류에서** 온다 — 목록에서 뽑으면 앞 서른 줄에 있는 쪽만 보인다.
   await waitFor(() => screen.getByRole('button', { name: /Metal/ }))
@@ -100,7 +100,7 @@ test('계열 → 분류로 좁히면 그만큼만 조회한다', async () => {
 
 test('재료를 선택하면 물성을 그대로 표시하고, 이름 둘을 모두 표시한다', async () => {
   const picked = vi.fn()
-  render(<MaterialPicker open onClose={() => {}} onPick={picked} />)
+  render(<MaterialPicker open onClose={() => {}} onAdd={picked} />)
 
   await waitFor(() => screen.getByText('냉연강판'))
   // **이름이 둘이다** — 기계가 지은 record_name 과 사람이 읽는 alias. 하나만 보이면
@@ -110,7 +110,7 @@ test('재료를 선택하면 물성을 그대로 표시하고, 이름 둘을 모
   // 어느 부서 것인지도 — 두 부서에 같은 이름이 있을 수 있다.
   expect(screen.getByText('기본 부서')).toBeInTheDocument()
 
-  expect(screen.getByRole('button', { name: '물성 적용' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: '물성 추가' })).toBeDisabled()
   fireEvent.click(screen.getByText('냉연강판'))
   // 구조를 그대로 — 우리가 아는 항목만 보여 주면 없는 줄 안다.
   await waitFor(() => screen.getByText(/22 °C/))
@@ -120,8 +120,9 @@ test('재료를 선택하면 물성을 그대로 표시하고, 이름 둘을 모
   expect(screen.getByText(/206000 MPa/)).toBeInTheDocument()
   expect(screen.getByText(/7\.8500e-9 tonne\/mm3/)).toBeInTheDocument()
 
-  fireEvent.click(screen.getByRole('button', { name: '물성 적용' }))
-  expect(picked).toHaveBeenCalledWith(expect.objectContaining({ code: 'M-000001' }))
+  // 담은 것이 없으면 **보고 있는 재료 하나**를 추가한다 — 하나만 고르는 흔한 경우의 한 걸음.
+  fireEvent.click(screen.getByRole('button', { name: '물성 추가' }))
+  await waitFor(() => expect(picked).toHaveBeenCalledWith([expect.objectContaining({ code: 'M-000001' })]))
 })
 
 test('분류에 개수가 없어도 NaN 을 표시하지 않는다', async () => {
@@ -132,7 +133,7 @@ test('분류에 개수가 없어도 NaN 을 표시하지 않는다', async () =>
       : { fallback: false, items: [STEEL] }
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
   })
-  render(<MaterialPicker open onClose={() => {}} onPick={() => {}} />)
+  render(<MaterialPicker open onClose={() => {}} onAdd={() => {}} />)
   await waitFor(() => screen.getByRole('button', { name: /Metal/ }))
   expect(screen.queryByText(/NaN/)).toBeNull()
 })
@@ -196,7 +197,7 @@ test('문헌에서도 선택할 수 있고, 값은 **선택한 뒤에** 조회�
             : { fallback: false, items: [STEEL] }
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
   })
-  render(<MaterialPicker open onClose={() => {}} onPick={() => {}} />)
+  render(<MaterialPicker open onClose={() => {}} onAdd={() => {}} />)
 
   await waitFor(() => screen.getByText('냉연강판'))
   fireEvent.click(screen.getByRole('button', { name: '문헌' }))
@@ -216,4 +217,57 @@ test('문헌에서도 선택할 수 있고, 값은 **선택한 뒤에** 조회�
   await waitFor(() => screen.getByText(/18330 MPa/))
   expect(screen.getByText(/tier 1/)).toBeInTheDocument()
   expect(screen.getByText(/temperature_k 298/)).toBeInTheDocument()
+})
+
+test('여러 개를 담아 **한 번에** 추가한다 — 창고를 바꿔도 담은 것이 남고, 문헌은 값까지 받아 온다', async () => {
+  const seen: string[] = []
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = String(input)
+    seen.push(url)
+    const body = url.includes('/catalog/classifications')
+      ? CAT_CLASSES
+      : url.includes('/classifications')
+        ? CLASSES
+        : url.includes('source=literature') && url.includes('/materials/emc-1')
+          ? EMC_FULL
+          : url.includes('source=literature')
+            ? { fallback: false, items: [EMC_ROW] }
+            : { fallback: false, items: [STEEL] }
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  })
+  const added = vi.fn()
+  render(<MaterialPicker open onClose={() => {}} onAdd={added} />)
+
+  await waitFor(() => screen.getByText('냉연강판'))
+  // 담기는 **확인란**이다 — 값을 보려고 줄을 누른 것이 담기면 안 된다.
+  fireEvent.click(screen.getByRole('checkbox', { name: '냉연강판 선택' }))
+  fireEvent.click(screen.getByRole('button', { name: '문헌' }))
+  await waitFor(() => screen.getByText('Epoxy Molding Compound (EMC)'))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Epoxy Molding Compound (EMC) 선택' }))
+
+  // 무엇을 담았는지 한자리에서 보인다 — 분류를 옮겨 다니며 담기 때문이다.
+  expect(screen.getByText('선택 2')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '물성 추가 (2)' }))
+
+  // **문헌은 목록에 값이 없다** — 담은 것은 추가할 때 값까지 받아 온다. 빈 payload 가 실리면
+  // 해석 쪽은 물성 없는 재료를 받는다.
+  await waitFor(() => expect(added).toHaveBeenCalled())
+  expect(seen.some((one) => one.includes('/materials/emc-1'))).toBe(true)
+  expect(added.mock.calls[0][0]).toEqual([
+    expect.objectContaining({ code: 'M-000001' }),
+    expect.objectContaining({ id: 'emc-1', payload: { values: [{}, {}] } }),
+  ])
+})
+
+test('이미 담긴 재료는 「추가됨」 으로 보이고 다시 담지 않는다', async () => {
+  render(<MaterialPicker open onClose={() => {}} onAdd={() => {}} added={['a']} />)
+  await waitFor(() => screen.getByText('냉연강판'))
+
+  expect(screen.getByText('추가됨')).toBeInTheDocument()
+  const box = screen.getByRole('checkbox', { name: '냉연강판 선택' })
+  expect(box).toBeChecked()
+  expect(box).toBeDisabled()
+  // 값을 보려고 눌러도 추가할 것은 없다 — 같은 재료가 두 번 실리면 덱 번호가 둘이 된다.
+  fireEvent.click(screen.getByText('냉연강판'))
+  expect(screen.getByRole('button', { name: '물성 추가' })).toBeDisabled()
 })

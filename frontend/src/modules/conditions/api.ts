@@ -61,7 +61,12 @@ export interface NamedSelection {
 
 /** 조건 한 벌에 실린 물성 하나. */
 export interface MaterialItem extends ConditionItem {
-  apply_to?: string
+  /**
+   * 이 물성이 붙은 **파트(바디)들** — `topology.bodies` 의 이름. 「전체」 면 모든 바디.
+   * **비어 있으면 아직 아무 데도 안 붙은 것이다**(담아만 둔 재료). 옛 값은 문자열 하나다 —
+   * 읽을 때는 `appliedTo` 를 거친다.
+   */
+  apply_to?: string[] | string
   ref?: Record<string, unknown>
   payload?: Record<string, unknown>
   /**
@@ -71,6 +76,51 @@ export interface MaterialItem extends ConditionItem {
    * (재료가 여럿이면 덱 안의 번호가 서로 달라야 하는데, 그건 한 벌이 다 모여야 정해진다).
    */
   deck_formats?: string[]
+}
+
+/** 바디 이름 대신 쓰는 말 — **모든 바디.** 단품은 바디가 이것 하나다. 서버와 같은 말. */
+export const ALL_BODIES = '전체'
+
+/** `apply_to` 를 목록으로 — 옛 값(문자열 하나)도 읽는다. 서버의 `applied_bodies` 와 같은 규칙. */
+export function appliedTo(material: MaterialItem): string[] {
+  const value = material.apply_to
+  // 칸이 없으면 서버의 기본값(「전체」)과 같게 읽는다 — 둘이 다르면 화면과 내보낸 것이 어긋난다.
+  if (value === undefined) return [ALL_BODIES]
+  if (typeof value === 'string') return value.trim() ? [value] : []
+  return [...new Set(value.filter((one) => one.trim()))]
+}
+
+/** 이 파트에 붙은 물성들의 자리(`materials[i]`) — 둘 이상이면 저장이 막힌다(서버 규칙). */
+export function materialsOn(materials: MaterialItem[], body: string): number[] {
+  return materials.flatMap((one, index) => {
+    const where = appliedTo(one)
+    return where.includes(body) || where.includes(ALL_BODIES) ? [index] : []
+  })
+}
+
+/**
+ * 파트 하나의 물성을 바꾼 **새 목록** — `index` 가 `null` 이면 그 파트를 비운다.
+ *
+ * **파트 하나에는 물성 하나**(서버가 막는 규칙과 같다) — 그 파트를 가리키던 다른 재료에서는
+ * 뺀다. 「전체」 에 붙은 재료가 있으면 먼저 **파트 이름들로 풀어 쓴다**: 조립에서 한 파트만
+ * 다른 재료로 바꾸면 나머지는 그대로여야 한다.
+ */
+export function assignBody(
+  materials: MaterialItem[],
+  bodyNames: string[],
+  body: string,
+  index: number | null,
+): MaterialItem[] {
+  const single = bodyNames.length === 1 && bodyNames[0] === ALL_BODIES
+  return materials.map((one, i) => {
+    let where = appliedTo(one)
+    if (!single && where.includes(ALL_BODIES)) {
+      where = [...new Set([...where.filter((name) => name !== ALL_BODIES), ...bodyNames])]
+    }
+    where = where.filter((name) => name !== body)
+    if (i === index) where = [...where, body]
+    return { ...one, apply_to: where }
+  })
 }
 
 export interface ConditionItem {
@@ -84,7 +134,7 @@ export interface Conditions {
   schema_version?: number
   units?: { system: string }
   named_selections: NamedSelection[]
-  materials: ConditionItem[]
+  materials: MaterialItem[]
   constraints: ConditionItem[]
   loads: ConditionItem[]
   contacts: ConditionItem[]

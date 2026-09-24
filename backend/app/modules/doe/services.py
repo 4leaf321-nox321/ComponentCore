@@ -750,6 +750,16 @@ def _write_decks(folder: Path, conditions: dict[str, Any] | None) -> list[dict[s
     out: list[dict[str, Any]] = []
     notes: list[str] = []
     for mid, material in enumerate(materials, start=1):
+        # **담아만 둔 재료는 건너뛴다** — 어느 바디에도 안 붙었으니 해석이 쓸 일이 없다.
+        # 번호(`mid`)는 그래도 자리대로 둔다: 조건의 `materials[i]` 와 `m{i+1}` 이 늘 짝이어야
+        # 받는 쪽이 덱과 중립 물성을 이을 수 있다.
+        # 스냅샷은 받은 그대로라 칸이 없을 수 있다 — 없으면 모델의 기본값(「전체」)과
+        # 같게 읽는다.
+        where = condition_model.applied_bodies(
+            material.get("apply_to", condition_model.ALL_BODIES)
+        )
+        if not where:
+            continue
         made = deck_maker.build(material, system, mid)
         notes.extend(made["notes"])
         for deck in made["decks"]:
@@ -758,7 +768,7 @@ def _write_decks(folder: Path, conditions: dict[str, Any] | None) -> list[dict[s
             (folder / "materials" / name).write_text(deck["text"], encoding="utf-8")
             out.append(
                 {
-                    "apply_to": material.get("apply_to") or "전체",
+                    "apply_to": where,
                     "material": (material.get("ref") or {}).get("name") or "",
                     "format": deck["format"],
                     "units": deck["units"],

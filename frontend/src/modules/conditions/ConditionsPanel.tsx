@@ -4,7 +4,8 @@
  * 도면(CAD 모드)은 형상을 만들고, 여기서는 이미 있는 형상 **위에** 조건을 붙인다. 형상을 안
  * 바꾸므로 새 버전이 생기지 않는다 — 그래서 리본도 저장 고르기도 없다.
  *
- * 세로 셋: 조건 목록 · 3D · 속성.
+ * 세로 셋: 조건 목록 · 3D · 속성. 속성 칸의 기본은 **모델 구성**(파트 · 물성 트리)이다 —
+ * 파트를 누르며 물성을 지정한다(`ModelTree`).
  *
  * ## 이름표를 먼저, 조건은 그 위에
  *
@@ -19,14 +20,22 @@ import { useEffect, useMemo, useState } from 'react'
 import type { Recipe } from '@/modules/cad/api'
 import { useRecipeMesh } from '@/modules/cad/useRecipeMesh'
 import { ConditionForm } from '@/modules/conditions/ConditionForm'
-import { MaterialAssign } from '@/modules/conditions/MaterialAssign'
+import { materialColor, ModelTree, UNASSIGNED_COLOR } from '@/modules/conditions/ModelTree'
 import { materialsApi } from '@/modules/materials/api'
+import type { MaterialRow } from '@/modules/materials/api'
 import { MaterialPicker } from '@/modules/materials/MaterialPicker'
-import { asConditions, conditionsApi, GROUP_KEYS } from '@/modules/conditions/api'
+import {
+  asConditions,
+  assignBody,
+  conditionsApi,
+  GROUP_KEYS,
+  materialsOn,
+} from '@/modules/conditions/api'
 import type {
   ConditionItem,
   Conditions,
   ConditionsSchema,
+  MaterialItem,
   NamedSelection,
   SelectorCandidate,
 } from '@/modules/conditions/api'
@@ -43,11 +52,15 @@ import { useResource } from '@/shared/hooks/useResource'
 import type { MeasurePick } from '@/shared/viewer/PickViewer'
 import PickViewer from '@/shared/viewer/PickViewer'
 
-/** 지금 오른쪽에 무엇을 펼쳐 두었나. */
+/**
+ * 지금 오른쪽에 무엇을 펼쳐 두었나. `part` · `library` 와 `null` 은 **모델 구성 트리**다 —
+ * 트리가 기본 화면이고, 파트나 담아 둔 물성을 누르면 트리 안에서 펼쳐진다.
+ */
 type Chosen =
   | { kind: 'selection'; index: number }
   | { kind: 'item'; group: string; index: number }
-  | { kind: 'material'; index: number }
+  | { kind: 'part'; name: string }
+  | { kind: 'library'; index: number }
   | { kind: 'analysis' }
   | null
 
@@ -121,27 +134,7 @@ export function ConditionsPanel({
     [draft],
   )
 
-  /**
-   * 3D 에서 선택한 형상을 **지금 편집 중인 것**에 연결한다.
-   *
-   * 물성을 편집 중이면 바디 선택이 곧 적용 대상 지정이다 — 대화상자를 열고 닫을 필요가
-   * 없다. 연결할 곳이 없으면 거짓을 반환하고, 평소대로 이름표 생성으로 넘어간다.
-   */
-  function assignToOpen(pick: MeasurePick): boolean {
-    if (chosen?.kind === 'material' && pick.kind === 'body') {
-      setDraft({
-        ...draft,
-        materials: draft.materials.map((one, i) =>
-          i === chosen.index ? { ...one, apply_to: pick.name } : one,
-        ),
-      })
-      return true
-    }
-    return false
-  }
-
   async function ask(pick: MeasurePick) {
-    if (assignToOpen(pick)) return
     const { what, point, label } = toPick(pick)
     setError(null)
     // **바디는 서버에 물을 것이 없다.** 면 · 엣지 · 점은 「이 자리를 무엇으로 부를까」 를
@@ -295,9 +288,83 @@ export function ConditionsPanel({
     }
   }, [draft.materials, deckChoices])
 
+  const bodyNames = useMemo(() => (bodies.data?.items ?? []).map((one) => one.name), [bodies.data])
+
+  /**
+   * 3D 의 파트 색 = 그 파트에 지정한 물성의 색(트리의 네모와 같다). 아직 없는 파트는 회색.
+   *
+   * **물성을 하나도 안 담았으면 칠하지 않는다** — 전부 회색이 되어 조건을 붙이는 화면이 흐려
+   * 보인다. 단품은 면에 파트 이름표가 없어 칠할 수 없고, 칠할 까닭도 없다(파트가 하나다).
+   *
+   * 뷰어는 이 값이 바뀌면 장면을 다시 짓는다 — 그래서 물성 지정이 바뀔 때만 새로 만든다.
+   */
+  const partColors = useMemo(() => {
+    if (draft.materials.length === 0 || bodyNames.length < 2) return undefined
+    return Object.fromEntries(
+      bodyNames.map((name) => {
+        const on = materialsOn(draft.materials, name)
+        return [name, on.length ? materialColor(on[0]) : UNASSIGNED_COLOR]
+      }),
+    )
+  }, [draft.materials, bodyNames])
+
+  /** 파트에 물성을 지정한다 — 파트 하나에 물성 하나(다른 물성에서는 빠진다). */
+  function assign(body: string, index: number | null) {
+    setDraft({ ...draft, materials: assignBody(draft.materials, bodyNames, body, index) })
+  }
+
+  /**
+   * 탐색기에서 담은 물성들을 더한다. 이미 담긴 재료(그쪽 id 가 같은 것)는 다시 담지 않는다.
+   *
+   * **아직 어디에도 안 붙인다**(`apply_to: []`) — 어느 파트에 무엇을 줄지는 트리에서 파트를
+   * 누르며 정한다. 단품만 예외다: 파트가 하나뿐이라 고를 것이 없으니, 비어 있으면 첫 물성을
+   * 붙인다.
+   */
+  function addMaterials(rows: MaterialRow[]) {
+    const have = new Set(draft.materials.map((one) => String((one.ref ?? {}).material_id ?? '')))
+    const fresh: MaterialItem[] = rows
+      .filter((row) => !have.has(row.id))
+      .map((row) => ({
+        apply_to: [],
+        ref: {
+          source:
+            row.source === 'catalog'
+              ? 'matnexus-catalog'
+              : row.source === 'literature'
+                ? 'matnexus-literature'
+                : 'matnexus',
+          // **그쪽 id** — 덱을 뽑으려면 이것이 필요하다(번호로는 카드를 못 찾고, 문헌은
+          // 번호가 없는 것이 많다).
+          material_id: row.id,
+          code: row.code,
+          name: row.name,
+          fetched_at: new Date().toISOString(),
+        },
+        // **payload 통째로** 싣는다 — 「어느 것이 영률인가」 는 솔버를 아는 쪽의 일이다.
+        payload: row.payload,
+      }))
+    let materials: MaterialItem[] = [...draft.materials, ...fresh]
+    if (bodyNames.length === 1 && fresh.length > 0 && materialsOn(materials, bodyNames[0]).length === 0) {
+      materials = assignBody(materials, bodyNames, bodyNames[0], draft.materials.length)
+    }
+    setDraft({ ...draft, materials })
+    setPicking(false)
+    // **곧바로 「어느 파트에」 로 간다** — 비어 있는 첫 파트를 펼쳐 둔다. 나중으로 미루면
+    // 담아만 두고 잊는다.
+    const empty = bodyNames.find((name) => materialsOn(materials, name).length === 0)
+    setChosen(empty ? { kind: 'part', name: empty } : null)
+  }
+
   if (schema.loading) return <Skeleton className="h-96 w-full" />
   if (schema.error) return <ErrorNotice error={schema.error} />
   const spec = schema.data!
+  /** 물성이 아직 없는 파트 수 — 물성을 담기 시작했으면 왼쪽 단추에 적는다(담아만 두고 잊지 않게). */
+  const 미지정 =
+    draft.materials.length > 0
+      ? bodyNames.filter((name) => materialsOn(draft.materials, name).length === 0).length
+      : 0
+  /** 트리 화면인가 — 이름표 · 조건 · 해석 설정을 펼치지 않았으면 트리다. */
+  const tree = !candidates && (chosen === null || chosen.kind === 'part' || chosen.kind === 'library')
 
   return (
     <div className="space-y-3">
@@ -351,52 +418,23 @@ export function ConditionsPanel({
               </ul>
             </div>
 
-            <div>
-              <div className="mb-1 flex items-center justify-between">
-                <p className="font-medium">
-                  물성 <span className="text-muted-foreground">{draft.materials.length}</span>
-                </p>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-6 px-2"
-                  aria-label="물성 추가"
-                  onClick={() => setPicking(true)}
-                >
-                  +
-                </Button>
-              </div>
-              <ul className="space-y-1">
-                {/*
-                  **목록에서는 고르기만 한다.** 붙일 자리 · 솔버 덱은 편집창에서 — 줄마다
-                  칸을 늘어놓으면 물성이 셋만 돼도 왼쪽이 읽을 수 없게 된다.
-                */}
-                {draft.materials.map((one, index) => (
-                  <li key={index}>
-                    <button
-                      type="button"
-                      className={`flex w-full items-center gap-1 rounded px-2 py-1 text-left hover:bg-muted ${
-                        chosen?.kind === 'material' && chosen.index === index ? 'bg-muted' : ''
-                      }`}
-                      onClick={() => setChosen({ kind: 'material', index })}
-                    >
-                      <span className="truncate">
-                        {String((one.ref as Record<string, unknown>)?.name ?? '이름 없음')}
-                      </span>
-                      {/* 어디에 붙였나 — 한눈에 보여야 「전체로 둔 채 잊는 것」 을 잡는다. */}
-                      <Badge variant="outline" className="ml-auto shrink-0 font-normal">
-                        {String(one.apply_to ?? '전체')}
-                      </Badge>
-                      {((one as { deck_formats?: string[] }).deck_formats ?? []).length > 0 && (
-                        <Badge variant="secondary" className="shrink-0 font-normal">
-                          덱 {((one as { deck_formats?: string[] }).deck_formats ?? []).length}
-                        </Badge>
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            {/*
+              **물성은 단추 하나다.** 목록은 오른쪽 모델 구성에 있다 — 왼쪽에 물성마다 줄을 두고
+              줄마다 「어느 파트에」 를 고르게 하면, 파트가 여럿일 때 열고 닫기를 되풀이한다.
+              누르면 탐색기가 열리고, 여러 개를 담아 한 번에 추가한다.
+            */}
+            <button
+              type="button"
+              aria-label="물성 추가"
+              className="hover:bg-muted flex w-full items-center gap-2 rounded border px-2 py-1.5 text-left"
+              onClick={() => setPicking(true)}
+            >
+              <span className="font-medium">물성</span>
+              <span className="text-muted-foreground">{draft.materials.length}</span>
+              {미지정 > 0 && (
+                <span className="ml-auto text-xs text-amber-700 dark:text-amber-400">미지정 파트 {미지정}</span>
+              )}
+            </button>
 
             {GROUP_KEYS.map((group) => (
               <div key={group}>
@@ -525,6 +563,9 @@ export function ConditionsPanel({
                 body: pickKind === 'body',
               }}
               onMeasure={(pick) => void ask(pick)}
+              partColors={partColors}
+              // 트리에서 파트를 누르면 3D 에서도 그 파트만 또렷하게 — 어느 것에 지정하는지 보인다.
+              emphasis={chosen?.kind === 'part' && bodyNames.length > 1 ? chosen.name : null}
               className="h-full w-full"
             />
           </CardContent>
@@ -538,6 +579,18 @@ export function ConditionsPanel({
         */}
         <Card className="min-h-0 overflow-hidden py-0">
           <CardContent className="h-full space-y-3 overflow-y-auto p-3 text-sm">
+            {!tree && (
+              <button
+                type="button"
+                className="text-muted-foreground text-xs hover:underline"
+                onClick={() => {
+                  setCandidates(null)
+                  setChosen(null)
+                }}
+              >
+                ← 모델 구성
+              </button>
+            )}
             {candidates ? (
               <div className="space-y-2">
                 <p className="font-medium">{candidates.label} 선택됨</p>
@@ -619,34 +672,6 @@ export function ConditionsPanel({
                   삭제
                 </Button>
               </div>
-            ) : chosen?.kind === 'material' ? (
-              <MaterialAssign
-                material={draft.materials[chosen.index]}
-                bodies={bodies.data?.items ?? []}
-                decks={
-                  deckChoices[
-                    String(
-                      ((draft.materials[chosen.index]?.ref ?? {}) as Record<string, unknown>)
-                        .material_id ?? '',
-                    )
-                  ] ?? []
-                }
-                onChange={(next) =>
-                  setDraft({
-                    ...draft,
-                    materials: draft.materials.map((m, i) =>
-                      i === chosen.index ? { ...m, ...next } : m,
-                    ),
-                  })
-                }
-                onRemove={() => {
-                  setDraft({
-                    ...draft,
-                    materials: draft.materials.filter((_, i) => i !== chosen.index),
-                  })
-                  setChosen(null)
-                }}
-              />
             ) : chosen?.kind === 'analysis' ? (
               <ConditionForm
                 group={{
@@ -660,9 +685,26 @@ export function ConditionsPanel({
                 onChange={(next) => setDraft({ ...draft, analysis: next })}
               />
             ) : (
-              <p className="text-muted-foreground text-xs">
-                왼쪽 목록에서 선택하거나, 3D 에서 형상을 선택하여 이름표를 생성합니다.
-              </p>
+              <ModelTree
+                bodies={bodies.data?.items ?? null}
+                bodiesError={bodies.error}
+                materials={draft.materials}
+                decks={deckChoices}
+                selected={chosen?.kind === 'part' || chosen?.kind === 'library' ? chosen : null}
+                onSelect={setChosen}
+                onAssign={assign}
+                onMaterialChange={(index, patch) =>
+                  setDraft({
+                    ...draft,
+                    materials: draft.materials.map((one, i) => (i === index ? { ...one, ...patch } : one)),
+                  })
+                }
+                onRemoveMaterial={(index) => {
+                  setDraft({ ...draft, materials: draft.materials.filter((_, i) => i !== index) })
+                  setChosen(null)
+                }}
+                onPickMaterials={() => setPicking(true)}
+              />
             )}
           </CardContent>
         </Card>
@@ -675,36 +717,8 @@ export function ConditionsPanel({
         onClose={() => setPicking(false)}
         // 조건 한 벌이 고른 계로 보여 준다 — 검산한 값이 그대로 나가야 한다.
         system={draft.units?.system ?? 'mm_n_tonne'}
-        onPick={(row) => {
-          // **payload 통째로** 싣는다 — 「어느 것이 영률인가」 는 솔버를 아는 쪽의 일이다.
-          setDraft({
-            ...draft,
-            materials: [
-              ...draft.materials,
-              {
-                apply_to: '전체',
-                ref: {
-                  source:
-                    row.source === 'catalog'
-                      ? 'matnexus-catalog'
-                      : row.source === 'literature'
-                        ? 'matnexus-literature'
-                        : 'matnexus',
-                  // **그쪽 id** — 덱을 뽑으려면 이것이 필요하다(번호로는 카드를 못 찾고,
-                  // 문헌은 번호가 없는 것이 많다).
-                  material_id: row.id,
-                  code: row.code,
-                  name: row.name,
-                  fetched_at: new Date().toISOString(),
-                },
-                payload: row.payload,
-              },
-            ],
-          })
-          setPicking(false)
-          // **고르자마자 「어디에」 를 묻는다** — 나중으로 미루면 「전체」 인 채로 잊는다.
-          setChosen({ kind: 'material', index: draft.materials.length })
-        }}
+        added={draft.materials.map((one) => String((one.ref ?? {}).material_id ?? '')).filter(Boolean)}
+        onAdd={addMaterials}
       />
 
       <div className="flex items-center gap-2">

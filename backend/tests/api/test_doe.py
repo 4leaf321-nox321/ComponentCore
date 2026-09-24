@@ -1067,12 +1067,19 @@ def test_솔버_덱을_덤으로_함께_보낸다(
             "conditions": {
                 "units": {"system": "mm_n_tonne"},
                 "materials": [
+                    # **담아만 둔 재료** — 화면은 재료를 먼저 담고 파트마다 고르게 한다.
                     {
-                        "apply_to": "전체",
+                        "apply_to": [],
+                        "ref": {"source": "matnexus", "name": "SPCC", "material_id": "m-0"},
+                        "payload": {"density_si": 7850.0},
+                        "deck_formats": ["ansys"],
+                    },
+                    {
+                        "apply_to": ["전체"],
                         "ref": {"source": "matnexus", "name": "Al5052", "material_id": "m-1"},
                         "payload": {"density_si": 2680.0},
                         "deck_formats": ["ansys"],
-                    }
+                    },
                 ],
             },
         },
@@ -1083,9 +1090,12 @@ def test_솔버_덱을_덤으로_함께_보낸다(
     folder = next(one for one in export_root.iterdir() if one.name.startswith("덱_함께"))
 
     # **단위계는 우리가 선언한 그 계로** 뽑는다 — 덱 안 숫자에는 단위가 없다.
-    assert 불린것 == [{"card": "카드1", "format": "ansys", "units": "mm_n_tonne", "mid": 1}]
-    written = (folder / "materials" / "m1-ansys.dat").read_text(encoding="utf-8")
-    assert "MP,EX,1," in written
+    # 어디에도 안 붙은 재료는 덱을 안 뽑는다. 번호는 **자리대로**(`materials[1]` → 2) —
+    # 받는 쪽이 덱과 중립 물성을 그 번호로 잇는다.
+    assert 불린것 == [{"card": "카드1", "format": "ansys", "units": "mm_n_tonne", "mid": 2}]
+    assert not (folder / "materials" / "m1-ansys.dat").exists()
+    written = (folder / "materials" / "m2-ansys.dat").read_text(encoding="utf-8")
+    assert "MP,EX,2," in written
 
     # 점 파일이 **가리키기만** 한다 — 덱은 폴더에 한 벌이고 점마다 같다.
     point = json.loads(
@@ -1093,16 +1103,18 @@ def test_솔버_덱을_덤으로_함께_보낸다(
     )
     assert point["material_decks"] == [
         {
-            "apply_to": "전체",
+            "apply_to": ["전체"],
             "material": "Al5052",
             "format": "ansys",
             "units": "mm_n_tonne",
-            "mid": 1,
-            "file": "materials/m1-ansys.dat",
+            "mid": 2,
+            "file": "materials/m2-ansys.dat",
         }
     ]
-    # **중립 물성은 그대로 있다.** 덱은 덤이다.
-    assert point["conditions"]["materials"][0]["converted"]["density"] == pytest.approx(
+    # **중립 물성은 그대로 있다.** 덱은 덤이다. 담아만 둔 재료도 빈 목록으로 남는다 —
+    # 받는 쪽은 `apply_to` 가 빈 재료를 건너뛴다.
+    assert point["conditions"]["materials"][0]["apply_to"] == []
+    assert point["conditions"]["materials"][1]["converted"]["density"] == pytest.approx(
         2.68e-09
     )
 

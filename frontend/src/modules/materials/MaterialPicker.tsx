@@ -16,6 +16,12 @@
  *
  * 쪽과 분류는 **검색 결과에서 뽑지 않는다**(`/materials/classifications`). 목록은 상한만큼만
  * 오므로 그렇게 만들면 「앞 서른 줄에 있는 쪽」 만 보이고, 사람은 나머지가 없는 줄 안다.
+ *
+ * ## 여러 개를 한 번에 담는다
+ *
+ * 조립이면 파트마다 재료가 다르다. 하나 고르고 닫고 다시 여는 것을 파트 수만큼 되풀이하지
+ * 않게, 재료 줄마다 확인란이 있어 **여러 개를 담아 한 번에 추가**한다. 줄을 누르는 것은 값을
+ * 보는 것이고(오른쪽 칸), 담는 것은 확인란이다 — 값을 보려고 누른 것이 담기면 안 된다.
  */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -100,12 +106,16 @@ function Row({
 export function MaterialPicker({
   open,
   onClose,
-  onPick,
+  onAdd,
+  added = [],
   system = 'mm_n_tonne',
 }: {
   open: boolean
   onClose: () => void
-  onPick: (row: MaterialRow) => void
+  /** 담은 재료들 — 문헌은 값까지 받아 온 것으로 넘긴다. */
+  onAdd: (rows: MaterialRow[]) => void
+  /** 이미 담겨 있는 재료(그쪽 id) — 「추가됨」 으로 표시하고 다시 담지 않는다. */
+  added?: string[]
   /** 어느 단위계로 **보여 줄 것인가.** 조건 한 벌이 고른 계를 그대로 쓴다. */
   system?: string
 }) {
@@ -121,9 +131,47 @@ export function MaterialPicker({
   const [rows, setRows] = useState<MaterialRow[]>([])
   const [fallback, setFallback] = useState<string | null>(null)
   const [chosen, setChosen] = useState<MaterialRow | null>(null)
+  /** 추가하려고 담은 재료 — 창고 · 분류를 바꿔도 남는다. */
+  const [basket, setBasket] = useState<MaterialRow[]>([])
+  /** 값까지 받아 온 문헌 재료(id → 줄). 담은 것을 추가할 때 다시 묻지 않는다. */
+  const [full, setFull] = useState<Record<string, MaterialRow>>({})
+  const [adding, setAdding] = useState(false)
   const [loading, setLoading] = useState(false)
   const [filling, setFilling] = useState(false)
   const [error, setError] = useState<Error | null>(null)
+
+  // 열 때마다 새로 담는다 — 지난번에 담다 만 것이 남아 있으면 모르고 함께 추가된다.
+  useEffect(() => {
+    if (open) setBasket([])
+  }, [open])
+
+  function toggle(row: MaterialRow) {
+    setBasket((now) => (now.some((one) => one.id === row.id) ? now.filter((one) => one.id !== row.id) : [...now, row]))
+  }
+
+  /** 담은 것을 추가한다 — 담은 것이 없으면 지금 보고 있는 재료 하나. */
+  async function add() {
+    const rows = basket.length > 0 ? basket : chosen && !added.includes(chosen.id) ? [chosen] : []
+    if (rows.length === 0) return
+    setAdding(true)
+    setError(null)
+    try {
+      // **문헌은 목록에 값이 없다** — 담은 것만 값까지 받아 온다. 빈 payload 가 실리면 안 된다.
+      const complete = await Promise.all(
+        rows.map((row) =>
+          row.source === 'literature'
+            ? (full[row.id] ?? materialsApi.one(row.id, { system, source: 'literature' }))
+            : row,
+        ),
+      )
+      onAdd(complete)
+      setBasket([])
+    } catch (failure) {
+      setError(failure as Error)
+    } finally {
+      setAdding(false)
+    }
+  }
 
   /**
    * 재료를 고른다. **문헌은 목록에 값이 없다** — 2663건을 값째로 끌면 수십 MB 라 목록은
@@ -136,7 +184,10 @@ export function MaterialPicker({
     setFilling(true)
     materialsApi
       .one(row.id, { system, source: 'literature' })
-      .then((full) => setChosen((now) => (now?.id === row.id ? full : now)))
+      .then((got) => {
+        setFull((now) => ({ ...now, [row.id]: got }))
+        setChosen((now) => (now?.id === row.id ? got : now))
+      })
       .catch((failure) => setError(failure as Error))
       .finally(() => setFilling(false))
   }
@@ -207,7 +258,7 @@ export function MaterialPicker({
       {/* 화면의 80% — 네 칸을 나란히 두려면 좁은 모달로는 안 된다. */}
       <DialogContent className="h-[80vh] max-h-[80vh] sm:max-w-[80vw]">
         <DialogHeader>
-          <DialogTitle>물성 고르기</DialogTitle>
+          <DialogTitle>물성 선택</DialogTitle>
           <DialogDescription>
             MatNexus 의 재료를 <b>전체</b> 가져옵니다 — 항목 이름과 단위를 변경하지 않습니다.
           </DialogDescription>
@@ -313,9 +364,38 @@ export function MaterialPicker({
           <Column title="재료" hint={loading ? '검색 중…' : `${rows.length}`}>
             {loading && <Skeleton className="h-24 w-full" />}
             {!loading && rows.length === 0 && <p className="text-muted-foreground p-1 text-xs">검색 결과가 없습니다.</p>}
-            {rows.map((row) => (
-              <Row key={row.id || row.code} chosen={chosen?.id === row.id} onClick={() => choose(row)}>
-                <span className="font-medium">{source === 'literature' ? row.name : row.alias || row.name}</span>
+            {rows.map((row) => {
+              const label = source === 'literature' ? row.name : row.alias || row.name
+              const 추가됨 = added.includes(row.id)
+              const 담김 = 추가됨 || basket.some((one) => one.id === row.id)
+              return (
+              <div
+                key={row.id || row.code}
+                className={`mb-0.5 flex items-start gap-2 rounded border px-2 py-1 ${
+                  chosen?.id === row.id ? 'border-primary bg-accent' : 'hover:bg-accent/50 border-transparent'
+                }`}
+              >
+                {/* 담기는 확인란으로만 — 값을 보려고 줄을 누른 것이 담기면 안 된다. */}
+                <input
+                  type="checkbox"
+                  className="mt-1 shrink-0"
+                  aria-label={`${label} 선택`}
+                  checked={담김}
+                  disabled={추가됨}
+                  onChange={() => toggle(row)}
+                />
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 text-left text-sm"
+                  aria-current={chosen?.id === row.id ? 'true' : undefined}
+                  onClick={() => choose(row)}
+                >
+                <span className="font-medium">{label}</span>
+                {추가됨 && (
+                  <Badge variant="outline" className="ml-1 font-normal">
+                    추가됨
+                  </Badge>
+                )}
                 {/*
                   가운뎃점은 **제 요소로** 둔다. 값에 붙여 `· 이름` 으로 쓰면 그 글자가
                   값의 일부가 되어, 이름으로 찾는 쪽(사람의 Ctrl+F 도, 시험도)이 못 찾는다.
@@ -352,8 +432,10 @@ export function MaterialPicker({
                   )}
                   {row.source === 'catalog' && <Badge variant="outline">사본</Badge>}
                 </div>
-              </Row>
-            ))}
+                </button>
+              </div>
+              )
+            })}
             {!loading && rows.length >= LIMIT && (
               <p className="text-muted-foreground p-1 text-xs">
                 {LIMIT} 건까지만 보입니다 — 분류를 좁히거나 이름으로 찾으세요.
@@ -442,21 +524,34 @@ export function MaterialPicker({
         </div>
 
         <div className="flex items-center justify-end gap-2">
-          {chosen && (
-            <span className="text-muted-foreground mr-auto truncate text-xs">
-              선택: {chosen.alias || chosen.name} ({chosen.code})
-            </span>
-          )}
+          {/* 담은 것 — 분류를 옮겨 다니며 담으므로, 무엇을 담았는지 한자리에서 보여야 한다. */}
+          <div className="mr-auto flex min-w-0 flex-wrap items-center gap-1 text-xs">
+            {basket.length === 0 ? (
+              <span className="text-muted-foreground">
+                재료 앞의 확인란으로 여러 개를 함께 선택합니다.
+              </span>
+            ) : (
+              <>
+                <span className="text-muted-foreground">선택 {basket.length}</span>
+                {basket.map((one) => (
+                  <Badge key={one.id} variant="secondary" className="gap-1 font-normal">
+                    {one.alias || one.name}
+                    <button type="button" aria-label={`${one.alias || one.name} 선택 해제`} onClick={() => toggle(one)}>
+                      ×
+                    </button>
+                  </Badge>
+                ))}
+              </>
+            )}
+          </div>
           <Button variant="ghost" onClick={onClose}>
             취소
           </Button>
           <Button
-            disabled={!chosen}
-            onClick={() => {
-              if (chosen) onPick(chosen)
-            }}
+            disabled={adding || (basket.length === 0 && (!chosen || added.includes(chosen.id)))}
+            onClick={() => void add()}
           >
-            물성 적용
+            {adding ? '불러오는 중…' : basket.length > 0 ? `물성 추가 (${basket.length})` : '물성 추가'}
           </Button>
         </div>
       </DialogContent>

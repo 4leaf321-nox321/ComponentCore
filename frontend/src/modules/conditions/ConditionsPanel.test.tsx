@@ -1,19 +1,28 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import { ConditionsPanel } from '@/modules/conditions/ConditionsPanel'
 
 /** 3D 대신 단추 셋 — 면 · 엣지 · 점을 찍는 것만 흉내 낸다. */
 /** 뷰어가 받은 거르개 — 「켠 것 하나만」 을 시험이 볼 수 있게 내놓는다. */
 let lastKinds: Record<string, boolean> | undefined
+/** 3D 가 받은 파트 색 · 강조 — 트리에서 지정한 것이 3D 에도 보이는지 본다. */
+let lastColors: Record<string, number> | undefined
+let lastEmphasis: string | null | undefined
 vi.mock('@/shared/viewer/PickViewer', () => ({
   default: ({
     onMeasure,
     measureKinds,
+    partColors,
+    emphasis,
   }: {
     onMeasure?: (pick: unknown) => void
     measureKinds?: Record<string, boolean>
+    partColors?: Record<string, number>
+    emphasis?: string | null
   }) => {
     lastKinds = measureKinds
+    lastColors = partColors
+    lastEmphasis = emphasis
     return (
       <div>
         <button onClick={() => onMeasure?.({ kind: 'face', face: { center: [0, 0, 0] } })}>
@@ -119,6 +128,17 @@ const MATERIALS = {
   ],
 }
 
+MATERIALS.items.push({
+  ...MATERIALS.items[0],
+  code: 'M-000124',
+  id: '9a1b',
+  name: 'AL6061-T6',
+  alias: '알루미늄 6061',
+  family: '비철',
+  category: '알루미늄',
+  grade: '6061-T6',
+})
+
 /** 쪽(族) · 갈래 — 탐색기가 좁혀 들어갈 두 칸. 개수는 그쪽이 세어 준다. */
 const CLASSES = { fallback: false, items: [{ family: '강판', category: '냉연', count: 1 }] }
 
@@ -222,17 +242,31 @@ test('같은 이름을 두 번 사용하면 거절한다 — 조건이 어느 �
   await waitFor(() => screen.getByText(/이미 있습니다/))
 })
 
+/** 왼쪽의 「물성」 단추로 탐색기를 연다. */
+async function openPicker() {
+  fireEvent.click(screen.getByRole('button', { name: '물성 추가' }))
+  await waitFor(() => screen.getByRole('heading', { name: '물성 선택' }))
+  await waitFor(() => screen.getByText('SPCC 1.2t'))
+}
+
+/** 트리에서 파트를 펼쳐 물성 하나를 지정한다. */
+async function assign(part: string, material: string) {
+  if (!screen.queryByRole('radiogroup', { name: `${part} 물성` })) {
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${part}`) }))
+  }
+  const group = await waitFor(() => screen.getByRole('radiogroup', { name: `${part} 물성` }))
+  fireEvent.click(within(group).getByRole('radio', { name: material }))
+}
+
 test('물성은 MatNexus 에서 선택하여 **payload 전체**가 실린다', async () => {
   const onSave = await panel()
 
-  fireEvent.click(screen.getByRole('button', { name: '물성 추가' }))
-  await waitFor(() => screen.getByText('물성 고르기'))
-  await waitFor(() => screen.getByText('SPCC 1.2t'))
-
+  await openPicker()
   fireEvent.click(screen.getByText('SPCC 1.2t'))
   // 구조를 그대로 펼친다 — 우리가 아는 항목만 보여 주면 없는 줄 안다.
   await waitFor(() => screen.getByText(/22 °C/))
-  fireEvent.click(screen.getByText('물성 적용'))
+  fireEvent.click(screen.getByRole('button', { name: '물성 추가' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
 
   fireEvent.click(screen.getByText('조건 저장'))
   await waitFor(() => expect(onSave).toHaveBeenCalled())
@@ -241,28 +275,54 @@ test('물성은 MatNexus 에서 선택하여 **payload 전체**가 실린다', a
   expect(saved.materials[0].ref.code).toBe('M-000123')
   // **값을 해석하지 않는다** — 단위도 온도 표도 받은 그대로 실린다.
   expect(saved.materials[0].payload.declared_properties[0].si_unit).toBe('Pa')
+  // 파트가 둘이라 **아직 어디에도 안 붙는다** — 어느 파트에 줄지는 사람이 트리에서 정한다.
+  expect(saved.materials[0].apply_to).toEqual([])
 })
 
-test('물성을 **어느 바디에** 적용할지 선택한다', async () => {
+test('여러 물성을 한 번에 담고, **트리에서 파트를 누르며** 지정한다', async () => {
   const onSave = await panel()
 
-  fireEvent.click(screen.getByRole('button', { name: '물성 추가' }))
-  await waitFor(() => screen.getByText('물성 고르기'))
-  await waitFor(() => screen.getByText('SPCC 1.2t'))
-  fireEvent.click(screen.getByText('SPCC 1.2t'))
-  fireEvent.click(screen.getByText('물성 적용'))
+  await openPicker()
+  fireEvent.click(screen.getByRole('checkbox', { name: '냉연강판 선택' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: '알루미늄 6061 선택' }))
+  fireEvent.click(screen.getByRole('button', { name: '물성 추가 (2)' }))
 
-  // **대화상자가 아니라 옆 패널이다** — 3D 를 보면서 바디를 골라야 하므로 뒤를 가리면 안 된다.
-  await waitFor(() => screen.getByText('적용 대상'))
-  // 「전체」 는 목록 맨 위와 왼쪽 배지 양쪽에 나온다 — 누를 수 있는 것으로 좁힌다.
-  const 자리 = screen.getAllByRole('button', { name: /전체/ })
-  expect(자리.some((one) => one.getAttribute('aria-pressed') === 'true')).toBe(true)
-  fireEvent.click(screen.getByRole('button', { name: /기둥/ }))
+  // 담자마자 **비어 있는 첫 파트**가 펼쳐진다 — 담아만 두고 잊지 않게.
+  await waitFor(() => screen.getByRole('radiogroup', { name: '바닥판 물성' }))
+  expect(screen.getByRole('button', { name: /물성 추가/ })).toHaveTextContent('미지정 파트 2')
+
+  await assign('바닥판', 'SPCC 1.2t')
+  // 3D 에서도 보인다 — 지정한 파트는 그 물성의 색, 남은 파트는 회색, 고른 파트만 또렷하게.
+  await waitFor(() => expect(lastColors).toEqual({ 바닥판: 0x3b82f6, 기둥: 0x9ca3af }))
+  expect(lastEmphasis).toBe('바닥판')
+
+  await assign('기둥', 'AL6061-T6')
+  await waitFor(() => expect(lastColors).toEqual({ 바닥판: 0x3b82f6, 기둥: 0x10b981 }))
 
   fireEvent.click(screen.getByText('조건 저장'))
   await waitFor(() => expect(onSave).toHaveBeenCalled())
-  // **이것이 없으면 조립을 훑어도 물성이 늘 「전체」** 라, 판과 기둥에 다른 재료를 못 준다.
-  expect(onSave.mock.calls[0][0].materials[0].apply_to).toBe('기둥')
+  const saved = onSave.mock.calls[0][0]
+  expect(saved.materials.map((one: { apply_to: string[] }) => one.apply_to)).toEqual([['바닥판'], ['기둥']])
+})
+
+test('파트 하나에는 물성 하나 — 다른 물성을 고르면 먼저 것에서 빠진다', async () => {
+  const onSave = await panel()
+  await openPicker()
+  fireEvent.click(screen.getByRole('checkbox', { name: '냉연강판 선택' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: '알루미늄 6061 선택' }))
+  fireEvent.click(screen.getByRole('button', { name: '물성 추가 (2)' }))
+  await waitFor(() => screen.getByRole('radiogroup', { name: '바닥판 물성' }))
+
+  await assign('바닥판', 'SPCC 1.2t')
+  await assign('기둥', 'SPCC 1.2t')
+  // 같은 재료를 두 파트에 — **한 번만 담고** 두 파트가 가리킨다(덱 번호도 하나다).
+  await assign('바닥판', 'AL6061-T6')
+
+  fireEvent.click(screen.getByText('조건 저장'))
+  await waitFor(() => expect(onSave).toHaveBeenCalled())
+  const saved = onSave.mock.calls[0][0]
+  // 둘이 한 파트를 가리키면 해석 쪽이 어느 것으로 풀지 모른다 — 서버도 막는 규칙이다.
+  expect(saved.materials.map((one: { apply_to: string[] }) => one.apply_to)).toEqual([['기둥'], ['바닥판']])
 })
 
 test('선택 대상을 지정하면 **그 종류만** 선택된다', async () => {
