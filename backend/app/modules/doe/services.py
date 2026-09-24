@@ -298,9 +298,79 @@ def export_study(db: Session, study: DoeStudy) -> DoeStudy:
         ) from failure
     study.export_dir = str(target)
     study.exported_at = datetime.now(UTC)
+    # **다시 보내면 「다 읽었다」 는 무효다.** 안 그러면 방금 보낸 폴더가 다음 청소에 곧바로
+    # 치워진다 — 해석이 아직 열어 보지도 않았는데(시험이 잡았다).
+    study.released_at = None
     db.commit()
     db.refresh(study)
     return study
+
+
+def set_keep(db: Session, study: DoeStudy, keep: bool) -> DoeStudy:
+    """영구보관을 켜고 끈다 — **기한보다 사람의 뜻이 세다.**"""
+    study.keep_forever = keep
+    db.commit()
+    db.refresh(study)
+    return study
+
+
+def release(db: Session, study: DoeStudy) -> DoeStudy:
+    """해석 쪽이 **다 읽었다**고 알린다(오케스트레이터가 부른다).
+
+    「성공했다」 가 아니라 「더 안 읽는다」 는 뜻이다 — 실패해서 다시 돌릴 생각이면 알리지
+    않는다. 알린 폴더는 기한을 기다리지 않고 먼저 치운다.
+    """
+    study.released_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(study)
+    return study
+
+
+def expired_exports(db: Session, *, now: datetime | None = None) -> list[DoeStudy]:
+    """치울 때가 된 것 — **내보낸 폴더가 있고**, 영구보관이 아니고, 기한이 지났거나 다 읽힌 것.
+
+    기한(`doe_export_ttl_days`)이 0 이면 **아무것도 자동으로 지우지 않는다** — 자동 삭제를 끄는
+    스위치가 하나는 있어야 한다.
+    """
+    now = now or datetime.now(UTC)
+    days = settings_store.get_int(db, "doe_export_ttl_days")
+    rows = db.scalars(
+        select(DoeStudy).where(
+            DoeStudy.export_dir != "",
+            DoeStudy.keep_forever.is_(False),
+        )
+    ).all()
+    out = []
+    for study in rows:
+        if study.released_at is not None:
+            out.append(study)
+            continue
+        if days <= 0:
+            continue
+        sent = study.exported_at or study.created_at
+        if sent is not None and (now - sent).days >= days:
+            out.append(study)
+    return out
+
+
+def cleanup_exports(db: Session, *, dry_run: bool = False) -> dict[str, Any]:
+    """공유 폴더의 **사본만** 지운다. 서버 보관 폴더 · DB · 설정은 그대로.
+
+    지워도 「보내기」 를 다시 누르면 같은 폴더가 다시 선다 — 그래서 이것은 파괴적인 일이
+    아니다. 되돌릴 수 없는 것은 해석 쪽이 그 폴더에 **덧붙여 둔 것**(결과 파일)인데, 그래서
+    「다 읽었다」 를 알린 것과 기한이 지난 것만 집는다.
+    """
+    removed = []
+    for study in expired_exports(db):
+        folder = Path(study.export_dir)
+        if not dry_run:
+            shutil.rmtree(folder, ignore_errors=True)
+            study.export_dir = ""
+            study.exported_at = None
+        removed.append({"id": str(study.id), "name": study.name, "folder": str(folder)})
+    if removed and not dry_run:
+        db.commit()
+    return {"removed": removed, "count": len(removed), "dry_run": dry_run}
 
 
 def _region_definitions(conditions: dict[str, Any] | None) -> list[dict[str, Any]] | None:

@@ -417,3 +417,79 @@ def test_없는_이름표를_가리키는_조건은_만들기_전에_막는다(
     )
     assert bad.status_code == 400
     assert "이름표가 없습니다" in bad.json()["error"]["message"]
+
+
+def test_공유_폴더는_전달_큐다_기한이_지나면_사본만_치운다(
+    client: TestClient, member: Signed, admin: Signed, export_root: Path
+) -> None:
+    """**지우는 것은 되돌릴 수 없다** — 그래서 지워도 되는 것만 지운다. 사본을 지워도
+    「보내기」 를 다시 누르면 같은 폴더가 다시 선다."""
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "치워질 것",
+            "recipe": JIG,
+            "factors": [{"name": "두께", "mode": "list", "values": [6]}],
+        },
+        headers=member.headers,
+    )
+    study = made.json()
+    client.post(f"/api/doe/{study['id']}/export", headers=member.headers)
+    folder = next(export_root.iterdir())
+    assert folder.exists()
+
+    # 기한 전에는 아무것도 안 치운다.
+    from app.database import SessionLocal
+    from app.modules.doe import services
+
+    with SessionLocal() as db:
+        assert services.cleanup_exports(db)["count"] == 0
+    assert folder.exists()
+
+    # 해석이 「다 읽었다」 고 알리면 기한을 기다리지 않는다.
+    released = client.post(f"/api/doe/{study['id']}/release", headers=member.headers)
+    assert released.status_code == 200 and released.json()["released_at"]
+
+    with SessionLocal() as db:
+        got = services.cleanup_exports(db)
+    assert got["count"] == 1
+    assert not folder.exists(), "공유 폴더의 사본은 치워진다"
+
+    # **설계점과 레시피는 남는다** — 다시 보낼 수 있다.
+    again = client.get(f"/api/doe/{study['id']}", headers=member.headers).json()
+    assert again["point_count"] == 1 and again["export_dir_windows"] == ""
+    resent = client.post(f"/api/doe/{study['id']}/export", headers=member.headers)
+    assert resent.status_code == 200 and next(export_root.iterdir()).exists()
+    # **다시 보내면 「다 읽었다」 는 무효다.** 안 그러면 방금 보낸 폴더가 다음 청소에 곧바로
+    # 치워진다 — 해석이 아직 열어 보지도 않았는데.
+    assert resent.json()["released_at"] is None
+    with SessionLocal() as db:
+        assert services.cleanup_exports(db)["count"] == 0
+
+
+def test_영구보관은_기한보다_세다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "남길 것",
+            "recipe": JIG,
+            "factors": [{"name": "두께", "mode": "list", "values": [6]}],
+        },
+        headers=member.headers,
+    )
+    study = made.json()
+    client.post(f"/api/doe/{study['id']}/export", headers=member.headers)
+
+    kept = client.post(f"/api/doe/{study['id']}/keep", headers=member.headers)
+    assert kept.status_code == 200 and kept.json()["keep_forever"] is True
+
+    # 영구보관이면 「다 읽었다」 를 알려도 안 치운다 — 사람의 뜻이 규칙보다 세다.
+    client.post(f"/api/doe/{study['id']}/release", headers=member.headers)
+    from app.database import SessionLocal
+    from app.modules.doe import services
+
+    with SessionLocal() as db:
+        assert services.cleanup_exports(db)["count"] == 0
+    assert next(export_root.iterdir()).exists()

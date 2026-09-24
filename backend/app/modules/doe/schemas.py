@@ -76,6 +76,10 @@ class StudyOut(StudySummaryOut):
     conditions: dict[str, Any] = Field(default_factory=dict)
     """이 스터디가 돌던 때의 해석 조건 — 작업이 나중에 바뀌어도 여기 남는다."""
     factors: list[dict[str, Any]]
+    keep_forever: bool = False
+    """영구보관 — 보관 기한이 지나도 공유 폴더를 남긴다."""
+    released_at: datetime | None = None
+    """해석이 「다 읽었다」 고 알린 때 — 알린 폴더는 먼저 치워진다."""
     export_dir_windows: str
     """공유 폴더 경로(F:\\…). 아직 안 보냈으면 빈 문자열."""
     exported_at: datetime | None

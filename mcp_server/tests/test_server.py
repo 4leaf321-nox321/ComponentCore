@@ -61,6 +61,8 @@ def test_사람이_손으로_하는_일이_도구로_다_있다() -> None:
         "recipe_selectors",  # 찍은 자리를 셀렉터로
         "conditions_schema",  # 해석 조건의 칸
         "set_conditions",  # 해석 조건 붙이기
+        "doe_release",  # 해석이 다 읽었다
+        "doe_keep",  # 영구보관
         "recipe_measure",  # 재기
         "patch_work",  # 부분 수정
         "place_on",  # 면에 얹기

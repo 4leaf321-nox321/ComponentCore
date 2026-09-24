@@ -641,6 +641,27 @@ async def doe_export(ctx: Context, study_id: str) -> Any:
 
 
 @mcp.tool()
+async def doe_release(ctx: Context, study_id: str) -> Any:
+    """해석이 **다 읽었다** — 공유 폴더를 먼저 치워도 된다고 알린다.
+
+    「성공했다」 가 아니라 **「더 안 읽는다」** 는 뜻이다. 실패해서 다시 돌릴 생각이면 부르지
+    마라 — 알린 폴더는 보관 기한을 기다리지 않고 치워진다.
+
+    치워지는 것은 **공유 폴더의 사본뿐**이다. 레시피 · 설계점 · 조건은 남아서 `doe_export` 를
+    다시 부르면 같은 폴더가 다시 선다."""
+    return await _post(ctx, f"/api/doe/{study_id}/release", None)
+
+
+@mcp.tool()
+async def doe_keep(ctx: Context, study_id: str, keep: bool = True) -> Any:
+    """**영구보관** — 보관 기한이 지나도 공유 폴더를 남긴다(기본 30일, 관리자가 바꾼다).
+
+    기한은 기본값이고 이것이 예외다. 「이건 남겨야 한다」 를 아는 사람(또는 너)이 켠다."""
+    flag = "true" if keep else "false"
+    return await _post(ctx, f"/api/doe/{study_id}/keep?keep={flag}", None)
+
+
+@mcp.tool()
 async def doe_studies(ctx: Context, work_id: str | None = None, limit: int = 20) -> Any:
     """실험계획 목록 — 무엇을 언제 훑었나."""
     query: dict[str, Any] = {"limit": limit}

@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -53,6 +53,18 @@ class DoeStudy(Base):
     local_dir: Mapped[str] = mapped_column(Text, default="", server_default="")
     """서버 보관 폴더(filestore/doe/…). 설계점은 먼저 여기에 만들어진다."""
     export_dir: Mapped[str] = mapped_column(Text, default="", server_default="")
+    keep_forever: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    """**영구보관** — 보관 기한과 무관하게 공유 폴더에 남긴다.
+
+    기한은 기본값이고 이것이 예외다. 지우는 일은 되돌릴 수 없으니, 「이건 남겨야 한다」 를
+    아는 사람이 그때 켤 수 있어야 한다."""
+    released_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    """해석 쪽이 **다 읽었다**고 알린 때(오케스트레이터의 `doe_release`).
+
+    「성공했다」 가 아니라 「더 안 읽는다」 는 뜻이다 — 실패해서 다시 돌릴 생각이면 알리지
+    않는다. 알린 것은 기한을 기다리지 않고 먼저 치운다."""
     """공유 폴더 안의 이 DOE 폴더(서버가 보는 경로). **「보내기」 를 눌러야** 채워진다 — 해석이
     읽는 폴더에 만들다 만 것을 두지 않으려고. 화면은 윈도우 경로로 바꿔 보여 준다."""
     exported_at: Mapped[datetime | None] = mapped_column(

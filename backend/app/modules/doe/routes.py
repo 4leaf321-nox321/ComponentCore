@@ -66,6 +66,8 @@ def _out(db: Session, study: DoeStudy) -> StudyOut:
         **_summary(db, study).model_dump(),
         recipe=study.recipe,
         conditions=study.conditions,
+        keep_forever=study.keep_forever,
+        released_at=study.released_at,
         factors=study.factors,
         export_dir_windows=files.windows_path(Path(study.export_dir))
         if study.export_dir
@@ -178,6 +180,35 @@ def manifest(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="doe-{study_id.hex[:8]}.csv"'},
     )
+
+
+@router.post("/{study_id}/keep", response_model=StudyOut)
+def keep_study(
+    study_id: uuid.UUID,
+    keep: bool = Query(default=True),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> StudyOut:
+    """**영구보관** — 보관 기한이 지나도 공유 폴더를 남긴다.
+
+    기한은 기본값이고 이것이 예외다. 지우는 일은 되돌릴 수 없으니, 「이건 남겨야 한다」 를
+    아는 사람이 그때 켤 수 있어야 한다."""
+    study = services.get_study(db, study_id, user)
+    return _out(db, services.set_keep(db, study, keep))
+
+
+@router.post("/{study_id}/release", response_model=StudyOut)
+def release_study(
+    study_id: uuid.UUID,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> StudyOut:
+    """해석 쪽이 **다 읽었다** — 오케스트레이터가 부른다.
+
+    「성공했다」 가 아니라 「더 안 읽는다」 는 뜻이다. 실패해서 다시 돌릴 생각이면 알리지
+    마라 — 알린 폴더는 기한을 기다리지 않고 먼저 치워진다."""
+    study = services.get_study(db, study_id, user)
+    return _out(db, services.release(db, study))
 
 
 @router.delete("/{study_id}", status_code=204)

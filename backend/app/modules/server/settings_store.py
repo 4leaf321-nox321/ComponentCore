@@ -62,6 +62,19 @@ KNOWN: dict[str, Known] = {
         minimum=5,
         maximum=200,
     ),
+    "doe_export_ttl_days": Known(
+        key="doe_export_ttl_days",
+        label="실험계획 공유 폴더 보관 기한(일)",
+        description=(
+            "해석이 읽는 공유 폴더에 스터디 폴더를 며칠 두는가. 지나면 "
+            "**공유 폴더의 사본만** 지운다 — 서버 보관 폴더와 설정은 남아서 「보내기」 를 "
+            "다시 누르면 같은 폴더가 다시 선다. 0 이면 자동 삭제를 안 한다. 스터디마다 "
+            "「영구보관」 을 켜면 기한과 무관하게 남는다."
+        ),
+        default=lambda: get_settings().doe_export_ttl_days,
+        minimum=0,
+        maximum=3650,
+    ),
     "doe_max_samples": Known(
         key="doe_max_samples",
         label="DOE LHS 표본 수 상한",

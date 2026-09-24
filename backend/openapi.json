@@ -4193,6 +4193,104 @@
         }
       }
     },
+    "/api/doe/{study_id}/keep": {
+      "post": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Keep Study",
+        "description": "**영구보관** — 보관 기한이 지나도 공유 폴더를 남긴다.\n\n기한은 기본값이고 이것이 예외다. 지우는 일은 되돌릴 수 없으니, 「이건 남겨야 한다」 를\n아는 사람이 그때 켤 수 있어야 한다.",
+        "operationId": "keep_study_api_doe__study_id__keep_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          },
+          {
+            "name": "keep",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Keep"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/doe/{study_id}/release": {
+      "post": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Release Study",
+        "description": "해석 쪽이 **다 읽었다** — 오케스트레이터가 부른다.\n\n「성공했다」 가 아니라 「더 안 읽는다」 는 뜻이다. 실패해서 다시 돌릴 생각이면 알리지\n마라 — 알린 폴더는 기한을 기다리지 않고 먼저 치워진다.",
+        "operationId": "release_study_api_doe__study_id__release_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/materials": {
       "get": {
         "tags": [
@@ -7043,6 +7141,23 @@
             },
             "type": "array",
             "title": "Factors"
+          },
+          "keep_forever": {
+            "type": "boolean",
+            "title": "Keep Forever",
+            "default": false
+          },
+          "released_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Released At"
           },
           "export_dir_windows": {
             "type": "string",
