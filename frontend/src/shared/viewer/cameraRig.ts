@@ -33,13 +33,17 @@ export class CameraRig {
   readonly perspective = new THREE.PerspectiveCamera(FOV, 1, 0.1, 100_000)
   readonly orthographic = new THREE.OrthographicCamera(-1, 1, 1, -1, -100_000, 100_000)
   readonly controls: OrbitControls
-  projection: Projection = 'perspective'
+  /**
+   * **기본은 정사영**(2026-09-25) — CAD 로 치수를 보고 면을 고르는 화면이라, 멀수록 작아지는 투시보다
+   * 평행 투영이 형상을 읽기 쉽다. 투시는 도구줄에서 켠다.
+   */
+  projection: Projection = 'orthographic'
   private aspect = 1
   /** 형상을 담는 반지름 — 정사영 화면 크기와 near/far 의 기준. fit 이 정한다. */
   private radius = 1
 
   constructor(domElement: HTMLElement) {
-    this.controls = new OrbitControls(this.perspective, domElement)
+    this.controls = new OrbitControls(this.orthographic, domElement)
     this.controls.enableDamping = true
   }
 
@@ -69,8 +73,12 @@ export class CameraRig {
     this.perspective.far = r * 100
     this.perspective.updateProjectionMatrix()
     this.controls.target.copy(center)
+    // 정사영도 **투시로 보던 것과 같은 크기로** — 투시의 세로 크기(2 · 거리 · tan(fov/2))를 화면
+    // 높이로 삼는다(`setProjection` 과 같은 셈). 그래야 둘을 오가도 형상이 튀지 않는다.
     this.orthographic.position.copy(this.perspective.position)
-    this.orthographic.zoom = 1
+    this.orthographic.up.copy(this.perspective.up)
+    const halfHeight = this.perspective.position.distanceTo(center) * Math.tan(THREE.MathUtils.degToRad(FOV / 2))
+    this.orthographic.zoom = r / Math.max(halfHeight, 1e-6)
     this.updateOrthoFrustum()
     this.controls.update()
   }

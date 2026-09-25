@@ -709,3 +709,15 @@ test('좌표계를 **화면에서** 지정한다 — 면을 누르면 원점은 
   fireEvent.click(screen.getByRole('button', { name: '확인' }))
   expect((await save(onSave)).coordinate_systems[0].origin).toEqual([5, 0, 9])
 })
+
+test('좌표계 창을 띄우면 **확인 전에도** 그 좌표계의 축을 미리 그린다', async () => {
+  const calls = vi.mocked((await import('@/shared/api/client')).api.post)
+  await panel()
+  fireEvent.click(screen.getByRole('button', { name: '좌표계' }))
+  await waitFor(() => screen.getByRole('dialog', { name: '좌표계 추가' }))
+  await waitFor(() => {
+    const asked = calls.mock.calls.filter((one) => String(one[0]).includes('/cad/conditions/frames'))
+    const last = asked[asked.length - 1]?.[1] as { conditions: { coordinate_systems: { name: string }[] } } | undefined
+    expect(last?.conditions.coordinate_systems.map((one) => one.name)).toEqual(['좌표계 1'])
+  })
+})

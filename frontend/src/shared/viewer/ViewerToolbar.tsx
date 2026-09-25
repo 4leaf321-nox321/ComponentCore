@@ -6,7 +6,8 @@ import { STANDARD_VIEWS } from '@/shared/viewer/cameraRig'
 import type { CameraRig, Projection } from '@/shared/viewer/cameraRig'
 
 export function ViewerToolbar({ rig, inline = false }: { rig: () => CameraRig | null; inline?: boolean }) {
-  const [projection, setProjection] = useState<Projection>('perspective')
+  // 카메라와 같이 **정사영에서 시작**한다(cameraRig) — 글자가 실제와 어긋나면 누를 때마다 헷갈린다.
+  const [projection, setProjection] = useState<Projection>('orthographic')
   const button = 'bg-background/80 hover:bg-accent rounded border px-2 py-1 text-[11px] shadow-sm'
   // 뷰어 위에 띄우거나(absolute), 칸 이름표와 겹칠 수 있는 격자에서는 제 줄에(inline).
   return (

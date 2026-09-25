@@ -168,7 +168,7 @@ const DOT_COLOR = 0x2563eb
 const KEPT_COLOR = 0x9ca3af
 
 /** 글자를 캔버스에 그려 스프라이트로 — 언제나 카메라를 본다. 3D 안에서 값을 읽게. */
-function makeLabel(text: string, tone: 'distance' | 'entity'): THREE.Sprite {
+function makeLabel(text: string, tone: 'distance' | 'entity', fill?: string): THREE.Sprite {
   const pad = 10
   const font = 40
   const canvas = document.createElement('canvas')
@@ -179,7 +179,7 @@ function makeLabel(text: string, tone: 'distance' | 'entity'): THREE.Sprite {
   canvas.height = font + pad * 2
   const draw = canvas.getContext('2d')!
   draw.font = `bold ${font}px sans-serif`
-  draw.fillStyle = tone === 'distance' ? 'rgba(239,68,68,0.92)' : 'rgba(24,24,27,0.85)'
+  draw.fillStyle = fill ?? (tone === 'distance' ? 'rgba(239,68,68,0.92)' : 'rgba(24,24,27,0.85)')
   draw.beginPath()
   draw.roundRect(0, 0, canvas.width, canvas.height, 10)
   draw.fill()
@@ -979,16 +979,23 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     const length = size / 6
     for (const frame of frames) {
       const o = frame.origin
-      for (const [axis, color] of [
-        [frame.x, 0xef4444],
-        [frame.y, 0x22c55e],
-        [frame.z, 0x3b82f6],
+      for (const [axis, color, letter] of [
+        [frame.x, 0xef4444, 'X'],
+        [frame.y, 0x22c55e, 'Y'],
+        [frame.z, 0x3b82f6, 'Z'],
       ] as const) {
         const tip = [o[0] + axis[0] * length, o[1] + axis[1] * length, o[2] + axis[2] * length]
         const line = fatLine([...o, ...tip], color, 4, s.resolution)
         line.renderOrder = 9
         ;(line.material as THREE.Material).depthTest = false
         s.axes.add(line)
+        // **축 끝에 글자** — 색만으로는 어느 것이 X 인지 외워야 한다. 글자 바탕이 그 축의 색이다.
+        const mark = makeLabel(letter, 'entity', `#${color.toString(16).padStart(6, '0')}`)
+        const markHeight = size / 22
+        mark.scale.set(markHeight * (mark.userData.aspect as number), markHeight, 1)
+        const beyond = length * 1.12
+        mark.position.set(o[0] + axis[0] * beyond, o[1] + axis[1] * beyond, o[2] + axis[2] * beyond)
+        s.axes.add(mark)
       }
       const sprite = makeLabel(frame.name, 'entity')
       const height = size / 16

@@ -411,10 +411,26 @@ export function ConditionsPanel({
   const cadFrames = recipe.coordinate_systems ?? []
   const conditionFrames = draft.coordinate_systems ?? []
   const frameNames = [...cadFrames.map((one) => one.name), ...conditionFrames.map((one) => one.name)]
-  const framesKey = JSON.stringify([recipe, conditionFrames, names])
+  /**
+   * **고치는 중인 좌표계도 미리 그린다** — 창에서 확인을 누르기 전에는 한 벌에 없어서 축이 안
+   * 보였다. 이름이 비었거나 겹치면 서버가 거절하므로 미리보기 이름을 따로 붙인다.
+   */
+  const previewFrames = (() => {
+    if (!frameEditing) return conditionFrames
+    const taken = frameNames.filter((_, i) => i !== cadFrames.length + (frameEditing.index ?? -1))
+    const name = frameEditing.item.name.trim()
+    const item = {
+      ...frameEditing.item,
+      name: !name || taken.includes(name) || ['global', '전역'].includes(name) ? '(미리보기)' : name,
+    }
+    return frameEditing.index === null
+      ? [...conditionFrames, item]
+      : conditionFrames.map((one, i) => (i === frameEditing.index ? item : one))
+  })()
+  const framesKey = JSON.stringify([recipe, previewFrames, names])
   const [frameRows, setFrameRows] = useState<FrameRow[]>([])
   useEffect(() => {
-    if (cadFrames.length === 0 && conditionFrames.length === 0) {
+    if (cadFrames.length === 0 && previewFrames.length === 0) {
       setFrameRows([])
       return
     }
@@ -422,7 +438,7 @@ export function ConditionsPanel({
     const timer = setTimeout(() => {
       conditionsApi
         // 좌표계에 필요한 것만 보낸다 — 고치는 중인 다른 조건 때문에 축이 사라지지 않게.
-        .frames(recipe, { ...asConditions(null), named_selections: names, coordinate_systems: conditionFrames })
+        .frames(recipe, { ...asConditions(null), named_selections: names, coordinate_systems: previewFrames })
         .then((got) => alive && setFrameRows(Array.isArray(got.items) ? got.items : []))
         .catch(() => alive && setFrameRows([]))
     }, 300)

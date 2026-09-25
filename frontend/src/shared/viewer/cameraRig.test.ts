@@ -39,3 +39,11 @@ test('표준 뷰는 목표점을 두고 그 방향에서 본다 — CAD Z 가 th
   const front = rig.perspective.position.clone().sub(rig.target)
   expect(front.z).toBeCloseTo(distance, 2)
 })
+
+test('**정사영이 기본**이고, 처음 맞출 때 투시로 보던 것과 같은 크기로 본다', () => {
+  const rig = rigWithBox()
+  expect(rig.projection).toBe('orthographic')
+  expect(rig.camera).toBe(rig.orthographic)
+  const distance = rig.orthographic.position.distanceTo(rig.target)
+  expect(100 / rig.orthographic.zoom).toBeCloseTo(distance * Math.tan((22.5 * Math.PI) / 180), 3)
+})
