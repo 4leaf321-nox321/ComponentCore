@@ -131,6 +131,12 @@ export interface PickViewerProps {
    * 조립: 이 구성품(`part` 이름표)에 끌기 손잡이를 붙인다 — 화살표를 끌어 옮기거나(translate)
    * 고리를 돌려 회전한다. 놓으면 `onMoved` 로 **CAD 좌표계의 이동량 · 회전량**을 알린다.
    */
+  /**
+   * 좌표계를 **3D 손잡이로** 돌리거나 옮긴다 — 원점 · 회전(도, X → Y → Z 고정 축 순서)에서
+   * 시작하고, 놓으면 `onFrameHandle` 로 새 원점 · 회전을 알린다. 숫자로 적는 것보다 감이 온다.
+   */
+  frameHandle?: { origin: number[]; rotate: number[]; mode: 'translate' | 'rotate' } | null
+  onFrameHandle?: (origin: [number, number, number], rotate: [number, number, number]) => void
   dragPart?: string | null
   dragMode?: 'translate' | 'rotate'
   onMoved?: (part: string, delta: { translate: [number, number, number]; rotate: [number, number, number] }) => void
@@ -326,7 +332,7 @@ function gatherDots(mesh: MeshData): { at: number[][]; kinds: string[] } {
 }
 
 /** 표준 방향 — 뒤에서 카메라가 설 자리(중심 기준 단위 벡터, CAD Z-up 기준). */
-export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, onBoxSelect, measureKinds, measureMarks, frames, partColors, emphasis, sync, dragPart, dragMode = 'translate', onMoved, className }: PickViewerProps) {
+export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, onBoxSelect, measureKinds, measureMarks, frames, frameHandle, onFrameHandle, partColors, emphasis, sync, dragPart, dragMode = 'translate', onMoved, className }: PickViewerProps) {
   const syncId = useRef(`viewer-${Math.random().toString(36).slice(2)}`)
   const syncRef = useRef(sync)
   syncRef.current = sync
@@ -851,6 +857,49 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       s.gizmo?.detach()
     }
   }, [dragPart, dragMode, mesh])
+
+  // 좌표계 손잡이 — 원점에 빈 물체를 두고 TransformControls 를 붙인다. 물체는 CAD 좌표(형상과 같은
+  // 묶음) 안에 있으므로 위치 · 회전을 그대로 읽으면 CAD 값이다. 회전 순서 'ZYX' 가 곧 우리 규칙
+  // (X → Y → Z 고정 축, R = Rz · Ry · Rx)이라 도면의 회전 칸과 같은 뜻이다.
+  const frameReport = useRef(onFrameHandle)
+  frameReport.current = onFrameHandle
+  const handleKey = frameHandle ? JSON.stringify(frameHandle) : ''
+  useEffect(() => {
+    const s = state.current
+    if (!s || !frameHandle) return
+    const handle = new THREE.Object3D()
+    handle.position.set(frameHandle.origin[0], frameHandle.origin[1], frameHandle.origin[2])
+    const rad = frameHandle.rotate.map((one) => THREE.MathUtils.degToRad(Number(one) || 0))
+    handle.rotation.set(rad[0], rad[1], rad[2], 'ZYX')
+    s.group.add(handle)
+    const gizmo = new TransformControls(s.rig.camera, s.renderer.domElement)
+    gizmo.setMode(frameHandle.mode)
+    gizmo.setSpace('local')
+    gizmo.setTranslationSnap(0.5)
+    gizmo.setRotationSnap(THREE.MathUtils.degToRad(5))
+    gizmo.addEventListener('dragging-changed', (event) => {
+      s.rig.controls.enabled = !(event as unknown as { value: boolean }).value
+    })
+    gizmo.addEventListener('mouseUp', () => {
+      const r = new THREE.Euler().setFromQuaternion(handle.quaternion, 'ZYX')
+      const round = (v: number) => Math.round(v * 1000) / 1000 + 0
+      frameReport.current?.(
+        [round(handle.position.x), round(handle.position.y), round(handle.position.z)],
+        [round(THREE.MathUtils.radToDeg(r.x)), round(THREE.MathUtils.radToDeg(r.y)), round(THREE.MathUtils.radToDeg(r.z))],
+      )
+    })
+    gizmo.attach(handle)
+    const helper = gizmo.getHelper()
+    s.scene.add(helper)
+    return () => {
+      gizmo.detach()
+      s.scene.remove(helper)
+      gizmo.dispose()
+      s.group.remove(handle)
+      s.rig.controls.enabled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handleKey, mesh])
 
   // 고른 구성품만 또렷하게 — 재질만 만지고 메시는 그대로 둔다(고를 때마다 다시 만들면 느리다).
   //

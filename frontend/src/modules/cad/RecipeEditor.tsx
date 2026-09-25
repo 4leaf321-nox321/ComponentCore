@@ -13,6 +13,8 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import type { Recipe } from '@/modules/cad/api'
 import type { WorkKind } from '@/modules/works/api'
 import { LoadRecipeDialog, LoadWorkDialog } from '@/modules/cad/LoadDialogs'
+import type { Placing } from '@/modules/cad/FrameForm'
+import { framePlacement, numericFrame } from '@/modules/cad/frameMath'
 import { FramesDialog } from '@/modules/cad/FramesDialog'
 import { keptLabel, MeasureDialog } from '@/modules/cad/MeasureDialog'
 import type { KeptMeasure, PickKind } from '@/modules/cad/MeasureDialog'
@@ -88,6 +90,20 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
   const { problems, summary, mesh, frames, drawing, error } = useRecipeMesh(value)
   /** 좌표계 창 — 도면의 이름 붙인 원점 · 축(해석 조건의 「좌표계」 칸이 가리킨다). */
   const [framing, setFraming] = useState(false)
+  /** 고치는 좌표계와, 화면에서 지정하는 중인 것(점 · 선 · 면을 누르거나 손잡이로 돌리기). */
+  const [framePicked, setFramePicked] = useState(0)
+  const [placing, setPlacing] = useState<Placing>(null)
+  const recipeFrames = value.coordinate_systems ?? []
+  const placingFrame = framing ? recipeFrames[framePicked] : undefined
+  /** 고르기 · 손잡이가 시작할 숫자 — 식이면 서버가 지금 치수로 푼 축에서 되돌린다. */
+  const frameStart = placingFrame ? numericFrame(placingFrame, frames.find((one) => one.name === placingFrame.name)) : null
+  const placePick = placing === 'point' || placing === 'edge' || placing === 'face'
+  function setFrame(origin: number[], rotate: number[]) {
+    emit((current) => ({
+      ...current,
+      coordinate_systems: (current.coordinate_systems ?? []).map((one, i) => (i === framePicked ? { ...one, origin, rotate } : one)),
+    }))
+  }
   const stepInput = useRef<HTMLInputElement | null>(null)
 
   const selected = nodes.find((n) => n.id === selectedId) ?? null
@@ -471,7 +487,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                 <RibbonButton
                   icon={Axis3d}
                   label="좌표계"
-                  title="좌표계 — 해석 조건이 방향을 말할 때 가리킬 원점 · 축(치수 식으로 DOE 를 따라간다)"
+                  title="좌표계 — 시뮬레이션 조건이 방향을 말할 때 가리킬 원점 · 축(치수 식으로 DOE 를 따라간다)"
                   active={framing}
                   onClick={() => setFraming(true)}
                 />
@@ -493,7 +509,14 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
         open={framing}
         frames={value.coordinate_systems ?? []}
         onChange={(next) => emit((current) => ({ ...current, coordinate_systems: next }))}
-        onClose={() => setFraming(false)}
+        onClose={() => {
+          setFraming(false)
+          setPlacing(null)
+        }}
+        picked={framePicked}
+        onPicked={setFramePicked}
+        placing={placing}
+        onPlacing={setPlacing}
       />
 
       <MeasureDialog
@@ -717,15 +740,32 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
               <Suspense fallback={<Skeleton className="h-full w-full" />}>
                 <PickViewer
                   mesh={mesh}
-                  mode={pickMode}
+                  mode={placePick ? 'measure' : pickMode}
                   highlightEdgesNear={isNear(selected?.edges) ? (selected!.edges as { near: number[][] }).near : undefined}
                   onPickFace={onFacePicked}
                   onPickEdge={toggleEdge}
                   onMeasure={(pick) => {
+                    // 좌표계를 화면에서 지정하는 중이면 누른 것이 그 좌표계의 원점(과 방향)이 된다.
+                    if (placePick && frameStart) {
+                      const placed = framePlacement(pick, frameStart.rotate)
+                      if (placed) setFrame(placed.origin, placed.rotate)
+                      setPlacing(null)
+                      return
+                    }
                     if (pick.kind === 'body') return
                     setMeasures((m) => (m.length >= 3 ? [pick] : [...m, pick]))
                   }}
-                  measureKinds={{ point: measureKinds.has('point'), edge: measureKinds.has('edge'), face: measureKinds.has('face') }}
+                  measureKinds={
+                    placePick
+                      ? { point: placing === 'point', edge: placing === 'edge', face: placing === 'face' }
+                      : { point: measureKinds.has('point'), edge: measureKinds.has('edge'), face: measureKinds.has('face') }
+                  }
+                  frameHandle={
+                    frameStart && (placing === 'rotate' || placing === 'translate')
+                      ? { origin: frameStart.origin, rotate: frameStart.rotate, mode: placing }
+                      : null
+                  }
+                  onFrameHandle={setFrame}
                   measureMarks={pickMode === 'measure' || kept.length > 0 ? measureMarks(measures, kept) : undefined}
                   frames={frames}
                   className="h-full w-full rounded-md border"

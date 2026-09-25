@@ -23,7 +23,7 @@ DEFAULT_APP_NAME = "CompCore"
 DEFAULT_APP_SLUG = "compcore"
 
 #: 한 줄 설명 — 로그인 화면과 사이드바.
-DEFAULT_APP_TAGLINE = "부품 하나에서 지그 · 실험계획 · 해석 조건까지"
+DEFAULT_APP_TAGLINE = "부품 하나에서 지그 · 실험계획 · 시뮬레이션 조건까지"
 
 #: 오류 코드 접두사. **한 저장소에 하나뿐이어야 한다.**
 ERROR_PREFIX = "CCR"

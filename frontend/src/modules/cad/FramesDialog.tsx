@@ -6,12 +6,11 @@
  * 서버가 푼 축이 그려진다(X 빨강 · Y 초록 · Z 파랑).
  */
 
-import { useState } from 'react'
-
 import type { RecipeFrame } from '@/modules/cad/api'
 import { FrameForm } from '@/modules/cad/FrameForm'
+import type { Placing } from '@/modules/cad/FrameForm'
+import { FloatingWindow } from '@/shared/components/FloatingWindow'
 import { Button } from '@/shared/components/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog'
 
 /** 새 좌표계의 이름 — 겹치지 않게 번호를 붙인다. */
 export function nextFrameName(taken: string[]): string {
@@ -25,28 +24,39 @@ export function FramesDialog({
   frames,
   onChange,
   onClose,
+  picked,
+  onPicked,
+  placing = null,
+  onPlacing,
 }: {
   open: boolean
   frames: RecipeFrame[]
   onChange: (next: RecipeFrame[]) => void
   onClose: () => void
+  /** 고치는 좌표계 — 편집기가 들고 있어야 3D 고르기 · 손잡이를 그것에 잇는다. */
+  picked: number
+  onPicked: (index: number) => void
+  placing?: Placing
+  onPlacing?: (next: Placing) => void
 }) {
-  const [picked, setPicked] = useState(0)
+  const setPicked = (index: number) => {
+    onPicked(index)
+    onPlacing?.(null)
+  }
   const current = frames[picked]
   const names = frames.map((one) => one.name)
   const clash = current && (names.filter((one) => one === current.name).length > 1 || ['global', '전역'].includes(current.name))
 
   return (
-    <Dialog open={open} onOpenChange={(value) => !value && onClose()}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>좌표계</DialogTitle>
-          <DialogDescription>
-            해석 조건의 「좌표계」 칸이 이름으로 가리킵니다. 원점 · 회전에 치수 식(=길이/2)을 쓰면 DOE 로 치수가 바뀔 때 같이
-            움직입니다.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-3 sm:grid-cols-[180px_1fr]">
+    // **3D 를 가리지 않는 창** — 띄운 채 점 · 선 · 면을 누르거나 손잡이를 돌린다.
+    <FloatingWindow
+      open={open}
+      title="좌표계"
+      description="시뮬레이션 조건의 「좌표계」 칸이 이름으로 가리킵니다. 원점 · 회전에 치수 식(=길이/2)을 쓰면 DOE 로 치수가 바뀔 때 같이 움직입니다."
+      onClose={onClose}
+      footer={<Button onClick={onClose}>닫기</Button>}
+    >
+        <div className="grid gap-3 sm:grid-cols-[120px_1fr]">
           <div className="space-y-1">
             <ul className="space-y-0.5">
               {frames.map((one, index) => (
@@ -80,6 +90,8 @@ export function FramesDialog({
                 <FrameForm
                   value={current}
                   onChange={(next) => onChange(frames.map((one, i) => (i === picked ? { name: next.name, origin: next.origin, rotate: next.rotate } : one)))}
+                  placing={placing}
+                  onPlacing={onPlacing}
                 />
                 {clash && (
                   <p className="text-destructive text-xs">이름이 겹치거나 전역(global)의 이름입니다 — 다른 이름을 입력하세요.</p>
@@ -100,10 +112,6 @@ export function FramesDialog({
             )}
           </div>
         </div>
-        <DialogFooter>
-          <Button onClick={onClose}>닫기</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </FloatingWindow>
   )
 }

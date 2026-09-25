@@ -45,7 +45,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { Recipe } from '@/modules/cad/api'
 import { FrameForm } from '@/modules/cad/FrameForm'
-import type { FrameDraft } from '@/modules/cad/FrameForm'
+import type { FrameDraft, Placing } from '@/modules/cad/FrameForm'
+import { framePlacement, numericFrame } from '@/modules/cad/frameMath'
 import { nextFrameName } from '@/modules/cad/FramesDialog'
 import { keptLabel, MeasureDialog } from '@/modules/cad/MeasureDialog'
 import type { KeptMeasure, PickKind as MeasureKind } from '@/modules/cad/MeasureDialog'
@@ -163,6 +164,8 @@ export function ConditionsPanel({
   const [picking, setPicking] = useState(false)
   /** 좌표계 창 — 새로(`index` 가 null) 또는 고치는 것. 확인을 눌러야 한 벌에 들어간다. */
   const [frameEditing, setFrameEditing] = useState<{ index: number | null; item: FrameDraft } | null>(null)
+  /** 좌표계를 화면에서 지정하는 중인 것 — 점 · 선 · 면을 누르거나 손잡이로 돌리기. */
+  const [placing, setPlacing] = useState<Placing>(null)
   /**
    * **측정** — 도면 편집기와 같은 창이다. 켜 있는 동안 3D 선택은 선택 그룹이 아니라 재는 데
    * 쓴다(조건을 걸 자리의 거리 · 지름을 확인하려고).
@@ -430,6 +433,16 @@ export function ConditionsPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [framesKey])
 
+  /** 좌표계 창에서 화면으로 지정하는 중인가 — 그 좌표계의 숫자 시작값(식이면 서버가 푼 축에서). */
+  const placingFrame = frameEditing && !frameEditing.item.on ? frameEditing.item : undefined
+  const frameStart = placingFrame
+    ? numericFrame(placingFrame, frameRows.find((one) => one.name === placingFrame.name))
+    : null
+  const placePick = !!frameStart && (placing === 'point' || placing === 'edge' || placing === 'face')
+  function setFrameItem(origin: number[], rotate: number[]) {
+    if (frameEditing) setFrameEditing({ ...frameEditing, item: { ...frameEditing.item, origin, rotate } })
+  }
+
   const litGroup = tree?.kind === 'selection' ? names[tree.index] : undefined
   const litKey = litGroup ? JSON.stringify([litGroup.entity, litGroup.select]) : ''
   const [lit, setLit] = useState<{ key: string; what: string; rows: FoundRow[] } | null>(null)
@@ -543,6 +556,7 @@ export function ConditionsPanel({
     else list[frameEditing.index] = item
     setDraft({ ...draft, coordinate_systems: list })
     setFrameEditing(null)
+    setPlacing(null)
     setError(null)
   }
 
@@ -920,7 +934,9 @@ export function ConditionsPanel({
               mode="measure"
               // **켠 것 하나만.** 바디는 면을 눌러 고르므로 면과 함께 켜면 안 된다.
               measureKinds={
-                measuring
+                placePick
+                  ? { point: placing === 'point', edge: placing === 'edge', face: placing === 'face' }
+                  : measuring
                   ? { point: measureKinds.has('point'), edge: measureKinds.has('edge'), face: measureKinds.has('face') }
                   : {
                       point: pickKind === 'point',
@@ -930,6 +946,13 @@ export function ConditionsPanel({
                     }
               }
               onMeasure={(pick, mods) => {
+                // 좌표계를 화면에서 지정하는 중이면 누른 것이 그 좌표계의 원점(과 방향)이 된다.
+                if (placePick && frameStart) {
+                  const placed = framePlacement(pick, frameStart.rotate)
+                  if (placed) setFrameItem(placed.origin, placed.rotate)
+                  setPlacing(null)
+                  return
+                }
                 if (!measuring) return void ask(pick, mods)
                 if (pick.kind === 'body') return
                 setMeasures((now) => (now.length >= 3 ? [pick] : [...now, pick]))
@@ -939,6 +962,12 @@ export function ConditionsPanel({
               // 담은 것을 번호와 함께 표시한다 — 목록의 몇 번이 어디인지. 재는 동안은 잰 것.
               measureMarks={measuring ? measureMarks(measures, kept) : marks}
               frames={frameRows}
+              frameHandle={
+                frameStart && (placing === 'rotate' || placing === 'translate')
+                  ? { origin: frameStart.origin, rotate: frameStart.rotate, mode: placing }
+                  : null
+              }
+              onFrameHandle={setFrameItem}
               partColors={partColors}
               // 트리에서 파트를 누르면 3D 에서도 그 파트만 또렷하게 — 어느 것에 지정하는지 보인다.
               emphasis={tree?.kind === 'part' && bodyNames.length > 1 ? tree.name : null}
@@ -1015,7 +1044,10 @@ export function ConditionsPanel({
         open={!!frameEditing}
         title={`좌표계 ${frameEditing?.index === null ? '추가' : '수정'}`}
         description="구속의 x · y · z 가 이 좌표계의 축 방향이 됩니다. 원점 · 회전에 =식을 쓰거나 선택 그룹의 면에 붙이면 DOE 로 치수가 바뀔 때 따라갑니다."
-        onClose={() => setFrameEditing(null)}
+        onClose={() => {
+          setFrameEditing(null)
+          setPlacing(null)
+        }}
         footer={
           <>
             {frameEditing && frameEditing.index !== null && (
@@ -1030,7 +1062,13 @@ export function ConditionsPanel({
                 삭제
               </Button>
             )}
-            <Button variant="ghost" onClick={() => setFrameEditing(null)}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setFrameEditing(null)
+                setPlacing(null)
+              }}
+            >
               취소
             </Button>
             <Button onClick={confirmFrame}>확인</Button>
@@ -1042,6 +1080,8 @@ export function ConditionsPanel({
             value={frameEditing.item}
             onChange={(item) => setFrameEditing({ ...frameEditing, item })}
             groups={names.filter((one) => one.entity === 'face').map((one) => one.name)}
+            placing={placing}
+            onPlacing={setPlacing}
           />
         )}
       </FloatingWindow>

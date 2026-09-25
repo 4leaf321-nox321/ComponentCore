@@ -11,6 +11,20 @@
 import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
 
+/**
+ * 화면에서 지정하는 중인 것 — 점 · 선 · 면을 누르면 그것으로 원점(과 방향)을 정하고, 회전 · 이동은
+ * 3D 손잡이로 돌리거나 옮긴다. 숫자로 적는 것보다 감이 온다.
+ */
+export type Placing = 'point' | 'edge' | 'face' | 'rotate' | 'translate' | null
+
+const PLACING: { key: Exclude<Placing, null>; label: string; hint: string }[] = [
+  { key: 'point', label: '점', hint: '누른 점이 원점이 됩니다' },
+  { key: 'edge', label: '선', hint: '엣지 중점이 원점, 엣지 방향이 X 가 됩니다' },
+  { key: 'face', label: '면', hint: '누른 자리가 원점, 면의 법선이 Z 가 됩니다' },
+  { key: 'rotate', label: '회전', hint: '3D 의 손잡이를 끌어 돌립니다(5° 씩)' },
+  { key: 'translate', label: '이동', hint: '3D 의 손잡이를 끌어 옮깁니다(0.5 mm 씩)' },
+]
+
 export interface FrameDraft {
   name: string
   origin?: (number | string)[]
@@ -67,11 +81,16 @@ export function FrameForm({
   value,
   onChange,
   groups,
+  placing,
+  onPlacing,
 }: {
   value: FrameDraft
   onChange: (next: FrameDraft) => void
   /** 면에 붙일 수 있는 선택 그룹들 — 주면 「선택 그룹의 면」 방식을 고를 수 있다(해석 조건). */
   groups?: string[]
+  /** 화면에서 지정하는 중인 것 — 주면 「화면에서 지정」 단추들이 보인다. */
+  placing?: Placing
+  onPlacing?: (next: Placing) => void
 }) {
   const attached = !!value.on
   return (
@@ -125,6 +144,30 @@ export function FrameForm({
         </div>
       ) : (
         <>
+          {onPlacing && (
+            <div className="space-y-1">
+              <Label className="text-xs">화면에서 지정</Label>
+              <div className="grid grid-cols-5 gap-1" role="group" aria-label="화면에서 지정">
+                {PLACING.map((one) => (
+                  <button
+                    key={one.key}
+                    type="button"
+                    title={one.hint}
+                    aria-pressed={placing === one.key}
+                    className={`rounded border px-1 py-1 text-xs ${placing === one.key ? 'border-primary bg-primary text-primary-foreground' : 'hover:bg-accent'}`}
+                    onClick={() => onPlacing(placing === one.key ? null : one.key)}
+                  >
+                    {one.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-muted-foreground text-xs">
+                {placing
+                  ? PLACING.find((one) => one.key === placing)?.hint
+                  : '점 · 선 · 면을 누르거나 손잡이로 돌려 정합니다. 화면에서 지정하면 식 대신 숫자가 들어갑니다.'}
+              </p>
+            </div>
+          )}
           <Triple label="원점" unit="mm · 수 또는 =식" value={value.origin} onChange={(origin) => onChange({ ...value, origin })} />
           <Triple
             label="회전"

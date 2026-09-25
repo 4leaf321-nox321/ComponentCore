@@ -533,7 +533,7 @@ export const OP_SPECS: OpSpec[] = [
     icon: SquareDashedBottom,
     label: '면 나누기',
     group: '영역',
-    help: '면을 영역으로 나눈다 — 하중 · 접촉을 면의 일부에만 걸 수 있게. 형상은 그대로다(부피가 변하지 않는다). 생긴 조각에 붙인 이름을 「해석 조건」 탭이 선택 그룹으로 집는다.',
+    help: '면을 영역으로 나눈다 — 하중 · 접촉을 면의 일부에만 걸 수 있게. 형상은 그대로다(부피가 변하지 않는다). 생긴 조각에 붙인 이름을 「시뮬레이션 조건」 탭이 선택 그룹으로 집는다.',
     fields: [
       { key: 'target', label: '대상', kind: 'ref', refKind: 'solid' },
       { key: 'shape', label: '모양', kind: 'select', options: [{ value: 'circle', label: '원' }, { value: 'rect', label: '사각' }] },

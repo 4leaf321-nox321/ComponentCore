@@ -36,10 +36,10 @@ vi.mock('@/shared/viewer/PickViewer', () => ({
     const keys = (e: React.MouseEvent) => ({ ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey })
     return (
       <div>
-        <button onClick={(e) => onMeasure?.({ kind: 'face', face: { index: 0, center: [0, 0, 0] } }, keys(e))}>
+        <button onClick={(e) => onMeasure?.({ kind: 'face', face: { index: 0, center: [0, 0, 0], normal: [0, 0, -1] } }, keys(e))}>
           면 찍기
         </button>
-        <button onClick={(e) => onMeasure?.({ kind: 'face', face: { index: 1, center: [5, 0, 9] } }, keys(e))}>
+        <button onClick={(e) => onMeasure?.({ kind: 'face', face: { index: 1, center: [5, 0, 9], normal: [0, 0, 1] } }, keys(e))}>
           다른 면 찍기
         </button>
         <button onClick={(e) => onMeasure?.({ kind: 'face', face: { index: 2, center: [40, 0, 5] } }, keys(e))}>
@@ -690,4 +690,22 @@ test('**측정**을 켜면 3D 선택이 재는 데 쓰인다 — 선택 그룹�
   // 선택 그룹 창은 안 뜨고, 측정 창에 고른 것이 들어간다.
   expect(screen.queryByRole('dialog', { name: '선택 그룹 추가' })).toBeNull()
   await waitFor(() => screen.getByText('고른 것 (1)'))
+})
+
+
+test('좌표계를 **화면에서** 지정한다 — 면을 누르면 원점은 그 자리, Z 는 면의 법선', async () => {
+  const onSave = await panel()
+  fireEvent.click(screen.getByRole('button', { name: '좌표계' }))
+  await waitFor(() => screen.getByRole('dialog', { name: '좌표계 추가' }))
+  fireEvent.click(screen.getByRole('button', { name: '면' , pressed: false }))
+  // 면 고르기가 켜진 동안 3D 는 면만 잡는다.
+  await waitFor(() => expect(lastKinds).toEqual({ point: false, edge: false, face: true }))
+  fireEvent.click(screen.getByText('다른 면 찍기'))
+  await waitFor(() => expect(screen.getByLabelText('원점 X')).toHaveValue('5'))
+  expect(screen.getByLabelText('원점 Z')).toHaveValue('9')
+  // 윗면(법선 +Z) — 이미 Z 가 위라 회전이 0 이다. 선택 그룹이 생기지는 않는다.
+  expect(screen.getByLabelText('회전 X')).toHaveValue('0')
+  expect(screen.queryByRole('dialog', { name: '선택 그룹 추가' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '확인' }))
+  expect((await save(onSave)).coordinate_systems[0].origin).toEqual([5, 0, 9])
 })

@@ -10,7 +10,7 @@ function meta(name: string): string | null {
 
 export const DEFAULT_APP_NAME = 'CompCore'
 export const DEFAULT_APP_SLUG = 'compcore'
-export const DEFAULT_APP_TAGLINE = '부품 하나에서 지그 · 실험계획 · 해석 조건까지'
+export const DEFAULT_APP_TAGLINE = '부품 하나에서 지그 · 실험계획 · 시뮬레이션 조건까지'
 
 export const APP_NAME = meta('app-name') || DEFAULT_APP_NAME
 export const APP_SLUG = meta('app-slug') || DEFAULT_APP_SLUG

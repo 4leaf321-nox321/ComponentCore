@@ -47,7 +47,7 @@ test('지그 작업은 그림 탭이 「지그」 이고, 승격이 지그 카�
     </MemoryRouter>,
   )
   // 그림 탭 이름은 종류와 상관없이 「도면」 — 생성기 탭은 이제 어느 작업에도 없다(새 작업 › 부품에서 지그 생성).
-  await waitFor(() => expect(screen.getByRole('tab', { name: /^도면 v2/ })).toBeInTheDocument())
+  await waitFor(() => expect(screen.getByRole('tab', { name: /^도면$/ })).toBeInTheDocument())
   expect(screen.queryByRole('tab', { name: /지그 만들어 주기/ })).toBeNull()
   expect(await screen.findByRole('button', { name: '공용 지그로 승격' })).toBeInTheDocument()
 })

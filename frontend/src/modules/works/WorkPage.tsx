@@ -270,12 +270,13 @@ export default function WorkPage() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="geometry">
-            {isAssembly ? '조립' : '도면'} {w.current_version > 0 && `v${w.current_version}`}
+            {/* 버전은 탭 이름에 두지 않는다 — 「도면 v3」 이 버전을 고르는 것처럼 읽혀 헷갈렸다. 버전은 머리말에. */}
+            {isAssembly ? '조립' : '도면'}
           </TabsTrigger>
           {/* **둘째 탭이 곧 시뮬레이션 모드다.** 도면은 형상을 만들고, 여기서는 그 위에
               조건을 붙인다 — 형상을 안 바꾸므로 새 버전이 생기지 않는다. */}
           <TabsTrigger value="conditions" disabled={w.current_version === 0}>
-            해석 조건
+            시뮬레이션 조건
             {conditionCount > 0 && <span className="text-muted-foreground ml-1 text-xs">{conditionCount}</span>}
           </TabsTrigger>
         </TabsList>
