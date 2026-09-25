@@ -29,6 +29,7 @@ from app.config import get_settings
 from app.core import conditions as condition_model
 from app.core import doe as engine
 from app.core import export as shapes
+from app.core import frames
 from app.core.recipe import RecipeError, evaluate, follow, params, parse, topology
 from app.core.recipe.mesh import mesh
 from app.core.recipe.schema import RecipeValidationError
@@ -253,7 +254,9 @@ def create_study(
     # 바디 이름까지 본다: 물성을 없는 바디에 붙이면 해석이 그 바디를 **맨몸으로** 푼다.
     # 여기가 정작 해석으로 나가는 자리라 작업 저장보다 더 중요하다.
     try:
-        condition_model.parse(conditions, _body_names(recipe))
+        condition_model.parse(
+            conditions, _body_names(recipe), frames.recipe_frame_names(recipe)
+        )
     except condition_model.ConditionError as failure:
         raise AppError(code("DOE", 15), f"해석 조건: {failure}") from failure
     rows = _points(
@@ -950,6 +953,7 @@ def run_job(
                     point.step_file = str(same["step_file"])
                     topo = deepcopy(same["topology"])
                     interference = deepcopy(same["interference"])
+                    cad_frames = deepcopy(same["frames"])
                 else:
                     evaluation = evaluate(
                         parse(recipe),
@@ -989,11 +993,13 @@ def run_job(
                     # 조립이면 구성품끼리 겹치는지 — 변수를 바꾸다 부품이 판에 파묻히는 것을
                     # 잡는다. 형상이 같으면 겹침도 같다.
                     interference = _interference_of(evaluation.shape)
+                    cad_frames = evaluation.frames
                     if digest:
                         built[digest] = {
                             "step_file": point.step_file,
                             "topology": deepcopy(topo),
                             "interference": deepcopy(interference),
+                            "frames": deepcopy(cad_frames),
                         }
                 point.status = "ok"
                 # **이 점이 무엇인가**를 파일이 스스로 말하게 한다 — 결과가 우리에게 돌아오지
@@ -1019,6 +1025,19 @@ def run_job(
                     topo["conditions"] = condition_model.resolve(
                         study.conditions, point.params, names
                     )
+                # **좌표계** — 도면의 것은 이 점의 치수로 푼 것, 조건의 것은 식을 이 점의
+                # 값으로 풀고 면에 붙인 것은 이 점의 영역에서 얻는다. 조건의 `cs` 가 이름으로
+                # 가리킨다. 그룹을 못 풀어 좌표계를 못 정하면 「못 풀었다」 — 조용히 전역으로
+                # 바꾸면 성분이 딴 방향으로 걸린다.
+                condition_side, missing = frames.condition_frames(
+                    (topo.get("conditions") or {}).get("coordinate_systems") or [],
+                    topo["regions"],
+                )
+                if cad_frames or condition_side:
+                    topo["coordinate_systems"] = [*cad_frames, *condition_side]
+                for name in missing:
+                    if name not in topo["unresolved"]:
+                        topo["unresolved"].append(name)
                 # **솔버 덱은 폴더에 한 벌**이고 점마다 같다 — 점 파일은 가리키기만 한다.
                 if decks:
                     topo["material_decks"] = decks

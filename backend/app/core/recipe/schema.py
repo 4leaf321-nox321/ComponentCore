@@ -744,6 +744,23 @@ Node = Annotated[
 ]
 
 
+#: 좌표계 이름으로 못 쓰는 말 — 조건의 `cs` 가 이것을 **전역**으로 읽는다.
+RESERVED_FRAMES = {"global", "전역"}
+
+
+class CoordinateSystem(BaseModel):
+    """이름 붙인 좌표계 — 해석 조건이 「이 방향으로 x · y · z」 를 말할 때 가리킨다.
+
+    형상을 바꾸지 않는다. 원점 · 회전에 치수 식(`"=길이/2"`)을 쓸 수 있어 실험계획이 치수를
+    바꾸면 **같이 움직인다**. 회전은 `transform` 과 같다 — X · Y · Z 축 순서(도)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=40)
+    origin: XYZ = (0.0, 0.0, 0.0)
+    rotate: XYZ = (0.0, 0.0, 0.0)
+
+
 class Recipe(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -754,6 +771,22 @@ class Recipe(BaseModel):
     nodes: list[Node] = Field(min_length=1, max_length=500)
     result: str | None = None
     """결과로 삼을 노드. 비우면 마지막 노드."""
+    coordinate_systems: list[CoordinateSystem] = Field(default_factory=list, max_length=50)
+    """이름 붙인 좌표계 — 형상과 무관하고, 해석 조건의 `cs` 가 가리킨다."""
+
+    @model_validator(mode="after")
+    def _check_frames(self) -> Recipe:
+        seen: set[str] = set()
+        for index, frame in enumerate(self.coordinate_systems):
+            if frame.name in RESERVED_FRAMES:
+                raise ValueError(
+                    f"coordinate_systems[{index}]: 「{frame.name}」 은 전역 좌표계의 "
+                    "이름입니다"
+                )
+            if frame.name in seen:
+                raise ValueError(f"coordinate_systems[{index}]: 「{frame.name}」 이 겹칩니다")
+            seen.add(frame.name)
+        return self
 
     @model_validator(mode="after")
     def _check_references(self) -> Recipe:

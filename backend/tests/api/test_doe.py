@@ -462,6 +462,103 @@ def test_좌표가_든_선택_그룹은_설계점마다_치수를_따라간다(
         assert 옆면[0]["centroid"][0] == 길이 / 2
 
 
+def test_좌표계는_설계점마다_치수를_따라_점_파일에_나간다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    """조건의 `cs` 가 가리키는 좌표계 — 도면의 것은 치수 식으로, 조건의 것은 선택 그룹의 면에
+    붙여 정한다. 둘 다 설계점마다 **그 점의 치수로** 풀려 점 파일에 나간다."""
+    recipe = {
+        "params": {"길이": 80.0},
+        "nodes": [
+            {
+                "id": "b",
+                "op": "box",
+                "length": "=길이",
+                "width": 50,
+                "height": 10,
+                "align": ["center", "center", "min"],
+            }
+        ],
+        "coordinate_systems": [{"name": "끝", "origin": ["=길이/2", 0, 5]}],
+    }
+    conditions = {
+        "named_selections": [
+            {
+                "name": "옆면",
+                "entity": "face",
+                "select": {
+                    "what": "faces",
+                    "kind": "plane",
+                    "normal": [1, 0, 0],
+                    "near": [40, 0, 5],
+                    "limit": 1,
+                },
+            }
+        ],
+        "coordinate_systems": [{"name": "옆면 좌표", "on": "옆면"}],
+        "constraints": [
+            {
+                "name": "밀기",
+                "type": "displacement",
+                "on": "옆면",
+                "cs": "옆면 좌표",
+                "z": 0.1,
+            },
+            {"name": "고정", "type": "fixed_support", "on": "옆면", "cs": "끝"},
+        ],
+    }
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "좌표계",
+            "recipe": recipe,
+            "conditions": conditions,
+            "factors": [{"name": "길이", "mode": "list", "values": [80, 130]}],
+        },
+        headers=member.headers,
+    )
+    assert made.status_code == 201, made.text
+    client.post(f"/api/doe/{made.json()['id']}/export", headers=member.headers)
+    folder = next(one for one in export_root.iterdir() if one.name.startswith("좌표계"))
+
+    for number, 길이 in ((1, 80), (2, 130)):
+        topo = json.loads((folder / "points" / f"p{number:04d}.json").read_text("utf-8"))
+        frames = {one["name"]: one for one in topo["coordinate_systems"]}
+        assert (
+            frames["끝"]["origin"] == [길이 / 2, 0.0, 5.0] and frames["끝"]["source"] == "cad"
+        )
+        옆 = frames["옆면 좌표"]
+        assert 옆["origin"][0] == 길이 / 2 and 옆["z"] == [1.0, 0.0, 0.0]
+        assert 옆["source"] == "conditions"
+
+
+def test_없는_좌표계를_가리키는_조건은_만들기_전에_막는다(
+    client: TestClient, member: Signed
+) -> None:
+    bad = client.post(
+        "/api/doe",
+        json={
+            "name": "없는 좌표계",
+            "recipe": JIG,
+            "conditions": {
+                "named_selections": [
+                    {
+                        "name": "바닥",
+                        "entity": "face",
+                        "select": {"what": "faces", "role": "bottom"},
+                    }
+                ],
+                "constraints": [
+                    {"name": "고정", "type": "fixed_support", "on": "바닥", "cs": "없음"}
+                ],
+            },
+            "factors": [{"name": "두께", "mode": "list", "values": [6]}],
+        },
+        headers=member.headers,
+    )
+    assert bad.status_code == 400 and "좌표계가 없습니다" in bad.json()["error"]["message"]
+
+
 def test_없는_이름표를_가리키는_조건은_만들기_전에_막는다(
     client: TestClient, member: Signed
 ) -> None:

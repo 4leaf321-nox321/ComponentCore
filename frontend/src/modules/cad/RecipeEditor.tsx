@@ -13,6 +13,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import type { Recipe } from '@/modules/cad/api'
 import type { WorkKind } from '@/modules/works/api'
 import { LoadRecipeDialog, LoadWorkDialog } from '@/modules/cad/LoadDialogs'
+import { FramesDialog } from '@/modules/cad/FramesDialog'
 import { keptLabel, MeasureDialog } from '@/modules/cad/MeasureDialog'
 import type { KeptMeasure, PickKind } from '@/modules/cad/MeasureDialog'
 import type { Pick } from '@/modules/cad/measure'
@@ -30,7 +31,7 @@ import type { SketchShape } from '@/modules/cad/SketchCanvas'
 import { ApiError } from '@/shared/api/client'
 import { useFillHeight } from '@/shared/hooks/useFillHeight'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
-import { Boxes, Braces, BookmarkPlus, Download, FileAxis3d, FileUp, GripVertical, Image, FilePlus, FolderOpen, Files, Maximize2, Minimize2, Pencil, Redo2, Ruler, Save, SquareDashedMousePointer, Trash2, Undo2 } from 'lucide-react'
+import { Axis3d, Boxes, Braces, BookmarkPlus, Download, FileAxis3d, FileUp, GripVertical, Image, FilePlus, FolderOpen, Files, Maximize2, Minimize2, Pencil, Redo2, Ruler, Save, SquareDashedMousePointer, Trash2, Undo2 } from 'lucide-react'
 
 import { useFullscreen } from '@/shared/viewer/FullscreenFrame'
 import type { MeshEdge, MeshFace, PickMode } from '@/shared/viewer/PickViewer'
@@ -84,7 +85,9 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
   const [loading, setLoading] = useState<'recipe' | 'work' | null>(null)
   /** 끌고 있는 피처의 자리 · 놓을 수 있는 칸들 · 지금 가리키는 칸 · 막힌 이유. */
   const [drag, setDrag] = useState<{ from: number; allowed: Set<number>; at: number | null; refused: string | null } | null>(null)
-  const { problems, summary, mesh, drawing, error } = useRecipeMesh(value)
+  const { problems, summary, mesh, frames, drawing, error } = useRecipeMesh(value)
+  /** 좌표계 창 — 도면의 이름 붙인 원점 · 축(해석 조건의 「좌표계」 칸이 가리킨다). */
+  const [framing, setFraming] = useState(false)
   const stepInput = useRef<HTMLInputElement | null>(null)
 
   const selected = nodes.find((n) => n.id === selectedId) ?? null
@@ -466,6 +469,13 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                   }}
                 />
                 <RibbonButton
+                  icon={Axis3d}
+                  label="좌표계"
+                  title="좌표계 — 해석 조건이 방향을 말할 때 가리킬 원점 · 축(치수 식으로 DOE 를 따라간다)"
+                  active={framing}
+                  onClick={() => setFraming(true)}
+                />
+                <RibbonButton
                   icon={Ruler}
                   label="측정"
                   title="거리 · 각도 · 지름 — 창이 뜬 채로 3D 를 계속 누릅니다"
@@ -478,6 +488,13 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
           )}
         </div>
       </Tabs>
+
+      <FramesDialog
+        open={framing}
+        frames={value.coordinate_systems ?? []}
+        onChange={(next) => emit((current) => ({ ...current, coordinate_systems: next }))}
+        onClose={() => setFraming(false)}
+      />
 
       <MeasureDialog
         open={pickMode === 'measure'}
@@ -710,6 +727,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                   }}
                   measureKinds={{ point: measureKinds.has('point'), edge: measureKinds.has('edge'), face: measureKinds.has('face') }}
                   measureMarks={pickMode === 'measure' || kept.length > 0 ? measureMarks(measures, kept) : undefined}
+                  frames={frames}
                   className="h-full w-full rounded-md border"
                 />
               </Suspense>

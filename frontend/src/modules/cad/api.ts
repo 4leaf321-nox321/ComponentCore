@@ -1,5 +1,5 @@
 import { api, postForBlob } from '@/shared/api/client'
-import type { MeshData } from '@/shared/viewer/PickViewer'
+import type { FrameRow, MeshData } from '@/shared/viewer/PickViewer'
 
 /** 레시피 — 서버 `core/recipe/schema.py` 가 정본. 화면은 JSON 으로만 다룬다. */
 export type Recipe = {
@@ -8,6 +8,15 @@ export type Recipe = {
   params?: Record<string, number>
   nodes: Record<string, unknown>[]
   result?: string | null
+  /** 이름 붙인 좌표계 — 형상과 무관하고 해석 조건의 `cs` 가 가리킨다. 식(`"=길이/2"`)을 쓴다. */
+  coordinate_systems?: RecipeFrame[]
+}
+
+/** 도면의 좌표계 하나 — 원점과 회전(X · Y · Z 축 순서, 도). */
+export interface RecipeFrame {
+  name: string
+  origin?: (number | string)[]
+  rotate?: (number | string)[]
 }
 
 export interface Interference {
@@ -47,7 +56,8 @@ export const cadApi = {
   check: (recipe: Recipe) => api.post<{ ok: boolean; problems: string[] }>('/cad/recipe/check', { recipe }),
   info: (recipe: Recipe) => api.post<{ summary: RecipeSummary }>('/cad/recipe/info', { recipe }),
   preview: (recipe: Recipe) => postForBlob('/cad/recipe/preview', { recipe }),
-  mesh: (recipe: Recipe) => api.post<{ summary: RecipeSummary; mesh: MeshData }>('/cad/recipe/mesh', { recipe }),
+  mesh: (recipe: Recipe) =>
+    api.post<{ summary: RecipeSummary; mesh: MeshData; frames?: FrameRow[] }>('/cad/recipe/mesh', { recipe }),
   /** 구성품을 다른 것의 면에 얹는 translate — 서버가 경계 상자로 잰다. */
   place: (recipe: Recipe, body: { mover: string; onto: string; face: string; offset: number; align: string }) =>
     api.post<{ recipe: Recipe; translate: number[]; problems: string[] }>('/cad/recipe/place', { recipe, ...body }),

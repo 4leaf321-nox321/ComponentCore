@@ -18,7 +18,7 @@ import {
 } from '@/shared/components/ui/select'
 
 /** 화면이 스스로 다루는 칸 — 폼에 두 번 그리지 않는다. */
-const HANDLED = new Set(['name', 'type', 'on', 'source', 'target'])
+const HANDLED = new Set(['name', 'type', 'on', 'source', 'target', 'cs'])
 
 /** 숫자 칸인가 — `"=식"` 도 받으므로 글자 칸으로 두고 뜻만 가린다. */
 function isNumeric(field: FieldSchema): boolean {
@@ -36,12 +36,15 @@ export function ConditionForm({
   group,
   item,
   names,
+  frames = [],
   onChange,
 }: {
   group: GroupSchema
   item: ConditionItem
   /** 있는 선택 그룹 — 조건은 **선택 그룹만** 가리킨다(좌표를 박으면 설계점이 바뀔 때 어긋난다). */
   names: NamedSelection[]
+  /** 고를 수 있는 좌표계 이름 — 도면의 것과 조건의 것. 「전역」 은 늘 있다. */
+  frames?: string[]
   onChange: (next: ConditionItem) => void
 }) {
   const set = (key: string, value: unknown) => onChange({ ...item, [key]: value })
@@ -101,6 +104,29 @@ export function ConditionForm({
           )}
         </div>
       ))}
+
+      {/*
+        **좌표계** — 성분(x · y · z)이 어느 방향인가. 「전역」 이 기본이고, 도면 · 해석 조건에서
+        이름 붙인 좌표계를 고른다(리본의 「좌표계」).
+      */}
+      {'cs' in group.fields && (
+        <div className="space-y-1">
+          <Label htmlFor="cond-cs">좌표계</Label>
+          <select
+            id="cond-cs"
+            className="bg-background w-full rounded border px-2 py-1 text-sm"
+            value={String(item.cs ?? 'global')}
+            onChange={(e) => set('cs', e.target.value)}
+          >
+            <option value="global">전역</option>
+            {frames.map((one) => (
+              <option key={one} value={one}>
+                {one}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {fields.map(([key, field]) => {
         const options = choices(field)

@@ -8,6 +8,8 @@
  */
 
 import type { Recipe } from '@/modules/cad/api'
+import type { FrameDraft } from '@/modules/cad/FrameForm'
+import type { FrameRow } from '@/shared/viewer/PickViewer'
 import { api } from '@/shared/api/client'
 
 export interface FieldSchema {
@@ -144,6 +146,11 @@ export interface Conditions {
   initial: ConditionItem[]
   analysis: Record<string, unknown>
   mesh_hints: ConditionItem[]
+  /**
+   * 해석 조건에서 정한 좌표계 — 원점 · 회전(수 또는 식)이거나 선택 그룹의 면에 붙인 것(`on`).
+   * 도면의 좌표계와 이름이 겹치면 안 된다. 조건의 「좌표계」(`cs`) 칸이 이름으로 가리킨다.
+   */
+  coordinate_systems?: FrameDraft[]
 }
 
 /** 조건이 담기는 묶음들 — 선택 그룹과 해석 설정은 따로 다룬다. */
@@ -168,6 +175,7 @@ export function emptyConditions(): Conditions {
     initial: [],
     analysis: { type: 'modal', modes: 6 },
     mesh_hints: [],
+    coordinate_systems: [],
   }
 }
 
@@ -252,6 +260,12 @@ export const conditionsApi = {
       '/cad/recipe/find',
       { recipe, query: select },
     ),
+  /**
+   * 도면과 해석 조건의 **좌표계를 지금 치수로** 푼다 — 3D 에 축을 그린다. 계산은 서버 한 곳이다
+   * (화면이 따로 셈하면 보인 방향과 내보낸 방향이 어긋나는 날이 온다). 못 푼 이름은 `missing`.
+   */
+  frames: (recipe: Recipe, conditions: Conditions) =>
+    api.post<{ items: FrameRow[]; missing: string[] }>('/cad/conditions/frames', { recipe, conditions }),
   /**
    * **여럿을 한 번에** — 사각형 선택(Shift + 끌기). 도면을 한 번만 만들고 같은 순서로 돌려준다.
    * 하나씩 부르면 스무 개를 고른 사각형이 도면을 스무 번 만든다.

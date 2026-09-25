@@ -31,6 +31,11 @@ class SelectorsRequest(RecipeRequest):
     부르면 스무 개를 고른 사각형이 도면을 스무 번 만든다."""
 
 
+class FramesRequest(RecipeRequest):
+    conditions: dict[str, Any] | None = None
+    """해석 조건 한 벌 — 그 안의 좌표계(`coordinate_systems`)를 함께 푼다."""
+
+
 class MeasureRequest(RecipeRequest):
     a: dict[str, Any]
     b: dict[str, Any]

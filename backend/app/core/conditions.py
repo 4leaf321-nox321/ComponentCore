@@ -246,6 +246,23 @@ class Units(Base):
     """`mm_n_tonne`(기본 — CAD 가 mm 라 해석도 mm) 또는 `si`."""
 
 
+#: 조건의 `cs` 가 **전역**을 뜻하는 이름.
+GLOBAL_FRAMES = {"global", "전역"}
+
+
+class Frame(Base):
+    """좌표계 — 조건의 `cs` 가 가리킨다(`core/frames.py`).
+
+    두 가지로 정한다: **원점 · 회전**(수치 또는 `"=식"` — 실험계획의 변수를 따라간다), 또는
+    **선택 그룹의 면에 붙이기**(`on` — 원점 = 면 중심, Z = 법선, 설계점마다 그 면을 따라간다).
+    `on` 이 있으면 원점 · 회전은 쓰지 않는다."""
+
+    name: str = Field(min_length=1, max_length=40)
+    origin: tuple[Number, Number, Number] = (0.0, 0.0, 0.0)
+    rotate: tuple[Number, Number, Number] = (0.0, 0.0, 0.0)
+    on: str = ""
+
+
 class Conditions(Base):
     """한 벌. 작업 버전에 붙고, 실험계획이 스냅샷을 뜬다."""
 
@@ -259,6 +276,9 @@ class Conditions(Base):
     initial: list[Initial] = Field(default_factory=list)
     analysis: Analysis = Field(default_factory=Analysis)
     mesh_hints: list[MeshHint] = Field(default_factory=list)
+    coordinate_systems: list[Frame] = Field(default_factory=list)
+    """해석 조건에서 정한 좌표계. 도면(레시피)의 좌표계와 **이름이 겹치면 안 된다** — 둘 다
+    `cs` 가 이름으로 가리킨다."""
 
 
 EMPTY: dict[str, Any] = Conditions().model_dump()
@@ -271,12 +291,20 @@ def _known_names(conditions: Conditions) -> set[str]:
     return {one.name for one in conditions.named_selections}
 
 
-def parse(raw: dict[str, Any] | None, bodies: list[str] | None = None) -> Conditions:
+def parse(
+    raw: dict[str, Any] | None,
+    bodies: list[str] | None = None,
+    frames: list[str] | None = None,
+) -> Conditions:
     """읽어서 검증한다. **틀린 자리를 짚어 말한다** — 「조건이 잘못됐습니다」 로는 못 고친다.
 
     `bodies` 를 주면 **물성이 붙은 바디가 진짜 있는지**도 본다(`topology.bodies` 의 이름).
     없는 이름에 물성을 붙이면 해석 쪽이 그 바디에 아무 물성도 못 얹고, 그 사실은 푸는
     날에야 드러난다 — 이름표를 가리킬 때와 같은 까닭이다.
+
+    `frames` 는 도면(레시피)의 좌표계 이름들 — 주면 조건의 `cs` 가 **있는 좌표계**를
+    가리키는지 본다. 안 주면 조건 안의 좌표계만 알고, 모르는 이름은 넘어간다(도면을 못 보는
+    자리에서 저장을 막지 않으려고).
     """
     if not raw:
         return Conditions()
@@ -315,6 +343,32 @@ def parse(raw: dict[str, Any] | None, bodies: list[str] | None = None) -> Condit
                         f"{group}[{index}]: 「{target}」 라는 선택 그룹이 없습니다 "
                         f"(있는 것: {', '.join(sorted(names)) or '없음'})"
                     )
+
+    # **좌표계** — 이름이 겹치지 않고, 면에 붙인 것은 있는 선택 그룹을 가리키고, 조건의
+    # `cs` 는 있는 좌표계를 가리킨다. 모르는 좌표계를 조용히 전역으로 읽으면 성분이 딴
+    # 방향으로 걸린다.
+    local = [one.name for one in conditions.coordinate_systems]
+    for index, frame in enumerate(conditions.coordinate_systems):
+        if frame.name in GLOBAL_FRAMES:
+            raise ConditionError(
+                f"coordinate_systems[{index}]: 「{frame.name}」 은 전역 좌표계의 이름입니다"
+            )
+        if local.count(frame.name) > 1 or frame.name in (frames or []):
+            raise ConditionError(
+                f"coordinate_systems[{index}]: 좌표계 「{frame.name}」 이 겹칩니다 "
+                "(도면의 좌표계와도 이름이 달라야 합니다)"
+            )
+        if frame.on and frame.on not in names:
+            raise ConditionError(
+                f"coordinate_systems[{index}]: 「{frame.on}」 라는 선택 그룹이 없습니다"
+            )
+    known_frames = GLOBAL_FRAMES | set(local) | set(frames or [])
+    for index, item in enumerate(conditions.constraints):
+        if frames is not None and item.cs not in known_frames:
+            raise ConditionError(
+                f"constraints[{index}]: 「{item.cs}」 라는 좌표계가 없습니다 "
+                f"(있는 것: {', '.join(sorted(known_frames - GLOBAL_FRAMES)) or '없음'})"
+            )
 
     # **물성이 붙은 바디가 진짜 있나.** 「전체」 는 늘 된다(모든 바디).
     known = set(bodies) if bodies is not None else None

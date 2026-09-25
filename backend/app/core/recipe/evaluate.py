@@ -115,6 +115,8 @@ class Evaluation:
     """보통 Part(입체). `allow_sketch` 로 평가했을 때만 Sketch(면)일 수 있다 — `is_sketch`."""
     nodes: list[NodeInfo] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    frames: list[dict[str, Any]] = field(default_factory=list)
+    """레시피의 좌표계를 **이 평가의 치수로** 푼 것 — 원점 · X · Y · Z(`core/frames.py`)."""
     tags: dict[str, list[int]] = field(default_factory=dict)
     """`divide_face` 가 붙인 이름 → **그때의 면 번호들**.
 
@@ -1059,12 +1061,20 @@ def evaluate(
     보여 준다. 저장 · 지그는 입체여야 하므로 기본은 거절이다.
 
     `resolve_component` 는 조립이 쓴다 — `component` 가 가리키는 도면의 레시피를 주는 함수."""
-    return _evaluate_recipe(
+    made = _evaluate_recipe(
         recipe,
         resolve_file=resolve_file,
         resolve_component=resolve_component,
         allow_sketch=allow_sketch,
     )
+    # 좌표계는 형상과 무관하다 — 식은 이미 풀렸으니(`parse`) 원점 · 축만 셈한다.
+    from app.core import frames
+
+    made.frames = [
+        frames.from_rotation(one.name, "cad", one.origin, one.rotate)
+        for one in recipe.coordinate_systems
+    ]
+    return made
 
 
 def _evaluate_recipe(

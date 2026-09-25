@@ -85,6 +85,16 @@ export interface PickModifiers {
   shift: boolean
 }
 
+/** 그릴 좌표계 하나 — 서버가 푼 원점과 세 축(단위 벡터, CAD 좌표). */
+export interface FrameRow {
+  name: string
+  origin: number[]
+  x: number[]
+  y: number[]
+  z: number[]
+  source?: string
+}
+
 export interface PickViewerProps {
   mesh: MeshData | null
   mode: PickMode
@@ -109,6 +119,8 @@ export interface PickViewerProps {
    */
   measureKinds?: { point?: boolean; edge?: boolean; face?: boolean; body?: boolean }
   measureMarks?: MeasureMarks
+  /** 좌표계 — 원점에서 X(빨강) · Y(초록) · Z(파랑) 축과 이름을 그린다. 고르지는 않는다. */
+  frames?: FrameRow[]
   /** 조립: 구성품 id → 색. 없는 구성품(과 조립이 아닌 면)은 기본색. */
   partColors?: Record<string, number>
   /** 조립: 이 구성품만 또렷하게, 나머지는 반투명으로 — 어느 것을 고치는지 보인다. */
@@ -314,7 +326,7 @@ function gatherDots(mesh: MeshData): { at: number[][]; kinds: string[] } {
 }
 
 /** 표준 방향 — 뒤에서 카메라가 설 자리(중심 기준 단위 벡터, CAD Z-up 기준). */
-export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, onBoxSelect, measureKinds, measureMarks, partColors, emphasis, sync, dragPart, dragMode = 'translate', onMoved, className }: PickViewerProps) {
+export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, onBoxSelect, measureKinds, measureMarks, frames, partColors, emphasis, sync, dragPart, dragMode = 'translate', onMoved, className }: PickViewerProps) {
   const syncId = useRef(`viewer-${Math.random().toString(36).slice(2)}`)
   const syncRef = useRef(sync)
   syncRef.current = sync
@@ -337,6 +349,8 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     /** 굵은 선이 화면 크기를 알아야 픽셀 굵기를 지킨다. */
     resolution: THREE.Vector2
     marks: THREE.Group
+    /** 좌표계 축 — 측정 표시(`marks`)와 따로 둔다. 측정을 지워도 좌표계는 남아야 한다. */
+    axes: THREE.Group
     fitted: boolean
     /** 구성품마다 한 묶음 — 끌기 손잡이가 이것을 잡는다. 이름표 없는 면은 shapes 바로 아래. */
     parts: Map<string, THREE.Group>
@@ -370,6 +384,8 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     group.add(shapes)
     const marks = new THREE.Group()
     group.add(marks)
+    const axes = new THREE.Group()
+    group.add(axes)
     state.current = {
       scene,
       rig,
@@ -383,6 +399,7 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       hoverDot: null,
       resolution: new THREE.Vector2(1, 1),
       marks,
+      axes,
       fitted: false,
       parts: new Map(),
       gizmo: null,
@@ -902,6 +919,35 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     s.group.add(points)
     s.dots = { object: points, at: gathered.at, kinds: gathered.kinds }
   }, [mesh, wantsDots])
+
+  // 좌표계 — 원점에서 세 축(X 빨강 · Y 초록 · Z 파랑)과 이름. 길이는 형상 크기의 1/6.
+  useEffect(() => {
+    const s = state.current
+    if (!s) return
+    s.axes.clear()
+    if (!frames?.length) return
+    const size = (s.group.userData.size as number) || 50
+    const length = size / 6
+    for (const frame of frames) {
+      const o = frame.origin
+      for (const [axis, color] of [
+        [frame.x, 0xef4444],
+        [frame.y, 0x22c55e],
+        [frame.z, 0x3b82f6],
+      ] as const) {
+        const tip = [o[0] + axis[0] * length, o[1] + axis[1] * length, o[2] + axis[2] * length]
+        const line = fatLine([...o, ...tip], color, 4, s.resolution)
+        line.renderOrder = 9
+        ;(line.material as THREE.Material).depthTest = false
+        s.axes.add(line)
+      }
+      const sprite = makeLabel(frame.name, 'entity')
+      const height = size / 16
+      sprite.scale.set(height * (sprite.userData.aspect as number), height, 1)
+      sprite.position.set(o[0], o[1], o[2] - height * 0.8)
+      s.axes.add(sprite)
+    }
+  }, [frames, mesh])
 
   // 측정 표시 — 점 · 치수선 · **값 글자** · 고른 엣지/면 강조. 무엇을 어디서 쟀는지 3D 에서 보인다.
   useEffect(() => {

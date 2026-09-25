@@ -23,6 +23,7 @@ from app.modules.cad import services
 from app.modules.cad.schemas import (
     BeamRequest,
     FindRequest,
+    FramesRequest,
     GeometryRequest,
     InterferenceRequest,
     MeasureRequest,
@@ -144,6 +145,40 @@ def conditions_schema(_: User = Depends(current_user)) -> dict[str, Any]:
     return spec()
 
 
+@router.post("/conditions/frames")
+def conditions_frames(
+    payload: FramesRequest, _: User = Depends(current_user)
+) -> dict[str, Any]:
+    """도면과 해석 조건의 **좌표계를 지금 치수로** 푼다 — 원점 · X · Y · Z. 조건 화면이 3D 에
+    축을 그린다. 면에 붙인 좌표계는 그 선택 그룹을 지금 형상에서 풀어 얻는다.
+
+    계산은 서버 한 곳이다(`core/frames`) — 화면이 따로 셈하면 3D 에 보인 방향과 내보낸
+    방향이 어긋나는 날이 온다. 못 푼 이름은 `missing` 으로 돌려준다."""
+    from app.core import conditions as condition_model
+    from app.core import frames
+    from app.core.recipe import topology
+
+    evaluation = services.build(payload.recipe)
+    raw = payload.conditions or {}
+    try:
+        resolved = condition_model.resolve(raw, payload.recipe.get("params") or {})
+    except condition_model.ConditionError as failure:
+        raise AppError(code("CAD", 14), str(failure)) from failure
+    wanted = {
+        str(one.get("on")) for one in resolved.get("coordinate_systems") or [] if one.get("on")
+    }
+    groups = [
+        {"name": one["name"], "select": one.get("select") or {}}
+        for one in resolved.get("named_selections") or []
+        if one.get("name") in wanted
+    ]
+    regions, _ = (
+        topology.regions(evaluation.shape, groups, evaluation.tags) if groups else ({}, [])
+    )
+    side, missing = frames.condition_frames(resolved.get("coordinate_systems") or [], regions)
+    return {"items": [*evaluation.frames, *side], "missing": missing}
+
+
 @router.post("/recipe/selectors")
 def recipe_selectors(
     payload: SelectorsRequest, _: User = Depends(current_user)
@@ -228,7 +263,12 @@ def recipe_mesh(payload: RecipeRequest, _: User = Depends(current_user)) -> dict
     """면 · 엣지 단위 메시 + 요약 — 편집기의 미리보기이자 「3D 에서 고르기」 의 근거.
     스케치까지만 그렸으면 면으로 보인다."""
     evaluation = services.build(payload.recipe, allow_sketch=True)
-    return {"summary": evaluation.summary(), "mesh": mesh(evaluation.shape)}
+    # 레시피의 좌표계도 함께 — 편집기가 3D 에 축을 그린다(계산은 서버 한 곳, `core/frames`).
+    return {
+        "summary": evaluation.summary(),
+        "mesh": mesh(evaluation.shape),
+        "frames": evaluation.frames,
+    }
 
 
 @router.post("/recipe/step")

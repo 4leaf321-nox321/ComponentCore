@@ -29,10 +29,12 @@
 import {
   Anchor,
   ArrowDownToLine,
+  Axis3d,
   FlaskConical,
   Grid3x3,
   Group,
   Link2,
+  Ruler,
   Save,
   Scale,
   Settings2,
@@ -42,6 +44,13 @@ import type { LucideIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { Recipe } from '@/modules/cad/api'
+import { FrameForm } from '@/modules/cad/FrameForm'
+import type { FrameDraft } from '@/modules/cad/FrameForm'
+import { nextFrameName } from '@/modules/cad/FramesDialog'
+import { keptLabel, MeasureDialog } from '@/modules/cad/MeasureDialog'
+import type { KeptMeasure, PickKind as MeasureKind } from '@/modules/cad/MeasureDialog'
+import type { Pick as MeasuredPick } from '@/modules/cad/measure'
+import { measureMarks } from '@/modules/cad/measureMarks'
 import { RibbonButton, RibbonGroup } from '@/modules/cad/Ribbon'
 import { useRecipeMesh } from '@/modules/cad/useRecipeMesh'
 import { ConditionForm } from '@/modules/conditions/ConditionForm'
@@ -78,7 +87,7 @@ import { Button } from '@/shared/components/ui/button'
 import { Card, CardContent } from '@/shared/components/ui/card'
 import { Skeleton } from '@/shared/components/ui/skeleton'
 import { useResource } from '@/shared/hooks/useResource'
-import type { MeasureMarks, MeasurePick, PickModifiers } from '@/shared/viewer/PickViewer'
+import type { FrameRow, MeasureMarks, MeasurePick, PickModifiers } from '@/shared/viewer/PickViewer'
 import PickViewer from '@/shared/viewer/PickViewer'
 
 /**
@@ -152,6 +161,16 @@ export function ConditionsPanel({
   const [grouping, setGrouping] = useState(false)
   const [groupName, setGroupName] = useState('')
   const [picking, setPicking] = useState(false)
+  /** 좌표계 창 — 새로(`index` 가 null) 또는 고치는 것. 확인을 눌러야 한 벌에 들어간다. */
+  const [frameEditing, setFrameEditing] = useState<{ index: number | null; item: FrameDraft } | null>(null)
+  /**
+   * **측정** — 도면 편집기와 같은 창이다. 켜 있는 동안 3D 선택은 선택 그룹이 아니라 재는 데
+   * 쓴다(조건을 걸 자리의 거리 · 지름을 확인하려고).
+   */
+  const [measuring, setMeasuring] = useState(false)
+  const [measures, setMeasures] = useState<MeasuredPick[]>([])
+  const [kept, setKept] = useState<KeptMeasure[]>([])
+  const [measureKinds, setMeasureKinds] = useState<Set<MeasureKind>>(new Set<MeasureKind>(['point', 'edge', 'face']))
   /** 지금 선택할 종류 — 하나만. 기본은 면(조건이 가장 많이 붙는 자리다). */
   const [pickKind, setPickKind] = useState<PickKind>('face')
   /** 초기조건 창이 바디로 바꿔 놓기 전의 선택 대상 — 창을 닫으면 되돌린다. */
@@ -381,6 +400,36 @@ export function ConditionsPanel({
    * **트리에서 고른 선택 그룹을 3D 에 비춘다** — 그 그룹이 지금 형상에서 집는 것들. 규칙은
    * 서버가 푼다(합 · 태그까지). 바디 그룹은 물을 것이 없다 — 파트 이름이 곧 답이다.
    */
+  /**
+   * **좌표계** — 도면의 것(레시피)과 조건의 것. 조건의 「좌표계」 칸이 이름으로 가리킨다.
+   * 3D 에 그릴 축은 서버가 지금 치수로 푼다(면에 붙인 것은 그 그룹을 풀어서) — 화면이 따로
+   * 셈하면 보인 방향과 내보낸 방향이 어긋난다.
+   */
+  const cadFrames = recipe.coordinate_systems ?? []
+  const conditionFrames = draft.coordinate_systems ?? []
+  const frameNames = [...cadFrames.map((one) => one.name), ...conditionFrames.map((one) => one.name)]
+  const framesKey = JSON.stringify([recipe, conditionFrames, names])
+  const [frameRows, setFrameRows] = useState<FrameRow[]>([])
+  useEffect(() => {
+    if (cadFrames.length === 0 && conditionFrames.length === 0) {
+      setFrameRows([])
+      return
+    }
+    let alive = true
+    const timer = setTimeout(() => {
+      conditionsApi
+        // 좌표계에 필요한 것만 보낸다 — 고치는 중인 다른 조건 때문에 축이 사라지지 않게.
+        .frames(recipe, { ...asConditions(null), named_selections: names, coordinate_systems: conditionFrames })
+        .then((got) => alive && setFrameRows(Array.isArray(got.items) ? got.items : []))
+        .catch(() => alive && setFrameRows([]))
+    }, 300)
+    return () => {
+      alive = false
+      clearTimeout(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [framesKey])
+
   const litGroup = tree?.kind === 'selection' ? names[tree.index] : undefined
   const litKey = litGroup ? JSON.stringify([litGroup.entity, litGroup.select]) : ''
   const [lit, setLit] = useState<{ key: string; what: string; rows: FoundRow[] } | null>(null)
@@ -478,6 +527,23 @@ export function ConditionsPanel({
     const list = (draft[editing.group as keyof Conditions] as ConditionItem[]).filter((_, i) => i !== editing.index)
     setDraft({ ...draft, [editing.group]: list })
     closeWindow()
+  }
+
+  function confirmFrame() {
+    if (!frameEditing) return
+    const name = frameEditing.item.name.trim()
+    const others = frameNames.filter((_, i) => i !== cadFrames.length + (frameEditing.index ?? -1))
+    if (!name || ['global', '전역'].includes(name) || others.includes(name)) {
+      setError(new Error(`「${name}」 — 비었거나 전역(global)이거나 이미 있는 좌표계 이름입니다(도면의 좌표계와도 달라야 합니다).`))
+      return
+    }
+    const item = { ...frameEditing.item, name }
+    const list = [...conditionFrames]
+    if (frameEditing.index === null) list.push(item)
+    else list[frameEditing.index] = item
+    setDraft({ ...draft, coordinate_systems: list })
+    setFrameEditing(null)
+    setError(null)
   }
 
   function removeSelection(index: number) {
@@ -689,6 +755,30 @@ export function ConditionsPanel({
             />
           ))}
         </RibbonGroup>
+        <RibbonGroup title="좌표계 · 측정">
+          <RibbonButton
+            icon={Axis3d}
+            label="좌표계"
+            title="좌표계 추가 — 조건의 x · y · z 가 어느 방향인가(원점 · 회전 또는 선택 그룹의 면)"
+            onClick={() =>
+              setFrameEditing({ index: null, item: { name: nextFrameName(frameNames), origin: [0, 0, 0], rotate: [0, 0, 0] } })
+            }
+          />
+          <RibbonButton
+            icon={Ruler}
+            label="측정"
+            title="측정 — 창을 띄운 채 3D 를 누릅니다(켜 있는 동안은 선택 그룹을 만들지 않습니다)"
+            active={measuring}
+            onClick={() => {
+              if (!measuring) {
+                // 재는 동안 3D 선택은 재는 데 쓴다 — 담던 선택 그룹 창은 닫는다.
+                setGrouping(false)
+                clearMembers()
+              }
+              setMeasuring(!measuring)
+            }}
+          />
+        </RibbonGroup>
         <RibbonGroup title="해석">
           <RibbonButton
             icon={Settings2}
@@ -775,6 +865,11 @@ export function ConditionsPanel({
               onOpenAnalysis={() =>
                 openWindow({ group: 'analysis', index: null, item: structuredClone(draft.analysis) as ConditionItem })
               }
+              frames={[
+                ...cadFrames.map((one) => ({ name: one.name, source: 'cad' as const, index: -1 })),
+                ...conditionFrames.map((one, index) => ({ name: one.name, source: 'conditions' as const, index, on: one.on })),
+              ]}
+              onOpenFrame={(index) => setFrameEditing({ index, item: structuredClone(conditionFrames[index]) })}
             />
           </CardContent>
         </Card>
@@ -824,17 +919,26 @@ export function ConditionsPanel({
               mesh={mesh}
               mode="measure"
               // **켠 것 하나만.** 바디는 면을 눌러 고르므로 면과 함께 켜면 안 된다.
-              measureKinds={{
-                point: pickKind === 'point',
-                edge: pickKind === 'edge',
-                face: pickKind === 'face',
-                body: pickKind === 'body',
+              measureKinds={
+                measuring
+                  ? { point: measureKinds.has('point'), edge: measureKinds.has('edge'), face: measureKinds.has('face') }
+                  : {
+                      point: pickKind === 'point',
+                      edge: pickKind === 'edge',
+                      face: pickKind === 'face',
+                      body: pickKind === 'body',
+                    }
+              }
+              onMeasure={(pick, mods) => {
+                if (!measuring) return void ask(pick, mods)
+                if (pick.kind === 'body') return
+                setMeasures((now) => (now.length >= 3 ? [pick] : [...now, pick]))
               }}
-              onMeasure={(pick, mods) => void ask(pick, mods)}
-              // Shift + 끌기 — 사각형 안에 온전히 든 것(가려진 것은 빼고)을 더한다.
-              onBoxSelect={(picks) => void addMany(picks)}
-              // 담은 것을 번호와 함께 표시한다 — 목록의 몇 번이 어디인지.
-              measureMarks={marks}
+              // Shift + 끌기 — 사각형 안에 온전히 든 것(가려진 것은 빼고)을 더한다. 재는 동안은 아니다.
+              onBoxSelect={measuring ? undefined : (picks) => void addMany(picks)}
+              // 담은 것을 번호와 함께 표시한다 — 목록의 몇 번이 어디인지. 재는 동안은 잰 것.
+              measureMarks={measuring ? measureMarks(measures, kept) : marks}
+              frames={frameRows}
               partColors={partColors}
               // 트리에서 파트를 누르면 3D 에서도 그 파트만 또렷하게 — 어느 것에 지정하는지 보인다.
               emphasis={tree?.kind === 'part' && bodyNames.length > 1 ? tree.name : null}
@@ -899,11 +1003,66 @@ export function ConditionsPanel({
               group={editingSpec}
               item={editing.item}
               names={editing.group === 'analysis' ? names : namesFor(editing.group)}
+              frames={frameNames}
               onChange={(next) => setEditing({ ...editing, item: next })}
             />
           </>
         )}
       </FloatingWindow>
+
+      {/* ── 좌표계 — 조건의 「좌표계」 칸이 이름으로 가리킨다. ── */}
+      <FloatingWindow
+        open={!!frameEditing}
+        title={`좌표계 ${frameEditing?.index === null ? '추가' : '수정'}`}
+        description="구속의 x · y · z 가 이 좌표계의 축 방향이 됩니다. 원점 · 회전에 =식을 쓰거나 선택 그룹의 면에 붙이면 DOE 로 치수가 바뀔 때 따라갑니다."
+        onClose={() => setFrameEditing(null)}
+        footer={
+          <>
+            {frameEditing && frameEditing.index !== null && (
+              <Button
+                variant="ghost"
+                className="sm:mr-auto"
+                onClick={() => {
+                  setDraft({ ...draft, coordinate_systems: conditionFrames.filter((_, i) => i !== frameEditing.index) })
+                  setFrameEditing(null)
+                }}
+              >
+                삭제
+              </Button>
+            )}
+            <Button variant="ghost" onClick={() => setFrameEditing(null)}>
+              취소
+            </Button>
+            <Button onClick={confirmFrame}>확인</Button>
+          </>
+        }
+      >
+        {frameEditing && (
+          <FrameForm
+            value={frameEditing.item}
+            onChange={(item) => setFrameEditing({ ...frameEditing, item })}
+            groups={names.filter((one) => one.entity === 'face').map((one) => one.name)}
+          />
+        )}
+      </FloatingWindow>
+
+      {/* ── 측정 — 도면 편집기와 같은 창. 띄운 채 3D 를 누른다. ── */}
+      <MeasureDialog
+        open={measuring}
+        picks={measures}
+        kept={kept}
+        kinds={measureKinds}
+        onKinds={setMeasureKinds}
+        onUndo={() => setMeasures((now) => now.slice(0, -1))}
+        onClear={() => setMeasures([])}
+        onKeep={() => {
+          if (measures.length === 0) return
+          setKept((list) => [...list, { id: `m-${Date.now()}`, picks: measures, label: keptLabel(measures) }])
+          setMeasures([])
+        }}
+        onDropKept={(id) => setKept((list) => list.filter((one) => one.id !== id))}
+        onClose={() => setMeasuring(false)}
+      />
 
       {/*
         ── 선택 그룹 추가 — 리본 단추로 열거나, 창 없이 3D 를 선택하면 열린다. Ctrl(⌘)은 넣고

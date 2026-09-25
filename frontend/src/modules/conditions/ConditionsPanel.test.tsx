@@ -87,7 +87,7 @@ const SCHEMA = {
     constraints: {
       label: '구속',
       types: ['fixed_support', 'displacement'],
-      fields: { name: {}, type: { enum: ['fixed_support', 'displacement'] }, on: {}, x: { anyOf: [{ type: 'number' }, { type: 'null' }] } },
+      fields: { name: {}, type: { enum: ['fixed_support', 'displacement'] }, on: {}, cs: { type: 'string' }, x: { anyOf: [{ type: 'number' }, { type: 'null' }] } },
       required: [],
     },
     loads: {
@@ -224,6 +224,8 @@ vi.mock('@/shared/api/client', async () => {
       // 바디 목록과 셀렉터 후보는 **다른 길**이다 — 물성이 어디에 붙는지가 바디에서 나온다.
       post: vi.fn(async (path: string, body?: { pick?: { point?: number[] }; picks?: { point: number[] }[] }) => {
         if (path.startsWith('/cad/recipe/bodies')) return BODIES
+        // 좌표계 — 서버가 지금 치수로 푼 축(화면은 그리기만 한다).
+        if (path.startsWith('/cad/conditions/frames')) return { items: [], missing: [] }
         // 선택 그룹을 지금 형상에서 푼다 — 바닥 면 하나.
         if (path.startsWith('/cad/recipe/find')) return { what: 'faces', total: 1, items: [{ index: 0, center: [0, 0, 0] }] }
         const answer = (point?: number[]) =>
@@ -639,4 +641,53 @@ test('초기조건은 **바디만** 가리킨다', async () => {
   await waitFor(() => expect(lastKinds).toEqual({ point: false, edge: false, face: true, body: false }))
 
   expect((await save(onSave)).initial[0].on).toBe('기둥몸')
+})
+
+
+test('좌표계를 만들면 구속의 **「좌표계」 칸**에서 고른다 — 없으면 전역', async () => {
+  const onSave = await panel()
+  await makeGroup('면 찍기', '바닥')
+  await waitFor(() => screen.getByText(/"role": "bottom"/))
+
+  // 리본의 「좌표계」 — 선택 그룹의 면에 붙인다(원점 = 면 중심, Z = 법선).
+  fireEvent.click(screen.getByRole('button', { name: '좌표계' }))
+  await waitFor(() => screen.getByRole('dialog', { name: '좌표계 추가' }))
+  fireEvent.change(screen.getByLabelText('이름'), { target: { value: '바닥 좌표' } })
+  fireEvent.click(screen.getByRole('button', { name: '선택 그룹의 면' }))
+  fireEvent.click(screen.getByRole('button', { name: '확인' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
+  fireEvent.click(screen.getByRole('button', { name: '구속' }))
+  await waitFor(() => screen.getByRole('dialog', { name: '구속 추가' }))
+  // 「Cs」 가 아니라 「좌표계」 — 전역이 기본이고 만든 좌표계를 고른다.
+  const cs = screen.getByLabelText('좌표계')
+  expect(cs).toHaveValue('global')
+  fireEvent.change(cs, { target: { value: '바닥 좌표' } })
+  fireEvent.click(screen.getByRole('button', { name: '확인' }))
+
+  const saved = await save(onSave)
+  expect(saved.coordinate_systems).toEqual([{ name: '바닥 좌표', origin: [0, 0, 0], rotate: [0, 0, 0], on: '바닥' }])
+  expect(saved.constraints[0].cs).toBe('바닥 좌표')
+})
+
+test('좌표계 이름이 겹치면 거절한다 — 조건이 어느 것을 가리킬지 알 수 없다', async () => {
+  await panel()
+  for (const _ of [1, 2]) {
+    fireEvent.click(screen.getByRole('button', { name: '좌표계' }))
+    await waitFor(() => screen.getByRole('dialog', { name: '좌표계 추가' }))
+    fireEvent.change(screen.getByLabelText('이름'), { target: { value: '끝' } })
+    fireEvent.click(screen.getByRole('button', { name: '확인' }))
+  }
+  await waitFor(() => screen.getByText(/이미 있는 좌표계 이름입니다/))
+})
+
+test('**측정**을 켜면 3D 선택이 재는 데 쓰인다 — 선택 그룹을 만들지 않는다', async () => {
+  await panel()
+  fireEvent.click(screen.getByRole('button', { name: '측정' }))
+  await waitFor(() => screen.getByRole('dialog', { name: /측정/ }))
+
+  fireEvent.click(screen.getByText('점 찍기'))
+  // 선택 그룹 창은 안 뜨고, 측정 창에 고른 것이 들어간다.
+  expect(screen.queryByRole('dialog', { name: '선택 그룹 추가' })).toBeNull()
+  await waitFor(() => screen.getByText('고른 것 (1)'))
 })

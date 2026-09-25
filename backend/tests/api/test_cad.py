@@ -380,3 +380,46 @@ def test_바디_목록은_물성이_붙을_자리를_말한다(client: TestClien
     assert [one["name"] for one in items] == ["바닥판", "기둥"]
     # 부피가 함께 온다 — 이름이 비슷할 때 어느 것이 어느 것인지 가른다.
     assert items[0]["volume"] > items[1]["volume"]
+
+
+def test_좌표계를_지금_치수로_풀어_준다(client: TestClient, member: Signed) -> None:
+    """조건 화면이 3D 에 축을 그린다 — 계산은 서버 한 곳이다."""
+    recipe = {
+        "params": {"길이": 80.0},
+        "nodes": [
+            {
+                "id": "b",
+                "op": "box",
+                "length": "=길이",
+                "width": 50,
+                "height": 10,
+                "align": ["center", "center", "min"],
+            }
+        ],
+        "coordinate_systems": [{"name": "끝", "origin": ["=길이/2", 0, 0]}],
+    }
+    conditions = {
+        "named_selections": [
+            {"name": "윗면", "entity": "face", "select": {"what": "faces", "role": "top"}},
+            # 상자에는 계단 면이 없다 — 있는 그룹이지만 지금 형상에서 아무것도 안 집는다.
+            {"name": "계단", "entity": "face", "select": {"what": "faces", "role": "step"}},
+        ],
+        "coordinate_systems": [
+            {"name": "윗면 좌표", "on": "윗면"},
+            {"name": "계단 좌표", "on": "계단"},
+        ],
+    }
+    got = client.post(
+        "/api/cad/conditions/frames",
+        json={"recipe": recipe, "conditions": conditions},
+        headers=member.headers,
+    ).json()
+    frames = {one["name"]: one for one in got["items"]}
+    assert frames["끝"]["origin"] == [40.0, 0.0, 0.0]
+    assert frames["윗면 좌표"]["origin"] == [0.0, 0.0, 10.0] and frames["윗면 좌표"]["z"] == [
+        0.0,
+        0.0,
+        1.0,
+    ]
+    # 아무것도 안 집는 그룹에 붙인 것은 못 푼 것으로 — 조용히 전역으로 바꾸지 않는다.
+    assert got["missing"] == ["계단 좌표"]

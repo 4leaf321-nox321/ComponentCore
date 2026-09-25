@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core import conditions
+from app.core.frames import recipe_frame_names
 from app.database import get_db
 from app.modules.accounts.models import User
 from app.modules.jobs import services as jobs
@@ -232,7 +233,7 @@ def set_conditions(
     except AppError:
         known = None
     try:
-        conditions.parse(payload.conditions, known)
+        conditions.parse(payload.conditions, known, recipe_frame_names(version.recipe))
     except conditions.ConditionError as failure:
         raise AppError(code("WORKS", 12), str(failure)) from failure
     version.conditions = payload.conditions

@@ -91,6 +91,8 @@ export function ModelTree({
   onRemoveSelection,
   onOpenItem,
   onOpenAnalysis,
+  frames = [],
+  onOpenFrame,
 }: {
   /** `null` 이면 아직 불러오는 중이다. */
   bodies: Body[] | null
@@ -118,6 +120,9 @@ export function ModelTree({
   onRemoveSelection: (index: number) => void
   onOpenItem: (group: string, index: number) => void
   onOpenAnalysis: () => void
+  /** 좌표계 — 도면의 것(읽기만)과 조건의 것(누르면 창). */
+  frames?: { name: string; source: 'cad' | 'conditions'; index: number; on?: string }[]
+  onOpenFrame?: (index: number) => void
 }) {
   const single = bodies?.length === 1 && bodies[0].name === ALL_BODIES
 
@@ -359,6 +364,34 @@ export function ModelTree({
               </li>
             )
           })}
+        </ul>
+      </Branch>
+
+      <Branch title="좌표계" count={frames.length}>
+        {frames.length === 0 && (
+          <p className="text-muted-foreground px-1 text-xs">리본의 「좌표계」 또는 도면 편집기에서 만듭니다. 없으면 전역입니다.</p>
+        )}
+        <ul className="space-y-0.5">
+          {frames.map((one) =>
+            one.source === 'cad' ? (
+              // 도면의 좌표계는 **도면 편집기에서** 고친다 — 여기서 고치면 버전이 안 남는다.
+              <li key={`cad-${one.name}`} className="flex items-center gap-2 px-2 py-1" title="도면 편집기의 「좌표계」 에서 고칩니다">
+                <span className="truncate">{one.name}</span>
+                <span className="text-muted-foreground ml-auto shrink-0 text-xs">도면</span>
+              </li>
+            ) : (
+              <li key={`cond-${one.index}`}>
+                <button
+                  type="button"
+                  className="hover:bg-muted flex w-full items-center gap-2 rounded px-2 py-1 text-left"
+                  onClick={() => onOpenFrame?.(one.index)}
+                >
+                  <span className="truncate">{one.name}</span>
+                  <span className="text-muted-foreground ml-auto shrink-0 text-xs">{one.on ? `「${one.on}」 면` : '원점 · 회전'}</span>
+                </button>
+              </li>
+            ),
+          )}
         </ul>
       </Branch>
 
