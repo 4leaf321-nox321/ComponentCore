@@ -2,7 +2,7 @@
  * 도면의 좌표계 — 이름 붙인 원점 · 축. 형상은 바뀌지 않고, 해석 조건의 「좌표계」 칸이 이름으로
  * 가리킨다(구속의 x · y · z 가 어느 방향인가).
  *
- * 원점 · 회전에 치수 식을 쓰면(`=길이/2`) 실험계획이 치수를 바꿀 때 같이 움직인다. 3D 에는
+ * 방향은 X · Y 방향 벡터 또는 회전으로 적는다. 칸에 치수 식을 쓰면(`=길이/2`) 실험계획이 치수를 바꿀 때 같이 움직인다. 3D 에는
  * 서버가 푼 축이 그려진다(X 빨강 · Y 초록 · Z 파랑).
  */
 
@@ -52,7 +52,7 @@ export function FramesDialog({
     <FloatingWindow
       open={open}
       title="좌표계"
-      description="시뮬레이션 조건의 「좌표계」 칸이 이름으로 가리킵니다. 원점 · 회전에 치수 식(=길이/2)을 쓰면 DOE 로 치수가 바뀔 때 같이 움직입니다."
+      description="시뮬레이션 조건의 「좌표계」 칸이 이름으로 가리킵니다. 칸에 치수 식(=길이/2)을 쓰면 DOE 로 치수가 바뀔 때 같이 움직입니다."
       onClose={onClose}
       footer={<Button onClick={onClose}>닫기</Button>}
     >
@@ -89,7 +89,7 @@ export function FramesDialog({
               <div className="space-y-2">
                 <FrameForm
                   value={current}
-                  onChange={(next) => onChange(frames.map((one, i) => (i === picked ? { name: next.name, origin: next.origin, rotate: next.rotate } : one)))}
+                  onChange={(next) => onChange(frames.map((one, i) => (i === picked ? { name: next.name, origin: next.origin, x_axis: next.x_axis, y_axis: next.y_axis, rotate: next.rotate } : one)))}
                   placing={placing}
                   onPlacing={onPlacing}
                 />

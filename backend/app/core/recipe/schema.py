@@ -752,13 +752,19 @@ class CoordinateSystem(BaseModel):
     """이름 붙인 좌표계 — 해석 조건이 「이 방향으로 x · y · z」 를 말할 때 가리킨다.
 
     형상을 바꾸지 않는다. 원점 · 회전에 치수 식(`"=길이/2"`)을 쓸 수 있어 실험계획이 치수를
-    바꾸면 **같이 움직인다**. 회전은 `transform` 과 같다 — X · Y · Z 축 순서(도)."""
+    바꾸면 **같이 움직인다**. 방향은 두 방식 중 하나로 적는다 — **X · Y 방향 벡터**(Z 는 둘의
+    외적) 또는 **회전**(X → Y → Z 고정 축, 도). 벡터가 있으면 벡터를 쓴다."""
 
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=40)
     origin: XYZ = (0.0, 0.0, 0.0)
-    rotate: XYZ = (0.0, 0.0, 0.0)
+    x_axis: XYZ | None = None
+    """X 방향(길이는 상관없다). 비우면 전역 X."""
+    y_axis: XYZ | None = None
+    """Y 방향 — X 에 수직이 아니어도 된다(수직으로 맞춘다). Z 는 X 와 Y 의 외적."""
+    rotate: XYZ | None = None
+    """회전 — X → Y → Z 고정 축 순서(도). `x_axis` 가 없을 때 쓴다."""
 
 
 class Recipe(BaseModel):

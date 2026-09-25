@@ -253,13 +253,19 @@ GLOBAL_FRAMES = {"global", "전역"}
 class Frame(Base):
     """좌표계 — 조건의 `cs` 가 가리킨다(`core/frames.py`).
 
-    두 가지로 정한다: **원점 · 회전**(수치 또는 `"=식"` — 실험계획의 변수를 따라간다), 또는
-    **선택 그룹의 면에 붙이기**(`on` — 원점 = 면 중심, Z = 법선, 설계점마다 그 면을 따라간다).
-    `on` 이 있으면 원점 · 회전은 쓰지 않는다."""
+    세 가지로 정한다: **원점 · X · Y 방향**, **원점 · 회전**(둘 다 수치 또는 `"=식"` —
+    실험계획의 변수를 따라간다), 또는 **선택 그룹의 면에 붙이기**(`on` — 원점 = 면 중심,
+    Z = 법선, 설계점마다 그 면을 따라간다). `on` 이 있으면 나머지는 쓰지 않고, `x_axis` 가
+    있으면 `rotate` 는 쓰지 않는다."""
 
     name: str = Field(min_length=1, max_length=40)
     origin: tuple[Number, Number, Number] = (0.0, 0.0, 0.0)
-    rotate: tuple[Number, Number, Number] = (0.0, 0.0, 0.0)
+    x_axis: tuple[Number, Number, Number] | None = None
+    """X 방향 — 비우면 전역 X."""
+    y_axis: tuple[Number, Number, Number] | None = None
+    """Y 방향 — X 에 수직이 아니어도 된다(수직으로 맞춘다). Z 는 X 와 Y 의 외적."""
+    rotate: tuple[Number, Number, Number] | None = None
+    """회전 — X → Y → Z 고정 축 순서(도). `x_axis` 가 없을 때 쓴다."""
     on: str = ""
 
 

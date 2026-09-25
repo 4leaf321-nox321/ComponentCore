@@ -14,7 +14,7 @@ import type { Recipe } from '@/modules/cad/api'
 import type { WorkKind } from '@/modules/works/api'
 import { LoadRecipeDialog, LoadWorkDialog } from '@/modules/cad/LoadDialogs'
 import type { Placing } from '@/modules/cad/FrameForm'
-import { framePlacement, numericFrame } from '@/modules/cad/frameMath'
+import { frameFields, framePlacement, methodOf, numericFrame } from '@/modules/cad/frameMath'
 import { FramesDialog } from '@/modules/cad/FramesDialog'
 import { keptLabel, MeasureDialog } from '@/modules/cad/MeasureDialog'
 import type { KeptMeasure, PickKind } from '@/modules/cad/MeasureDialog'
@@ -101,7 +101,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
   function setFrame(origin: number[], rotate: number[]) {
     emit((current) => ({
       ...current,
-      coordinate_systems: (current.coordinate_systems ?? []).map((one, i) => (i === framePicked ? { ...one, origin, rotate } : one)),
+      coordinate_systems: (current.coordinate_systems ?? []).map((one, i) => (i === framePicked ? { ...one, ...frameFields(methodOf(one), origin, rotate) } : one)),
     }))
   }
   const stepInput = useRef<HTMLInputElement | null>(null)

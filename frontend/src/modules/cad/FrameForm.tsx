@@ -1,13 +1,16 @@
 /**
  * 좌표계 하나의 칸 — 도면(레시피)과 해석 조건이 함께 쓴다.
  *
- * 원점 · 회전은 **수치 또는 치수 식**(`=길이/2`)이다 — 식이면 실험계획이 치수를 바꿀 때 같이
- * 움직인다. 해석 조건에서는 **선택 그룹의 면에 붙일 수도** 있다(원점 = 면 중심, Z = 법선) —
- * 그 면을 설계점마다 따라간다. 회전은 도면의 `transform` 과 같다: X · Y · Z 축 순서(도).
+ * 방향은 두 방식 중 고른다 — **X · Y 방향 벡터**(Z 는 둘의 외적) 또는 **회전**(도면의
+ * `transform` 과 같다: X · Y · Z 축 순서, 도). 칸은 **수치 또는 치수 식**(`=길이/2`)이다 — 식이면
+ * 실험계획이 치수를 바꿀 때 같이 움직인다. 해석 조건에서는 **선택 그룹의 면에 붙일 수도** 있다
+ * (원점 = 면 중심, Z = 법선) — 그 면을 설계점마다 따라간다.
  *
  * 축의 계산은 서버가 한다(`core/frames.py`) — 이 폼은 값을 적을 뿐이다.
  */
 
+import { methodOf, switchMethod } from '@/modules/cad/frameMath'
+import type { FrameMethod } from '@/modules/cad/frameMath'
 import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
 
@@ -28,8 +31,12 @@ const PLACING: { key: Exclude<Placing, null>; label: string; hint: string }[] = 
 export interface FrameDraft {
   name: string
   origin?: (number | string)[]
+  /** X 방향 — 있으면 벡터 방식(`y_axis` 와 함께), 없으면 회전 방식. */
+  x_axis?: (number | string)[]
+  /** Y 방향 — X 에 수직이 아니어도 된다(서버가 수직으로 맞춘다). */
+  y_axis?: (number | string)[]
   rotate?: (number | string)[]
-  /** 선택 그룹의 면에 붙인다 — 해석 조건에서만. 비우면 원점 · 회전을 쓴다. */
+  /** 선택 그룹의 면에 붙인다 — 해석 조건에서만. 비우면 원점 · 방향을 쓴다. */
   on?: string
 }
 
@@ -93,35 +100,38 @@ export function FrameForm({
   onPlacing?: (next: Placing) => void
 }) {
   const attached = !!value.on
+  const method: FrameMethod | 'on' = attached ? 'on' : methodOf(value)
+  const methods: [FrameMethod | 'on', string][] = [
+    ['vectors', '원점 · X · Y 방향'],
+    ['rotate', '원점 · 회전'],
+    ...(groups ? [['on', '선택 그룹의 면'] as [FrameMethod | 'on', string]] : []),
+  ]
+  const choose = (next: FrameMethod | 'on') => {
+    if (next === 'on') onChange({ ...value, on: value.on || groups?.[0] || ' ' })
+    else onChange({ ...switchMethod(value, next), on: groups ? '' : value.on })
+  }
   return (
     <div className="space-y-3">
       <div className="space-y-1">
         <Label htmlFor="frame-name">이름</Label>
         <Input id="frame-name" value={value.name} onChange={(e) => onChange({ ...value, name: e.target.value })} />
       </div>
-      {groups && (
-        <div className="space-y-1">
-          <Label className="text-xs">정하는 방법</Label>
-          <div className="flex gap-1" role="group" aria-label="정하는 방법">
-            {(
-              [
-                [false, '원점 · 회전'],
-                [true, '선택 그룹의 면'],
-              ] as const
-            ).map(([on, label]) => (
-              <button
-                key={label}
-                type="button"
-                aria-pressed={attached === on}
-                className={`flex-1 rounded border px-2 py-1 text-xs ${attached === on ? 'border-primary bg-accent font-medium' : 'text-muted-foreground'}`}
-                onClick={() => onChange({ ...value, on: on ? (value.on || groups[0] || ' ') : '' })}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+      <div className="space-y-1">
+        <Label className="text-xs">정하는 방법</Label>
+        <div className="flex gap-1" role="group" aria-label="정하는 방법">
+          {methods.map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={method === key}
+              className={`flex-1 rounded border px-2 py-1 text-xs ${method === key ? 'border-primary bg-accent font-medium' : 'text-muted-foreground'}`}
+              onClick={() => choose(key)}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-      )}
+      </div>
       {attached ? (
         <div className="space-y-1">
           <Label htmlFor="frame-on">선택 그룹</Label>
@@ -169,12 +179,32 @@ export function FrameForm({
             </div>
           )}
           <Triple label="원점" unit="mm · 수 또는 =식" value={value.origin} onChange={(origin) => onChange({ ...value, origin })} />
-          <Triple
-            label="회전"
-            unit="도 · X → Y → Z 축 순서"
-            value={value.rotate}
-            onChange={(rotate) => onChange({ ...value, rotate })}
-          />
+          {method === 'vectors' ? (
+            <>
+              <Triple
+                label="X 방향"
+                unit="벡터 · 길이 무관"
+                value={value.x_axis ?? [1, 0, 0]}
+                onChange={(x_axis) => onChange({ ...value, x_axis })}
+              />
+              <Triple
+                label="Y 방향"
+                unit="벡터 · X 에 수직으로 맞춤"
+                value={value.y_axis ?? [0, 1, 0]}
+                onChange={(y_axis) => onChange({ ...value, y_axis })}
+              />
+              <p className="text-muted-foreground text-xs">
+                Z 는 X 와 Y 의 외적입니다. Y 는 「대략 이쪽」 이면 되고, X 와 나란하면 안 됩니다.
+              </p>
+            </>
+          ) : (
+            <Triple
+              label="회전"
+              unit="도 · X → Y → Z 축 순서"
+              value={value.rotate}
+              onChange={(rotate) => onChange({ ...value, rotate })}
+            />
+          )}
         </>
       )}
     </div>

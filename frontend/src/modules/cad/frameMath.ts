@@ -1,7 +1,8 @@
 /**
  * 3D 에서 고른 점 · 선 · 면을 **원점 · 회전**으로 — 좌표계를 숫자로 적지 않고 화면에서 지정한다.
  *
- * 저장하는 모양은 그대로 원점 · 회전(X → Y → Z 고정 축 순서, 도)이고, 축의 정본 계산은 서버다
+ * 화면 안에서는 원점 · 회전(X → Y → Z 고정 축 순서, 도)으로 셈하고, 저장할 때 그 좌표계가 쓰는
+ * 방식(회전 또는 X · Y 방향 벡터)으로 적는다(`frameFields`). 축의 정본 계산은 서버다
  * (`core/frames.py`). 여기서는 **고른 것 → 원점 · 회전** 한 방향만 셈한다 — 서버가 그 원점 ·
  * 회전으로 다시 축을 푸므로, 여기가 틀리면 3D 에 그려진 축이 고른 것과 어긋나 바로 보인다.
  */
@@ -82,18 +83,83 @@ export function framePlacement(pick: MeasurePick, rotate: number[]): { origin: V
   return null
 }
 
+/** 좌표계의 방향을 적는 방식 — 서버는 `x_axis` 가 있으면 벡터, 없으면 회전으로 읽는다. */
+export type FrameMethod = 'vectors' | 'rotate'
+
+type Values = (number | string)[]
+
+export function methodOf(item: { x_axis?: Values | null; rotate?: Values | null }): FrameMethod {
+  return item.x_axis ? 'vectors' : 'rotate'
+}
+
+const numbers = (v?: Values | null) =>
+  v && v.length === 3 && v.every((one) => typeof one === 'number') ? (v as number[]) : null
+
+/** X · Y 방향(길이 · 직교 상관없음) → 세 축. 서버의 `from_vectors` 와 같은 규칙. 나란하면 null. */
+export function axesFromVectors(xAxis: number[], yAxis: number[]): [Vec3, Vec3, Vec3] | null {
+  const x = unit(xAxis)
+  const zRaw = cross(x, unit(yAxis))
+  if (Math.hypot(...zRaw) < 1e-6 || Math.hypot(xAxis[0], xAxis[1], xAxis[2]) === 0) return null
+  const z = unit(zRaw)
+  return [x, cross(z, x), z]
+}
+
+/** 회전 → X · Y 방향 벡터(적을 값). */
+export function vectorsOf(rotate: number[]): { x_axis: Vec3; y_axis: Vec3 } {
+  const [x, y] = axesOf(rotate)
+  return { x_axis: x.map(round) as Vec3, y_axis: y.map(round) as Vec3 }
+}
+
 /**
- * 손잡이 · 고르기가 시작할 **숫자** 원점 · 회전. 칸이 다 숫자면 그것, 식이 섞였으면 서버가 지금
- * 치수로 푼 축(`resolved`)에서 되돌린다 — 식은 화면이 못 푼다.
+ * 화면이 셈한 원점 · 회전을 **그 좌표계의 방식대로** 적을 칸들. 벡터로 적던 것은 벡터로, 회전으로
+ * 적던 것은 회전으로 — 3D 에서 지정해도 사용자가 고른 방식이 바뀌지 않는다.
+ */
+export function frameFields(
+  method: FrameMethod,
+  origin: number[],
+  rotate: number[],
+): { origin: Vec3; x_axis?: Vec3; y_axis?: Vec3; rotate?: Vec3 } {
+  const at = origin.map(round) as Vec3
+  if (method === 'vectors') return { origin: at, ...vectorsOf(rotate), rotate: undefined }
+  return { origin: at, rotate: rotate.map(round) as Vec3, x_axis: undefined, y_axis: undefined }
+}
+
+/**
+ * 방식을 바꾼다 — 지금 방향을 그대로 옮겨 적는다. 칸에 식이 섞여 셈할 수 없으면 전역 방향에서
+ * 시작한다.
+ */
+export function switchMethod<T extends { x_axis?: Values; y_axis?: Values; rotate?: Values }>(
+  item: T,
+  method: FrameMethod,
+): T {
+  if (methodOf(item) === method) return item
+  if (method === 'vectors') {
+    const rotate = numbers(item.rotate) ?? [0, 0, 0]
+    return { ...item, ...vectorsOf(rotate), rotate: undefined }
+  }
+  const x = numbers(item.x_axis)
+  const axes = x ? axesFromVectors(x, numbers(item.y_axis) ?? [0, 1, 0]) : null
+  return { ...item, rotate: axes ? rotationOf(...axes) : [0, 0, 0], x_axis: undefined, y_axis: undefined }
+}
+
+/**
+ * 손잡이 · 고르기가 시작할 **숫자** 원점 · 회전. 칸이 다 숫자면 그것(벡터면 회전으로 바꿔서), 식이
+ * 섞였으면 서버가 지금 치수로 푼 축(`resolved`)에서 되돌린다 — 식은 화면이 못 푼다.
  */
 export function numericFrame(
-  item: { origin?: (number | string)[]; rotate?: (number | string)[] },
+  item: { origin?: Values; rotate?: Values; x_axis?: Values; y_axis?: Values },
   resolved?: { origin: number[]; x: number[]; y: number[]; z: number[] },
 ): { origin: Vec3; rotate: Vec3 } {
-  const numbers = (v?: (number | string)[]) =>
-    v && v.length === 3 && v.every((one) => typeof one === 'number') ? (v as number[]) : null
   const origin = numbers(item.origin)
-  const rotate = numbers(item.rotate)
+  let rotate: number[] | null = null
+  if (methodOf(item) === 'vectors') {
+    const x = numbers(item.x_axis)
+    const y = item.y_axis ? numbers(item.y_axis) : [0, 1, 0]
+    const axes = x && y ? axesFromVectors(x, y) : null
+    rotate = axes ? rotationOf(...axes) : null
+  } else {
+    rotate = item.rotate ? numbers(item.rotate) : [0, 0, 0]
+  }
   if (origin && rotate) return { origin: origin as Vec3, rotate: rotate as Vec3 }
   if (resolved) {
     return { origin: resolved.origin as Vec3, rotate: rotationOf(resolved.x as Vec3, resolved.y as Vec3, resolved.z as Vec3) }

@@ -61,6 +61,35 @@ def from_rotation(name: str, source: str, origin: Any, rotate: Any) -> dict[str,
     return _row(name, source, origin, *axes)
 
 
+def from_vectors(
+    name: str, source: str, origin: Any, x_axis: Any, y_axis: Any
+) -> dict[str, Any]:
+    """원점 + **X 방향 · Y 방향.** X 는 그대로, Y 는 X 에 수직으로 맞추고, Z 는 X 와 Y 의
+    외적.
+
+    Y 가 X 와 정확히 수직이 아니어도 된다 — 「대략 이쪽이 Y」 면 충분하다. 둘이 나란하면 평면을
+    못 정하므로 `ValueError`."""
+    x = _unit(x_axis)
+    z_raw = _cross(x, _unit(y_axis))
+    if math.sqrt(sum(one * one for one in z_raw)) < 1e-6:
+        raise ValueError(
+            f"좌표계 「{name}」: X 방향과 Y 방향이 나란합니다 — 평면을 정할 수 없습니다"
+        )
+    z = _unit(z_raw)
+    return _row(name, source, origin, x, _cross(z, x), z)
+
+
+def from_definition(name: str, source: str, one: dict[str, Any]) -> dict[str, Any]:
+    """정의 한 줄 → 원점 · 축. 방향은 **두 방식 중 하나**다 — `x_axis` · `y_axis`(방향 벡터)가
+    있으면 그것, 없고 `rotate`(X → Y → Z 고정 축 회전, 도)가 있으면 회전, 둘 다 없으면 전역."""
+    origin = one.get("origin") or (0, 0, 0)
+    if one.get("x_axis") is None and one.get("rotate") is not None:
+        return from_rotation(name, source, origin, one["rotate"])
+    return from_vectors(
+        name, source, origin, one.get("x_axis") or (1, 0, 0), one.get("y_axis") or (0, 1, 0)
+    )
+
+
 def from_face(name: str, source: str, origin: Any, normal: Any) -> dict[str, Any]:
     """면에 붙인 좌표계 — 원점 = 면 중심, **Z = 법선.** X 는 전역 X 를 그 면에 눕힌 방향
     (법선이 X 와 나란하면 전역 Y) — 같은 면이면 늘 같은 X 가 나오게."""
@@ -92,14 +121,10 @@ def condition_frames(
         name = str(one.get("name", ""))
         group = str(one.get("on") or "")
         if not group:
-            out.append(
-                from_rotation(
-                    name,
-                    "conditions",
-                    one.get("origin") or (0, 0, 0),
-                    one.get("rotate") or (0, 0, 0),
-                )
-            )
+            try:
+                out.append(from_definition(name, "conditions", one))
+            except ValueError:
+                missing.append(name)
             continue
         face = (regions.get(group) or [None])[0]
         direction = (face or {}).get("normal") or (face or {}).get("axis")

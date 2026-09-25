@@ -1,4 +1,4 @@
-import { axesOf, framePlacement, numericFrame, rotationOf } from '@/modules/cad/frameMath'
+import { axesFromVectors, axesOf, frameFields, framePlacement, methodOf, numericFrame, rotationOf, switchMethod, vectorsOf } from '@/modules/cad/frameMath'
 import type { MeshEdge, MeshFace } from '@/shared/viewer/PickViewer'
 
 const close = (a: number[], b: number[]) => a.every((v, i) => Math.abs(v - b[i]) < 1e-3)
@@ -42,4 +42,27 @@ test('식이 든 좌표계는 서버가 푼 축에서 숫자를 되돌린다', (
   expect(got.origin).toEqual([40, 0, 5])
   expect(close(got.rotate, [0, 90, 0])).toBe(true)
   expect(numericFrame({ origin: [1, 2, 3], rotate: [4, 5, 6] })).toEqual({ origin: [1, 2, 3], rotate: [4, 5, 6] })
+})
+
+test('X · Y 방향 벡터 방식 — 회전과 같은 축, 나란하면 null', () => {
+  // Y 가 X 에 수직이 아니어도 수직으로 맞춘다(서버 시험과 같은 값).
+  const axes = axesFromVectors([0, 2, 0], [-1, 1, 0])!
+  expect(close(axes[0], [0, 1, 0]) && close(axes[1], [-1, 0, 0]) && close(axes[2], [0, 0, 1])).toBe(true)
+  expect(axesFromVectors([1, 0, 0], [3, 0, 0])).toBeNull()
+  expect(vectorsOf([0, 0, 90])).toEqual({ x_axis: [0, 1, 0], y_axis: [-1, 0, 0] })
+  expect(close(numericFrame({ origin: [0, 0, 0], x_axis: [0, 1, 0], y_axis: [-1, 0, 0] }).rotate, [0, 0, 90])).toBe(true)
+})
+
+test('방식을 바꾸면 방향을 옮겨 적고, 화면에서 지정해도 방식은 그대로', () => {
+  const vectors = switchMethod({ name: 'a', rotate: [0, 0, 90] }, 'vectors')
+  expect(methodOf(vectors)).toBe('vectors')
+  expect(vectors).toMatchObject({ x_axis: [0, 1, 0], y_axis: [-1, 0, 0], rotate: undefined })
+  const back = switchMethod(vectors, 'rotate')
+  expect(methodOf(back)).toBe('rotate')
+  expect(close(back.rotate as number[], [0, 0, 90])).toBe(true)
+  // 식이 섞여 셈할 수 없으면 전역에서 시작한다.
+  expect(switchMethod<{ x_axis?: (number | string)[]; rotate?: (number | string)[] }>({ x_axis: ['=a', 0, 0] }, 'rotate').rotate).toEqual([0, 0, 0])
+
+  expect(frameFields('vectors', [1, 2, 3], [0, 0, 90])).toEqual({ origin: [1, 2, 3], x_axis: [0, 1, 0], y_axis: [-1, 0, 0], rotate: undefined })
+  expect(frameFields('rotate', [1, 2, 3], [0, 0, 90])).toEqual({ origin: [1, 2, 3], rotate: [0, 0, 90], x_axis: undefined, y_axis: undefined })
 })

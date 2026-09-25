@@ -46,7 +46,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Recipe } from '@/modules/cad/api'
 import { FrameForm } from '@/modules/cad/FrameForm'
 import type { FrameDraft, Placing } from '@/modules/cad/FrameForm'
-import { framePlacement, numericFrame } from '@/modules/cad/frameMath'
+import { frameFields, framePlacement, methodOf, numericFrame } from '@/modules/cad/frameMath'
 import { nextFrameName } from '@/modules/cad/FramesDialog'
 import { keptLabel, MeasureDialog } from '@/modules/cad/MeasureDialog'
 import type { KeptMeasure, PickKind as MeasureKind } from '@/modules/cad/MeasureDialog'
@@ -456,7 +456,7 @@ export function ConditionsPanel({
     : null
   const placePick = !!frameStart && (placing === 'point' || placing === 'edge' || placing === 'face')
   function setFrameItem(origin: number[], rotate: number[]) {
-    if (frameEditing) setFrameEditing({ ...frameEditing, item: { ...frameEditing.item, origin, rotate } })
+    if (frameEditing) setFrameEditing({ ...frameEditing, item: { ...frameEditing.item, ...frameFields(methodOf(frameEditing.item), origin, rotate) } })
   }
 
   const litGroup = tree?.kind === 'selection' ? names[tree.index] : undefined

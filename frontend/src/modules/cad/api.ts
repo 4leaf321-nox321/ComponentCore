@@ -12,10 +12,15 @@ export type Recipe = {
   coordinate_systems?: RecipeFrame[]
 }
 
-/** 도면의 좌표계 하나 — 원점과 회전(X · Y · Z 축 순서, 도). */
+/**
+ * 도면의 좌표계 하나 — 원점과 방향. 방향은 **X · Y 방향 벡터**(`x_axis` · `y_axis`) 또는
+ * **회전**(`rotate` — X · Y · Z 축 순서, 도) 중 하나. 벡터가 있으면 벡터를 쓴다.
+ */
 export interface RecipeFrame {
   name: string
   origin?: (number | string)[]
+  x_axis?: (number | string)[]
+  y_axis?: (number | string)[]
   rotate?: (number | string)[]
 }
 

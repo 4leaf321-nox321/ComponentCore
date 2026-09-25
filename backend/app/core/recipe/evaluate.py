@@ -1070,10 +1070,11 @@ def evaluate(
     # 좌표계는 형상과 무관하다 — 식은 이미 풀렸으니(`parse`) 원점 · 축만 셈한다.
     from app.core import frames
 
-    made.frames = [
-        frames.from_rotation(one.name, "cad", one.origin, one.rotate)
-        for one in recipe.coordinate_systems
-    ]
+    for one in recipe.coordinate_systems:
+        try:
+            made.frames.append(frames.from_definition(one.name, "cad", one.model_dump()))
+        except ValueError as failure:
+            raise RecipeError(one.name, str(failure)) from failure
     return made
 
 
