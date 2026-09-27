@@ -402,3 +402,32 @@ def test_구속의_성분은_화면에_자유_고정_변위량으로_고르라�
     for axis in ("x", "y", "z"):
         assert fields[axis]["component"] is True
         assert fields[axis]["only_for"] == ["displacement"]
+
+
+def test_원통_지지는_반지름_축_접선마다_풀_수_있고_기본은_고정이다() -> None:
+    raw = {
+        "named_selections": [
+            {"name": "구멍", "entity": "face", "select": {"what": "faces", "role": "bottom"}}
+        ],
+        "constraints": [
+            {"name": "핀", "type": "cylindrical", "on": "구멍", "tangential": "free"}
+        ],
+    }
+    one = parse(raw).constraints[0]
+    assert (one.radial, one.axial, one.tangential) == ("fixed", "fixed", "free")
+    bad = {**raw, "constraints": [{**raw["constraints"][0], "axial": "0"}]}
+    with pytest.raises(ConditionError):
+        parse(bad)
+
+
+def test_종류가_정하는_방향은_사양표에_실려_화면이_잠긴_칸으로_보인다() -> None:
+    group = spec()["groups"]["constraints"]
+    assert group["fields"]["radial"]["only_for"] == ["cylindrical"]
+    assert group["fields"]["cs"]["only_for"] == ["displacement"]
+    implied = group["implied"]
+    # 고를 수 있는 종류(변위 · 원통)는 잠긴 칸이 없고, 나머지는 방향마다 적혀 있다.
+    assert set(implied) == {"fixed_support", "frictionless", "compression_only"}
+    assert [(one["label"], one["hold"]) for one in implied["frictionless"]] == [
+        ("법선", "fixed"),
+        ("접선", "free"),
+    ]

@@ -31,6 +31,14 @@ export interface GroupSchema {
   types: string[]
   fields: Record<string, FieldSchema>
   required: string[]
+  /** 종류가 스스로 정하는 방향(구속) — 고칠 수 없고, 화면이 잠긴 칸으로 보여 준다. */
+  implied?: Record<string, ImpliedHold[]>
+}
+
+export interface ImpliedHold {
+  label: string
+  hold: 'fixed' | 'free'
+  hint: string
 }
 
 /** 고를 수 있는 단위계 하나 — 서버가 정본이다(화면에 목록을 박지 않는다). */

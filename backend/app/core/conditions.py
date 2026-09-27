@@ -148,26 +148,92 @@ class Material(Base):
 # ── 조건들 ────────────────────────────────────────────────────────────────────
 
 
-#: 화면에 주는 표시 — **성분 칸**(자유 · 고정 · 변위량 중 고른다), 그리고 그 칸을 쓰는 종류.
-_COMPONENT: dict[str, Any] = {"component": True, "only_for": ["displacement"]}
+#: 화면에 주는 표시 — **성분 칸**(방향마다 자유 · 고정(· 변위량) 중 고른다), 그리고 그 칸을
+#: 쓰는 종류(`only_for`). 다른 종류면 화면이 그리지 않고, 종류를 바꾸면 기본값으로 되돌린다.
+_DISPLACEMENT: dict[str, Any] = {"component": True, "only_for": ["displacement"]}
+_CYLINDER: dict[str, Any] = {"component": True, "only_for": ["cylindrical"]}
+
+Hold = Literal["fixed", "free"]
+
+#: 종류가 **스스로 정하는** 방향 — 고칠 수 없지만 화면이 잠긴 칸으로 보여 준다. 어느 방향이
+#: 어떻게 잡히는지 모르고 고르면, 풀리지 않는 모델(강체 운동)이나 과구속을 만든다.
+IMPLIED_HOLDS: dict[str, list[dict[str, str]]] = {
+    "fixed_support": [
+        {"label": "X", "hold": "fixed", "hint": "모든 이동을 막는다 — 좌표계와 상관없다"},
+        {"label": "Y", "hold": "fixed", "hint": ""},
+        {"label": "Z", "hold": "fixed", "hint": ""},
+        {
+            "label": "회전",
+            "hold": "fixed",
+            "hint": "셸 · 빔이면 회전도 막는다(솔리드는 회전이 없다)",
+        },
+    ],
+    "frictionless": [
+        {
+            "label": "법선",
+            "hold": "fixed",
+            "hint": "면에 수직 — 뚫고 들어가지도, 떨어지지도 못한다",
+        },
+        {"label": "접선", "hold": "free", "hint": "면을 따라 두 방향 — 마찰 없이 미끄러진다"},
+    ],
+    "compression_only": [
+        {"label": "누르는 쪽", "hold": "fixed", "hint": "법선 방향으로 면을 파고들지 못한다"},
+        {
+            "label": "떨어지는 쪽",
+            "hold": "free",
+            "hint": "면에서 들뜰 수 있다(비선형 — 반복해 푼다)",
+        },
+        {"label": "접선", "hold": "free", "hint": "면을 따라 마찰 없이 미끄러진다"},
+    ],
+}
 
 
 class Constraint(Base):
-    """구속 — 움직이지 못하게 한다."""
+    """구속 — 움직이지 못하게 한다.
+
+    방향을 누가 정하나: `displacement` 는 좌표계(`cs`)의 X · Y · Z 마다, `cylindrical` 은
+    원통의 반지름 · 축 · 접선마다 사람이 고른다. 나머지는 종류가 정한다(`IMPLIED_HOLDS`)."""
 
     name: str = Field(min_length=1, max_length=60)
     type: Literal[
         "fixed_support", "displacement", "frictionless", "cylindrical", "compression_only"
     ]
     on: str
-    cs: str = "global"
-    x: Number | None = Field(None, title="X", json_schema_extra=_COMPONENT)
-    y: Number | None = Field(None, title="Y", json_schema_extra=_COMPONENT)
-    z: Number | None = Field(None, title="Z", json_schema_extra=_COMPONENT)
+    cs: str = Field("global", json_schema_extra={"only_for": ["displacement"]})
+    """성분 x · y · z 의 축 — 변위 구속만 쓴다(원통 지지는 원통의 축을, 나머지는 면을
+    따른다)."""
+    x: Number | None = Field(
+        None, title="X", description="좌표계의 X 축 방향", json_schema_extra=_DISPLACEMENT
+    )
+    y: Number | None = Field(
+        None, title="Y", description="좌표계의 Y 축 방향", json_schema_extra=_DISPLACEMENT
+    )
+    z: Number | None = Field(
+        None, title="Z", description="좌표계의 Z 축 방향", json_schema_extra=_DISPLACEMENT
+    )
     """`displacement` 의 성분. **`null` 은 자유, 0 은 고정**, 그 밖의 값은 그만큼 움직인다.
 
     화면은 빈칸 · 0 을 묵시적으로 읽게 두지 않고 「자유 · 고정 · 변위량」 을 고르게 한다
     (`component`) — 둘을 헷갈리면 구속이 통째로 바뀐다."""
+    radial: Hold = Field(
+        "fixed",
+        title="반지름",
+        description="원통 중심에서 바깥쪽 — 구멍이 커지거나 줄어드는 방향",
+        json_schema_extra=_CYLINDER,
+    )
+    axial: Hold = Field(
+        "fixed",
+        title="축",
+        description="원통 축을 따라 — 빠지거나 밀려 들어가는 방향",
+        json_schema_extra=_CYLINDER,
+    )
+    tangential: Hold = Field(
+        "fixed",
+        title="접선",
+        description="원통 축 둘레로 도는 방향 — 풀면 핀에 끼운 채 돈다",
+        json_schema_extra=_CYLINDER,
+    )
+    """`cylindrical` 의 방향마다 고정(`fixed`) · 자유(`free`). 기본은 셋 다 고정."""
 
 
 class Load(Base):
@@ -639,7 +705,7 @@ def spec() -> dict[str, Any]:
     읽을 이름과 묶음(어느 탭에 놓을 것인가)만 여기서 더한다.
     """
     groups: dict[str, Any] = {
-        "constraints": {"label": "구속", "model": Constraint},
+        "constraints": {"label": "구속", "model": Constraint, "implied": IMPLIED_HOLDS},
         "loads": {"label": "하중", "model": Load},
         "contacts": {"label": "접촉", "model": Contact},
         "initial": {"label": "초기조건", "model": Initial},
@@ -667,6 +733,8 @@ def spec() -> dict[str, Any]:
             "types": kinds.get("enum", kinds.get("const", [])),
             "fields": schema.get("properties", {}),
             "required": schema.get("required", []),
+            # 종류가 스스로 정하는 방향 — 화면이 잠긴 칸으로 보여 준다.
+            "implied": one.get("implied", {}),
         }
     out["entities"] = ["face", "edge", "vertex", "body"]
     return out
