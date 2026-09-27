@@ -3,19 +3,30 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import type { ConditionItem, GroupSchema } from '@/modules/conditions/api'
 import { ConditionForm } from '@/modules/conditions/ConditionForm'
 
-const axis = (title: string) => ({ title, anyOf: [{ type: 'number' }, { type: 'null' }], component: true, only_for: ['displacement'] })
+const axis = (title: string, onlyFor = ['displacement', 'remote_displacement']) => ({ title, anyOf: [{ type: 'number' }, { type: 'null' }], component: true, only_for: onlyFor })
 const cylinder = (title: string, description: string) => ({ title, description, enum: ['fixed', 'free'], default: 'fixed', component: true, only_for: ['cylindrical'] })
 const GROUP: GroupSchema = {
   label: '구속',
-  types: ['fixed_support', 'displacement', 'frictionless', 'cylindrical'],
+  types: ['fixed_support', 'displacement', 'remote_displacement', 'frictionless', 'cylindrical', 'elastic_support'],
   fields: {
     name: {},
-    type: { enum: ['fixed_support', 'displacement', 'frictionless', 'cylindrical'] },
+    type: { enum: ['fixed_support', 'displacement', 'remote_displacement', 'frictionless', 'cylindrical', 'elastic_support'] },
     on: {},
-    cs: { type: 'string', default: 'global', only_for: ['displacement'] },
+    cs: { type: 'string', default: 'global', only_for: ['displacement', 'remote_displacement'] },
+    location: {
+      title: '원격점',
+      enum: ['centroid', 'cs_origin'],
+      default: 'centroid',
+      only_for: ['remote_displacement'],
+      labels: { centroid: '선택 그룹의 중심', cs_origin: '좌표계의 원점' },
+    },
     x: axis('X'),
     y: axis('Y'),
     z: axis('Z'),
+    rx: axis('회전 X', ['remote_displacement']),
+    ry: axis('회전 Y', ['remote_displacement']),
+    rz: axis('회전 Z', ['remote_displacement']),
+    stiffness: { title: '기초 강성', anyOf: [{ type: 'number' }, { type: 'null' }], description: '법선으로 단위 길이 눌리는 데 드는 압력', only_for: ['elastic_support'] },
     radial: cylinder('반지름', '원통 중심에서 바깥쪽'),
     axial: cylinder('축', '원통 축을 따라'),
     tangential: cylinder('접선', '원통 축 둘레로 도는 방향'),
@@ -30,6 +41,10 @@ const GROUP: GroupSchema = {
     frictionless: [
       { label: '법선', hold: 'fixed', hint: '면에 수직' },
       { label: '접선', hold: 'free', hint: '면을 따라 미끄러진다' },
+    ],
+    elastic_support: [
+      { label: '법선', hold: 'spring', hint: '기초 강성만큼 버틴다' },
+      { label: '접선', hold: 'free', hint: '받치지 않는다' },
     ],
   },
 }
@@ -85,4 +100,28 @@ test('종류가 정하는 방향은 **잠긴 단추**로 보인다 — 어느 �
   expect([pressed('법선'), pressed('접선')]).toEqual(['고정', '자유'])
   expect(screen.getByText('면을 따라 미끄러진다')).toBeInTheDocument()
   expect(screen.getByText(/바꿀 수 없습니다/)).toBeInTheDocument()
+})
+
+test('원격 변위는 이동 X · Y · Z 와 **회전 X · Y · Z** 를 고르고, 원격점을 사람 말로 고른다', () => {
+  let item: ConditionItem = { name: '핀', type: 'remote_displacement', on: '구멍', x: 0, rz: null }
+  const view = () => <ConditionForm group={GROUP} item={item} names={[]} onChange={(next) => (item = next)} />
+  const { rerender } = render(view())
+  expect([pressed('X'), pressed('회전 X'), pressed('회전 Z')]).toEqual(['고정', '자유', '자유'])
+  expect(screen.getByLabelText('좌표계')).toBeInTheDocument()
+  expect(screen.getByLabelText('원격점')).toHaveTextContent('선택 그룹의 중심')
+
+  fireEvent.click(screen.getByRole('group', { name: '회전 Y 구속' }).querySelectorAll('button')[1])
+  expect(item.ry).toBe(0)
+  rerender(view())
+  expect(pressed('회전 Y')).toBe('고정')
+})
+
+test('탄성 지지는 법선이 **스프링**으로 잠겨 보이고, 기초 강성을 적는다', () => {
+  let item: ConditionItem = { name: '패드', type: 'elastic_support', on: '바닥' }
+  render(<ConditionForm group={GROUP} item={item} names={[]} onChange={(next) => (item = next)} />)
+  expect([pressed('법선'), pressed('접선')]).toEqual(['스프링', '자유'])
+  expect(screen.queryByLabelText('좌표계')).toBeNull()
+  fireEvent.change(screen.getByLabelText('기초 강성'), { target: { value: '0.2' } })
+  expect(item.stiffness).toBe(0.2)
+  expect(screen.getByText('법선으로 단위 길이 눌리는 데 드는 압력')).toBeInTheDocument()
 })

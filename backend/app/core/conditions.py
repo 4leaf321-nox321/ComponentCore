@@ -150,7 +150,11 @@ class Material(Base):
 
 #: 화면에 주는 표시 — **성분 칸**(방향마다 자유 · 고정(· 변위량) 중 고른다), 그리고 그 칸을
 #: 쓰는 종류(`only_for`). 다른 종류면 화면이 그리지 않고, 종류를 바꾸면 기본값으로 되돌린다.
-_DISPLACEMENT: dict[str, Any] = {"component": True, "only_for": ["displacement"]}
+_DISPLACEMENT: dict[str, Any] = {
+    "component": True,
+    "only_for": ["displacement", "remote_displacement"],
+}
+_ROTATION: dict[str, Any] = {"component": True, "only_for": ["remote_displacement"]}
 _CYLINDER: dict[str, Any] = {"component": True, "only_for": ["cylindrical"]}
 
 Hold = Literal["fixed", "free"]
@@ -185,23 +189,56 @@ IMPLIED_HOLDS: dict[str, list[dict[str, str]]] = {
         },
         {"label": "접선", "hold": "free", "hint": "면을 따라 마찰 없이 미끄러진다"},
     ],
+    "elastic_support": [
+        {"label": "법선", "hold": "spring", "hint": "면에 수직 — 기초 강성만큼 버티며 눌린다"},
+        {"label": "접선", "hold": "free", "hint": "면을 따라서는 받치지 않는다"},
+    ],
 }
 
 
 class Constraint(Base):
     """구속 — 움직이지 못하게 한다.
 
-    방향을 누가 정하나: `displacement` 는 좌표계(`cs`)의 X · Y · Z 마다, `cylindrical` 은
-    원통의 반지름 · 축 · 접선마다 사람이 고른다. 나머지는 종류가 정한다(`IMPLIED_HOLDS`)."""
+    방향을 누가 정하나: `displacement` 는 좌표계(`cs`)의 X · Y · Z 마다, `remote_displacement`
+    는 거기에 회전 X · Y · Z 까지, `cylindrical` 은 원통의 반지름 · 축 · 접선마다 사람이
+    고른다. 나머지는 종류가 정한다(`IMPLIED_HOLDS`)."""
 
     name: str = Field(min_length=1, max_length=60)
     type: Literal[
-        "fixed_support", "displacement", "frictionless", "cylindrical", "compression_only"
+        "fixed_support",
+        "displacement",
+        "remote_displacement",
+        "frictionless",
+        "cylindrical",
+        "compression_only",
+        "elastic_support",
     ]
     on: str
-    cs: str = Field("global", json_schema_extra={"only_for": ["displacement"]})
-    """성분 x · y · z 의 축 — 변위 구속만 쓴다(원통 지지는 원통의 축을, 나머지는 면을
-    따른다)."""
+    cs: str = Field(
+        "global", json_schema_extra={"only_for": ["displacement", "remote_displacement"]}
+    )
+    """성분의 축 — 변위 · 원격 변위만 쓴다(원통 지지는 원통의 축을, 나머지는 면을
+    따른다). 원격 변위는 이 좌표계의 **원점**을 원격점으로 쓸 수도 있다(`location`)."""
+    location: Literal["centroid", "cs_origin"] = Field(
+        "centroid",
+        title="원격점",
+        description="면을 묶는 한 점 — 고른 면의 중심, 또는 좌표계의 원점",
+        json_schema_extra={
+            "only_for": ["remote_displacement"],
+            "labels": {"centroid": "선택 그룹의 중심", "cs_origin": "좌표계의 원점"},
+        },
+    )
+    behavior: Literal["deformable", "rigid"] = Field(
+        "deformable",
+        title="면의 거동",
+        description=(
+            "변형체: 면이 따라 휘어진다 · 강체: 면이 모양을 지킨 채 움직인다(더 뻣뻣하다)"
+        ),
+        json_schema_extra={
+            "only_for": ["remote_displacement"],
+            "labels": {"deformable": "변형체", "rigid": "강체"},
+        },
+    )
     x: Number | None = Field(
         None, title="X", description="좌표계의 X 축 방향", json_schema_extra=_DISPLACEMENT
     )
@@ -211,10 +248,30 @@ class Constraint(Base):
     z: Number | None = Field(
         None, title="Z", description="좌표계의 Z 축 방향", json_schema_extra=_DISPLACEMENT
     )
-    """`displacement` 의 성분. **`null` 은 자유, 0 은 고정**, 그 밖의 값은 그만큼 움직인다.
+    """`displacement` · `remote_displacement` 의 이동 성분. **`null` 은 자유, 0 은 고정**, 그
+    밖의 값은 그만큼 움직인다.
 
     화면은 빈칸 · 0 을 묵시적으로 읽게 두지 않고 「자유 · 고정 · 변위량」 을 고르게 한다
     (`component`) — 둘을 헷갈리면 구속이 통째로 바뀐다."""
+    rx: Number | None = Field(
+        None, title="회전 X", description="X 축 둘레 회전(도)", json_schema_extra=_ROTATION
+    )
+    ry: Number | None = Field(
+        None, title="회전 Y", description="Y 축 둘레 회전(도)", json_schema_extra=_ROTATION
+    )
+    rz: Number | None = Field(
+        None, title="회전 Z", description="Z 축 둘레 회전(도)", json_schema_extra=_ROTATION
+    )
+    """`remote_displacement` 의 회전 성분(도) — 뜻은 이동과 같다(`null` 자유 · 0 고정)."""
+    stiffness: Number | None = Field(
+        None,
+        title="기초 강성",
+        description=(
+            "법선으로 단위 길이 눌리는 데 드는 압력 — mm · N · t 계면 N/mm³, SI 면 N/m³"
+        ),
+        json_schema_extra={"only_for": ["elastic_support"]},
+    )
+    """`elastic_support` 의 스프링 — 단위 면적 · 단위 변위당 힘(응력 / 길이)."""
     radial: Hold = Field(
         "fixed",
         title="반지름",
@@ -443,6 +500,19 @@ def parse(
             )
     known_frames = GLOBAL_FRAMES | set(local) | set(frames or [])
     for index, item in enumerate(conditions.constraints):
+        if item.type == "elastic_support" and item.stiffness is None:
+            raise ConditionError(
+                f"constraints[{index}]: 탄성 지지 「{item.name}」 에 기초 강성이 없습니다"
+            )
+        if (
+            item.type == "remote_displacement"
+            and item.location == "cs_origin"
+            and item.cs in GLOBAL_FRAMES
+        ):
+            raise ConditionError(
+                f"constraints[{index}]: 「{item.name}」 의 원격점을 좌표계의 원점으로 두려면 "
+                "좌표계를 고르세요 — 전역의 원점은 모델과 상관없는 자리입니다"
+            )
         if frames is not None and item.cs not in known_frames:
             raise ConditionError(
                 f"constraints[{index}]: 「{item.cs}」 라는 좌표계가 없습니다 "

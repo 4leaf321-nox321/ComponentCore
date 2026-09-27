@@ -401,7 +401,8 @@ def test_구속의_성분은_화면에_자유_고정_변위량으로_고르라�
     fields = conditions.spec()["groups"]["constraints"]["fields"]
     for axis in ("x", "y", "z"):
         assert fields[axis]["component"] is True
-        assert fields[axis]["only_for"] == ["displacement"]
+        assert fields[axis]["only_for"] == ["displacement", "remote_displacement"]
+        assert fields[f"r{axis}"]["only_for"] == ["remote_displacement"]
 
 
 def test_원통_지지는_반지름_축_접선마다_풀_수_있고_기본은_고정이다() -> None:
@@ -423,11 +424,46 @@ def test_원통_지지는_반지름_축_접선마다_풀_수_있고_기본은_�
 def test_종류가_정하는_방향은_사양표에_실려_화면이_잠긴_칸으로_보인다() -> None:
     group = spec()["groups"]["constraints"]
     assert group["fields"]["radial"]["only_for"] == ["cylindrical"]
-    assert group["fields"]["cs"]["only_for"] == ["displacement"]
+    assert group["fields"]["cs"]["only_for"] == ["displacement", "remote_displacement"]
     implied = group["implied"]
     # 고를 수 있는 종류(변위 · 원통)는 잠긴 칸이 없고, 나머지는 방향마다 적혀 있다.
-    assert set(implied) == {"fixed_support", "frictionless", "compression_only"}
+    assert set(implied) == {
+        "fixed_support",
+        "frictionless",
+        "compression_only",
+        "elastic_support",
+    }
     assert [(one["label"], one["hold"]) for one in implied["frictionless"]] == [
         ("법선", "fixed"),
         ("접선", "free"),
     ]
+
+
+def test_원격_변위는_이동_회전을_방향마다_정하고_원격점은_좌표계_원점일_수_있다() -> None:
+    base = {
+        "named_selections": [
+            {"name": "구멍", "entity": "face", "select": {"what": "faces", "role": "bottom"}}
+        ],
+        "coordinate_systems": [{"name": "핀 중심", "origin": [0, 0, 5]}],
+    }
+    one = {"name": "핀", "type": "remote_displacement", "on": "구멍", "x": 0, "y": 0}
+    got = parse({**base, "constraints": [{**one, "z": 0, "rz": None, "rx": 0, "ry": 0}]})
+    held = got.constraints[0]
+    assert (held.rx, held.ry, held.rz) == (0, 0, None)
+    assert (held.location, held.behavior) == ("centroid", "deformable")
+    # 원격점을 좌표계 원점으로 — 좌표계를 골라야 한다(전역 원점은 모델과 상관없다).
+    parse({**base, "constraints": [{**one, "location": "cs_origin", "cs": "핀 중심"}]})
+    with pytest.raises(ConditionError, match="좌표계를 고르세요"):
+        parse({**base, "constraints": [{**one, "location": "cs_origin"}]})
+
+
+def test_탄성_지지는_기초_강성이_있어야_한다() -> None:
+    base = {
+        "named_selections": [
+            {"name": "바닥", "entity": "face", "select": {"what": "faces", "role": "bottom"}}
+        ],
+    }
+    one = {"name": "패드", "type": "elastic_support", "on": "바닥"}
+    with pytest.raises(ConditionError, match="기초 강성이 없습니다"):
+        parse({**base, "constraints": [one]})
+    assert parse({**base, "constraints": [{**one, "stiffness": "=강성"}]}).constraints[0]

@@ -23,6 +23,8 @@ export interface FieldSchema {
   component?: boolean
   /** 이 칸을 쓰는 종류 — 다른 종류면 그리지 않는다. */
   only_for?: string[]
+  /** 고르는 값의 사람 이름(`{rigid: '강체'}`) — 없으면 값 그대로 보인다. */
+  labels?: Record<string, string>
 }
 
 export interface GroupSchema {
@@ -37,7 +39,7 @@ export interface GroupSchema {
 
 export interface ImpliedHold {
   label: string
-  hold: 'fixed' | 'free'
+  hold: 'fixed' | 'free' | 'spring'
   hint: string
 }
 

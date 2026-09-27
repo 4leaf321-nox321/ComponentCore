@@ -34,9 +34,9 @@ function choices(field: FieldSchema): string[] | null {
   return fromAny ?? null
 }
 
-type Hold = 'free' | 'fixed' | 'amount'
+type Hold = 'free' | 'fixed' | 'amount' | 'spring'
 
-const HOLD_LABEL: Record<Hold, string> = { free: '자유', fixed: '고정', amount: '변위량' }
+const HOLD_LABEL: Record<Hold, string> = { free: '자유', fixed: '고정', amount: '변위량', spring: '스프링' }
 
 /** 저장된 값의 뜻 — `null` 은 자유, 0 은 고정, 그 밖(수 · `=식`)은 변위량. */
 function holdOf(value: unknown): Hold {
@@ -170,6 +170,9 @@ function ComponentField({
 /** 방향마다 무엇을 적는가 — 종류별 안내. */
 const FOOTNOTE: Record<string, string> = {
   displacement: '방향은 위 「좌표계」 의 축입니다. 변위량의 단위는 단위계의 길이입니다.',
+  remote_displacement:
+    '고른 면을 원격점 하나에 묶고 그 점을 잡습니다. 방향은 위 「좌표계」 의 축이고, 이동은 단위계의 길이 · 회전은 도입니다.',
+  elastic_support: '방향은 종류가 정합니다 — 스프링의 세기는 아래 「기초 강성」 입니다.',
   cylindrical: '방향은 고른 원통면의 축 기준입니다. 좌표계를 고르지 않습니다.',
 }
 
@@ -294,7 +297,13 @@ export function ConditionForm({
             <ComponentField key={key} name={key} field={field} value={item[key]} onChange={(v) => set(key, v)} />
           ))}
           {implied.map((one) => (
-            <HoldRow key={one.label} label={one.label} hint={one.hint} options={['free', 'fixed']} pressed={one.hold} />
+            <HoldRow
+              key={one.label}
+              label={one.label}
+              hint={one.hint}
+              options={one.hold === 'spring' ? ['free', 'spring'] : ['free', 'fixed']}
+              pressed={one.hold}
+            />
           ))}
           <p className="text-muted-foreground text-xs">
             {FOOTNOTE[type] ?? '이 종류가 정한 것이라 바꿀 수 없습니다 — 방향마다 정하려면 displacement 나 cylindrical 을 고르세요.'}
@@ -309,18 +318,20 @@ export function ConditionForm({
           return (
             <div key={key} className="space-y-1">
               <Label>{field.title ?? key}</Label>
-              <Select value={String(value ?? '')} onValueChange={(v) => set(key, v)}>
-                <SelectTrigger>
+              {/* 비어 있으면 서버의 기본값이 쓰인다 — 그것을 보여 준다. */}
+              <Select value={String(value ?? field.default ?? '')} onValueChange={(v) => set(key, v)}>
+                <SelectTrigger aria-label={field.title ?? key}>
                   <SelectValue placeholder="(없음)" />
                 </SelectTrigger>
                 <SelectContent>
                   {options.map((one) => (
                     <SelectItem key={one} value={one}>
-                      {one}
+                      {field.labels?.[one] ?? one}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {field.description && <p className="text-muted-foreground text-xs">{field.description}</p>}
             </div>
           )
         }
@@ -343,6 +354,7 @@ export function ConditionForm({
                 set(key, text)
               }}
             />
+            {field.description && <p className="text-muted-foreground text-xs">{field.description}</p>}
           </div>
         )
       })}
