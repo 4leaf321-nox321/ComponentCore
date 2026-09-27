@@ -150,11 +150,18 @@ class Material(Base):
 
 #: 화면에 주는 표시 — **성분 칸**(방향마다 자유 · 고정(· 변위량) 중 고른다), 그리고 그 칸을
 #: 쓰는 종류(`only_for`). 다른 종류면 화면이 그리지 않고, 종류를 바꾸면 기본값으로 되돌린다.
+#: `dimension` — 값의 단위가 단위계의 어느 이름인가(화면이 「변위량 (m)」 로 붙인다), `unit` —
+#: 계와 상관없는 단위.
 _DISPLACEMENT: dict[str, Any] = {
     "component": True,
     "only_for": ["displacement", "remote_displacement"],
+    "dimension": "length",
 }
-_ROTATION: dict[str, Any] = {"component": True, "only_for": ["remote_displacement"]}
+_ROTATION: dict[str, Any] = {
+    "component": True,
+    "only_for": ["remote_displacement"],
+    "unit": "도",
+}
 _CYLINDER: dict[str, Any] = {"component": True, "only_for": ["cylindrical"]}
 
 Hold = Literal["fixed", "free"]

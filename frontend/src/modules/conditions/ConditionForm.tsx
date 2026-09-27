@@ -54,6 +54,7 @@ function HoldRow({
   options,
   pressed,
   onChoose,
+  amountLabel,
   children,
 }: {
   label: string
@@ -61,6 +62,8 @@ function HoldRow({
   options: Hold[]
   pressed: Hold
   onChoose?: (next: Hold) => void
+  /** 「변위량」 단추의 이름 — 단위를 붙인다(`변위량 (mm)`). */
+  amountLabel?: string
   children?: React.ReactNode
 }) {
   const locked = !onChoose
@@ -79,7 +82,7 @@ function HoldRow({
             } ${locked && pressed !== key ? 'opacity-40' : ''}`}
             onClick={() => onChoose?.(key)}
           >
-            {HOLD_LABEL[key]}
+            {key === 'amount' && amountLabel ? amountLabel : HOLD_LABEL[key]}
           </button>
         ))}
       </div>
@@ -97,12 +100,15 @@ function AmountField({
   name,
   label,
   hint,
+  unit,
   value,
   onChange,
 }: {
   name: string
   label: string
   hint?: string
+  /** 변위량의 단위 — 칸마다 보인다. 같은 화면의 좌표계 원점은 mm 라, 안 보이면 섞어 적는다. */
+  unit?: string
   value: unknown
   onChange: (next: unknown) => void
 }) {
@@ -118,14 +124,21 @@ function AmountField({
     else if (holdOf(value) !== 'amount') onChange(0)
   }
   return (
-    <HoldRow label={label} hint={hint} options={['free', 'fixed', 'amount']} pressed={hold} onChoose={choose}>
+    <HoldRow
+      label={label}
+      hint={hint}
+      options={['free', 'fixed', 'amount']}
+      pressed={hold}
+      onChoose={choose}
+      amountLabel={unit ? `변위량 (${unit})` : undefined}
+    >
       {hold === 'amount' && (
         <Input
           id={`cond-${name}`}
           aria-label={`${label} 변위량`}
           className="col-start-2"
           value={value === null || value === undefined ? '' : String(value)}
-          placeholder="수 또는 =식"
+          placeholder={unit ? `수 또는 =식 · ${unit}` : '수 또는 =식'}
           onChange={(e) => {
             const text = e.target.value
             // 비우면 0 — 자유로 바꾸려면 「자유」 를 누른다(빈칸이 자유를 뜻하지 않게).
@@ -144,17 +157,20 @@ function AmountField({
 function ComponentField({
   name,
   field,
+  units,
   value,
   onChange,
 }: {
   name: string
   field: FieldSchema
+  units: Record<string, string>
   value: unknown
   onChange: (next: unknown) => void
 }) {
   const label = field.title ?? name
   const options = choices(field)
-  if (!options) return <AmountField name={name} label={label} hint={field.description} value={value} onChange={onChange} />
+  const unit = field.unit ?? (field.dimension ? units[field.dimension] : undefined)
+  if (!options) return <AmountField name={name} label={label} hint={field.description} unit={unit} value={value} onChange={onChange} />
   const pressed = String(value ?? field.default ?? 'fixed') as Hold
   return (
     <HoldRow
@@ -309,9 +325,9 @@ function BoltField({
 
 /** 방향마다 무엇을 적는가 — 종류별 안내. */
 const FOOTNOTE: Record<string, string> = {
-  displacement: '방향은 위 「좌표계」 의 축입니다. 변위량의 단위는 단위계의 길이입니다.',
+  displacement: '방향은 위 「좌표계」 의 축입니다. 변위량은 단위계의 길이로 적습니다(좌표계 원점은 늘 mm).',
   remote_displacement:
-    '고른 면을 원격점 하나에 묶고 그 점을 잡습니다. 방향은 위 「좌표계」 의 축이고, 이동은 단위계의 길이 · 회전은 도입니다.',
+    '고른 면을 원격점 하나에 묶고 그 점을 잡습니다. 방향은 위 「좌표계」 의 축이고, 이동은 단위계의 길이 · 회전은 도입니다(좌표계 원점은 늘 mm).',
   elastic_support: '방향은 종류가 정합니다 — 스프링의 세기는 아래 「기초 강성」 입니다.',
   cylindrical: '방향은 고른 원통면의 축 기준입니다. 좌표계를 고르지 않습니다.',
 }
@@ -448,7 +464,7 @@ export function ConditionForm({
         <div className="space-y-2">
           <Label>방향마다</Label>
           {components.map(([key, field]) => (
-            <ComponentField key={key} name={key} field={field} value={item[key]} onChange={(v) => set(key, v)} />
+            <ComponentField key={key} name={key} field={field} units={units} value={item[key]} onChange={(v) => set(key, v)} />
           ))}
           {implied.map((one) => (
             <HoldRow

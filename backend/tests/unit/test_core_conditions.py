@@ -403,6 +403,8 @@ def test_구속의_성분은_화면에_자유_고정_변위량으로_고르라�
         assert fields[axis]["component"] is True
         assert fields[axis]["only_for"] == ["displacement", "remote_displacement"]
         assert fields[f"r{axis}"]["only_for"] == ["remote_displacement"]
+        # 칸마다 단위 — 변위량은 단위계의 길이, 회전은 도.
+        assert fields[axis]["dimension"] == "length" and fields[f"r{axis}"]["unit"] == "도"
 
 
 def test_원통_지지는_반지름_축_접선마다_풀_수_있고_기본은_고정이다() -> None:

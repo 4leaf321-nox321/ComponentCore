@@ -3,7 +3,13 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import type { ConditionItem, GroupSchema } from '@/modules/conditions/api'
 import { ConditionForm } from '@/modules/conditions/ConditionForm'
 
-const axis = (title: string, onlyFor = ['displacement', 'remote_displacement']) => ({ title, anyOf: [{ type: 'number' }, { type: 'null' }], component: true, only_for: onlyFor })
+const axis = (title: string, onlyFor = ['displacement', 'remote_displacement']) => ({
+  title,
+  anyOf: [{ type: 'number' }, { type: 'null' }],
+  component: true,
+  only_for: onlyFor,
+  ...(onlyFor.length === 1 ? { unit: '도' } : { dimension: 'length' }),
+})
 const cylinder = (title: string, description: string) => ({ title, description, enum: ['fixed', 'free'], default: 'fixed', component: true, only_for: ['cylindrical'] })
 const GROUP: GroupSchema = {
   label: '구속',
@@ -193,4 +199,14 @@ test('볼트는 **예압(N) · 조임량(mm)** 을 고르고, 중력은 선택 �
   expect(screen.queryByText('선택 그룹')).toBeNull()
   expect(screen.getByLabelText('방향 Z')).toHaveValue('-1')
   expect(screen.queryByLabelText(/크기/)).toBeNull()
+})
+
+test('변위량에는 **단위계의 길이**가, 회전에는 도가 칸마다 붙는다 — SI 면 m', () => {
+  const item: ConditionItem = { name: '핀', type: 'remote_displacement', on: '구멍', x: 0.001, rx: 2 }
+  const { rerender } = render(<ConditionForm group={GROUP} item={item} names={[]} units={{ length: 'm' }} onChange={() => {}} />)
+  expect(pressed('X')).toBe('변위량 (m)')
+  expect(screen.getByLabelText('X 변위량')).toHaveAttribute('placeholder', '수 또는 =식 · m')
+  expect(pressed('회전 X')).toBe('변위량 (도)')
+  rerender(<ConditionForm group={GROUP} item={item} names={[]} units={{ length: 'mm' }} onChange={() => {}} />)
+  expect(pressed('X')).toBe('변위량 (mm)')
 })

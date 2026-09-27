@@ -34,6 +34,10 @@ export interface FieldSchema {
   bolt?: boolean
   /** 크기 — 단위는 종류의 차원(`GroupSchema.dimensions`)과 단위계가 정한다. */
   unit_by_type?: boolean
+  /** 값의 단위 — 단위계 이름표의 열쇠(`length` → mm · m). */
+  dimension?: string
+  /** 계와 상관없는 단위(`도`). */
+  unit?: string
 }
 
 export interface GroupSchema {
