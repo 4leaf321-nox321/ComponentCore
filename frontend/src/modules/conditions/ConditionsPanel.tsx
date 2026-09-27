@@ -79,6 +79,7 @@ import type {
   GroupSchema,
   MaterialItem,
   NamedSelection,
+  ExpressionNote,
   SelectorCandidate,
   UnitChange,
 } from '@/modules/conditions/api'
@@ -187,11 +188,32 @@ export function ConditionsPanel({
   /** 단위계를 바꾸려는 중 — 서버가 옮긴 한 벌과 바뀐 값들. 확인해야 들어간다. */
   const [switching, setSwitching] = useState<{ to: string; conditions: Conditions; changes: UnitChange[] } | null>(null)
 
+  /**
+   * 식 알림 — 값 칸의 식이 지금 단위계에서 무엇이 되는가(SI 면 도면 치수가 m 로 들어간다).
+   * 고칠 때마다 부르면 요청이 쏟아지므로 잠깐 멈췄을 때 한 번.
+   */
+  const [notes, setNotes] = useState<ExpressionNote[]>([])
+  const notesKey = JSON.stringify([draft.units, ...GROUP_KEYS.map((key) => draft[key]), recipe.params])
+  useEffect(() => {
+    let alive = true
+    const timer = setTimeout(() => {
+      conditionsApi
+        .notes(draft, recipe)
+        .then((got) => alive && setNotes(got.items ?? []))
+        .catch(() => alive && setNotes([]))
+    }, 400)
+    return () => {
+      alive = false
+      clearTimeout(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notesKey])
+
   /** 단위계를 바꾼다 — **적어 둔 값도 같이 옮긴다.** 옮길 것이 있으면 확인을 받는다. */
   function switchSystem(to: string) {
     setError(null)
     conditionsApi
-      .convert(draft, to)
+      .convert(draft, to, recipe)
       .then(({ conditions, changes }) => {
         const next = asConditions(conditions, defaultSystem)
         if (changes.length === 0) setDraft(next)
@@ -870,13 +892,29 @@ export function ConditionsPanel({
             길이 {systemOf.length} · 힘 {systemOf.force} · 응력 {systemOf.stress} · 밀도 {systemOf.density}
           </span>
         )}
-        <span className="text-muted-foreground">도면(형상)은 늘 mm — 점 파일의 좌표계 원점은 이 계로 옮겨 나갑니다.</span>
+        <span className="text-muted-foreground">
+          도면(형상)은 늘 mm 입니다.
+          {systemOf && systemOf.length !== 'mm' && ` 조건의 식이 부르는 도면 치수는 ${systemOf.length} 로 옮겨 들어갑니다 — *0.001 을 붙이지 마세요.`}
+        </span>
         {defaultSystem && defaultSystem !== system && (
           <span className="text-amber-700 dark:text-amber-400">
             작업의 기본 단위계({spec.unit_systems?.find((one) => one.key === defaultSystem)?.label ?? defaultSystem})와 다릅니다
           </span>
         )}
       </div>
+
+      {/* 식 알림 — 지금 단위계에서 식이 무엇이 되는가. 경고가 먼저. */}
+      {notes.length > 0 && (
+        <ul className="space-y-0.5 rounded-md border px-3 py-1.5 text-xs" aria-label="식 알림">
+          {[...notes]
+            .sort((a, b) => (a.level === b.level ? 0 : a.level === 'warn' ? -1 : 1))
+            .map((one, index) => (
+              <li key={index} className={one.level === 'warn' ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'}>
+                <span className="font-medium">{one.where}</span> · {one.text}
+              </li>
+            ))}
+        </ul>
+      )}
 
       {error && <ErrorNotice error={error} />}
       {problems.length > 0 && (

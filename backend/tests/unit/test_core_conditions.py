@@ -598,3 +598,76 @@ def test_단위계를_바꾸면_적어_둔_값도_차원대로_옮긴다() -> No
     assert nothing == [] and same == raw
     with pytest.raises(ConditionError, match="모르는 단위계"):
         conditions.convert_system(raw, "inch")
+
+
+def test_도면_치수_중_길이인_것만_가려낸다() -> None:
+    from app.core.recipe.params import length_params
+
+    recipe = {
+        "params": {"길이": 80, "반폭": "=폭/2", "폭": 50, "각": 30, "개수": 4, "압력": 1},
+        "nodes": [
+            {"op": "box", "length": "=길이", "width": "=반폭"},
+            {"op": "pattern", "count": "=개수", "angle": "=각"},
+        ],
+    }
+    # 반폭이 길이 칸에 쓰였으니 그것을 만든 폭도 길이다. 각 · 개수 · 도면에 없는 압력은 아니다.
+    assert length_params(recipe) == {"길이", "반폭", "폭"}
+
+
+EXPR_RAW: dict[str, Any] = {
+    "named_selections": [
+        {"name": "a", "entity": "face", "select": {"what": "faces", "role": "top"}}
+    ],
+    "coordinate_systems": [{"name": "끝", "origin": ["=두께*2", 0, 0]}],
+    "constraints": [
+        {"name": "밀기", "type": "displacement", "on": "a", "x": "=두께*0.1", "y": "=두께+1"}
+    ],
+    "loads": [{"name": "누름", "type": "pressure", "on": "a", "magnitude": "=압력"}],
+}
+EXPR_PARAMS = {"두께": 5, "압력": 2}
+
+
+def test_SI_에서_조건의_식은_길이_치수를_m_로_넣어_푼다_좌표계는_mm_그대로() -> None:
+    raw = {**EXPR_RAW, "units": {"system": "si"}}
+    got = resolve(raw, EXPR_PARAMS, lengths={"두께"})
+    # 두께 5 mm → 0.005 m. 사람이 *0.001 을 붙이지 않아도 된다.
+    assert got["constraints"][0]["x"] == pytest.approx(0.0005)
+    assert got["coordinate_systems"][0]["origin"][0] == 10  # 도면 쪽은 mm
+    assert got["loads"][0]["magnitude"] == 2  # 길이가 아닌 치수는 그대로
+    # mm 계면 아무것도 안 바뀐다.
+    mm = resolve(EXPR_RAW, EXPR_PARAMS, lengths={"두께"})
+    assert mm["constraints"][0]["x"] == pytest.approx(0.5)
+
+
+def test_단위계를_바꿀_때_식은_뜻이_그대로_남게_고친다() -> None:
+    si, changes = conditions.convert_system(EXPR_RAW, "si", EXPR_PARAMS, {"두께"})
+    held = si["constraints"][0]
+    # 길이 1 차인 식은 그대로가 맞다(두께가 m 로 들어가므로). 0 차(압력)는 배수를 곱한다.
+    assert held["x"] == "=두께*0.1"
+    assert si["loads"][0]["magnitude"] == "=(압력)*1000000"
+    # 치수와 상수를 섞은 식도 값은 정확하다.
+    assert "X 변위량" not in {one["where"].split()[-2] for one in changes}
+    before = resolve(EXPR_RAW, EXPR_PARAMS, lengths={"두께"})["constraints"][0]
+    after = resolve(si, EXPR_PARAMS, lengths={"두께"})["constraints"][0]
+    assert after["x"] == pytest.approx(before["x"] / 1000)
+    assert after["y"] == pytest.approx(before["y"] / 1000)
+    back, _ = conditions.convert_system(si, "mm_n_tonne", EXPR_PARAMS, {"두께"})
+    again = resolve(back, EXPR_PARAMS, lengths={"두께"})["constraints"][0]
+    assert again["y"] == pytest.approx(before["y"])
+
+
+def test_식이_도면_치수를_부르면_SI_에서_무엇이_되는지_알린다() -> None:
+    raw = {**EXPR_RAW, "units": {"system": "si"}}
+    notes = conditions.expression_notes(raw, EXPR_PARAMS, {"두께"})
+    texts = {(one["where"], one["level"]): one["text"] for one in notes}
+    assert "두께 5 mm → 0.005 m" in texts[("구속 「밀기」 X 변위량", "info")]
+    assert "0.0005 m" in texts[("구속 「밀기」 X 변위량", "info")]
+    assert "상수도 m 로 읽힙니다" in texts[("구속 「밀기」 Y 변위량", "warn")]
+    assert ("하중 「누름」 크기", "info") not in texts  # 길이 치수를 안 쓴다
+    # mm 계면 알릴 것이 없다 — 치수와 조건의 길이가 같은 mm.
+    assert conditions.expression_notes(EXPR_RAW, EXPR_PARAMS, {"두께"}) == []
+    broken = {**raw, "loads": [{**raw["loads"][0], "magnitude": "=없는것"}]}
+    assert any(
+        one["level"] == "warn" and "모르는 이름" in one["text"]
+        for one in conditions.expression_notes(broken, EXPR_PARAMS, {"두께"})
+    )

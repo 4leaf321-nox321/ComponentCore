@@ -3165,6 +3165,50 @@
         }
       }
     },
+    "/api/cad/conditions/notes": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Conditions Notes",
+        "description": "조건의 식을 **지금 단위계로 헤아려** 알릴 것들 — SI 에서 도면 치수(mm)를 부르면 그\n치수가 m 로 들어가 풀린다는 것과 그 값, 치수와 상수를 섞은 식, 풀리지 않는 식.\n\n고치는 중인 한 벌이라 검증하지 않는다 — 알림만 준다.",
+        "operationId": "conditions_notes_api_cad_conditions_notes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConditionNotesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Conditions Notes Api Cad Conditions Notes Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/cad/conditions/frames": {
       "post": {
         "tags": [
@@ -5615,6 +5659,26 @@
         ],
         "title": "ChangePasswordRequest"
       },
+      "ConditionNotesRequest": {
+        "properties": {
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "conditions": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Conditions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipe",
+          "conditions"
+        ],
+        "title": "ConditionNotesRequest"
+      },
       "ConditionsRequest": {
         "properties": {
           "conditions": {
@@ -5641,6 +5705,18 @@
             "maxLength": 40,
             "minLength": 1,
             "title": "To"
+          },
+          "recipe": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipe"
           }
         },
         "type": "object",

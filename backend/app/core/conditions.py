@@ -23,12 +23,14 @@
 
 from __future__ import annotations
 
+import math
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.core import units as unit_systems
-from app.core.recipe.params import ExpressionError, resolve_params
+from app.core.recipe.params import ExpressionError, names_in, resolve_params
 from app.core.recipe.params import evaluate_expression as _expr
 
 #: 숫자 칸 — 수 또는 `"=식"`.
@@ -842,10 +844,20 @@ def _with_converted(
     return {**material, "converted": converted_material(payload, system, keys)}
 
 
+#: 조건의 **값**이 든 곳 — 조건의 단위계로 적힌다. 선택 그룹 · 좌표계는 도면(mm)이다.
+VALUE_SECTIONS = ("constraints", "loads", "contacts", "initial", "mesh_hints")
+
+
+def _length_ratio(system: str) -> float:
+    """mm → 이 계의 길이. mm 계면 1, SI 면 0.001."""
+    return 1e-3 / unit_systems.system_of(system).length
+
+
 def resolve(
     raw: dict[str, Any] | None,
     params: dict[str, Any],
     keys: dict[str, str] | None = None,
+    lengths: set[str] | frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """`"=식"` 을 그 설계점의 값으로 바꾼 **새 사본**. 레시피와 같은 문법이다.
 
@@ -859,24 +871,38 @@ def resolve(
     값(`converted`)을 **원본 옆에** 놓는다. 원본은 안 건드린다 — 감사할 때는 원본, 풀 때는
     변환값이다. MatNexus 가 밀도만 `tonne/mm3` 로 주고 나머지는 SI 로 주므로, 이것이 없으면
     받는 쪽이 밀도는 맞고 탄성계수는 10⁶ 배 틀린 채로 푼다.
+
+    `lengths` 는 **길이인 도면 치수**의 이름들(`recipe.params.length_params`)이다. 조건의 값은
+    조건의 단위계로 적으므로, 값 칸(`VALUE_SECTIONS`)의 식에서는 그 치수를 **이 계의 길이로
+    옮겨** 넣는다 — SI 에서 `=두께*0.1` 의 두께 5 mm 는 0.005 m 다. 사람이 `*0.001` 을 붙이지
+    않아도 된다. 선택 그룹 · 좌표계의 식은 도면 쪽이라 mm 그대로 푼다.
     """
     conditions = parse(raw).model_dump()
     values = resolve_params({"params": params})
+    system = str((conditions.get("units") or {}).get("system") or unit_systems.DEFAULT_SYSTEM)
+    ratio = _length_ratio(system)
+    in_system = {
+        name: value * ratio if name in lengths else value for name, value in values.items()
+    }
 
-    def walk(value: Any) -> Any:
+    def walk(value: Any, known: dict[str, float]) -> Any:
         if isinstance(value, str) and value.startswith("="):
-            return _expr(value, values)
-        if isinstance(value, list):
-            return [walk(one) for one in value]
+            return _expr(value, known)
+        # 좌표계 원점 같은 세 성분은 모델에서 **튜플**로 나온다 — 목록만 훑으면 그 안의 식이
+        # 안 풀린 채 나갔다(2026-09-28 에 잡았다).
+        if isinstance(value, list | tuple):
+            return [walk(one, known) for one in value]
         if isinstance(value, dict):
-            return {key: walk(one) for key, one in value.items()}
+            return {key: walk(one, known) for key, one in value.items()}
         return value
 
     try:
-        out = {key: walk(one) for key, one in conditions.items()}
+        out = {
+            key: walk(one, in_system if key in VALUE_SECTIONS else values)
+            for key, one in conditions.items()
+        }
     except ExpressionError as failure:
         raise ConditionError(f"조건의 식을 풀지 못했습니다: {failure}") from failure
-    system = str((out.get("units") or {}).get("system") or unit_systems.DEFAULT_SYSTEM)
     out["units"] = unit_systems.declaration(system)
     out["loads"] = [_filled_load(one, system) for one in out.get("loads", [])]
     out["materials"] = [
@@ -971,22 +997,67 @@ def _decimal(factor: float) -> str:
     return text.rstrip("0").rstrip(".") if "." in text else text
 
 
-def _scaled(value: Any, factor: float) -> Any:
-    """값 하나를 배수만큼 — 수는 곱하고, **식은 배수를 곱한 식으로** 감싼다(설계점마다 풀어도
-    맞게). 비었거나 모르는 것은 그대로."""
+def _degree(text: str, values: dict[str, float], lengths: set[str]) -> int | None:
+    """식이 길이 치수에 대해 **몇 차인가** — 길이 치수를 2 배 · 3 배 해 보고 값이 2ᵏ · 3ᵏ 배면
+    k. `=두께*0.1` 은 1, `=압력` 은 0, `=두께+1` 처럼 섞였거나 값이 0 이면 모른다(None)."""
+    used = names_in(text) & lengths
+    if not used:
+        return 0
+    try:
+        base = _expr(text, values)
+        twice = _expr(text, {k: v * 2 if k in used else v for k, v in values.items()})
+        thrice = _expr(text, {k: v * 3 if k in used else v for k, v in values.items()})
+    except ExpressionError:
+        return None
+    if base == 0:
+        return None
+    k = round(math.log2(abs(twice / base))) if twice else None
+    if k is None or not math.isclose(twice / base, 2.0**k, rel_tol=1e-9):
+        return None
+    return k if math.isclose(thrice / base, 3.0**k, rel_tol=1e-9) else None
+
+
+def _scaled(
+    value: Any,
+    factor: float,
+    ratio: float = 1.0,
+    values: dict[str, float] | None = None,
+    lengths: set[str] | frozenset[str] = frozenset(),
+) -> Any:
+    """값 하나를 새 계로 — 수는 배수를 곱한다. **식은 뜻이 그대로 남게** 고친다.
+
+    식 안의 길이 치수는 풀 때 이미 그 계의 길이로 들어간다(`resolve` 의 `lengths`). 그래서
+    `=두께*0.1`(길이 1 차)은 mm → m 에서 **그대로 두면 맞고**, `=압력`(0 차)은 배수를 곱해야
+    맞다: 붙일 배수 = factor / ratioᵏ. 차수를 모르는 식(`=두께+1`)은 치수를 옛 계로 되돌려
+    넣고(`두께/0.001`) 배수를 곱한다 — 길어도 값은 정확하다."""
     if isinstance(value, bool) or value is None:
         return value
     if isinstance(value, int | float):
         return float(f"{value * factor:.12g}")
     if isinstance(value, str) and value.startswith("="):
-        return f"=({value[1:]})*{_decimal(factor)}"
+        body = value[1:]
+        used = names_in(value) & set(lengths)
+        degree = _degree(value, values, set(lengths)) if values is not None else 0
+        if not used or degree is not None:
+            wrap = factor / ratio ** (degree or 0) if used else factor
+            if math.isclose(wrap, 1.0, rel_tol=1e-12):
+                return value
+            return f"=({body})*{_decimal(float(f'{wrap:.12g}'))}"
+        for name in sorted(used, key=len, reverse=True):
+            body = re.sub(
+                rf"(?<![\w]){re.escape(name)}(?![\w])", f"({name}/{_decimal(ratio)})", body
+            )
+        return f"=({body})*{_decimal(factor)}"
     if isinstance(value, list):
-        return [_scaled(one, factor) for one in value]
+        return [_scaled(one, factor, ratio, values, lengths) for one in value]
     return value
 
 
 def convert_system(
-    raw: dict[str, Any], to: str
+    raw: dict[str, Any],
+    to: str,
+    params: dict[str, Any] | None = None,
+    lengths: set[str] | frozenset[str] = frozenset(),
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """조건 한 벌을 **다른 단위계로** — 적어 둔 값까지 옮긴다. `(새 한 벌, 바뀐 것들)`.
 
@@ -996,6 +1067,9 @@ def convert_system(
 
     물성은 건드리지 않는다(원본을 두고 내보낼 때 옮긴다). 좌표계 원점은 늘 mm 라 그대로다.
     고치는 중인 한 벌이라 검증하지 않고 읽는다 — 모르는 칸은 그대로 둔다.
+
+    `params` · `lengths` 는 도면의 치수와 그중 길이인 것 — 주면 식 안의 길이 치수를 헤아려
+    뜻을 지킨다(`_scaled`). 안 주면 식은 배수만 곱한다(길이 치수를 안 쓰는 식이면 그것이 맞다).
     """
     from copy import deepcopy
 
@@ -1008,70 +1082,152 @@ def convert_system(
     changes: list[dict[str, Any]] = []
     if source.key == target.key:
         return out, changes
-
-    def unit(system: unit_systems.System, dimension: Any) -> str:
-        """차원의 이름 — 확인 창이 「1 MPa → 1000000 Pa」 로 읽게."""
-        names = system.names
-        by_dimension = {
-            _LENGTH: names["length"],
-            _VELOCITY: f"{names['length']}/s",
-            _STIFFNESS: f"{names['stress']}/{names['length']}",
-            unit_systems.FORCE: names["force"],
-            **{dim: names[key] for key, dim in _LOAD_DIMENSION.items()},
+    ratio = _length_ratio(target.key) / _length_ratio(source.key)
+    try:
+        # 식을 헤아릴 때의 치수 값 — 옛 계로 적힌 식이므로 옛 계의 길이로.
+        base = resolve_params({"params": params or {}})
+        values: dict[str, float] | None = {
+            k: v * _length_ratio(source.key) if k in lengths else v for k, v in base.items()
         }
-        return by_dimension.get(dimension, "")
+    except ExpressionError:
+        values = None
 
-    def move(item: dict[str, Any], key: str, dimension: Any, label: str) -> None:
+    for item, key, dimension, label in _value_fields(out, source):
         before = item.get(key)
         if before is None or before == "" or before == []:
-            return
+            continue
         factor = source.factor(dimension) / target.factor(dimension)
-        after = _scaled(before, factor)
+        after = _scaled(before, factor, ratio, values, lengths)
         if after == before:
-            return
+            continue
         item[key] = after
         changes.append(
             {
                 "where": label,
                 "before": before,
                 "after": after,
-                "unit_before": unit(source, dimension),
-                "unit_after": unit(target, dimension),
+                "unit_before": _unit_name(source, dimension),
+                "unit_after": _unit_name(target, dimension),
             }
         )
-
-    for one in out.get("constraints") or []:
-        name = f"구속 「{one.get('name', '')}」"
-        for axis in ("x", "y", "z"):
-            move(one, axis, _LENGTH, f"{name} {axis.upper()} 변위량")
-        move(one, "stiffness", _STIFFNESS, f"{name} 기초 강성")
+    # 단위 이름도 새 계로 — 볼트는 예압(힘) · 조임량(길이)을 가르는 칸이고, 하중은 적혀
+    # 있었을 때만(비우면 풀 때 계에서 채운다).
     for one in out.get("loads") or []:
-        name = f"하중 「{one.get('name', '')}」"
         kind = str(one.get("type", ""))
         if kind == "bolt_pretension":
             by_length = one.get("unit") == source.names["length"]
-            dimension = _LENGTH if by_length else unit_systems.FORCE
-            move(one, "preload", dimension, f"{name} {'조임량' if by_length else '예압'}")
             one["unit"] = target.names["length" if by_length else "force"]
-            continue
-        named = LOAD_DIMENSIONS.get(kind)
-        if named:
-            move(one, "magnitude", _LOAD_DIMENSION[named], f"{name} 크기")
-            # 단위는 계가 정한다 — 적혀 있었으면 새 계의 이름으로.
-            if one.get("unit"):
-                one["unit"] = target.names[named]
-    for one in out.get("contacts") or []:
-        move(one, "pinball", _LENGTH, f"접촉 「{one.get('name', '')}」 pinball 반경")
-    for index, one in enumerate(out.get("initial") or []):
-        if one.get("type") == "velocity":
-            label = f"초기조건 {index + 1} 속도"
-            move(one, "value", _VELOCITY, label)
-            move(one, "vector", _VELOCITY, label)
-    for one in out.get("mesh_hints") or []:
-        name = f"메시 힌트 「{one.get('on', '')}」"
-        move(one, "element_size", _LENGTH, f"{name} 요소 크기")
-        move(one, "defeature_size", _LENGTH, f"{name} 무시할 크기")
+        elif one.get("unit") and kind in LOAD_DIMENSIONS:
+            one["unit"] = target.names[LOAD_DIMENSIONS[kind]]
     return out, changes
+
+
+def _unit_name(system: unit_systems.System, dimension: Any) -> str:
+    """차원의 이름 — 「1 MPa → 1000000 Pa」 로 읽게."""
+    names = system.names
+    by_dimension = {
+        _LENGTH: names["length"],
+        _VELOCITY: f"{names['length']}/s",
+        _STIFFNESS: f"{names['stress']}/{names['length']}",
+        unit_systems.FORCE: names["force"],
+        **{dim: names[key] for key, dim in _LOAD_DIMENSION.items()},
+    }
+    return by_dimension.get(dimension, "")
+
+
+def _value_fields(
+    conditions: dict[str, Any], system: unit_systems.System
+) -> list[tuple[dict[str, Any], str, Any, str]]:
+    """**계를 따르는 값 칸**들 — `(항목, 칸, 차원, 사람이 읽는 이름)`. 단위계를 바꿀 때 옮기고,
+    식을 헤아려 알릴 때 훑는 목록이 하나다(둘이 어긋나면 옮기지 않은 칸이 생긴다)."""
+    out: list[tuple[dict[str, Any], str, Any, str]] = []
+    for one in conditions.get("constraints") or []:
+        name = f"구속 「{one.get('name', '')}」"
+        for axis in ("x", "y", "z"):
+            out.append((one, axis, _LENGTH, f"{name} {axis.upper()} 변위량"))
+        out.append((one, "stiffness", _STIFFNESS, f"{name} 기초 강성"))
+    for one in conditions.get("loads") or []:
+        name = f"하중 「{one.get('name', '')}」"
+        kind = str(one.get("type", ""))
+        if kind == "bolt_pretension":
+            by_length = one.get("unit") == system.names["length"]
+            dimension = _LENGTH if by_length else unit_systems.FORCE
+            out.append(
+                (one, "preload", dimension, f"{name} {'조임량' if by_length else '예압'}")
+            )
+        elif kind in LOAD_DIMENSIONS:
+            out.append(
+                (one, "magnitude", _LOAD_DIMENSION[LOAD_DIMENSIONS[kind]], f"{name} 크기")
+            )
+    for one in conditions.get("contacts") or []:
+        out.append((one, "pinball", _LENGTH, f"접촉 「{one.get('name', '')}」 pinball 반경"))
+    for index, one in enumerate(conditions.get("initial") or []):
+        if one.get("type") == "velocity":
+            out.append((one, "value", _VELOCITY, f"초기조건 {index + 1} 속도"))
+            out.append((one, "vector", _VELOCITY, f"초기조건 {index + 1} 속도"))
+    for one in conditions.get("mesh_hints") or []:
+        name = f"메시 힌트 「{one.get('on', '')}」"
+        out.append((one, "element_size", _LENGTH, f"{name} 요소 크기"))
+        out.append((one, "defeature_size", _LENGTH, f"{name} 무시할 크기"))
+    return out
+
+
+def expression_notes(
+    raw: dict[str, Any],
+    params: dict[str, Any],
+    lengths: set[str] | frozenset[str] = frozenset(),
+) -> list[dict[str, str]]:
+    """값 칸의 식을 **지금 단위계로 헤아려** 사람에게 알릴 것들 — `{where, level, text}`.
+
+    - 식이 도면의 길이 치수를 쓰고 계가 mm 가 아니면: 그 치수가 이 계의 길이로 들어간다는
+      것과 풀린 값(`info`). 사람이 `*0.001` 을 붙이지 않아도 되지만, 무엇이 되는지 보여야 한다.
+    - 길이 치수와 상수를 더하거나 뺀 식(`=두께+1`)이면: 상수도 이 계의 길이로 읽힌다(`warn`).
+    - 풀리지 않는 식이면 그 까닭(`warn`).
+    """
+    system = unit_systems.system_of(str((raw.get("units") or {}).get("system") or ""))
+    ratio = _length_ratio(system.key)
+    try:
+        base = resolve_params({"params": params or {}})
+    except ExpressionError:
+        return []
+    values = {k: v * ratio if k in lengths else v for k, v in base.items()}
+    length_name = system.names["length"]
+    notes: list[dict[str, str]] = []
+    for item, key, dimension, label in _value_fields(raw, system):
+        texts = item.get(key)
+        for text in texts if isinstance(texts, list) else [texts]:
+            if not (isinstance(text, str) and text.startswith("=")):
+                continue
+            try:
+                value = _expr(text, values)
+            except ExpressionError as failure:
+                notes.append({"where": label, "level": "warn", "text": str(failure)})
+                continue
+            used = sorted(names_in(text) & set(lengths))
+            if not used or math.isclose(ratio, 1.0):
+                continue
+            shown = ", ".join(
+                f"{name} {base[name]:g} mm → {values[name]:g} {length_name}" for name in used
+            )
+            unit = _unit_name(system, dimension)
+            notes.append(
+                {
+                    "where": label,
+                    "level": "info",
+                    "text": f"{text} — 도면 치수를 {length_name} 로 넣어 풉니다({shown}) "
+                    f"= {value:g} {unit}".rstrip(),
+                }
+            )
+            if _degree(text, values, set(lengths)) is None:
+                notes.append(
+                    {
+                        "where": label,
+                        "level": "warn",
+                        "text": f"{text} — 도면 치수와 상수를 더하거나 뺐습니다. 상수도 "
+                        f"{length_name} 로 읽힙니다(mm 로 적었다면 고치세요).",
+                    }
+                )
+    return notes
 
 
 # ── 사양표 — 화면과 AI 가 같은 것을 본다 ─────────────────────────────────────

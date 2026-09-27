@@ -1022,8 +1022,13 @@ def run_job(
                 # **점 하나 = 파일 하나.** 영역과 조건은 늘 짝으로 읽히므로 나눠 두면
                 # 「하나는 있고 하나는 없는」 상태가 생길 자리만 는다.
                 if study.conditions:
+                    # 조건의 식이 부르는 **길이 치수**는 조건의 단위계 길이로 들어간다
+                    # (SI 면 두께 5 mm → 0.005 m) — 사람이 `*0.001` 을 붙이지 않게.
                     topo["conditions"] = condition_model.resolve(
-                        study.conditions, point.params, names
+                        study.conditions,
+                        point.params,
+                        names,
+                        lengths=params.length_params(study.recipe),
                     )
                 # **좌표계** — 도면의 것은 이 점의 치수로 푼 것, 조건의 것은 식을 이 점의
                 # 값으로 풀고 면에 붙인 것은 이 점의 영역에서 얻는다. 조건의 `cs` 가 이름으로

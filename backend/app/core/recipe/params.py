@@ -151,3 +151,83 @@ def resolve(raw: dict[str, Any]) -> dict[str, Any]:
     out = {key: walk(one) for key, one in raw.items() if key != "params"}
     out["params"] = values
     return out
+
+
+def names_in(text: str) -> set[str]:
+    """식이 부르는 이름들(함수 · 상수는 빼고). 못 읽는 식이면 빈 것."""
+    body = text[1:] if text.startswith("=") else text
+    try:
+        tree = ast.parse(body, mode="eval")
+    except SyntaxError:
+        return set()
+    return {
+        node.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name) and node.id not in FUNCTIONS and node.id not in CONSTANTS
+    }
+
+
+#: 길이가 **아닌** 칸 — 각도(도) · 개수 · 배율 · 방향 벡터. 나머지 숫자 칸은 길이(mm)다.
+NOT_LENGTH_KEYS = frozenset(
+    {
+        "angle",
+        "countersink_angle",
+        "left_angle",
+        "right_angle",
+        "rotate",
+        "rotation",
+        "taper",
+        "twist",
+        "count",
+        "count_y",
+        "sides",
+        "scale",
+        "x_axis",
+        "y_axis",
+        "x_dir",
+        "normal",
+    }
+)
+
+
+def length_params(raw: dict[str, Any]) -> set[str]:
+    """**길이인 치수**의 이름들 — 도면의 길이 칸(mm)에 쓰였거나, 그런 치수와 식으로 이어진 것.
+
+    해석 조건의 식이 치수를 부를 때 쓴다: 조건은 조건의 단위계로 적으므로, SI 로 풀면 길이
+    치수(두께 5 mm)는 0.005 m 로 들어가야 한다. 각도 · 개수 칸에만 쓰인 치수는 그대로 둔다.
+    도면에 안 쓰인 이름(실험계획의 「압력」 같은 것)도 길이가 아니다.
+    """
+    lengths: set[str] = set()
+
+    def walk(value: Any, key: str) -> None:
+        if isinstance(value, str) and value.startswith("="):
+            if key not in NOT_LENGTH_KEYS:
+                lengths.update(names_in(value))
+        elif isinstance(value, list):
+            for one in value:
+                walk(one, key)
+        elif isinstance(value, dict):
+            for sub, one in value.items():
+                walk(one, str(sub))
+
+    for key, value in raw.items():
+        if key != "params":
+            walk(value, key)
+    # 치수끼리 식으로 이어지면 같은 길이다 — `반폭 = 폭 / 2` 에서 한쪽이 길이면 다른 쪽도.
+    given = raw.get("params") or {}
+    links = {
+        name: names_in(value)
+        for name, value in given.items()
+        if isinstance(value, str) and value.startswith("=")
+    }
+    grew = True
+    while grew:
+        grew = False
+        for name, used in links.items():
+            if name in lengths and not used <= lengths:
+                lengths |= used
+                grew = True
+            if name not in lengths and used & lengths:
+                lengths.add(name)
+                grew = True
+    return lengths & set(given)

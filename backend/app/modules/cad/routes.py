@@ -22,6 +22,7 @@ from app.modules.accounts.models import User
 from app.modules.cad import services
 from app.modules.cad.schemas import (
     BeamRequest,
+    ConditionNotesRequest,
     ConvertSystemRequest,
     FindRequest,
     FramesRequest,
@@ -155,12 +156,38 @@ def conditions_convert(
 
     배수는 서버 한 곳이다(`core/units`) — 화면이 따로 셈하면 내보낼 때와 어긋난다."""
     from app.core import conditions as condition_model
+    from app.core.recipe.params import length_params
 
+    recipe = payload.recipe or {}
     try:
-        converted, changes = condition_model.convert_system(payload.conditions, payload.to)
+        converted, changes = condition_model.convert_system(
+            payload.conditions,
+            payload.to,
+            recipe.get("params") or {},
+            length_params(recipe),
+        )
     except condition_model.ConditionError as failure:
         raise AppError(code("CAD", 15), str(failure)) from failure
     return {"conditions": converted, "changes": changes}
+
+
+@router.post("/conditions/notes")
+def conditions_notes(
+    payload: ConditionNotesRequest, _: User = Depends(current_user)
+) -> dict[str, Any]:
+    """조건의 식을 **지금 단위계로 헤아려** 알릴 것들 — SI 에서 도면 치수(mm)를 부르면 그
+    치수가 m 로 들어가 풀린다는 것과 그 값, 치수와 상수를 섞은 식, 풀리지 않는 식.
+
+    고치는 중인 한 벌이라 검증하지 않는다 — 알림만 준다."""
+    from app.core import conditions as condition_model
+    from app.core.recipe.params import length_params
+
+    items = condition_model.expression_notes(
+        payload.conditions,
+        payload.recipe.get("params") or {},
+        length_params(payload.recipe),
+    )
+    return {"items": items}
 
 
 @router.post("/conditions/frames")

@@ -226,6 +226,20 @@ vi.mock('@/shared/api/client', async () => {
         if (path.startsWith('/cad/recipe/bodies')) return BODIES
         // 좌표계 — 서버가 지금 치수로 푼 축(화면은 그리기만 한다).
         if (path.startsWith('/cad/conditions/frames')) return { items: [], missing: [] }
+        // 식 알림 — SI 이고 식이 도면 치수를 부를 때만(서버가 헤아린다).
+        if (path.startsWith('/cad/conditions/notes')) {
+          const { conditions } = body as unknown as { conditions: { units?: { system?: string }; constraints?: { x?: unknown }[] } }
+          const uses = (conditions.constraints ?? []).some((one) => String(one.x ?? '').includes('두께'))
+          return {
+            items:
+              conditions.units?.system === 'si' && uses
+                ? [
+                    { where: '구속 「밀기」 X 변위량', level: 'info', text: '=두께*0.1 — 도면 치수를 m 로 넣어 풉니다(두께 5 mm → 0.005 m) = 0.0005 m' },
+                    { where: '구속 「밀기」 Y 변위량', level: 'warn', text: '=두께+1 — 도면 치수와 상수를 더하거나 뺐습니다.' },
+                  ]
+                : [],
+          }
+        }
         // 단위계 바꾸기 — 서버가 값을 옮기고 바뀐 것을 알려 준다(여기서는 압력 하나).
         if (path.startsWith('/cad/conditions/convert')) {
           const { conditions, to } = body as unknown as { conditions: Record<string, unknown>; to: string }
@@ -769,4 +783,17 @@ test('단위계를 바꾸면 **적어 둔 값도 옮기고**, 옮길 것이 있�
   fireEvent.change(screen.getByLabelText('단위계'), { target: { value: 'si' } })
   await waitFor(() => expect(screen.getByLabelText('단위계')).toHaveValue('si'))
   expect(screen.queryByRole('list', { name: '옮기는 값' })).toBeNull()
+})
+
+test('SI 에서 식이 도면 치수를 부르면 **무엇이 되는지** 알림으로 보인다 — 경고가 먼저', async () => {
+  const value = {
+    units: { system: 'si' },
+    constraints: [{ name: '밀기', type: 'displacement', on: '바닥', x: '=두께*0.1', y: '=두께+1' }],
+  }
+  render(<ConditionsPanel recipe={RECIPE} value={value} onSave={vi.fn()} />)
+  await waitFor(() => screen.getByRole('list', { name: '식 알림' }), { timeout: 2000 })
+  const items = within(screen.getByRole('list', { name: '식 알림' })).getAllByRole('listitem')
+  expect(items[0]).toHaveTextContent('상수를 더하거나 뺐습니다')
+  expect(items[1]).toHaveTextContent('두께 5 mm → 0.005 m')
+  expect(screen.getByText(/\*0.001 을 붙이지 마세요/)).toBeInTheDocument()
 })

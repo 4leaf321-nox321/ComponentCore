@@ -276,6 +276,13 @@ export interface UnitChange {
   unit_after: string
 }
 
+/** 조건의 식을 지금 단위계로 헤아린 알림 — SI 에서 도면 치수가 m 로 들어간다는 것 등. */
+export interface ExpressionNote {
+  where: string
+  level: 'info' | 'warn'
+  text: string
+}
+
 export const conditionsApi = {
   /**
    * 이 도면의 **바디 목록** — 물성이 「어디에」 붙는지 고를 손잡이.
@@ -289,8 +296,14 @@ export const conditionsApi = {
    * 한 벌을 **다른 단위계로** — 적어 둔 값까지 서버가 옮긴다(배수의 정본은 서버). 계만 바꾸고
    * 숫자를 두면 변위량 0.1 mm 가 0.1 m 가 된다.
    */
-  convert: (conditions: Conditions, to: string) =>
-    api.post<{ conditions: Conditions; changes: UnitChange[] }>('/cad/conditions/convert', { conditions, to }),
+  convert: (conditions: Conditions, to: string, recipe?: Recipe) =>
+    api.post<{ conditions: Conditions; changes: UnitChange[] }>('/cad/conditions/convert', { conditions, to, recipe }),
+  /**
+   * 값 칸의 식을 **지금 단위계로 헤아린다** — 도면 치수(mm)는 조건의 계 길이로 들어가 풀린다.
+   * 사람이 `*0.001` 을 붙이지 않아도 되지만, 무엇이 되는지는 보여야 한다.
+   */
+  notes: (conditions: Conditions, recipe: Recipe) =>
+    api.post<{ items: ExpressionNote[] }>('/cad/conditions/notes', { conditions, recipe }),
 
   /** 찍은 자리를 말로 되돌려 받는다. `what` 은 faces · edges · vertices. */
   selectors: (recipe: Recipe, what: string, point: number[]) =>
