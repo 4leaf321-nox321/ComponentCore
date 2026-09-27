@@ -395,3 +395,10 @@ def test_여럿을_묶은_선택_그룹은_한_종류여야_한다() -> None:
         parse({"named_selections": [섞음]})
     with pytest.raises(ConditionError, match="하나 이상"):
         parse({"named_selections": [{**묶음, "select": {"any": []}}]})
+
+
+def test_구속의_성분은_화면에_자유_고정_변위량으로_고르라고_알린다() -> None:
+    fields = conditions.spec()["groups"]["constraints"]["fields"]
+    for axis in ("x", "y", "z"):
+        assert fields[axis]["component"] is True
+        assert fields[axis]["only_for"] == ["displacement"]

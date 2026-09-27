@@ -19,6 +19,10 @@ export interface FieldSchema {
   anyOf?: { type?: string; enum?: string[] }[]
   description?: string
   default?: unknown
+  /** 성분 칸 — 빈칸 · 0 을 묵시적으로 읽게 두지 않고 「자유 · 고정 · 변위량」 을 고르게 그린다. */
+  component?: boolean
+  /** 이 칸을 쓰는 종류 — 다른 종류면 그리지 않는다. */
+  only_for?: string[]
 }
 
 export interface GroupSchema {

@@ -148,6 +148,10 @@ class Material(Base):
 # ── 조건들 ────────────────────────────────────────────────────────────────────
 
 
+#: 화면에 주는 표시 — **성분 칸**(자유 · 고정 · 변위량 중 고른다), 그리고 그 칸을 쓰는 종류.
+_COMPONENT: dict[str, Any] = {"component": True, "only_for": ["displacement"]}
+
+
 class Constraint(Base):
     """구속 — 움직이지 못하게 한다."""
 
@@ -157,10 +161,13 @@ class Constraint(Base):
     ]
     on: str
     cs: str = "global"
-    x: Number | None = None
-    y: Number | None = None
-    z: Number | None = None
-    """`displacement` 의 성분. **`null` 은 자유다** — 0 과 다르다."""
+    x: Number | None = Field(None, title="X", json_schema_extra=_COMPONENT)
+    y: Number | None = Field(None, title="Y", json_schema_extra=_COMPONENT)
+    z: Number | None = Field(None, title="Z", json_schema_extra=_COMPONENT)
+    """`displacement` 의 성분. **`null` 은 자유, 0 은 고정**, 그 밖의 값은 그만큼 움직인다.
+
+    화면은 빈칸 · 0 을 묵시적으로 읽게 두지 않고 「자유 · 고정 · 변위량」 을 고르게 한다
+    (`component`) — 둘을 헷갈리면 구속이 통째로 바뀐다."""
 
 
 class Load(Base):

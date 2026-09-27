@@ -6,6 +6,8 @@
  * 들고 있고(`core/conditions.py`) 여기는 그것을 그린다. CAD 의 `NodeForm` 과 같은 방식이다.
  */
 
+import { useEffect, useState } from 'react'
+
 import type { ConditionItem, FieldSchema, GroupSchema, NamedSelection } from '@/modules/conditions/api'
 import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
@@ -32,6 +34,83 @@ function choices(field: FieldSchema): string[] | null {
   return fromAny ?? null
 }
 
+type Hold = 'free' | 'fixed' | 'amount'
+
+const HOLDS: { key: Hold; label: string }[] = [
+  { key: 'free', label: '자유' },
+  { key: 'fixed', label: '고정' },
+  { key: 'amount', label: '변위량' },
+]
+
+/** 저장된 값의 뜻 — `null` 은 자유, 0 은 고정, 그 밖(수 · `=식`)은 변위량. */
+function holdOf(value: unknown): Hold {
+  if (value === null || value === undefined || value === '') return 'free'
+  return value === 0 ? 'fixed' : 'amount'
+}
+
+/**
+ * 성분 하나(구속의 X · Y · Z) — **자유 · 고정 · 변위량을 고른다.** 빈칸 = 자유, 0 = 고정을 알아서
+ * 읽게 두면 헷갈리고, 헷갈리면 구속이 통째로 바뀐다. 변위량을 고르면 수 또는 `=식` 을 적는다.
+ */
+function ComponentField({
+  name,
+  label,
+  value,
+  onChange,
+}: {
+  name: string
+  label: string
+  value: unknown
+  onChange: (next: unknown) => void
+}) {
+  // 변위량을 골랐는데 아직 0 이면 저장값만으로는 「고정」 과 같아 보인다 — 고른 것을 들고 있는다.
+  const [hold, setHold] = useState<Hold>(holdOf(value))
+  useEffect(() => {
+    setHold((now) => (now === 'amount' && value === 0 ? now : holdOf(value)))
+  }, [value])
+  const choose = (next: Hold) => {
+    setHold(next)
+    if (next === 'free') onChange(null)
+    else if (next === 'fixed') onChange(0)
+    else if (holdOf(value) !== 'amount') onChange(0)
+  }
+  return (
+    <div className="grid grid-cols-[1.5rem_1fr] items-center gap-x-2 gap-y-1">
+      <span className="text-sm font-medium">{label}</span>
+      <div className="flex gap-1" role="group" aria-label={`${label} 구속`}>
+        {HOLDS.map((one) => (
+          <button
+            key={one.key}
+            type="button"
+            aria-pressed={hold === one.key}
+            className={`flex-1 rounded border px-2 py-1 text-xs ${hold === one.key ? 'border-primary bg-accent font-medium' : 'text-muted-foreground'}`}
+            onClick={() => choose(one.key)}
+          >
+            {one.label}
+          </button>
+        ))}
+      </div>
+      {hold === 'amount' && (
+        <Input
+          id={`cond-${name}`}
+          aria-label={`${label} 변위량`}
+          className="col-start-2"
+          value={value === null || value === undefined ? '' : String(value)}
+          placeholder="수 또는 =식"
+          onChange={(e) => {
+            const text = e.target.value
+            // 비우면 0 — 자유로 바꾸려면 「자유」 를 누른다(빈칸이 자유를 뜻하지 않게).
+            if (text === '') return onChange(0)
+            if (text.startsWith('=')) return onChange(text)
+            const num = Number(text)
+            onChange(Number.isFinite(num) ? num : text)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
 export function ConditionForm({
   group,
   item,
@@ -48,7 +127,18 @@ export function ConditionForm({
   onChange: (next: ConditionItem) => void
 }) {
   const set = (key: string, value: unknown) => onChange({ ...item, [key]: value })
-  const fields = Object.entries(group.fields).filter(([key]) => !HANDLED.has(key))
+  const shown = ([, field]: [string, FieldSchema]) => !field.only_for || field.only_for.includes(String(item.type ?? ''))
+  const fields = Object.entries(group.fields).filter(([key]) => !HANDLED.has(key)).filter(shown)
+  const components = fields.filter(([, field]) => field.component)
+  const others = fields.filter(([, field]) => !field.component)
+  /** 종류를 바꾸면 그 종류가 안 쓰는 칸은 비운다 — 안 보이는 값이 남아 실려 가지 않게. */
+  const setType = (type: string) => {
+    const next: ConditionItem = { ...item, type }
+    for (const [key, field] of Object.entries(group.fields)) {
+      if (field.only_for && !field.only_for.includes(type)) next[key] = null
+    }
+    onChange(next)
+  }
   const targets = 'source' in group.fields ? ['source', 'target'] : 'on' in group.fields ? ['on'] : []
 
   return (
@@ -67,7 +157,7 @@ export function ConditionForm({
       {'type' in group.fields && (
         <div className="space-y-1">
           <Label>종류</Label>
-          <Select value={String(item.type ?? '')} onValueChange={(v) => set('type', v)}>
+          <Select value={String(item.type ?? '')} onValueChange={setType}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
@@ -128,7 +218,17 @@ export function ConditionForm({
         </div>
       )}
 
-      {fields.map(([key, field]) => {
+      {components.length > 0 && (
+        <div className="space-y-1.5">
+          <Label>방향마다</Label>
+          {components.map(([key, field]) => (
+            <ComponentField key={key} name={key} label={field.title ?? key} value={item[key]} onChange={(v) => set(key, v)} />
+          ))}
+          <p className="text-muted-foreground text-xs">좌표계의 축 방향입니다. 변위량의 단위는 단위계의 길이입니다.</p>
+        </div>
+      )}
+
+      {others.map(([key, field]) => {
         const options = choices(field)
         const value = item[key]
         if (options) {
