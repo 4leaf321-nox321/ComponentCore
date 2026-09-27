@@ -467,3 +467,76 @@ def test_탄성_지지는_기초_강성이_있어야_한다() -> None:
     with pytest.raises(ConditionError, match="기초 강성이 없습니다"):
         parse({**base, "constraints": [one]})
     assert parse({**base, "constraints": [{**one, "stiffness": "=강성"}]}).constraints[0]
+
+
+LOAD_BASE: dict[str, Any] = {
+    "named_selections": [
+        {"name": "윗면", "entity": "face", "select": {"what": "faces", "role": "top"}}
+    ],
+}
+
+
+def test_하중의_단위는_단위계가_정하고_풀_때_채운다() -> None:
+    raw = {
+        **LOAD_BASE,
+        "loads": [
+            {"name": "누름", "type": "pressure", "on": "윗면", "magnitude": 1},
+            {
+                "name": "밀기",
+                "type": "force",
+                "on": "윗면",
+                "magnitude": 10,
+                "direction": [0, 0, -1],
+            },
+            {"name": "자중", "type": "standard_earth_gravity"},
+            {
+                "name": "조임",
+                "type": "bolt_pretension",
+                "on": "윗면",
+                "preload": 0.1,
+                "unit": "mm",
+            },
+        ],
+    }
+    loads = resolve(raw, {})["loads"]
+    assert [one["unit"] for one in loads] == ["MPa", "N", "", "mm"]
+    # 비운 방향은 뜻대로 — 압력은 면의 법선, 중력은 -Z.
+    assert loads[0]["direction"] == "normal" and loads[2]["direction"] == [0, 0, -1]
+    si = resolve({**raw, "units": {"system": "si"}, "loads": raw["loads"][:2]}, {})["loads"]
+    assert [one["unit"] for one in si] == ["Pa", "N"]
+    # 계와 다른 단위는 막는다 — 손으로 적은 kPa 가 MPa 계에 섞이면 10³ 배 틀린다.
+    bad = {**raw, "loads": [{**raw["loads"][0], "unit": "kPa"}]}
+    with pytest.raises(ConditionError, match="단위계와 다릅니다"):
+        parse(bad)
+
+
+def test_하중은_빠진_값과_쓸_수_없는_방향을_저장할_때_말한다() -> None:
+    def load(**one: Any) -> dict[str, Any]:
+        return {**LOAD_BASE, "loads": [{"name": "하중", "on": "윗면", **one}]}
+
+    cases = [
+        (load(type="force", direction=[0, 0, 1]), "크기가 없습니다"),
+        (load(type="force", magnitude=1), "방향이 없습니다"),
+        (load(type="force", magnitude=1, direction=[0, 0, 0]), "0 벡터"),
+        (load(type="force", magnitude=1, direction="normal"), "압력만"),
+        (load(type="moment", magnitude=1, on="", direction=[0, 0, 1]), "선택 그룹이 없습니다"),
+        (load(type="bolt_pretension"), "예압"),
+    ]
+    for raw, message in cases:
+        with pytest.raises(ConditionError, match=message):
+            parse(raw)
+    # 식은 설계점마다 풀리므로 0 벡터인지 여기서 모른다 — 막지 않는다.
+    parse(load(type="force", magnitude="=힘", direction=["=a", 0, 0]))
+
+
+def test_하중의_사양표는_종류마다_칸_단위_설명을_싣는다() -> None:
+    group = spec()["groups"]["loads"]
+    fields = group["fields"]
+    assert fields["direction"]["normal_for"] == ["pressure"]
+    assert "standard_earth_gravity" not in fields["on"]["only_for"]
+    assert fields["unit"]["hidden"] is True
+    assert group["dimensions"]["moment"] == "moment"
+    assert fields["type"]["labels"]["pressure"] == "압력"
+    assert set(group["notes"]) == set(fields["type"]["enum"])
+    units = {one["key"]: one for one in spec()["unit_systems"]}
+    assert units["mm_n_tonne"]["moment"] == "N*mm" and units["si"]["moment"] == "N*m"

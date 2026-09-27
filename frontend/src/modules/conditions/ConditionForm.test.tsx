@@ -125,3 +125,72 @@ test('탄성 지지는 법선이 **스프링**으로 잠겨 보이고, 기초 �
   expect(item.stiffness).toBe(0.2)
   expect(screen.getByText('법선으로 단위 길이 눌리는 데 드는 압력')).toBeInTheDocument()
 })
+
+const DIRECTED = ['pressure', 'force', 'standard_earth_gravity']
+const LOADS: GroupSchema = {
+  label: '하중',
+  types: ['pressure', 'force', 'bolt_pretension', 'standard_earth_gravity'],
+  fields: {
+    name: {},
+    type: { enum: ['pressure', 'force', 'bolt_pretension', 'standard_earth_gravity'], labels: { pressure: '압력', force: '힘' } },
+    on: { only_for: ['pressure', 'force', 'bolt_pretension'] },
+    cs: { type: 'string', default: 'global', only_for: DIRECTED },
+    magnitude: { title: '크기', anyOf: [{ type: 'number' }, { type: 'null' }], only_for: ['pressure', 'force'], unit_by_type: true },
+    unit: { type: 'string', default: '', hidden: true },
+    direction: { title: '방향', direction: true, only_for: DIRECTED, normal_for: ['pressure'] },
+    preload: { title: '예압', anyOf: [{ type: 'number' }, { type: 'null' }], only_for: ['bolt_pretension'], bolt: true },
+  },
+  required: [],
+  notes: { force: '합계 힘 — 여러 면에 걸면 나눠 가집니다.' },
+  dimensions: { pressure: 'stress', force: 'force' },
+}
+const MM = { force: 'N', stress: 'MPa', length: 'mm' }
+
+test('하중의 크기에는 **단위계의 단위**가 붙고, 방향은 성분마다 적거나 빠른 단추로 고른다', () => {
+  let item: ConditionItem = { name: '밀기', type: 'force', on: '윗면' }
+  const view = () => <ConditionForm group={LOADS} item={item} names={[]} units={MM} onChange={(next) => (item = next)} />
+  const { rerender } = render(view())
+  expect(screen.getByLabelText('크기 (N)')).toBeInTheDocument()
+  expect(screen.getByText('합계 힘 — 여러 면에 걸면 나눠 가집니다.')).toBeInTheDocument()
+  expect(screen.queryByLabelText('unit')).toBeNull()
+  // 힘은 법선을 고를 수 없다 — 성분 칸만.
+  expect(screen.queryByRole('group', { name: '방향 방식' })).toBeNull()
+
+  fireEvent.click(screen.getByRole('button', { name: '−Z' }))
+  expect(item.direction).toEqual([0, 0, -1])
+  rerender(view())
+  fireEvent.change(screen.getByLabelText('방향 X'), { target: { value: '=기울기' } })
+  expect(item.direction).toEqual(['=기울기', 0, -1])
+})
+
+test('압력은 **면의 법선**이 기본이고 성분으로 바꿀 수 있다', () => {
+  let item: ConditionItem = { name: '누름', type: 'pressure', on: '윗면' }
+  const view = () => <ConditionForm group={LOADS} item={item} names={[]} units={MM} onChange={(next) => (item = next)} />
+  const { rerender } = render(view())
+  expect(screen.getByLabelText('크기 (MPa)')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '면의 법선' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.queryByLabelText('방향 X')).toBeNull()
+  expect(screen.queryByLabelText('좌표계')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'X · Y · Z 성분' }))
+  expect(item.direction).toEqual([0, 0, -1])
+  rerender(view())
+  expect(screen.getByLabelText('방향 Z')).toHaveValue('-1')
+  expect(screen.getByLabelText('좌표계')).toBeInTheDocument()
+})
+
+test('볼트는 **예압(N) · 조임량(mm)** 을 고르고, 중력은 선택 그룹 없이 -Z 를 보인다', () => {
+  let item: ConditionItem = { name: '조임', type: 'bolt_pretension', on: '볼트' }
+  const view = () => <ConditionForm group={LOADS} item={item} names={[]} units={MM} onChange={(next) => (item = next)} />
+  const { rerender } = render(view())
+  expect(screen.getByRole('button', { name: '예압 (N)' })).toHaveAttribute('aria-pressed', 'true')
+  fireEvent.click(screen.getByRole('button', { name: '조임량 (mm)' }))
+  expect(item.unit).toBe('mm')
+  rerender(view())
+  fireEvent.change(screen.getByLabelText('조임량'), { target: { value: '0.1' } })
+  expect(item).toMatchObject({ preload: 0.1, unit: 'mm' })
+
+  rerender(<ConditionForm group={LOADS} item={{ name: '자중', type: 'standard_earth_gravity' }} names={[]} units={MM} onChange={() => {}} />)
+  expect(screen.queryByText('선택 그룹')).toBeNull()
+  expect(screen.getByLabelText('방향 Z')).toHaveValue('-1')
+  expect(screen.queryByLabelText(/크기/)).toBeNull()
+})

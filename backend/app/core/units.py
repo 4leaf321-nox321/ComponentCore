@@ -193,6 +193,10 @@ SYSTEMS: dict[str, System] = {
             "force_per_length": "N/mm",
             "diffusivity": "mm^2/s",
             "energy": "mJ",
+            # 하중의 크기 단위 — 화면이 「크기 (N·mm)」 처럼 붙이고, 조건을 풀 때 채운다.
+            "moment": "N*mm",
+            "acceleration": "mm/s^2",
+            "angular_velocity": "rad/s",
         },
     ),
     "si": System(
@@ -220,6 +224,9 @@ SYSTEMS: dict[str, System] = {
             "force_per_length": "N/m",
             "diffusivity": "m^2/s",
             "energy": "J",
+            "moment": "N*m",
+            "acceleration": "m/s^2",
+            "angular_velocity": "rad/s",
         },
     ),
 }

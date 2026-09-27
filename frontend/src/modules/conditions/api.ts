@@ -25,6 +25,15 @@ export interface FieldSchema {
   only_for?: string[]
   /** 고르는 값의 사람 이름(`{rigid: '강체'}`) — 없으면 값 그대로 보인다. */
   labels?: Record<string, string>
+  /** 폼에 그리지 않는다 — 서버가 채운다(하중의 `unit`). */
+  hidden?: boolean
+  /** 방향 칸 — 좌표계의 X · Y · Z 성분, `normal_for` 종류면 「면의 법선」 도. */
+  direction?: boolean
+  normal_for?: string[]
+  /** 볼트 예압 — 예압(힘) · 조임량(길이)을 `unit` 으로 고른다. */
+  bolt?: boolean
+  /** 크기 — 단위는 종류의 차원(`GroupSchema.dimensions`)과 단위계가 정한다. */
+  unit_by_type?: boolean
 }
 
 export interface GroupSchema {
@@ -35,6 +44,10 @@ export interface GroupSchema {
   required: string[]
   /** 종류가 스스로 정하는 방향(구속) — 고칠 수 없고, 화면이 잠긴 칸으로 보여 준다. */
   implied?: Record<string, ImpliedHold[]>
+  /** 종류마다 한 줄 설명 — 종류 아래에 보인다. */
+  notes?: Record<string, string>
+  /** 종류 → 크기의 차원(단위계 이름표의 열쇠, 예: `stress`). */
+  dimensions?: Record<string, string>
 }
 
 export interface ImpliedHold {

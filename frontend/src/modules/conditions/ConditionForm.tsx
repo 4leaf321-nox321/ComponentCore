@@ -167,6 +167,146 @@ function ComponentField({
   )
 }
 
+/** `12` → 12, `=식` → 그대로, 빈칸 → 0. */
+function numberOrExpr(text: string): number | string {
+  if (text.trim() === '') return 0
+  if (text.startsWith('=')) return text
+  const num = Number(text)
+  return Number.isFinite(num) ? num : text
+}
+
+const QUICK: [string, number[]][] = [
+  ['+X', [1, 0, 0]],
+  ['−X', [-1, 0, 0]],
+  ['+Y', [0, 1, 0]],
+  ['−Y', [0, -1, 0]],
+  ['+Z', [0, 0, 1]],
+  ['−Z', [0, 0, -1]],
+]
+
+/**
+ * 하중의 방향 — **좌표계의 X · Y · Z 성분**(길이는 상관없다), 압력이면 **면의 법선**도. 글자
+ * 칸 하나에 `0,0,-1` 을 적게 하면 글자로 저장돼 서버가 거절한다 — 성분마다 칸을 둔다.
+ */
+function DirectionField({
+  value,
+  canNormal,
+  fallback,
+  onChange,
+}: {
+  value: unknown
+  canNormal: boolean
+  /** 비었을 때 서버가 쓰는 방향(중력은 -Z) — 그것을 보여 준다. */
+  fallback: number[] | null
+  onChange: (next: unknown) => void
+}) {
+  const normal = canNormal && (value === 'normal' || value === null || value === undefined)
+  const vector = Array.isArray(value) ? (value as (number | string)[]) : (fallback ?? ['', '', ''])
+  return (
+    <div className="space-y-1">
+      <Label>방향</Label>
+      {canNormal && (
+        <div className="flex gap-1" role="group" aria-label="방향 방식">
+          {(
+            [
+              [true, '면의 법선'],
+              [false, 'X · Y · Z 성분'],
+            ] as const
+          ).map(([isNormal, label]) => (
+            <button
+              key={label}
+              type="button"
+              aria-pressed={normal === isNormal}
+              className={`flex-1 rounded border px-2 py-1 text-xs ${normal === isNormal ? 'border-primary bg-accent font-medium' : 'text-muted-foreground'}`}
+              onClick={() => onChange(isNormal ? 'normal' : [0, 0, -1])}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {normal ? (
+        <p className="text-muted-foreground text-xs">면마다 그 면의 법선으로 겁니다 — 양수가 면을 누르는 쪽입니다.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-1">
+            {(['X', 'Y', 'Z'] as const).map((axisName, index) => (
+              <Input
+                key={axisName}
+                aria-label={`방향 ${axisName}`}
+                placeholder={axisName}
+                value={String(vector[index] ?? '')}
+                onChange={(e) => {
+                  const next = [0, 1, 2].map((i) => (typeof vector[i] === 'string' && vector[i] === '' ? 0 : vector[i]))
+                  next[index] = numberOrExpr(e.target.value)
+                  onChange(next)
+                }}
+              />
+            ))}
+          </div>
+          <div className="flex gap-1" role="group" aria-label="빠른 방향">
+            {QUICK.map(([label, v]) => (
+              <button key={label} type="button" className="hover:bg-accent flex-1 rounded border px-1 py-0.5 text-xs" onClick={() => onChange(v)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="text-muted-foreground text-xs">위 「좌표계」 의 축 성분입니다 — 길이는 상관없고 방향만 씁니다.</p>
+        </>
+      )}
+    </div>
+  )
+}
+
+/** 볼트 예압 — **예압(힘)** 으로 조일지 **조임량(길이)** 으로 조일지 고르고 값을 적는다. */
+function BoltField({
+  value,
+  unit,
+  units,
+  onChange,
+}: {
+  value: unknown
+  unit: string
+  units: Record<string, string>
+  onChange: (next: unknown, unit: string) => void
+}) {
+  const force = units.force ?? 'N'
+  const length = units.length ?? 'mm'
+  const byLength = unit === length
+  return (
+    <div className="space-y-1">
+      <Label>조이는 방법</Label>
+      <div className="flex gap-1" role="group" aria-label="조이는 방법">
+        {(
+          [
+            [false, `예압 (${force})`],
+            [true, `조임량 (${length})`],
+          ] as const
+        ).map(([isLength, label]) => (
+          <button
+            key={label}
+            type="button"
+            aria-pressed={byLength === isLength}
+            className={`flex-1 rounded border px-2 py-1 text-xs ${byLength === isLength ? 'border-primary bg-accent font-medium' : 'text-muted-foreground'}`}
+            onClick={() => onChange(value ?? null, isLength ? length : force)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <Input
+        aria-label={byLength ? '조임량' : '예압'}
+        value={value === null || value === undefined ? '' : String(value)}
+        placeholder="수 또는 =식"
+        onChange={(e) => onChange(e.target.value === '' ? null : numberOrExpr(e.target.value), byLength ? length : force)}
+      />
+      <p className="text-muted-foreground text-xs">
+        {byLength ? '볼트를 이 길이만큼 줄여 조입니다.' : '볼트 축으로 이 힘만큼 당겨 조입니다.'} 볼트 축은 원통면에서 정해집니다.
+      </p>
+    </div>
+  )
+}
+
 /** 방향마다 무엇을 적는가 — 종류별 안내. */
 const FOOTNOTE: Record<string, string> = {
   displacement: '방향은 위 「좌표계」 의 축입니다. 변위량의 단위는 단위계의 길이입니다.',
@@ -181,6 +321,7 @@ export function ConditionForm({
   item,
   names,
   frames = [],
+  units = {},
   onChange,
 }: {
   group: GroupSchema
@@ -189,24 +330,36 @@ export function ConditionForm({
   names: NamedSelection[]
   /** 고를 수 있는 좌표계 이름 — 도면의 것과 조건의 것. 「전역」 은 늘 있다. */
   frames?: string[]
+  /** 지금 단위계의 이름표(`{force: 'N', stress: 'MPa', …}`) — 크기 칸에 단위를 붙인다. */
+  units?: Record<string, string>
   onChange: (next: ConditionItem) => void
 }) {
   const set = (key: string, value: unknown) => onChange({ ...item, [key]: value })
   const type = String(item.type ?? '')
   const shown = ([, field]: [string, FieldSchema]) => !field.only_for || field.only_for.includes(type)
   const implied = group.implied?.[type] ?? []
-  const fields = Object.entries(group.fields).filter(([key]) => !HANDLED.has(key)).filter(shown)
+  const fields = Object.entries(group.fields)
+    .filter(([key, field]) => !HANDLED.has(key) && !field.hidden)
+    .filter(shown)
   const components = fields.filter(([, field]) => field.component)
   const others = fields.filter(([, field]) => !field.component)
   /** 종류를 바꾸면 그 종류가 안 쓰는 칸은 기본값으로 — 안 보이는 값이 남아 실려 가지 않게. */
   const setType = (nextType: string) => {
     const next: ConditionItem = { ...item, type: nextType }
     for (const [key, field] of Object.entries(group.fields)) {
-      if (field.only_for && !field.only_for.includes(nextType)) next[key] = field.default ?? null
+      // 서버가 채우는 칸(단위)도 — 볼트의 「mm」 가 압력에 남으면 단위계와 어긋난다.
+      if (field.hidden || (field.only_for && !field.only_for.includes(nextType))) next[key] = field.default ?? null
     }
     onChange(next)
   }
-  const targets = 'source' in group.fields ? ['source', 'target'] : 'on' in group.fields ? ['on'] : []
+  const targets = ('source' in group.fields ? ['source', 'target'] : 'on' in group.fields ? ['on'] : []).filter((key) =>
+    shown([key, group.fields[key]]),
+  )
+  /** 압력을 면의 법선으로 걸면 좌표계가 쓰이지 않는다 — 칸을 감춘다. */
+  const alongNormal =
+    !!group.fields.direction?.normal_for?.includes(type) && (item.direction == null || item.direction === 'normal')
+  const typeLabels = group.fields.type?.labels ?? {}
+  const note = group.notes?.[type]
 
   return (
     <div className="space-y-3">
@@ -231,11 +384,12 @@ export function ConditionForm({
             <SelectContent>
               {group.types.map((one) => (
                 <SelectItem key={one} value={one}>
-                  {one}
+                  {typeLabels[one] ? `${typeLabels[one]} (${one})` : one}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+          {note && <p className="text-muted-foreground text-xs">{note}</p>}
         </div>
       )}
 
@@ -266,7 +420,7 @@ export function ConditionForm({
         **좌표계** — 성분(x · y · z)이 어느 방향인가. 「전역」 이 기본이고, 도면 · 해석 조건에서
         이름 붙인 좌표계를 고른다(리본의 「좌표계」).
       */}
-      {'cs' in group.fields && shown(['cs', group.fields.cs]) && (
+      {'cs' in group.fields && shown(['cs', group.fields.cs]) && !alongNormal && (
         <div className="space-y-1">
           <Label htmlFor="cond-cs">좌표계</Label>
           <select
@@ -314,10 +468,34 @@ export function ConditionForm({
       {others.map(([key, field]) => {
         const options = choices(field)
         const value = item[key]
+        if (field.direction) {
+          return (
+            <DirectionField
+              key={key}
+              value={value}
+              canNormal={!!field.normal_for?.includes(type)}
+              fallback={type === 'standard_earth_gravity' ? [0, 0, -1] : null}
+              onChange={(v) => set(key, v)}
+            />
+          )
+        }
+        if (field.bolt) {
+          return (
+            <BoltField
+              key={key}
+              value={value}
+              unit={String(item.unit ?? '')}
+              units={units}
+              onChange={(v, unit) => onChange({ ...item, [key]: v, unit })}
+            />
+          )
+        }
+        const unitName = field.unit_by_type ? units[group.dimensions?.[type] ?? ''] : undefined
+        const title = `${field.title ?? key}${unitName ? ` (${unitName})` : ''}`
         if (options) {
           return (
             <div key={key} className="space-y-1">
-              <Label>{field.title ?? key}</Label>
+              <Label>{title}</Label>
               {/* 비어 있으면 서버의 기본값이 쓰인다 — 그것을 보여 준다. */}
               <Select value={String(value ?? field.default ?? '')} onValueChange={(v) => set(key, v)}>
                 <SelectTrigger aria-label={field.title ?? key}>
@@ -337,7 +515,7 @@ export function ConditionForm({
         }
         return (
           <div key={key} className="space-y-1">
-            <Label htmlFor={`cond-${key}`}>{field.title ?? key}</Label>
+            <Label htmlFor={`cond-${key}`}>{title}</Label>
             <Input
               id={`cond-${key}`}
               value={value === null || value === undefined ? '' : String(value)}

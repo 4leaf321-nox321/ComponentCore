@@ -1049,6 +1049,7 @@ export function ConditionsPanel({
               item={editing.item}
               names={editing.group === 'analysis' ? names : namesFor(editing.group)}
               frames={frameNames}
+              units={systemOf}
               onChange={(next) => setEditing({ ...editing, item: next })}
             />
           </>

@@ -196,6 +196,32 @@ IMPLIED_HOLDS: dict[str, list[dict[str, str]]] = {
 }
 
 
+CONSTRAINT_LABELS: dict[str, str] = {
+    "fixed_support": "고정 지지",
+    "displacement": "변위",
+    "remote_displacement": "원격 변위",
+    "frictionless": "마찰 없는 지지",
+    "cylindrical": "원통 지지",
+    "compression_only": "압축 전용 지지",
+    "elastic_support": "탄성 지지",
+}
+
+#: 종류마다 한 줄 — 화면이 종류 아래에 보인다.
+CONSTRAINT_NOTES: dict[str, str] = {
+    "fixed_support": "완전히 붙박습니다 — 볼트로 꽉 조인 바닥, 용접된 끝.",
+    "displacement": (
+        "방향마다 자유 · 고정 · 변위량을 정합니다 — 한쪽만 받치거나 정해진 만큼 밉니다."
+    ),
+    "remote_displacement": (
+        "면을 한 점에 묶고 그 점의 이동 · 회전을 잡습니다 — 축 둘레로 돌게 둘 때."
+    ),
+    "frictionless": "면에 수직으로만 막고 미끄러짐은 풉니다 — 대칭면, 매끈한 바닥.",
+    "cylindrical": "구멍 · 축을 반지름 · 축 · 접선마다 막거나 풉니다 — 핀에 끼운 구멍.",
+    "compression_only": "누르는 쪽만 받치고 들뜨는 것은 둡니다 — 그냥 올려 둔 부품(비선형).",
+    "elastic_support": "면을 스프링으로 받칩니다 — 고무 패드, 지반.",
+}
+
+
 class Constraint(Base):
     """구속 — 움직이지 못하게 한다.
 
@@ -212,7 +238,7 @@ class Constraint(Base):
         "cylindrical",
         "compression_only",
         "elastic_support",
-    ]
+    ] = Field(json_schema_extra={"labels": CONSTRAINT_LABELS})
     on: str
     cs: str = Field(
         "global", json_schema_extra={"only_for": ["displacement", "remote_displacement"]}
@@ -293,8 +319,60 @@ class Constraint(Base):
     """`cylindrical` 의 방향마다 고정(`fixed`) · 자유(`free`). 기본은 셋 다 고정."""
 
 
+#: 하중 종류 → 크기의 차원(단위계 이름표의 열쇠). 화면은 「크기 (MPa)」 로 붙이고, 조건을 풀 때
+#: `unit` 을 이것으로 채운다 — 사람이 단위를 손으로 적으면 계와 어긋나도 아무도 모른다.
+LOAD_DIMENSIONS: dict[str, str] = {
+    "pressure": "stress",
+    "force": "force",
+    "moment": "moment",
+    "bearing": "force",
+    "acceleration": "acceleration",
+    "rotational_velocity": "angular_velocity",
+}
+
+#: 몸 전체에 걸리는 하중 — 선택 그룹이 없다.
+BODY_LOADS = ("standard_earth_gravity", "acceleration", "rotational_velocity")
+
+#: 방향이 있는 하중(벡터). 압력만 「면의 법선」 을 고를 수 있다.
+DIRECTED_LOADS = [
+    "pressure",
+    "force",
+    "moment",
+    "bearing",
+    "standard_earth_gravity",
+    "acceleration",
+    "rotational_velocity",
+]
+
+#: 종류마다 한 줄 — 화면이 종류 아래에 보인다(무엇이고, 방향이 무엇을 뜻하나).
+LOAD_NOTES: dict[str, str] = {
+    "pressure": "면에 고르게 누르는 힘. 면의 법선이면 양수가 면을 누르는 쪽입니다.",
+    "force": "합계 힘 — 여러 면에 걸면 나눠 가집니다(면마다 이 크기가 아닙니다).",
+    "moment": "비트는 힘. 방향은 회전축이고, 오른손 법칙으로 돕니다.",
+    "bearing": "구멍 안쪽을 핀이 미는 힘 — 방향 쪽 반원에만 걸립니다. 원통면에 겁니다.",
+    "bolt_pretension": "볼트를 조입니다 — 먼저 조이고, 그 길이를 잠근 채 다른 하중을 겁니다.",
+    "standard_earth_gravity": "모든 바디의 자중(9.80665 m/s²). 밀도가 있어야 걸립니다.",
+    "acceleration": "모델이 이 방향으로 가속됩니다 — 관성력은 반대쪽으로 걸립니다. 밀도 필요.",
+    "rotational_velocity": "좌표계 원점을 지나는 축 둘레로 돕니다(원심력). 밀도 필요.",
+}
+
+LOAD_LABELS: dict[str, str] = {
+    "pressure": "압력",
+    "force": "힘",
+    "moment": "모멘트",
+    "bearing": "베어링 하중",
+    "bolt_pretension": "볼트 예압",
+    "standard_earth_gravity": "중력",
+    "acceleration": "가속도",
+    "rotational_velocity": "회전 속도",
+}
+
+
 class Load(Base):
-    """하중 — 밀거나 당기거나 조인다."""
+    """하중 — 밀거나 당기거나 조인다.
+
+    크기의 단위는 **단위계가 정한다**(`LOAD_DIMENSIONS`) — 적지 않으면 풀 때 채우고, 적었는데
+    계와 다르면 막는다. 볼트만 예압(힘) · 조임량(길이)을 `unit` 으로 고른다."""
 
     name: str = Field(min_length=1, max_length=60)
     type: Literal[
@@ -306,16 +384,46 @@ class Load(Base):
         "standard_earth_gravity",
         "acceleration",
         "rotational_velocity",
-    ]
-    on: str = ""
+    ] = Field(json_schema_extra={"labels": LOAD_LABELS})
+    on: str = Field(
+        "",
+        json_schema_extra={
+            "only_for": ["pressure", "force", "moment", "bearing", "bolt_pretension"]
+        },
+    )
     """중력처럼 온 몸에 걸리는 것은 비어 있다."""
-    magnitude: Number | None = None
-    unit: str = ""
+    cs: str = Field("global", json_schema_extra={"only_for": DIRECTED_LOADS})
+    """방향 성분의 축 — 구속과 같다. 회전 속도는 이 좌표계의 원점을 지나는 축으로 돈다."""
+    magnitude: Number | None = Field(
+        None,
+        title="크기",
+        json_schema_extra={
+            "only_for": [
+                k
+                for k in LOAD_LABELS
+                if k not in ("bolt_pretension", "standard_earth_gravity")
+            ],
+            "unit_by_type": True,
+        },
+    )
+    unit: str = Field("", json_schema_extra={"hidden": True})
     """`MPa` · `N` · `N*mm` … **단위를 값에서 떼지 않는다** — 물성에서 그것이 10¹² 배로
-    틀린 적이 있다(MatNexus 의 실측)."""
-    direction: list[Number] | Literal["normal"] | None = None
-    preload: Number | None = None
-    """`bolt_pretension` — 예압(N) 또는 조임량(mm), `unit` 이 가른다."""
+    틀린 적이 있다(MatNexus 의 실측). 비우면 단위계에서 채운다."""
+    direction: list[Number] | Literal["normal"] | None = Field(
+        None,
+        title="방향",
+        json_schema_extra={
+            "direction": True,
+            "only_for": DIRECTED_LOADS,
+            "normal_for": ["pressure"],
+        },
+    )
+    """좌표계(`cs`)의 X · Y · Z 성분(길이는 상관없다), 또는 `"normal"`(면의 법선 — 압력만).
+    비우면 압력은 법선, 중력은 -Z 다."""
+    preload: Number | None = Field(
+        None, title="예압", json_schema_extra={"only_for": ["bolt_pretension"], "bolt": True}
+    )
+    """`bolt_pretension` — 예압(힘) 또는 조임량(길이), `unit` 이 가른다."""
 
 
 class Contact(Base):
@@ -516,6 +624,14 @@ def parse(
         if frames is not None and item.cs not in known_frames:
             raise ConditionError(
                 f"constraints[{index}]: 「{item.cs}」 라는 좌표계가 없습니다 "
+                f"(있는 것: {', '.join(sorted(known_frames - GLOBAL_FRAMES)) or '없음'})"
+            )
+
+    for index, load in enumerate(conditions.loads):
+        _check_load(f"loads[{index}]", load, conditions.units.system)
+        if frames is not None and load.cs not in known_frames:
+            raise ConditionError(
+                f"loads[{index}]: 「{load.cs}」 라는 좌표계가 없습니다 "
                 f"(있는 것: {', '.join(sorted(known_frames - GLOBAL_FRAMES)) or '없음'})"
             )
 
@@ -755,9 +871,72 @@ def resolve(
         raise ConditionError(f"조건의 식을 풀지 못했습니다: {failure}") from failure
     system = str((out.get("units") or {}).get("system") or unit_systems.DEFAULT_SYSTEM)
     out["units"] = unit_systems.declaration(system)
+    out["loads"] = [_filled_load(one, system) for one in out.get("loads", [])]
     out["materials"] = [
         _with_converted(one, system, keys or {}) for one in out.get("materials", [])
     ]
+    return out
+
+
+def _load_units(load_type: str, system: str) -> list[str]:
+    """이 하중이 받을 수 있는 크기 단위 — 계가 정한다. 볼트는 예압(힘) · 조임량(길이) 둘."""
+    names = unit_systems.system_of(system).names
+    if load_type == "bolt_pretension":
+        return [names["force"], names["length"]]
+    dimension = LOAD_DIMENSIONS.get(load_type)
+    return [names[dimension]] if dimension else []
+
+
+def _check_load(where: str, load: Load, system: str) -> None:
+    """하중 하나 — 빠진 값 · 계와 다른 단위 · 쓸 수 없는 방향을 **저장할 때** 말한다.
+
+    안 그러면 크기 없는 하중이나 0 벡터가 내보내져, 받는 쪽이 하중 없는 해석을 끝까지 돌린다.
+    """
+    label = f"{LOAD_LABELS[load.type]} 「{load.name}」"
+    if load.type not in BODY_LOADS and not load.on:
+        raise ConditionError(f"{where}: {label} 에 선택 그룹이 없습니다")
+    if load.type in LOAD_DIMENSIONS and load.magnitude is None:
+        raise ConditionError(f"{where}: {label} 에 크기가 없습니다")
+    if load.type == "bolt_pretension" and load.preload is None:
+        raise ConditionError(f"{where}: {label} 에 예압(또는 조임량)이 없습니다")
+    allowed = _load_units(load.type, system)
+    if load.unit and load.unit not in allowed:
+        raise ConditionError(
+            f"{where}: {label} 의 단위 「{load.unit}」 가 단위계와 다릅니다 "
+            f"(이 계에서는 {' 또는 '.join(allowed) or '단위 없음'})"
+        )
+    direction = load.direction
+    if direction == "normal" and load.type != "pressure":
+        raise ConditionError(f"{where}: 면의 법선 방향은 압력만 쓸 수 있습니다")
+    if isinstance(direction, list):
+        if len(direction) != 3:
+            raise ConditionError(f"{where}: 방향은 X · Y · Z 세 성분입니다")
+        numbers = [one for one in direction if not isinstance(one, str)]
+        if len(numbers) == 3 and all(one == 0 for one in numbers):
+            raise ConditionError(f"{where}: {label} 의 방향이 0 벡터입니다")
+    elif (
+        direction is None
+        and load.type in DIRECTED_LOADS
+        and load.type
+        not in (
+            "pressure",
+            "standard_earth_gravity",
+        )
+    ):
+        raise ConditionError(f"{where}: {label} 에 방향이 없습니다")
+
+
+def _filled_load(load: dict[str, Any], system: str) -> dict[str, Any]:
+    """내보낼 하중 — 비운 단위 · 방향을 **뜻대로 채운다.** 받는 쪽이 기본값을 짐작하지 않게."""
+    out = dict(load)
+    units = _load_units(str(out.get("type")), system)
+    if not out.get("unit") and units:
+        out["unit"] = units[0]
+    if out.get("direction") is None:
+        if out.get("type") == "pressure":
+            out["direction"] = "normal"
+        elif out.get("type") == "standard_earth_gravity":
+            out["direction"] = [0, 0, -1]
     return out
 
 
@@ -775,8 +954,18 @@ def spec() -> dict[str, Any]:
     읽을 이름과 묶음(어느 탭에 놓을 것인가)만 여기서 더한다.
     """
     groups: dict[str, Any] = {
-        "constraints": {"label": "구속", "model": Constraint, "implied": IMPLIED_HOLDS},
-        "loads": {"label": "하중", "model": Load},
+        "constraints": {
+            "label": "구속",
+            "model": Constraint,
+            "implied": IMPLIED_HOLDS,
+            "notes": CONSTRAINT_NOTES,
+        },
+        "loads": {
+            "label": "하중",
+            "model": Load,
+            "notes": LOAD_NOTES,
+            "dimensions": LOAD_DIMENSIONS,
+        },
         "contacts": {"label": "접촉", "model": Contact},
         "initial": {"label": "초기조건", "model": Initial},
         "mesh_hints": {"label": "메시 힌트", "model": MeshHint},
@@ -805,6 +994,10 @@ def spec() -> dict[str, Any]:
             "required": schema.get("required", []),
             # 종류가 스스로 정하는 방향 — 화면이 잠긴 칸으로 보여 준다.
             "implied": one.get("implied", {}),
+            # 종류마다 한 줄 설명, 그리고 크기의 차원(단위계 이름표의 열쇠 — 화면이 단위를
+            # 붙인다).
+            "notes": one.get("notes", {}),
+            "dimensions": one.get("dimensions", {}),
         }
     out["entities"] = ["face", "edge", "vertex", "body"]
     return out
