@@ -2,6 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CompCore API",
+    "description": "CAD 를 **DOE 로 만드는** 플랫폼의 API. 사람이 쓰는 화면과 AI 가 쓰는 MCP 가 **모두 이 API 를\n부른다** — MCP 는 이것을 감싸는 얇은 층이라, MCP 에만 있는 편의는 없다.\n\n### 붙는 법\n\n    curl -H \"Authorization: Bearer <PAT>\" http://<호스트>/api/works\n\nPAT 은 화면의 「내 정보 → 토큰」 에서 만든다. 쓰기에는 `write` 범위가 필요하고, 남의 이름으로\n만들려면(대행) `act_for_others` 가 필요하다.\n\n### 약속\n\n- **오류는 한 모양이다**:\n  `{\"error\": {\"code\": \"CCR-DOE-0010\", \"message\": \"…\", \"details\": {…}}}`.\n  `code` 는 안 바뀐다 — 기계는 문구가 아니라 그것으로 가른다.\n- **목록은 한 모양이다**: `{\"items\": [...], \"total\": n, \"limit\": n, \"offset\": n}`.\n- **치수는 mm, 각도는 도(°)** 다. 물성 payload 만 예외로 MatNexus 의 단위를 그대로 쓴다.\n\n자세한 것은 저장소의 `docs/공개-API.md`.\n",
     "version": "baseline"
   },
   "paths": {
@@ -1864,6 +1865,32 @@
         }
       }
     },
+    "/api/parts/tags": {
+      "get": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "Part Tags",
+        "description": "카탈로그에 붙은 꼬리표 전부 — 거르개 · 자동 완성. 많이 쓰인 것이 앞이다.\n\n**승격이 내 작업의 것을 물려받는다** — 붙여 둔 것이 공용 공간으로 나가면서 없어지던\n것을 고쳤다(2026-09-24). 내 작업은 열두 개쯤이라 이름으로 찾지만, 공용 공간은 남의\n것까지 쌓여 이름만으로는 못 찾는다.",
+        "operationId": "part_tags_api_parts_tags_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "title": "Response Part Tags Api Parts Tags Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/parts": {
       "get": {
         "tags": [
@@ -1909,6 +1936,17 @@
               "maxLength": 120,
               "default": "",
               "title": "Q"
+            }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 40,
+              "default": "",
+              "title": "Tag"
             }
           }
         ],
@@ -2165,6 +2203,32 @@
         }
       }
     },
+    "/api/jigs/tags": {
+      "get": {
+        "tags": [
+          "jigs"
+        ],
+        "summary": "Jig Tags",
+        "description": "지그 카탈로그의 꼬리표 전부 — 부품 쪽과 같은 모양.",
+        "operationId": "jig_tags_api_jigs_tags_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "title": "Response Jig Tags Api Jigs Tags Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/jigs": {
       "get": {
         "tags": [
@@ -2227,6 +2291,17 @@
               "maxLength": 120,
               "default": "",
               "title": "Q"
+            }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 40,
+              "default": "",
+              "title": "Tag"
             }
           }
         ],
@@ -2984,7 +3059,7 @@
           "cad"
         ],
         "summary": "Recipe Find",
-        "description": "말로 고른 엣지 · 면의 좌표 — 「윗면의 바깥 엣지」 「지름 8 구멍의 위 원」. 답의\nmidpoint · center 를 fillet · chamfer 의 near, 스케치의 plane 에 그대로 쓴다.",
+        "description": "말로 고른 엣지 · 면의 좌표 — 「윗면의 바깥 엣지」 「지름 8 구멍의 위 원」. 답의\nmidpoint · center 를 fillet · chamfer 의 near, 스케치의 plane 에 그대로 쓴다.\n\n**선택 그룹의 셀렉터도 그대로 푼다** — 여럿을 묶은 합(`{\"any\": [...]}`)과 면 나누기의\n태그(`tag`)까지. 화면이 트리에서 고른 그룹을 3D 에 비출 때 쓴다.",
         "operationId": "recipe_find_api_cad_recipe_find_post",
         "requestBody": {
           "content": {
@@ -3046,13 +3121,57 @@
         }
       }
     },
+    "/api/cad/conditions/frames": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Conditions Frames",
+        "description": "도면과 해석 조건의 **좌표계를 지금 치수로** 푼다 — 원점 · X · Y · Z. 조건 화면이 3D 에\n축을 그린다. 면에 붙인 좌표계는 그 선택 그룹을 지금 형상에서 풀어 얻는다.\n\n계산은 서버 한 곳이다(`core/frames`) — 화면이 따로 셈하면 3D 에 보인 방향과 내보낸\n방향이 어긋나는 날이 온다. 못 푼 이름은 `missing` 으로 돌려준다.",
+        "operationId": "conditions_frames_api_cad_conditions_frames_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FramesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Conditions Frames Api Cad Conditions Frames Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/cad/recipe/selectors": {
       "post": {
         "tags": [
           "cad"
         ],
         "summary": "Recipe Selectors",
-        "description": "3D 에서 **고른 것을 말로 되돌려 준다** — 「아래쪽 면」 · 「반지름 4.25 원통면(4개)」.\n\n좌표로 저장하면 실험계획이 치수를 바꾸는 순간 그 자리에 아무것도 없다. 후보를 여럿 주고\n**지금 몇 개에 맞는지**(`matches`)를 함께 보여 사람이 고르게 한다.",
+        "description": "3D 에서 **고른 것을 말로 되돌려 준다** — 「아래쪽 면」 · 「반지름 4.25 원통면(4개)」.\n\n좌표로 저장하면 실험계획이 치수를 바꾸는 순간 그 자리에 아무것도 없다. 후보를 여럿 주고\n**지금 몇 개에 맞는지**(`matches`)를 함께 보여 사람이 고르게 한다.\n\n`picks`(목록)를 주면 여럿을 한 번에 — `{\"items\": [...]}` 를 같은 순서로 돌려준다(사각형\n선택). 도면은 한 번만 만든다.",
         "operationId": "recipe_selectors_api_cad_recipe_selectors_post",
         "requestBody": {
           "content": {
@@ -3073,6 +3192,50 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Recipe Selectors Api Cad Recipe Selectors Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cad/recipe/bodies": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Recipe Bodies",
+        "description": "이 도면의 **바디 목록** — 물성이 「어디에」 붙는지 고를 손잡이.\n\n조립이면 이름표 붙은 구성품마다 하나, 단품이면 「전체」 하나다. 이름은 **내보낼 때와\n같은 것**이다(`topology.bodies`) — 화면이 메시의 면에서 지어내면 두 곳이 어긋나는 날\n사람이 고른 이름이 폴더에 없는 이름이 된다.\n\n부피와 무게중심도 함께 준다 — 이름만으로는 어느 것이 어느 것인지 모를 때가 있다.",
+        "operationId": "recipe_bodies_api_cad_recipe_bodies_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecipeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Recipe Bodies Api Cad Recipe Bodies Post"
                 }
               }
             }
@@ -3514,6 +3677,32 @@
         }
       }
     },
+    "/api/templates/tags": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "Template Tags",
+        "description": "볼 수 있는 템플릿의 꼬리표 전부 — 부품 · 지그와 같은 모양.",
+        "operationId": "template_tags_api_templates_tags_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "title": "Response Template Tags Api Templates Tags Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/templates": {
       "get": {
         "tags": [
@@ -3544,6 +3733,17 @@
               "maxLength": 120,
               "default": "",
               "title": "Q"
+            }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 40,
+              "default": "",
+              "title": "Tag"
             }
           },
           {
@@ -3862,6 +4062,7 @@
           "doe"
         ],
         "summary": "List Studies",
+        "description": "`scope=mine`(기본) 은 내 것, `all` 은 **공개된 것까지.**\n\n기본이 「내 것」 인 까닭: 「내 활동」 화면이 이것을 쓴다. 공개를 기본으로 하면 남의 것이\n내 활동에 섞인다 — 남의 이력을 찾는 것은 다른 물음이라 따로 묻게 한다.",
         "operationId": "list_studies_api_doe_get",
         "parameters": [
           {
@@ -3879,6 +4080,17 @@
                 }
               ],
               "title": "Work Id"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(mine|all)$",
+              "default": "mine",
+              "title": "Scope"
             }
           },
           {
@@ -3938,7 +4150,7 @@
           "doe"
         ],
         "summary": "Create Study",
-        "description": "스터디를 만들고 **바로 작업을 건다** — 점마다 형상을 만들어 공유 폴더에 STEP 을 쓴다.",
+        "description": "스터디를 만들고 **바로 작업을 건다** — 점마다 형상을 만들어 서버 보관 폴더에 쓴다.\n\n`idempotency_key` 를 주면 **두 번 불러도 한 벌**이다. 이미 있던 것을 돌려줄 때는\n**201 이 아니라 200** 이다 — 기계가 「새로 생겼나」 를 그 자리에서 알 수 있어야 한다.",
         "operationId": "create_study_api_doe_post",
         "requestBody": {
           "required": true,
@@ -4021,7 +4233,7 @@
           "doe"
         ],
         "summary": "Delete Study",
-        "description": "DB 에서만 지운다 — 공유 폴더의 파일은 남는다(해석이 보고 있을 수 있다).",
+        "description": "스터디와 **서버 보관 폴더**를 지운다 — 공유 폴더의 사본은 남는다(해석이 보고 있을 수\n있다).",
         "operationId": "delete_study_api_doe__study_id__delete",
         "parameters": [
           {
@@ -4058,7 +4270,7 @@
           "doe"
         ],
         "summary": "Export Study",
-        "description": "서버 보관 폴더의 STEP · 표를 **공유 폴더로 보낸다.** 해석은 그때부터 읽는다.",
+        "description": "서버 보관 폴더의 STEP · 표를 **공유 폴더로 보낸다.** 해석은 그때부터 읽는다.\n\n보는 것은 공개라도 **보내는 것은 소유자만** — 남의 DOE 를 해석에 넘길 수 있으면\n「읽기 공개」 가 사실상 「모두가 주인」 이 된다.",
         "operationId": "export_study_api_doe__study_id__export_post",
         "parameters": [
           {
@@ -4069,6 +4281,231 @@
               "type": "string",
               "format": "uuid",
               "title": "Study Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/doe/{study_id}/status": {
+      "get": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Study Status",
+        "description": "**진행만** — 끝났나 · 몇 점 됐나 · 폴더는 어디인가. 설계점 표는 주지 않는다.\n\n기계가 「끝났나」 만 보려고 200줄짜리 표를 되풀이해 받는 것을 막으려고 따로 둔다.",
+        "operationId": "study_status_api_doe__study_id__status_get",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Study Status Api Doe  Study Id  Status Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/doe/{study_id}/wait": {
+      "post": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Wait For Study",
+        "description": "**끝날 때까지 기다려 준다**(길게 물기). 끝났든 시간이 다 됐든 지금 상태를 돌려준다.\n\n왜 있나: 기계는 「걸고 · 기다리고 · 다음」 이 한 줄이어야 한다. 이것이 없으면 부르는 쪽마다\n폴링 루프를 제 손으로 만들고, 그 간격은 제각각이 된다(1초마다 두드리는 것이 하나만\n있어도 서버가 안다).\n\n**끝을 보장하지 않는다.** 상한(2분)까지만 기다리고 상태를 준다 — 오래 잡으면 프록시가\n먼저 끊고, 그때 기계는 「실패했다」 와 「아직이다」 를 구별하지 못한다. 안 끝났으면\n`running` 이 참이니 다시 부르면 된다.\n\n세션을 **폴링마다 새로 연다** — 한 연결을 2분씩 쥐고 있으면 풀이 금세 마른다.",
+        "operationId": "wait_for_study_api_doe__study_id__wait_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          },
+          {
+            "name": "seconds",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 120,
+              "minimum": 1,
+              "default": 30,
+              "title": "Seconds"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Wait For Study Api Doe  Study Id  Wait Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/doe/run": {
+      "post": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Run Study",
+        "description": "**한 번 부르면 폴더까지** — 만들고 · 기다리고 · 공유 폴더로 보낸다.\n\n오케스트레이터가 쓰는 자리다. `POST /doe` 는 즉시 돌아오므로(화면이 폴링하는 전제) 부르는\n쪽이 제 폴링 루프를 만들어야 하는데, 기계에게는 **다음 단계로 갈 수 있는 한 번**이 맞다.\n\n`idempotency_key` 를 함께 주면 재시도해도 한 벌이다 — 기계는 재시도하므로 사실상 늘 줘야\n한다. `export=false` 면 만들기만 하고 보내지 않는다(조건만 바꿔 가며 쌓아 둘 때).\n\n**안 끝나도 답은 온다.** `wait_seconds` 가 다 되면 그때 상태로 돌려준다(`job.status` 가\nrunning). 그 경우 보내기는 하지 않는다 — 만들다 만 폴더를 해석이 읽으면 안 된다.",
+        "operationId": "run_study_api_doe_run_post",
+        "parameters": [
+          {
+            "name": "wait_seconds",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1800,
+              "minimum": 0,
+              "default": 300,
+              "title": "Wait Seconds"
+            }
+          },
+          {
+            "name": "export",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Export"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudyCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/doe/{study_id}/rerun": {
+      "post": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Rerun Study",
+        "description": "**다시 만들기** — 스냅샷(레시피 · 인자 · 시드 · 조건)으로 설계점 파일을 되살린다.\n\n보관 기한이 지나 파일이 치워졌거나, 실패한 점을 한 번 더 해 볼 때. 새 스터디가 아니라\n**같은 스터디**다 — 같은 재료로 같은 것이 나온다. `only=failed` 면 실패한 점만(파일이\n사라진 점은 `ok` 였어도 다시 만든다).\n\n범위를 고쳐 다시 돌리는 것은 이것이 아니다 — 그건 새 스터디다.",
+        "operationId": "rerun_study_api_doe__study_id__rerun_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          },
+          {
+            "name": "only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(all|failed)$",
+              "default": "all",
+              "title": "Only"
             }
           }
         ],
@@ -4291,13 +4728,67 @@
         }
       }
     },
+    "/api/doe/{study_id}/visibility": {
+      "post": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Set Visibility",
+        "description": "**누가 보나** — `read`(기본, 모두) 또는 `private`(나와 관리자만).\n\n기본이 공개인 까닭: DOE 는 이 조직의 설계 이력이고, 옆 사람이 같은 훑기를 다시 도는 것이\n더 큰 손해다. 그리고 기계가 대행으로 만들기 시작하면 「누구 것인가」 가 흐려지므로, 보는\n것까지 닫아 두면 아무도 못 찾는 것이 쌓인다.\n\n쓰는 일(보내기 · 영구보관 · 다시 만들기 · 지우기)은 이 설정과 **무관하다** — 공개해도\n고치는 것은 소유자와 관리자뿐이다.",
+        "operationId": "set_visibility_api_doe__study_id__visibility_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          },
+          {
+            "name": "value",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(read|private)$",
+              "title": "Value"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/materials": {
       "get": {
         "tags": [
           "materials"
         ],
         "summary": "Search Materials",
-        "description": "물성 탐색기가 쓰는 목록 — **전역 재료만** 본다.\n\nMatNexus 의 PAT 에는 범위가 없어서, 서비스 계정으로 부르면서 작업공간 재료까지 보여 주면\n그쪽 권한 구분이 이쪽에서 무너진다. 못 닿으면 올려 둔 카탈로그로 넘어가고, **넘어갔다는\n사실을 답에 적는다**(`fallback`).",
+        "description": "물성 탐색기가 쓰는 목록.\n\n**무엇이 보이나는 MatNexus 가 정한다**(2026-09-24 권한 개편) — 그쪽은 부서 트리로 권한을\n나누고, 우리 토큰의 계정이 속한 부서의 재료가 보인다. 우리가 질의로 그것을 흉내 내지\n않는다(예전의 `scope=global` 은 개편으로 사라졌고, 그 뒤로는 아무 필터도 아니었다).\n좁히려면 `.env` 의 `MATNEXUS_WORKSPACE`(부서 slug).\n\n줄마다 **어느 부서 것인지**(`workspace`)가 함께 온다 — 두 부서에 같은 이름이 있을 수 있다.\n\n`system`(`mm_n_tonne` · `si`)을 주면 줄마다 **그 계로 환산한 값**(`converted`)이 함께 온다.\n화면이 제 손으로 환산하지 않게 하려는 것이다 — 환산표를 두 벌 두면 어느 날 어긋나고,\n그때 화면이 보여 준 값과 내보낸 값이 달라진다. **내보낼 때와 같은 함수**를 쓴다.\n\n`source` 가 **창고를 가른다**:\n\n- `registered`(기본) — 우리 조직이 시험하고 등록한 재료(135건). 못 닿으면 올려 둔\n  카탈로그로 넘어간다.\n- `literature` — **문헌 물성 카탈로그**(데이터시트 · 논문에서 모은 2663건). 탄성계수를\n  가진 재료만 1025개라 고를 것이 훨씬 많다. 목록에는 **값이 안 딸려 온다** — 고른 뒤\n  `GET /materials/{id}?source=literature` 가 그 재료만 값까지 준다. 문헌에는 올려 둔\n  사본이 없으므로 못 닿으면 빈손으로 그 사실을 말한다.\n\n못 닿으면 올려 둔 카탈로그로 넘어가고, **넘어갔다는 사실을 답에 적는다**(`fallback`).",
         "operationId": "search_materials_api_materials_get",
         "parameters": [
           {
@@ -4320,6 +4811,39 @@
               "maxLength": 60,
               "default": "",
               "title": "Family"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 120,
+              "default": "",
+              "title": "Category"
+            }
+          },
+          {
+            "name": "system",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 20,
+              "default": "",
+              "title": "System"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(registered|literature)$",
+              "default": "registered",
+              "title": "Source"
             }
           },
           {
@@ -4354,6 +4878,54 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/materials/catalog/classifications": {
+      "get": {
+        "tags": [
+          "materials"
+        ],
+        "summary": "Catalog Classifications",
+        "description": "**문헌 카탈로그**의 하위계 · 갈래와 개수 — 등록 재료 쪽과 같은 모양으로 준다.",
+        "operationId": "catalog_classifications_api_materials_catalog_classifications_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Catalog Classifications Api Materials Catalog Classifications Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/materials/classifications": {
+      "get": {
+        "tags": [
+          "materials"
+        ],
+        "summary": "Material Classifications",
+        "description": "쪽(族) · 갈래와 그 개수 — `[{family, category, count}]`.\n\n화면이 **쪽 → 갈래 → 재료**로 좁혀 들어가는 두 칸이 여기서 나온다. 검색 결과에서 뽑아\n만들면 「앞 서른 줄에 있는 쪽」 만 보이고, 사람은 나머지가 없는 줄 안다.\n\n못 닿으면 올려 둔 카탈로그에서 같은 모양으로 세어 준다(`fallback`).",
+        "operationId": "material_classifications_api_materials_classifications_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Material Classifications Api Materials Classifications Get"
                 }
               }
             }
@@ -4429,13 +5001,69 @@
         }
       }
     },
+    "/api/materials/{material_id}/decks": {
+      "get": {
+        "tags": [
+          "materials"
+        ],
+        "summary": "Material Decks",
+        "description": "이 재료로 **낼 수 있는 솔버 덱 형식**과 왜 못 내는지.\n\n받는 쪽이 제 솔버 덱을 손으로 짜는 대신 그대로 쓸 수 있게, 중립 물성 **옆에 덤으로**\n실어 보낼 수 있다(`Material.deck_formats`). 어느 형식을 담을지는 사람이나 오케스트레이터가\n고른다 — 덱은 솔버별이라 담는 순간 솔버를 고르는 것이고, 우리 계약은 그렇지 않다.\n\n문헌 재료는 **카드가 없어 형식이 둘뿐**이다(`dyna_elastic` · `dyna_thermal`). 곡선이\n필요한 덱(소성 · 점탄성)은 시험 → 카드 경로로만 나온다.",
+        "operationId": "material_decks_api_materials__material_id__decks_get",
+        "parameters": [
+          {
+            "name": "material_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Material Id"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(registered|literature)$",
+              "default": "registered",
+              "title": "Source"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Material Decks Api Materials  Material Id  Decks Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/materials/{code_or_id}": {
       "get": {
         "tags": [
           "materials"
         ],
         "summary": "Get Material",
-        "description": "재료 하나 — `payload` 는 **받은 그대로**다. 우리가 고치지 않는다.",
+        "description": "재료 하나 — `payload` 는 **받은 그대로**다. 우리가 고치지 않는다.\n\n`source=literature` 면 문헌 카탈로그에서 받고 **대표값만** 담는다 — 재료 하나에 값이\n최대 786개(2.6 MB)라 다 담으면 설계점마다 그것이 실린다.",
         "operationId": "get_material_api_materials__code_or_id__get",
         "parameters": [
           {
@@ -4445,6 +5073,28 @@
             "schema": {
               "type": "string",
               "title": "Code Or Id"
+            }
+          },
+          {
+            "name": "system",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 20,
+              "default": "",
+              "title": "System"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(registered|literature)$",
+              "default": "registered",
+              "title": "Source"
             }
           }
         ],
@@ -5138,6 +5788,32 @@
         ],
         "title": "FindRequest"
       },
+      "FramesRequest": {
+        "properties": {
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "conditions": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conditions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipe"
+        ],
+        "title": "FramesRequest"
+      },
       "GeometryRequest": {
         "properties": {
           "recipe": {
@@ -5265,6 +5941,13 @@
             "type": "string",
             "title": "Name"
           },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
           "description": {
             "type": "string",
             "title": "Description"
@@ -5370,6 +6053,13 @@
           "name": {
             "type": "string",
             "title": "Name"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
           },
           "description": {
             "type": "string",
@@ -6027,6 +6717,13 @@
             "type": "string",
             "title": "Name"
           },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
           "description": {
             "type": "string",
             "title": "Description"
@@ -6112,6 +6809,13 @@
           "name": {
             "type": "string",
             "title": "Name"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
           },
           "description": {
             "type": "string",
@@ -6781,6 +7485,22 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Pick"
+          },
+          "picks": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array",
+                "maxItems": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Picks"
           }
         },
         "type": "object",
@@ -7044,6 +7764,18 @@
               }
             ],
             "title": "Work Id"
+          },
+          "on_behalf_of": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "On Behalf Of",
+            "default": ""
+          },
+          "idempotency_key": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Idempotency Key",
+            "default": ""
           }
         },
         "type": "object",
@@ -7124,6 +7856,16 @@
             "format": "date-time",
             "title": "Created At"
           },
+          "owner_name": {
+            "type": "string",
+            "title": "Owner Name",
+            "default": ""
+          },
+          "visibility": {
+            "type": "string",
+            "title": "Visibility",
+            "default": "read"
+          },
           "recipe": {
             "additionalProperties": true,
             "type": "object",
@@ -7142,6 +7884,11 @@
             "type": "array",
             "title": "Factors"
           },
+          "requested_by_name": {
+            "type": "string",
+            "title": "Requested By Name",
+            "default": ""
+          },
           "keep_forever": {
             "type": "boolean",
             "title": "Keep Forever",
@@ -7158,6 +7905,11 @@
               }
             ],
             "title": "Released At"
+          },
+          "local_ready": {
+            "type": "boolean",
+            "title": "Local Ready",
+            "default": true
           },
           "export_dir_windows": {
             "type": "string",
@@ -7294,6 +8046,16 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "owner_name": {
+            "type": "string",
+            "title": "Owner Name",
+            "default": ""
+          },
+          "visibility": {
+            "type": "string",
+            "title": "Visibility",
+            "default": "read"
           }
         },
         "type": "object",
@@ -7407,6 +8169,13 @@
             "type": "boolean",
             "title": "Is Shared",
             "default": false
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
           }
         },
         "type": "object",
@@ -7426,6 +8195,13 @@
           "name": {
             "type": "string",
             "title": "Name"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
           },
           "description": {
             "type": "string",
@@ -7488,6 +8264,13 @@
           "name": {
             "type": "string",
             "title": "Name"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
           },
           "description": {
             "type": "string",
@@ -7929,6 +8712,17 @@
             "maxLength": 2000,
             "title": "Note",
             "default": ""
+          },
+          "unit_system": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit System"
           }
         },
         "type": "object",
@@ -8010,6 +8804,11 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Jig Options"
+          },
+          "unit_system": {
+            "type": "string",
+            "title": "Unit System",
+            "default": "mm_n_tonne"
           },
           "jig_run_count": {
             "type": "integer",
@@ -8330,11 +9129,84 @@
               }
             ],
             "title": "Tags"
+          },
+          "unit_system": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit System"
           }
         },
         "type": "object",
         "title": "WorkUpdateRequest"
       }
+    },
+    "securitySchemes": {
+      "PAT": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "개인 토큰(PAT) 또는 로그인 세션의 액세스 토큰. PAT 은 화면의 「내 정보 → 토큰」 에서 만든다."
+      }
     }
-  }
+  },
+  "tags": [
+    {
+      "name": "auth",
+      "description": "로그인과 **개인 토큰(PAT)**. 기계는 늘 PAT 으로 붙는다 — 토큰은 `Authorization: Bearer <토큰>` 한 줄이다.\n\n범위: `read`(조회) · `write`(만들고 고치기) · `act_for_others`(**대행** — 남의 이름으로 만든다). 사람 세션에는 범위를 걸지 않는다(그 사람의 권한이 이미 한계다)."
+    },
+    {
+      "name": "cad",
+      "description": "**레시피**(형상을 만드는 연산 트리)를 검증 · 평가 · 질의한다. 이 플랫폼의 정본은 STEP 이 아니라 레시피다 — STEP · glTF 는 거기서 나온 사본이다.\n\n여기 것은 대부분 **아무것도 저장하지 않는다**(POST 이지만 읽기다)."
+    },
+    {
+      "name": "doe",
+      "description": "**실험계획** — 치수와 해석 조건을 훑어 형상 여러 벌을 만들고, 자기 설명적인 폴더 하나로 해석 플랫폼에 넘긴다.\n\n기계가 지휘할 때 쓰는 한 벌: `POST /doe/run`(만들고 · 기다리고 · 내보낸다) → `GET /doe/{id}/status` → `POST /doe/{id}/release`(다 읽었다). 재시도에는 `idempotency_key` 를 준다.\n\n**해석 결과는 여기로 돌아오지 않는다** — 푸는 쪽이 들고 거기서 본다."
+    },
+    {
+      "name": "works",
+      "description": "**내 작업** — 비공개로 그리는 자리. 버전마다 레시피와 해석 조건이 붙고, 「승격」 하면 공용 부품 · 지그 카탈로그로 나간다."
+    },
+    {
+      "name": "parts",
+      "description": "공용 **부품** 카탈로그(불변 버전)."
+    },
+    {
+      "name": "jigs",
+      "description": "공용 **지그** 카탈로그(불변 버전)."
+    },
+    {
+      "name": "templates",
+      "description": "레시피 **템플릿** — 변수만 채워 쓰는 밑그림."
+    },
+    {
+      "name": "jobs",
+      "description": "**작업 큐** — 형상 평가 · 지그 생성 · DOE 가 여기서 돈다. 걸면 즉시 돌아오고, 끝났는지는 이 묶음이나 각 모듈의 `status` 로 본다."
+    },
+    {
+      "name": "materials",
+      "description": "**물성** — MatNexus 에서 골라 온다. 값을 해석하지 않고 payload 를 통째로 나른다 (「어느 것이 영률인가」 는 솔버를 아는 쪽의 일이다). 못 닿으면 관리자가 올려 둔 카탈로그로 넘어가고, **넘어갔다는 사실을 답이 말한다**(`fallback`)."
+    },
+    {
+      "name": "accounts",
+      "description": "계정과 가입 승인. 관리자용."
+    },
+    {
+      "name": "server",
+      "description": "서버 설정(상한 · 보관 기한)과 상태. 관리자용."
+    },
+    {
+      "name": "system",
+      "description": "살아 있나 · 버전."
+    }
+  ],
+  "security": [
+    {
+      "PAT": []
+    }
+  ]
 }

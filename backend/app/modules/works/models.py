@@ -61,6 +61,11 @@ class Work(Base):
         JSONB, default=dict, server_default="{}"
     )
     """부품 작업일 때 — 마지막으로 쓴 **지그 생성기** 옵션. 다음에 열면 그대로 있다."""
+    unit_system: Mapped[str] = mapped_column(
+        String(20), default="mm_n_tonne", server_default="mm_n_tonne"
+    )
+    """이 작업의 **기본 단위계**(`core/units.py`) — 새 시뮬레이션 조건이 이 계로 시작한다.
+    도면은 늘 mm 이고, 이것은 조건의 값(하중 · 변위량 · 물성)을 무슨 계로 적느냐다."""
     tags: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
     """꼬리표 — 프로젝트 · 제품군 같은 묶음. 폴더 대신 이것으로 거른다(한 작업이 여러 묶음에
     들 수 있다)."""

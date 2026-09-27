@@ -152,6 +152,7 @@ def work_out(db: Session, work: Work) -> WorkOut:
         version_count=count,
         current=version_out(db, current) if current else None,
         jig_options=work.jig_options,
+        unit_system=work.unit_system,
         tags=list(work.tags or []),
         deleted_at=work.deleted_at,
         jig_run_count=runs,
@@ -259,6 +260,7 @@ def duplicate_work(db: Session, work: Work, *, by: User, name: str | None) -> Wo
     )
     made.tags = list(work.tags or [])
     made.jig_options = dict(work.jig_options or {})
+    made.unit_system = work.unit_system
     db.commit()
     db.refresh(made)
     return made
@@ -337,9 +339,12 @@ def create_work(
     note: str,
     kind: str = "part",
     jig_for_part_id: uuid.UUID | None = None,
+    unit_system: str | None = None,
 ) -> Work:
     if recipe is not None:
         _validated(recipe)
+    if unit_system is not None:
+        _check_unit_system(unit_system)
     if kind not in WORK_KINDS:
         raise AppError(code("WORKS", 23), f"모르는 종류입니다: {kind} (part · jig)")
     work = Work(
@@ -348,6 +353,7 @@ def create_work(
         owner_id=owner.id,
         kind=kind,
         jig_for_part_id=jig_for_part_id,
+        unit_system=unit_system or "mm_n_tonne",
     )
     db.add(work)
     db.flush()
@@ -359,9 +365,20 @@ def create_work(
     return work
 
 
+def _check_unit_system(key: str) -> None:
+    """모르는 계를 받으면 지금 말한다 — 조용히 기본 계로 읽으면 값이 10³ 배 틀린다."""
+    from app.core import units as unit_systems
+
+    if key not in unit_systems.SYSTEMS:
+        known = ", ".join(unit_systems.SYSTEMS)
+        raise AppError(code("WORKS", 32), f"모르는 단위계입니다: {key} ({known})")
+
+
 def update_work(db: Session, work: Work, *, fields: dict[str, Any]) -> Work:
     if "jig_options" in fields and fields["jig_options"] is not None:
         fields["jig_options"] = JigOptions.from_dict(fields["jig_options"]).to_dict()
+    if fields.get("unit_system") is not None:
+        _check_unit_system(fields["unit_system"])
     if fields.get("kind") is not None and fields["kind"] not in WORK_KINDS:
         raise AppError(code("WORKS", 23), f"모르는 종류입니다: {fields['kind']} (part · jig)")
     for key, value in fields.items():

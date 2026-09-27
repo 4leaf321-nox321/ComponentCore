@@ -721,3 +721,19 @@ test('좌표계 창을 띄우면 **확인 전에도** 그 좌표계의 축을 �
     expect(last?.conditions.coordinate_systems.map((one) => one.name)).toEqual(['좌표계 1'])
   })
 })
+
+test('새 조건은 **작업의 기본 단위계**로 시작하고, 적힌 계가 다르면 알린다', async () => {
+  const onSave = vi.fn()
+  const { unmount } = render(<ConditionsPanel recipe={RECIPE} value={null} onSave={onSave} defaultSystem="si" />)
+  await waitFor(() => screen.getByText('면 찍기'))
+  expect(screen.getByLabelText('단위계')).toHaveValue('si')
+  expect(screen.queryByText(/작업의 기본 단위계/)).toBeNull()
+  // 아직 저장한 적 없는 조건이 기본 계로 시작한 것은 「고친 것」 이 아니다.
+  expect(screen.getByRole('button', { name: '조건 저장' }).className).not.toContain('bg-primary')
+  unmount()
+
+  render(<ConditionsPanel recipe={RECIPE} value={{ units: { system: 'mm_n_tonne' } }} onSave={onSave} defaultSystem="si" />)
+  await waitFor(() => screen.getByText('면 찍기'))
+  expect(screen.getByLabelText('단위계')).toHaveValue('mm_n_tonne')
+  expect(screen.getByText(/작업의 기본 단위계\(SI — m · kg · s/)).toBeInTheDocument()
+})

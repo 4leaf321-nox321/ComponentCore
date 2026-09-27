@@ -24,6 +24,8 @@ class WorkCreateRequest(BaseModel):
     jig_for_part_id: uuid.UUID | None = None
     source: str = "manual"
     note: str = Field(default="", max_length=2000)
+    unit_system: str | None = None
+    """기본 단위계(`mm_n_tonne` · `si`) — 비우면 mm · N · tonne."""
 
 
 class WorkUpdateRequest(BaseModel):
@@ -35,6 +37,8 @@ class WorkUpdateRequest(BaseModel):
     jig_for_part_id: uuid.UUID | None = None
     tags: list[str] | None = None
     """꼬리표 전체를 바꾼다(빈 목록이면 다 뗀다)."""
+    unit_system: str | None = None
+    """기본 단위계 — 새 시뮬레이션 조건이 이 계로 시작한다(있는 조건은 그대로)."""
 
 
 class VersionCreateRequest(BaseModel):
@@ -79,6 +83,8 @@ class WorkOut(BaseModel):
     version_count: int
     current: VersionOut | None
     jig_options: dict[str, Any]
+    unit_system: str = "mm_n_tonne"
+    """기본 단위계 — 새 시뮬레이션 조건이 이 계로 시작한다."""
     jig_run_count: int
     last_jig_status: str | None
     promoted_part_id: uuid.UUID | None

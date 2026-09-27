@@ -18,6 +18,8 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from app.core import units as unit_systems
+
 Vec = tuple[float, float, float]
 
 
@@ -133,3 +135,19 @@ def condition_frames(
             continue
         out.append(from_face(name, "conditions", face["centroid"], direction))
     return out, missing
+
+
+def in_system(rows: list[dict[str, Any]], system: str) -> tuple[list[dict[str, Any]], str]:
+    """좌표계 원점을 **조건의 단위계 길이로** — 그리고 그 길이의 이름.
+
+    원점은 늘 도면의 mm 로 나온다(형상 · 면 중심 · 사람이 적은 원점 모두 mm). 그런데 조건의
+    값(변위량 · 하중)은 조건의 단위계를 따르므로, SI 로 풀면 **원격점 · 회전축 자리만 mm 로
+    남아** 1000 배 어긋난다. 축은 단위 벡터라 그대로 둔다."""
+
+    target = unit_systems.system_of(system)
+    factor = 1e-3 / target.length  # mm → 이 계의 길이
+    out = [
+        {**one, "origin": [round(v * factor, 9) for v in one.get("origin", [0, 0, 0])]}
+        for one in rows
+    ]
+    return out, target.names["length"]

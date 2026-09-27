@@ -64,6 +64,8 @@ export default function WorkPage() {
   /** 지그 작업이 부품에서 생성됐으면 그 생성 기록 — 계획 · 간섭 검사를 되짚어 본다. */
   const runs = useResource(() => worksApi.jigRuns(id), [id])
   const allTags = useResource(() => worksApi.tags(), [])
+  /** 고를 수 있는 단위계 — 정본은 서버(조건 사양표). */
+  const conditionSpec = useResource(() => conditionsApi.schema(), [])
 
   const [tab, setTab] = useState('geometry')
   const [selectedVersion, setSelectedVersion] = useState<WorkVersion | null>(null)
@@ -265,6 +267,35 @@ export default function WorkPage() {
             })
           }
         />
+        {/*
+          **기본 단위계** — 새 시뮬레이션 조건이 이 계로 시작한다. 있는 조건의 계는 바꾸지 않는다
+          (조건마다 고른 계가 그 조건의 숫자 뜻이다). 도면은 늘 mm.
+        */}
+        <label
+          className="text-muted-foreground ml-auto flex items-center gap-1.5 text-xs"
+          title="새 시뮬레이션 조건이 이 단위계로 시작합니다. 이미 있는 조건의 단위계는 바뀌지 않습니다. 도면은 늘 mm 입니다."
+        >
+          기본 단위계
+          <select
+            aria-label="기본 단위계"
+            className="bg-background text-foreground rounded border px-1.5 py-0.5 text-xs"
+            value={w.unit_system ?? 'mm_n_tonne'}
+            disabled={busy}
+            onChange={(e) => {
+              const unit_system = e.target.value
+              void act(async () => {
+                await worksApi.update(id, { unit_system })
+                work.reload()
+              })
+            }}
+          >
+            {(conditionSpec.data?.unit_systems ?? [{ key: w.unit_system ?? 'mm_n_tonne', label: w.unit_system ?? 'mm_n_tonne' }]).map((one) => (
+              <option key={one.key} value={one.key}>
+                {one.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
@@ -485,6 +516,7 @@ export default function WorkPage() {
             <ConditionsPanel
               recipe={w.current.recipe}
               value={w.current.conditions}
+              defaultSystem={w.unit_system}
               saving={busy}
               onSave={(next) => {
                 setBusy(true)

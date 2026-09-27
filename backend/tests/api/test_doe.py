@@ -530,6 +530,12 @@ def test_좌표계는_설계점마다_치수를_따라_점_파일에_나간다(
         옆 = frames["옆면 좌표"]
         assert 옆["origin"][0] == 길이 / 2 and 옆["z"] == [1.0, 0.0, 0.0]
         assert 옆["source"] == "conditions"
+        # 파일이 길이 단위를 스스로 말한다 — 기본 계(mm · N · t)면 좌표계도 mm.
+        assert topo["length_units"] == {
+            "geometry": "mm",
+            "regions": "mm",
+            "coordinate_systems": "mm",
+        }
 
 
 def test_없는_좌표계를_가리키는_조건은_만들기_전에_막는다(

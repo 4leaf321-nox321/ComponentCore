@@ -140,3 +140,12 @@ def test_면에_붙인_좌표계는_그룹을_못_풀면_못_푼_것이다() -> 
     )
     assert missing == ["바닥 좌표", "나란"]
     assert [one["name"] for one in rows] == ["수치", "벡터"]
+
+
+def test_좌표계_원점은_조건의_단위계_길이로_옮기고_축은_그대로다() -> None:
+    row = frames.from_rotation("끝", "cad", [40, 0, 5], [0, 0, 90])
+    kept, name = frames.in_system([row], "mm_n_tonne")
+    assert name == "mm" and kept[0]["origin"] == [40.0, 0.0, 5.0]
+    moved, name = frames.in_system([row], "si")
+    assert name == "m" and moved[0]["origin"] == [0.04, 0.0, 0.005]
+    assert moved[0]["x"] == row["x"] and row["origin"] == [40.0, 0.0, 5.0]

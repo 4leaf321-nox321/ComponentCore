@@ -146,13 +146,16 @@ export function ConditionsPanel({
   value,
   onSave,
   saving,
+  defaultSystem,
 }: {
   recipe: Recipe
   value: unknown
   onSave: (next: Conditions) => void
   saving?: boolean
+  /** 작업의 기본 단위계 — 아직 조건이 없으면 이 계로 시작한다. */
+  defaultSystem?: string
 }) {
-  const [draft, setDraft] = useState<Conditions>(() => asConditions(value))
+  const [draft, setDraft] = useState<Conditions>(() => asConditions(value, defaultSystem))
   /** 트리에서 펼친 것 — 파트 · 물성 · 선택 그룹. */
   const [tree, setTree] = useState<TreeSelection>(null)
   const [editing, setEditing] = useState<Editing>(null)
@@ -183,11 +186,16 @@ export function ConditionsPanel({
   const schema = useResource<ConditionsSchema>(() => conditionsApi.schema(), [])
   const { mesh, problems } = useRecipeMesh(recipe)
 
-  useEffect(() => setDraft(asConditions(value)), [value])
+  // 저장된 것이 바뀔 때만 다시 읽는다 — 작업의 기본 단위계를 바꿨다고 고치던 것을 지우지 않는다.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setDraft(asConditions(value, defaultSystem)), [value])
 
   const names = draft.named_selections
   /** 저장한 것과 다른가 — 리본의 「조건 저장」 이 눈에 띄게 한다. */
-  const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(asConditions(value)), [draft, value])
+  const dirty = useMemo(
+    () => JSON.stringify(draft) !== JSON.stringify(asConditions(value, defaultSystem)),
+    [draft, value, defaultSystem],
+  )
 
   /**
    * 그 조건이 가리킬 수 있는 선택 그룹만.
@@ -815,30 +823,42 @@ export function ConditionsPanel({
             label="해석 설정"
             onClick={() => openWindow({ group: 'analysis', index: null, item: structuredClone(draft.analysis) as ConditionItem })}
           />
-          {/*
-            **단위계는 한 벌에 하나다.** 조건에 적힌 숫자와 물성 값이 같은 계로 풀려야 해석이
-            맞는다 — MatNexus 는 밀도만 mm·t·s 로 주고 나머지는 SI 로 주므로, 이것이 없으면
-            밀도는 맞고 탄성계수가 10⁶ 배 틀린 채로 나간다.
-          */}
-          <label
-            className="bg-card flex h-14 shrink-0 flex-col items-center justify-center gap-1 rounded-md border px-2 text-[11px] leading-none shadow-sm"
-            title={`단위계 — ${systemOf?.label ?? system}. 물성은 이 단위계로 환산하여 원본과 함께 전달됩니다(원본은 변경하지 않습니다).`}
-          >
-            <Scale className="size-5" />
-            <select
-              aria-label="단위계"
-              className="bg-transparent text-[11px]"
-              value={system}
-              onChange={(e) => setDraft({ ...draft, units: { system: e.target.value } })}
-            >
-              {(spec.unit_systems ?? []).map((one) => (
-                <option key={one.key} value={one.key}>
-                  {one.length} · {one.stress}
-                </option>
-              ))}
-            </select>
-          </label>
         </RibbonGroup>
+      </div>
+
+      {/*
+        **단위계 — 잘 보이는 자리에.** 조건에 적힌 숫자와 물성 값이 같은 계로 풀려야 해석이 맞는다
+        (MatNexus 는 밀도만 mm·t·s 로 주고 나머지는 SI 로 준다 — 이것이 없으면 탄성계수가 10⁶ 배
+        틀린 채로 나간다). 리본 구석에 두었더니 있는 줄 몰랐다. 도면은 늘 mm 이다.
+      */}
+      <div className="bg-muted/40 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border px-3 py-1.5 text-xs">
+        <Scale className="size-4" />
+        <label className="flex items-center gap-1.5 font-medium">
+          단위계
+          <select
+            aria-label="단위계"
+            className="bg-background rounded border px-1.5 py-0.5 text-xs"
+            value={system}
+            onChange={(e) => setDraft({ ...draft, units: { system: e.target.value } })}
+          >
+            {(spec.unit_systems ?? []).map((one) => (
+              <option key={one.key} value={one.key}>
+                {one.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {systemOf && (
+          <span className="text-muted-foreground">
+            길이 {systemOf.length} · 힘 {systemOf.force} · 응력 {systemOf.stress} · 밀도 {systemOf.density}
+          </span>
+        )}
+        <span className="text-muted-foreground">도면(형상)은 늘 mm — 점 파일의 좌표계 원점은 이 계로 옮겨 나갑니다.</span>
+        {defaultSystem && defaultSystem !== system && (
+          <span className="text-amber-700 dark:text-amber-400">
+            작업의 기본 단위계({spec.unit_systems?.find((one) => one.key === defaultSystem)?.label ?? defaultSystem})와 다릅니다
+          </span>
+        )}
       </div>
 
       {error && <ErrorNotice error={error} />}

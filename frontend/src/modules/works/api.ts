@@ -42,6 +42,8 @@ export interface Work {
   version_count: number
   current: WorkVersion | null
   jig_options: Record<string, unknown>
+  /** 기본 단위계(`mm_n_tonne` · `si`) — 새 시뮬레이션 조건이 이 계로 시작한다. 도면은 늘 mm. */
+  unit_system: string
   jig_run_count: number
   last_jig_status: string | null
   promoted_part_id: string | null
@@ -119,7 +121,7 @@ export const worksApi = {
     api.post<Work>('/works', body),
   update: (
     id: string,
-    body: { name?: string; description?: string; jig_options?: Record<string, unknown>; kind?: WorkKind; jig_for_part_id?: string | null; tags?: string[] },
+    body: { name?: string; description?: string; jig_options?: Record<string, unknown>; kind?: WorkKind; jig_for_part_id?: string | null; tags?: string[]; unit_system?: string },
   ) =>
     api.patch<Work>(`/works/${id}`, body),
   remove: (id: string) => api.delete<void>(`/works/${id}`),

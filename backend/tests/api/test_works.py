@@ -656,3 +656,31 @@ def test_해석_조건은_버전에_붙고_새_버전을_만들지_않는다(
     # 조건의 칸 사양표 — 화면과 AI 가 같은 것을 본다.
     spec = client.get("/api/cad/conditions/schema", headers=member.headers).json()
     assert "bolt_pretension" in spec["groups"]["loads"]["types"]
+
+
+def test_작업의_기본_단위계를_정하고_복제에_따라간다(
+    client: TestClient, member: Signed
+) -> None:
+    """새 시뮬레이션 조건이 이 계로 시작한다 — 도면은 늘 mm 이고, 이것은 조건의 값의 계다."""
+    made = client.post(
+        "/api/works",
+        json={"name": "SI 로 푸는 것", "recipe": BOX, "unit_system": "si"},
+        headers=member.headers,
+    )
+    assert made.status_code == 201, made.text
+    assert made.json()["unit_system"] == "si"
+    assert _work(client, member)["unit_system"] == "mm_n_tonne"
+
+    work_id = made.json()["id"]
+    changed = client.patch(
+        f"/api/works/{work_id}", json={"unit_system": "mm_n_tonne"}, headers=member.headers
+    )
+    assert changed.status_code == 200 and changed.json()["unit_system"] == "mm_n_tonne"
+    bad = client.patch(
+        f"/api/works/{work_id}", json={"unit_system": "inch"}, headers=member.headers
+    )
+    assert bad.status_code >= 400 and "모르는 단위계" in bad.text
+
+    client.patch(f"/api/works/{work_id}", json={"unit_system": "si"}, headers=member.headers)
+    copy = client.post(f"/api/works/{work_id}/duplicate", headers=member.headers)
+    assert copy.json()["unit_system"] == "si"

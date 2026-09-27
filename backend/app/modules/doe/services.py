@@ -1033,8 +1033,20 @@ def run_job(
                     (topo.get("conditions") or {}).get("coordinate_systems") or [],
                     topo["regions"],
                 )
-                if cad_frames or condition_side:
-                    topo["coordinate_systems"] = [*cad_frames, *condition_side]
+                # **길이 단위를 파일이 스스로 말한다.** 형상(STEP) · 영역은 도면의 mm 이고,
+                # 좌표계 원점은 조건의 값과 같은 계로 옮긴다 — 원격점 · 회전축 자리가 mm 로
+                # 남으면 SI 로 푼 조건과 1000 배 어긋난다.
+                system = str(
+                    ((topo.get("conditions") or {}).get("units") or {}).get("system") or ""
+                )
+                placed, frame_length = frames.in_system([*cad_frames, *condition_side], system)
+                topo["length_units"] = {
+                    "geometry": "mm",
+                    "regions": "mm",
+                    "coordinate_systems": frame_length,
+                }
+                if placed:
+                    topo["coordinate_systems"] = placed
                 for name in missing:
                     if name not in topo["unresolved"]:
                         topo["unresolved"].append(name)

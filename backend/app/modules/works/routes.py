@@ -96,6 +96,7 @@ def create_work(
         note=payload.note,
         kind=payload.kind,
         jig_for_part_id=payload.jig_for_part_id,
+        unit_system=payload.unit_system,
     )
     return services.work_out(db, work)
 

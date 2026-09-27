@@ -189,11 +189,11 @@ export const GROUP_KEYS = [
   'mesh_hints',
 ] as const
 
-export function emptyConditions(): Conditions {
+/** `system` — 작업의 기본 단위계. 안 주면 mm·t·s(CAD 가 mm 라 해석도 mm — FE 의 사실상 표준). */
+export function emptyConditions(system = 'mm_n_tonne'): Conditions {
   return {
     schema_version: 1,
-    // 기본은 mm·t·s — CAD 가 mm 라 해석도 mm 으로 푼다(FE 의 사실상 표준).
-    units: { system: 'mm_n_tonne' },
+    units: { system },
     named_selections: [],
     materials: [],
     constraints: [],
@@ -207,8 +207,9 @@ export function emptyConditions(): Conditions {
 }
 
 /** 서버가 준 것을 화면이 쓰는 모양으로 — 빈 칸을 채워 두면 화면에 `?.` 가 줄어든다. */
-export function asConditions(raw: unknown): Conditions {
-  const empty = emptyConditions()
+export function asConditions(raw: unknown, defaultSystem?: string): Conditions {
+  // 아직 조건이 없으면(또는 계를 안 적었으면) **작업의 기본 단위계로 시작한다.** 적힌 계는 그대로.
+  const empty = emptyConditions(defaultSystem)
   if (!raw || typeof raw !== 'object') return empty
   return { ...empty, ...(raw as Partial<Conditions>) }
 }
