@@ -22,6 +22,7 @@ from app.modules.accounts.models import User
 from app.modules.cad import services
 from app.modules.cad.schemas import (
     BeamRequest,
+    ConvertSystemRequest,
     FindRequest,
     FramesRequest,
     GeometryRequest,
@@ -143,6 +144,23 @@ def conditions_schema(_: User = Depends(current_user)) -> dict[str, Any]:
     from app.core.conditions import spec
 
     return spec()
+
+
+@router.post("/conditions/convert")
+def conditions_convert(
+    payload: ConvertSystemRequest, _: User = Depends(current_user)
+) -> dict[str, Any]:
+    """조건 한 벌을 **다른 단위계로** — 적어 둔 값까지 옮긴다. 화면은 바뀐 것(`changes`)을
+    보여 주고 확인을 받는다. 계만 바꾸고 숫자를 두면 변위량 0.1 mm 가 0.1 m 가 된다.
+
+    배수는 서버 한 곳이다(`core/units`) — 화면이 따로 셈하면 내보낼 때와 어긋난다."""
+    from app.core import conditions as condition_model
+
+    try:
+        converted, changes = condition_model.convert_system(payload.conditions, payload.to)
+    except condition_model.ConditionError as failure:
+        raise AppError(code("CAD", 15), str(failure)) from failure
+    return {"conditions": converted, "changes": changes}
 
 
 @router.post("/conditions/frames")

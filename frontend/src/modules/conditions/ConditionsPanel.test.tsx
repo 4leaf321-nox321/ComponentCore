@@ -226,6 +226,15 @@ vi.mock('@/shared/api/client', async () => {
         if (path.startsWith('/cad/recipe/bodies')) return BODIES
         // 좌표계 — 서버가 지금 치수로 푼 축(화면은 그리기만 한다).
         if (path.startsWith('/cad/conditions/frames')) return { items: [], missing: [] }
+        // 단위계 바꾸기 — 서버가 값을 옮기고 바뀐 것을 알려 준다(여기서는 압력 하나).
+        if (path.startsWith('/cad/conditions/convert')) {
+          const { conditions, to } = body as unknown as { conditions: Record<string, unknown>; to: string }
+          const loads = (conditions.loads as { magnitude?: number }[] | undefined) ?? []
+          return {
+            conditions: { ...conditions, units: { system: to }, loads: loads.map((one) => ({ ...one, magnitude: (one.magnitude ?? 0) * 1e6 })) },
+            changes: loads.map(() => ({ where: '하중 「누름」 크기', before: 1, after: 1e6, unit_before: 'MPa', unit_after: 'Pa' })),
+          }
+        }
         // 선택 그룹을 지금 형상에서 푼다 — 바닥 면 하나.
         if (path.startsWith('/cad/recipe/find')) return { what: 'faces', total: 1, items: [{ index: 0, center: [0, 0, 0] }] }
         const answer = (point?: number[]) =>
@@ -736,4 +745,28 @@ test('새 조건은 **작업의 기본 단위계**로 시작하고, 적힌 계�
   await waitFor(() => screen.getByText('면 찍기'))
   expect(screen.getByLabelText('단위계')).toHaveValue('mm_n_tonne')
   expect(screen.getByText(/작업의 기본 단위계\(SI — m · kg · s/)).toBeInTheDocument()
+})
+
+test('단위계를 바꾸면 **적어 둔 값도 옮기고**, 옮길 것이 있으면 목록을 보여 확인을 받는다', async () => {
+  const onSave = vi.fn()
+  const value = { units: { system: 'mm_n_tonne' }, loads: [{ name: '누름', type: 'pressure', on: '바닥', magnitude: 1 }] }
+  const { unmount } = render(<ConditionsPanel recipe={RECIPE} value={value} onSave={onSave} />)
+  await waitFor(() => screen.getByText('면 찍기'))
+  fireEvent.change(screen.getByLabelText('단위계'), { target: { value: 'si' } })
+  await waitFor(() => screen.getByRole('list', { name: '옮기는 값' }))
+  expect(screen.getByText('1 MPa → 1000000 Pa')).toBeInTheDocument()
+  // 확인하기 전에는 그대로다.
+  expect(screen.getByLabelText('단위계')).toHaveValue('mm_n_tonne')
+  fireEvent.click(screen.getByRole('button', { name: '값을 옮기고 바꾸기' }))
+  await waitFor(() => expect(screen.getByLabelText('단위계')).toHaveValue('si'))
+  await save(onSave)
+  expect(onSave.mock.lastCall![0].loads[0].magnitude).toBe(1e6)
+  unmount()
+
+  // 옮길 값이 없으면 묻지 않고 바꾼다.
+  render(<ConditionsPanel recipe={RECIPE} value={{ units: { system: 'mm_n_tonne' } }} onSave={onSave} />)
+  await waitFor(() => screen.getByText('면 찍기'))
+  fireEvent.change(screen.getByLabelText('단위계'), { target: { value: 'si' } })
+  await waitFor(() => expect(screen.getByLabelText('단위계')).toHaveValue('si'))
+  expect(screen.queryByRole('list', { name: '옮기는 값' })).toBeNull()
 })

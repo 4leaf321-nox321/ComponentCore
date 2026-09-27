@@ -947,6 +947,133 @@ def _filled_load(load: dict[str, Any], system: str) -> dict[str, Any]:
     return out
 
 
+# ── 단위계 바꾸기 — 적어 둔 값도 같이 ────────────────────────────────────────
+
+#: 조건의 칸 → 차원(`core/units.py`). 여기 없는 칸은 계와 상관없다(도 · 온도 · 마찰계수 ·
+#: 진동수 · 방향 벡터).
+_LENGTH = unit_systems.LENGTH
+_VELOCITY: unit_systems.Dimension = (0, 1, -1, 0)
+_STIFFNESS: unit_systems.Dimension = (1, -2, -2, 0)  # 응력 / 길이 — 기초 강성
+_LOAD_DIMENSION: dict[str, unit_systems.Dimension] = {
+    "stress": unit_systems.STRESS,
+    "force": unit_systems.FORCE,
+    "moment": unit_systems.ENERGY,  # N·mm 과 mJ 는 같은 차원
+    "acceleration": (0, 1, -2, 0),
+    "angular_velocity": (0, 0, -1, 0),
+}
+
+
+def _decimal(factor: float) -> str:
+    """배수를 식에 넣을 글자로 — `1e-3` 대신 `0.001`(사람이 읽는다)."""
+    from decimal import Decimal
+
+    text = format(Decimal(repr(factor)), "f")
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+def _scaled(value: Any, factor: float) -> Any:
+    """값 하나를 배수만큼 — 수는 곱하고, **식은 배수를 곱한 식으로** 감싼다(설계점마다 풀어도
+    맞게). 비었거나 모르는 것은 그대로."""
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, int | float):
+        return float(f"{value * factor:.12g}")
+    if isinstance(value, str) and value.startswith("="):
+        return f"=({value[1:]})*{_decimal(factor)}"
+    if isinstance(value, list):
+        return [_scaled(one, factor) for one in value]
+    return value
+
+
+def convert_system(
+    raw: dict[str, Any], to: str
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """조건 한 벌을 **다른 단위계로** — 적어 둔 값까지 옮긴다. `(새 한 벌, 바뀐 것들)`.
+
+    계만 바꾸고 숫자를 두면 뜻이 바뀐다: 변위량 0.1 mm 가 0.1 m 가 되고 압력 1 MPa 가 1 Pa 가
+    된다. 그래서 계를 바꾸는 순간 칸마다 차원대로 옮긴다. 식(`=힘`)은 `=(힘)*0.001` 처럼 배수를
+    곱해 둔다 — 식의 변수는 도면 쪽이라 계를 모른다.
+
+    물성은 건드리지 않는다(원본을 두고 내보낼 때 옮긴다). 좌표계 원점은 늘 mm 라 그대로다.
+    고치는 중인 한 벌이라 검증하지 않고 읽는다 — 모르는 칸은 그대로 둔다.
+    """
+    from copy import deepcopy
+
+    if to not in unit_systems.SYSTEMS:
+        raise ConditionError(f"모르는 단위계입니다: {to} ({', '.join(unit_systems.SYSTEMS)})")
+    out = deepcopy(raw or {})
+    source = unit_systems.system_of(str((out.get("units") or {}).get("system") or ""))
+    target = unit_systems.system_of(to)
+    out["units"] = {**(out.get("units") or {}), "system": target.key}
+    changes: list[dict[str, Any]] = []
+    if source.key == target.key:
+        return out, changes
+
+    def unit(system: unit_systems.System, dimension: Any) -> str:
+        """차원의 이름 — 확인 창이 「1 MPa → 1000000 Pa」 로 읽게."""
+        names = system.names
+        by_dimension = {
+            _LENGTH: names["length"],
+            _VELOCITY: f"{names['length']}/s",
+            _STIFFNESS: f"{names['stress']}/{names['length']}",
+            unit_systems.FORCE: names["force"],
+            **{dim: names[key] for key, dim in _LOAD_DIMENSION.items()},
+        }
+        return by_dimension.get(dimension, "")
+
+    def move(item: dict[str, Any], key: str, dimension: Any, label: str) -> None:
+        before = item.get(key)
+        if before is None or before == "" or before == []:
+            return
+        factor = source.factor(dimension) / target.factor(dimension)
+        after = _scaled(before, factor)
+        if after == before:
+            return
+        item[key] = after
+        changes.append(
+            {
+                "where": label,
+                "before": before,
+                "after": after,
+                "unit_before": unit(source, dimension),
+                "unit_after": unit(target, dimension),
+            }
+        )
+
+    for one in out.get("constraints") or []:
+        name = f"구속 「{one.get('name', '')}」"
+        for axis in ("x", "y", "z"):
+            move(one, axis, _LENGTH, f"{name} {axis.upper()} 변위량")
+        move(one, "stiffness", _STIFFNESS, f"{name} 기초 강성")
+    for one in out.get("loads") or []:
+        name = f"하중 「{one.get('name', '')}」"
+        kind = str(one.get("type", ""))
+        if kind == "bolt_pretension":
+            by_length = one.get("unit") == source.names["length"]
+            dimension = _LENGTH if by_length else unit_systems.FORCE
+            move(one, "preload", dimension, f"{name} {'조임량' if by_length else '예압'}")
+            one["unit"] = target.names["length" if by_length else "force"]
+            continue
+        named = LOAD_DIMENSIONS.get(kind)
+        if named:
+            move(one, "magnitude", _LOAD_DIMENSION[named], f"{name} 크기")
+            # 단위는 계가 정한다 — 적혀 있었으면 새 계의 이름으로.
+            if one.get("unit"):
+                one["unit"] = target.names[named]
+    for one in out.get("contacts") or []:
+        move(one, "pinball", _LENGTH, f"접촉 「{one.get('name', '')}」 pinball 반경")
+    for index, one in enumerate(out.get("initial") or []):
+        if one.get("type") == "velocity":
+            label = f"초기조건 {index + 1} 속도"
+            move(one, "value", _VELOCITY, label)
+            move(one, "vector", _VELOCITY, label)
+    for one in out.get("mesh_hints") or []:
+        name = f"메시 힌트 「{one.get('on', '')}」"
+        move(one, "element_size", _LENGTH, f"{name} 요소 크기")
+        move(one, "defeature_size", _LENGTH, f"{name} 무시할 크기")
+    return out, changes
+
+
 # ── 사양표 — 화면과 AI 가 같은 것을 본다 ─────────────────────────────────────
 
 

@@ -3121,6 +3121,50 @@
         }
       }
     },
+    "/api/cad/conditions/convert": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Conditions Convert",
+        "description": "조건 한 벌을 **다른 단위계로** — 적어 둔 값까지 옮긴다. 화면은 바뀐 것(`changes`)을\n보여 주고 확인을 받는다. 계만 바꾸고 숫자를 두면 변위량 0.1 mm 가 0.1 m 가 된다.\n\n배수는 서버 한 곳이다(`core/units`) — 화면이 따로 셈하면 내보낼 때와 어긋난다.",
+        "operationId": "conditions_convert_api_cad_conditions_convert_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConvertSystemRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Conditions Convert Api Cad Conditions Convert Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/cad/conditions/frames": {
       "post": {
         "tags": [
@@ -5584,6 +5628,27 @@
           "conditions"
         ],
         "title": "ConditionsRequest"
+      },
+      "ConvertSystemRequest": {
+        "properties": {
+          "conditions": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Conditions"
+          },
+          "to": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "To"
+          }
+        },
+        "type": "object",
+        "required": [
+          "conditions",
+          "to"
+        ],
+        "title": "ConvertSystemRequest"
       },
       "CopyToWorkRequest": {
         "properties": {

@@ -267,6 +267,15 @@ export interface Body {
   bbox?: number[][]
 }
 
+/** 단위계를 바꿀 때 옮겨진 값 하나 — 확인 창이 보인다. */
+export interface UnitChange {
+  where: string
+  before: unknown
+  after: unknown
+  unit_before: string
+  unit_after: string
+}
+
 export const conditionsApi = {
   /**
    * 이 도면의 **바디 목록** — 물성이 「어디에」 붙는지 고를 손잡이.
@@ -276,6 +285,12 @@ export const conditionsApi = {
    */
   bodies: (recipe: Recipe) => api.post<{ items: Body[] }>('/cad/recipe/bodies', { recipe }),
   schema: () => api.get<ConditionsSchema>('/cad/conditions/schema'),
+  /**
+   * 한 벌을 **다른 단위계로** — 적어 둔 값까지 서버가 옮긴다(배수의 정본은 서버). 계만 바꾸고
+   * 숫자를 두면 변위량 0.1 mm 가 0.1 m 가 된다.
+   */
+  convert: (conditions: Conditions, to: string) =>
+    api.post<{ conditions: Conditions; changes: UnitChange[] }>('/cad/conditions/convert', { conditions, to }),
 
   /** 찍은 자리를 말로 되돌려 받는다. `what` 은 faces · edges · vertices. */
   selectors: (recipe: Recipe, what: string, point: number[]) =>

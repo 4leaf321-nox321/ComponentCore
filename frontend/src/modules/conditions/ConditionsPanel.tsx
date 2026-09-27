@@ -80,8 +80,10 @@ import type {
   MaterialItem,
   NamedSelection,
   SelectorCandidate,
+  UnitChange,
 } from '@/modules/conditions/api'
 import { ApiError } from '@/shared/api/client'
+import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { useFillHeight } from '@/shared/hooks/useFillHeight'
 import { Button } from '@/shared/components/ui/button'
@@ -182,6 +184,21 @@ export function ConditionsPanel({
   /** 초기조건 창이 바디로 바꿔 놓기 전의 선택 대상 — 창을 닫으면 되돌린다. */
   const pickKindBefore = useRef<PickKind | null>(null)
   const [error, setError] = useState<Error | null>(null)
+  /** 단위계를 바꾸려는 중 — 서버가 옮긴 한 벌과 바뀐 값들. 확인해야 들어간다. */
+  const [switching, setSwitching] = useState<{ to: string; conditions: Conditions; changes: UnitChange[] } | null>(null)
+
+  /** 단위계를 바꾼다 — **적어 둔 값도 같이 옮긴다.** 옮길 것이 있으면 확인을 받는다. */
+  function switchSystem(to: string) {
+    setError(null)
+    conditionsApi
+      .convert(draft, to)
+      .then(({ conditions, changes }) => {
+        const next = asConditions(conditions, defaultSystem)
+        if (changes.length === 0) setDraft(next)
+        else setSwitching({ to, conditions: next, changes })
+      })
+      .catch((failure) => setError(failure instanceof ApiError ? failure : new Error(String(failure))))
+  }
 
   const schema = useResource<ConditionsSchema>(() => conditionsApi.schema(), [])
   const { mesh, problems } = useRecipeMesh(recipe)
@@ -839,7 +856,7 @@ export function ConditionsPanel({
             aria-label="단위계"
             className="bg-background rounded border px-1.5 py-0.5 text-xs"
             value={system}
-            onChange={(e) => setDraft({ ...draft, units: { system: e.target.value } })}
+            onChange={(e) => switchSystem(e.target.value)}
           >
             {(spec.unit_systems ?? []).map((one) => (
               <option key={one.key} value={one.key}>
@@ -1014,6 +1031,32 @@ export function ConditionsPanel({
       </div>
 
       {/* ── 조건 창 — 3D 를 가리지 않는다. 띄운 채 3D 에서 적용 대상을 지정한다. ── */}
+      <ConfirmDialog
+        open={!!switching}
+        title={`단위계를 ${spec.unit_systems?.find((one) => one.key === switching?.to)?.label ?? switching?.to ?? ''} 로 바꿉니다`}
+        confirmLabel="값을 옮기고 바꾸기"
+        description={
+          <div className="space-y-2">
+            <p>적어 둔 값 {switching?.changes.length ?? 0} 개를 새 단위계로 옮깁니다 — 뜻은 그대로이고 숫자만 바뀝니다. 식은 배수를 곱해 둡니다.</p>
+            <ul className="max-h-60 space-y-0.5 overflow-auto rounded border p-2 text-xs" aria-label="옮기는 값">
+              {switching?.changes.map((one, index) => (
+                <li key={index} className="flex flex-wrap justify-between gap-x-3">
+                  <span>{one.where}</span>
+                  <span className="text-muted-foreground font-mono">
+                    {String(one.before)} {one.unit_before} → {String(one.after)} {one.unit_after}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="text-muted-foreground text-xs">도면 · 좌표계 원점은 늘 mm 라 그대로입니다. 물성은 원본을 두고 내보낼 때 옮깁니다.</p>
+          </div>
+        }
+        onConfirm={async () => {
+          if (switching) setDraft(switching.conditions)
+        }}
+        onClose={() => setSwitching(null)}
+      />
+
       <FloatingWindow
         open={!!editing && !!editingSpec}
         title={

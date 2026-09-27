@@ -542,3 +542,59 @@ def test_하중의_사양표는_종류마다_칸_단위_설명을_싣는다() ->
     assert set(group["notes"]) == set(fields["type"]["enum"])
     units = {one["key"]: one for one in spec()["unit_systems"]}
     assert units["mm_n_tonne"]["moment"] == "N*mm" and units["si"]["moment"] == "N*m"
+
+
+def test_단위계를_바꾸면_적어_둔_값도_차원대로_옮긴다() -> None:
+    raw = {
+        "units": {"system": "mm_n_tonne"},
+        "constraints": [
+            {"name": "밀기", "type": "displacement", "on": "a", "x": 0.1, "y": 0, "z": None},
+            {"name": "패드", "type": "elastic_support", "on": "a", "stiffness": 2},
+            {"name": "핀", "type": "remote_displacement", "on": "a", "rx": 5},
+        ],
+        "loads": [
+            {"name": "누름", "type": "pressure", "on": "a", "magnitude": 1},
+            {"name": "밀기", "type": "force", "on": "a", "magnitude": 100},
+            {"name": "비틀기", "type": "moment", "on": "a", "magnitude": "=토크"},
+            {
+                "name": "조임",
+                "type": "bolt_pretension",
+                "on": "a",
+                "preload": 0.1,
+                "unit": "mm",
+            },
+        ],
+        "mesh_hints": [{"on": "전체", "element_size": 2}],
+        "coordinate_systems": [{"name": "끝", "origin": [40, 0, 5]}],
+    }
+    si, changes = conditions.convert_system(raw, "si")
+    assert si["units"]["system"] == "si"
+    held = si["constraints"]
+    # 0 은 0(고정은 고정), 비운 것은 비운 채(자유는 자유), 회전(도)은 계와 상관없다.
+    assert (held[0]["x"], held[0]["y"], held[0]["z"]) == (0.0001, 0, None)
+    assert held[1]["stiffness"] == 2e9 and held[2]["rx"] == 5
+    loads = si["loads"]
+    assert loads[0]["magnitude"] == 1e6 and loads[1]["magnitude"] == 100
+    # 식은 배수를 곱해 둔다 — 설계점마다 풀어도 맞다.
+    assert loads[2]["magnitude"] == "=(토크)*0.001"
+    assert loads[3]["preload"] == 0.0001 and loads[3]["unit"] == "m"
+    assert si["mesh_hints"][0]["element_size"] == 0.002
+    # 좌표계 원점은 늘 mm — 그대로.
+    assert si["coordinate_systems"][0]["origin"] == [40, 0, 5]
+    assert raw["loads"][0]["magnitude"] == 1  # 받은 것은 안 건드린다
+    assert {one["where"] for one in changes} == {
+        "구속 「밀기」 X 변위량",
+        "구속 「패드」 기초 강성",
+        "하중 「누름」 크기",
+        "하중 「비틀기」 크기",
+        "하중 「조임」 조임량",
+        "메시 힌트 「전체」 요소 크기",
+    }
+    # 되돌리면 제자리.
+    back, _ = conditions.convert_system(si, "mm_n_tonne")
+    assert back["constraints"][0]["x"] == 0.1 and back["loads"][0]["magnitude"] == 1
+    assert back["loads"][3]["unit"] == "mm"
+    same, nothing = conditions.convert_system(raw, "mm_n_tonne")
+    assert nothing == [] and same == raw
+    with pytest.raises(ConditionError, match="모르는 단위계"):
+        conditions.convert_system(raw, "inch")

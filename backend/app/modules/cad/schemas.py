@@ -36,6 +36,13 @@ class FramesRequest(RecipeRequest):
     """해석 조건 한 벌 — 그 안의 좌표계(`coordinate_systems`)를 함께 푼다."""
 
 
+class ConvertSystemRequest(BaseModel):
+    conditions: dict[str, Any]
+    """고치는 중인 한 벌 — 검증하지 않고 읽는다."""
+    to: str = Field(min_length=1, max_length=40)
+    """옮길 단위계(`mm_n_tonne` · `si`)."""
+
+
 class MeasureRequest(RecipeRequest):
     a: dict[str, Any]
     b: dict[str, Any]
