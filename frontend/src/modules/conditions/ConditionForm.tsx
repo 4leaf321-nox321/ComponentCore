@@ -419,7 +419,8 @@ export function ConditionForm({
         const label = field.title ?? (key === 'target' ? '상대 선택 그룹' : '선택 그룹')
         // **받는 종류만** 고르게 — 압력에 엣지 그룹을 고를 수 없다. 모양(원통면)은 서버가
         // 저장할 때 규칙을 보고 말한다(여기서는 규칙을 풀 수 없다).
-        const accepts = group.accepts?.[type]
+        // 종류가 없는 묶음(메시 힌트)은 `*` 가 모든 경우다.
+        const accepts = group.accepts?.[type] ?? group.accepts?.['*']
         const choosable = accepts ? names.filter((one) => accepts.some((ok) => ok.entity === one.entity)) : names
         return (
         <div key={key} className="space-y-1">

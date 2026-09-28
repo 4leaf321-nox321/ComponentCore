@@ -531,7 +531,9 @@ export function ConditionsPanel({
    */
   /** 그 조건이 받는 선택 그룹 종류 — 없으면(대상이 없거나 모든 것) null. */
   function acceptsOf(group: string, type: unknown): TargetKind[] | null {
-    return schema.data?.groups[group]?.accepts?.[String(type ?? '')] ?? null
+    const accepts = schema.data?.groups[group]?.accepts
+    // 종류가 없는 묶음(메시 힌트)은 `*` 가 모든 경우다.
+    return accepts?.[String(type ?? '')] ?? accepts?.['*'] ?? null
   }
 
   /**

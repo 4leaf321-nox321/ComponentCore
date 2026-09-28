@@ -218,3 +218,16 @@ def test_여럿을_묶은_선택_그룹도_영역으로_풀린다() -> None:
     # 하나는 바닥(법선 -Z), 하나는 구멍(반지름이 있다) — 면 지문으로 나간다.
     assert any(one.get("normal") == [0.0, 0.0, -1.0] for one in found["바닥과 구멍"])
     assert any(abs(one.get("radius", 0) - 4.25) < 0.01 for one in found["바닥과 구멍"])
+
+
+def test_점_선택_그룹의_지문은_그_자리다() -> None:
+    """엣지 지문(midpoint · length)으로 보내면 점 행에는 그 칸이 없어 KeyError 가 났다
+    (SimEngBay 가 짚었다, 2026-09-28)."""
+    made = evaluate(
+        parse({"nodes": [{"id": "b", "op": "box", "length": 10, "width": 10, "height": 5}]})
+    )
+    found, unresolved = regions(
+        made.shape,
+        [{"name": "점", "select": {"what": "vertices", "near": [5, 5, 5], "limit": 1}}],
+    )
+    assert unresolved == [] and found["점"] == [{"point": [5.0, 5.0, 2.5]}]

@@ -802,3 +802,18 @@ def test_조건마다_받는_선택_그룹의_종류와_모양이_정해져_있�
     groups = spec()["groups"]
     assert groups["loads"]["accepts"]["bearing"] == [{"entity": "face", "kind": "cylinder"}]
     assert groups["contacts"]["accepts"]["frictional"] == [{"entity": "face"}]
+
+
+def test_모멘트_원격_변위는_면_엣지_메시_힌트는_면_엣지_바디() -> None:
+    """SimEngBay 가 Mechanical 스코핑 규칙으로 맞춘 표(2026-09-28)."""
+    moment = {"name": "비틀기", "type": "moment", "magnitude": 1, "direction": [0, 0, 1]}
+    parse({**SPOTS, "loads": [{**moment, "on": "모서리"}]})
+    with pytest.raises(ConditionError, match="면 · 엣지 선택 그룹에만"):
+        parse({**SPOTS, "loads": [{**moment, "on": "꼭짓점"}]})
+    remote = {"name": "원격", "type": "remote_displacement", "x": 0}
+    with pytest.raises(ConditionError, match="면 · 엣지 선택 그룹에만"):
+        parse({**SPOTS, "constraints": [{**remote, "on": "꼭짓점"}]})
+    parse({**SPOTS, "mesh_hints": [{"on": "몸", "element_size": 3}, {"on": "전체"}]})
+    with pytest.raises(ConditionError, match="면 · 엣지 · 바디 선택 그룹에만"):
+        parse({**SPOTS, "mesh_hints": [{"on": "꼭짓점", "element_size": 1}]})
+    assert spec()["groups"]["mesh_hints"]["accepts"]["*"][2] == {"entity": "body"}

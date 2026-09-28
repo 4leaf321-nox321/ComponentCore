@@ -66,7 +66,8 @@ export interface GroupSchema {
   dimensions?: Record<string, string>
   /**
    * 종류 → **받는 선택 그룹** — `[{entity, kind?}]`(압력은 면, 베어링은 원통면 …). 없는 종류는
-   * 대상이 없다. `kind` 는 선택 규칙에 적혀 있어야 한다(서버가 저장할 때 본다).
+   * 대상이 없다. 종류가 없는 묶음(메시 힌트)은 `*`. `kind` 는 선택 규칙에 적혀 있어야 한다
+   * (서버가 저장할 때 본다).
    */
   accepts?: Record<string, TargetKind[]>
 }

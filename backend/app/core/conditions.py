@@ -911,6 +911,7 @@ _VERTEX: dict[str, str] = {"entity": "vertex"}
 _BODY: dict[str, str] = {"entity": "body"}
 _CYLINDER: dict[str, str] = {"entity": "face", "kind": "cylinder"}
 _SPOTS = [_FACE, _EDGE, _VERTEX]
+_FACE_EDGE = [_FACE, _EDGE]
 
 #: 종류 → **받는 선택 그룹**(종류 · 면의 모양). 화면은 이것으로 고를 수 있는 그룹과 3D 에서
 #: 누를 수 있는 것을 좁히고, AI 는 사양표(`accepts`)에서 읽는다. 없는 종류는 대상이 없다
@@ -919,7 +920,8 @@ _SPOTS = [_FACE, _EDGE, _VERTEX]
 CONSTRAINT_ACCEPTS: dict[str, list[dict[str, str]]] = {
     "fixed_support": _SPOTS,
     "displacement": _SPOTS,
-    "remote_displacement": _SPOTS,
+    # 원격 변위는 면 · 엣지를 한 점에 묶는다 — 점 하나를 묶는 것은 뜻이 없다(Mechanical).
+    "remote_displacement": _FACE_EDGE,
     "frictionless": [_FACE],
     "cylindrical": [_CYLINDER],
     "compression_only": [_FACE],
@@ -928,11 +930,13 @@ CONSTRAINT_ACCEPTS: dict[str, list[dict[str, str]]] = {
 LOAD_ACCEPTS: dict[str, list[dict[str, str]]] = {
     "pressure": [_FACE],
     "force": _SPOTS,
-    "moment": _SPOTS,
+    "moment": _FACE_EDGE,
     "bearing": [_CYLINDER],
     "bolt_pretension": [_CYLINDER, _BODY],
 }
 CONTACT_ACCEPTS: dict[str, list[dict[str, str]]] = {kind: [_FACE] for kind in CONTACT_LABELS}
+#: 메시 힌트는 종류가 없다 — `*` 가 모든 경우. 「전체」 는 그룹이 아니라 늘 된다.
+MESH_ACCEPTS: dict[str, list[dict[str, str]]] = {"*": [_FACE, _EDGE, _BODY]}
 INITIAL_ACCEPTS: dict[str, list[dict[str, str]]] = {
     "temperature": [_BODY],
     "velocity": [_BODY],
@@ -997,6 +1001,8 @@ def _check_targets(conditions: Conditions) -> None:
     for index, initial in enumerate(conditions.initial):
         label = INITIAL_LABELS[initial.type]
         check(f"initial[{index}]", label, INITIAL_ACCEPTS.get(initial.type), initial.on)
+    for index, hint in enumerate(conditions.mesh_hints):
+        check(f"mesh_hints[{index}]", f"메시 힌트 「{hint.on}」", MESH_ACCEPTS["*"], hint.on)
 
 
 def _known_names(conditions: Conditions) -> set[str]:
@@ -1662,6 +1668,7 @@ def spec() -> dict[str, Any]:
         "mesh_hints": {
             "label": "메시 힌트",
             "model": MeshHint,
+            "accepts": MESH_ACCEPTS,
             "intro": "메시는 받는 쪽(SimEngBay)이 만듭니다 — 여기 적는 것은 바람입니다. "
             "비운 칸은 받는 쪽이 정합니다.",
         },

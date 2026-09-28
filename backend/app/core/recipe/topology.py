@@ -119,6 +119,12 @@ def _edge_fingerprint(row: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _vertex_fingerprint(row: dict[str, Any]) -> dict[str, Any]:
+    """점 하나의 지문 — 그 자리(`point`). 엣지 지문(`midpoint` · `length`)으로 보내면 점 행에는
+    그 칸이 없어 KeyError 가 났다(SimEngBay 가 짚었다, 2026-09-28)."""
+    return {"point": row["point"]}
+
+
 def _axis_matches(row: dict[str, Any], axis: str) -> bool:
     """원통면의 축이 이 방향인가. 수직 구멍만 고르는 데 쓴다."""
     direction = row.get("axis")
@@ -135,7 +141,7 @@ def regions(
     definitions: list[dict[str, Any]] | None = None,
     tags: dict[str, list[int]] | None = None,
 ) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:
-    """영역 이름 → 그때의 면(또는 엣지) 지문. 그리고 **못 푼 이름들**.
+    """영역 이름 → 그때의 면 · 엣지 · 점 지문. 그리고 **못 푼 이름들**.
 
     못 푼 것을 조용히 빼지 않고 돌려주는 이유: 받는 쪽이 0개를 집으면 **하중 없는 해석**이
     끝까지 돌아 버린다. 어디서 끊겼는지는 이 목록이 유일한 증인이다.
@@ -156,6 +162,8 @@ def regions(
         if answer["what"] == "faces":
             faces = shape.faces()
             found[name] = [_face_fingerprint(r, faces[r["index"]]) for r in rows]
+        elif answer["what"] == "vertices":
+            found[name] = [_vertex_fingerprint(r) for r in rows]
         else:
             found[name] = [_edge_fingerprint(r) for r in rows]
     return found, unresolved

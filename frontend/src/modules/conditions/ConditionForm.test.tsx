@@ -350,3 +350,15 @@ test('조건은 **받는 종류의 선택 그룹만** 고르게 하고, 받는 �
   rerender(<ConditionForm group={group} item={{ name: '조임', type: 'bolt_pretension', on: '' }} names={edges} units={MM} onChange={() => {}} />)
   expect(screen.getByText('받는 것: 원통면 · 바디 선택 그룹')).toBeInTheDocument()
 })
+
+test('종류가 없는 메시 힌트는 `*` 규칙으로 받는 것을 보인다', () => {
+  const MESH: GroupSchema = {
+    label: '메시 힌트',
+    types: [],
+    fields: { on: { title: '적용 대상', whole: '전체' } },
+    required: [],
+    accepts: { '*': [{ entity: 'face' }, { entity: 'edge' }, { entity: 'body' }] },
+  }
+  render(<ConditionForm group={MESH} item={{ on: '전체' }} names={[]} onChange={() => {}} />)
+  expect(screen.getByText('받는 것: 면 · 엣지 · 바디 선택 그룹')).toBeInTheDocument()
+})
