@@ -80,6 +80,8 @@ export interface ConditionsSchema {
    * 그 계의 힘은 N 이 아니라 mN 이고 응력은 kPa 다 — 조용하다가 어느 날 10³ 배 틀린다.
    */
   unit_systems: UnitSystem[]
+  /** 조건의 값을 적는 계(`mm_n_tonne`) — `units.system` 은 내보내기 계다. */
+  input_system?: string
   analysis: { properties?: Record<string, FieldSchema> }
   groups: Record<string, GroupSchema>
   entities: string[]
@@ -267,16 +269,7 @@ export interface Body {
   bbox?: number[][]
 }
 
-/** 단위계를 바꿀 때 옮겨진 값 하나 — 확인 창이 보인다. */
-export interface UnitChange {
-  where: string
-  before: unknown
-  after: unknown
-  unit_before: string
-  unit_after: string
-}
-
-/** 조건의 식을 지금 단위계로 헤아린 알림 — SI 에서 도면 치수가 m 로 들어간다는 것 등. */
+/** 조건의 식 알림 — 풀리지 않는 식. */
 export interface ExpressionNote {
   where: string
   level: 'info' | 'warn'
@@ -292,16 +285,7 @@ export const conditionsApi = {
    */
   bodies: (recipe: Recipe) => api.post<{ items: Body[] }>('/cad/recipe/bodies', { recipe }),
   schema: () => api.get<ConditionsSchema>('/cad/conditions/schema'),
-  /**
-   * 한 벌을 **다른 단위계로** — 적어 둔 값까지 서버가 옮긴다(배수의 정본은 서버). 계만 바꾸고
-   * 숫자를 두면 변위량 0.1 mm 가 0.1 m 가 된다.
-   */
-  convert: (conditions: Conditions, to: string, recipe?: Recipe) =>
-    api.post<{ conditions: Conditions; changes: UnitChange[] }>('/cad/conditions/convert', { conditions, to, recipe }),
-  /**
-   * 값 칸의 식을 **지금 단위계로 헤아린다** — 도면 치수(mm)는 조건의 계 길이로 들어가 풀린다.
-   * 사람이 `*0.001` 을 붙이지 않아도 되지만, 무엇이 되는지는 보여야 한다.
-   */
+  /** 값 칸의 식 중 **풀리지 않는 것** — 저장 · 내보내기에서 막히기 전에 알린다. */
   notes: (conditions: Conditions, recipe: Recipe) =>
     api.post<{ items: ExpressionNote[] }>('/cad/conditions/notes', { conditions, recipe }),
 

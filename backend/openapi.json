@@ -3121,57 +3121,13 @@
         }
       }
     },
-    "/api/cad/conditions/convert": {
-      "post": {
-        "tags": [
-          "cad"
-        ],
-        "summary": "Conditions Convert",
-        "description": "조건 한 벌을 **다른 단위계로** — 적어 둔 값까지 옮긴다. 화면은 바뀐 것(`changes`)을\n보여 주고 확인을 받는다. 계만 바꾸고 숫자를 두면 변위량 0.1 mm 가 0.1 m 가 된다.\n\n배수는 서버 한 곳이다(`core/units`) — 화면이 따로 셈하면 내보낼 때와 어긋난다.",
-        "operationId": "conditions_convert_api_cad_conditions_convert_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConvertSystemRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Conditions Convert Api Cad Conditions Convert Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/cad/conditions/notes": {
       "post": {
         "tags": [
           "cad"
         ],
         "summary": "Conditions Notes",
-        "description": "조건의 식을 **지금 단위계로 헤아려** 알릴 것들 — SI 에서 도면 치수(mm)를 부르면 그\n치수가 m 로 들어가 풀린다는 것과 그 값, 치수와 상수를 섞은 식, 풀리지 않는 식.\n\n고치는 중인 한 벌이라 검증하지 않는다 — 알림만 준다.",
+        "description": "조건의 식 중 **풀리지 않는 것** — 고치는 중에 알린다(저장 · 내보내기에서 막히기 전에).\n고치는 중인 한 벌이라 검증하지 않는다 — 알림만 준다.",
         "operationId": "conditions_notes_api_cad_conditions_notes_post",
         "requestBody": {
           "content": {
@@ -5692,39 +5648,6 @@
           "conditions"
         ],
         "title": "ConditionsRequest"
-      },
-      "ConvertSystemRequest": {
-        "properties": {
-          "conditions": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Conditions"
-          },
-          "to": {
-            "type": "string",
-            "maxLength": 40,
-            "minLength": 1,
-            "title": "To"
-          },
-          "recipe": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Recipe"
-          }
-        },
-        "type": "object",
-        "required": [
-          "conditions",
-          "to"
-        ],
-        "title": "ConvertSystemRequest"
       },
       "CopyToWorkRequest": {
         "properties": {

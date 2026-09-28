@@ -325,9 +325,9 @@ function BoltField({
 
 /** 방향마다 무엇을 적는가 — 종류별 안내. */
 const FOOTNOTE: Record<string, string> = {
-  displacement: '방향은 위 「좌표계」 의 축입니다. 변위량은 단위계의 길이로 적습니다(좌표계 원점은 늘 mm).',
+  displacement: '방향은 위 「좌표계」 의 축입니다. 변위량은 도면과 같은 mm 로 적습니다.',
   remote_displacement:
-    '고른 면을 원격점 하나에 묶고 그 점을 잡습니다. 방향은 위 「좌표계」 의 축이고, 이동은 단위계의 길이 · 회전은 도입니다(좌표계 원점은 늘 mm).',
+    '고른 면을 원격점 하나에 묶고 그 점을 잡습니다. 방향은 위 「좌표계」 의 축이고, 이동은 mm · 회전은 도입니다.',
   elastic_support: '방향은 종류가 정합니다 — 스프링의 세기는 아래 「기초 강성」 입니다.',
   cylindrical: '방향은 고른 원통면의 축 기준입니다. 좌표계를 고르지 않습니다.',
 }
@@ -346,7 +346,7 @@ export function ConditionForm({
   names: NamedSelection[]
   /** 고를 수 있는 좌표계 이름 — 도면의 것과 조건의 것. 「전역」 은 늘 있다. */
   frames?: string[]
-  /** 지금 단위계의 이름표(`{force: 'N', stress: 'MPa', …}`) — 크기 칸에 단위를 붙인다. */
+  /** 입력 단위계의 이름표(`{force: 'N', stress: 'MPa', …}`) — 크기 칸에 단위를 붙인다. */
   units?: Record<string, string>
   onChange: (next: ConditionItem) => void
 }) {

@@ -81,10 +81,8 @@ import type {
   NamedSelection,
   ExpressionNote,
   SelectorCandidate,
-  UnitChange,
 } from '@/modules/conditions/api'
 import { ApiError } from '@/shared/api/client'
-import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { useFillHeight } from '@/shared/hooks/useFillHeight'
 import { Button } from '@/shared/components/ui/button'
@@ -185,15 +183,12 @@ export function ConditionsPanel({
   /** 초기조건 창이 바디로 바꿔 놓기 전의 선택 대상 — 창을 닫으면 되돌린다. */
   const pickKindBefore = useRef<PickKind | null>(null)
   const [error, setError] = useState<Error | null>(null)
-  /** 단위계를 바꾸려는 중 — 서버가 옮긴 한 벌과 바뀐 값들. 확인해야 들어간다. */
-  const [switching, setSwitching] = useState<{ to: string; conditions: Conditions; changes: UnitChange[] } | null>(null)
-
   /**
-   * 식 알림 — 값 칸의 식이 지금 단위계에서 무엇이 되는가(SI 면 도면 치수가 m 로 들어간다).
-   * 고칠 때마다 부르면 요청이 쏟아지므로 잠깐 멈췄을 때 한 번.
+   * 식 알림 — 값 칸의 식 중 풀리지 않는 것(저장 · 내보내기에서 막히기 전에). 고칠 때마다
+   * 부르면 요청이 쏟아지므로 잠깐 멈췄을 때 한 번.
    */
   const [notes, setNotes] = useState<ExpressionNote[]>([])
-  const notesKey = JSON.stringify([draft.units, ...GROUP_KEYS.map((key) => draft[key]), recipe.params])
+  const notesKey = JSON.stringify([...GROUP_KEYS.map((key) => draft[key]), recipe.params])
   useEffect(() => {
     let alive = true
     const timer = setTimeout(() => {
@@ -208,19 +203,6 @@ export function ConditionsPanel({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notesKey])
-
-  /** 단위계를 바꾼다 — **적어 둔 값도 같이 옮긴다.** 옮길 것이 있으면 확인을 받는다. */
-  function switchSystem(to: string) {
-    setError(null)
-    conditionsApi
-      .convert(draft, to, recipe)
-      .then(({ conditions, changes }) => {
-        const next = asConditions(conditions, defaultSystem)
-        if (changes.length === 0) setDraft(next)
-        else setSwitching({ to, conditions: next, changes })
-      })
-      .catch((failure) => setError(failure instanceof ApiError ? failure : new Error(String(failure))))
-  }
 
   const schema = useResource<ConditionsSchema>(() => conditionsApi.schema(), [])
   const { mesh, problems } = useRecipeMesh(recipe)
@@ -764,6 +746,8 @@ export function ConditionsPanel({
   const spec = schema.data!
   const system = draft.units?.system ?? 'mm_n_tonne'
   const systemOf = spec.unit_systems?.find((one) => one.key === system)
+  /** 입력 단위계 — 조건의 값은 늘 이것(도면과 같은 mm · N · t)으로 적는다. 칸마다 단위를 붙인다. */
+  const inputOf = spec.unit_systems?.find((one) => one.key === (spec.input_system ?? 'mm_n_tonne'))
   /** 창을 띄웠으면 바디만 되는 조건인가 — 선택 대상 단추를 그에 맞게 막는다. */
   const bodyOnly = editing?.group === 'initial'
   const editingSpec: GroupSchema | undefined =
@@ -866,19 +850,23 @@ export function ConditionsPanel({
       </div>
 
       {/*
-        **단위계 — 잘 보이는 자리에.** 조건에 적힌 숫자와 물성 값이 같은 계로 풀려야 해석이 맞는다
-        (MatNexus 는 밀도만 mm·t·s 로 주고 나머지는 SI 로 준다 — 이것이 없으면 탄성계수가 10⁶ 배
-        틀린 채로 나간다). 리본 구석에 두었더니 있는 줄 몰랐다. 도면은 늘 mm 이다.
+        **단위계 — 입력은 하나, 내보내기만 고른다.** 조건의 값은 늘 mm · N · t(도면과 같다)로 적고,
+        점 파일을 만들 때만 고른 계로 옮긴다. 입력 계를 고르게 했더니 한 화면에 mm(도면 · 좌표계 ·
+        측정)와 m(변위량 · 하중)가 섞여 「SI 를 골랐는데 왜 mm 가 보이지」 가 됐다(2026-09-28).
       */}
       <div className="bg-muted/40 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border px-3 py-1.5 text-xs">
         <Scale className="size-4" />
-        <label className="flex items-center gap-1.5 font-medium">
-          단위계
+        <span className="font-medium">
+          입력 {inputOf ? `${inputOf.length} · ${inputOf.force} · ${inputOf.stress} · ${inputOf.mass}` : 'mm · N · MPa · tonne'}
+        </span>
+        <span className="text-muted-foreground">도면과 같은 단위로 적습니다.</span>
+        <label className="ml-auto flex items-center gap-1.5 font-medium">
+          내보내기 단위계
           <select
-            aria-label="단위계"
+            aria-label="내보내기 단위계"
             className="bg-background rounded border px-1.5 py-0.5 text-xs"
             value={system}
-            onChange={(e) => switchSystem(e.target.value)}
+            onChange={(e) => setDraft({ ...draft, units: { system: e.target.value } })}
           >
             {(spec.unit_systems ?? []).map((one) => (
               <option key={one.key} value={one.key}>
@@ -887,18 +875,14 @@ export function ConditionsPanel({
             ))}
           </select>
         </label>
-        {systemOf && (
+        {systemOf && systemOf.key !== inputOf?.key && (
           <span className="text-muted-foreground">
-            길이 {systemOf.length} · 힘 {systemOf.force} · 응력 {systemOf.stress} · 밀도 {systemOf.density}
+            점 파일로 내보낼 때 {systemOf.length} · {systemOf.force} · {systemOf.stress} 로 옮깁니다
           </span>
         )}
-        <span className="text-muted-foreground">
-          도면(형상)은 늘 mm 입니다.
-          {systemOf && systemOf.length !== 'mm' && ` 조건의 식이 부르는 도면 치수는 ${systemOf.length} 로 옮겨 들어갑니다 — *0.001 을 붙이지 마세요.`}
-        </span>
         {defaultSystem && defaultSystem !== system && (
           <span className="text-amber-700 dark:text-amber-400">
-            작업의 기본 단위계({spec.unit_systems?.find((one) => one.key === defaultSystem)?.label ?? defaultSystem})와 다릅니다
+            작업의 기본 내보내기 단위계({spec.unit_systems?.find((one) => one.key === defaultSystem)?.label ?? defaultSystem})와 다릅니다
           </span>
         )}
       </div>
@@ -946,7 +930,7 @@ export function ConditionsPanel({
                 label: spec.groups[key]?.label ?? key,
                 items: draft[key] ?? [],
               }))}
-              analysis={[String(draft.analysis?.type ?? ''), systemOf ? `${systemOf.length} · ${systemOf.stress}` : '']
+              analysis={[String(draft.analysis?.type ?? ''), systemOf ? `내보내기 ${systemOf.length} · ${systemOf.stress}` : '']
                 .filter(Boolean)
                 .join(' · ')}
               editing={editing}
@@ -1069,32 +1053,6 @@ export function ConditionsPanel({
       </div>
 
       {/* ── 조건 창 — 3D 를 가리지 않는다. 띄운 채 3D 에서 적용 대상을 지정한다. ── */}
-      <ConfirmDialog
-        open={!!switching}
-        title={`단위계를 ${spec.unit_systems?.find((one) => one.key === switching?.to)?.label ?? switching?.to ?? ''} 로 바꿉니다`}
-        confirmLabel="값을 옮기고 바꾸기"
-        description={
-          <div className="space-y-2">
-            <p>적어 둔 값 {switching?.changes.length ?? 0} 개를 새 단위계로 옮깁니다 — 뜻은 그대로이고 숫자만 바뀝니다. 식은 배수를 곱해 둡니다.</p>
-            <ul className="max-h-60 space-y-0.5 overflow-auto rounded border p-2 text-xs" aria-label="옮기는 값">
-              {switching?.changes.map((one, index) => (
-                <li key={index} className="flex flex-wrap justify-between gap-x-3">
-                  <span>{one.where}</span>
-                  <span className="text-muted-foreground font-mono">
-                    {String(one.before)} {one.unit_before} → {String(one.after)} {one.unit_after}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <p className="text-muted-foreground text-xs">도면 · 좌표계 원점은 늘 mm 라 그대로입니다. 물성은 원본을 두고 내보낼 때 옮깁니다.</p>
-          </div>
-        }
-        onConfirm={async () => {
-          if (switching) setDraft(switching.conditions)
-        }}
-        onClose={() => setSwitching(null)}
-      />
-
       <FloatingWindow
         open={!!editing && !!editingSpec}
         title={
@@ -1150,7 +1108,7 @@ export function ConditionsPanel({
               item={editing.item}
               names={editing.group === 'analysis' ? names : namesFor(editing.group)}
               frames={frameNames}
-              units={systemOf}
+              units={inputOf}
               onChange={(next) => setEditing({ ...editing, item: next })}
             />
           </>

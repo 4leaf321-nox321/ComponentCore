@@ -478,40 +478,6 @@ LOAD_BASE: dict[str, Any] = {
 }
 
 
-def test_하중의_단위는_단위계가_정하고_풀_때_채운다() -> None:
-    raw = {
-        **LOAD_BASE,
-        "loads": [
-            {"name": "누름", "type": "pressure", "on": "윗면", "magnitude": 1},
-            {
-                "name": "밀기",
-                "type": "force",
-                "on": "윗면",
-                "magnitude": 10,
-                "direction": [0, 0, -1],
-            },
-            {"name": "자중", "type": "standard_earth_gravity"},
-            {
-                "name": "조임",
-                "type": "bolt_pretension",
-                "on": "윗면",
-                "preload": 0.1,
-                "unit": "mm",
-            },
-        ],
-    }
-    loads = resolve(raw, {})["loads"]
-    assert [one["unit"] for one in loads] == ["MPa", "N", "", "mm"]
-    # 비운 방향은 뜻대로 — 압력은 면의 법선, 중력은 -Z.
-    assert loads[0]["direction"] == "normal" and loads[2]["direction"] == [0, 0, -1]
-    si = resolve({**raw, "units": {"system": "si"}, "loads": raw["loads"][:2]}, {})["loads"]
-    assert [one["unit"] for one in si] == ["Pa", "N"]
-    # 계와 다른 단위는 막는다 — 손으로 적은 kPa 가 MPa 계에 섞이면 10³ 배 틀린다.
-    bad = {**raw, "loads": [{**raw["loads"][0], "unit": "kPa"}]}
-    with pytest.raises(ConditionError, match="단위계와 다릅니다"):
-        parse(bad)
-
-
 def test_하중은_빠진_값과_쓸_수_없는_방향을_저장할_때_말한다() -> None:
     def load(**one: Any) -> dict[str, Any]:
         return {**LOAD_BASE, "loads": [{"name": "하중", "on": "윗면", **one}]}
@@ -544,130 +510,114 @@ def test_하중의_사양표는_종류마다_칸_단위_설명을_싣는다() ->
     assert units["mm_n_tonne"]["moment"] == "N*mm" and units["si"]["moment"] == "N*m"
 
 
-def test_단위계를_바꾸면_적어_둔_값도_차원대로_옮긴다() -> None:
+def test_조건은_mm_N_t_로_적고_내보낼_때만_고른_계로_옮긴다() -> None:
+    """화면 · 식 · 도면 치수가 한 계(mm)라 섞이지 않는다. SI 는 **내보내기** 단위계다."""
     raw = {
-        "units": {"system": "mm_n_tonne"},
+        **LOAD_BASE,
+        "units": {"system": "si"},
+        "coordinate_systems": [{"name": "끝", "origin": ["=두께*2", 0, 0]}],
         "constraints": [
-            {"name": "밀기", "type": "displacement", "on": "a", "x": 0.1, "y": 0, "z": None},
-            {"name": "패드", "type": "elastic_support", "on": "a", "stiffness": 2},
-            {"name": "핀", "type": "remote_displacement", "on": "a", "rx": 5},
+            {"name": "밀기", "type": "displacement", "on": "윗면", "x": "=두께*0.1", "y": 0},
+            {"name": "패드", "type": "elastic_support", "on": "윗면", "stiffness": 2},
         ],
         "loads": [
-            {"name": "누름", "type": "pressure", "on": "a", "magnitude": 1},
-            {"name": "밀기", "type": "force", "on": "a", "magnitude": 100},
-            {"name": "비틀기", "type": "moment", "on": "a", "magnitude": "=토크"},
+            {"name": "누름", "type": "pressure", "on": "윗면", "magnitude": "=압력"},
+            {
+                "name": "밀기",
+                "type": "force",
+                "on": "윗면",
+                "magnitude": 10,
+                "direction": [0, 0, -1],
+            },
+            {
+                "name": "비틀기",
+                "type": "moment",
+                "on": "윗면",
+                "magnitude": 5000,
+                "direction": [0, 0, 1],
+            },
+            {"name": "자중", "type": "standard_earth_gravity"},
             {
                 "name": "조임",
                 "type": "bolt_pretension",
-                "on": "a",
+                "on": "윗면",
                 "preload": 0.1,
                 "unit": "mm",
             },
         ],
-        "mesh_hints": [{"on": "전체", "element_size": 2}],
-        "coordinate_systems": [{"name": "끝", "origin": [40, 0, 5]}],
     }
-    si, changes = conditions.convert_system(raw, "si")
-    assert si["units"]["system"] == "si"
+    params = {"두께": 5, "압력": 2}
+    si = resolve(raw, params)
     held = si["constraints"]
-    # 0 은 0(고정은 고정), 비운 것은 비운 채(자유는 자유), 회전(도)은 계와 상관없다.
-    assert (held[0]["x"], held[0]["y"], held[0]["z"]) == (0.0001, 0, None)
-    assert held[1]["stiffness"] == 2e9 and held[2]["rx"] == 5
+    # 식은 도면 치수(mm) 그대로 풀고, 풀린 값을 옮긴다: 0.5 mm → 0.0005 m. 0 은 0(고정).
+    assert held[0]["x"] == pytest.approx(0.0005) and held[0]["y"] == 0
+    assert held[1]["stiffness"] == pytest.approx(2e9)  # MPa/mm → Pa/m
     loads = si["loads"]
-    assert loads[0]["magnitude"] == 1e6 and loads[1]["magnitude"] == 100
-    # 식은 배수를 곱해 둔다 — 설계점마다 풀어도 맞다.
-    assert loads[2]["magnitude"] == "=(토크)*0.001"
-    assert loads[3]["preload"] == 0.0001 and loads[3]["unit"] == "m"
-    assert si["mesh_hints"][0]["element_size"] == 0.002
-    # 좌표계 원점은 늘 mm — 그대로.
-    assert si["coordinate_systems"][0]["origin"] == [40, 0, 5]
-    assert raw["loads"][0]["magnitude"] == 1  # 받은 것은 안 건드린다
-    assert {one["where"] for one in changes} == {
-        "구속 「밀기」 X 변위량",
-        "구속 「패드」 기초 강성",
-        "하중 「누름」 크기",
-        "하중 「비틀기」 크기",
-        "하중 「조임」 조임량",
-        "메시 힌트 「전체」 요소 크기",
+    assert loads[0]["magnitude"] == pytest.approx(2e6) and loads[0]["unit"] == "Pa"
+    assert loads[1]["magnitude"] == 10 and loads[1]["unit"] == "N"
+    assert loads[2]["magnitude"] == pytest.approx(5) and loads[2]["unit"] == "N*m"
+    assert loads[4]["preload"] == pytest.approx(0.0001) and loads[4]["unit"] == "m"
+    assert loads[0]["direction"] == "normal" and loads[3]["direction"] == [0, 0, -1]
+    assert si["units"]["system"] == "si" and si["units"]["length"] == "m"
+    # 좌표계 원점은 도면 쪽 — 조건 블록에서는 mm 그대로(점 파일의 좌표계는 따로 옮긴다).
+    assert si["coordinate_systems"][0]["origin"][0] == 10
+
+    mm = resolve({**raw, "units": {"system": "mm_n_tonne"}}, params)
+    assert mm["constraints"][0]["x"] == pytest.approx(0.5)
+    assert mm["loads"][0]["unit"] == "MPa" and mm["loads"][4]["unit"] == "mm"
+
+
+def test_하중의_단위는_mm_N_t_이름만_받는다() -> None:
+    one = {"name": "누름", "type": "pressure", "on": "윗면", "magnitude": 1}
+    parse({**LOAD_BASE, "loads": [{**one, "unit": "MPa"}]})
+    # 내보내기 계가 SI 여도 입력은 mm · N · t — Pa 로 적으면 막는다(10⁶ 배 틀린다).
+    with pytest.raises(ConditionError, match="mm · N · t 로 적습니다"):
+        parse({**LOAD_BASE, "units": {"system": "si"}, "loads": [{**one, "unit": "Pa"}]})
+
+
+def test_풀리지_않는_식은_고치는_중에_알린다() -> None:
+    raw = {
+        **LOAD_BASE,
+        "loads": [{"name": "누름", "type": "pressure", "on": "윗면", "magnitude": "=없는것"}],
+        "constraints": [{"name": "밀기", "type": "displacement", "on": "윗면", "x": "=두께"}],
     }
-    # 되돌리면 제자리.
-    back, _ = conditions.convert_system(si, "mm_n_tonne")
-    assert back["constraints"][0]["x"] == 0.1 and back["loads"][0]["magnitude"] == 1
-    assert back["loads"][3]["unit"] == "mm"
-    same, nothing = conditions.convert_system(raw, "mm_n_tonne")
-    assert nothing == [] and same == raw
-    with pytest.raises(ConditionError, match="모르는 단위계"):
-        conditions.convert_system(raw, "inch")
+    notes = conditions.expression_notes(raw, {"두께": 5})
+    assert [(one["where"], one["level"]) for one in notes] == [("하중 「누름」 크기", "warn")]
+    assert "모르는 이름" in notes[0]["text"]
 
 
-def test_도면_치수_중_길이인_것만_가려낸다() -> None:
-    from app.core.recipe.params import length_params
+def test_마이그레이션_0022_는_SI_로_적힌_값을_mm_N_t_로_옮긴다() -> None:
+    import importlib.util
+    from pathlib import Path
 
-    recipe = {
-        "params": {"길이": 80, "반폭": "=폭/2", "폭": 50, "각": 30, "개수": 4, "압력": 1},
-        "nodes": [
-            {"op": "box", "length": "=길이", "width": "=반폭"},
-            {"op": "pattern", "count": "=개수", "angle": "=각"},
+    path = Path(__file__).parents[2] / "migrations/versions/0022_conditions_input_mm.py"
+    spec_ = importlib.util.spec_from_file_location("m0022", path)
+    assert spec_ and spec_.loader
+    module = importlib.util.module_from_spec(spec_)
+    spec_.loader.exec_module(module)
+    old = {
+        "units": {"system": "si"},
+        "constraints": [{"name": "밀기", "type": "displacement", "x": 0.0005, "rx": 5}],
+        "loads": [
+            {"name": "누름", "type": "pressure", "magnitude": "=압력", "unit": "Pa"},
+            {"name": "조임", "type": "bolt_pretension", "preload": 0.0001, "unit": "m"},
         ],
     }
-    # 반폭이 길이 칸에 쓰였으니 그것을 만든 폭도 길이다. 각 · 개수 · 도면에 없는 압력은 아니다.
-    assert length_params(recipe) == {"길이", "반폭", "폭"}
-
-
-EXPR_RAW: dict[str, Any] = {
-    "named_selections": [
-        {"name": "a", "entity": "face", "select": {"what": "faces", "role": "top"}}
-    ],
-    "coordinate_systems": [{"name": "끝", "origin": ["=두께*2", 0, 0]}],
-    "constraints": [
-        {"name": "밀기", "type": "displacement", "on": "a", "x": "=두께*0.1", "y": "=두께+1"}
-    ],
-    "loads": [{"name": "누름", "type": "pressure", "on": "a", "magnitude": "=압력"}],
-}
-EXPR_PARAMS = {"두께": 5, "압력": 2}
-
-
-def test_SI_에서_조건의_식은_길이_치수를_m_로_넣어_푼다_좌표계는_mm_그대로() -> None:
-    raw = {**EXPR_RAW, "units": {"system": "si"}}
-    got = resolve(raw, EXPR_PARAMS, lengths={"두께"})
-    # 두께 5 mm → 0.005 m. 사람이 *0.001 을 붙이지 않아도 된다.
-    assert got["constraints"][0]["x"] == pytest.approx(0.0005)
-    assert got["coordinate_systems"][0]["origin"][0] == 10  # 도면 쪽은 mm
-    assert got["loads"][0]["magnitude"] == 2  # 길이가 아닌 치수는 그대로
-    # mm 계면 아무것도 안 바뀐다.
-    mm = resolve(EXPR_RAW, EXPR_PARAMS, lengths={"두께"})
-    assert mm["constraints"][0]["x"] == pytest.approx(0.5)
-
-
-def test_단위계를_바꿀_때_식은_뜻이_그대로_남게_고친다() -> None:
-    si, changes = conditions.convert_system(EXPR_RAW, "si", EXPR_PARAMS, {"두께"})
-    held = si["constraints"][0]
-    # 길이 1 차인 식은 그대로가 맞다(두께가 m 로 들어가므로). 0 차(압력)는 배수를 곱한다.
-    assert held["x"] == "=두께*0.1"
-    assert si["loads"][0]["magnitude"] == "=(압력)*1000000"
-    # 치수와 상수를 섞은 식도 값은 정확하다.
-    assert "X 변위량" not in {one["where"].split()[-2] for one in changes}
-    before = resolve(EXPR_RAW, EXPR_PARAMS, lengths={"두께"})["constraints"][0]
-    after = resolve(si, EXPR_PARAMS, lengths={"두께"})["constraints"][0]
-    assert after["x"] == pytest.approx(before["x"] / 1000)
-    assert after["y"] == pytest.approx(before["y"] / 1000)
-    back, _ = conditions.convert_system(si, "mm_n_tonne", EXPR_PARAMS, {"두께"})
-    again = resolve(back, EXPR_PARAMS, lengths={"두께"})["constraints"][0]
-    assert again["y"] == pytest.approx(before["y"])
-
-
-def test_식이_도면_치수를_부르면_SI_에서_무엇이_되는지_알린다() -> None:
-    raw = {**EXPR_RAW, "units": {"system": "si"}}
-    notes = conditions.expression_notes(raw, EXPR_PARAMS, {"두께"})
-    texts = {(one["where"], one["level"]): one["text"] for one in notes}
-    assert "두께 5 mm → 0.005 m" in texts[("구속 「밀기」 X 변위량", "info")]
-    assert "0.0005 m" in texts[("구속 「밀기」 X 변위량", "info")]
-    assert "상수도 m 로 읽힙니다" in texts[("구속 「밀기」 Y 변위량", "warn")]
-    assert ("하중 「누름」 크기", "info") not in texts  # 길이 치수를 안 쓴다
-    # mm 계면 알릴 것이 없다 — 치수와 조건의 길이가 같은 mm.
-    assert conditions.expression_notes(EXPR_RAW, EXPR_PARAMS, {"두께"}) == []
-    broken = {**raw, "loads": [{**raw["loads"][0], "magnitude": "=없는것"}]}
-    assert any(
-        one["level"] == "warn" and "모르는 이름" in one["text"]
-        for one in conditions.expression_notes(broken, EXPR_PARAMS, {"두께"})
-    )
+    new = module.to_input(old)
+    assert new["units"]["system"] == "si"  # 내보내기 계는 그대로 — 내보내는 값이 같다
+    assert new["constraints"][0]["x"] == 0.5 and new["constraints"][0]["rx"] == 5
+    assert new["loads"][0] == {
+        **old["loads"][0],
+        "magnitude": "=(압력)*0.000001",
+        "unit": "MPa",
+    }
+    assert new["loads"][1]["preload"] == 0.1 and new["loads"][1]["unit"] == "mm"
+    # 옮긴 값을 SI 로 내보내면 옛 값과 같다.
+    raw = {
+        "named_selections": [
+            {"name": "a", "entity": "face", "select": {"what": "faces", "role": "top"}}
+        ],
+        "units": {"system": "si"},
+        "constraints": [{**new["constraints"][0], "on": "a"}],
+    }
+    assert resolve(raw, {})["constraints"][0]["x"] == pytest.approx(0.0005)

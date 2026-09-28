@@ -23,14 +23,12 @@
 
 from __future__ import annotations
 
-import math
-import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.core import units as unit_systems
-from app.core.recipe.params import ExpressionError, names_in, resolve_params
+from app.core.recipe.params import ExpressionError, resolve_params
 from app.core.recipe.params import evaluate_expression as _expr
 
 #: 숫자 칸 — 수 또는 `"=식"`.
@@ -301,9 +299,7 @@ class Constraint(Base):
     stiffness: Number | None = Field(
         None,
         title="기초 강성",
-        description=(
-            "법선으로 단위 길이 눌리는 데 드는 압력 — mm · N · t 계면 N/mm³, SI 면 N/m³"
-        ),
+        description=("법선으로 1 mm 눌리는 데 드는 압력(N/mm³ = MPa/mm)"),
         json_schema_extra={"only_for": ["elastic_support"]},
     )
     """`elastic_support` 의 스프링 — 단위 면적 · 단위 변위당 힘(응력 / 길이)."""
@@ -490,7 +486,8 @@ class Units(Base):
     """
 
     system: Literal["mm_n_tonne", "si"] = unit_systems.DEFAULT_SYSTEM  # type: ignore[assignment]
-    """`mm_n_tonne`(기본 — CAD 가 mm 라 해석도 mm) 또는 `si`."""
+    """**내보내기** 단위계 — `mm_n_tonne`(기본) 또는 `si`. 점 파일의 값을 이 계로 옮긴다.
+    조건의 값은 늘 mm · N · t 로 적는다(`INPUT_SYSTEM`)."""
 
 
 #: 조건의 `cs` 가 **전역**을 뜻하는 이름.
@@ -637,7 +634,7 @@ def parse(
             )
 
     for index, load in enumerate(conditions.loads):
-        _check_load(f"loads[{index}]", load, conditions.units.system)
+        _check_load(f"loads[{index}]", load)
         if frames is not None and load.cs not in known_frames:
             raise ConditionError(
                 f"loads[{index}]: 「{load.cs}」 라는 좌표계가 없습니다 "
@@ -844,20 +841,16 @@ def _with_converted(
     return {**material, "converted": converted_material(payload, system, keys)}
 
 
-#: 조건의 **값**이 든 곳 — 조건의 단위계로 적힌다. 선택 그룹 · 좌표계는 도면(mm)이다.
-VALUE_SECTIONS = ("constraints", "loads", "contacts", "initial", "mesh_hints")
-
-
-def _length_ratio(system: str) -> float:
-    """mm → 이 계의 길이. mm 계면 1, SI 면 0.001."""
-    return 1e-3 / unit_systems.system_of(system).length
+#: **입력 단위계** — 조건의 값은 늘 이 계로 적는다(도면과 같은 mm). 조건의 `units.system` 은
+#: **내보내기 단위계**다: 점 파일을 만들 때만 그 계로 옮긴다. 화면 · 식 · 도면 치수가 한 계라
+#: 섞일 일이 없다(「SI 를 골랐는데 왜 mm 가 보이지」 — 2026-09-28 에 이렇게 바꿨다).
+INPUT_SYSTEM = "mm_n_tonne"
 
 
 def resolve(
     raw: dict[str, Any] | None,
     params: dict[str, Any],
     keys: dict[str, str] | None = None,
-    lengths: set[str] | frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """`"=식"` 을 그 설계점의 값으로 바꾼 **새 사본**. 레시피와 같은 문법이다.
 
@@ -867,51 +860,56 @@ def resolve(
     않는다** — 네트워크는 바깥 층의 일이고(아키텍처 시험이 지킨다), 여기는 받은 것으로 풀기만
     한다. 안 주면 표준 열쇠만 안 붙는다(값은 그대로 나간다).
 
-    여기서 **단위계도 함께 푼다**: `units` 를 닫힌 선언으로 펼치고, 물성마다 그 계로 옮긴
-    값(`converted`)을 **원본 옆에** 놓는다. 원본은 안 건드린다 — 감사할 때는 원본, 풀 때는
-    변환값이다. MatNexus 가 밀도만 `tonne/mm3` 로 주고 나머지는 SI 로 주므로, 이것이 없으면
-    받는 쪽이 밀도는 맞고 탄성계수는 10⁶ 배 틀린 채로 푼다.
-
-    `lengths` 는 **길이인 도면 치수**의 이름들(`recipe.params.length_params`)이다. 조건의 값은
-    조건의 단위계로 적으므로, 값 칸(`VALUE_SECTIONS`)의 식에서는 그 치수를 **이 계의 길이로
-    옮겨** 넣는다 — SI 에서 `=두께*0.1` 의 두께 5 mm 는 0.005 m 다. 사람이 `*0.001` 을 붙이지
-    않아도 된다. 선택 그룹 · 좌표계의 식은 도면 쪽이라 mm 그대로 푼다.
+    여기서 **내보내기 단위계로 옮긴다**: 값은 입력 계(`INPUT_SYSTEM`, mm · N · t)로 적혔고 식도
+    도면 치수(mm)로 그 계에서 푼다. 풀린 수를 칸마다 차원대로 내보내기 계로 옮기고, `units` 를
+    닫힌 선언으로 펼친다. 물성은 그 계로 옮긴 값(`converted`)을 **원본 옆에** 놓는다 — MatNexus
+    가 밀도만 `tonne/mm3` 로 주고 나머지는 SI 로 주므로, 이것이 없으면 받는 쪽이 밀도는 맞고
+    탄성계수는 10⁶ 배 틀린 채로 푼다.
     """
     conditions = parse(raw).model_dump()
     values = resolve_params({"params": params})
-    system = str((conditions.get("units") or {}).get("system") or unit_systems.DEFAULT_SYSTEM)
-    ratio = _length_ratio(system)
-    in_system = {
-        name: value * ratio if name in lengths else value for name, value in values.items()
-    }
 
-    def walk(value: Any, known: dict[str, float]) -> Any:
+    def walk(value: Any) -> Any:
         if isinstance(value, str) and value.startswith("="):
-            return _expr(value, known)
+            return _expr(value, values)
         # 좌표계 원점 같은 세 성분은 모델에서 **튜플**로 나온다 — 목록만 훑으면 그 안의 식이
         # 안 풀린 채 나갔다(2026-09-28 에 잡았다).
         if isinstance(value, list | tuple):
-            return [walk(one, known) for one in value]
+            return [walk(one) for one in value]
         if isinstance(value, dict):
-            return {key: walk(one, known) for key, one in value.items()}
+            return {key: walk(one) for key, one in value.items()}
         return value
 
     try:
-        out = {
-            key: walk(one, in_system if key in VALUE_SECTIONS else values)
-            for key, one in conditions.items()
-        }
+        out = {key: walk(one) for key, one in conditions.items()}
     except ExpressionError as failure:
         raise ConditionError(f"조건의 식을 풀지 못했습니다: {failure}") from failure
-    out["units"] = unit_systems.declaration(system)
-    out["loads"] = [_filled_load(one, system) for one in out.get("loads", [])]
+    system = str((out.get("units") or {}).get("system") or unit_systems.DEFAULT_SYSTEM)
+    target = unit_systems.system_of(system)
+    source = unit_systems.system_of(INPUT_SYSTEM)
+    for item, key, dimension, _ in _value_fields(out, source):
+        factor = source.factor(dimension) / target.factor(dimension)
+        item[key] = _times(item.get(key), factor)
+    out["units"] = unit_systems.declaration(target.key)
+    out["loads"] = [_filled_load(one, target.key) for one in out.get("loads", [])]
     out["materials"] = [
-        _with_converted(one, system, keys or {}) for one in out.get("materials", [])
+        _with_converted(one, target.key, keys or {}) for one in out.get("materials", [])
     ]
     return out
 
 
-def _load_units(load_type: str, system: str) -> list[str]:
+def _times(value: Any, factor: float) -> Any:
+    """풀린 값을 배수만큼 — 수 · 수의 목록만. 비었으면 그대로(자유는 자유)."""
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, int | float):
+        return float(f"{value * factor:.12g}")
+    if isinstance(value, list):
+        return [_times(one, factor) for one in value]
+    return value
+
+
+def _load_units(load_type: str, system: str = INPUT_SYSTEM) -> list[str]:
     """이 하중이 받을 수 있는 크기 단위 — 계가 정한다. 볼트는 예압(힘) · 조임량(길이) 둘."""
     names = unit_systems.system_of(system).names
     if load_type == "bolt_pretension":
@@ -920,7 +918,7 @@ def _load_units(load_type: str, system: str) -> list[str]:
     return [names[dimension]] if dimension else []
 
 
-def _check_load(where: str, load: Load, system: str) -> None:
+def _check_load(where: str, load: Load) -> None:
     """하중 하나 — 빠진 값 · 계와 다른 단위 · 쓸 수 없는 방향을 **저장할 때** 말한다.
 
     안 그러면 크기 없는 하중이나 0 벡터가 내보내져, 받는 쪽이 하중 없는 해석을 끝까지 돌린다.
@@ -932,11 +930,11 @@ def _check_load(where: str, load: Load, system: str) -> None:
         raise ConditionError(f"{where}: {label} 에 크기가 없습니다")
     if load.type == "bolt_pretension" and load.preload is None:
         raise ConditionError(f"{where}: {label} 에 예압(또는 조임량)이 없습니다")
-    allowed = _load_units(load.type, system)
+    allowed = _load_units(load.type)
     if load.unit and load.unit not in allowed:
         raise ConditionError(
-            f"{where}: {label} 의 단위 「{load.unit}」 가 단위계와 다릅니다 "
-            f"(이 계에서는 {' 또는 '.join(allowed) or '단위 없음'})"
+            f"{where}: {label} 의 단위 「{load.unit}」 는 쓸 수 없습니다 — 조건은 "
+            f"mm · N · t 로 적습니다({' 또는 '.join(allowed) or '단위 없음'})"
         )
     direction = load.direction
     if direction == "normal" and load.type != "pressure":
@@ -960,11 +958,17 @@ def _check_load(where: str, load: Load, system: str) -> None:
 
 
 def _filled_load(load: dict[str, Any], system: str) -> dict[str, Any]:
-    """내보낼 하중 — 비운 단위 · 방향을 **뜻대로 채운다.** 받는 쪽이 기본값을 짐작하지 않게."""
+    """내보낼 하중 — 단위는 **내보내기 계의 이름**으로, 비운 방향은 **뜻대로 채운다.** 받는
+    쪽이 기본값을 짐작하지 않게. 볼트는 적힌 단위(입력 계의 N · mm)로 예압 · 조임량을
+    가른다."""
     out = dict(load)
-    units = _load_units(str(out.get("type")), system)
-    if not out.get("unit") and units:
-        out["unit"] = units[0]
+    kind = str(out.get("type"))
+    target = _load_units(kind, system)
+    if kind == "bolt_pretension":
+        by_length = out.get("unit") == unit_systems.system_of(INPUT_SYSTEM).names["length"]
+        out["unit"] = target[1 if by_length else 0]
+    elif target:
+        out["unit"] = target[0]
     if out.get("direction") is None:
         if out.get("type") == "pressure":
             out["direction"] = "normal"
@@ -973,7 +977,7 @@ def _filled_load(load: dict[str, Any], system: str) -> dict[str, Any]:
     return out
 
 
-# ── 단위계 바꾸기 — 적어 둔 값도 같이 ────────────────────────────────────────
+# ── 값 칸 — 내보낼 때 계를 옮긴다 ────────────────────────────────────────────
 
 #: 조건의 칸 → 차원(`core/units.py`). 여기 없는 칸은 계와 상관없다(도 · 온도 · 마찰계수 ·
 #: 진동수 · 방향 벡터).
@@ -989,157 +993,11 @@ _LOAD_DIMENSION: dict[str, unit_systems.Dimension] = {
 }
 
 
-def _decimal(factor: float) -> str:
-    """배수를 식에 넣을 글자로 — `1e-3` 대신 `0.001`(사람이 읽는다)."""
-    from decimal import Decimal
-
-    text = format(Decimal(repr(factor)), "f")
-    return text.rstrip("0").rstrip(".") if "." in text else text
-
-
-def _degree(text: str, values: dict[str, float], lengths: set[str]) -> int | None:
-    """식이 길이 치수에 대해 **몇 차인가** — 길이 치수를 2 배 · 3 배 해 보고 값이 2ᵏ · 3ᵏ 배면
-    k. `=두께*0.1` 은 1, `=압력` 은 0, `=두께+1` 처럼 섞였거나 값이 0 이면 모른다(None)."""
-    used = names_in(text) & lengths
-    if not used:
-        return 0
-    try:
-        base = _expr(text, values)
-        twice = _expr(text, {k: v * 2 if k in used else v for k, v in values.items()})
-        thrice = _expr(text, {k: v * 3 if k in used else v for k, v in values.items()})
-    except ExpressionError:
-        return None
-    if base == 0:
-        return None
-    k = round(math.log2(abs(twice / base))) if twice else None
-    if k is None or not math.isclose(twice / base, 2.0**k, rel_tol=1e-9):
-        return None
-    return k if math.isclose(thrice / base, 3.0**k, rel_tol=1e-9) else None
-
-
-def _scaled(
-    value: Any,
-    factor: float,
-    ratio: float = 1.0,
-    values: dict[str, float] | None = None,
-    lengths: set[str] | frozenset[str] = frozenset(),
-) -> Any:
-    """값 하나를 새 계로 — 수는 배수를 곱한다. **식은 뜻이 그대로 남게** 고친다.
-
-    식 안의 길이 치수는 풀 때 이미 그 계의 길이로 들어간다(`resolve` 의 `lengths`). 그래서
-    `=두께*0.1`(길이 1 차)은 mm → m 에서 **그대로 두면 맞고**, `=압력`(0 차)은 배수를 곱해야
-    맞다: 붙일 배수 = factor / ratioᵏ. 차수를 모르는 식(`=두께+1`)은 치수를 옛 계로 되돌려
-    넣고(`두께/0.001`) 배수를 곱한다 — 길어도 값은 정확하다."""
-    if isinstance(value, bool) or value is None:
-        return value
-    if isinstance(value, int | float):
-        return float(f"{value * factor:.12g}")
-    if isinstance(value, str) and value.startswith("="):
-        body = value[1:]
-        used = names_in(value) & set(lengths)
-        degree = _degree(value, values, set(lengths)) if values is not None else 0
-        if not used or degree is not None:
-            wrap = factor / ratio ** (degree or 0) if used else factor
-            if math.isclose(wrap, 1.0, rel_tol=1e-12):
-                return value
-            return f"=({body})*{_decimal(float(f'{wrap:.12g}'))}"
-        for name in sorted(used, key=len, reverse=True):
-            body = re.sub(
-                rf"(?<![\w]){re.escape(name)}(?![\w])", f"({name}/{_decimal(ratio)})", body
-            )
-        return f"=({body})*{_decimal(factor)}"
-    if isinstance(value, list):
-        return [_scaled(one, factor, ratio, values, lengths) for one in value]
-    return value
-
-
-def convert_system(
-    raw: dict[str, Any],
-    to: str,
-    params: dict[str, Any] | None = None,
-    lengths: set[str] | frozenset[str] = frozenset(),
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """조건 한 벌을 **다른 단위계로** — 적어 둔 값까지 옮긴다. `(새 한 벌, 바뀐 것들)`.
-
-    계만 바꾸고 숫자를 두면 뜻이 바뀐다: 변위량 0.1 mm 가 0.1 m 가 되고 압력 1 MPa 가 1 Pa 가
-    된다. 그래서 계를 바꾸는 순간 칸마다 차원대로 옮긴다. 식(`=힘`)은 `=(힘)*0.001` 처럼 배수를
-    곱해 둔다 — 식의 변수는 도면 쪽이라 계를 모른다.
-
-    물성은 건드리지 않는다(원본을 두고 내보낼 때 옮긴다). 좌표계 원점은 늘 mm 라 그대로다.
-    고치는 중인 한 벌이라 검증하지 않고 읽는다 — 모르는 칸은 그대로 둔다.
-
-    `params` · `lengths` 는 도면의 치수와 그중 길이인 것 — 주면 식 안의 길이 치수를 헤아려
-    뜻을 지킨다(`_scaled`). 안 주면 식은 배수만 곱한다(길이 치수를 안 쓰는 식이면 그것이 맞다).
-    """
-    from copy import deepcopy
-
-    if to not in unit_systems.SYSTEMS:
-        raise ConditionError(f"모르는 단위계입니다: {to} ({', '.join(unit_systems.SYSTEMS)})")
-    out = deepcopy(raw or {})
-    source = unit_systems.system_of(str((out.get("units") or {}).get("system") or ""))
-    target = unit_systems.system_of(to)
-    out["units"] = {**(out.get("units") or {}), "system": target.key}
-    changes: list[dict[str, Any]] = []
-    if source.key == target.key:
-        return out, changes
-    ratio = _length_ratio(target.key) / _length_ratio(source.key)
-    try:
-        # 식을 헤아릴 때의 치수 값 — 옛 계로 적힌 식이므로 옛 계의 길이로.
-        base = resolve_params({"params": params or {}})
-        values: dict[str, float] | None = {
-            k: v * _length_ratio(source.key) if k in lengths else v for k, v in base.items()
-        }
-    except ExpressionError:
-        values = None
-
-    for item, key, dimension, label in _value_fields(out, source):
-        before = item.get(key)
-        if before is None or before == "" or before == []:
-            continue
-        factor = source.factor(dimension) / target.factor(dimension)
-        after = _scaled(before, factor, ratio, values, lengths)
-        if after == before:
-            continue
-        item[key] = after
-        changes.append(
-            {
-                "where": label,
-                "before": before,
-                "after": after,
-                "unit_before": _unit_name(source, dimension),
-                "unit_after": _unit_name(target, dimension),
-            }
-        )
-    # 단위 이름도 새 계로 — 볼트는 예압(힘) · 조임량(길이)을 가르는 칸이고, 하중은 적혀
-    # 있었을 때만(비우면 풀 때 계에서 채운다).
-    for one in out.get("loads") or []:
-        kind = str(one.get("type", ""))
-        if kind == "bolt_pretension":
-            by_length = one.get("unit") == source.names["length"]
-            one["unit"] = target.names["length" if by_length else "force"]
-        elif one.get("unit") and kind in LOAD_DIMENSIONS:
-            one["unit"] = target.names[LOAD_DIMENSIONS[kind]]
-    return out, changes
-
-
-def _unit_name(system: unit_systems.System, dimension: Any) -> str:
-    """차원의 이름 — 「1 MPa → 1000000 Pa」 로 읽게."""
-    names = system.names
-    by_dimension = {
-        _LENGTH: names["length"],
-        _VELOCITY: f"{names['length']}/s",
-        _STIFFNESS: f"{names['stress']}/{names['length']}",
-        unit_systems.FORCE: names["force"],
-        **{dim: names[key] for key, dim in _LOAD_DIMENSION.items()},
-    }
-    return by_dimension.get(dimension, "")
-
-
 def _value_fields(
     conditions: dict[str, Any], system: unit_systems.System
 ) -> list[tuple[dict[str, Any], str, Any, str]]:
-    """**계를 따르는 값 칸**들 — `(항목, 칸, 차원, 사람이 읽는 이름)`. 단위계를 바꿀 때 옮기고,
-    식을 헤아려 알릴 때 훑는 목록이 하나다(둘이 어긋나면 옮기지 않은 칸이 생긴다)."""
+    """**계를 따르는 값 칸**들 — `(항목, 칸, 차원, 사람이 읽는 이름)`. 내보낼 때 옮기는 목록이
+    하나다(칸을 더하고 여기를 빠뜨리면 그 칸만 mm 로 나간다). 볼트는 적힌 단위로 가른다."""
     out: list[tuple[dict[str, Any], str, Any, str]] = []
     for one in conditions.get("constraints") or []:
         name = f"구속 「{one.get('name', '')}」"
@@ -1172,61 +1030,23 @@ def _value_fields(
     return out
 
 
-def expression_notes(
-    raw: dict[str, Any],
-    params: dict[str, Any],
-    lengths: set[str] | frozenset[str] = frozenset(),
-) -> list[dict[str, str]]:
-    """값 칸의 식을 **지금 단위계로 헤아려** 사람에게 알릴 것들 — `{where, level, text}`.
-
-    - 식이 도면의 길이 치수를 쓰고 계가 mm 가 아니면: 그 치수가 이 계의 길이로 들어간다는
-      것과 풀린 값(`info`). 사람이 `*0.001` 을 붙이지 않아도 되지만, 무엇이 되는지 보여야 한다.
-    - 길이 치수와 상수를 더하거나 뺀 식(`=두께+1`)이면: 상수도 이 계의 길이로 읽힌다(`warn`).
-    - 풀리지 않는 식이면 그 까닭(`warn`).
-    """
-    system = unit_systems.system_of(str((raw.get("units") or {}).get("system") or ""))
-    ratio = _length_ratio(system.key)
+def expression_notes(raw: dict[str, Any], params: dict[str, Any]) -> list[dict[str, str]]:
+    """값 칸의 식 중 **풀리지 않는 것** — `{where, level, text}`. 고치는 중에 알린다(저장 ·
+    내보내기에서 막히기 전에). 식은 입력 계(mm · N · t)에서 도면 치수 그대로 푼다."""
     try:
-        base = resolve_params({"params": params or {}})
+        values = resolve_params({"params": params or {}})
     except ExpressionError:
         return []
-    values = {k: v * ratio if k in lengths else v for k, v in base.items()}
-    length_name = system.names["length"]
     notes: list[dict[str, str]] = []
-    for item, key, dimension, label in _value_fields(raw, system):
+    system = unit_systems.system_of(INPUT_SYSTEM)
+    for item, key, _, label in _value_fields(raw, system):
         texts = item.get(key)
         for text in texts if isinstance(texts, list) else [texts]:
-            if not (isinstance(text, str) and text.startswith("=")):
-                continue
-            try:
-                value = _expr(text, values)
-            except ExpressionError as failure:
-                notes.append({"where": label, "level": "warn", "text": str(failure)})
-                continue
-            used = sorted(names_in(text) & set(lengths))
-            if not used or math.isclose(ratio, 1.0):
-                continue
-            shown = ", ".join(
-                f"{name} {base[name]:g} mm → {values[name]:g} {length_name}" for name in used
-            )
-            unit = _unit_name(system, dimension)
-            notes.append(
-                {
-                    "where": label,
-                    "level": "info",
-                    "text": f"{text} — 도면 치수를 {length_name} 로 넣어 풉니다({shown}) "
-                    f"= {value:g} {unit}".rstrip(),
-                }
-            )
-            if _degree(text, values, set(lengths)) is None:
-                notes.append(
-                    {
-                        "where": label,
-                        "level": "warn",
-                        "text": f"{text} — 도면 치수와 상수를 더하거나 뺐습니다. 상수도 "
-                        f"{length_name} 로 읽힙니다(mm 로 적었다면 고치세요).",
-                    }
-                )
+            if isinstance(text, str) and text.startswith("="):
+                try:
+                    _expr(text, values)
+                except ExpressionError as failure:
+                    notes.append({"where": label, "level": "warn", "text": str(failure)})
     return notes
 
 
@@ -1263,6 +1083,9 @@ def spec() -> dict[str, Any]:
     out: dict[str, Any] = {
         "schema_version": 1,
         "units": Units().model_dump(),
+        # 조건의 값을 적는 계 — 화면이 칸마다 단위(mm · N · MPa)를 붙인다. `units.system` 은
+        # 내보내기 계다.
+        "input_system": INPUT_SYSTEM,
         # **고를 수 있는 단위계.** 화면에 목록을 박으면 계를 더할 때마다 화면을 고쳐야
         # 한다 — 조건 종류와 같은 까닭으로 정본은 서버다.
         "unit_systems": [

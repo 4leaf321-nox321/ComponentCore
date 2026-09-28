@@ -684,35 +684,3 @@ def test_작업의_기본_단위계를_정하고_복제에_따라간다(
     client.patch(f"/api/works/{work_id}", json={"unit_system": "si"}, headers=member.headers)
     copy = client.post(f"/api/works/{work_id}/duplicate", headers=member.headers)
     assert copy.json()["unit_system"] == "si"
-
-
-def test_조건의_단위계를_바꾸면_서버가_값을_옮기고_바뀐_것을_알려준다(
-    client: TestClient, member: Signed
-) -> None:
-    raw = {
-        "units": {"system": "mm_n_tonne"},
-        "loads": [{"name": "누름", "type": "pressure", "on": "a", "magnitude": 1}],
-    }
-    got = client.post(
-        "/api/cad/conditions/convert",
-        json={"conditions": raw, "to": "si"},
-        headers=member.headers,
-    )
-    assert got.status_code == 200, got.text
-    body = got.json()
-    assert body["conditions"]["loads"][0]["magnitude"] == 1e6
-    assert body["changes"] == [
-        {
-            "where": "하중 「누름」 크기",
-            "before": 1,
-            "after": 1e6,
-            "unit_before": "MPa",
-            "unit_after": "Pa",
-        }
-    ]
-    bad = client.post(
-        "/api/cad/conditions/convert",
-        json={"conditions": raw, "to": "inch"},
-        headers=member.headers,
-    )
-    assert bad.status_code >= 400 and "모르는 단위계" in bad.text

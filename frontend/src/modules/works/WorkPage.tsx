@@ -268,16 +268,16 @@ export default function WorkPage() {
           }
         />
         {/*
-          **기본 단위계** — 새 시뮬레이션 조건이 이 계로 시작한다. 있는 조건의 계는 바꾸지 않는다
-          (조건마다 고른 계가 그 조건의 숫자 뜻이다). 도면은 늘 mm.
+          **기본 내보내기 단위계** — 새 시뮬레이션 조건이 이 계로 내보낸다. 조건의 값은 늘 mm · N · t
+          로 적고(도면과 같다), 점 파일을 만들 때만 옮긴다. 있는 조건의 설정은 그대로.
         */}
         <label
           className="text-muted-foreground ml-auto flex items-center gap-1.5 text-xs"
-          title="새 시뮬레이션 조건이 이 단위계로 시작합니다. 이미 있는 조건의 단위계는 바뀌지 않습니다. 도면은 늘 mm 입니다."
+          title="새 시뮬레이션 조건이 점 파일을 이 단위계로 내보냅니다. 값은 늘 도면과 같은 mm · N · t 로 적습니다. 이미 있는 조건의 설정은 그대로입니다."
         >
-          기본 단위계
+          기본 내보내기 단위계
           <select
-            aria-label="기본 단위계"
+            aria-label="기본 내보내기 단위계"
             className="bg-background text-foreground rounded border px-1.5 py-0.5 text-xs"
             value={w.unit_system ?? 'mm_n_tonne'}
             disabled={busy}
