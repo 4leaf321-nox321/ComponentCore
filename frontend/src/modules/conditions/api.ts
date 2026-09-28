@@ -64,6 +64,25 @@ export interface GroupSchema {
   intro?: string
   /** 종류 → 크기의 차원(단위계 이름표의 열쇠, 예: `stress`). */
   dimensions?: Record<string, string>
+  /**
+   * 종류 → **받는 선택 그룹** — `[{entity, kind?}]`(압력은 면, 베어링은 원통면 …). 없는 종류는
+   * 대상이 없다. `kind` 는 선택 규칙에 적혀 있어야 한다(서버가 저장할 때 본다).
+   */
+  accepts?: Record<string, TargetKind[]>
+}
+
+/** 조건이 받는 선택 그룹 하나 — 종류(면 · 엣지 · 점 · 바디)와, 면이면 모양(원통면). */
+export interface TargetKind {
+  entity: 'face' | 'edge' | 'vertex' | 'body'
+  kind?: string
+}
+
+const ENTITY_LABELS: Record<string, string> = { face: '면', edge: '엣지', vertex: '점', body: '바디' }
+const KIND_LABELS: Record<string, string> = { cylinder: '원통면' }
+
+/** 「원통면 · 바디」 처럼 — 받는 것을 사람 말로. */
+export function acceptsLabel(accepts: TargetKind[]): string {
+  return accepts.map((one) => (one.kind ? KIND_LABELS[one.kind] ?? one.kind : ENTITY_LABELS[one.entity])).join(' · ')
 }
 
 export interface ImpliedHold {

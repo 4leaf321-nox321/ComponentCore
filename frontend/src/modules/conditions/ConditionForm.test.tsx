@@ -336,3 +336,17 @@ test('열 해석의 시간 칸은 **과도일 때만** 보인다', () => {
   rerender(<ConditionForm group={ANALYSIS} item={{ type: 'thermal', thermal_mode: 'transient' }} names={[]} onChange={() => {}} />)
   expect(screen.getByLabelText('끝 시간 (s)')).toBeInTheDocument()
 })
+
+test('조건은 **받는 종류의 선택 그룹만** 고르게 하고, 받는 것을 적어 둔다', () => {
+  const group: GroupSchema = {
+    ...LOADS,
+    accepts: { pressure: [{ entity: 'face' }], bolt_pretension: [{ entity: 'face', kind: 'cylinder' }, { entity: 'body' }] },
+  }
+  const edges = [{ name: '모서리', entity: 'edge', select: {} }] as never
+  const { rerender } = render(<ConditionForm group={group} item={{ name: '누름', type: 'pressure', on: '' }} names={edges} units={MM} onChange={() => {}} />)
+  expect(screen.getByText('받는 것: 면 선택 그룹')).toBeInTheDocument()
+  // 엣지 그룹뿐이면 고를 것이 없다고 말한다.
+  expect(screen.getByText(/고를 수 있는 선택 그룹이 없습니다 — 면 을 3D 에서/)).toBeInTheDocument()
+  rerender(<ConditionForm group={group} item={{ name: '조임', type: 'bolt_pretension', on: '' }} names={edges} units={MM} onChange={() => {}} />)
+  expect(screen.getByText('받는 것: 원통면 · 바디 선택 그룹')).toBeInTheDocument()
+})

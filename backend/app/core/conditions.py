@@ -903,6 +903,102 @@ EMPTY: dict[str, Any] = Conditions().model_dump()
 # ── 검증 ──────────────────────────────────────────────────────────────────────
 
 
+# ── 무엇에 거는가 — 종류마다 받는 선택 그룹 ─────────────────────────────────
+
+_FACE: dict[str, str] = {"entity": "face"}
+_EDGE: dict[str, str] = {"entity": "edge"}
+_VERTEX: dict[str, str] = {"entity": "vertex"}
+_BODY: dict[str, str] = {"entity": "body"}
+_CYLINDER: dict[str, str] = {"entity": "face", "kind": "cylinder"}
+_SPOTS = [_FACE, _EDGE, _VERTEX]
+
+#: 종류 → **받는 선택 그룹**(종류 · 면의 모양). 화면은 이것으로 고를 수 있는 그룹과 3D 에서
+#: 누를 수 있는 것을 좁히고, AI 는 사양표(`accepts`)에서 읽는다. 없는 종류는 대상이 없다
+#: (중력처럼 몸 전체). `kind` 가 있으면 **선택 규칙에 그 모양이 적혀 있어야** 한다 — 「이
+#: 자리에 가까운 면」 만으로는 치수가 바뀐 설계점에서 다른 모양의 면을 집을 수 있다.
+CONSTRAINT_ACCEPTS: dict[str, list[dict[str, str]]] = {
+    "fixed_support": _SPOTS,
+    "displacement": _SPOTS,
+    "remote_displacement": _SPOTS,
+    "frictionless": [_FACE],
+    "cylindrical": [_CYLINDER],
+    "compression_only": [_FACE],
+    "elastic_support": [_FACE],
+}
+LOAD_ACCEPTS: dict[str, list[dict[str, str]]] = {
+    "pressure": [_FACE],
+    "force": _SPOTS,
+    "moment": _SPOTS,
+    "bearing": [_CYLINDER],
+    "bolt_pretension": [_CYLINDER, _BODY],
+}
+CONTACT_ACCEPTS: dict[str, list[dict[str, str]]] = {kind: [_FACE] for kind in CONTACT_LABELS}
+INITIAL_ACCEPTS: dict[str, list[dict[str, str]]] = {
+    "temperature": [_BODY],
+    "velocity": [_BODY],
+}
+
+_ENTITY_LABELS = {"face": "면", "edge": "엣지", "vertex": "점", "body": "바디"}
+_KIND_LABELS = {"cylinder": "원통면"}
+
+
+def _accepts_label(options: list[dict[str, str]]) -> str:
+    """「원통면 · 바디」 처럼 — 받는 것을 사람 말로."""
+    return " · ".join(
+        _KIND_LABELS.get(one.get("kind", ""), "") or _ENTITY_LABELS[one["entity"]]
+        for one in options
+    )
+
+
+def _check_target(
+    where: str, label: str, accepts: list[dict[str, str]], selection: NamedSelection
+) -> None:
+    """선택 그룹이 이 조건이 받는 종류 · 모양인가. 아니면 **어떻게 고칠지까지** 말한다 — 화면을
+    쓰는 사람과 MCP 로 조건을 짓는 AI 가 같은 말을 듣는다."""
+    fits = [one for one in accepts if one["entity"] == selection.entity]
+    if not fits:
+        raise ConditionError(
+            f"{where}: {label} 는 {_accepts_label(accepts)} 선택 그룹에만 겁니다 — "
+            f"「{selection.name}」 은 {_ENTITY_LABELS[selection.entity]} 선택 그룹입니다"
+        )
+    if not all(one.get("kind") for one in fits):
+        return
+    kinds = {one["kind"] for one in fits}
+    members = selection.select.get("any") or [selection.select]
+    if any(str(one.get("kind", "")) not in kinds for one in members):
+        wanted = " · ".join(_KIND_LABELS.get(kind, kind) for kind in sorted(kinds))
+        raise ConditionError(
+            f"{where}: {label} 는 {wanted} 에만 겁니다 — 선택 그룹 「{selection.name}」 의 "
+            f"규칙에 kind: {' · '.join(sorted(kinds))} 가 없어, 치수가 바뀐 설계점에서 다른 "
+            "모양의 면을 집을 수 있습니다. 3D 에서 고를 때 원통면 규칙을 고르세요"
+            '(셀렉터라면 {"what": "faces", "kind": "cylinder", …})'
+        )
+
+
+def _check_targets(conditions: Conditions) -> None:
+    """조건마다 가리키는 선택 그룹이 **받을 수 있는 것**인가."""
+    selections = {one.name: one for one in conditions.named_selections}
+
+    def check(where: str, label: str, accepts: list[dict[str, str]] | None, name: str) -> None:
+        if accepts and name in selections:
+            _check_target(where, label, accepts, selections[name])
+
+    for index, one in enumerate(conditions.constraints):
+        label = f"{CONSTRAINT_LABELS[one.type]} 「{one.name}」"
+        check(f"constraints[{index}]", label, CONSTRAINT_ACCEPTS.get(one.type), one.on)
+    for index, load in enumerate(conditions.loads):
+        label = f"{LOAD_LABELS[load.type]} 「{load.name}」"
+        check(f"loads[{index}]", label, LOAD_ACCEPTS.get(load.type), load.on)
+    for index, contact in enumerate(conditions.contacts):
+        accepts = CONTACT_ACCEPTS.get(contact.type)
+        label = f"접촉 「{contact.name}」"
+        check(f"contacts[{index}]", f"{label} 의 접촉면", accepts, contact.source)
+        check(f"contacts[{index}]", f"{label} 의 대상면", accepts, contact.target)
+    for index, initial in enumerate(conditions.initial):
+        label = INITIAL_LABELS[initial.type]
+        check(f"initial[{index}]", label, INITIAL_ACCEPTS.get(initial.type), initial.on)
+
+
 def _known_names(conditions: Conditions) -> set[str]:
     return {one.name for one in conditions.named_selections}
 
@@ -959,6 +1055,10 @@ def parse(
                         f"{group}[{index}]: 「{target}」 라는 선택 그룹이 없습니다 "
                         f"(있는 것: {', '.join(sorted(names)) or '없음'})"
                     )
+
+    # **받을 수 있는 것인가** — 압력을 엣지에, 베어링을 평면에 걸면 받는 쪽이 거절하거나
+    # 엉뚱하게 푼다. 저장할 때 말한다.
+    _check_targets(conditions)
 
     # **좌표계** — 이름이 겹치지 않고, 면에 붙인 것은 있는 선택 그룹을 가리키고, 조건의
     # `cs` 는 있는 좌표계를 가리킨다. 모르는 좌표계를 조용히 전역으로 읽으면 성분이 딴
@@ -1535,17 +1635,20 @@ def spec() -> dict[str, Any]:
             "model": Constraint,
             "implied": IMPLIED_HOLDS,
             "notes": CONSTRAINT_NOTES,
+            "accepts": CONSTRAINT_ACCEPTS,
         },
         "loads": {
             "label": "하중",
             "model": Load,
             "notes": LOAD_NOTES,
             "dimensions": LOAD_DIMENSIONS,
+            "accepts": LOAD_ACCEPTS,
         },
         "contacts": {
             "label": "접촉",
             "model": Contact,
             "notes": CONTACT_NOTES,
+            "accepts": CONTACT_ACCEPTS,
             "intro": "두 선택 그룹이 맞닿는 자리입니다. 접촉면 · 대상면을 고르고, 붙어 있는지 "
             "미끄러지는지를 종류로 정합니다. 모르는 칸은 「프로그램이 정함」 그대로 둡니다.",
         },
@@ -1553,6 +1656,7 @@ def spec() -> dict[str, Any]:
             "label": "초기조건",
             "model": Initial,
             "notes": INITIAL_NOTES,
+            "accepts": INITIAL_ACCEPTS,
             "intro": "풀기 전의 상태입니다 — 기준 온도, 처음 온도 · 속도, 앞선 해석의 응력.",
         },
         "mesh_hints": {
@@ -1601,6 +1705,8 @@ def spec() -> dict[str, Any]:
             # 묶음 전체에 대한 한두 줄 — 창 맨 위에 보인다.
             "intro": one.get("intro", ""),
             "dimensions": one.get("dimensions", {}),
+            # 종류마다 받는 선택 그룹 — `[{entity, kind?}]`. 없는 종류는 대상이 없다.
+            "accepts": one.get("accepts", {}),
         }
     out["entities"] = ["face", "edge", "vertex", "body"]
     return out

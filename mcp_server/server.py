@@ -502,8 +502,14 @@ async def beam_frequency(
 
 @mcp.tool()
 async def conditions_schema(ctx: Context) -> Any:
-    """해석 조건에 **어떤 칸이 있는가** — 구속 · 하중 · 접촉 · 초기조건 · 메시 힌트의 종류와
-    칸 목록. 조건을 쓰기 전에 이것을 읽어라(레시피 전에 `recipe_schema` 를 읽는 것과 같다)."""
+    """해석 조건에 **어떤 칸이 있는가** — 구속 · 하중 · 접촉 · 초기조건 · 메시 힌트 · 해석
+    설정의 종류와 칸 목록. 조건을 쓰기 전에 이것을 읽어라(레시피 전에 `recipe_schema` 를 읽는
+    것과 같다).
+
+    읽을 곳: 종류의 한글 이름(`fields.type.labels`) · 한 줄 설명(`notes`) · 칸의 제목 · 단위
+    · 설명 · 쓰는 종류(`only_for`), **종류마다 받는 선택 그룹**(`accepts` — 면 · 원통면 ·
+    바디 …), 입력 단위계(`input_system`, mm · N · t). 자세한 규칙은
+    `get_guide("conditions")`."""
     return await _get(ctx, "/api/cad/conditions/schema")
 
 
@@ -512,6 +518,13 @@ async def set_conditions(
     ctx: Context, work_id: str, conditions: dict[str, Any], number: int | None = None
 ) -> Any:
     """작업 버전에 **해석 조건**을 붙인다 — 경계 · 하중 · 접촉 · 초기조건 · 해석 설정 · 물성.
+
+    **값은 늘 mm · N · MPa · tonne 으로 적는다** — `units.system` 은 내보내기 단위계다(SI 를
+    골라도 적는 값은 mm · MPa). **종류마다 받는 선택 그룹이 정해져 있다** — 사양표의
+    `accepts`: 접촉 · 압력은 면, 원통 지지 · 베어링은 원통면(선택 규칙에
+    `"kind": "cylinder"` 필요 — `recipe_find` 로 찾은 셀렉터를 쓴다), 힘은 면 · 엣지 · 점.
+    어기면 거절되고 메시지가 고칠 곳을 말한다. 해석 설정도 종류마다 필요한 칸이 다르다(모달
+    `modes`, 명시적 `end_time` …).
 
     **조건은 면을 직접 가리키지 않는다.** `named_selections` 에 선택 그룹을 만들고(셀렉터는
     `recipe_selectors` 로 받는다) 조건은 그 이름만 가리킨다. 좌표를 박으면 실험계획이 치수를

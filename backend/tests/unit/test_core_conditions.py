@@ -410,7 +410,7 @@ def test_구속의_성분은_화면에_자유_고정_변위량으로_고르라�
 def test_원통_지지는_반지름_축_접선마다_풀_수_있고_기본은_고정이다() -> None:
     raw = {
         "named_selections": [
-            {"name": "구멍", "entity": "face", "select": {"what": "faces", "role": "bottom"}}
+            {"name": "구멍", "entity": "face", "select": {"what": "faces", "kind": "cylinder"}}
         ],
         "constraints": [
             {"name": "핀", "type": "cylindrical", "on": "구멍", "tangential": "free"}
@@ -473,7 +473,8 @@ def test_탄성_지지는_기초_강성이_있어야_한다() -> None:
 
 LOAD_BASE: dict[str, Any] = {
     "named_selections": [
-        {"name": "윗면", "entity": "face", "select": {"what": "faces", "role": "top"}}
+        {"name": "윗면", "entity": "face", "select": {"what": "faces", "role": "top"}},
+        {"name": "볼트", "entity": "face", "select": {"what": "faces", "kind": "cylinder"}},
     ],
 }
 
@@ -540,7 +541,7 @@ def test_조건은_mm_N_t_로_적고_내보낼_때만_고른_계로_옮긴다() 
             {
                 "name": "조임",
                 "type": "bolt_pretension",
-                "on": "윗면",
+                "on": "볼트",
                 "preload": 0.1,
                 "unit": "mm",
             },
@@ -749,3 +750,55 @@ def test_해석_설정의_사양표는_종류마다_설명과_칸을_싣는다()
     assert analysis["properties"]["end_time"]["only_for"] == ["explicit", "thermal"]
     assert analysis["properties"]["frequency_range"]["range"] is True
     assert analysis["intro"]
+
+
+SPOTS: dict[str, Any] = {
+    "named_selections": [
+        {"name": "윗면", "entity": "face", "select": {"what": "faces", "role": "top"}},
+        {"name": "구멍", "entity": "face", "select": {"what": "faces", "kind": "cylinder"}},
+        {
+            "name": "가까운 면",
+            "entity": "face",
+            "select": {"what": "faces", "near": [5, 0, 0], "limit": 1},
+        },
+        {"name": "모서리", "entity": "edge", "select": {"what": "edges", "near": [0, 0, 0]}},
+        {
+            "name": "꼭짓점",
+            "entity": "vertex",
+            "select": {"what": "vertices", "near": [0, 0, 0]},
+        },
+        {"name": "몸", "entity": "body", "select": {"body": "전체"}},
+    ],
+}
+
+
+def test_조건마다_받는_선택_그룹의_종류와_모양이_정해져_있다() -> None:
+    def load(kind: str, on: str, **more: Any) -> dict[str, Any]:
+        one = {"name": "하중", "type": kind, "on": on, "magnitude": 1, "direction": [0, 0, 1]}
+        return {**SPOTS, "loads": [{**one, **more}]}
+
+    # 힘은 면 · 엣지 · 점 어디든.
+    for on in ("윗면", "모서리", "꼭짓점"):
+        parse(load("force", on))
+    with pytest.raises(ConditionError, match="면 · 엣지 · 점 선택 그룹에만"):
+        parse(load("force", "몸"))
+    # 압력은 면만 — 무엇이 잘못인지 말한다.
+    with pytest.raises(ConditionError, match="「모서리」 은 엣지 선택 그룹입니다"):
+        parse(load("pressure", "모서리"))
+    # 베어링은 원통면 — 규칙에 kind: cylinder 가 있어야 한다(가까운 면만으로는 안 된다).
+    parse(load("bearing", "구멍"))
+    with pytest.raises(ConditionError, match="kind: cylinder 가 없어"):
+        parse(load("bearing", "가까운 면"))
+    # 볼트는 원통면 또는 바디.
+    parse(load("bolt_pretension", "몸", preload=1000, magnitude=None, direction=None))
+
+    contact = {"name": "맞닿음", "type": "bonded", "source": "윗면", "target": "모서리"}
+    with pytest.raises(ConditionError, match="대상면 는 면 선택 그룹에만"):
+        parse({**SPOTS, "contacts": [contact]})
+    cylinder = {"name": "핀", "type": "cylindrical", "on": "윗면"}
+    with pytest.raises(ConditionError, match="원통면 에만"):
+        parse({**SPOTS, "constraints": [cylinder]})
+    # 사양표에 실린다 — 화면 · AI 가 같은 것을 본다.
+    groups = spec()["groups"]
+    assert groups["loads"]["accepts"]["bearing"] == [{"entity": "face", "kind": "cylinder"}]
+    assert groups["contacts"]["accepts"]["frictional"] == [{"entity": "face"}]

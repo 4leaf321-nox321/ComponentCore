@@ -1,4 +1,4 @@
-<!-- version: 2026-09-18.1 -->
+<!-- version: 2026-09-28.1 -->
 # CompCore MCP 가이드
 
 ## overview
@@ -14,6 +14,7 @@
 | 저장 템플릿의 본문 | `template_recipe(id)` · 되풀이해 쓸 모양은 `save_template` 로 남긴다 |
 | **내가 그린 것의 치수** | `recipe_geometry(recipe)` — 구멍 지름 · 중심 · 깊이, 면의 법선 · 넓이 |
 | **제품을 기준으로 지그 그리기** | `part_geometry(part_id)` · `work_geometry(work_id)` — 치수표 + STEP id |
+| **해석 조건 붙이기** | `conditions_schema` → `recipe_find` · `recipe_selectors` → `set_conditions` — `get_guide("conditions")` |
 | **형상 여러 벌 만들기(DOE)** | `doe_preview` → `doe_create` → `doe_points` → `doe_export` — 공유 폴더에 STEP 이 쌓인다 |
 | 레시피가 맞나, 만들어지나 | `recipe_check` — **저장 전에 반드시** |
 | 새 부품 시작 | `create_work(name, recipe)` |
@@ -225,3 +226,31 @@
 
 지그가 잘 잡히는 부품: 평평한 바닥, 바닥으로 열린 수직 구멍 둘(핀 로케이터), 평평한 윗면(클램프
 패드). 바닥이 곡면이면 계획이 실패한다.
+
+## conditions
+
+해석 조건(구속 · 하중 · 접촉 · 초기조건 · 메시 힌트 · 해석 설정 · 물성)은 `set_conditions` 로 작업
+버전에 붙인다. **먼저 `conditions_schema` 를 읽는다** — 종류마다 칸 · 설명 · 단위 · 받는 대상이
+거기 있다.
+
+1. **값은 늘 mm · N · MPa · tonne 으로 적는다**(`input_system`). `units.system` 은 **내보내기**
+   단위계다 — SI 를 골라도 적는 값은 mm · MPa 다(점 파일을 만들 때만 옮긴다).
+2. **조건은 선택 그룹만 가리킨다.** `named_selections` 에 `{name, entity, select}` 를 두고 조건의
+   `on`(접촉은 `source` · `target`)에 그 이름을 적는다. 셀렉터는 `recipe_selectors`(찍은 점 →
+   후보) 또는 `recipe_find`(질의 → 면 목록)로 얻는다.
+3. **종류마다 받는 대상이 정해져 있다** — 사양표의 `groups.<묶음>.accepts[종류]`:
+   - 접촉 · 압력 · 마찰 없는 · 압축 전용 · 탄성 지지: **면**
+   - 원통 지지 · 베어링 하중: **원통면** — 선택 규칙에 `"kind": "cylinder"` 가 있어야 한다
+     (`recipe_find({"what": "faces", "kind": "cylinder", "radius": r})` 로 찾고 그 셀렉터를 그대로
+     쓴다). `near` 만 있는 규칙은 치수가 바뀐 설계점에서 다른 모양의 면을 집을 수 있어 거절된다.
+   - 볼트 예압: 원통면 또는 바디
+   - 힘 · 모멘트 · 고정 지지 · 변위 · 원격 변위: 면 · 엣지 · 점
+   - 초기 온도 · 초기 속도: 바디 / 중력 · 가속도 · 회전 속도: 대상 없음
+   어기면 저장이 거절되고 메시지가 **무엇을 어떻게 고칠지** 말한다 — 그대로 고쳐 다시 부른다.
+4. **종류에 필요한 칸만** 쓴다 — 칸의 `only_for` 에 종류가 있어야 뜻이 있다(`when` 은 다른 칸의
+   값에 따른 것). 해석 설정도 종류마다 다르다: 모달은 `modes`, 명시적은 `end_time`, 조화 응답은
+   `frequency_range` 등. 빠진 필수 값은 저장에서 거절된다. 비운 칸은 기본값이다.
+5. 숫자 칸에는 레시피와 같은 식(`"=압력"`)을 쓸 수 있다 — 변수는 레시피 `params`(mm). 실험계획이
+   그 변수를 훑으면 형상과 조건이 함께 움직인다.
+6. 물성은 `materials[].apply_to` 에 바디 이름 목록(단품이면 `["전체"]`) — 바디 하나에 물성 하나.
+

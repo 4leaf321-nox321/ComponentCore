@@ -65,6 +65,7 @@ import { materialsApi } from '@/modules/materials/api'
 import type { MaterialRow } from '@/modules/materials/api'
 import { MaterialPicker } from '@/modules/materials/MaterialPicker'
 import {
+  acceptsLabel,
   asConditions,
   assignBody,
   conditionsApi,
@@ -81,6 +82,7 @@ import type {
   NamedSelection,
   ExpressionNote,
   SelectorCandidate,
+  TargetKind,
 } from '@/modules/conditions/api'
 import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
@@ -527,21 +529,42 @@ export function ConditionsPanel({
    * 트리에서 펼친 파트는 접는다 — 펼친 파트만 또렷하고 나머지는 반투명이라, 그대로 두면
    * 적용 대상을 선택할 3D 가 흐리게 남는다.
    */
+  /** 그 조건이 받는 선택 그룹 종류 — 없으면(대상이 없거나 모든 것) null. */
+  function acceptsOf(group: string, type: unknown): TargetKind[] | null {
+    return schema.data?.groups[group]?.accepts?.[String(type ?? '')] ?? null
+  }
+
+  /**
+   * 3D 에서 누를 것을 **그 조건이 받는 것으로** 맞춘다 — 압력 창이면 면, 초기 속도면 바디.
+   * 받지 않는 것을 담아 두었으면 비운다. 창을 닫으면 원래 고르던 것으로 돌아간다.
+   */
+  function fitPicking(accepts: TargetKind[] | null) {
+    if (!accepts) return
+    const allowed = new Set<string>(accepts.map((one) => one.entity))
+    if (members.some((one) => !allowed.has(one.entity))) clearMembers()
+    const current = PICK_KINDS.find((one) => one.key === pickKind)
+    if (current && !allowed.has(current.entity)) {
+      if (pickKindBefore.current === null) pickKindBefore.current = pickKind
+      setPickKind(PICK_KINDS.find((one) => allowed.has(one.entity))?.key ?? pickKind)
+    }
+  }
+
   function openWindow(next: NonNullable<Editing>) {
     setError(null)
     setTree(null)
     // 적용 대상을 받는 창이면 「선택 그룹 추가」 창은 닫되 **담은 것은 넘긴다** — 먼저 고르고
-    // 조건을 더하는 순서(해석 전처리기에서 흔한 순서)도 된다. 초기조건은 바디만 받는다.
-    if (targetFields(schema.data?.groups[next.group]).length > 0) {
-      setGrouping(false)
-      if (next.group === 'initial' && members.some((one) => one.entity !== 'body')) clearMembers()
-    }
-    if (next.group === 'initial' && pickKind !== 'body') {
-      pickKindBefore.current = pickKind
-      setPickKind('body')
-    }
+    // 조건을 더하는 순서(해석 전처리기에서 흔한 순서)도 된다.
+    if (targetFields(schema.data?.groups[next.group]).length > 0) setGrouping(false)
+    fitPicking(acceptsOf(next.group, next.item.type))
     setEditing(next)
   }
+
+  // 창 안에서 종류를 바꾸면(힘 → 압력) 3D 에서 누를 것도 따라 맞춘다.
+  const editingKind = editing && editing.group !== 'analysis' ? `${editing.group}:${String(editing.item.type ?? '')}` : ''
+  useEffect(() => {
+    if (editing && editing.group !== 'analysis') fitPicking(acceptsOf(editing.group, editing.item.type))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingKind])
 
   function closeWindow() {
     if (editingTargets.length > 0) clearMembers()
@@ -749,8 +772,8 @@ export function ConditionsPanel({
   const systemOf = spec.unit_systems?.find((one) => one.key === system)
   /** 입력 단위계 — 조건의 값은 늘 이것(도면과 같은 mm · N · t)으로 적는다. 칸마다 단위를 붙인다. */
   const inputOf = spec.unit_systems?.find((one) => one.key === (spec.input_system ?? 'mm_n_tonne'))
-  /** 창을 띄웠으면 바디만 되는 조건인가 — 선택 대상 단추를 그에 맞게 막는다. */
-  const bodyOnly = editing?.group === 'initial'
+  /** 창의 조건이 받는 선택 그룹 종류 — 3D 선택 단추를 그에 맞게 막는다. */
+  const editingAccepts = editing && editing.group !== 'analysis' ? acceptsOf(editing.group, editing.item.type) : null
   const editingSpec: GroupSchema | undefined =
     editing?.group === 'analysis'
       ? {
@@ -980,8 +1003,12 @@ export function ConditionsPanel({
                 key={one.key}
                 type="button"
                 aria-pressed={pickKind === one.key}
-                disabled={bodyOnly && one.key !== 'body'}
-                title={bodyOnly && one.key !== 'body' ? '초기조건은 바디에만 적용됩니다' : undefined}
+                disabled={!!editingAccepts && !editingAccepts.some((ok) => ok.entity === one.entity)}
+                title={
+                  editingAccepts && !editingAccepts.some((ok) => ok.entity === one.entity)
+                    ? `이 조건은 ${acceptsLabel(editingAccepts)} 에만 겁니다`
+                    : undefined
+                }
                 className={`rounded border px-2 py-0.5 text-xs disabled:opacity-40 ${
                   pickKind === one.key
                     ? 'border-primary bg-accent font-medium'
@@ -1066,8 +1093,8 @@ export function ConditionsPanel({
         description={
           editingTargets.length === 0
             ? undefined
-            : bodyOnly
-              ? '초기조건은 바디에만 적용됩니다 — 3D 에서 바디를 선택하면 적용 대상으로 지정됩니다.'
+            : editingAccepts
+              ? `이 조건은 ${acceptsLabel(editingAccepts)} 에만 겁니다 — 3D 에서 선택하면 적용 대상으로 지정됩니다(Ctrl · Shift 로 여럿).`
               : '3D 에서 형상을 선택하면 적용 대상으로 지정됩니다 — Ctrl · Shift 로 여럿을 묶습니다.'
         }
         onClose={closeWindow}

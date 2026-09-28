@@ -97,7 +97,14 @@ const SCHEMA = {
       required: [],
     },
     contacts: { label: '접촉', types: ['bonded'], fields: { name: {}, type: { enum: ['bonded'] }, source: {}, target: {} }, required: [] },
-    initial: { label: '초기조건', types: ['environment_temperature'], fields: { type: { enum: ['environment_temperature'] }, on: {}, value: { anyOf: [{ type: 'number' }] } }, required: [] },
+    // 초기 온도는 바디에만 — 받는 것은 서버 사양표(`accepts`)가 정한다.
+    initial: {
+      label: '초기조건',
+      types: ['temperature'],
+      fields: { type: { enum: ['temperature'] }, on: {}, value: { anyOf: [{ type: 'number' }] } },
+      required: [],
+      accepts: { temperature: [{ entity: 'body' }] },
+    },
     mesh_hints: { label: '메시 힌트', types: [], fields: { on: {}, element_size: { anyOf: [{ type: 'number' }] } }, required: [] },
   },
   entities: ['face', 'edge', 'vertex', 'body'],

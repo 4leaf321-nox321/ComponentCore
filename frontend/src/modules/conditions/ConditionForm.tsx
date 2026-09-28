@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from 'react'
 
+import { acceptsLabel } from '@/modules/conditions/api'
 import type { ConditionItem, FieldSchema, GroupSchema, NamedSelection } from '@/modules/conditions/api'
 import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
@@ -416,6 +417,10 @@ export function ConditionForm({
       {targets.map((key) => {
         const field = group.fields[key] ?? {}
         const label = field.title ?? (key === 'target' ? '상대 선택 그룹' : '선택 그룹')
+        // **받는 종류만** 고르게 — 압력에 엣지 그룹을 고를 수 없다. 모양(원통면)은 서버가
+        // 저장할 때 규칙을 보고 말한다(여기서는 규칙을 풀 수 없다).
+        const accepts = group.accepts?.[type]
+        const choosable = accepts ? names.filter((one) => accepts.some((ok) => ok.entity === one.entity)) : names
         return (
         <div key={key} className="space-y-1">
           <Label>{label}</Label>
@@ -429,7 +434,7 @@ export function ConditionForm({
                   {field.whole} (모든 바디)
                 </SelectItem>
               )}
-              {names.map((one) => (
+              {choosable.map((one) => (
                 <SelectItem key={one.name} value={one.name}>
                   {one.name}
                 </SelectItem>
@@ -437,6 +442,12 @@ export function ConditionForm({
             </SelectContent>
           </Select>
           {field.description && <p className="text-muted-foreground text-xs">{field.description}</p>}
+          {accepts && <p className="text-muted-foreground text-xs">받는 것: {acceptsLabel(accepts)} 선택 그룹</p>}
+          {names.length > 0 && choosable.length === 0 && (
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              고를 수 있는 선택 그룹이 없습니다 — {acceptsLabel(accepts ?? [])} 을 3D 에서 선택해 만드세요.
+            </p>
+          )}
           {names.length === 0 && !field.whole && (
             <p className="text-muted-foreground text-xs">
               선택 그룹이 없습니다 — 3D 에서 형상을 선택하면 생성됩니다.
