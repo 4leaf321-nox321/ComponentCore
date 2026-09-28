@@ -1,0 +1,162 @@
+{
+  "code": "M-000158",
+  "id": "334ec690-e61e-4ff2-a326-a8f81becf7b5",
+  "name": "AL5052H32DEMO_-_-",
+  "alias": "Al5052-H32 Bilinear",
+  "family": "Metal",
+  "category": "Aluminum",
+  "grade": "AL5052H32DEMO",
+  "workspace": "기본 부서",
+  "density": 2680.0,
+  "density_unit": "kg/m3",
+  "poisson_ratio": 0.33,
+  "declared_count": 7,
+  "source": "matnexus",
+  "payload": {
+    "id": "334ec690-e61e-4ff2-a326-a8f81becf7b5",
+    "code": "M-000158",
+    "record_name": "AL5052H32DEMO_-_-",
+    "alias": "Al5052-H32 Bilinear",
+    "owner_workspace_id": "3b8e5d68-6b4d-45c8-a8e5-81abc150e0df",
+    "owner_workspace_name": "기본 부서",
+    "family": "Metal",
+    "category": "Aluminum",
+    "grade": "AL5052H32DEMO",
+    "details": null,
+    "spec_thickness": null,
+    "spec_thickness_unit": "m",
+    "applied_products": [],
+    "applied_parts": [],
+    "density": 2680.0,
+    "density_unit": "kg/m3",
+    "poisson_ratio": 0.33,
+    "declared_properties": [
+      {
+        "item": "비열",
+        "points": [
+          {
+            "temperature_k": null,
+            "value_si": 880.0,
+            "value": 880.0
+          }
+        ],
+        "si_unit": "J/(kg.K)",
+        "input_unit": "J/(kg.K)",
+        "scale": null,
+        "source": "literature",
+        "reference": "MatWeb: Aluminum 5052-H32 · 비열 0.880 J/g-°C [tier 2]",
+        "note": "문헌 물성 카탈로그에서 채택 (스냅샷)"
+      },
+      {
+        "item": "선팽창계수(CTE)",
+        "points": [
+          {
+            "temperature_k": null,
+            "value_si": 2.38e-05,
+            "value": 2.38e-05
+          }
+        ],
+        "si_unit": "1/K",
+        "input_unit": "1/K",
+        "scale": null,
+        "source": "literature",
+        "reference": "MatWeb: Aluminum 5052-H32 · CTE 23.8 μm/m-°C [tier 2]",
+        "note": "문헌 물성 카탈로그에서 채택 (스냅샷)"
+      },
+      {
+        "item": "연신율",
+        "points": [
+          {
+            "temperature_k": null,
+            "value_si": 0.12,
+            "value": 0.12
+          }
+        ],
+        "si_unit": "1",
+        "input_unit": "1",
+        "scale": null,
+        "source": "literature",
+        "reference": "MakeItFrom: 5052-H32 Aluminum · H32, 연신율 ~12% [tier 2]",
+        "note": "문헌 물성 카탈로그에서 채택 (스냅샷)"
+      },
+      {
+        "item": "열전도율",
+        "points": [
+          {
+            "temperature_k": null,
+            "value_si": 138.0,
+            "value": 138.0
+          }
+        ],
+        "si_unit": "W/(m.K)",
+        "input_unit": "W/(m.K)",
+        "scale": null,
+        "source": "literature",
+        "reference": "MatWeb: Aluminum 5052-H32 · 열전도 138 W/m-K [tier 2]",
+        "note": "문헌 물성 카탈로그에서 채택 (스냅샷)"
+      },
+      {
+        "item": "인장강도",
+        "points": [
+          {
+            "temperature_k": null,
+            "value_si": 228000000.0,
+            "value": 228000000.0
+          }
+        ],
+        "si_unit": "Pa",
+        "input_unit": "Pa",
+        "scale": null,
+        "source": "literature",
+        "reference": "MakeItFrom: 5052-H32 Aluminum · H32, UTS ~228-230 MPa [tier 2]",
+        "note": "문헌 물성 카탈로그에서 채택 (스냅샷)"
+      },
+      {
+        "item": "탄성계수",
+        "points": [
+          {
+            "temperature_k": null,
+            "value_si": 70300000000.0,
+            "value": 70300000000.0
+          }
+        ],
+        "si_unit": "Pa",
+        "input_unit": "Pa",
+        "scale": null,
+        "source": "literature",
+        "reference": "MatWeb: Aluminum 5052-H32 · 탄성계수 70.3 GPa [tier 2]",
+        "note": "문헌 물성 카탈로그에서 채택 (스냅샷)"
+      },
+      {
+        "item": "항복강도",
+        "points": [
+          {
+            "temperature_k": null,
+            "value_si": 193000000.0,
+            "value": 193000000.0
+          }
+        ],
+        "si_unit": "Pa",
+        "input_unit": "Pa",
+        "scale": null,
+        "source": "literature",
+        "reference": "MakeItFrom: 5052-H32 Aluminum · H32, 0.2% proof ~180-193 MPa [tier 2]",
+        "note": "문헌 물성 카탈로그에서 채택 (스냅샷)"
+      }
+    ],
+    "note": null,
+    "legacy_id": null,
+    "sample_count": 0,
+    "created_at": "2026-09-06T15:01:22.619540+09:00",
+    "updated_at": "2026-09-06T15:01:22.670989+09:00",
+    "access": {
+      "can_edit": true,
+      "can_hand_over": true,
+      "registrant_id": "4981cf77-35fa-4d38-8297-aa0a0aba78ae",
+      "registrant": "시스템 관리자",
+      "edit_workspace_slug": "default",
+      "edit_workspace": "기본 부서",
+      "reason": null
+    }
+  }
+}

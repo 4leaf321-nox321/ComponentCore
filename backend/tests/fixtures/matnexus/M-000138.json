@@ -1,0 +1,134 @@
+{
+  "code": "M-000138",
+  "id": "6c296526-322f-494d-a792-ea7b4ade4694",
+  "name": "SECC-EXAD87-DP_선언물성_0.8",
+  "alias": "",
+  "family": "Metal",
+  "category": "Steel",
+  "grade": "SECC-EXAD87-DP",
+  "workspace": "기본 부서",
+  "density": 7850.0,
+  "density_unit": "kg/m3",
+  "poisson_ratio": 0.29,
+  "declared_count": 5,
+  "source": "matnexus",
+  "payload": {
+    "id": "6c296526-322f-494d-a792-ea7b4ade4694",
+    "code": "M-000138",
+    "record_name": "SECC-EXAD87-DP_선언물성_0.8",
+    "alias": null,
+    "owner_workspace_id": "3b8e5d68-6b4d-45c8-a8e5-81abc150e0df",
+    "owner_workspace_name": "기본 부서",
+    "family": "Metal",
+    "category": "Steel",
+    "grade": "SECC-EXAD87-DP",
+    "details": "선언물성",
+    "spec_thickness": 0.0008,
+    "spec_thickness_unit": "m",
+    "applied_products": [
+      "예시 제품"
+    ],
+    "applied_parts": [
+      "브라켓"
+    ],
+    "density": 7850.0,
+    "density_unit": "kg/m3",
+    "poisson_ratio": 0.29,
+    "declared_properties": [
+      {
+        "item": "비열",
+        "points": [
+          {
+            "temperature_k": null,
+            "value_si": 470.0,
+            "value": 470.0
+          }
+        ],
+        "si_unit": "J/(kg.K)",
+        "input_unit": "J/(kg.K)",
+        "scale": null,
+        "source": "literature",
+        "reference": "탄소강 상온",
+        "note": null
+      },
+      {
+        "item": "열전도율",
+        "points": [
+          {
+            "temperature_k": null,
+            "value_si": 50.0,
+            "value": 50.0
+          }
+        ],
+        "si_unit": "W/(m.K)",
+        "input_unit": "W/(m.K)",
+        "scale": null,
+        "source": "literature",
+        "reference": "탄소강 상온",
+        "note": null
+      },
+      {
+        "item": "선팽창계수(CTE)",
+        "points": [
+          {
+            "temperature_k": null,
+            "value_si": 1.2e-05,
+            "value": 1.2e-05
+          }
+        ],
+        "si_unit": "1/K",
+        "input_unit": "1/K",
+        "scale": null,
+        "source": "literature",
+        "reference": "탄소강 20~100 °C",
+        "note": null
+      },
+      {
+        "item": "전단탄성계수",
+        "points": [
+          {
+            "temperature_k": null,
+            "value_si": 80000000000.0,
+            "value": 80.0
+          }
+        ],
+        "si_unit": "Pa",
+        "input_unit": "GPa",
+        "scale": null,
+        "source": "literature",
+        "reference": "E/(2(1+ν)), ν=0.29",
+        "note": null
+      },
+      {
+        "item": "탄성계수",
+        "points": [
+          {
+            "temperature_k": null,
+            "value_si": 205000000000.0,
+            "value": 205.0
+          }
+        ],
+        "si_unit": "Pa",
+        "input_unit": "GPa",
+        "scale": null,
+        "source": "literature",
+        "reference": "KS D 3506 · 일반 강판 대표값",
+        "note": "예시"
+      }
+    ],
+    "note": "예시 데이터 — 값은 강판 대표값·합성 곡선",
+    "legacy_id": null,
+    "sample_count": 0,
+    "created_at": "2026-09-05T15:59:15.786123+09:00",
+    "updated_at": "2026-09-05T15:59:15.809514+09:00",
+    "access": {
+      "can_edit": true,
+      "can_hand_over": true,
+      "registrant_id": "4981cf77-35fa-4d38-8297-aa0a0aba78ae",
+      "registrant": "시스템 관리자",
+      "edit_workspace_slug": "default",
+      "edit_workspace": "기본 부서",
+      "reason": null
+    }
+  }
+}
