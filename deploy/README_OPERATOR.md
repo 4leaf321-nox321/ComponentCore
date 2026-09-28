@@ -384,6 +384,7 @@ sudo ./deploy.sh status                 # 다음 차례가 언제인지
 | 이중화: 화면이 `/<slug>/` 밑에서 API 404 | `.env` 에 `PUBLIC_PATH=/<slug>` 가 없거나 nginx 가 접두어를 안 뗐다. `sudo ./deploy.sh render` 로 설정을 본다 |
 | 이중화: 로그인이 유지되지 않는다(새로고침마다 로그인) | `.env` 에 `REFRESH_COOKIE_SECURE=true` 가 있는데 http 로 들어왔다 — 지우거나 false 로(앱이 https 일 때 스스로 붙인다). 또는 `TRUST_PROXY` 가 꺼져 앱이 https 인 줄 모른다 |
 | 이중화: B 의 `install` 이 「DB 는 대기입니다」 로 멈춘다 | `/data/…/.env` 가 없다 — A 에서 `install` 을 먼저 |
+| 이중화: B 의 `setup` 이 `invalid group 'postgres'` 로 멈춘다 | **v0.3.0 번들이다** — A 에서 받은 복제 비밀번호를 PostgreSQL 을 깔기 전에 제자리에 두려 했다. B 에서 `sudo apt-get install -y --no-install-recommends postgresql-16 postgresql-client-16 postgresql-contrib` 후 `setup` 을 다시(물음도 같게). 새 번들은 고쳐져 있다 |
 | 이중화: 대기의 복제가 `끊김` | 주의 pg_hba 에 대기 IP 가 없거나 `/etc/pg-ha.replpass` 가 다르다. 주에서 `db-primary` 다시 → 대기에서 `db-standby` |
 
 ### `.env` 를 고친 뒤에는

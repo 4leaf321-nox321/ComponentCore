@@ -928,7 +928,7 @@ PLAN
     # **A 에서 받아오는 것은 로그 기록(tee) 전에.** 비밀번호를 묻는 scp 가 tee 뒤에서 터미널을
     # 읽으면 셸이 작업을 정지시킨다(실측 — 「[2]+ Stopped」). 이미 제자리에 있으면 안 받는다.
     if [[ "$HA_ROLE" == backup && -z "$DATA_DIR" ]]; then
-        if [[ -f "$ENV_FILE" && -f /etc/pg-ha.replpass ]]; then
+        if [[ -f "$ENV_FILE" && ( -f /etc/pg-ha.replpass || -f "$INSTALL_DIR/handoff/pg-ha.replpass" ) ]]; then
             info ".env 와 복제 비밀번호가 이미 있습니다 — A 에서 다시 받지 않습니다"
         else
             local handoff="$INSTALL_DIR/handoff"
@@ -937,9 +937,10 @@ PLAN
             as_op scp -q -P "${SSH_PORT:-22}" "$peer_account@$PEER_IP:apps/$APP_SLUG/handoff/pg-ha.replpass" \
                 "$peer_account@$PEER_IP:apps/$APP_SLUG/handoff/.env" "$handoff/" \
                 || err "A 에서 받지 못했습니다. A 에서 setup 이 끝났는지, 계정 · IP · ssh 포트가 맞는지 확인하세요."
-            install -o root -g postgres -m 640 "$handoff/pg-ha.replpass" /etc/pg-ha.replpass
             install -o "$OPERATOR" -g "$OPERATOR" -m 600 "$handoff/.env" "$ENV_FILE"
-            rm -rf "$handoff"
+            # 복제 비밀번호는 **prepare 뒤에** 제자리로(아래 backup 갈래). 그 파일은 root:postgres
+            # 인데, 새 B 에는 PostgreSQL 이 아직 없어 postgres 그룹도 없다 — 여기서 넣으면
+            # 「invalid group 'postgres'」 로 setup 이 멈춘다(v0.3.0 에서 실측, 2026-09-29).
         fi
     fi
     local log="$INSTALL_DIR/setup.log"
@@ -969,6 +970,14 @@ MSG
             ;;
         backup)
             [[ -f "$ENV_FILE" ]] || err "$ENV_FILE 가 없습니다 — A 에서 setup 이 끝났나요?"
+            # A 에서 받아 둔 복제 비밀번호 — 이제 PostgreSQL(과 postgres 그룹)이 있다.
+            local handoff="$INSTALL_DIR/handoff"
+            if [[ -f "$handoff/pg-ha.replpass" ]]; then
+                install -o root -g postgres -m 640 "$handoff/pg-ha.replpass" /etc/pg-ha.replpass
+                rm -rf "$handoff"
+            fi
+            [[ -n "$DATA_DIR" || -f /etc/pg-ha.replpass ]] \
+                || err "/etc/pg-ha.replpass 가 없습니다 — A 에서 받지 못했습니다. setup 을 다시 돌리세요."
             # A 의 .env 가 정한 이름 · 포트 · 확장을 그대로 — 두 서버는 같은 인스턴스다.
             local v
             v="$(sed -n 's|^APP_NAME=||p' "$ENV_FILE" | tail -n1)";    [[ -n "$v" ]] && APP_NAME="$v"
