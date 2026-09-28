@@ -558,7 +558,8 @@ export function ConditionsPanel({
     if (!spec) return
     const item: ConditionItem = { type: spec.types[0] }
     if ('name' in spec.fields) item.name = `${spec.label} ${(draft[group as keyof Conditions] as ConditionItem[]).length + 1}`
-    if ('on' in spec.fields) item.on = namesFor(group)[0]?.name ?? ''
+    // 「전체」 를 고를 수 있는 칸(메시 힌트)은 전체로 시작한다.
+    if ('on' in spec.fields) item.on = spec.fields.on?.whole ?? namesFor(group)[0]?.name ?? ''
     openWindow({ group, index: null, item })
   }
 

@@ -621,3 +621,70 @@ def test_마이그레이션_0022_는_SI_로_적힌_값을_mm_N_t_로_옮긴다()
         "constraints": [{**new["constraints"][0], "on": "a"}],
     }
     assert resolve(raw, {})["constraints"][0]["x"] == pytest.approx(0.0005)
+
+
+TWO_FACES: dict[str, Any] = {
+    "named_selections": [
+        {"name": "윗판", "entity": "face", "select": {"what": "faces", "role": "top"}},
+        {"name": "아랫판", "entity": "face", "select": {"what": "faces", "role": "bottom"}},
+        {"name": "몸", "entity": "body", "select": {"what": "bodies"}},
+    ],
+}
+
+
+def test_접촉은_종류에_필요한_값을_저장할_때_말한다() -> None:
+    one = {"name": "맞닿음", "type": "frictional", "source": "윗판", "target": "아랫판"}
+    with pytest.raises(ConditionError, match="마찰계수가 없습니다"):
+        parse({**TWO_FACES, "contacts": [one]})
+    got = parse({**TWO_FACES, "contacts": [{**one, "friction": 0.2}]}).contacts[0]
+    # 고르는 칸은 기본값 — 예전에 비워 둔 "" 도 기본값으로 읽는다.
+    assert (got.formulation, got.behavior, got.interface_treatment) == (
+        "program_controlled",
+        "program_controlled",
+        "add_offset_ramped",
+    )
+    legacy = {**one, "friction": 0.2, "formulation": "", "behavior": ""}
+    assert parse({**TWO_FACES, "contacts": [legacy]}).contacts[0].formulation == (
+        "program_controlled"
+    )
+    with pytest.raises(ConditionError, match="MPC"):
+        parse({**TWO_FACES, "contacts": [{**one, "friction": 0.2, "formulation": "mpc"}]})
+    with pytest.raises(ConditionError, match="같습니다"):
+        parse({**TWO_FACES, "contacts": [{**one, "type": "bonded", "target": "윗판"}]})
+
+
+def test_초기조건은_종류마다_필요한_값이_있고_내보낼_때_단위를_채운다() -> None:
+    cases = [
+        ({"type": "environment_temperature"}, "온도가 없습니다"),
+        ({"type": "temperature", "value": 80}, "바디 선택 그룹이 없습니다"),
+        ({"type": "velocity", "on": "몸"}, "속도"),
+    ]
+    for one, message in cases:
+        with pytest.raises(ConditionError, match=message):
+            parse({**TWO_FACES, "initial": [one]})
+    raw = {
+        **TWO_FACES,
+        "units": {"system": "si"},
+        "initial": [
+            {"type": "environment_temperature", "value": 22},
+            {"type": "velocity", "on": "몸", "vector": [0, 0, -5000]},
+        ],
+    }
+    initial = resolve(raw, {})["initial"]
+    assert initial[0]["value"] == 22 and initial[0]["unit"] == "C"
+    # 속도는 mm/s 로 적고 SI 로 내보낸다.
+    assert initial[1]["vector"] == [0, 0, -5] and initial[1]["unit"] == "m/s"
+
+
+def test_메시_힌트는_고르는_칸이_정해져_있고_비운_것은_받는_쪽이_정한다() -> None:
+    hint = parse({"mesh_hints": [{"on": "전체", "element_size": 2, "method": ""}]}).mesh_hints[
+        0
+    ]
+    assert (hint.method, hint.order) == ("automatic", "program_controlled")
+    with pytest.raises(ConditionError):
+        parse({"mesh_hints": [{"on": "전체", "method": "hexa"}]})
+    group = spec()["groups"]["mesh_hints"]
+    assert group["fields"]["on"]["whole"] == "전체"
+    assert group["fields"]["element_size"]["unit"] == "mm"
+    assert "바람" in group["intro"]
+    assert spec()["groups"]["contacts"]["fields"]["type"]["labels"]["bonded"] == "본딩(붙음)"

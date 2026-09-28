@@ -379,6 +379,7 @@ export function ConditionForm({
 
   return (
     <div className="space-y-3">
+      {group.intro && <p className="text-muted-foreground bg-muted/40 rounded px-2 py-1.5 text-xs">{group.intro}</p>}
       {'name' in group.fields && (
         <div className="space-y-1">
           <Label htmlFor="cond-name">이름</Label>
@@ -409,14 +410,22 @@ export function ConditionForm({
         </div>
       )}
 
-      {targets.map((key) => (
+      {targets.map((key) => {
+        const field = group.fields[key] ?? {}
+        const label = field.title ?? (key === 'target' ? '상대 선택 그룹' : '선택 그룹')
+        return (
         <div key={key} className="space-y-1">
-          <Label>{key === 'target' ? '상대 선택 그룹' : '선택 그룹'}</Label>
-          <Select value={String(item[key] ?? '')} onValueChange={(v) => set(key, v)}>
-            <SelectTrigger>
+          <Label>{label}</Label>
+          <Select value={String(item[key] ?? field.whole ?? '')} onValueChange={(v) => set(key, v)}>
+            <SelectTrigger aria-label={label}>
               <SelectValue placeholder="선택" />
             </SelectTrigger>
             <SelectContent>
+              {field.whole && (
+                <SelectItem value={field.whole}>
+                  {field.whole} (모든 바디)
+                </SelectItem>
+              )}
               {names.map((one) => (
                 <SelectItem key={one.name} value={one.name}>
                   {one.name}
@@ -424,13 +433,15 @@ export function ConditionForm({
               ))}
             </SelectContent>
           </Select>
-          {names.length === 0 && (
+          {field.description && <p className="text-muted-foreground text-xs">{field.description}</p>}
+          {names.length === 0 && !field.whole && (
             <p className="text-muted-foreground text-xs">
               선택 그룹이 없습니다 — 3D 에서 형상을 선택하면 생성됩니다.
             </p>
           )}
         </div>
-      ))}
+        )
+      })}
 
       {/*
         **좌표계** — 성분(x · y · z)이 어느 방향인가. 「전역」 이 기본이고, 도면 · 해석 조건에서
@@ -495,6 +506,31 @@ export function ConditionForm({
             />
           )
         }
+        if (field.components) {
+          const vector = Array.isArray(value) ? (value as (number | string)[]) : ['', '', '']
+          const title = `${field.title ?? key}${field.unit ? ` (${field.unit})` : ''}`
+          return (
+            <div key={key} className="space-y-1">
+              <Label>{title}</Label>
+              <div className="grid grid-cols-3 gap-1">
+                {(['X', 'Y', 'Z'] as const).map((axisName, index) => (
+                  <Input
+                    key={axisName}
+                    aria-label={`${field.title ?? key} ${axisName}`}
+                    placeholder={axisName}
+                    value={String(vector[index] ?? '')}
+                    onChange={(e) => {
+                      const next = [0, 1, 2].map((i) => (vector[i] === '' || vector[i] === undefined ? 0 : vector[i]))
+                      next[index] = numberOrExpr(e.target.value)
+                      set(key, next)
+                    }}
+                  />
+                ))}
+              </div>
+              {field.description && <p className="text-muted-foreground text-xs">{field.description}</p>}
+            </div>
+          )
+        }
         if (field.bolt) {
           return (
             <BoltField
@@ -506,7 +542,7 @@ export function ConditionForm({
             />
           )
         }
-        const unitName = field.unit_by_type ? units[group.dimensions?.[type] ?? ''] : undefined
+        const unitName = field.unit ?? (field.unit_by_type ? units[group.dimensions?.[type] ?? ''] : undefined)
         const title = `${field.title ?? key}${unitName ? ` (${unitName})` : ''}`
         if (options) {
           return (
@@ -535,7 +571,7 @@ export function ConditionForm({
             <Input
               id={`cond-${key}`}
               value={value === null || value === undefined ? '' : String(value)}
-              placeholder={isNumeric(field) ? '수 또는 =식' : ''}
+              placeholder={field.integer ? '정수' : isNumeric(field) ? '수 또는 =식' : ''}
               onChange={(e) => {
                 const text = e.target.value
                 if (text === '') return set(key, null)

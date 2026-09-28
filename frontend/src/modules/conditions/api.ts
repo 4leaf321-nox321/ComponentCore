@@ -36,8 +36,14 @@ export interface FieldSchema {
   unit_by_type?: boolean
   /** 값의 단위 — 단위계 이름표의 열쇠(`length` → mm · m). */
   dimension?: string
-  /** 계와 상관없는 단위(`도`). */
+  /** 칸의 단위(`도` · `mm` · `°C`) — 조건은 늘 mm · N · t 로 적으므로 고정된 이름이다. */
   unit?: string
+  /** 「전체」 처럼 선택 그룹 대신 고를 수 있는 값(메시 힌트). */
+  whole?: string
+  /** 세 성분(X · Y · Z) 칸 — 속도처럼 방향이 아닌 벡터. */
+  components?: boolean
+  /** 정수만 받는다(경계층 수) — 식을 쓸 수 없다. */
+  integer?: boolean
 }
 
 export interface GroupSchema {
@@ -50,6 +56,8 @@ export interface GroupSchema {
   implied?: Record<string, ImpliedHold[]>
   /** 종류마다 한 줄 설명 — 종류 아래에 보인다. */
   notes?: Record<string, string>
+  /** 묶음 전체에 대한 한두 줄 — 창 맨 위에 보인다. */
+  intro?: string
   /** 종류 → 크기의 차원(단위계 이름표의 열쇠, 예: `stress`). */
   dimensions?: Record<string, string>
 }

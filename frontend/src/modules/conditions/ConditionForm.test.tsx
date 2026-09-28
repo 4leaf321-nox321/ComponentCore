@@ -210,3 +210,81 @@ test('변위량에는 **단위계의 길이**가, 회전에는 도가 칸마다 
   rerender(<ConditionForm group={GROUP} item={item} names={[]} units={{ length: 'mm' }} onChange={() => {}} />)
   expect(pressed('X')).toBe('변위량 (mm)')
 })
+
+const CONTACTS: GroupSchema = {
+  label: '접촉',
+  types: ['bonded', 'frictional'],
+  intro: '두 선택 그룹이 맞닿는 자리입니다.',
+  fields: {
+    name: {},
+    type: { enum: ['bonded', 'frictional'], labels: { bonded: '본딩(붙음)', frictional: '마찰' } },
+    source: { title: '접촉면 (contact)', description: '보통 작거나 볼록한 쪽' },
+    target: { title: '대상면 (target)' },
+    friction: { title: '마찰계수', anyOf: [{ type: 'number' }, { type: 'null' }], only_for: ['frictional'] },
+    pinball: { title: 'pinball 반경', anyOf: [{ type: 'number' }, { type: 'null' }], unit: 'mm' },
+    formulation: {
+      title: '정식화',
+      enum: ['program_controlled', 'mpc'],
+      default: 'program_controlled',
+      labels: { program_controlled: '프로그램이 정함', mpc: 'MPC(구속식)' },
+    },
+  },
+  required: [],
+  notes: { frictional: '눌리면 마찰계수만큼 버티다 미끄러집니다.' },
+}
+
+test('접촉은 **접촉면 · 대상면**과 종류마다 필요한 칸만, 고르는 칸은 사람 말로 보인다', () => {
+  const view = (item: ConditionItem) => <ConditionForm group={CONTACTS} item={item} names={[]} onChange={() => {}} />
+  const { rerender } = render(view({ name: '맞닿음', type: 'bonded', source: '윗판', target: '아랫판' }))
+  expect(screen.getByText('두 선택 그룹이 맞닿는 자리입니다.')).toBeInTheDocument()
+  expect(screen.getByText('접촉면 (contact)')).toBeInTheDocument()
+  expect(screen.getByText('보통 작거나 볼록한 쪽')).toBeInTheDocument()
+  expect(screen.getByLabelText('정식화')).toHaveTextContent('프로그램이 정함')
+  expect(screen.getByLabelText('pinball 반경 (mm)')).toBeInTheDocument()
+  expect(screen.queryByLabelText('마찰계수')).toBeNull()
+
+  rerender(view({ name: '맞닿음', type: 'frictional', source: '윗판', target: '아랫판' }))
+  expect(screen.getByLabelText('마찰계수')).toBeInTheDocument()
+  expect(screen.getByText('눌리면 마찰계수만큼 버티다 미끄러집니다.')).toBeInTheDocument()
+})
+
+const INITIAL: GroupSchema = {
+  label: '초기조건',
+  types: ['environment_temperature', 'velocity'],
+  fields: {
+    type: { enum: ['environment_temperature', 'velocity'] },
+    on: { title: '바디 선택 그룹', only_for: ['velocity'] },
+    value: { title: '온도', anyOf: [{ type: 'number' }, { type: 'null' }], only_for: ['environment_temperature'], unit: '°C' },
+    vector: { title: '속도', only_for: ['velocity'], unit: 'mm/s', components: true },
+    unit: { type: 'string', default: '', hidden: true },
+  },
+  required: [],
+}
+
+test('초기 속도는 X · Y · Z 성분을 mm/s 로, 환경 온도는 °C 하나를 적는다', () => {
+  let item: ConditionItem = { type: 'velocity', on: '몸' }
+  const view = () => <ConditionForm group={INITIAL} item={item} names={[]} onChange={(next) => (item = next)} />
+  const { rerender } = render(view())
+  expect(screen.getByText('속도 (mm/s)')).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('속도 Z'), { target: { value: '-5000' } })
+  expect(item.vector).toEqual([0, 0, -5000])
+  expect(screen.queryByLabelText(/온도/)).toBeNull()
+
+  item = { type: 'environment_temperature' }
+  rerender(view())
+  expect(screen.getByLabelText('온도 (°C)')).toBeInTheDocument()
+  expect(screen.queryByText('바디 선택 그룹')).toBeNull()
+})
+
+test('메시 힌트는 **「전체」** 를 고를 수 있다', () => {
+  const MESH: GroupSchema = {
+    label: '메시 힌트',
+    types: [],
+    fields: { on: { title: '적용 대상', whole: '전체' }, element_size: { title: '요소 크기', anyOf: [{ type: 'number' }, { type: 'null' }], unit: 'mm' } },
+    required: [],
+  }
+  render(<ConditionForm group={MESH} item={{ on: '전체' }} names={[]} onChange={() => {}} />)
+  expect(screen.getByLabelText('적용 대상')).toHaveTextContent('전체 (모든 바디)')
+  expect(screen.getByLabelText('요소 크기 (mm)')).toBeInTheDocument()
+  expect(screen.queryByText(/선택 그룹이 없습니다/)).toBeNull()
+})

@@ -246,7 +246,7 @@ class Constraint(Base):
         "compression_only",
         "elastic_support",
     ] = Field(json_schema_extra={"labels": CONSTRAINT_LABELS})
-    on: str
+    on: str = Field(title="선택 그룹")
     cs: str = Field(
         "global", json_schema_extra={"only_for": ["displacement", "remote_displacement"]}
     )
@@ -392,6 +392,7 @@ class Load(Base):
     ] = Field(json_schema_extra={"labels": LOAD_LABELS})
     on: str = Field(
         "",
+        title="선택 그룹",
         json_schema_extra={
             "only_for": ["pressure", "force", "moment", "bearing", "bolt_pretension"]
         },
@@ -431,29 +432,163 @@ class Load(Base):
     """`bolt_pretension` — 예압(힘) 또는 조임량(길이), `unit` 이 가른다."""
 
 
+CONTACT_LABELS: dict[str, str] = {
+    "bonded": "본딩(붙음)",
+    "no_separation": "분리 없음",
+    "frictional": "마찰",
+    "frictionless": "마찰 없음",
+    "rough": "거친 접촉",
+}
+
+CONTACT_NOTES: dict[str, str] = {
+    "bonded": "두 면이 붙어 한 몸처럼 움직입니다 — 미끄러지지도 떨어지지도 않습니다(선형). "
+    "볼트 · 용접 · 접착을 단순화할 때.",
+    "no_separation": "떨어지지 않고, 면을 따라 조금 미끄러질 수 있습니다"
+    "(마찰 없음 · 거의 선형).",
+    "frictional": "눌리면 마찰계수만큼 버티다 미끄러지고, 떨어질 수도 있습니다(비선형). "
+    "실제 맞닿음에 가장 가깝습니다.",
+    "frictionless": "마찰 없이 미끄러지고, 떨어질 수도 있습니다(비선형).",
+    "rough": "미끄러지지 않지만 떨어질 수는 있습니다(마찰 무한대 · 비선형).",
+}
+
+#: 틈 · 겹침을 다루는 방법 — 떨어질 수 있는(비선형) 접촉만 쓴다.
+_NONLINEAR_CONTACTS = ["no_separation", "frictional", "frictionless", "rough"]
+
+
 class Contact(Base):
-    """접촉 — 두 선택 그룹이 만나는 자리."""
+    """접촉 — 두 선택 그룹이 만나는 자리. 접촉면(`source`)이 대상면(`target`)을 검사한다."""
 
     name: str = Field(min_length=1, max_length=60)
-    type: Literal["bonded", "no_separation", "frictional", "frictionless", "rough"]
-    source: str
-    target: str
-    friction: Number | None = None
-    formulation: str = ""
-    behavior: str = ""
-    pinball: Number | None = None
-    interface_treatment: str = ""
+    type: Literal["bonded", "no_separation", "frictional", "frictionless", "rough"] = Field(
+        json_schema_extra={"labels": CONTACT_LABELS}
+    )
+    source: str = Field(
+        title="접촉면 (contact)", description="보통 작거나 볼록하거나 부드러운 쪽"
+    )
+    target: str = Field(
+        title="대상면 (target)", description="보통 크거나 오목하거나 단단한 쪽"
+    )
+    friction: Number | None = Field(
+        None,
+        title="마찰계수",
+        description="0 ~ 1 — 강과 강(마른 면)은 대략 0.15 ~ 0.2",
+        json_schema_extra={"only_for": ["frictional"]},
+    )
+    formulation: Literal[
+        "program_controlled", "pure_penalty", "augmented_lagrange", "normal_lagrange", "mpc"
+    ] = Field(
+        "program_controlled",
+        title="정식화",
+        description="모르면 「프로그램이 정함」. MPC 는 본딩 · 분리 없음에만 씁니다",
+        json_schema_extra={
+            "labels": {
+                "program_controlled": "프로그램이 정함",
+                "pure_penalty": "페널티",
+                "augmented_lagrange": "증강 라그랑주",
+                "normal_lagrange": "라그랑주(법선)",
+                "mpc": "MPC(구속식)",
+            }
+        },
+    )
+    behavior: Literal["program_controlled", "symmetric", "asymmetric", "auto_asymmetric"] = (
+        Field(
+            "program_controlled",
+            title="검사 방향",
+            description="대칭: 두 면이 서로를 검사 · 비대칭: 접촉면만 대상면을 검사",
+            json_schema_extra={
+                "labels": {
+                    "program_controlled": "프로그램이 정함",
+                    "symmetric": "대칭",
+                    "asymmetric": "비대칭",
+                    "auto_asymmetric": "자동 비대칭",
+                }
+            },
+        )
+    )
+    pinball: Number | None = Field(
+        None,
+        title="pinball 반경",
+        description="이 거리 안의 면끼리만 접촉으로 봅니다 — 비우면 프로그램이 정함. "
+        "틈이 있는 본딩이면 틈보다 크게",
+        json_schema_extra={"unit": "mm"},
+    )
+    interface_treatment: Literal[
+        "add_offset_ramped", "add_offset_no_ramp", "adjust_to_touch"
+    ] = Field(
+        "add_offset_ramped",
+        title="처음의 틈 · 겹침",
+        description="형상에 작은 틈이나 겹침이 있을 때 — 「맞붙여 시작」 은 그것을 없앤 것으로"
+        " "
+        "칩니다",
+        json_schema_extra={
+            "only_for": _NONLINEAR_CONTACTS,
+            "labels": {
+                "add_offset_ramped": "형상 그대로(서서히)",
+                "add_offset_no_ramp": "형상 그대로(바로)",
+                "adjust_to_touch": "맞붙여 시작",
+            },
+        },
+    )
+
+    @field_validator("formulation", "behavior", "interface_treatment", mode="before")
+    @classmethod
+    def _blank(cls, value: Any, info: Any) -> Any:
+        """예전에 비워 둔 칸(`""`)은 기본값으로 — 고를 것을 정한 뒤로 빈 글자는 뜻이 없다."""
+        if value in ("", None):
+            return cls.model_fields[info.field_name].default
+        return value
+
+
+INITIAL_LABELS: dict[str, str] = {
+    "environment_temperature": "환경 온도",
+    "temperature": "초기 온도",
+    "velocity": "초기 속도",
+    "prestress": "선응력(프리스트레스)",
+}
+
+INITIAL_NOTES: dict[str, str] = {
+    "environment_temperature": "모델 전체의 기준 온도 — 열팽창이 0 인 온도입니다(보통 22 °C).",
+    "temperature": "고른 바디가 이 온도에서 시작합니다 — 열 해석(과도)의 출발점.",
+    "velocity": "고른 바디가 이 속도로 움직이며 시작합니다 — 낙하 · 충돌(explicit) 해석용.",
+    "prestress": "앞선 정적 해석의 응력을 안고 시작합니다 — 볼트 조임 · 원심력이 고유진동수를 "
+    "바꿀 때(모달).",
+}
 
 
 class Initial(Base):
     """초기조건 — 풀기 전의 상태."""
 
-    type: Literal["environment_temperature", "velocity", "temperature", "prestress"]
-    on: str = ""
-    value: Number | None = None
-    vector: list[Number] | None = None
-    unit: str = ""
-    from_step: str = ""
+    type: Literal["environment_temperature", "velocity", "temperature", "prestress"] = Field(
+        json_schema_extra={"labels": INITIAL_LABELS}
+    )
+    on: str = Field(
+        "",
+        title="바디 선택 그룹",
+        json_schema_extra={"only_for": ["temperature", "velocity"]},
+    )
+    value: Number | None = Field(
+        None,
+        title="온도",
+        json_schema_extra={
+            "only_for": ["environment_temperature", "temperature"],
+            "unit": "°C",
+        },
+    )
+    vector: list[Number] | None = Field(
+        None,
+        title="속도",
+        description="전역 X · Y · Z 성분",
+        json_schema_extra={"only_for": ["velocity"], "unit": "mm/s", "components": True},
+    )
+    unit: str = Field("", json_schema_extra={"hidden": True})
+    """내보낼 때 채운다(온도 `C`, 속도 `<길이>/s`)."""
+    from_step: str = Field(
+        "",
+        title="선행 정적 해석",
+        description="응력을 가져올 해석의 이름 — 비우면 받는 쪽이 이 모델의 정적 해석을 "
+        "씁니다",
+        json_schema_extra={"only_for": ["prestress"]},
+    )
 
 
 class Analysis(Base):
@@ -467,14 +602,69 @@ class Analysis(Base):
 
 
 class MeshHint(Base):
-    """메시는 받는 쪽이 만든다 — 여기 적는 것은 **바람**이다."""
+    """메시는 받는 쪽이 만든다 — 여기 적는 것은 **바람**이다. 비운 칸은 받는 쪽이 정한다."""
 
-    on: str = "전체"
-    element_size: Number | None = None
-    method: str = ""
-    order: str = ""
-    inflation_layers: int | None = None
-    defeature_size: Number | None = None
+    on: str = Field(
+        "전체",
+        title="적용 대상",
+        description="「전체」 또는 선택 그룹 — 선택 그룹이면 그 자리만 이 크기로",
+        json_schema_extra={"whole": "전체"},
+    )
+    element_size: Number | None = Field(
+        None,
+        title="요소 크기",
+        description="요소 한 변의 평균 — 작을수록 정확하고 느립니다. "
+        "판이면 두께의 1/2 ~ 1/3 쯤",
+        json_schema_extra={"unit": "mm"},
+    )
+    method: Literal["automatic", "tetrahedrons", "hex_dominant", "sweep", "multizone"] = Field(
+        "automatic",
+        title="요소 모양",
+        description="모르면 「자동」. 스윕 · 멀티존은 쓸어 만든 모양(판 · 축)을 "
+        "육면체로 채웁니다",
+        json_schema_extra={
+            "labels": {
+                "automatic": "자동",
+                "tetrahedrons": "사면체",
+                "hex_dominant": "육면체 우세",
+                "sweep": "스윕(육면체)",
+                "multizone": "멀티존(육면체)",
+            }
+        },
+    )
+    order: Literal["program_controlled", "linear", "quadratic"] = Field(
+        "program_controlled",
+        title="요소 차수",
+        description="2 차가 응력 · 굽힘에 정확합니다(권장). "
+        "1 차는 빠르지만 사면체면 뻣뻣하게 나옵니다",
+        json_schema_extra={
+            "labels": {
+                "program_controlled": "프로그램이 정함",
+                "linear": "1 차(빠름)",
+                "quadratic": "2 차(정확)",
+            }
+        },
+    )
+    inflation_layers: int | None = Field(
+        None,
+        title="경계층 수",
+        description="벽 가까이를 얇은 층으로 — 유동 · 열 경계층용. 구조 해석에서는 비웁니다",
+        json_schema_extra={"integer": True},
+    )
+    defeature_size: Number | None = Field(
+        None,
+        title="무시할 형상 크기",
+        description="이보다 작은 모서리 · 구멍 · 필렛은 메시에서 무시합니다",
+        json_schema_extra={"unit": "mm"},
+    )
+
+    @field_validator("method", "order", mode="before")
+    @classmethod
+    def _blank(cls, value: Any, info: Any) -> Any:
+        """예전에 비워 둔 칸(`""`)은 기본값으로."""
+        if value in ("", None):
+            return cls.model_fields[info.field_name].default
+        return value
 
 
 class Units(Base):
@@ -633,6 +823,10 @@ def parse(
                 f"(있는 것: {', '.join(sorted(known_frames - GLOBAL_FRAMES)) or '없음'})"
             )
 
+    for index, contact in enumerate(conditions.contacts):
+        _check_contact(f"contacts[{index}]", contact)
+    for index, initial in enumerate(conditions.initial):
+        _check_initial(f"initial[{index}]", initial)
     for index, load in enumerate(conditions.loads):
         _check_load(f"loads[{index}]", load)
         if frames is not None and load.cs not in known_frames:
@@ -892,6 +1086,7 @@ def resolve(
         item[key] = _times(item.get(key), factor)
     out["units"] = unit_systems.declaration(target.key)
     out["loads"] = [_filled_load(one, target.key) for one in out.get("loads", [])]
+    out["initial"] = [_filled_initial(one, target.key) for one in out.get("initial", [])]
     out["materials"] = [
         _with_converted(one, target.key, keys or {}) for one in out.get("materials", [])
     ]
@@ -955,6 +1150,39 @@ def _check_load(where: str, load: Load) -> None:
         )
     ):
         raise ConditionError(f"{where}: {label} 에 방향이 없습니다")
+
+
+def _check_contact(where: str, contact: Contact) -> None:
+    """접촉 하나 — 종류에 빠진 값 · 맞지 않는 선택을 **저장할 때** 말한다."""
+    label = f"{CONTACT_LABELS[contact.type]} 접촉 「{contact.name}」"
+    if contact.type == "frictional" and contact.friction is None:
+        raise ConditionError(f"{where}: {label} 에 마찰계수가 없습니다")
+    if contact.formulation == "mpc" and contact.type not in ("bonded", "no_separation"):
+        raise ConditionError(f"{where}: {label} — MPC 정식화는 본딩 · 분리 없음에만 씁니다")
+    if contact.source and contact.source == contact.target:
+        raise ConditionError(f"{where}: {label} 의 접촉면과 대상면이 같습니다")
+
+
+def _check_initial(where: str, initial: Initial) -> None:
+    """초기조건 하나 — 종류에 빠진 값을 **저장할 때** 말한다."""
+    label = INITIAL_LABELS[initial.type]
+    if initial.type in ("environment_temperature", "temperature") and initial.value is None:
+        raise ConditionError(f"{where}: {label} 에 온도가 없습니다")
+    if initial.type in ("temperature", "velocity") and not initial.on:
+        raise ConditionError(f"{where}: {label} 에 바디 선택 그룹이 없습니다")
+    if initial.type == "velocity" and (not initial.vector or len(initial.vector) != 3):
+        raise ConditionError(f"{where}: {label} 에 속도(X · Y · Z)가 없습니다")
+
+
+def _filled_initial(initial: dict[str, Any], system: str) -> dict[str, Any]:
+    """내보낼 초기조건 — 단위를 내보내기 계의 이름으로(온도는 어느 계든 °C)."""
+    out = dict(initial)
+    names = unit_systems.system_of(system).names
+    if out.get("type") in ("environment_temperature", "temperature"):
+        out["unit"] = names["temperature"]
+    elif out.get("type") == "velocity":
+        out["unit"] = f"{names['length']}/s"
+    return out
 
 
 def _filled_load(load: dict[str, Any], system: str) -> dict[str, Any]:
@@ -1021,7 +1249,6 @@ def _value_fields(
         out.append((one, "pinball", _LENGTH, f"접촉 「{one.get('name', '')}」 pinball 반경"))
     for index, one in enumerate(conditions.get("initial") or []):
         if one.get("type") == "velocity":
-            out.append((one, "value", _VELOCITY, f"초기조건 {index + 1} 속도"))
             out.append((one, "vector", _VELOCITY, f"초기조건 {index + 1} 속도"))
     for one in conditions.get("mesh_hints") or []:
         name = f"메시 힌트 「{one.get('on', '')}」"
@@ -1076,9 +1303,25 @@ def spec() -> dict[str, Any]:
             "notes": LOAD_NOTES,
             "dimensions": LOAD_DIMENSIONS,
         },
-        "contacts": {"label": "접촉", "model": Contact},
-        "initial": {"label": "초기조건", "model": Initial},
-        "mesh_hints": {"label": "메시 힌트", "model": MeshHint},
+        "contacts": {
+            "label": "접촉",
+            "model": Contact,
+            "notes": CONTACT_NOTES,
+            "intro": "두 선택 그룹이 맞닿는 자리입니다. 접촉면 · 대상면을 고르고, 붙어 있는지 "
+            "미끄러지는지를 종류로 정합니다. 모르는 칸은 「프로그램이 정함」 그대로 둡니다.",
+        },
+        "initial": {
+            "label": "초기조건",
+            "model": Initial,
+            "notes": INITIAL_NOTES,
+            "intro": "풀기 전의 상태입니다 — 기준 온도, 처음 온도 · 속도, 앞선 해석의 응력.",
+        },
+        "mesh_hints": {
+            "label": "메시 힌트",
+            "model": MeshHint,
+            "intro": "메시는 받는 쪽(SimEngBay)이 만듭니다 — 여기 적는 것은 바람입니다. "
+            "비운 칸은 받는 쪽이 정합니다.",
+        },
     }
     out: dict[str, Any] = {
         "schema_version": 1,
@@ -1110,6 +1353,8 @@ def spec() -> dict[str, Any]:
             # 종류마다 한 줄 설명, 그리고 크기의 차원(단위계 이름표의 열쇠 — 화면이 단위를
             # 붙인다).
             "notes": one.get("notes", {}),
+            # 묶음 전체에 대한 한두 줄 — 창 맨 위에 보인다.
+            "intro": one.get("intro", ""),
             "dimensions": one.get("dimensions", {}),
         }
     out["entities"] = ["face", "edge", "vertex", "body"]
