@@ -758,6 +758,8 @@ export function ConditionsPanel({
           types: (spec.analysis.properties?.type?.enum ?? []) as string[],
           fields: spec.analysis.properties ?? {},
           required: [],
+          notes: spec.analysis.notes,
+          intro: spec.analysis.intro,
         }
       : editing
         ? spec.groups[editing.group]

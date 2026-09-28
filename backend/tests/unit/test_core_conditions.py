@@ -688,3 +688,64 @@ def test_메시_힌트는_고르는_칸이_정해져_있고_비운_것은_받는
     assert group["fields"]["element_size"]["unit"] == "mm"
     assert "바람" in group["intro"]
     assert spec()["groups"]["contacts"]["fields"]["type"]["labels"]["bonded"] == "본딩(붙음)"
+
+
+def test_해석_설정은_종류마다_꼭_필요한_값을_저장할_때_말한다() -> None:
+    cases = [
+        ({"type": "modal", "modes": 0}, "모드 수는 1 이상"),
+        ({"type": "harmonic"}, "주파수 범위가 없습니다"),
+        ({"type": "harmonic", "frequency_range": [0, 500], "modes": 0}, "모드 중첩"),
+        ({"type": "harmonic", "frequency_range": [500, 100]}, "최소 < 최대"),
+        ({"type": "explicit"}, "끝 시간이 없습니다"),
+        ({"type": "thermal", "thermal_mode": "transient"}, "열 과도 해석 에 끝 시간"),
+        ({"type": "static", "steps": 0}, "1 이상"),
+    ]
+    for analysis, message in cases:
+        with pytest.raises(ConditionError, match=message):
+            parse({"analysis": analysis})
+    # 필요한 것이 있으면 된다 — 완전법 조화 응답은 모드 수가 없어도 된다.
+    parse({"analysis": {"type": "harmonic", "frequency_range": [0, 500], "method": "full"}})
+    parse({"analysis": {"type": "thermal"}})  # 정상 상태는 시간이 필요 없다
+    parse({"analysis": {"type": "explicit", "end_time": "=충돌시간"}})
+    # 비운 칸은 기본값 — 화면이 「기본 6」 이라고 보여 준 그대로.
+    assert parse({"analysis": {"type": "modal", "modes": None}}).analysis.modes == 6
+
+
+def test_내보낼_때는_그_종류의_칸만_기본값을_채워_싣는다() -> None:
+    def exported(analysis: dict[str, Any]) -> dict[str, Any]:
+        return resolve({"analysis": analysis}, {"충돌시간": 0.005})["analysis"]
+
+    assert exported({"type": "modal", "modes": 10}) == {
+        "type": "modal",
+        "modes": 10,
+        "frequency_range": None,
+        "prestressed": False,
+        "solver": "program_controlled",
+    }
+    explicit = exported({"type": "explicit", "end_time": "=충돌시간", "modes": 12})
+    assert explicit == {
+        "type": "explicit",
+        "end_time": 0.005,
+        "output_count": 20,
+        "mass_scaling_dt": None,
+    }
+    harmonic = exported(
+        {"type": "harmonic", "frequency_range": [10, 500], "damping_ratio": 0.02}
+    )
+    assert harmonic["solution_intervals"] == 10 and harmonic["method"] == "mode_superposition"
+    assert harmonic["modes"] == 6 and "large_deflection" not in harmonic
+    static = exported({"type": "static", "large_deflection": True})
+    assert set(static) == {"type", "large_deflection", "steps", "substeps", "solver"}
+    steady = exported({"type": "thermal"})
+    assert set(steady) == {"type", "solver", "thermal_mode"}
+    transient = exported({"type": "thermal", "thermal_mode": "transient", "end_time": 60})
+    assert transient["end_time"] == 60 and transient["output_count"] == 20
+
+
+def test_해석_설정의_사양표는_종류마다_설명과_칸을_싣는다() -> None:
+    analysis = spec()["analysis"]
+    assert set(analysis["notes"]) == set(analysis["properties"]["type"]["enum"])
+    assert analysis["properties"]["type"]["labels"]["explicit"] == "명시적 동해석(충돌 · 낙하)"
+    assert analysis["properties"]["end_time"]["only_for"] == ["explicit", "thermal"]
+    assert analysis["properties"]["frequency_range"]["range"] is True
+    assert analysis["intro"]

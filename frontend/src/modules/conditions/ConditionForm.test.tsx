@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 
 import type { ConditionItem, GroupSchema } from '@/modules/conditions/api'
 import { ConditionForm } from '@/modules/conditions/ConditionForm'
@@ -287,4 +287,52 @@ test('메시 힌트는 **「전체」** 를 고를 수 있다', () => {
   expect(screen.getByLabelText('적용 대상')).toHaveTextContent('전체 (모든 바디)')
   expect(screen.getByLabelText('요소 크기 (mm)')).toBeInTheDocument()
   expect(screen.queryByText(/선택 그룹이 없습니다/)).toBeNull()
+})
+
+const ANALYSIS: GroupSchema = {
+  label: '해석 설정',
+  types: ['modal', 'thermal'],
+  intro: '무엇을 풀지 고릅니다.',
+  fields: {
+    type: { enum: ['modal', 'thermal'], labels: { modal: '모달(고유진동)', thermal: '열' } },
+    modes: { title: '모드 수', anyOf: [{ type: 'integer' }, { type: 'null' }], default: 6, only_for: ['modal'], integer: true },
+    frequency_range: { title: '주파수 범위', only_for: ['modal'], unit: 'Hz', range: true },
+    prestressed: { title: '선응력 반영', type: 'boolean', default: false, only_for: ['modal'] },
+    thermal_mode: { title: '열 해석', enum: ['steady', 'transient'], default: 'steady', only_for: ['thermal'] },
+    end_time: {
+      title: '끝 시간',
+      anyOf: [{ type: 'number' }, { type: 'null' }],
+      only_for: ['thermal'],
+      unit: 's',
+      when: { thermal: { thermal_mode: 'transient' } },
+    },
+  },
+  required: [],
+  notes: { modal: '구조가 스스로 떠는 진동수를 찾습니다.' },
+}
+
+test('해석 설정은 종류마다 칸이 다르고, 켬 · 끔과 **최소 ~ 최대**를 제 모양으로 받는다', () => {
+  let item: ConditionItem = { type: 'modal' }
+  const view = () => <ConditionForm group={ANALYSIS} item={item} names={[]} onChange={(next) => (item = next)} />
+  const { rerender } = render(view())
+  expect(screen.getByText('구조가 스스로 떠는 진동수를 찾습니다.')).toBeInTheDocument()
+  // 비우면 기본값 — 그것을 보여 준다.
+  expect(screen.getByLabelText('모드 수')).toHaveAttribute('placeholder', '기본 6')
+
+  fireEvent.click(within(screen.getByRole('group', { name: '선응력 반영' })).getByRole('button', { name: '켬' }))
+  expect(item.prestressed).toBe(true)
+  rerender(view())
+  fireEvent.change(screen.getByLabelText('주파수 범위 최대'), { target: { value: '500' } })
+  expect(item.frequency_range).toEqual([0, 500])
+  rerender(view())
+  fireEvent.change(screen.getByLabelText('주파수 범위 최소'), { target: { value: '10' } })
+  expect(item.frequency_range).toEqual([10, 500])
+})
+
+test('열 해석의 시간 칸은 **과도일 때만** 보인다', () => {
+  const { rerender } = render(<ConditionForm group={ANALYSIS} item={{ type: 'thermal' }} names={[]} onChange={() => {}} />)
+  expect(screen.queryByLabelText('끝 시간 (s)')).toBeNull()
+  expect(screen.queryByLabelText('모드 수')).toBeNull()
+  rerender(<ConditionForm group={ANALYSIS} item={{ type: 'thermal', thermal_mode: 'transient' }} names={[]} onChange={() => {}} />)
+  expect(screen.getByLabelText('끝 시간 (s)')).toBeInTheDocument()
 })

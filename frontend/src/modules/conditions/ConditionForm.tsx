@@ -352,7 +352,10 @@ export function ConditionForm({
 }) {
   const set = (key: string, value: unknown) => onChange({ ...item, [key]: value })
   const type = String(item.type ?? '')
-  const shown = ([, field]: [string, FieldSchema]) => !field.only_for || field.only_for.includes(type)
+  const shown = ([, field]: [string, FieldSchema]) =>
+    (!field.only_for || field.only_for.includes(type)) &&
+    // 다른 칸의 값에 따라 — 비어 있으면 그 칸의 기본값으로 본다(서버가 그렇게 읽는다).
+    Object.entries(field.when?.[type] ?? {}).every(([other, wanted]) => (item[other] ?? group.fields[other]?.default) === wanted)
   const implied = group.implied?.[type] ?? []
   const fields = Object.entries(group.fields)
     .filter(([key, field]) => !HANDLED.has(key) && !field.hidden)
@@ -506,6 +509,56 @@ export function ConditionForm({
             />
           )
         }
+        // 켬 · 끔 — 글자 칸에 true 를 적게 두면 「true」 라는 글자가 저장된다.
+        if (field.type === 'boolean') {
+          const on = value === true
+          return (
+            <div key={key} className="space-y-1">
+              <Label>{field.title ?? key}</Label>
+              <div className="flex gap-1" role="group" aria-label={field.title ?? key}>
+                {(
+                  [
+                    [false, '끔'],
+                    [true, '켬'],
+                  ] as const
+                ).map(([next, label]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    aria-pressed={on === next}
+                    className={`flex-1 rounded border px-2 py-1 text-xs ${on === next ? 'border-primary bg-accent font-medium' : 'text-muted-foreground'}`}
+                    onClick={() => set(key, next)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {field.description && <p className="text-muted-foreground text-xs">{field.description}</p>}
+            </div>
+          )
+        }
+        // 최소 ~ 최대 — 글자 칸 하나에 「10, 500」 을 적게 두면 목록이 아니라 글자로 저장된다.
+        if (field.range) {
+          const span = Array.isArray(value) ? (value as (number | string)[]) : null
+          const title = `${field.title ?? key}${field.unit ? ` (${field.unit})` : ''}`
+          const put = (index: number, text: string) => {
+            const next: (number | string)[] = span ? [...span] : ['', '']
+            next[index] = text === '' ? '' : numberOrExpr(text)
+            // 둘 다 비우면 범위가 없다(null) — 한쪽만 적은 것은 서버가 알린다.
+            set(key, next.every((one) => one === '') ? null : next.map((one) => (one === '' ? 0 : one)))
+          }
+          return (
+            <div key={key} className="space-y-1">
+              <Label>{title}</Label>
+              <div className="flex items-center gap-1">
+                <Input aria-label={`${field.title ?? key} 최소`} placeholder="최소" value={span ? String(span[0] ?? '') : ''} onChange={(e) => put(0, e.target.value)} />
+                <span className="text-muted-foreground text-xs">~</span>
+                <Input aria-label={`${field.title ?? key} 최대`} placeholder="최대" value={span ? String(span[1] ?? '') : ''} onChange={(e) => put(1, e.target.value)} />
+              </div>
+              {field.description && <p className="text-muted-foreground text-xs">{field.description}</p>}
+            </div>
+          )
+        }
         if (field.components) {
           const vector = Array.isArray(value) ? (value as (number | string)[]) : ['', '', '']
           const title = `${field.title ?? key}${field.unit ? ` (${field.unit})` : ''}`
@@ -571,7 +624,16 @@ export function ConditionForm({
             <Input
               id={`cond-${key}`}
               value={value === null || value === undefined ? '' : String(value)}
-              placeholder={field.integer ? '정수' : isNumeric(field) ? '수 또는 =식' : ''}
+              placeholder={
+                // 비우면 서버가 기본값을 쓴다 — 그것을 보여 준다(빈칸이 「안 보낸다」 로 읽히지 않게).
+                field.default !== undefined && field.default !== null && field.default !== ''
+                  ? `기본 ${String(field.default)}`
+                  : field.integer
+                    ? '정수'
+                    : isNumeric(field)
+                      ? '수 또는 =식'
+                      : ''
+              }
               onChange={(e) => {
                 const text = e.target.value
                 if (text === '') return set(key, null)

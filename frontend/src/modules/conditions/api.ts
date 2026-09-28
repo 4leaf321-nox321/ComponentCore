@@ -44,6 +44,10 @@ export interface FieldSchema {
   components?: boolean
   /** 정수만 받는다(경계층 수) — 식을 쓸 수 없다. */
   integer?: boolean
+  /** 최소 · 최대 두 값(주파수 범위). */
+  range?: boolean
+  /** 종류 안에서 다른 칸의 값에 따라 보인다 — `{종류: {칸: 값}}`(열 과도의 시간 칸). */
+  when?: Record<string, Record<string, unknown>>
 }
 
 export interface GroupSchema {
@@ -90,7 +94,8 @@ export interface ConditionsSchema {
   unit_systems: UnitSystem[]
   /** 조건의 값을 적는 계(`mm_n_tonne`) — `units.system` 은 내보내기 계다. */
   input_system?: string
-  analysis: { properties?: Record<string, FieldSchema> }
+  /** 해석 설정 — 한 벌에 하나라 묶음이 아니지만 같은 폼으로 그린다. */
+  analysis: { properties?: Record<string, FieldSchema>; notes?: Record<string, string>; intro?: string }
   groups: Record<string, GroupSchema>
   entities: string[]
 }

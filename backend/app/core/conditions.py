@@ -591,14 +591,190 @@ class Initial(Base):
     )
 
 
-class Analysis(Base):
-    """무엇을 풀 것인가."""
+ANALYSIS_LABELS: dict[str, str] = {
+    "modal": "모달(고유진동)",
+    "static": "정적 구조",
+    "harmonic": "조화 응답(주파수 응답)",
+    "explicit": "명시적 동해석(충돌 · 낙하)",
+    "thermal": "열",
+}
 
-    type: Literal["modal", "static", "harmonic", "explicit", "thermal"] = "modal"
-    prestressed: bool = False
-    modes: int | None = None
-    frequency_range: list[Number] | None = None
-    large_deflection: bool = False
+ANALYSIS_NOTES: dict[str, str] = {
+    "modal": "구조가 스스로 떠는 진동수와 모양을 찾습니다 — 하중은 쓰지 않고 "
+    "구속 · 물성(밀도)만 씁니다.",
+    "static": "하중이 천천히 걸려 멈춘 상태의 변형 · 응력을 봅니다. "
+    "접촉 · 대변형이면 비선형으로 풉니다.",
+    "harmonic": "정해진 주파수로 흔드는 하중에 대한 응답(진폭 · 응력)을 주파수마다 "
+    "봅니다 — 공진을 찾을 때.",
+    "explicit": "아주 짧은 시간(수 ms)의 충돌 · 낙하 · 파손을 시간에 따라 풉니다 — "
+    "초기 속도가 흔히 필요합니다.",
+    "thermal": "열이 어떻게 퍼지는지(온도 분포) 봅니다 — 정상 상태 또는 시간에 따라(과도).",
+}
+
+#: 종류 안에서 **다른 칸의 값에 따라** 보이는 칸 — `{종류: {칸: 값}}`. 열 해석의 시간 칸은
+#: 과도일 때만 뜻이 있다. 화면이 감추고, 내보낼 때도 뺀다.
+_TRANSIENT: dict[str, dict[str, str]] = {"thermal": {"thermal_mode": "transient"}}
+
+#: 해석 설정 창 맨 위의 한두 줄.
+_ANALYSIS_INTRO = (
+    "무엇을 풀지 고릅니다. 종류마다 필요한 칸만 보이고, 내보낼 때도 그 칸만 실립니다. "
+    "모르는 칸은 비우거나 「프로그램이 정함」 으로 둡니다."
+)
+
+
+class Analysis(Base):
+    """무엇을 풀 것인가 — **종류마다 칸이 다르다**(`only_for`). 내보낼 때는 그 종류의 칸만
+    기본값을 채워 싣는다(`_filled_analysis`) — 받는 쪽이 「이 칸이 없으면 무엇인가」 를
+    짐작하지 않게."""
+
+    type: Literal["modal", "static", "harmonic", "explicit", "thermal"] = Field(
+        "modal", json_schema_extra={"labels": ANALYSIS_LABELS}
+    )
+    # ── 모달 · 조화 ────────────────────────────────────────────────────────
+    modes: int | None = Field(
+        6,
+        title="모드 수",
+        description="찾을(조화 응답이면 쓸) 고유진동 모드의 개수 — 보통 6 ~ 20",
+        json_schema_extra={"only_for": ["modal", "harmonic"], "integer": True},
+    )
+    frequency_range: list[Number] | None = Field(
+        None,
+        title="주파수 범위",
+        description=(
+            "모달: 이 범위 안에서 찾습니다(비우면 낮은 것부터) · 조화 응답: 훑을 범위(필수)"
+        ),
+        json_schema_extra={"only_for": ["modal", "harmonic"], "unit": "Hz", "range": True},
+    )
+    prestressed: bool = Field(
+        False,
+        title="선응력 반영",
+        description="앞선 정적 해석의 응력(볼트 조임 · 원심력)을 안고 풉니다 — 초기조건의 "
+        "「선응력」 과 함께 씁니다",
+        json_schema_extra={"only_for": ["modal", "harmonic"]},
+    )
+    # ── 조화 응답 ──────────────────────────────────────────────────────────
+    solution_intervals: int = Field(
+        10,
+        title="주파수 점 수",
+        description="범위를 몇 점으로 나눠 풀지 — 공진 근처를 자세히 보려면 늘립니다",
+        json_schema_extra={"only_for": ["harmonic"], "integer": True},
+    )
+    method: Literal["mode_superposition", "full"] = Field(
+        "mode_superposition",
+        title="풀이 방법",
+        description="모드 중첩: 모달 결과로 빨리 풉니다(모드 수 필요) · 완전법: 느리지만 정확",
+        json_schema_extra={
+            "only_for": ["harmonic"],
+            "labels": {"mode_superposition": "모드 중첩(빠름)", "full": "완전법(정확)"},
+        },
+    )
+    damping_ratio: Number | None = Field(
+        None,
+        title="감쇠비",
+        description="임계 감쇠에 대한 비 — 강 구조는 0.01 ~ 0.03. 비우면 감쇠가 없어 공진에서 "
+        "응답이 끝없이 커집니다",
+        json_schema_extra={"only_for": ["harmonic"]},
+    )
+    # ── 정적 구조 ──────────────────────────────────────────────────────────
+    large_deflection: bool = Field(
+        False,
+        title="대변형",
+        description=(
+            "변형이 커서 모양이 바뀌면 켭니다(비선형 · 느림) — 얇은 판 · 고무 · 큰 처짐"
+        ),
+        json_schema_extra={"only_for": ["static"]},
+    )
+    steps: int = Field(
+        1,
+        title="하중 단계 수",
+        description="하중을 나눠 거는 단계 — 볼트를 먼저 조이고 하중을 걸면 2",
+        json_schema_extra={"only_for": ["static"], "integer": True},
+    )
+    substeps: int | None = Field(
+        None,
+        title="처음 부단계 수",
+        description=(
+            "한 단계를 몇 번에 나눠 풀지 — 접촉 · 대변형이 안 풀리면 늘립니다. 비우면 자동"
+        ),
+        json_schema_extra={"only_for": ["static"], "integer": True},
+    )
+    solver: Literal["program_controlled", "direct", "iterative"] = Field(
+        "program_controlled",
+        title="솔버",
+        description=(
+            "모르면 「프로그램이 정함」 — 직접법은 메모리를 많이 쓰고, "
+            "반복법은 큰 솔리드에 빠릅니다"
+        ),
+        json_schema_extra={
+            "only_for": ["static", "modal", "harmonic", "thermal"],
+            "labels": {
+                "program_controlled": "프로그램이 정함",
+                "direct": "직접법",
+                "iterative": "반복법",
+            },
+        },
+    )
+    # ── 열 ────────────────────────────────────────────────────────────────
+    thermal_mode: Literal["steady", "transient"] = Field(
+        "steady",
+        title="열 해석",
+        description="정상 상태: 오래 지나 변하지 않는 온도 · 과도: 시간에 따라(끝 시간 필요)",
+        json_schema_extra={
+            "only_for": ["thermal"],
+            "labels": {"steady": "정상 상태", "transient": "과도(시간에 따라)"},
+        },
+    )
+    time_step: Number | None = Field(
+        None,
+        title="처음 시간 간격",
+        description="열 과도: 첫 시간 간격 — 비우면 자동",
+        json_schema_extra={"only_for": ["thermal"], "unit": "s", "when": _TRANSIENT},
+    )
+    # ── 명시적 · 열 과도 ─────────────────────────────────────────────────
+    end_time: Number | None = Field(
+        None,
+        title="끝 시간",
+        description="명시적: 충돌 · 낙하가 끝날 만큼(보통 수 ms) · 열 과도: 지켜볼 시간",
+        json_schema_extra={
+            "only_for": ["explicit", "thermal"],
+            "unit": "s",
+            "when": _TRANSIENT,
+        },
+    )
+    output_count: int = Field(
+        20,
+        title="결과 저장 횟수",
+        description="끝 시간 동안 결과를 몇 번 남길지 — 많을수록 파일이 커집니다",
+        json_schema_extra={
+            "only_for": ["explicit", "thermal"],
+            "integer": True,
+            "when": _TRANSIENT,
+        },
+    )
+    mass_scaling_dt: Number | None = Field(
+        None,
+        title="질량 스케일링 시간 간격",
+        description="이보다 작은 시간 간격이 필요한 작은 요소에 질량을 더해 빨리 "
+        "풉니다 — 비우면 쓰지 않습니다(정확)",
+        json_schema_extra={"only_for": ["explicit"], "unit": "s"},
+    )
+
+    @field_validator(
+        "modes",
+        "solution_intervals",
+        "steps",
+        "output_count",
+        "method",
+        "solver",
+        "thermal_mode",
+        mode="before",
+    )
+    @classmethod
+    def _blank(cls, value: Any, info: Any) -> Any:
+        """비운 칸(`None` · `""`)은 기본값 — 화면이 「기본 6」 이라고 보여 준 그대로."""
+        if value in ("", None):
+            return cls.model_fields[info.field_name].default
+        return value
 
 
 class MeshHint(Base):
@@ -823,6 +999,7 @@ def parse(
                 f"(있는 것: {', '.join(sorted(known_frames - GLOBAL_FRAMES)) or '없음'})"
             )
 
+    _check_analysis(conditions.analysis)
     for index, contact in enumerate(conditions.contacts):
         _check_contact(f"contacts[{index}]", contact)
     for index, initial in enumerate(conditions.initial):
@@ -1087,6 +1264,7 @@ def resolve(
     out["units"] = unit_systems.declaration(target.key)
     out["loads"] = [_filled_load(one, target.key) for one in out.get("loads", [])]
     out["initial"] = [_filled_initial(one, target.key) for one in out.get("initial", [])]
+    out["analysis"] = _filled_analysis(out.get("analysis") or {})
     out["materials"] = [
         _with_converted(one, target.key, keys or {}) for one in out.get("materials", [])
     ]
@@ -1150,6 +1328,67 @@ def _check_load(where: str, load: Load) -> None:
         )
     ):
         raise ConditionError(f"{where}: {label} 에 방향이 없습니다")
+
+
+def _check_analysis(analysis: Analysis) -> None:
+    """해석 설정 — 그 종류가 꼭 필요로 하는 값이 있는가. 없으면 받는 쪽이 짐작하거나 멈춘다."""
+    label = ANALYSIS_LABELS[analysis.type]
+
+    def positive(value: Any) -> bool:
+        return isinstance(value, str) or (value is not None and value > 0)
+
+    span = analysis.frequency_range
+    if span is not None:
+        if len(span) != 2:
+            raise ConditionError("analysis: 주파수 범위는 최소 · 최대 두 값입니다")
+        low, high = span
+        if not isinstance(low, str) and not isinstance(high, str) and not 0 <= low < high:
+            raise ConditionError("analysis: 주파수 범위는 0 ≤ 최소 < 최대 여야 합니다")
+    if analysis.type == "modal" and not positive(analysis.modes):
+        raise ConditionError(f"analysis: {label} 의 모드 수는 1 이상입니다")
+    if analysis.type == "harmonic":
+        if span is None:
+            raise ConditionError(f"analysis: {label} 에 주파수 범위가 없습니다")
+        if analysis.method == "mode_superposition" and not positive(analysis.modes):
+            raise ConditionError(
+                f"analysis: {label} 을 모드 중첩으로 풀려면 모드 수가 1 이상이어야 합니다"
+            )
+        if analysis.solution_intervals < 1:
+            raise ConditionError(f"analysis: {label} 의 주파수 점 수는 1 이상입니다")
+    if analysis.type == "static" and analysis.steps < 1:
+        raise ConditionError(f"analysis: {label} 의 하중 단계 수는 1 이상입니다")
+    needs_end = analysis.type == "explicit" or (
+        analysis.type == "thermal" and analysis.thermal_mode == "transient"
+    )
+    if needs_end and not positive(analysis.end_time):
+        kind = label if analysis.type == "explicit" else "열 과도 해석"
+        raise ConditionError(f"analysis: {kind} 에 끝 시간이 없습니다")
+    if analysis.type in ("explicit", "thermal") and analysis.output_count < 1:
+        raise ConditionError("analysis: 결과 저장 횟수는 1 이상입니다")
+
+
+def _filled_analysis(analysis: dict[str, Any]) -> dict[str, Any]:
+    """내보낼 해석 설정 — **그 종류가 쓰는 칸만**, 비운 것은 기본값으로 채워서. 모달에
+    `end_time` 이 실려 가면 받는 쪽은 그것이 무슨 뜻인지 짐작해야 한다."""
+    kind = str(analysis.get("type") or "modal")
+    out: dict[str, Any] = {"type": kind}
+    for key, field in Analysis.model_fields.items():
+        if key == "type":
+            continue
+        extra = field.json_schema_extra if isinstance(field.json_schema_extra, dict) else {}
+        only = extra.get("only_for")
+        if only is not None and kind not in only:
+            continue
+        # 다른 칸의 값에 따라 뜻이 있는 칸(열 과도의 시간) — 조건이 안 맞으면 뺀다.
+        when = (extra.get("when") or {}).get(kind) or {}
+        if any(
+            (analysis.get(other) or Analysis.model_fields[other].default) != wanted
+            for other, wanted in when.items()
+        ):
+            continue
+        value = analysis.get(key)
+        out[key] = field.default if value is None and field.default is not None else value
+    return out
 
 
 def _check_contact(where: str, contact: Contact) -> None:
@@ -1335,7 +1574,13 @@ def spec() -> dict[str, Any]:
             {"key": one.key, "label": one.label, **one.names}
             for one in unit_systems.SYSTEMS.values()
         ],
-        "analysis": Analysis.model_json_schema(),
+        # 해석 설정은 한 벌에 하나라 묶음(`groups`)이 아니지만, 화면은 같은 폼으로 그린다 —
+        # 종류마다 한 줄 설명과 창 맨 위 안내를 함께 싣는다.
+        "analysis": {
+            **Analysis.model_json_schema(),
+            "notes": ANALYSIS_NOTES,
+            "intro": _ANALYSIS_INTRO,
+        },
         "groups": {},
     }
     for key, one in groups.items():
