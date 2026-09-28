@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -24,6 +24,18 @@ from app.database import Base
 
 class DoeStudy(Base):
     __tablename__ = "doe_studies"
+    # 재시도해도 한 벌 — 같은 사람 · 같은 열쇠는 하나뿐(마이그레이션 0018). 빈 열쇠(열쇠 없이
+    # 부른 것)는 겹쳐도 된다. 모델에도 적어 둔다 — 안 적으면 `alembic check` 가 이 인덱스를
+    # 「지울 것」 으로 읽는다.
+    __table_args__ = (
+        Index(
+            "ux_doe_studies_owner_idempotency",
+            "owner_id",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key <> ''"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True), primary_key=True, default=uuid.uuid4

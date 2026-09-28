@@ -31,6 +31,14 @@ from app.core import units as unit_systems
 from app.core.recipe.params import ExpressionError, resolve_params
 from app.core.recipe.params import evaluate_expression as _expr
 
+
+def _extra(values: dict[str, Any]) -> dict[str, Any]:
+    """칸에 붙이는 사양표 표시(`json_schema_extra`). 라벨표 · 종류 목록을 dict 리터럴로 바로
+    넣으면 mypy 가 Pydantic 의 `JsonDict`(값이 JsonValue)와 dict 불변성으로 막는다 — `Any` 로
+    한 번 거친다. 모양은 같다."""
+    return values
+
+
 #: 숫자 칸 — 수 또는 `"=식"`.
 Number = float | int | str
 
@@ -245,10 +253,11 @@ class Constraint(Base):
         "cylindrical",
         "compression_only",
         "elastic_support",
-    ] = Field(json_schema_extra={"labels": CONSTRAINT_LABELS})
+    ] = Field(json_schema_extra=_extra({"labels": CONSTRAINT_LABELS}))
     on: str = Field(title="선택 그룹")
     cs: str = Field(
-        "global", json_schema_extra={"only_for": ["displacement", "remote_displacement"]}
+        "global",
+        json_schema_extra=_extra({"only_for": ["displacement", "remote_displacement"]}),
     )
     """성분의 축 — 변위 · 원격 변위만 쓴다(원통 지지는 원통의 축을, 나머지는 면을
     따른다). 원격 변위는 이 좌표계의 **원점**을 원격점으로 쓸 수도 있다(`location`)."""
@@ -256,10 +265,12 @@ class Constraint(Base):
         "centroid",
         title="원격점",
         description="면을 묶는 한 점 — 고른 면의 중심, 또는 좌표계의 원점",
-        json_schema_extra={
-            "only_for": ["remote_displacement"],
-            "labels": {"centroid": "선택 그룹의 중심", "cs_origin": "좌표계의 원점"},
-        },
+        json_schema_extra=_extra(
+            {
+                "only_for": ["remote_displacement"],
+                "labels": {"centroid": "선택 그룹의 중심", "cs_origin": "좌표계의 원점"},
+            }
+        ),
     )
     behavior: Literal["deformable", "rigid"] = Field(
         "deformable",
@@ -267,10 +278,12 @@ class Constraint(Base):
         description=(
             "변형체: 면이 따라 휘어진다 · 강체: 면이 모양을 지킨 채 움직인다(더 뻣뻣하다)"
         ),
-        json_schema_extra={
-            "only_for": ["remote_displacement"],
-            "labels": {"deformable": "변형체", "rigid": "강체"},
-        },
+        json_schema_extra=_extra(
+            {
+                "only_for": ["remote_displacement"],
+                "labels": {"deformable": "변형체", "rigid": "강체"},
+            }
+        ),
     )
     x: Number | None = Field(
         None, title="X", description="좌표계의 X 축 방향", json_schema_extra=_DISPLACEMENT
@@ -300,7 +313,7 @@ class Constraint(Base):
         None,
         title="기초 강성",
         description=("법선으로 1 mm 눌리는 데 드는 압력(N/mm³ = MPa/mm)"),
-        json_schema_extra={"only_for": ["elastic_support"]},
+        json_schema_extra=_extra({"only_for": ["elastic_support"]}),
     )
     """`elastic_support` 의 스프링 — 단위 면적 · 단위 변위당 힘(응력 / 길이)."""
     radial: Hold = Field(
@@ -389,45 +402,51 @@ class Load(Base):
         "standard_earth_gravity",
         "acceleration",
         "rotational_velocity",
-    ] = Field(json_schema_extra={"labels": LOAD_LABELS})
+    ] = Field(json_schema_extra=_extra({"labels": LOAD_LABELS}))
     on: str = Field(
         "",
         title="선택 그룹",
-        json_schema_extra={
-            "only_for": ["pressure", "force", "moment", "bearing", "bolt_pretension"]
-        },
+        json_schema_extra=_extra(
+            {"only_for": ["pressure", "force", "moment", "bearing", "bolt_pretension"]}
+        ),
     )
     """중력처럼 온 몸에 걸리는 것은 비어 있다."""
-    cs: str = Field("global", json_schema_extra={"only_for": DIRECTED_LOADS})
+    cs: str = Field("global", json_schema_extra=_extra({"only_for": DIRECTED_LOADS}))
     """방향 성분의 축 — 구속과 같다. 회전 속도는 이 좌표계의 원점을 지나는 축으로 돈다."""
     magnitude: Number | None = Field(
         None,
         title="크기",
-        json_schema_extra={
-            "only_for": [
-                k
-                for k in LOAD_LABELS
-                if k not in ("bolt_pretension", "standard_earth_gravity")
-            ],
-            "unit_by_type": True,
-        },
+        json_schema_extra=_extra(
+            {
+                "only_for": [
+                    k
+                    for k in LOAD_LABELS
+                    if k not in ("bolt_pretension", "standard_earth_gravity")
+                ],
+                "unit_by_type": True,
+            }
+        ),
     )
-    unit: str = Field("", json_schema_extra={"hidden": True})
+    unit: str = Field("", json_schema_extra=_extra({"hidden": True}))
     """`MPa` · `N` · `N*mm` … **단위를 값에서 떼지 않는다** — 물성에서 그것이 10¹² 배로
     틀린 적이 있다(MatNexus 의 실측). 비우면 단위계에서 채운다."""
     direction: list[Number] | Literal["normal"] | None = Field(
         None,
         title="방향",
-        json_schema_extra={
-            "direction": True,
-            "only_for": DIRECTED_LOADS,
-            "normal_for": ["pressure"],
-        },
+        json_schema_extra=_extra(
+            {
+                "direction": True,
+                "only_for": DIRECTED_LOADS,
+                "normal_for": ["pressure"],
+            }
+        ),
     )
     """좌표계(`cs`)의 X · Y · Z 성분(길이는 상관없다), 또는 `"normal"`(면의 법선 — 압력만).
     비우면 압력은 법선, 중력은 -Z 다."""
     preload: Number | None = Field(
-        None, title="예압", json_schema_extra={"only_for": ["bolt_pretension"], "bolt": True}
+        None,
+        title="예압",
+        json_schema_extra=_extra({"only_for": ["bolt_pretension"], "bolt": True}),
     )
     """`bolt_pretension` — 예압(힘) 또는 조임량(길이), `unit` 이 가른다."""
 
@@ -460,7 +479,7 @@ class Contact(Base):
 
     name: str = Field(min_length=1, max_length=60)
     type: Literal["bonded", "no_separation", "frictional", "frictionless", "rough"] = Field(
-        json_schema_extra={"labels": CONTACT_LABELS}
+        json_schema_extra=_extra({"labels": CONTACT_LABELS})
     )
     source: str = Field(
         title="접촉면 (contact)", description="보통 작거나 볼록하거나 부드러운 쪽"
@@ -472,7 +491,7 @@ class Contact(Base):
         None,
         title="마찰계수",
         description="0 ~ 1 — 강과 강(마른 면)은 대략 0.15 ~ 0.2",
-        json_schema_extra={"only_for": ["frictional"]},
+        json_schema_extra=_extra({"only_for": ["frictional"]}),
     )
     formulation: Literal[
         "program_controlled", "pure_penalty", "augmented_lagrange", "normal_lagrange", "mpc"
@@ -480,29 +499,33 @@ class Contact(Base):
         "program_controlled",
         title="정식화",
         description="모르면 「프로그램이 정함」. MPC 는 본딩 · 분리 없음에만 씁니다",
-        json_schema_extra={
-            "labels": {
-                "program_controlled": "프로그램이 정함",
-                "pure_penalty": "페널티",
-                "augmented_lagrange": "증강 라그랑주",
-                "normal_lagrange": "라그랑주(법선)",
-                "mpc": "MPC(구속식)",
+        json_schema_extra=_extra(
+            {
+                "labels": {
+                    "program_controlled": "프로그램이 정함",
+                    "pure_penalty": "페널티",
+                    "augmented_lagrange": "증강 라그랑주",
+                    "normal_lagrange": "라그랑주(법선)",
+                    "mpc": "MPC(구속식)",
+                }
             }
-        },
+        ),
     )
     behavior: Literal["program_controlled", "symmetric", "asymmetric", "auto_asymmetric"] = (
         Field(
             "program_controlled",
             title="검사 방향",
             description="대칭: 두 면이 서로를 검사 · 비대칭: 접촉면만 대상면을 검사",
-            json_schema_extra={
-                "labels": {
-                    "program_controlled": "프로그램이 정함",
-                    "symmetric": "대칭",
-                    "asymmetric": "비대칭",
-                    "auto_asymmetric": "자동 비대칭",
+            json_schema_extra=_extra(
+                {
+                    "labels": {
+                        "program_controlled": "프로그램이 정함",
+                        "symmetric": "대칭",
+                        "asymmetric": "비대칭",
+                        "auto_asymmetric": "자동 비대칭",
+                    }
                 }
-            },
+            ),
         )
     )
     pinball: Number | None = Field(
@@ -510,7 +533,7 @@ class Contact(Base):
         title="pinball 반경",
         description="이 거리 안의 면끼리만 접촉으로 봅니다 — 비우면 프로그램이 정함. "
         "틈이 있는 본딩이면 틈보다 크게",
-        json_schema_extra={"unit": "mm"},
+        json_schema_extra=_extra({"unit": "mm"}),
     )
     interface_treatment: Literal[
         "add_offset_ramped", "add_offset_no_ramp", "adjust_to_touch"
@@ -520,14 +543,16 @@ class Contact(Base):
         description="형상에 작은 틈이나 겹침이 있을 때 — 「맞붙여 시작」 은 그것을 없앤 것으로"
         " "
         "칩니다",
-        json_schema_extra={
-            "only_for": _NONLINEAR_CONTACTS,
-            "labels": {
-                "add_offset_ramped": "형상 그대로(서서히)",
-                "add_offset_no_ramp": "형상 그대로(바로)",
-                "adjust_to_touch": "맞붙여 시작",
-            },
-        },
+        json_schema_extra=_extra(
+            {
+                "only_for": _NONLINEAR_CONTACTS,
+                "labels": {
+                    "add_offset_ramped": "형상 그대로(서서히)",
+                    "add_offset_no_ramp": "형상 그대로(바로)",
+                    "adjust_to_touch": "맞붙여 시작",
+                },
+            }
+        ),
     )
 
     @field_validator("formulation", "behavior", "interface_treatment", mode="before")
@@ -559,35 +584,39 @@ class Initial(Base):
     """초기조건 — 풀기 전의 상태."""
 
     type: Literal["environment_temperature", "velocity", "temperature", "prestress"] = Field(
-        json_schema_extra={"labels": INITIAL_LABELS}
+        json_schema_extra=_extra({"labels": INITIAL_LABELS})
     )
     on: str = Field(
         "",
         title="바디 선택 그룹",
-        json_schema_extra={"only_for": ["temperature", "velocity"]},
+        json_schema_extra=_extra({"only_for": ["temperature", "velocity"]}),
     )
     value: Number | None = Field(
         None,
         title="온도",
-        json_schema_extra={
-            "only_for": ["environment_temperature", "temperature"],
-            "unit": "°C",
-        },
+        json_schema_extra=_extra(
+            {
+                "only_for": ["environment_temperature", "temperature"],
+                "unit": "°C",
+            }
+        ),
     )
     vector: list[Number] | None = Field(
         None,
         title="속도",
         description="전역 X · Y · Z 성분",
-        json_schema_extra={"only_for": ["velocity"], "unit": "mm/s", "components": True},
+        json_schema_extra=_extra(
+            {"only_for": ["velocity"], "unit": "mm/s", "components": True}
+        ),
     )
-    unit: str = Field("", json_schema_extra={"hidden": True})
+    unit: str = Field("", json_schema_extra=_extra({"hidden": True}))
     """내보낼 때 채운다(온도 `C`, 속도 `<길이>/s`)."""
     from_step: str = Field(
         "",
         title="선행 정적 해석",
         description="응력을 가져올 해석의 이름 — 비우면 받는 쪽이 이 모델의 정적 해석을 "
         "씁니다",
-        json_schema_extra={"only_for": ["prestress"]},
+        json_schema_extra=_extra({"only_for": ["prestress"]}),
     )
 
 
@@ -628,135 +657,147 @@ class Analysis(Base):
     짐작하지 않게."""
 
     type: Literal["modal", "static", "harmonic", "explicit", "thermal"] = Field(
-        "modal", json_schema_extra={"labels": ANALYSIS_LABELS}
+        default="modal", json_schema_extra=_extra({"labels": ANALYSIS_LABELS})
     )
     # ── 모달 · 조화 ────────────────────────────────────────────────────────
     modes: int | None = Field(
-        6,
+        default=6,
         title="모드 수",
         description="찾을(조화 응답이면 쓸) 고유진동 모드의 개수 — 보통 6 ~ 20",
-        json_schema_extra={"only_for": ["modal", "harmonic"], "integer": True},
+        json_schema_extra=_extra({"only_for": ["modal", "harmonic"], "integer": True}),
     )
     frequency_range: list[Number] | None = Field(
-        None,
+        default=None,
         title="주파수 범위",
         description=(
             "모달: 이 범위 안에서 찾습니다(비우면 낮은 것부터) · 조화 응답: 훑을 범위(필수)"
         ),
-        json_schema_extra={"only_for": ["modal", "harmonic"], "unit": "Hz", "range": True},
+        json_schema_extra=_extra(
+            {"only_for": ["modal", "harmonic"], "unit": "Hz", "range": True}
+        ),
     )
     prestressed: bool = Field(
-        False,
+        default=False,
         title="선응력 반영",
         description="앞선 정적 해석의 응력(볼트 조임 · 원심력)을 안고 풉니다 — 초기조건의 "
         "「선응력」 과 함께 씁니다",
-        json_schema_extra={"only_for": ["modal", "harmonic"]},
+        json_schema_extra=_extra({"only_for": ["modal", "harmonic"]}),
     )
     # ── 조화 응답 ──────────────────────────────────────────────────────────
     solution_intervals: int = Field(
-        10,
+        default=10,
         title="주파수 점 수",
         description="범위를 몇 점으로 나눠 풀지 — 공진 근처를 자세히 보려면 늘립니다",
-        json_schema_extra={"only_for": ["harmonic"], "integer": True},
+        json_schema_extra=_extra({"only_for": ["harmonic"], "integer": True}),
     )
     method: Literal["mode_superposition", "full"] = Field(
-        "mode_superposition",
+        default="mode_superposition",
         title="풀이 방법",
         description="모드 중첩: 모달 결과로 빨리 풉니다(모드 수 필요) · 완전법: 느리지만 정확",
-        json_schema_extra={
-            "only_for": ["harmonic"],
-            "labels": {"mode_superposition": "모드 중첩(빠름)", "full": "완전법(정확)"},
-        },
+        json_schema_extra=_extra(
+            {
+                "only_for": ["harmonic"],
+                "labels": {"mode_superposition": "모드 중첩(빠름)", "full": "완전법(정확)"},
+            }
+        ),
     )
     damping_ratio: Number | None = Field(
-        None,
+        default=None,
         title="감쇠비",
         description="임계 감쇠에 대한 비 — 강 구조는 0.01 ~ 0.03. 비우면 감쇠가 없어 공진에서 "
         "응답이 끝없이 커집니다",
-        json_schema_extra={"only_for": ["harmonic"]},
+        json_schema_extra=_extra({"only_for": ["harmonic"]}),
     )
     # ── 정적 구조 ──────────────────────────────────────────────────────────
     large_deflection: bool = Field(
-        False,
+        default=False,
         title="대변형",
         description=(
             "변형이 커서 모양이 바뀌면 켭니다(비선형 · 느림) — 얇은 판 · 고무 · 큰 처짐"
         ),
-        json_schema_extra={"only_for": ["static"]},
+        json_schema_extra=_extra({"only_for": ["static"]}),
     )
     steps: int = Field(
-        1,
+        default=1,
         title="하중 단계 수",
         description="하중을 나눠 거는 단계 — 볼트를 먼저 조이고 하중을 걸면 2",
-        json_schema_extra={"only_for": ["static"], "integer": True},
+        json_schema_extra=_extra({"only_for": ["static"], "integer": True}),
     )
     substeps: int | None = Field(
-        None,
+        default=None,
         title="처음 부단계 수",
         description=(
             "한 단계를 몇 번에 나눠 풀지 — 접촉 · 대변형이 안 풀리면 늘립니다. 비우면 자동"
         ),
-        json_schema_extra={"only_for": ["static"], "integer": True},
+        json_schema_extra=_extra({"only_for": ["static"], "integer": True}),
     )
     solver: Literal["program_controlled", "direct", "iterative"] = Field(
-        "program_controlled",
+        default="program_controlled",
         title="솔버",
         description=(
             "모르면 「프로그램이 정함」 — 직접법은 메모리를 많이 쓰고, "
             "반복법은 큰 솔리드에 빠릅니다"
         ),
-        json_schema_extra={
-            "only_for": ["static", "modal", "harmonic", "thermal"],
-            "labels": {
-                "program_controlled": "프로그램이 정함",
-                "direct": "직접법",
-                "iterative": "반복법",
-            },
-        },
+        json_schema_extra=_extra(
+            {
+                "only_for": ["static", "modal", "harmonic", "thermal"],
+                "labels": {
+                    "program_controlled": "프로그램이 정함",
+                    "direct": "직접법",
+                    "iterative": "반복법",
+                },
+            }
+        ),
     )
     # ── 열 ────────────────────────────────────────────────────────────────
     thermal_mode: Literal["steady", "transient"] = Field(
-        "steady",
+        default="steady",
         title="열 해석",
         description="정상 상태: 오래 지나 변하지 않는 온도 · 과도: 시간에 따라(끝 시간 필요)",
-        json_schema_extra={
-            "only_for": ["thermal"],
-            "labels": {"steady": "정상 상태", "transient": "과도(시간에 따라)"},
-        },
+        json_schema_extra=_extra(
+            {
+                "only_for": ["thermal"],
+                "labels": {"steady": "정상 상태", "transient": "과도(시간에 따라)"},
+            }
+        ),
     )
     time_step: Number | None = Field(
-        None,
+        default=None,
         title="처음 시간 간격",
         description="열 과도: 첫 시간 간격 — 비우면 자동",
-        json_schema_extra={"only_for": ["thermal"], "unit": "s", "when": _TRANSIENT},
+        json_schema_extra=_extra({"only_for": ["thermal"], "unit": "s", "when": _TRANSIENT}),
     )
     # ── 명시적 · 열 과도 ─────────────────────────────────────────────────
     end_time: Number | None = Field(
-        None,
+        default=None,
         title="끝 시간",
         description="명시적: 충돌 · 낙하가 끝날 만큼(보통 수 ms) · 열 과도: 지켜볼 시간",
-        json_schema_extra={
-            "only_for": ["explicit", "thermal"],
-            "unit": "s",
-            "when": _TRANSIENT,
-        },
+        json_schema_extra=_extra(
+            {
+                "only_for": ["explicit", "thermal"],
+                "unit": "s",
+                "when": _TRANSIENT,
+            }
+        ),
     )
     output_count: int = Field(
-        20,
+        default=20,
         title="결과 저장 횟수",
         description="끝 시간 동안 결과를 몇 번 남길지 — 많을수록 파일이 커집니다",
-        json_schema_extra={
-            "only_for": ["explicit", "thermal"],
-            "integer": True,
-            "when": _TRANSIENT,
-        },
+        json_schema_extra=_extra(
+            {
+                "only_for": ["explicit", "thermal"],
+                "integer": True,
+                "when": _TRANSIENT,
+            }
+        ),
     )
     mass_scaling_dt: Number | None = Field(
-        None,
+        default=None,
         title="질량 스케일링 시간 간격",
         description="이보다 작은 시간 간격이 필요한 작은 요소에 질량을 더해 빨리 "
         "풉니다 — 비우면 쓰지 않습니다(정확)",
-        json_schema_extra={"only_for": ["explicit"], "unit": "s"},
+        json_schema_extra=_extra({"only_for": ["explicit"], "unit": "s"}),
     )
 
     @field_validator(
@@ -784,54 +825,58 @@ class MeshHint(Base):
         "전체",
         title="적용 대상",
         description="「전체」 또는 선택 그룹 — 선택 그룹이면 그 자리만 이 크기로",
-        json_schema_extra={"whole": "전체"},
+        json_schema_extra=_extra({"whole": "전체"}),
     )
     element_size: Number | None = Field(
         None,
         title="요소 크기",
         description="요소 한 변의 평균 — 작을수록 정확하고 느립니다. "
         "판이면 두께의 1/2 ~ 1/3 쯤",
-        json_schema_extra={"unit": "mm"},
+        json_schema_extra=_extra({"unit": "mm"}),
     )
     method: Literal["automatic", "tetrahedrons", "hex_dominant", "sweep", "multizone"] = Field(
         "automatic",
         title="요소 모양",
         description="모르면 「자동」. 스윕 · 멀티존은 쓸어 만든 모양(판 · 축)을 "
         "육면체로 채웁니다",
-        json_schema_extra={
-            "labels": {
-                "automatic": "자동",
-                "tetrahedrons": "사면체",
-                "hex_dominant": "육면체 우세",
-                "sweep": "스윕(육면체)",
-                "multizone": "멀티존(육면체)",
+        json_schema_extra=_extra(
+            {
+                "labels": {
+                    "automatic": "자동",
+                    "tetrahedrons": "사면체",
+                    "hex_dominant": "육면체 우세",
+                    "sweep": "스윕(육면체)",
+                    "multizone": "멀티존(육면체)",
+                }
             }
-        },
+        ),
     )
     order: Literal["program_controlled", "linear", "quadratic"] = Field(
         "program_controlled",
         title="요소 차수",
         description="2 차가 응력 · 굽힘에 정확합니다(권장). "
         "1 차는 빠르지만 사면체면 뻣뻣하게 나옵니다",
-        json_schema_extra={
-            "labels": {
-                "program_controlled": "프로그램이 정함",
-                "linear": "1 차(빠름)",
-                "quadratic": "2 차(정확)",
+        json_schema_extra=_extra(
+            {
+                "labels": {
+                    "program_controlled": "프로그램이 정함",
+                    "linear": "1 차(빠름)",
+                    "quadratic": "2 차(정확)",
+                }
             }
-        },
+        ),
     )
     inflation_layers: int | None = Field(
         None,
         title="경계층 수",
         description="벽 가까이를 얇은 층으로 — 유동 · 열 경계층용. 구조 해석에서는 비웁니다",
-        json_schema_extra={"integer": True},
+        json_schema_extra=_extra({"integer": True}),
     )
     defeature_size: Number | None = Field(
         None,
         title="무시할 형상 크기",
         description="이보다 작은 모서리 · 구멍 · 필렛은 메시에서 무시합니다",
-        json_schema_extra={"unit": "mm"},
+        json_schema_extra=_extra({"unit": "mm"}),
     )
 
     @field_validator("method", "order", mode="before")
@@ -909,7 +954,7 @@ _FACE: dict[str, str] = {"entity": "face"}
 _EDGE: dict[str, str] = {"entity": "edge"}
 _VERTEX: dict[str, str] = {"entity": "vertex"}
 _BODY: dict[str, str] = {"entity": "body"}
-_CYLINDER: dict[str, str] = {"entity": "face", "kind": "cylinder"}
+_CYLINDER_FACE: dict[str, str] = {"entity": "face", "kind": "cylinder"}
 _SPOTS = [_FACE, _EDGE, _VERTEX]
 _FACE_EDGE = [_FACE, _EDGE]
 
@@ -923,7 +968,7 @@ CONSTRAINT_ACCEPTS: dict[str, list[dict[str, str]]] = {
     # 원격 변위는 면 · 엣지를 한 점에 묶는다 — 점 하나를 묶는 것은 뜻이 없다(Mechanical).
     "remote_displacement": _FACE_EDGE,
     "frictionless": [_FACE],
-    "cylindrical": [_CYLINDER],
+    "cylindrical": [_CYLINDER_FACE],
     "compression_only": [_FACE],
     "elastic_support": [_FACE],
 }
@@ -931,8 +976,8 @@ LOAD_ACCEPTS: dict[str, list[dict[str, str]]] = {
     "pressure": [_FACE],
     "force": _SPOTS,
     "moment": _FACE_EDGE,
-    "bearing": [_CYLINDER],
-    "bolt_pretension": [_CYLINDER, _BODY],
+    "bearing": [_CYLINDER_FACE],
+    "bolt_pretension": [_CYLINDER_FACE, _BODY],
 }
 CONTACT_ACCEPTS: dict[str, list[dict[str, str]]] = {kind: [_FACE] for kind in CONTACT_LABELS}
 #: 메시 힌트는 종류가 없다 — `*` 가 모든 경우. 「전체」 는 그룹이 아니라 늘 된다.
@@ -1481,7 +1526,9 @@ def _filled_analysis(analysis: dict[str, Any]) -> dict[str, Any]:
     for key, field in Analysis.model_fields.items():
         if key == "type":
             continue
-        extra = field.json_schema_extra if isinstance(field.json_schema_extra, dict) else {}
+        extra: dict[str, Any] = (
+            dict(field.json_schema_extra) if isinstance(field.json_schema_extra, dict) else {}
+        )
         only = extra.get("only_for")
         if only is not None and kind not in only:
             continue

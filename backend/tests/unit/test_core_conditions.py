@@ -408,7 +408,7 @@ def test_구속의_성분은_화면에_자유_고정_변위량으로_고르라�
 
 
 def test_원통_지지는_반지름_축_접선마다_풀_수_있고_기본은_고정이다() -> None:
-    raw = {
+    raw: dict[str, Any] = {
         "named_selections": [
             {"name": "구멍", "entity": "face", "select": {"what": "faces", "kind": "cylinder"}}
         ],
@@ -596,7 +596,7 @@ def test_마이그레이션_0022_는_SI_로_적힌_값을_mm_N_t_로_옮긴다()
     assert spec_ and spec_.loader
     module = importlib.util.module_from_spec(spec_)
     spec_.loader.exec_module(module)
-    old = {
+    old: dict[str, Any] = {
         "units": {"system": "si"},
         "constraints": [{"name": "밀기", "type": "displacement", "x": 0.0005, "rx": 5}],
         "loads": [
@@ -714,7 +714,8 @@ def test_해석_설정은_종류마다_꼭_필요한_값을_저장할_때_말한
 
 def test_내보낼_때는_그_종류의_칸만_기본값을_채워_싣는다() -> None:
     def exported(analysis: dict[str, Any]) -> dict[str, Any]:
-        return resolve({"analysis": analysis}, {"충돌시간": 0.005})["analysis"]
+        out: dict[str, Any] = resolve({"analysis": analysis}, {"충돌시간": 0.005})["analysis"]
+        return out
 
     assert exported({"type": "modal", "modes": 10}) == {
         "type": "modal",

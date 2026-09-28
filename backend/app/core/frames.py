@@ -128,7 +128,8 @@ def condition_frames(
             except ValueError:
                 missing.append(name)
             continue
-        face = (regions.get(group) or [None])[0]
+        rows = regions.get(group) or []
+        face = rows[0] if rows else None
         direction = (face or {}).get("normal") or (face or {}).get("axis")
         if not face or not direction:
             missing.append(name)

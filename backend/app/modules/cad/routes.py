@@ -187,7 +187,7 @@ def conditions_frames(
         for one in resolved.get("named_selections") or []
         if one.get("name") in wanted
     ]
-    regions, _ = (
+    regions, _unresolved = (
         topology.regions(evaluation.shape, groups, evaluation.tags) if groups else ({}, [])
     )
     side, missing = frames.condition_frames(resolved.get("coordinate_systems") or [], regions)
