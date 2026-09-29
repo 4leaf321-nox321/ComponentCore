@@ -138,7 +138,7 @@
   "point": {
     "number": 2,
     "study": {
-      "id": "3b3618f1-3eab-4481-8d74-cb7b545cd18b",
+      "id": "528eb5cc-7211-4995-ba81-a0400aee7834",
       "name": "조건_재료훑기",
       "method": "factorial",
       "seed": 1
@@ -376,6 +376,7 @@
           "properties": [
             {
               "item": "비열",
+              "key": "thermal.specific_heat",
               "unit": "mJ/(tonne.K)",
               "points": [
                 {
@@ -386,6 +387,7 @@
             },
             {
               "item": "열전도율",
+              "key": "thermal.conductivity",
               "unit": "mW/(mm.K)",
               "points": [
                 {
@@ -396,6 +398,7 @@
             },
             {
               "item": "선팽창계수(CTE)",
+              "key": "thermal.expansion_linear",
               "unit": "1/K",
               "points": [
                 {
@@ -406,6 +409,7 @@
             },
             {
               "item": "전단탄성계수",
+              "key": "mechanical.shear_modulus",
               "unit": "MPa",
               "points": [
                 {
@@ -416,6 +420,7 @@
             },
             {
               "item": "탄성계수",
+              "key": "mechanical.youngs_modulus",
               "unit": "MPa",
               "points": [
                 {
@@ -424,9 +429,6 @@
                 }
               ]
             }
-          ],
-          "missing_structural": [
-            "탄성계수"
           ]
         }
       },
@@ -597,6 +599,7 @@
           "properties": [
             {
               "item": "비열",
+              "key": "thermal.specific_heat",
               "unit": "mJ/(tonne.K)",
               "points": [
                 {
@@ -607,6 +610,7 @@
             },
             {
               "item": "선팽창계수(CTE)",
+              "key": "thermal.expansion_linear",
               "unit": "1/K",
               "points": [
                 {
@@ -617,6 +621,7 @@
             },
             {
               "item": "연신율",
+              "key": "mechanical.elongation_at_break",
               "unit": "1",
               "points": [
                 {
@@ -627,6 +632,7 @@
             },
             {
               "item": "열전도율",
+              "key": "thermal.conductivity",
               "unit": "mW/(mm.K)",
               "points": [
                 {
@@ -637,6 +643,7 @@
             },
             {
               "item": "인장강도",
+              "key": "mechanical.tensile_strength",
               "unit": "MPa",
               "points": [
                 {
@@ -647,6 +654,7 @@
             },
             {
               "item": "탄성계수",
+              "key": "mechanical.youngs_modulus",
               "unit": "MPa",
               "points": [
                 {
@@ -657,6 +665,7 @@
             },
             {
               "item": "항복강도",
+              "key": "mechanical.yield_strength",
               "unit": "MPa",
               "points": [
                 {
@@ -665,9 +674,6 @@
                 }
               ]
             }
-          ],
-          "missing_structural": [
-            "탄성계수"
           ]
         }
       }

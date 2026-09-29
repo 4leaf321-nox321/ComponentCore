@@ -61,7 +61,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "a452c720-f21b-4a3d-b4d1-e115e0346fd3",
+      "id": "43e24bb2-5535-4611-bef3-451cc32415a9",
       "name": "조건_원통_SI",
       "method": "factorial",
       "seed": 1
@@ -300,6 +300,7 @@
           "properties": [
             {
               "item": "비열",
+              "key": "thermal.specific_heat",
               "unit": "J/(kg.K)",
               "points": [
                 {
@@ -310,6 +311,7 @@
             },
             {
               "item": "선팽창계수(CTE)",
+              "key": "thermal.expansion_linear",
               "unit": "1/K",
               "points": [
                 {
@@ -320,6 +322,7 @@
             },
             {
               "item": "연신율",
+              "key": "mechanical.elongation_at_break",
               "unit": "1",
               "points": [
                 {
@@ -330,6 +333,7 @@
             },
             {
               "item": "열전도율",
+              "key": "thermal.conductivity",
               "unit": "W/(m.K)",
               "points": [
                 {
@@ -340,6 +344,7 @@
             },
             {
               "item": "인장강도",
+              "key": "mechanical.tensile_strength",
               "unit": "Pa",
               "points": [
                 {
@@ -350,6 +355,7 @@
             },
             {
               "item": "탄성계수",
+              "key": "mechanical.youngs_modulus",
               "unit": "Pa",
               "points": [
                 {
@@ -360,6 +366,7 @@
             },
             {
               "item": "항복강도",
+              "key": "mechanical.yield_strength",
               "unit": "Pa",
               "points": [
                 {
@@ -368,9 +375,6 @@
                 }
               ]
             }
-          ],
-          "missing_structural": [
-            "탄성계수"
           ]
         }
       }

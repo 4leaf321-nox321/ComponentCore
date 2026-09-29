@@ -149,3 +149,62 @@ test('담아 둔 재료를 바디마다 후보로 고르면 **재료 인자**로
   // 작업이 있으면 조건을 싣지 않는다 — 서버가 그 작업의 현재 조건을 싣는다.
   expect(created.conditions).toBeUndefined()
 })
+
+test('**조건 바꿔 보기**와 **물성 배율**이 고르기 · 배율 인자로 서버에 간다', async () => {
+  const calls: { url: string; body: unknown }[] = []
+  const schema = {
+    unit_systems: [],
+    entities: [],
+    analysis: { properties: { type: { enum: ['modal', 'static'] } } },
+    groups: {
+      contacts: {
+        label: '접촉',
+        types: ['bonded', 'frictional'],
+        fields: { name: {}, type: { enum: ['bonded', 'frictional'], labels: { bonded: '본딩', frictional: '마찰' } } },
+        required: [],
+      },
+    },
+  }
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input)
+    const body = init?.body ? JSON.parse(String(init.body)) : null
+    calls.push({ url, body })
+    const payload = url.endsWith('/cad/recipe/bodies')
+      ? { items: [{ name: '블록' }] }
+      : url.endsWith('/cad/conditions/schema')
+        ? schema
+        : url.endsWith('/doe/preview')
+          ? { count: 4, max: 200, max_samples: 500, too_many: false, points: [], varying: [] }
+          : { id: 'study-1' }
+    return new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  })
+  const conditions = {
+    contacts: [{ name: '블록-판', type: 'bonded', source: 'a', target: 'b' }],
+    materials: [{ apply_to: ['블록'], ref: { name: 'AL5052' }, payload: { declared_properties: [{ item: '탄성계수' }] } }],
+  }
+  const onCreated = vi.fn()
+  render(<DoeForm recipe={RECIPE} conditions={conditions} workId="w-1" onCreated={onCreated} />)
+
+  // 조건의 고르는 칸을 더하고 후보를 고른다.
+  const add = await screen.findByLabelText('바꿔 볼 칸 더하기')
+  await waitFor(() => expect(add.querySelectorAll('option').length).toBeGreaterThan(1))
+  fireEvent.change(add, { target: { value: 'contacts|블록-판|type' } })
+  fireEvent.click(screen.getByLabelText('접촉 「블록-판」 · 종류 후보 본딩'))
+  fireEvent.click(screen.getByLabelText('접촉 「블록-판」 · 종류 후보 마찰'))
+  // 블록 탄성계수에 배율.
+  fireEvent.change(await screen.findByLabelText('블록 배율 물성'), { target: { value: '탄성계수' } })
+  fireEvent.change(screen.getByLabelText('블록 배율 값'), { target: { value: '0.9, 1.1' } })
+
+  fireEvent.change(screen.getByLabelText('이름'), { target: { value: '조건 훑기' } })
+  await waitFor(() => expect(screen.getByRole('button', { name: '만들기' })).not.toBeDisabled())
+  fireEvent.click(screen.getByRole('button', { name: '만들기' }))
+  await waitFor(() => expect(onCreated).toHaveBeenCalled())
+  const created = calls.find((c) => c.url.endsWith('/doe'))!.body as { factors: unknown[] }
+  expect(created.factors).toContainEqual({
+    name: '접촉 「블록-판」 · 종류',
+    mode: 'choice',
+    target: { group: 'contacts', item: '블록-판', field: 'type' },
+    values: ['bonded', 'frictional'],
+  })
+  expect(created.factors).toContainEqual({ name: '탄성계수 배율 · 블록', mode: 'scale', bodies: ['블록'], property: '탄성계수', values: [0.9, 1.1] })
+})

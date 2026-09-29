@@ -5,21 +5,26 @@ import type { Page } from '@/shared/api/types'
 import type { MeshData } from '@/shared/viewer/PickViewer'
 
 /**
- * 인자 하나 — 고정이거나, 구간이거나, 값 목록이거나, **재료**(`material`).
- * 재료 인자는 치수가 아니다: `bodies` 에 붙일 재료를 `values`(시뮬레이션 조건에 담아 둔 재료의
- * 이름 · 번호) 중에서 설계점마다 하나씩 고른다. 형상은 그대로다.
+ * 인자 하나 — 치수(고정 · 구간 · 값 목록)이거나, 형상을 안 바꾸는 셋 중 하나:
+ * - `material`: `bodies` 에 붙일 재료를 `values`(조건에 담아 둔 재료의 이름 · 번호) 중에서.
+ * - `choice`: 조건의 고르는 칸 하나(`target`)를 `values` 중에서.
+ * - `scale`: `bodies` 재료의 물성 `property` 에 곱할 배율 `values`.
  */
 export interface Factor {
   name: string
-  mode: 'fixed' | 'range' | 'list' | 'material'
+  mode: 'fixed' | 'range' | 'list' | 'material' | 'choice' | 'scale'
   value?: number | null
   start?: number | null
   end?: number | null
   /** 칸을 비우면 null — 다 지우고 처음부터 칠 수 있어야 한다. 비어 있으면 만들기가 막힌다. */
   steps?: number | null
-  values?: (number | string)[]
-  /** 재료 인자 — 재료를 바꿔 끼울 바디(단품이면 「전체」). */
+  values?: (number | string | boolean | null)[]
+  /** 재료 · 배율 인자 — 그 바디(단품이면 「전체」). */
   bodies?: string[]
+  /** 고르기 인자 — 조건의 어느 칸인가(묶음 · 항목 이름 또는 1 부터의 번호 · 칸). */
+  target?: { group: string; item?: string | number; field: string }
+  /** 배율 인자 — 곱할 물성(「탄성계수」 · 표준 열쇠 · 밀도 · 푸아송비). */
+  property?: string
   /** 값을 맞추는 가공 단위(mm). 없으면 0.1 — 0.333 같은 치수는 가공할 수 없다. */
   resolution?: number | null
 }
@@ -28,7 +33,7 @@ export interface DoePoint {
   id: string
   number: number
   /** 설계점의 값 — 치수는 수, 재료 인자는 재료 이름. */
-  params: Record<string, number | string>
+  params: Record<string, number | string | boolean | null>
   status: 'pending' | 'ok' | 'failed'
   error: string
   /** 해석 결과가 붙을 자리 — 붙이는 길이 아직 없어 지금은 늘 null. */

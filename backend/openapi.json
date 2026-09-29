@@ -5814,6 +5814,12 @@
                 },
                 {
                   "type": "string"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
                 }
               ]
             },
@@ -5826,6 +5832,29 @@
             },
             "type": "array",
             "title": "Bodies"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "property": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Property"
           },
           "resolution": {
             "anyOf": [
@@ -5845,7 +5874,7 @@
           "name"
         ],
         "title": "FactorIn",
-        "description": "인자 하나 — 고정이거나, 구간이거나, 값 목록이거나, **재료**(`material`).\n\n재료 인자는 치수가 아니다: `bodies` 에 붙일 재료를 `values`(해석 조건에 담아 둔 재료의\n이름 · 번호 M-…) 중에서 설계점마다 하나씩 고른다. 형상은 그대로다."
+        "description": "인자 하나 — 치수(고정 · 구간 · 값 목록)이거나, 치수가 아닌 셋 중 하나.\n\n- `material`: `bodies` 에 붙일 재료를 `values`(해석 조건에 담아 둔 재료의 이름 · 번호)\n  중에서 설계점마다 하나씩.\n- `choice`: 조건의 고르는 칸 하나(`target` = `{group, item, field}` — 예\n  `{\"group\": \"contacts\", \"item\": \"블록-판\", \"field\": \"type\"}`)를 `values` 중에서.\n- `scale`: `bodies` 에 붙은 재료의 물성 `property`(「탄성계수」 · 표준 열쇠 · 밀도 ·\n  푸아송비)에 곱할 배율 `values`. 원본은 그대로, 옮긴 값에만 곱한다.\n\n셋 다 형상은 그대로다(한 벌을 나눠 쓴다)."
       },
       "FindRequest": {
         "properties": {

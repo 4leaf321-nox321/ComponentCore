@@ -1,6 +1,6 @@
 {
-  "id": "528eb5cc-7211-4995-ba81-a0400aee7834",
-  "name": "조건_재료훑기",
+  "id": "34cfd456-81eb-4329-94e6-c5c064eaa67e",
+  "name": "조건_조건훑기",
   "description": "",
   "method": "factorial",
   "samples": 20,
@@ -8,8 +8,28 @@
   "factors": [
     {
       "end": null,
-      "mode": "material",
-      "name": "블록 재료",
+      "mode": "choice",
+      "name": "접촉 종류",
+      "start": null,
+      "steps": 5,
+      "value": null,
+      "bodies": [],
+      "target": {
+        "item": "블록-판",
+        "field": "type",
+        "group": "contacts"
+      },
+      "values": [
+        "bonded",
+        "frictional"
+      ],
+      "property": null,
+      "resolution": null
+    },
+    {
+      "end": null,
+      "mode": "scale",
+      "name": "블록 탄성계수 배율",
       "start": null,
       "steps": 5,
       "value": null,
@@ -18,10 +38,10 @@
       ],
       "target": null,
       "values": [
-        "AL5052H32DEMO_-_-",
-        "SECC-EXAD87-DP_선언물성_0.8"
+        0.9,
+        1.1
       ],
-      "property": null,
+      "property": "탄성계수",
       "resolution": null
     }
   ],
@@ -66,7 +86,9 @@
       }
     ],
     "params": {
-      "두께": 5.0
+      "두께": 5.0,
+      "압력": 1.5,
+      "모드수": 10
     }
   },
   "conditions": {
@@ -76,21 +98,23 @@
         "name": "누름",
         "type": "pressure",
         "direction": "normal",
-        "magnitude": 1.5
+        "magnitude": "=압력"
       }
     ],
     "units": {
       "system": "mm_n_tonne"
     },
     "analysis": {
-      "type": "static"
+      "type": "modal",
+      "modes": "=모드수"
     },
     "contacts": [
       {
         "name": "블록-판",
         "type": "bonded",
         "source": "블록 아랫면",
-        "target": "판 윗면"
+        "target": "판 윗면",
+        "friction": 0.2
       }
     ],
     "materials": [

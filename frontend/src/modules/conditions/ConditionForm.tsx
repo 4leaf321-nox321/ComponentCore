@@ -641,7 +641,7 @@ export function ConditionForm({
                 field.default !== undefined && field.default !== null && field.default !== ''
                   ? `기본 ${String(field.default)}`
                   : field.integer
-                    ? '정수'
+                    ? '정수 또는 =식'
                     : isNumeric(field)
                       ? '수 또는 =식'
                       : ''

@@ -136,15 +136,16 @@
   },
   "unresolved": [],
   "point": {
-    "number": 1,
+    "number": 3,
     "study": {
-      "id": "528eb5cc-7211-4995-ba81-a0400aee7834",
-      "name": "조건_재료훑기",
+      "id": "34cfd456-81eb-4329-94e6-c5c064eaa67e",
+      "name": "조건_조건훑기",
       "method": "factorial",
       "seed": 1
     },
     "params": {
-      "블록 재료": "AL5052H32DEMO_-_-"
+      "접촉 종류": "frictional",
+      "블록 탄성계수 배율": 0.9
     },
     "step_file": "shapes/c3aed82c2d74.step"
   },
@@ -660,7 +661,7 @@
               "points": [
                 {
                   "temperature_C": null,
-                  "value": 70300.0
+                  "value": 63270.0
                 }
               ]
             },
@@ -675,7 +676,10 @@
                 }
               ]
             }
-          ]
+          ],
+          "scaled": {
+            "탄성계수": 0.9
+          }
         }
       }
     ],
@@ -714,10 +718,10 @@
     "contacts": [
       {
         "name": "블록-판",
-        "type": "bonded",
+        "type": "frictional",
         "source": "블록 아랫면",
         "target": "판 윗면",
-        "friction": null,
+        "friction": 0.2,
         "formulation": "program_controlled",
         "behavior": "program_controlled",
         "pinball": null,
@@ -726,10 +730,10 @@
     ],
     "initial": [],
     "analysis": {
-      "type": "static",
-      "large_deflection": false,
-      "steps": 1,
-      "substeps": null,
+      "type": "modal",
+      "modes": 10,
+      "frequency_range": null,
+      "prestressed": false,
       "solver": "program_controlled"
     },
     "mesh_hints": [

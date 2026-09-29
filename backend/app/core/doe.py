@@ -13,9 +13,14 @@
   걸러져 실패한 점이 「무게 5 kg 이하」 에 들어가는 일이 실제로 있었다.
 - 값은 인자의 **가공 단위**(`resolution`, 기본 0.1 mm)로 맞춘다. 구간을 셋으로 나누면
   0.333… 이 나오는데 그런 치수는 가공할 수 없다 — 0.3 으로 맞추고, 겹치는 값은 하나로.
-- **재료 인자**(`material`)는 치수가 아니다 — 바디(`bodies`)에 붙일 재료를 후보(`values`,
-  조건에 담아 둔 재료의 이름 · 번호) 중에서 고른다. 값이 글자이고 레시피 `params` 로 가지
-  않는다(형상은 그대로다). 재료를 실제로 바꿔 끼우는 것은 위층이 한다.
+- **치수가 아닌 인자** 셋 — 값이 레시피 `params` 로 가지 않는다(형상은 그대로다). 실제로
+  조건에 적용하는 것은 위층이 한다(`NON_SHAPE`).
+  - 재료(`material`): 바디(`bodies`)에 붙일 재료를 후보(`values`, 조건에 담아 둔 재료의
+    이름 · 번호) 중에서.
+  - 고르기(`choice`): 조건의 **고르는 칸 하나**(`target` = 묶음 · 항목 · 칸 — 접촉 종류, 구속
+    종류, 해석 종류, 선택 그룹 …)를 후보(`values`) 중에서.
+  - 배율(`scale`): 바디(`bodies`)에 붙은 재료의 **물성 하나**(`property` — 「탄성계수」 ·
+    표준 열쇠 · 밀도 · 푸아송비)에 곱할 수(`values`). 원본 값은 그대로 두고 옮긴 값에만 곱한다.
 """
 
 from __future__ import annotations
@@ -45,7 +50,7 @@ class Factor:
     """인자 하나. `name` 은 레시피 `params` 의 치수 이름이다."""
 
     name: str
-    mode: Literal["fixed", "range", "list", "material"]
+    mode: Literal["fixed", "range", "list", "material", "choice", "scale"]
     value: float | None = None
     start: float | None = None
     end: float | None = None
@@ -55,8 +60,12 @@ class Factor:
     """값을 이 단위의 배수로 맞춘다 — 가공할 수 있는 치수만 내려고."""
     bodies: tuple[str, ...] = ()
     """재료 인자 — 재료를 바꿔 끼울 바디 이름들(단품이면 「전체」)."""
-    choices: tuple[str, ...] = ()
-    """재료 인자 — 후보 재료(조건에 담아 둔 재료의 이름 또는 번호)."""
+    choices: tuple[Any, ...] = ()
+    """재료 · 고르기 · 배율 인자의 후보(재료 이름, 칸의 값, 곱할 수)."""
+    target: tuple[str, str | int | None, str] | None = None
+    """고르기 인자 — (묶음, 항목 이름 또는 1 부터의 번호, 칸)."""
+    prop: str = ""
+    """배율 인자 — 곱할 물성."""
 
     @property
     def varying(self) -> bool:
@@ -133,6 +142,10 @@ def parse_factors(raw: list[dict[str, Any]]) -> list[Factor]:
                     f"'{name}': 재료를 바꿔 끼울 바디가 없습니다(단품이면 「전체」)"
                 )
             out.append(Factor(name=name, mode="material", bodies=bodies, choices=choices))
+        elif mode == "choice":
+            out.append(_choice_factor(one, name))
+        elif mode == "scale":
+            out.append(_scale_factor(one, name))
         elif mode == "list":
             values = one.get("values") or []
             numbers = tuple(snap(float(v), resolution) for v in values)
@@ -141,7 +154,8 @@ def parse_factors(raw: list[dict[str, Any]]) -> list[Factor]:
             out.append(Factor(name=name, mode="list", values=numbers, resolution=resolution))
         else:
             raise DoeError(
-                f"'{name}': 모르는 방식입니다 — fixed · range · list · material 중 하나"
+                f"'{name}': 모르는 방식입니다 — fixed · range · list · material · choice · "
+                "scale 중 하나"
             )
     varying = [f for f in out if f.varying]
     if not varying:
@@ -149,6 +163,60 @@ def parse_factors(raw: list[dict[str, Any]]) -> list[Factor]:
     if len(varying) > MAX_FACTORS:
         raise DoeError(f"바꿀 인자는 {MAX_FACTORS} 개까지입니다 (지금 {len(varying)} 개)")
     return out
+
+
+#: 고르기 인자가 가리킬 수 있는 조건 묶음. 해석 설정은 한 벌이라 항목이 없다.
+CHOICE_GROUPS = ("constraints", "loads", "contacts", "initial", "mesh_hints", "analysis")
+
+
+def _choice_factor(one: dict[str, Any], name: str) -> Factor:
+    import json
+
+    target = one.get("target") or {}
+    if not isinstance(target, dict):
+        raise DoeError(f"'{name}': target 은 {{group, item, field}} 입니다")
+    group = str(target.get("group") or "")
+    item = target.get("item")
+    field = str(target.get("field") or "")
+    if group not in CHOICE_GROUPS:
+        raise DoeError(f"'{name}': 묶음(group)은 {' · '.join(CHOICE_GROUPS)} 중 하나입니다")
+    if not field or field == "name":
+        raise DoeError(f"'{name}': 바꿀 칸(field)이 없습니다")
+    if group != "analysis" and (item is None or item == ""):
+        raise DoeError(f"'{name}': 어느 항목인지(item — 이름 또는 1 부터의 번호)가 없습니다")
+    values = one.get("values") or []
+    if not values:
+        raise DoeError(f"'{name}': 후보 값이 없습니다")
+    if any(isinstance(v, dict | list) for v in values):
+        raise DoeError(f"'{name}': 후보 값은 글자 · 수 · 참거짓 · null 입니다")
+    if len({json.dumps(v, ensure_ascii=False) for v in values}) != len(values):
+        raise DoeError(f"'{name}': 같은 값이 두 번 있습니다")
+    return Factor(
+        name=name,
+        mode="choice",
+        choices=tuple(values),
+        target=(group, None if group == "analysis" else item, field),
+    )
+
+
+def _scale_factor(one: dict[str, Any], name: str) -> Factor:
+    prop = str(one.get("property") or "").strip()
+    bodies = tuple(str(v).strip() for v in one.get("bodies") or [] if str(v).strip())
+    if not prop:
+        raise DoeError(f"'{name}': 곱할 물성(property)이 없습니다")
+    if not bodies:
+        raise DoeError(f"'{name}': 물성을 바꿀 바디가 없습니다(단품이면 「전체」)")
+    try:
+        values = tuple(float(v) for v in one.get("values") or [])
+    except (TypeError, ValueError) as failure:
+        raise DoeError(f"'{name}': 배율은 수입니다") from failure
+    if not values:
+        raise DoeError(f"'{name}': 배율이 없습니다")
+    if any(v <= 0 for v in values):
+        raise DoeError(f"'{name}': 배율은 0 보다 커야 합니다")
+    if len(set(values)) != len(values):
+        raise DoeError(f"'{name}': 같은 배율이 두 번 있습니다")
+    return Factor(name=name, mode="scale", bodies=bodies, choices=values, prop=prop)
 
 
 def _number(one: dict[str, Any], key: str, name: str) -> float:
@@ -160,7 +228,7 @@ def _number(one: dict[str, Any], key: str, name: str) -> float:
 
 def levels(factor: Factor) -> list[float | str]:
     """이 인자가 가지는 값들. 고정이면 하나, 재료 인자면 후보 재료들."""
-    if factor.mode == "material":
+    if factor.mode in NON_SHAPE:
         return list(factor.choices)
     if factor.mode == "fixed":
         assert factor.value is not None
@@ -250,13 +318,25 @@ def build_points(
 
 def _map_unit(factor: Factor, unit: float) -> float | str:
     """[0,1) 값을 인자의 범위로. 목록 · 재료 인자는 칸을 고른다."""
-    if factor.mode == "material":
-        return factor.choices[min(len(factor.choices) - 1, int(unit * len(factor.choices)))]
+    if factor.mode in NON_SHAPE:
+        choice: float | str = factor.choices[
+            min(len(factor.choices) - 1, int(unit * len(factor.choices)))
+        ]
+        return choice
     if factor.mode == "list":
         index = min(len(factor.values) - 1, int(unit * len(factor.values)))
         return factor.values[index]
     assert factor.start is not None and factor.end is not None
     return snap(factor.start + unit * (factor.end - factor.start), factor.resolution)
+
+
+#: 형상을 안 바꾸는 인자 — 레시피 `params` 로 가지 않는다.
+NON_SHAPE = ("material", "choice", "scale")
+
+
+def non_shape_factors(raw: list[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
+    """그 방식의 인자 정의들(원문 그대로) — 위층이 조건에 적용할 때 쓴다."""
+    return [one for one in raw or [] if one.get("mode") == mode]
 
 
 def material_factors(raw: list[dict[str, Any]]) -> dict[str, list[str]]:
@@ -269,6 +349,6 @@ def material_factors(raw: list[dict[str, Any]]) -> dict[str, list[str]]:
 
 
 def shape_values(row: dict[str, Any], raw: list[dict[str, Any]]) -> dict[str, float]:
-    """설계점 한 줄에서 **형상을 바꾸는 값만** — 재료 인자는 뺀다(형상과 무관하다)."""
-    skip = set(material_factors(raw))
+    """설계점 한 줄에서 **형상을 바꾸는 값만** — 재료 · 고르기 · 배율 인자는 뺀다."""
+    skip = {str(one.get("name")) for one in raw or [] if one.get("mode") in NON_SHAPE}
     return {name: value for name, value in row.items() if name not in skip}

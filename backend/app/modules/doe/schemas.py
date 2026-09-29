@@ -8,10 +8,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class FactorIn(BaseModel):
-    """인자 하나 — 고정이거나, 구간이거나, 값 목록이거나, **재료**(`material`).
+    """인자 하나 — 치수(고정 · 구간 · 값 목록)이거나, 치수가 아닌 셋 중 하나.
 
-    재료 인자는 치수가 아니다: `bodies` 에 붙일 재료를 `values`(해석 조건에 담아 둔 재료의
-    이름 · 번호 M-…) 중에서 설계점마다 하나씩 고른다. 형상은 그대로다."""
+    - `material`: `bodies` 에 붙일 재료를 `values`(해석 조건에 담아 둔 재료의 이름 · 번호)
+      중에서 설계점마다 하나씩.
+    - `choice`: 조건의 고르는 칸 하나(`target` = `{group, item, field}` — 예
+      `{"group": "contacts", "item": "블록-판", "field": "type"}`)를 `values` 중에서.
+    - `scale`: `bodies` 에 붙은 재료의 물성 `property`(「탄성계수」 · 표준 열쇠 · 밀도 ·
+      푸아송비)에 곱할 배율 `values`. 원본은 그대로, 옮긴 값에만 곱한다.
+
+    셋 다 형상은 그대로다(한 벌을 나눠 쓴다)."""
 
     name: str = Field(min_length=1, max_length=40)
     mode: str = "fixed"
@@ -19,9 +25,14 @@ class FactorIn(BaseModel):
     start: float | None = None
     end: float | None = None
     steps: int = 5
-    values: list[float | str] = Field(default_factory=list)
+    values: list[float | str | bool | None] = Field(default_factory=list)
     bodies: list[str] = Field(default_factory=list)
-    """재료 인자 — 재료를 바꿔 끼울 바디(단품이면 `["전체"]`)."""
+    """재료 · 배율 인자 — 그 바디(단품이면 `["전체"]`)."""
+    target: dict[str, Any] | None = None
+    """고르기 인자 — `{group, item, field}`. item 은 이름(초기조건은 종류, 메시 힌트는 대상)
+    또는 1 부터의 번호. 해석 설정(`analysis`)은 item 이 없다."""
+    property: str | None = None
+    """배율 인자 — 곱할 물성."""
     resolution: float | None = Field(default=None, gt=0)
     """값을 맞추는 가공 단위(mm). 없으면 0.1 — 0.333 같은 치수는 가공할 수 없다."""
 

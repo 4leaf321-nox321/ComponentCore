@@ -842,3 +842,63 @@ def test_재료를_바꿔_끼우면_그_바디만_옮기고_원본은_그대로�
     whole = {"materials": [{"apply_to": ["전체"], "ref": {"name": "A"}}, raw["materials"][2]]}
     with pytest.raises(ConditionError, match="「전체」 에 붙어"):
         conditions.with_material(whole, ["블록"], "SUS304")
+
+
+def test_고르기는_칸_하나를_바꾸고_배율은_옮긴_값에만_곱한다() -> None:
+    raw: dict[str, Any] = {
+        "contacts": [{"name": "블록-판", "type": "bonded", "source": "a", "target": "b"}],
+        "initial": [{"type": "environment_temperature", "value": 22}],
+        "analysis": {"type": "modal"},
+    }
+    got = conditions.with_choice(
+        raw, {"group": "contacts", "item": "블록-판", "field": "type"}, "rough"
+    )
+    assert got["contacts"][0]["type"] == "rough" and raw["contacts"][0]["type"] == "bonded"
+    got = conditions.with_choice(raw, ("initial", 1, "value"), 30)
+    assert got["initial"][0]["value"] == 30
+    got = conditions.with_choice(raw, {"group": "analysis", "field": "type"}, "static")
+    assert got["analysis"]["type"] == "static"
+    with pytest.raises(ConditionError, match="없습니다"):
+        conditions.with_choice(raw, ("contacts", "없는것", "type"), "rough")
+
+    resolved: dict[str, Any] = {
+        "materials": [
+            {
+                "apply_to": ["판", "블록"],
+                "payload": {"x": 1},
+                "converted": {
+                    "density": 7.85e-9,
+                    "properties": [{"item": "탄성계수", "points": [{"value": 200000.0}]}],
+                },
+            }
+        ]
+    }
+    assert conditions.has_property(resolved["materials"][0]["converted"], "탄성계수")
+    assert conditions.has_property(resolved["materials"][0]["converted"], "밀도")
+    assert not conditions.has_property(resolved["materials"][0]["converted"], "항복강도")
+    scaled = conditions.with_scale(resolved, ["블록"], "탄성계수", 1.1)
+    # 판에도 붙은 재료라 블록만 떼어 곱한 한 벌을 더한다 — 판은 원래 값.
+    first, extra = scaled["materials"]
+    assert first["apply_to"] == ["판"] and "scaled" not in first["converted"]
+    assert extra["apply_to"] == ["블록"] and extra["payload"] == {"x": 1}
+    assert extra["converted"]["properties"][0]["points"][0]["value"] == pytest.approx(220000)
+    assert extra["converted"]["scaled"] == {"탄성계수": 1.1}
+
+
+def test_정수_칸도_식을_쓰고_풀리면_정수여야_한다() -> None:
+    parsed = parse({"analysis": {"type": "modal", "modes": "=모드수"}})
+    assert parsed.analysis.modes == "=모드수"
+    assert (
+        resolve({"analysis": {"type": "modal", "modes": "=모드수"}}, {"모드수": 12})[
+            "analysis"
+        ]["modes"]
+        == 12
+    )
+    with pytest.raises(ConditionError, match="정수가 아닙니다"):
+        resolve({"analysis": {"type": "modal", "modes": "=모드수/2"}}, {"모드수": 7})
+    assert (
+        parse({"mesh_hints": [{"on": "전체", "inflation_layers": "3"}]})
+        .mesh_hints[0]
+        .inflation_layers
+        == 3
+    )

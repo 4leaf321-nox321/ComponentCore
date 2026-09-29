@@ -41,6 +41,18 @@ def _extra(values: dict[str, Any]) -> dict[str, Any]:
 
 #: 숫자 칸 — 수 또는 `"=식"`.
 Number = float | int | str
+#: 정수 칸(모드 수 · 단계 수 …) — 정수 또는 `"=식"`. 식은 설계점마다 풀려 정수여야 한다
+#: (`_integerized`). 식이 아닌 글자(`"6"`)는 정수로 읽는다.
+Integer = int | str
+
+
+def _integer_or_expr(value: Any) -> Any:
+    if isinstance(value, str) and not value.startswith("="):
+        try:
+            return int(value)
+        except ValueError as failure:
+            raise ValueError(f"정수 또는 「=식」 이어야 합니다: {value!r}") from failure
+    return value
 
 
 class ConditionError(ValueError):
@@ -660,7 +672,7 @@ class Analysis(Base):
         default="modal", json_schema_extra=_extra({"labels": ANALYSIS_LABELS})
     )
     # ── 모달 · 조화 ────────────────────────────────────────────────────────
-    modes: int | None = Field(
+    modes: Integer | None = Field(
         default=6,
         title="모드 수",
         description="찾을(조화 응답이면 쓸) 고유진동 모드의 개수 — 보통 6 ~ 20",
@@ -684,7 +696,7 @@ class Analysis(Base):
         json_schema_extra=_extra({"only_for": ["modal", "harmonic"]}),
     )
     # ── 조화 응답 ──────────────────────────────────────────────────────────
-    solution_intervals: int = Field(
+    solution_intervals: Integer = Field(
         default=10,
         title="주파수 점 수",
         description="범위를 몇 점으로 나눠 풀지 — 공진 근처를 자세히 보려면 늘립니다",
@@ -717,13 +729,13 @@ class Analysis(Base):
         ),
         json_schema_extra=_extra({"only_for": ["static"]}),
     )
-    steps: int = Field(
+    steps: Integer = Field(
         default=1,
         title="하중 단계 수",
         description="하중을 나눠 거는 단계 — 볼트를 먼저 조이고 하중을 걸면 2",
         json_schema_extra=_extra({"only_for": ["static"], "integer": True}),
     )
-    substeps: int | None = Field(
+    substeps: Integer | None = Field(
         default=None,
         title="처음 부단계 수",
         description=(
@@ -780,7 +792,7 @@ class Analysis(Base):
             }
         ),
     )
-    output_count: int = Field(
+    output_count: Integer = Field(
         default=20,
         title="결과 저장 횟수",
         description="끝 시간 동안 결과를 몇 번 남길지 — 많을수록 파일이 커집니다",
@@ -812,10 +824,16 @@ class Analysis(Base):
     )
     @classmethod
     def _blank(cls, value: Any, info: Any) -> Any:
-        """비운 칸(`None` · `""`)은 기본값 — 화면이 「기본 6」 이라고 보여 준 그대로."""
+        """비운 칸(`None` · `""`)은 기본값 — 화면이 「기본 6」 이라고 보여 준 그대로. 정수 칸의
+        글자는 정수로, 식(`=모드수`)은 그대로 둔다."""
         if value in ("", None):
             return cls.model_fields[info.field_name].default
-        return value
+        return _integer_or_expr(value) if info.field_name in _INTEGER_FIELDS else value
+
+    @field_validator("substeps", mode="before")
+    @classmethod
+    def _integer(cls, value: Any) -> Any:
+        return _integer_or_expr(value)
 
 
 class MeshHint(Base):
@@ -866,7 +884,7 @@ class MeshHint(Base):
             }
         ),
     )
-    inflation_layers: int | None = Field(
+    inflation_layers: Integer | None = Field(
         None,
         title="경계층 수",
         description="벽 가까이를 얇은 층으로 — 유동 · 열 경계층용. 구조 해석에서는 비웁니다",
@@ -886,6 +904,11 @@ class MeshHint(Base):
         if value in ("", None):
             return cls.model_fields[info.field_name].default
         return value
+
+    @field_validator("inflation_layers", mode="before")
+    @classmethod
+    def _integer(cls, value: Any) -> Any:
+        return _integer_or_expr(value)
 
 
 class Units(Base):
@@ -1415,7 +1438,11 @@ def resolve(
     out["units"] = unit_systems.declaration(target.key)
     out["loads"] = [_filled_load(one, target.key) for one in out.get("loads", [])]
     out["initial"] = [_filled_initial(one, target.key) for one in out.get("initial", [])]
-    out["analysis"] = _filled_analysis(out.get("analysis") or {})
+    out["analysis"] = _filled_analysis(_integerized(out.get("analysis") or {}, "analysis"))
+    out["mesh_hints"] = [
+        _integerized(one, f"mesh_hints[{i}]")
+        for i, one in enumerate(out.get("mesh_hints", []))
+    ]
     out["materials"] = [
         _with_converted(one, target.key, keys or {}) for one in out.get("materials", [])
     ]
@@ -1504,9 +1531,9 @@ def _check_analysis(analysis: Analysis) -> None:
             raise ConditionError(
                 f"analysis: {label} 을 모드 중첩으로 풀려면 모드 수가 1 이상이어야 합니다"
             )
-        if analysis.solution_intervals < 1:
+        if isinstance(analysis.solution_intervals, int) and analysis.solution_intervals < 1:
             raise ConditionError(f"analysis: {label} 의 주파수 점 수는 1 이상입니다")
-    if analysis.type == "static" and analysis.steps < 1:
+    if analysis.type == "static" and isinstance(analysis.steps, int) and analysis.steps < 1:
         raise ConditionError(f"analysis: {label} 의 하중 단계 수는 1 이상입니다")
     needs_end = analysis.type == "explicit" or (
         analysis.type == "thermal" and analysis.thermal_mode == "transient"
@@ -1514,8 +1541,38 @@ def _check_analysis(analysis: Analysis) -> None:
     if needs_end and not positive(analysis.end_time):
         kind = label if analysis.type == "explicit" else "열 과도 해석"
         raise ConditionError(f"analysis: {kind} 에 끝 시간이 없습니다")
-    if analysis.type in ("explicit", "thermal") and analysis.output_count < 1:
+    if (
+        analysis.type in ("explicit", "thermal")
+        and isinstance(analysis.output_count, int)
+        and analysis.output_count < 1
+    ):
         raise ConditionError("analysis: 결과 저장 횟수는 1 이상입니다")
+
+
+#: 정수 칸 — 식이 풀린 뒤 정수여야 하고, 수 · 단계는 1 이상이어야 한다.
+_INTEGER_FIELDS = (
+    "modes",
+    "solution_intervals",
+    "steps",
+    "substeps",
+    "output_count",
+    "inflation_layers",
+)
+
+
+def _integerized(values: dict[str, Any], where: str) -> dict[str, Any]:
+    """식이 풀린 정수 칸을 **정수로** — 7.0 은 7, 7.5 는 설계점을 실패로 돌린다(모드 7.5 개는
+    없다). 조용히 반올림하면 사람이 준 값과 다른 해석이 돈다."""
+    out = dict(values)
+    for key in _INTEGER_FIELDS:
+        value = out.get(key)
+        if isinstance(value, float):
+            if not value.is_integer():
+                raise ConditionError(f"{where}.{key}: {value} 는 정수가 아닙니다")
+            out[key] = int(value)
+        if isinstance(out.get(key), int) and key != "inflation_layers" and out[key] < 1:
+            raise ConditionError(f"{where}.{key}: 1 이상이어야 합니다(지금 {out[key]})")
+    return out
 
 
 def _filled_analysis(analysis: dict[str, Any]) -> dict[str, Any]:
@@ -1645,6 +1702,129 @@ def with_material(raw: dict[str, Any], bodies: list[str], choice: str) -> dict[s
         if i == index:
             kept += [body for body in bodies if body not in kept]
         one["apply_to"] = kept
+    return out
+
+
+# ── 칸 하나 바꾸기 · 물성 배율 — 실험계획의 고르기 · 배율 인자 ──────────────────
+
+#: 항목을 이름으로 찾을 칸 — 이름이 없는 묶음은 다른 칸으로(초기조건은 종류, 메시 힌트는 대상).
+_ITEM_KEY = {"initial": "type", "mesh_hints": "on"}
+
+
+def _target_item(out: dict[str, Any], group: str, item: Any) -> dict[str, Any]:
+    if group == "analysis":
+        analysis = out.get("analysis")
+        if not isinstance(analysis, dict):
+            analysis = {"type": "modal"}
+            out["analysis"] = analysis
+        return analysis
+    rows = out.get(group) or []
+    if isinstance(item, int) and not isinstance(item, bool):
+        if not 1 <= item <= len(rows):
+            raise ConditionError(
+                f"{group} 에 {item} 번째 항목이 없습니다(있는 것 {len(rows)} 개)"
+            )
+        found: dict[str, Any] = rows[item - 1]
+        return found
+    key = _ITEM_KEY.get(group, "name")
+    hits = [one for one in rows if str(one.get(key, "")) == str(item)]
+    if not hits:
+        have = ", ".join(str(one.get(key, "?")) for one in rows) or "없음"
+        raise ConditionError(f"{group} 에 「{item}」 이 없습니다(있는 것: {have})")
+    if len(hits) > 1:
+        raise ConditionError(
+            f"{group} 에 「{item}」 이 여럿입니다 — 번호(1 부터)로 가리키세요"
+        )
+    return hits[0]
+
+
+def with_choice(raw: dict[str, Any], target: Any, value: Any) -> dict[str, Any]:
+    """설계점 하나의 조건 — `target`(묶음 · 항목 · 칸)의 값을 `value` 로 바꾼 **사본**.
+
+    접촉 종류(본딩 ↔ 마찰), 구속 종류, 해석 종류, 선택 그룹, 정식화 … 고르는 칸이면 무엇이든.
+    바꾼 한 벌이 조건으로서 온전한지는 부르는 쪽이 `parse` 로 본다(마찰로 바꾸면 마찰계수가
+    있어야 한다 — 그것은 미리 적어 둔다)."""
+    from copy import deepcopy
+
+    group, item, field = (
+        (target["group"], target.get("item"), target["field"])
+        if isinstance(target, dict)
+        else target
+    )
+    out = deepcopy(raw or {})
+    _target_item(out, str(group), item)[str(field)] = value
+    return out
+
+
+#: 배율 인자가 부르는 물성 — 밀도 · 푸아송비는 `converted` 의 칸이고, 나머지는
+#: 줄(`properties`)의 이름(`item`) 또는 표준 열쇠(`key`)로 찾는다.
+_TOP_PROPERTIES = {
+    "밀도": "density",
+    "density": "density",
+    "physical.density": "density",
+    "푸아송비": "poisson_ratio",
+    "poisson_ratio": "poisson_ratio",
+    "mechanical.poisson_ratio": "poisson_ratio",
+}
+
+
+def has_property(converted: dict[str, Any], prop: str) -> bool:
+    """옮긴 물성 한 벌에 그 물성이 있나 — 배율 인자를 만들기 전에 본다."""
+    top = _TOP_PROPERTIES.get(prop)
+    if top:
+        return isinstance(converted.get(top), int | float)
+    return any(
+        prop in (one.get("item"), one.get("key")) for one in converted.get("properties") or []
+    )
+
+
+def _scaled_converted(converted: dict[str, Any], prop: str, factor: float) -> dict[str, Any]:
+    from copy import deepcopy
+
+    out = deepcopy(converted)
+    top = _TOP_PROPERTIES.get(prop)
+    if top and isinstance(out.get(top), int | float):
+        out[top] = float(f"{out[top] * factor:.12g}")
+    for one in out.get("properties") or []:
+        if prop in (one.get("item"), one.get("key")):
+            for point in one.get("points") or []:
+                if isinstance(point.get("value"), int | float):
+                    point["value"] = float(f"{point['value'] * factor:.12g}")
+    out["scaled"] = {**(out.get("scaled") or {}), prop: factor}
+    return out
+
+
+def with_scale(
+    resolved: dict[str, Any], bodies: list[str], prop: str, factor: float
+) -> dict[str, Any]:
+    """풀린 조건 — `bodies` 에 붙은 재료의 **옮긴 값**(`converted`)에서 `prop` 에 배율을 곱한
+    사본. 원본(`payload`)은 그대로다(감사의 정본). 곱한 것은 `converted.scaled` 에 적는다.
+
+    재료가 다른 바디에도 붙어 있으면 **그 바디는 원래 값**이어야 하므로, 이 바디들만 떼어 곱한
+    한 벌을 끝에 더한다(덱 번호 `mid` 는 앞의 것이 그대로다)."""
+    from copy import deepcopy
+
+    out = deepcopy(resolved)
+    targets = set(bodies)
+    added: list[dict[str, Any]] = []
+    for one in out.get("materials") or []:
+        where = applied_bodies(one.get("apply_to", []))
+        hit = [b for b in where if b in targets or b == ALL_BODIES]
+        if not hit or not isinstance(one.get("converted"), dict):
+            continue
+        if ALL_BODIES in where or set(where) <= targets:
+            one["converted"] = _scaled_converted(one["converted"], prop, factor)
+            continue
+        one["apply_to"] = [b for b in where if b not in targets]
+        added.append(
+            {
+                **one,
+                "apply_to": hit,
+                "converted": _scaled_converted(one["converted"], prop, factor),
+            }
+        )
+    if added:
+        out["materials"] = [*out.get("materials", []), *added]
     return out
 
 

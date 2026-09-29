@@ -143,6 +143,89 @@ def _work_conditions(db: Session, work_id: uuid.UUID, owner: User) -> dict[str, 
     return dict(version.conditions or {}) if version is not None else {}
 
 
+def _check_condition_factors(
+    recipe: dict[str, Any], conditions: dict[str, Any], factors: list[dict[str, Any]]
+) -> None:
+    """고르기 · 배율 인자와 조건의 식을 **만들기 전에** 본다.
+
+    - 조건의 식이 부르는 이름이 도면 변수에 있나 — 없으면 모든 점이 같은 까닭으로 실패한다.
+    - 고르기: 값마다 바꿔 끼운 한 벌이 조건으로서 온전한가(마찰로 바꾸면 마찰계수가 있나 …).
+    - 배율: 바디에 재료가 붙어 있고 그 재료에 그 물성이 있나."""
+    params = recipe.get("params") or {}
+    bodies = _body_names(recipe)
+    frame_names = frames.recipe_frame_names(recipe)
+    if conditions:
+        try:
+            base = condition_model.resolve(conditions, params)
+        except condition_model.ConditionError as failure:
+            raise AppError(code("DOE", 15), f"해석 조건: {failure}") from failure
+    for one in engine.non_shape_factors(factors, "choice"):
+        name = str(one.get("name"))
+        if not conditions:
+            raise AppError(code("DOE", 22), f"고르기 인자 「{name}」: 해석 조건이 없습니다")
+        for value in one.get("values") or []:
+            try:
+                condition_model.parse(
+                    condition_model.with_choice(conditions, one["target"], value),
+                    bodies,
+                    frame_names,
+                )
+            except condition_model.ConditionError as failure:
+                raise AppError(
+                    code("DOE", 22), f"고르기 인자 「{name}」 = {value!r}: {failure}"
+                ) from failure
+    scales = engine.non_shape_factors(factors, "scale")
+    if not scales:
+        return
+    from app.shared.clients import matnexus as _matnexus
+
+    keys = _matnexus.property_keys()
+    # 재료 인자가 같은 바디를 훑으면 후보마다 재료가 다르다 — 여기서 하나로 못 본다.
+    swapped = {b for many in engine.material_factors(factors).values() for b in many}
+    for one in scales:
+        name = str(one.get("name"))
+        prop = str(one.get("property"))
+        if not conditions:
+            raise AppError(
+                code("DOE", 22), f"배율 인자 「{name}」: 해석 조건(재료)이 없습니다"
+            )
+        for body in one.get("bodies") or []:
+            if (
+                bodies is not None
+                and body not in bodies
+                and body != condition_model.ALL_BODIES
+            ):
+                raise AppError(
+                    code("DOE", 22), f"배율 인자 「{name}」: 도면에 없는 바디 {body}"
+                )
+            if body in swapped:
+                continue
+            on = [
+                m
+                for m in base.get("materials") or []
+                if body in m.get("apply_to", [])
+                or condition_model.ALL_BODIES in m.get("apply_to", [])
+            ]
+            if not on:
+                raise AppError(
+                    code("DOE", 22),
+                    f"배율 인자 「{name}」: 바디 {body} 에 붙은 재료가 없습니다",
+                )
+            payload_ok = condition_model.has_property(
+                condition_model.converted_material(
+                    on[0].get("payload") or {}, condition_model.INPUT_SYSTEM, keys
+                ),
+                prop,
+            )
+            # 표준 열쇠(점이 든 이름)는 MatNexus 사전이 있어야 붙는다 — 사전을 못
+            # 받았으면 믿는다.
+            if not payload_ok and not ("." in prop and not keys):
+                raise AppError(
+                    code("DOE", 22),
+                    f"배율 인자 「{name}」: 바디 {body} 의 재료에 「{prop}」 가 없습니다",
+                )
+
+
 def _check_material_factors(
     recipe: dict[str, Any], conditions: dict[str, Any], factors: list[dict[str, Any]]
 ) -> None:
@@ -308,11 +391,14 @@ def create_study(
         ) from failure
     params = recipe.get("params") or {}
     swaps = engine.material_factors(factors)
-    unknown = [
-        one["name"]
-        for one in factors
-        if one.get("name") not in params and one["name"] not in swaps
-    ]
+    # 재료 · 고르기 · 배율 인자는 치수가 아니다 — 레시피에 없는 것이 맞다.
+    other = {str(one.get("name")) for one in factors if one.get("mode") in engine.NON_SHAPE}
+    clash = sorted(other & set(params))
+    if clash:
+        raise AppError(
+            code("DOE", 22), f"인자 이름이 도면의 치수 이름과 겹칩니다: {', '.join(clash)}"
+        )
+    unknown = [one["name"] for one in factors if one.get("name") not in set(params) | other]
     if unknown:
         known = ", ".join(sorted(params)) or "(없음)"
         raise AppError(
@@ -332,6 +418,7 @@ def create_study(
         raise AppError(code("DOE", 15), f"해석 조건: {failure}") from failure
     if swaps:
         _check_material_factors(recipe, conditions, factors)
+    _check_condition_factors(recipe, conditions or {}, factors)
     rows = _points(
         db, {"factors": factors, "method": method, "samples": samples, "seed": seed}
     )
@@ -822,7 +909,26 @@ def _point_conditions(study: DoeStudy, row: dict[str, Any]) -> dict[str, Any]:
     for name, bodies in engine.material_factors(study.factors).items():
         if row.get(name) is not None:
             conditions = condition_model.with_material(conditions, bodies, str(row[name]))
+    # 고르기 인자 — 칸 하나를 이 점의 값으로(접촉 종류 · 구속 종류 · 해석 종류 …).
+    for one in engine.non_shape_factors(study.factors, "choice"):
+        if one["name"] in row:
+            conditions = condition_model.with_choice(
+                conditions, one["target"], row[one["name"]]
+            )
     return conditions
+
+
+def _with_scales(
+    study: DoeStudy, row: dict[str, Any], resolved: dict[str, Any]
+) -> dict[str, Any]:
+    """배율 인자 — 풀린 조건에서 그 바디 재료의 옮긴 값에 배율을 곱한다(원본은 그대로)."""
+    for one in engine.non_shape_factors(study.factors, "scale"):
+        factor = row.get(one["name"])
+        if factor is not None and float(factor) != 1.0:
+            resolved = condition_model.with_scale(
+                resolved, list(one.get("bodies") or []), str(one["property"]), float(factor)
+            )
+    return resolved
 
 
 def _deck_conditions(
@@ -862,8 +968,10 @@ def _decks_for_point(
         mid = int(deck.get("mid") or 0)
         if not 0 < mid <= len(materials):
             continue
-        where = condition_model.applied_bodies(materials[mid - 1].get("apply_to", []))
-        if where:
+        material = materials[mid - 1]
+        where = condition_model.applied_bodies(material.get("apply_to", []))
+        # 배율을 곱한 재료는 덱의 값이 그 점의 값과 다르다 — 싣지 않는다(중립 물성이 정본).
+        if where and not (material.get("converted") or {}).get("scaled"):
             out.append({**deck, "apply_to": where})
     return out
 
@@ -1172,10 +1280,19 @@ def run_job(
                 if study.conditions:
                     # 값은 mm · N · t 로 적혔고, 여기서 내보내기 단위계로 옮긴다.
                     # 재료 인자면 이 점의 재료를 바꿔 끼운 조건으로 — 치수는 형상 값만.
-                    topo["conditions"] = condition_model.resolve(
-                        _point_conditions(study, point.params),
-                        _shape_params(study, point.params),
-                        names,
+                    # **식은 도면 변수 전체에 이 점의 값을 덮어** 푼다 — 인자로 안 준 변수(압력
+                    # 처럼 형상에 안 쓰는 것)를 부르면 모든 점이 「모르는 이름」 으로 실패했다.
+                    topo["conditions"] = _with_scales(
+                        study,
+                        point.params,
+                        condition_model.resolve(
+                            _point_conditions(study, point.params),
+                            {
+                                **(study.recipe.get("params") or {}),
+                                **_shape_params(study, point.params),
+                            },
+                            names,
+                        ),
                     )
                 # **좌표계** — 도면의 것은 이 점의 치수로 푼 것, 조건의 것은 식을 이 점의
                 # 값으로 풀고 면에 붙인 것은 이 점의 영역에서 얻는다. 조건의 `cs` 가 이름으로

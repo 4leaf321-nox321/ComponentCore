@@ -32,6 +32,17 @@ MATNEXUS = Path(__file__).parents[1] / "fixtures" / "matnexus"
 
 
 @pytest.fixture(autouse=True)
+def property_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """MatNexus 물성 사전(2026-09-29 스냅샷). 시험은 MatNexus 에 닿지 않는데, 사전이 없으면
+    물성 줄에 표준 열쇠(`mechanical.youngs_modulus`)가 안 붙어 픽스처가 「탄성계수가 없다」 고
+    말했다."""
+    from app.shared.clients import matnexus
+
+    table = json.loads((MATNEXUS / "property_keys.json").read_text(encoding="utf-8"))
+    monkeypatch.setattr(matnexus, "property_keys", lambda: table)
+
+
+@pytest.fixture(autouse=True)
 def export_root(tmp_path: Path) -> Iterator[Path]:
     """공유 폴더는 임시 폴더로 — 진짜 F: 드라이브에 쓰지 않는다."""
     settings = get_settings()
@@ -198,6 +209,39 @@ MATERIAL_SWEEP: dict[str, Any] = {
 }
 
 
+#: ④ **조건을 훑는다** — 접촉 종류(본딩 ↔ 마찰)와 블록 탄성계수 배율(0.9 · 1.1)의 조합. 하중은
+#: 인자가 아닌 도면 변수(`=압력`)를, 모드 수는 정수 칸의 식(`=모드수`)을 부른다.
+CONDITION_SWEEP: dict[str, Any] = {
+    "name": "조건_조건훑기",
+    "recipe": {
+        **TWO_BODIES["recipe"],
+        "params": {**TWO_BODIES["recipe"]["params"], "압력": 1.5, "모드수": 10},
+    },
+    "factors": [
+        {
+            "name": "접촉 종류",
+            "mode": "choice",
+            "target": {"group": "contacts", "item": "블록-판", "field": "type"},
+            "values": ["bonded", "frictional"],
+        },
+        {
+            "name": "블록 탄성계수 배율",
+            "mode": "scale",
+            "bodies": ["블록"],
+            "property": "탄성계수",
+            "values": [0.9, 1.1],
+        },
+    ],
+    "conditions": {
+        **TWO_BODIES["conditions"],
+        "loads": [{**TWO_BODIES["conditions"]["loads"][0], "magnitude": "=압력"}],
+        # 마찰로 바꿔 볼 것이므로 마찰계수를 미리 적어 둔다(본딩에서는 쓰이지 않는다).
+        "contacts": [{**TWO_BODIES["conditions"]["contacts"][0], "friction": 0.2}],
+        "analysis": {"type": "modal", "modes": "=모드수"},
+    },
+}
+
+
 def _export(client: TestClient, member: Signed, root: Path, study: dict[str, Any]) -> Path:
     made = client.post("/api/doe", json=study, headers=member.headers)
     assert made.status_code == 201, made.text
@@ -220,6 +264,7 @@ def test_조건_픽스처를_실제_내보내기로_만든다(
     two = _export(client, member, export_root, TWO_BODIES)
     hole = _export(client, member, export_root, HOLE_SI)
     sweep = _export(client, member, export_root, MATERIAL_SWEEP)
+    combo = _export(client, member, export_root, CONDITION_SWEEP)
 
     # ① 바디마다 재료가 따로 — 받는 쪽이 부피 · 무게중심으로 짝지을 수 있게 둘 다 실린다.
     for point in _points(two):
@@ -283,11 +328,40 @@ def test_조건_픽스처를_실제_내보내기로_만든다(
     manifest = (sweep / "manifest.csv").read_text(encoding="utf-8-sig")
     assert "블록 재료" in manifest.splitlines()[0] and "AL5052H32DEMO_-_-" in manifest
 
+    # ④ 조건 훑기 — 네 점이 한 형상을 나눠 쓰고, 접촉 종류 · 블록 탄성계수만 다르다.
+    combos = _points(combo)
+    assert len(combos) == 4 and len({one["point"]["step_file"] for one in combos}) == 1
+    for point in combos:
+        params = point["point"]["params"]
+        conditions = point["conditions"]
+        assert conditions["contacts"][0]["type"] == params["접촉 종류"]
+        # 인자가 아닌 도면 변수(압력)와 정수 칸의 식(모드 수)도 풀린다.
+        assert conditions["loads"][0]["magnitude"] == pytest.approx(1.5)
+        assert conditions["analysis"]["modes"] == 10
+        block = next(m for m in conditions["materials"] if "블록" in m["apply_to"])
+        support = next(m for m in conditions["materials"] if "받침판" in m["apply_to"])
+        youngs = next(
+            r
+            for r in block["converted"]["properties"]
+            if r["key"] == "mechanical.youngs_modulus"
+        )
+        original = next(
+            one for one in block["payload"]["declared_properties"] if one["item"] == "탄성계수"
+        )["points"][0]["value_si"]
+        # mm · N · t 로 옮긴 값(MPa)에 배율 — 원본(payload, Pa)은 그대로.
+        assert youngs["points"][0]["value"] == pytest.approx(
+            original / 1e6 * params["블록 탄성계수 배율"]
+        )
+        assert block["converted"]["scaled"] == {"탄성계수": params["블록 탄성계수 배율"]}
+        assert "scaled" not in support["converted"]
+        # 물성 사전이 있어 표준 열쇠가 붙고, 탄성계수를 「없다」 고 하지 않는다.
+        assert "missing_structural" not in block["converted"]
+
     out = os.environ.get("COMPCORE_FIXTURE_OUT")
     if out:
         target = Path(out)
         target.mkdir(parents=True, exist_ok=True)
-        for folder in (two, hole, sweep):
+        for folder in (two, hole, sweep, combo):
             # 폴더 이름의 끝(스터디 id 여덟 자리)은 돌릴 때마다 달라진다 — 이름만 남긴다.
             name = folder.name.rsplit("-", 1)[0]
             shutil.rmtree(target / name, ignore_errors=True)
@@ -376,3 +450,31 @@ def test_남의_작업의_조건은_DOE_로_가져오지_못한다(
         headers=headers,
     )
     assert got.status_code == 403, got.text
+
+
+def test_고르기_배율_인자가_틀리면_만들기_전에_말한다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    def create(factor: dict[str, Any]) -> Any:
+        body = {**CONDITION_SWEEP, "name": "틀린 인자", "factors": [factor]}
+        return client.post("/api/doe", json=body, headers=member.headers)
+
+    choice = CONDITION_SWEEP["factors"][0]
+    bad = create({**choice, "target": {**choice["target"], "item": "없는접촉"}})
+    assert bad.status_code >= 400 and "없는접촉" in bad.text
+    bad = create({**choice, "values": ["bonded", "sticky"]})
+    assert bad.status_code >= 400 and "sticky" in bad.text
+    scale = CONDITION_SWEEP["factors"][1]
+    bad = create({**scale, "property": "없는물성"})
+    assert bad.status_code >= 400 and "없는물성" in bad.text
+    # 조건의 식이 도면에 없는 이름을 부르면 설계점을 만들기 전에 말한다.
+    broken = {
+        **CONDITION_SWEEP,
+        "name": "모르는 이름",
+        "conditions": {
+            **CONDITION_SWEEP["conditions"],
+            "loads": [{**CONDITION_SWEEP["conditions"]["loads"][0], "magnitude": "=없는것"}],
+        },
+    }
+    bad = client.post("/api/doe", json=broken, headers=member.headers)
+    assert bad.status_code >= 400 and "없는것" in bad.text

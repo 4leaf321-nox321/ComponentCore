@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react'
 import type { Recipe } from '@/modules/cad/api'
 import { appliedTo, conditionsApi } from '@/modules/conditions/api'
 import type { MaterialItem } from '@/modules/conditions/api'
+import { choiceFactor, choiceTargets, factorName, propertyNames } from '@/modules/doe/conditionFactors'
 import { doeApi } from '@/modules/doe/api'
 import type { DoeStudy, Factor, Preview } from '@/modules/doe/api'
 import { ApiError } from '@/shared/api/client'
@@ -24,6 +25,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/shared/components/ui/textarea'
 import { useResource } from '@/shared/hooks/useResource'
 
+
+/** 「0.9, 1, 1.1」 → [0.9, 1, 1.1] — 0 보다 큰 수만. */
+function parseScales(text: string): number[] {
+  return text
+    .split(/[,\s]+/)
+    .map(Number)
+    .filter((v) => Number.isFinite(v) && v > 0)
+}
 
 /** 재료 인자의 이름 — 바디마다 하나. 단품(「전체」)이면 그냥 「재료」. */
 function swapName(body: string): string {
@@ -133,6 +142,7 @@ export function DoeForm({
     [materials.length > 0 ? JSON.stringify(recipe) : ''],
   )
   const bodyNames = (bodies.data?.items ?? []).map((one) => one.name)
+  const properties = propertyNames(materials)
   /** 바디 → 훑을 후보 재료(이름 · 번호). 비었으면 그 바디는 조건 그대로. */
   const [swaps, setSwaps] = useState<Record<string, string[]>>(() =>
     Object.fromEntries(
@@ -144,11 +154,46 @@ export function DoeForm({
   const swapFactors: Factor[] = Object.entries(swaps)
     .filter(([, values]) => values.length > 0)
     .map(([body, values]) => ({ name: swapName(body), mode: 'material', bodies: [body], values }))
+
+  // **조건 인자** — 고르는 칸(종류 · 선택 그룹 · 켬끔 …)과 물성 배율. 칸 목록은 서버 사양표에서.
+  const hasConditions = !!conditions && Object.keys(conditions).length > 0
+  const schema = useResource(() => (hasConditions ? conditionsApi.schema() : Promise.resolve(null)), [hasConditions])
+  const targets = choiceTargets(conditions, schema.data)
+  /** 칸 열쇠 → 고른 후보 값들. 열쇠가 있으면 그 칸을 훑는 중(값이 비면 아직 고르는 중). */
+  const [choices, setChoices] = useState<Record<string, unknown[]>>(() =>
+    Object.fromEntries(
+      (initial?.factors ?? [])
+        .filter((one) => one.mode === 'choice' && one.target)
+        .map((one) => [`${one.target!.group}|${one.target!.item ?? ''}|${one.target!.field}`, one.values ?? []]),
+    ),
+  )
+  /** 바디 → 물성 배율(물성 · 「0.9, 1, 1.1」). */
+  const [scales, setScales] = useState<Record<string, { property: string; text: string }>>(() =>
+    Object.fromEntries(
+      (initial?.factors ?? [])
+        .filter((one) => one.mode === 'scale')
+        .map((one) => [(one.bodies ?? [])[0] ?? '전체', { property: one.property ?? '', text: (one.values ?? []).join(', ') }]),
+    ),
+  )
+  const taken = new Set<string>([...params.map(([key]) => key), ...swapFactors.map((one) => one.name)])
+  const choiceFactors: Factor[] = targets
+    .filter((one) => (choices[one.key] ?? []).length > 0)
+    .map((one) => choiceFactor(one, choices[one.key], factorName(one.label, taken)))
+  const scaleFactors: Factor[] = Object.entries(scales)
+    .map(([body, one]) => ({ body, property: one.property, values: parseScales(one.text) }))
+    .filter((one) => one.property && one.values.length > 0)
+    .map((one) => ({
+      name: factorName(`${one.property} 배율${one.body === '전체' ? '' : ` · ${one.body}`}`, taken),
+      mode: 'scale',
+      bodies: [one.body],
+      property: one.property,
+      values: one.values,
+    }))
   const [preview, setPreview] = useState<Preview | null>(null)
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const list = [...Object.values(factors), ...swapFactors]
+  const list = [...Object.values(factors), ...swapFactors, ...choiceFactors, ...scaleFactors]
   const varying = list.filter((one) => one.mode !== 'fixed')
   /** 빈 칸이 있으면 아직 쓰는 중이다 — 서버에 묻지도, 만들지도 않는다. */
   const incomplete =
@@ -226,7 +271,7 @@ export function DoeForm({
     }
   }
 
-  if (params.length === 0 && materials.length === 0) {
+  if (params.length === 0 && materials.length === 0 && !hasConditions) {
     return (
       <div className="space-y-3 rounded-md border border-dashed p-4 text-sm">
         <p className="font-medium">먼저 도면에 「변수」 를 만들어야 합니다.</p>
@@ -364,6 +409,32 @@ export function DoeForm({
                       </label>
                     )
                   })}
+                  {/* 물성 배율 — 재료는 그대로 두고 값 하나에 곱한다(민감도). 원본은 안 바뀐다. */}
+                  <div className="flex w-full flex-wrap items-center gap-2 pt-1 text-xs">
+                    <span className="text-muted-foreground">물성 배율</span>
+                    <select
+                      aria-label={`${body} 배율 물성`}
+                      className="bg-background rounded border px-1.5 py-0.5 text-xs"
+                      value={scales[body]?.property ?? ''}
+                      onChange={(e) => setScales((all) => ({ ...all, [body]: { property: e.target.value, text: all[body]?.text ?? '0.9, 1, 1.1' } }))}
+                    >
+                      <option value="">(안 곱함)</option>
+                      {properties.map((one) => (
+                        <option key={one} value={one}>
+                          {one}
+                        </option>
+                      ))}
+                    </select>
+                    {scales[body]?.property && (
+                      <Input
+                        aria-label={`${body} 배율 값`}
+                        className="h-7 w-40 font-mono text-xs"
+                        value={scales[body]?.text ?? ''}
+                        placeholder="0.9, 1, 1.1"
+                        onChange={(e) => setScales((all) => ({ ...all, [body]: { ...all[body], text: e.target.value } }))}
+                      />
+                    )}
+                  </div>
                 </div>
               </div>
             )
@@ -371,6 +442,78 @@ export function DoeForm({
           <p className="text-muted-foreground px-3 py-2 text-xs">
             후보는 시뮬레이션 조건에 <b>담아 둔 재료</b>입니다 — 더 훑으려면 조건 화면의 「물성」 에서 담아 두세요(파트에 붙이지 않아도 됩니다).
             형상은 그대로라 한 벌을 나눠 씁니다.
+          </p>
+        </div>
+      )}
+      {targets.length > 0 && (
+        <div className="rounded-md border" aria-label="조건 바꿔 보기">
+          <div className="bg-muted/40 flex items-center gap-3 border-b px-3 py-2 text-xs font-medium">
+            <span>조건 바꿔 보기</span>
+            <select
+              aria-label="바꿔 볼 칸 더하기"
+              className="bg-background ml-auto rounded border px-1.5 py-0.5 text-xs font-normal"
+              value=""
+              onChange={(e) => e.target.value && setChoices((all) => ({ ...all, [e.target.value]: [] }))}
+            >
+              <option value="">칸 더하기…</option>
+              {targets
+                .filter((one) => !(one.key in choices))
+                .map((one) => (
+                  <option key={one.key} value={one.key}>
+                    {one.label}
+                  </option>
+                ))}
+            </select>
+          </div>
+          {targets
+            .filter((one) => one.key in choices)
+            .map((one) => {
+              const picked = choices[one.key] ?? []
+              const has = (value: unknown) => picked.some((v) => JSON.stringify(v) === JSON.stringify(value))
+              return (
+                <div key={one.key} className="grid grid-cols-[minmax(8rem,1fr)_minmax(0,3fr)_auto] items-start gap-3 border-b px-3 py-2 text-xs last:border-b-0">
+                  <span className="truncate" title={one.label}>
+                    {one.label}
+                  </span>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1">
+                    {one.options.map((option) => (
+                      <label key={JSON.stringify(option.value)} className="flex items-center gap-1">
+                        <input
+                          type="checkbox"
+                          aria-label={`${one.label} 후보 ${option.label}`}
+                          checked={has(option.value)}
+                          onChange={() =>
+                            setChoices((all) => ({
+                              ...all,
+                              [one.key]: has(option.value)
+                                ? picked.filter((v) => JSON.stringify(v) !== JSON.stringify(option.value))
+                                : one.options.map((o) => o.value).filter((v) => has(v) || JSON.stringify(v) === JSON.stringify(option.value)),
+                            }))
+                          }
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-foreground"
+                    onClick={() =>
+                      setChoices((all) => {
+                        const next = { ...all }
+                        delete next[one.key]
+                        return next
+                      })
+                    }
+                  >
+                    빼기
+                  </button>
+                </div>
+              )
+            })}
+          <p className="text-muted-foreground px-3 py-2 text-xs">
+            종류 · 선택 그룹 · 켬끔처럼 <b>고르는 칸</b>을 설계점마다 바꿉니다. 하중 크기 · 마찰계수 같은 <b>숫자</b>는 도면에 변수를 만들고
+            조건 칸에 <code>=변수</code> 로 적어 위 표에서 훑습니다. 바꿔 볼 값에 필요한 칸(마찰이면 마찰계수)은 조건에 미리 적어 둡니다.
           </p>
         </div>
       )}

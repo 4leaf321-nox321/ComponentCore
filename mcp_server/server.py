@@ -703,7 +703,12 @@ async def doe_create(
     **재료도 훑는다** — 인자에 `{"name": "블록 재료", "mode": "material", "bodies": ["블록"],
     "values": ["SECC", "AL5052"]}`. 후보는 조건의 `materials` 에 **먼저 담아 둔 것**(이름 ·
     번호 M-…)이어야 하고(`material_get` 의 `condition_item` 을 `apply_to: []` 로 담는다),
-    바디는 `recipe_bodies` 의 이름(단품이면 「전체」). 형상은 그대로라 한 벌을 나눠 쓴다."""
+    바디는 `recipe_bodies` 의 이름(단품이면 「전체」). 형상은 그대로라 한 벌을 나눠 쓴다.
+    **조건의 고르는 칸**: `{"mode": "choice", "target": {"group": "contacts",
+    "item": "블록-판", "field": "type"}, "values": ["bonded", "frictional"]}` — 종류 · 선택
+    그룹 · 켬끔 · 자유(null) ↔ 고정(0) 등. **물성 배율**: `{"mode": "scale", "bodies":
+    ["블록"], "property": "탄성계수", "values": [0.9, 1.1]}`. 숫자 칸(하중 크기 …)은 도면
+    변수를 조건에 `=변수` 로 적어 훑는다."""
     return await _post(
         ctx,
         "/api/doe",
@@ -764,6 +769,11 @@ async def doe_run(
     "values": ["SECC", "AL5052"]}`. 후보는 조건의 `materials` 에 **먼저 담아 둔 것**(이름 ·
     번호 M-…)이어야 하고(`material_get` 의 `condition_item` 을 `apply_to: []` 로 담는다),
     바디는 `recipe_bodies` 의 이름(단품이면 「전체」). 형상은 그대로라 한 벌을 나눠 쓴다.
+    **조건의 고르는 칸**: `{"mode": "choice", "target": {"group": "contacts",
+    "item": "블록-판", "field": "type"}, "values": ["bonded", "frictional"]}` — 종류 · 선택
+    그룹 · 켬끔 · 자유(null) ↔ 고정(0) 등. **물성 배율**: `{"mode": "scale", "bodies":
+    ["블록"], "property": "탄성계수", "values": [0.9, 1.1]}`. 숫자 칸(하중 크기 …)은 도면
+    변수를 조건에 `=변수` 로 적어 훑는다.
     """
     query = f"?wait_seconds={wait_seconds}&export={'true' if export else 'false'}"
     got = await _post(

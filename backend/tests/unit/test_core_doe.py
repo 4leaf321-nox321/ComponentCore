@@ -123,3 +123,54 @@ def test_재료_인자가_틀리면_이름을_짚어_말한다() -> None:
     for one, message in cases:
         with pytest.raises(DoeError, match=message):
             parse_factors([one])
+
+
+def test_고르기_배율_인자는_후보를_고르고_형상_값에서_빠진다() -> None:
+    from app.core.doe import shape_values
+
+    raw: list[dict[str, Any]] = [
+        {"name": "두께", "mode": "list", "values": [5]},
+        {
+            "name": "접촉",
+            "mode": "choice",
+            "target": {"group": "contacts", "item": "블록-판", "field": "type"},
+            "values": ["bonded", "frictional"],
+        },
+        {
+            "name": "E",
+            "mode": "scale",
+            "bodies": ["블록"],
+            "property": "탄성계수",
+            "values": [0.9, 1.1],
+        },
+    ]
+    rows = build_points(parse_factors(raw))
+    assert [(row["접촉"], row["E"]) for row in rows] == [
+        ("bonded", 0.9),
+        ("bonded", 1.1),
+        ("frictional", 0.9),
+        ("frictional", 1.1),
+    ]
+    assert shape_values(rows[0], raw) == {"두께": 5.0}
+    # 고르기 값은 글자 · 수 · 참거짓 · null — 자유(null) ↔ 고정(0) 도 훑는다.
+    free: dict[str, Any] = {
+        "name": "X",
+        "mode": "choice",
+        "target": {"group": "constraints", "item": 1, "field": "x"},
+    }
+    assert levels(parse_factors([{**free, "values": [None, 0]}])[0]) == [None, 0]
+
+
+def test_고르기_배율_인자가_틀리면_말한다() -> None:
+    target = {"group": "contacts", "item": "a", "field": "type"}
+    cases: list[tuple[dict[str, Any], str]] = [
+        ({"mode": "choice", "target": {**target, "group": "parts"}, "values": ["x"]}, "묶음"),
+        ({"mode": "choice", "target": {**target, "item": None}, "values": ["x"]}, "항목"),
+        ({"mode": "choice", "target": target, "values": []}, "후보"),
+        ({"mode": "choice", "target": target, "values": ["a", "a"]}, "두 번"),
+        ({"mode": "scale", "bodies": ["b"], "values": [1]}, "물성"),
+        ({"mode": "scale", "property": "E", "bodies": ["b"], "values": [0]}, "0 보다"),
+    ]
+    for one, message in cases:
+        with pytest.raises(DoeError, match=message):
+            parse_factors([{"name": "인자", **one}])
