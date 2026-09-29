@@ -384,6 +384,8 @@ sudo ./deploy.sh status                 # 다음 차례가 언제인지
 | 이중화: 화면이 `/<slug>/` 밑에서 API 404 | `.env` 에 `PUBLIC_PATH=/<slug>` 가 없거나 nginx 가 접두어를 안 뗐다. `sudo ./deploy.sh render` 로 설정을 본다 |
 | 이중화: 로그인이 유지되지 않는다(새로고침마다 로그인) | `.env` 에 `REFRESH_COOKIE_SECURE=true` 가 있는데 http 로 들어왔다 — 지우거나 false 로(앱이 https 일 때 스스로 붙인다). 또는 `TRUST_PROXY` 가 꺼져 앱이 https 인 줄 모른다 |
 | 이중화: B 의 `install` 이 「DB 는 대기입니다」 로 멈춘다 | `/data/…/.env` 가 없다 — A 에서 `install` 을 먼저 |
+| 설치 · 갱신 끝에 `127.0.0.1:<포트> 이 응답하지 않습니다` | **v0.3.0 번들은 10초만 기다렸다** — 첫 기동은 워커마다 CAD 엔진을 불러와 그보다 길 수 있다. 1분 뒤 `curl http://127.0.0.1:<포트>/api/health` 가 `ok` 면 정상. 새 번들은 60초 기다린다. 계속 없으면 `journalctl -u <slug> -n 80` |
+| 물성 목록이 비어 있다 | `.env` 의 `MATNEXUS_BASE_URL` · `MATNEXUS_TOKEN` 이 비었거나 망이 막혔다. `sudo ./deploy.sh status` 의 「물성(MatNexus)」 이 누구로 붙었는지 · 보이는 재료 수를 말한다(새 번들부터) |
 | 이중화: B 의 `setup` 이 `invalid group 'postgres'` 로 멈춘다 | **v0.3.0 번들이다** — A 에서 받은 복제 비밀번호를 PostgreSQL 을 깔기 전에 제자리에 두려 했다. B 에서 `sudo apt-get install -y --no-install-recommends postgresql-16 postgresql-client-16 postgresql-contrib` 후 `setup` 을 다시(물음도 같게). 새 번들은 고쳐져 있다 |
 | 이중화: 대기의 복제가 `끊김` | 주의 pg_hba 에 대기 IP 가 없거나 `/etc/pg-ha.replpass` 가 다르다. 주에서 `db-primary` 다시 → 대기에서 `db-standby` |
 

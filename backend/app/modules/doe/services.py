@@ -156,7 +156,7 @@ def _check_condition_factors(
     frame_names = frames.recipe_frame_names(recipe)
     if conditions:
         try:
-            base = condition_model.resolve(conditions, params)
+            condition_model.resolve(conditions, params)
         except condition_model.ConditionError as failure:
             raise AppError(code("DOE", 15), f"해석 조건: {failure}") from failure
     for one in engine.non_shape_factors(factors, "choice"):
@@ -180,50 +180,54 @@ def _check_condition_factors(
     from app.shared.clients import matnexus as _matnexus
 
     keys = _matnexus.property_keys()
-    # 재료 인자가 같은 바디를 훑으면 후보마다 재료가 다르다 — 여기서 하나로 못 본다.
-    swapped = {b for many in engine.material_factors(factors).values() for b in many}
+    # **내보낼 때와 같은 함수로 본다**(`with_scale`) — 따로 셈하면 「검사는 통과, 내보내기는
+    # 실패」 가 생긴다. 재료 인자가 같은 바디를 훑으면 후보 재료마다 한 번씩.
+    swaps = engine.non_shape_factors(factors, "material")
     for one in scales:
         name = str(one.get("name"))
-        prop = str(one.get("property"))
+        targets = [str(b) for b in one.get("bodies") or []]
         if not conditions:
             raise AppError(
                 code("DOE", 22), f"배율 인자 「{name}」: 해석 조건(재료)이 없습니다"
             )
-        for body in one.get("bodies") or []:
-            if (
-                bodies is not None
-                and body not in bodies
-                and body != condition_model.ALL_BODIES
-            ):
-                raise AppError(
-                    code("DOE", 22), f"배율 인자 「{name}」: 도면에 없는 바디 {body}"
-                )
-            if body in swapped:
-                continue
-            on = [
-                m
-                for m in base.get("materials") or []
-                if body in m.get("apply_to", [])
-                or condition_model.ALL_BODIES in m.get("apply_to", [])
-            ]
-            if not on:
-                raise AppError(
-                    code("DOE", 22),
-                    f"배율 인자 「{name}」: 바디 {body} 에 붙은 재료가 없습니다",
-                )
-            payload_ok = condition_model.has_property(
-                condition_model.converted_material(
-                    on[0].get("payload") or {}, condition_model.INPUT_SYSTEM, keys
-                ),
-                prop,
+        missing = [
+            b
+            for b in targets
+            if bodies is not None and b not in bodies and b != condition_model.ALL_BODIES
+        ]
+        if missing:
+            raise AppError(
+                code("DOE", 22), f"배율 인자 「{name}」: 도면에 없는 바디 {', '.join(missing)}"
             )
-            # 표준 열쇠(점이 든 이름)는 MatNexus 사전이 있어야 붙는다 — 사전을 못
-            # 받았으면 믿는다.
-            if not payload_ok and not ("." in prop and not keys):
+        variants: list[tuple[str, dict[str, Any]]] = [("", conditions)]
+        for swap in swaps:
+            if set(swap.get("bodies") or []) & set(targets):
+                variants = [
+                    (
+                        f" (재료 {choice})",
+                        condition_model.with_material(
+                            base_conditions, list(swap.get("bodies") or []), str(choice)
+                        ),
+                    )
+                    for label, base_conditions in variants
+                    for choice in swap.get("values") or []
+                ]
+        for label, variant in variants:
+            try:
+                resolved = condition_model.resolve(variant, params, keys)
+                if not any(
+                    set(m.get("apply_to") or [])
+                    & (set(targets) | {condition_model.ALL_BODIES})
+                    for m in resolved.get("materials") or []
+                ):
+                    raise condition_model.ConditionError(
+                        f"{', '.join(targets)} 에 붙은 재료가 없습니다"
+                    )
+                condition_model.with_scale(resolved, targets, str(one.get("property")), 1.5)
+            except condition_model.ConditionError as failure:
                 raise AppError(
-                    code("DOE", 22),
-                    f"배율 인자 「{name}」: 바디 {body} 의 재료에 「{prop}」 가 없습니다",
-                )
+                    code("DOE", 22), f"배율 인자 「{name}」{label}: {failure}"
+                ) from failure
 
 
 def _check_material_factors(

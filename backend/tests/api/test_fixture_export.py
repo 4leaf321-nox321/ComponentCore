@@ -478,3 +478,29 @@ def test_고르기_배율_인자가_틀리면_만들기_전에_말한다(
     }
     bad = client.post("/api/doe", json=broken, headers=member.headers)
     assert bad.status_code >= 400 and "없는것" in bad.text
+
+
+def test_재료를_훑는_바디의_배율은_후보마다_그_물성이_있어야_한다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    """SECC(선언 물성)에는 항복강도가 없다 — 그 후보에서 배율이 조용히 빠지지 않게 막는다."""
+    body = {
+        **MATERIAL_SWEEP,
+        "name": "항복강도 배율",
+        "factors": [
+            *MATERIAL_SWEEP["factors"],
+            {
+                "name": "항복강도 배율",
+                "mode": "scale",
+                "bodies": ["블록"],
+                "property": "항복강도",
+                "values": [0.9, 1.1],
+            },
+        ],
+    }
+    got = client.post("/api/doe", json=body, headers=member.headers)
+    assert got.status_code >= 400, got.text
+    assert "SECC" in got.text and "항복강도" in got.text
+    # 둘 다 가진 물성(탄성계수)이면 된다.
+    body["factors"][1] = {**body["factors"][1], "property": "탄성계수"}
+    assert client.post("/api/doe", json=body, headers=member.headers).status_code == 201

@@ -135,6 +135,7 @@ test('담아 둔 재료를 바디마다 후보로 고르면 **재료 인자**로
   await waitFor(() => screen.getByText('블록'))
   expect(screen.getByText('지금: AL5052')).toBeInTheDocument()
   expect(screen.getByText(/시뮬레이션 조건\(구속 · 하중 · 접촉 · 물성 · 해석 설정\)이 함께 실려/)).toBeInTheDocument()
+  expect(screen.getByText(/저장하지 않은 것은 실리지 않습니다/)).toBeInTheDocument()
 
   // 재료만 훑어도 된다 — 치수는 모두 고정.
   fireEvent.click(screen.getByLabelText('블록 후보 AL5052'))

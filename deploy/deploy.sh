@@ -579,13 +579,15 @@ check_doe_dir() {
 }
 
 health_check() {
-    # 기동 직후에는 아직 안 뜬다. 몇 초 기다려 준다.
-    local url="http://127.0.0.1:$APP_PORT/api/health"
-    for _ in $(seq 1 10); do
+    # 기동 직후에는 아직 안 뜬다 — **넉넉히 기다린다**(기본 60초). 첫 기동은 워커마다 CAD
+    # 엔진(OCP)을 불러와 10초를 넘기곤 해서, 10초만 기다리던 때는 멀쩡한데도 「응답하지
+    # 않습니다」 가 찍혔다(v0.3.0 설치에서 실측). `status` 는 짧게 묻는다(인자 3).
+    local url="http://127.0.0.1:$APP_PORT/api/health" tries="${1:-60}"
+    for _ in $(seq 1 "$tries"); do
         if curl -fsS --max-time 2 "$url" 2>/dev/null; then echo; return 0; fi
         sleep 1
     done
-    warn "$url 이 응답하지 않습니다 — journalctl -u $SERVICE_NAME -n 50"
+    warn "$url 이 ${tries}초 동안 응답하지 않습니다 — journalctl -u $SERVICE_NAME -n 50"
     return 1
 }
 
@@ -804,7 +806,7 @@ cmd_status() {
     systemctl --no-pager --lines=10 status "$SERVICE_NAME" || true
     echo
     echo "== /api/health =="
-    health_check || true
+    health_check 3 || true
     echo
     echo "== 작업 워커 ($WORKER_SERVICE_NAME) =="
     if [[ -f "$WORKER_SERVICE_UNIT" ]]; then
@@ -828,6 +830,16 @@ cmd_status() {
         fi
     else
         echo "  안 정함 — 만들기는 되고 「보내기」 만 막힙니다 (DOE_HOST_DIR=<경로> sudo ./deploy.sh update)"
+    fi
+    echo
+    echo "== 물성(MatNexus) =="
+    # **누구로 붙었는지까지** — 붙기는 붙는데 계정이 달라 하나도 안 보이거나, 관리자 토큰이라
+    # 전부 보이는 일이 있다. 앱과 같은 SIF · 같은 .env 로 묻는다.
+    if [[ -f "$ENV_FILE" ]] && grep -q '^MATNEXUS_BASE_URL=.\+' "$ENV_FILE"; then
+        in_container sh -c 'cd /opt/app/backend && timeout 40 /opt/app/venv/bin/python scripts/check_matnexus.py' 2>&1 \
+            | sed 's/^/  /' || warn "MatNexus 확인이 실패했습니다"
+    else
+        echo "  설정 안 됨 — $ENV_FILE 에 MATNEXUS_BASE_URL · MATNEXUS_TOKEN 을 적고 sudo ./deploy.sh restart"
     fi
     if [[ -f "$BACKUP_TIMER_UNIT" ]]; then
         echo

@@ -100,19 +100,53 @@ def _client(timeout: float) -> httpx.AsyncClient:
     return httpx.AsyncClient(base_url=API_BASE, timeout=timeout, transport=_TRANSPORT)
 
 
+def _unreachable(path: str, failure: httpx.HTTPError) -> dict[str, Any]:
+    """백엔드에 닿지 못했거나 기다리다 끊겼다 — **예외를 그대로 던지지 않고** 오류 봉투로.
+
+    끊긴 것은 「실패」 가 아니다: 서버는 하던 일을 계속한다(DOE 는 뒤에서 돈다). AI 가 그것을
+    실패로 읽고 같은 일을 새로 걸지 않게, 무엇을 하면 되는지 함께 말한다."""
+    timed_out = isinstance(failure, httpx.TimeoutException)
+    return {
+        "error": (
+            f"[MCP-TIMEOUT] {path} — 기다리다 끊겼습니다. 서버는 하던 일을 계속합니다 — "
+            "같은 요청을 새로 걸지 말고 상태를 물으세요(DOE 면 doe_status · doe_wait)."
+            if timed_out
+            else f"[MCP-UNREACHABLE] {path} — 백엔드에 닿지 못했습니다: {failure}"
+        ),
+        "retryable": True,
+    }
+
+
 async def _get(ctx: Context, path: str, params: dict[str, Any] | None = None) -> Any:
-    async with _client(60) as client:
-        return _unwrap(await client.get(path, params=params, headers=_forward_headers(ctx)))
+    try:
+        async with _client(60) as client:
+            response = await client.get(path, params=params, headers=_forward_headers(ctx))
+    except httpx.HTTPError as failure:
+        return _unreachable(path, failure)
+    return _unwrap(response)
 
 
-async def _post(ctx: Context, path: str, json_body: Any = None) -> Any:
-    async with _client(120) as client:
-        return _unwrap(await client.post(path, json=json_body, headers=_forward_headers(ctx)))
+async def _post(
+    ctx: Context, path: str, json_body: Any = None, *, timeout: float = 120
+) -> Any:
+    """`timeout` — 서버가 오래 붙잡는 요청(`/doe/run` · `/doe/{id}/wait`)은 그 시간보다 길게.
+    짧으면 서버가 기다리는 도중에 우리가 먼저 끊는다(120 초에 끊어 300 초짜리 기다림을 못
+    받던 적이 있다)."""
+    try:
+        async with _client(timeout) as client:
+            response = await client.post(path, json=json_body, headers=_forward_headers(ctx))
+    except httpx.HTTPError as failure:
+        return _unreachable(path, failure)
+    return _unwrap(response)
 
 
 async def _put(ctx: Context, path: str, json_body: Any = None) -> Any:
-    async with _client(60) as client:
-        return _unwrap(await client.put(path, json=json_body, headers=_forward_headers(ctx)))
+    try:
+        async with _client(60) as client:
+            response = await client.put(path, json=json_body, headers=_forward_headers(ctx))
+    except httpx.HTTPError as failure:
+        return _unreachable(path, failure)
+    return _unwrap(response)
 
 
 async def _wait_job(ctx: Context, job: Any) -> Any:
@@ -793,6 +827,8 @@ async def doe_run(
             # 안 주면 **보내지 않는다** — 서버가 작업의 현재 조건을 싣는다(`{}` 와 다르다).
             **({"conditions": conditions} if conditions is not None else {}),
         },
+        # 서버가 `wait_seconds` 동안 붙잡는다 — 그보다 먼저 끊으면 답을 못 받는다.
+        timeout=wait_seconds + 60,
     )
     if not isinstance(got, dict) or "error" in got:
         return got
@@ -828,7 +864,9 @@ async def doe_wait(ctx: Context, study_id: str, seconds: int = 30) -> Any:
     `doe_run` 을 썼는데 시간 안에 안 끝났을 때 이어서 기다리는 자리다. `waited_out` 이 참이면
     아직 도는 중이니 다시 부르면 된다 — 1초마다 `doe_status` 를 두드리지 마라.
     """
-    return await _post(ctx, f"/api/doe/{study_id}/wait?seconds={seconds}", None)
+    return await _post(
+        ctx, f"/api/doe/{study_id}/wait?seconds={seconds}", None, timeout=seconds + 60
+    )
 
 
 @mcp.tool()

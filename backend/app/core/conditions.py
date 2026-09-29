@@ -1781,6 +1781,10 @@ def has_property(converted: dict[str, Any], prop: str) -> bool:
 def _scaled_converted(converted: dict[str, Any], prop: str, factor: float) -> dict[str, Any]:
     from copy import deepcopy
 
+    # **없는 물성에 곱했다고 적지 않는다.** 값은 그대로인데 `scaled` 만 붙으면 받는 쪽은 배율이
+    # 걸린 줄 알고 푼다(재료를 바꿔 끼운 후보에 그 물성이 없을 때 실제로 그랬다).
+    if not has_property(converted, prop):
+        raise ConditionError(f"재료에 「{prop}」 가 없어 배율을 곱할 수 없습니다")
     out = deepcopy(converted)
     top = _TOP_PROPERTIES.get(prop)
     if top and isinstance(out.get(top), int | float):
@@ -1812,6 +1816,12 @@ def with_scale(
         hit = [b for b in where if b in targets or b == ALL_BODIES]
         if not hit or not isinstance(one.get("converted"), dict):
             continue
+        # 「전체」 에 붙은 재료는 바디 하나 몫만 떼어 낼 수 없다 — 곱하면 모든 바디가 바뀐다.
+        if ALL_BODIES in where and ALL_BODIES not in targets:
+            raise ConditionError(
+                f"재료가 「전체」 에 붙어 있어 {', '.join(bodies)} 에만 배율을 걸 수 "
+                "없습니다 — 파트마다 재료를 지정하세요"
+            )
         if ALL_BODIES in where or set(where) <= targets:
             one["converted"] = _scaled_converted(one["converted"], prop, factor)
             continue

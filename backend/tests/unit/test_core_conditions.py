@@ -622,6 +622,8 @@ def test_마이그레이션_0022_는_SI_로_적힌_값을_mm_N_t_로_옮긴다()
         "constraints": [{**new["constraints"][0], "on": "a"}],
     }
     assert resolve(raw, {})["constraints"][0]["x"] == pytest.approx(0.0005)
+    # 되돌리면 정확히 제자리 — 내렸다 다시 올려도 두 번 옮겨지지 않는다.
+    assert module.to_si(new) == old
 
 
 TWO_FACES: dict[str, Any] = {
@@ -902,3 +904,16 @@ def test_정수_칸도_식을_쓰고_풀리면_정수여야_한다() -> None:
         .inflation_layers
         == 3
     )
+
+
+def test_배율은_없는_물성이나_전체에_붙은_재료에는_걸지_않는다() -> None:
+    """값은 그대로인데 `scaled` 만 붙으면 받는 쪽은 배율이 걸린 줄 안다."""
+    lacks = {"materials": [{"apply_to": ["블록"], "converted": {"density": 1.0}}]}
+    with pytest.raises(ConditionError, match="「탄성계수」 가 없어"):
+        conditions.with_scale(lacks, ["블록"], "탄성계수", 1.1)
+    whole = {"materials": [{"apply_to": ["전체"], "converted": {"density": 1.0}}]}
+    with pytest.raises(ConditionError, match="「전체」 에 붙어 있어"):
+        conditions.with_scale(whole, ["블록"], "밀도", 2.0)
+    # 단품(「전체」)에 「전체」 로 걸면 된다.
+    single = conditions.with_scale(whole, ["전체"], "밀도", 2.0)
+    assert single["materials"][0]["converted"]["density"] == 2.0

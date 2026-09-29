@@ -204,3 +204,40 @@ def test_DOE_는_조건을_안_주면_보내지_않아_서버가_작업의_조�
     )
     assert "conditions" not in sent[0]
     assert sent[1]["conditions"] == {"loads": []}
+
+
+def test_끊기면_예외가_아니라_오류_봉투로_무엇을_할지_말한다(monkeypatch) -> None:
+    import asyncio
+
+    import httpx
+
+    def hang(request):
+        raise httpx.ReadTimeout("느림", request=request)
+
+    monkeypatch.setattr(server, "_TRANSPORT", httpx.MockTransport(hang))
+    got = asyncio.run(server._post(None, "/api/doe/run", {}))
+    assert got["error"].startswith("[MCP-TIMEOUT]") and "doe_status" in got["error"]
+    assert got["retryable"] is True
+
+    def refuse(request):
+        raise httpx.ConnectError("거절", request=request)
+
+    monkeypatch.setattr(server, "_TRANSPORT", httpx.MockTransport(refuse))
+    assert asyncio.run(server._get(None, "/api/health"))["error"].startswith(
+        "[MCP-UNREACHABLE]"
+    )
+
+
+def test_오래_기다리는_DOE_는_서버가_기다리는_것보다_길게_연결을_둔다(monkeypatch) -> None:
+    import asyncio
+
+    seen: list[float] = []
+
+    async def fake_post(ctx, path, json_body=None, *, timeout=120):
+        seen.append(timeout)
+        return {"error": "그만"}
+
+    monkeypatch.setattr(server, "_post", fake_post)
+    asyncio.run(server.doe_run(None, "a", {}, [], "k", wait_seconds=900))
+    asyncio.run(server.doe_wait(None, "s", seconds=600))
+    assert seen[0] > 900 and seen[1] > 600

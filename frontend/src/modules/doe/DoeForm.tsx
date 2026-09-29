@@ -519,7 +519,8 @@ export function DoeForm({
       )}
       {conditions && Object.keys(conditions).length > 0 && (
         <p className="text-muted-foreground text-xs">
-          시뮬레이션 조건(구속 · 하중 · 접촉 · 물성 · 해석 설정)이 함께 실려 설계점마다 풀립니다.
+          <b>저장된</b> 시뮬레이션 조건(구속 · 하중 · 접촉 · 물성 · 해석 설정)이 함께 실려 설계점마다 풀립니다 — 조건 화면에서 고치고
+          저장하지 않은 것은 실리지 않습니다.
         </p>
       )}
 
