@@ -4,16 +4,22 @@ import { api } from '@/shared/api/client'
 import type { Page } from '@/shared/api/types'
 import type { MeshData } from '@/shared/viewer/PickViewer'
 
-/** 인자 하나 — 고정이거나, 구간이거나, 값 목록. */
+/**
+ * 인자 하나 — 고정이거나, 구간이거나, 값 목록이거나, **재료**(`material`).
+ * 재료 인자는 치수가 아니다: `bodies` 에 붙일 재료를 `values`(시뮬레이션 조건에 담아 둔 재료의
+ * 이름 · 번호) 중에서 설계점마다 하나씩 고른다. 형상은 그대로다.
+ */
 export interface Factor {
   name: string
-  mode: 'fixed' | 'range' | 'list'
+  mode: 'fixed' | 'range' | 'list' | 'material'
   value?: number | null
   start?: number | null
   end?: number | null
   /** 칸을 비우면 null — 다 지우고 처음부터 칠 수 있어야 한다. 비어 있으면 만들기가 막힌다. */
   steps?: number | null
-  values?: number[]
+  values?: (number | string)[]
+  /** 재료 인자 — 재료를 바꿔 끼울 바디(단품이면 「전체」). */
+  bodies?: string[]
   /** 값을 맞추는 가공 단위(mm). 없으면 0.1 — 0.333 같은 치수는 가공할 수 없다. */
   resolution?: number | null
 }
@@ -21,7 +27,8 @@ export interface Factor {
 export interface DoePoint {
   id: string
   number: number
-  params: Record<string, number>
+  /** 설계점의 값 — 치수는 수, 재료 인자는 재료 이름. */
+  params: Record<string, number | string>
   status: 'pending' | 'ok' | 'failed'
   error: string
   /** 해석 결과가 붙을 자리 — 붙이는 길이 아직 없어 지금은 늘 null. */
@@ -55,6 +62,8 @@ export interface DoeStudySummary {
 export interface DoeStudy extends DoeStudySummary {
   recipe: Recipe
   factors: Factor[]
+  /** 만들 때 박은 해석 조건 스냅샷 — 비었으면 형상만 훑었다. */
+  conditions?: Record<string, unknown>
   /**
    * 서버 보관 폴더에 설계점 파일이 **아직 있나.** 보관 기한이 지나 치워졌으면 false —
    * 그러면 CSV 는 되지만(DB 에서 그린다) 「보내기」 는 막힌다. 「다시 만들기」 가 되살린다.
@@ -109,6 +118,11 @@ export const doeApi = {
     samples?: number
     seed?: number
     work_id?: string | null
+    /**
+     * 해석 조건 — **안 보내면 `work_id` 작업의 현재 조건**을 서버가 싣는다. 대상 작업이 없는
+     * 「다시 만들기」 처럼 스냅샷으로 만들 때만 보낸다.
+     */
+    conditions?: Record<string, unknown>
   }) => api.post<DoeStudy>('/doe', body),
   /** 설계점 하나의 형상 — 화면이 점마다 3D 로 본다. */
   pointMesh: (id: string, number: number) => api.get<PointMesh>(`/doe/${id}/points/${number}/mesh`),

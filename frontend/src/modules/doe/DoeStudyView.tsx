@@ -24,8 +24,10 @@ import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/components/ui/table'
 
-function show(value: number | null | undefined, digits = 2): string {
+function show(value: number | string | null | undefined, digits = 2): string {
   if (value === null || value === undefined || Number.isNaN(value)) return '—'
+  // 재료 인자는 재료 이름이다.
+  if (typeof value === 'string') return value
   return value.toLocaleString(undefined, { maximumFractionDigits: digits })
 }
 

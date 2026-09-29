@@ -41,7 +41,7 @@ def test_LHS_는_시드로_같은_표를_다시_만든다() -> None:
     assert first == again
     assert first != other
     assert len(first) == 12
-    assert all(4.0 <= row["두께"] <= 12.0 for row in first)
+    assert all(4.0 <= float(row["두께"]) <= 12.0 for row in first)
 
 
 def test_LHS_는_구간마다_하나씩_고른다() -> None:
@@ -86,3 +86,40 @@ def test_구간_값은_가공_단위로_맞추고_겹치면_하나만() -> None:
     assert levels(coarse[0]) == [6.0, 6.5, 7.0]
     listed = parse_factors([{"name": "t", "mode": "list", "values": [4.04, 8.06]}])
     assert levels(listed[0]) == [4.0, 8.1]
+
+
+def test_재료_인자는_후보_재료를_설계점마다_하나씩_고르고_형상_값에서는_빠진다() -> None:
+    from app.core.doe import material_factors, shape_values
+
+    raw: list[dict[str, Any]] = [
+        {"name": "두께", "mode": "list", "values": [5, 8]},
+        {
+            "name": "블록 재료",
+            "mode": "material",
+            "bodies": ["블록"],
+            "values": ["SECC", "AL5052"],
+        },
+    ]
+    rows = build_points(parse_factors(raw))
+    assert rows == [
+        {"두께": 5.0, "블록 재료": "SECC"},
+        {"두께": 5.0, "블록 재료": "AL5052"},
+        {"두께": 8.0, "블록 재료": "SECC"},
+        {"두께": 8.0, "블록 재료": "AL5052"},
+    ]
+    # LHS 도 칸을 고른다.
+    lhs = build_points(parse_factors(raw), method="lhs", samples=6, seed=3)
+    assert {row["블록 재료"] for row in lhs} <= {"SECC", "AL5052"}
+    assert material_factors(raw) == {"블록 재료": ["블록"]}
+    assert shape_values(rows[1], raw) == {"두께": 5.0}
+
+
+def test_재료_인자가_틀리면_이름을_짚어_말한다() -> None:
+    cases = [
+        ({"name": "재료", "mode": "material", "bodies": ["블록"], "values": []}, "후보 재료"),
+        ({"name": "재료", "mode": "material", "values": ["A"]}, "바디"),
+        ({"name": "재료", "mode": "material", "bodies": ["b"], "values": ["A", "A"]}, "두 번"),
+    ]
+    for one, message in cases:
+        with pytest.raises(DoeError, match=message):
+            parse_factors([one])

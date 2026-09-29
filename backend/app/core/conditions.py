@@ -1597,6 +1597,57 @@ def _filled_load(load: dict[str, Any], system: str) -> dict[str, Any]:
     return out
 
 
+# ── 재료 바꿔 끼우기 — 실험계획의 재료 인자 ─────────────────────────────────
+
+
+def _material_keys(one: dict[str, Any]) -> set[str]:
+    """재료를 부르는 이름들 — 이름 · 번호(M-…) · MatNexus id. 사람도 AI 도 셋 중 아무것으로."""
+    ref = one.get("ref") or {}
+    return {str(ref[key]) for key in ("name", "code", "material_id") if ref.get(key)}
+
+
+def material_index(raw: dict[str, Any], choice: str) -> int:
+    """조건에 **담아 둔 재료** 중 `choice` 인 것의 자리. 없거나 여럿이면 지금 말한다."""
+    materials = raw.get("materials") or []
+    found = [i for i, one in enumerate(materials) if choice in _material_keys(one)]
+    if not found:
+        have = ", ".join(str((one.get("ref") or {}).get("name", "?")) for one in materials)
+        raise ConditionError(
+            f"「{choice}」 라는 재료가 조건에 없습니다 — 후보는 먼저 조건에 담아 둡니다"
+            f"(담아 둔 재료: {have or '없음'})"
+        )
+    if len(found) > 1:
+        raise ConditionError(
+            f"「{choice}」 가 담아 둔 재료 {len(found)} 개에 맞습니다 — 번호(M-…)로 적으세요"
+        )
+    return found[0]
+
+
+def with_material(raw: dict[str, Any], bodies: list[str], choice: str) -> dict[str, Any]:
+    """설계점 하나의 조건 — `bodies` 에 붙은 재료를 `choice` 로 **바꿔 끼운 사본**.
+
+    다른 재료에서 그 바디를 떼고 고른 재료에 붙인다. 후보로만 담아 둔 재료(`apply_to` 가 빈
+    것)도 고를 수 있다 — 재료 훑기는 보통 「담아 두고 하나씩 붙여 본다」 이다. 원본은 그대로.
+    """
+    from copy import deepcopy
+
+    out = deepcopy(raw)
+    index = material_index(out, choice)
+    targets = set(bodies)
+    for i, one in enumerate(out.get("materials") or []):
+        where = applied_bodies(one.get("apply_to", ALL_BODIES))
+        if ALL_BODIES in where and ALL_BODIES not in targets and i != index:
+            raise ConditionError(
+                f"재료 「{(one.get('ref') or {}).get('name', '?')}」 가 「전체」 에 붙어 있어 "
+                f"{', '.join(bodies)} 만 바꿔 끼울 수 없습니다 — 파트마다 재료를 지정하세요"
+            )
+        kept = [body for body in where if body not in targets]
+        if i == index:
+            kept += [body for body in bodies if body not in kept]
+        one["apply_to"] = kept
+    return out
+
+
 # ── 값 칸 — 내보낼 때 계를 옮긴다 ────────────────────────────────────────────
 
 #: 조건의 칸 → 차원(`core/units.py`). 여기 없는 칸은 계와 상관없다(도 · 온도 · 마찰계수 ·

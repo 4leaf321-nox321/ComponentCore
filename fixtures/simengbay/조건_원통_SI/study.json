@@ -1,5 +1,5 @@
 {
-  "id": "5bd4765c-e5f1-49f9-b0e0-c1492270f7fb",
+  "id": "a452c720-f21b-4a3d-b4d1-e115e0346fd3",
   "name": "조건_원통_SI",
   "description": "",
   "method": "factorial",
@@ -13,6 +13,7 @@
       "start": null,
       "steps": 5,
       "value": null,
+      "bodies": [],
       "values": [
         10.0,
         12.0
@@ -298,7 +299,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-2514f263@example.local"
+    "email": "member-b45ec20f@example.local"
   },
   "requested_by": null
 }

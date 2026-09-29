@@ -13,6 +13,9 @@
   걸러져 실패한 점이 「무게 5 kg 이하」 에 들어가는 일이 실제로 있었다.
 - 값은 인자의 **가공 단위**(`resolution`, 기본 0.1 mm)로 맞춘다. 구간을 셋으로 나누면
   0.333… 이 나오는데 그런 치수는 가공할 수 없다 — 0.3 으로 맞추고, 겹치는 값은 하나로.
+- **재료 인자**(`material`)는 치수가 아니다 — 바디(`bodies`)에 붙일 재료를 후보(`values`,
+  조건에 담아 둔 재료의 이름 · 번호) 중에서 고른다. 값이 글자이고 레시피 `params` 로 가지
+  않는다(형상은 그대로다). 재료를 실제로 바꿔 끼우는 것은 위층이 한다.
 """
 
 from __future__ import annotations
@@ -42,7 +45,7 @@ class Factor:
     """인자 하나. `name` 은 레시피 `params` 의 치수 이름이다."""
 
     name: str
-    mode: Literal["fixed", "range", "list"]
+    mode: Literal["fixed", "range", "list", "material"]
     value: float | None = None
     start: float | None = None
     end: float | None = None
@@ -50,6 +53,10 @@ class Factor:
     values: tuple[float, ...] = ()
     resolution: float = DEFAULT_RESOLUTION
     """값을 이 단위의 배수로 맞춘다 — 가공할 수 있는 치수만 내려고."""
+    bodies: tuple[str, ...] = ()
+    """재료 인자 — 재료를 바꿔 끼울 바디 이름들(단품이면 「전체」)."""
+    choices: tuple[str, ...] = ()
+    """재료 인자 — 후보 재료(조건에 담아 둔 재료의 이름 또는 번호)."""
 
     @property
     def varying(self) -> bool:
@@ -114,6 +121,18 @@ def parse_factors(raw: list[dict[str, Any]]) -> list[Factor]:
                     resolution=resolution,
                 )
             )
+        elif mode == "material":
+            choices = tuple(str(v).strip() for v in one.get("values") or [] if str(v).strip())
+            bodies = tuple(str(v).strip() for v in one.get("bodies") or [] if str(v).strip())
+            if not choices:
+                raise DoeError(f"'{name}': 후보 재료가 없습니다")
+            if len(set(choices)) != len(choices):
+                raise DoeError(f"'{name}': 같은 재료가 두 번 있습니다")
+            if not bodies:
+                raise DoeError(
+                    f"'{name}': 재료를 바꿔 끼울 바디가 없습니다(단품이면 「전체」)"
+                )
+            out.append(Factor(name=name, mode="material", bodies=bodies, choices=choices))
         elif mode == "list":
             values = one.get("values") or []
             numbers = tuple(snap(float(v), resolution) for v in values)
@@ -121,7 +140,9 @@ def parse_factors(raw: list[dict[str, Any]]) -> list[Factor]:
                 raise DoeError(f"'{name}': 값 목록이 비었습니다")
             out.append(Factor(name=name, mode="list", values=numbers, resolution=resolution))
         else:
-            raise DoeError(f"'{name}': 모르는 방식입니다 — fixed · range · list 중 하나")
+            raise DoeError(
+                f"'{name}': 모르는 방식입니다 — fixed · range · list · material 중 하나"
+            )
     varying = [f for f in out if f.varying]
     if not varying:
         raise DoeError("모두 고정입니다 — 바꿔 볼 치수를 하나는 두세요")
@@ -137,8 +158,10 @@ def _number(one: dict[str, Any], key: str, name: str) -> float:
         raise DoeError(f"'{name}': {key} 가 숫자가 아닙니다") from failure
 
 
-def levels(factor: Factor) -> list[float]:
-    """이 인자가 가지는 값들. 고정이면 하나."""
+def levels(factor: Factor) -> list[float | str]:
+    """이 인자가 가지는 값들. 고정이면 하나, 재료 인자면 후보 재료들."""
+    if factor.mode == "material":
+        return list(factor.choices)
     if factor.mode == "fixed":
         assert factor.value is not None
         return [factor.value]
@@ -148,7 +171,7 @@ def levels(factor: Factor) -> list[float]:
     if factor.steps == 1:
         return [snap(factor.start, factor.resolution)]
     span = (factor.end - factor.start) / (factor.steps - 1)
-    out: list[float] = []
+    out: list[float | str] = []
     for i in range(factor.steps):
         value = snap(factor.start + span * i, factor.resolution)
         # 단위로 맞추다 보면 이웃이 같은 값이 된다(0.1 단위로 6~6.2 를 5단계) — 하나만 남긴다.
@@ -199,15 +222,16 @@ def build_points(
     samples: int = 20,
     seed: int = 1,
     limit: int = MAX_POINTS,
-) -> list[dict[str, float]]:
-    """설계점 표 — 각 줄은 `{치수 이름: 값}`. `limit` 는 서버 설정(DOE_MAX_POINTS)이 정한다."""
+) -> list[dict[str, float | str]]:
+    """설계점 표 — 각 줄은 `{치수 이름: 값}`(재료 인자는 재료 이름). `limit` 는 서버
+    설정(DOE_MAX_POINTS)이 정한다."""
     total = count(factors, method, samples)
     if total > limit:
         raise DoeError(
             f"설계점이 {total} 개입니다 — 한 번에 {limit} 개까지 만듭니다. "
             f"단계를 줄이거나 인자를 빼거나, LHS 로 표본 수를 정하세요."
         )
-    fixed = {f.name: levels(f)[0] for f in factors if not f.varying}
+    fixed: dict[str, float | str] = {f.name: levels(f)[0] for f in factors if not f.varying}
     varying = [f for f in factors if f.varying]
     if method == "lhs":
         matrix = latin_hypercube(len(varying), max(1, int(samples)), seed)
@@ -224,10 +248,27 @@ def build_points(
     return rows
 
 
-def _map_unit(factor: Factor, unit: float) -> float:
-    """[0,1) 값을 인자의 범위로. 목록 인자는 칸을 고른다."""
+def _map_unit(factor: Factor, unit: float) -> float | str:
+    """[0,1) 값을 인자의 범위로. 목록 · 재료 인자는 칸을 고른다."""
+    if factor.mode == "material":
+        return factor.choices[min(len(factor.choices) - 1, int(unit * len(factor.choices)))]
     if factor.mode == "list":
         index = min(len(factor.values) - 1, int(unit * len(factor.values)))
         return factor.values[index]
     assert factor.start is not None and factor.end is not None
     return snap(factor.start + unit * (factor.end - factor.start), factor.resolution)
+
+
+def material_factors(raw: list[dict[str, Any]]) -> dict[str, list[str]]:
+    """재료 인자 이름 → 바디들. 레시피 `params` 로 보내면 안 되는 이름들이다."""
+    return {
+        str(one.get("name")): [str(b) for b in one.get("bodies") or []]
+        for one in raw or []
+        if one.get("mode") == "material"
+    }
+
+
+def shape_values(row: dict[str, Any], raw: list[dict[str, Any]]) -> dict[str, float]:
+    """설계점 한 줄에서 **형상을 바꾸는 값만** — 재료 인자는 뺀다(형상과 무관하다)."""
+    skip = set(material_factors(raw))
+    return {name: value for name, value in row.items() if name not in skip}

@@ -68,7 +68,7 @@ def manifest_columns(factor_names: list[str]) -> list[str]:
 
 def manifest_row(
     number: int,
-    params: dict[str, float],
+    params: dict[str, Any],
     factor_names: list[str],
     *,
     status: str,

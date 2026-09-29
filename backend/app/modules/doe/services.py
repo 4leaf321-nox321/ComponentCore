@@ -90,7 +90,7 @@ def preview(db: Session, raw: dict[str, Any]) -> dict[str, Any]:
     seed = int(raw.get("seed") or 1)
     total = engine.count(factors, method, samples)
     limit = settings_store.doe_max_points(db)
-    rows: list[dict[str, float]] = []
+    rows: list[dict[str, float | str]] = []
     if total <= limit:
         rows = engine.build_points(
             factors, method=method, samples=samples, seed=seed, limit=limit
@@ -112,7 +112,7 @@ def _factors(raw: list[dict[str, Any]]) -> list[engine.Factor]:
         raise AppError(code("DOE", 2), str(failure)) from failure
 
 
-def _points(db: Session, raw: dict[str, Any]) -> list[dict[str, float]]:
+def _points(db: Session, raw: dict[str, Any]) -> list[dict[str, float | str]]:
     try:
         return engine.build_points(
             _factors(raw.get("factors") or []),
@@ -123,6 +123,66 @@ def _points(db: Session, raw: dict[str, Any]) -> list[dict[str, float]]:
         )
     except engine.DoeError as failure:
         raise AppError(code("DOE", 3), str(failure)) from failure
+
+
+def _work_conditions(db: Session, work_id: uuid.UUID, owner: User) -> dict[str, Any]:
+    """그 작업 **현재 버전의 해석 조건**. 남의 작업이면 거절한다 — 조건에는 물성 · 하중처럼
+    그 사람의 것이 들어 있다."""
+    from app.modules.works import services as works
+    from app.modules.works.models import WorkVersion
+
+    work = works.get_work(db, work_id)
+    works.require_owner(work, owner)
+    if not work.current_version:
+        return {}
+    version = db.scalar(
+        select(WorkVersion).where(
+            WorkVersion.work_id == work.id, WorkVersion.number == work.current_version
+        )
+    )
+    return dict(version.conditions or {}) if version is not None else {}
+
+
+def _check_material_factors(
+    recipe: dict[str, Any], conditions: dict[str, Any], factors: list[dict[str, Any]]
+) -> None:
+    """재료 인자를 **만들기 전에** 본다 — 후보가 조건에 담겨 있나, 바디가 도면에 있나, 바꿔
+    끼운 한 벌이 조건으로서 온전한가. 설계점 마흔 개를 만든 뒤에 알면 폴더에 반쪽이 남는다."""
+    if not (conditions or {}).get("materials"):
+        raise AppError(
+            code("DOE", 22),
+            "재료 인자는 해석 조건에 **담아 둔 재료** 중에서 고릅니다 — "
+            "조건에 재료가 없습니다",
+        )
+    params = recipe.get("params") or {}
+    bodies = _body_names(recipe)
+    for one in factors:
+        if one.get("mode") != "material":
+            continue
+        name = str(one.get("name"))
+        if name in params:
+            raise AppError(
+                code("DOE", 22), f"재료 인자 「{name}」 이 도면의 치수 이름과 겹칩니다"
+            )
+        targets = [str(b) for b in one.get("bodies") or []]
+        missing = [b for b in targets if bodies is not None and b not in bodies]
+        if missing:
+            raise AppError(
+                code("DOE", 22),
+                f"재료 인자 「{name}」: 도면에 없는 바디입니다 — {', '.join(missing)} "
+                f"(있는 바디: {', '.join(bodies or []) or '없음'})",
+            )
+        for choice in one.get("values") or []:
+            try:
+                condition_model.parse(
+                    condition_model.with_material(conditions, targets, str(choice)),
+                    bodies,
+                    frames.recipe_frame_names(recipe),
+                )
+            except condition_model.ConditionError as failure:
+                raise AppError(
+                    code("DOE", 22), f"재료 인자 「{name}」: {failure}"
+                ) from failure
 
 
 def _body_names(recipe: dict[str, Any]) -> list[str] | None:
@@ -206,7 +266,13 @@ def create_study(
     **열쇠를 우리가 지어 내지 않는다.** 「없으면 레시피 다이제스트로」 도 생각했지만, 그러면
     사람이 **같은 설정으로 한 벌 더** 만드는 정상적인 일이 막힌다(비교하려고 두 번 돌리는
     것은 흔하다). 열쇠를 안 주면 「멱등하지 않다」 는 뜻이고, 그것이 사람의 기본값이다.
+
+    `conditions` 를 **안 주면(None)** `work_id` 작업의 현재 버전 조건을 스냅샷으로 박는다.
+    화면도 MCP 도 조건을 따로 실어 보내지 않았고, 그래서 DOE 폴더에 조건이 빠진 채 나가고
+    있었다(2026-09-29 에 잡았다). 조건 없이 형상만 훑으려면 빈 한 벌(`{}`)을 준다.
     """
+    if conditions is None:
+        conditions = _work_conditions(db, work_id, owner) if work_id else {}
     if idempotency_key:
         found = db.scalar(
             select(DoeStudy).where(
@@ -241,7 +307,12 @@ def create_study(
             details={"problems": failure.problems},
         ) from failure
     params = recipe.get("params") or {}
-    unknown = [one["name"] for one in factors if one.get("name") not in params]
+    swaps = engine.material_factors(factors)
+    unknown = [
+        one["name"]
+        for one in factors
+        if one.get("name") not in params and one["name"] not in swaps
+    ]
     if unknown:
         known = ", ".join(sorted(params)) or "(없음)"
         raise AppError(
@@ -259,6 +330,8 @@ def create_study(
         )
     except condition_model.ConditionError as failure:
         raise AppError(code("DOE", 15), f"해석 조건: {failure}") from failure
+    if swaps:
+        _check_material_factors(recipe, conditions, factors)
     rows = _points(
         db, {"factors": factors, "method": method, "samples": samples, "seed": seed}
     )
@@ -410,7 +483,7 @@ def point_mesh(db: Session, study: DoeStudy, number: int) -> dict[str, Any]:
         )
     recipe = {
         **study.recipe,
-        "params": {**(study.recipe.get("params") or {}), **point.params},
+        "params": {**(study.recipe.get("params") or {}), **_shape_params(study, point.params)},
     }
     # **형상이 같은 점은 만들지 않는다.** 조건만 훑으면 모든 점의 형상이 같다 — 나란히 보기로
     # 스물넷을 열면 같은 것을 스물네 번 만들게 된다. 지문은 식을 푸는 산수라 거저다.
@@ -737,6 +810,64 @@ def _owner_of(db: Session, study: DoeStudy) -> dict[str, str]:
     return _person(db, study.owner_id)
 
 
+def _shape_params(study: DoeStudy, row: dict[str, Any]) -> dict[str, Any]:
+    """설계점 한 줄에서 **형상을 바꾸는 값만**(레시피 `params` · 조건의 식으로 간다). 재료
+    인자는 재료 이름이라 레시피에 넣으면 「모르는 이름」 으로 형상이 깨진다."""
+    return engine.shape_values(row, study.factors)
+
+
+def _point_conditions(study: DoeStudy, row: dict[str, Any]) -> dict[str, Any]:
+    """이 설계점의 조건 — 재료 인자가 고른 재료를 그 바디에 바꿔 끼운 사본."""
+    conditions: dict[str, Any] = study.conditions or {}
+    for name, bodies in engine.material_factors(study.factors).items():
+        if row.get(name) is not None:
+            conditions = condition_model.with_material(conditions, bodies, str(row[name]))
+    return conditions
+
+
+def _deck_conditions(
+    conditions: dict[str, Any], factors: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """덱을 뽑을 재료들 — 재료 인자의 **후보**도 넣는다. 후보는 조건에서 어디에도 안 붙은
+    「담아 둔 재료」 라 그대로 두면 덱이 안 뽑히는데, 어느 설계점에서는 붙는다."""
+    materials = (conditions or {}).get("materials") or []
+    if not materials:
+        return conditions
+    out = deepcopy(conditions)
+    for one in factors or []:
+        if one.get("mode") != "material":
+            continue
+        for choice in one.get("values") or []:
+            try:
+                index = condition_model.material_index(out, str(choice))
+            except condition_model.ConditionError:
+                continue
+            item = out["materials"][index]
+            where = condition_model.applied_bodies(item.get("apply_to", []))
+            item["apply_to"] = [
+                *where,
+                *[b for b in one.get("bodies") or [] if b not in where],
+            ]
+    return out
+
+
+def _decks_for_point(
+    decks: list[dict[str, Any]], conditions: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """폴더에 한 벌 둔 덱 중 **이 점에서 붙은 것**만, 이 점의 바디로. 덱 번호(`mid`)는 조건의
+    `materials[mid-1]` 과 짝이다."""
+    materials = conditions.get("materials") or []
+    out = []
+    for deck in decks:
+        mid = int(deck.get("mid") or 0)
+        if not 0 < mid <= len(materials):
+            continue
+        where = condition_model.applied_bodies(materials[mid - 1].get("apply_to", []))
+        if where:
+            out.append({**deck, "apply_to": where})
+    return out
+
+
 def _write_decks(folder: Path, conditions: dict[str, Any] | None) -> list[dict[str, Any]]:
     """고른 솔버 덱을 `materials/` 에 쓴다. 점 파일이 가리킬 **목록**을 돌려준다.
 
@@ -890,7 +1021,7 @@ def run_job(
         names = _matnexus.property_keys()
         # **솔버 덱은 스터디마다 한 번.** 설계점이 달라도 물성은 같다 — 점마다 뽑으면 같은
         # 파일을 200번 만든다. 폴더 하나에 한 벌 두고 점 파일이 그것을 가리킨다.
-        decks = _write_decks(folder, study.conditions)
+        decks = _write_decks(folder, _deck_conditions(study.conditions, study.factors))
         only = str(input.get("only") or "all")
         all_points = points(db, study)
         # **만들기 전에** 어느 점끼리 형상이 같은지 안다 — 식을 푸는 것은 산수라 거저다.
@@ -898,7 +1029,10 @@ def run_job(
             one.number: shape_digest(
                 {
                     **study.recipe,
-                    "params": {**(study.recipe.get("params") or {}), **one.params},
+                    "params": {
+                        **(study.recipe.get("params") or {}),
+                        **_shape_params(study, one.params),
+                    },
                 }
             )
             for one in all_points
@@ -917,8 +1051,14 @@ def run_job(
         if definitions:
             try:
                 base_values = params.resolve_params(study.recipe)
+                # 재료 인자는 형상을 안 바꾸므로 잴 것이 없다 — 치수 인자만.
+                shape_factors = [
+                    one
+                    for one in factor_names
+                    if one not in engine.material_factors(study.factors)
+                ]
                 tracks = follow.measure(
-                    definitions, base_values, factor_names, _builder(study.recipe)
+                    definitions, base_values, shape_factors, _builder(study.recipe)
                 )
             except (RecipeError, RecipeValidationError, params.ExpressionError):
                 tracks = {}
@@ -941,7 +1081,10 @@ def run_job(
                 continue
             recipe = {
                 **study.recipe,
-                "params": {**(study.recipe.get("params") or {}), **point.params},
+                "params": {
+                    **(study.recipe.get("params") or {}),
+                    **_shape_params(study, point.params),
+                },
             }
             digest = digests.get(point.number, "")
             try:
@@ -974,7 +1117,12 @@ def run_job(
                     # **조건의 이름표가 `divide_face` 패치를 가리킬 수 있다.** 그 번호는 이
                     # 평가 안에서만 뜻이 있으므로 평가가 찾아 준 것을 그대로 넘긴다.
                     moved = (
-                        follow.follow(definitions, tracks, base_values, point.params)
+                        follow.follow(
+                            definitions,
+                            tracks,
+                            base_values,
+                            _shape_params(study, point.params),
+                        )
                         if definitions
                         else definitions
                     )
@@ -1023,8 +1171,11 @@ def run_job(
                 # 「하나는 있고 하나는 없는」 상태가 생길 자리만 는다.
                 if study.conditions:
                     # 값은 mm · N · t 로 적혔고, 여기서 내보내기 단위계로 옮긴다.
+                    # 재료 인자면 이 점의 재료를 바꿔 끼운 조건으로 — 치수는 형상 값만.
                     topo["conditions"] = condition_model.resolve(
-                        study.conditions, point.params, names
+                        _point_conditions(study, point.params),
+                        _shape_params(study, point.params),
+                        names,
                     )
                 # **좌표계** — 도면의 것은 이 점의 치수로 푼 것, 조건의 것은 식을 이 점의
                 # 값으로 풀고 면에 붙인 것은 이 점의 영역에서 얻는다. 조건의 `cs` 가 이름으로
@@ -1052,8 +1203,10 @@ def run_job(
                     if name not in topo["unresolved"]:
                         topo["unresolved"].append(name)
                 # **솔버 덱은 폴더에 한 벌**이고 점마다 같다 — 점 파일은 가리키기만 한다.
-                if decks:
-                    topo["material_decks"] = decks
+                # 재료를 훑으면 점마다 어느 덱이 어느 바디에 붙는지가 다르다.
+                point_decks = _decks_for_point(decks, topo.get("conditions") or {})
+                if point_decks:
+                    topo["material_decks"] = point_decks
                 point_name = f"p{point.number:04d}.json"
                 (folder / "points" / point_name).write_text(
                     json.dumps(topo, ensure_ascii=False, indent=2), encoding="utf-8"

@@ -3,11 +3,16 @@
  *
  * 실행 전에 **몇 개인지 먼저 보여 준다.** 격자는 곱으로 늘어나서, 인자 넷에 5단계면 625개다 —
  * 누르고 나서 아는 것과 누르기 전에 아는 것은 다르다.
+ *
+ * **재료도 훑는다** — 시뮬레이션 조건에 담아 둔 재료 중 후보를 바디마다 고르면, 설계점마다 그
+ * 바디에 하나씩 바꿔 끼운다(형상은 그대로). 조건은 서버가 작업의 현재 버전에서 싣는다.
  */
 
 import { useEffect, useState } from 'react'
 
 import type { Recipe } from '@/modules/cad/api'
+import { appliedTo, conditionsApi } from '@/modules/conditions/api'
+import type { MaterialItem } from '@/modules/conditions/api'
 import { doeApi } from '@/modules/doe/api'
 import type { DoeStudy, Factor, Preview } from '@/modules/doe/api'
 import { ApiError } from '@/shared/api/client'
@@ -17,7 +22,29 @@ import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select'
 import { Textarea } from '@/shared/components/ui/textarea'
+import { useResource } from '@/shared/hooks/useResource'
 
+
+/** 재료 인자의 이름 — 바디마다 하나. 단품(「전체」)이면 그냥 「재료」. */
+function swapName(body: string): string {
+  return (body === '전체' ? '재료' : `재료 · ${body}`).slice(0, 40)
+}
+
+/**
+ * 재료를 부르는 이름 — 이름이 담아 둔 재료 중 하나뿐이면 이름(표에 사람이 읽는 말로 적힌다),
+ * 겹치면 번호(M-…). 서버는 둘 다 받는다.
+ */
+function materialKey(one: MaterialItem, all: MaterialItem[]): string {
+  const name = refText(one, 'name')
+  const twins = all.filter((other) => refText(other, 'name') === name).length
+  return twins === 1 && name ? name : refText(one, 'code') || refText(one, 'material_id') || name
+}
+
+/** 담아 둔 재료의 출처 칸(이름 · 번호) — 없으면 빈 글자. */
+function refText(one: MaterialItem, key: string): string {
+  const value = one.ref?.[key]
+  return value === undefined || value === null ? '' : String(value)
+}
 
 /** 서버의 기본 가공 단위와 같다(core/doe.py DEFAULT_RESOLUTION). */
 const DEFAULT_RESOLUTION = 0.1
@@ -67,8 +94,17 @@ export function DoeForm({
   onCreated,
   onEditRecipe,
   initial,
+  conditions,
+  sendConditions = false,
 }: {
   recipe: Recipe
+  /** 대상의 시뮬레이션 조건 — 재료 후보(담아 둔 재료)를 여기서 고른다. */
+  conditions?: Record<string, unknown> | null
+  /**
+   * 조건을 **실어 보낸다** — 대상 작업이 없는 「다시 만들기」(스냅샷)일 때만. 작업이 있으면
+   * 서버가 그 작업의 현재 조건을 싣는다.
+   */
+  sendConditions?: boolean
   workId?: string
   defaultName?: string
   onCreated: (id: string) => void
@@ -90,15 +126,35 @@ export function DoeForm({
     // 도면에 지금 있는 변수만 — 지난 설정이 있으면 그것을, 없으면 고정(지금 값).
     return Object.fromEntries(params.map(([key, value]) => [key, before.get(key) ?? { name: key, mode: 'fixed', value }]))
   })
+  const materials = ((conditions?.materials ?? []) as MaterialItem[]).filter((one) => one.ref)
+  // 재료를 바꿔 끼울 바디 — 서버가 정하는 이름(내보낼 때와 같다). 재료가 없으면 묻지 않는다.
+  const bodies = useResource(
+    () => (materials.length > 0 ? conditionsApi.bodies(recipe) : Promise.resolve({ items: [] })),
+    [materials.length > 0 ? JSON.stringify(recipe) : ''],
+  )
+  const bodyNames = (bodies.data?.items ?? []).map((one) => one.name)
+  /** 바디 → 훑을 후보 재료(이름 · 번호). 비었으면 그 바디는 조건 그대로. */
+  const [swaps, setSwaps] = useState<Record<string, string[]>>(() =>
+    Object.fromEntries(
+      (initial?.factors ?? [])
+        .filter((one) => one.mode === 'material')
+        .map((one) => [(one.bodies ?? [])[0] ?? '전체', (one.values ?? []).map(String)]),
+    ),
+  )
+  const swapFactors: Factor[] = Object.entries(swaps)
+    .filter(([, values]) => values.length > 0)
+    .map(([body, values]) => ({ name: swapName(body), mode: 'material', bodies: [body], values }))
   const [preview, setPreview] = useState<Preview | null>(null)
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const list = Object.values(factors)
+  const list = [...Object.values(factors), ...swapFactors]
   const varying = list.filter((one) => one.mode !== 'fixed')
   /** 빈 칸이 있으면 아직 쓰는 중이다 — 서버에 묻지도, 만들지도 않는다. */
   const incomplete =
-    varying.some((one) => (one.mode === 'range' ? one.start == null || one.end == null || one.steps == null : (one.values ?? []).length === 0)) ||
+    varying.some((one) =>
+      one.mode === 'range' ? one.start == null || one.end == null || one.steps == null : (one.values ?? []).length === 0,
+    ) ||
     (method === 'lhs' && (samples == null || seed == null))
 
   useEffect(() => {
@@ -160,6 +216,7 @@ export function DoeForm({
         samples: samples ?? 20,
         seed: seed ?? 1,
         work_id: workId ?? null,
+        ...(sendConditions && conditions ? { conditions } : {}),
       })
       onCreated(made.id)
     } catch (caught) {
@@ -169,7 +226,7 @@ export function DoeForm({
     }
   }
 
-  if (params.length === 0) {
+  if (params.length === 0 && materials.length === 0) {
     return (
       <div className="space-y-3 rounded-md border border-dashed p-4 text-sm">
         <p className="font-medium">먼저 도면에 「변수」 를 만들어야 합니다.</p>
@@ -269,6 +326,59 @@ export function DoeForm({
           )
         })}
       </div>
+
+      {materials.length > 0 && (
+        <div className="rounded-md border" aria-label="재료 훑기">
+          <div className="bg-muted/40 grid grid-cols-[minmax(6rem,1fr)_minmax(0,3fr)] gap-3 border-b px-3 py-2 text-xs font-medium">
+            <span>재료 (바디)</span>
+            <span>훑을 재료 — 고르지 않으면 시뮬레이션 조건 그대로</span>
+          </div>
+          {bodyNames.map((body) => {
+            const now = materials.find((one) => appliedTo(one).includes(body))
+            const picked = swaps[body] ?? []
+            return (
+              <div key={body} className="grid grid-cols-[minmax(6rem,1fr)_minmax(0,3fr)] items-start gap-3 border-b px-3 py-2 last:border-b-0">
+                <div className="min-w-0">
+                  <div className="truncate font-mono text-xs" title={body}>
+                    {body}
+                  </div>
+                  <div className="text-muted-foreground truncate text-[11px]">지금: {now ? refText(now, 'name') : '재료 없음'}</div>
+                </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-1">
+                  {materials.map((one) => {
+                    const key = materialKey(one, materials)
+                    const on = picked.includes(key)
+                    return (
+                      <label key={key} className="flex items-center gap-1 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          aria-label={`${body} 후보 ${refText(one, 'name') || key}`}
+                          onChange={() =>
+                            setSwaps((all) => ({ ...all, [body]: on ? picked.filter((v) => v !== key) : [...picked, key] }))
+                          }
+                        />
+                        <span className="truncate" title={refText(one, 'code')}>
+                          {refText(one, 'name') || key}
+                        </span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+          <p className="text-muted-foreground px-3 py-2 text-xs">
+            후보는 시뮬레이션 조건에 <b>담아 둔 재료</b>입니다 — 더 훑으려면 조건 화면의 「물성」 에서 담아 두세요(파트에 붙이지 않아도 됩니다).
+            형상은 그대로라 한 벌을 나눠 씁니다.
+          </p>
+        </div>
+      )}
+      {conditions && Object.keys(conditions).length > 0 && (
+        <p className="text-muted-foreground text-xs">
+          시뮬레이션 조건(구속 · 하중 · 접촉 · 물성 · 해석 설정)이 함께 실려 설계점마다 풀립니다.
+        </p>
+      )}
 
       <div className="flex flex-wrap items-end gap-3">
         <div className="space-y-1">

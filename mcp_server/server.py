@@ -32,6 +32,7 @@ import asyncio
 import base64
 import os
 import re
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -162,6 +163,9 @@ def _slim_version(version: Any) -> Any:
         "source": version.get("source"),
         "note": version.get("note"),
         "recipe": version.get("recipe"),
+        # 저장된 해석 조건 — 없으면 AI 가 사람이 만든 조건을 못 보고 `set_conditions` 로
+        # 통째로 덮는다.
+        "conditions": version.get("conditions") or {},
         "evaluation": _slim_job(version.get("job")),
         "promoted_part_id": version.get("promoted_part_id"),
         "promoted_part_version": version.get("promoted_part_version"),
@@ -555,6 +559,90 @@ async def set_conditions(
 
 
 @mcp.tool()
+async def recipe_bodies(ctx: Context, recipe: dict[str, Any]) -> Any:
+    """이 도면의 **바디 이름들** — 물성의 `apply_to` 와 재료 인자의 `bodies` 에 쓴다.
+
+    이름은 서버가 정한다(내보낼 때 쓰는 것과 같다). 단품이면 「전체」 하나, 조립이면 구성품마다
+    하나(`group` 의 대상 id). 부피 · 무게중심도 함께 온다."""
+    return await _post(ctx, "/api/cad/recipe/bodies", {"recipe": recipe})
+
+
+def _condition_item(row: dict[str, Any]) -> dict[str, Any]:
+    """재료 한 줄 → 해석 조건의 `materials[]` 항목 — **화면이 싣는 모양 그대로**(payload
+    통째로). 어디에 붙일지(`apply_to`)는 비워 둔다 — 바디 이름을 넣거나, 재료 인자의 후보로
+    담아 둘 때는 빈 채로."""
+    source = str(row.get("source") or "")
+    kind = {"catalog": "matnexus-catalog", "literature": "matnexus-literature"}.get(
+        source, "matnexus"
+    )
+    return {
+        "apply_to": [],
+        "ref": {
+            "source": kind,
+            "material_id": row.get("id"),
+            "code": row.get("code"),
+            "name": row.get("name"),
+            "fetched_at": datetime.now(UTC).isoformat(),
+        },
+        "payload": row.get("payload") or {},
+    }
+
+
+@mcp.tool()
+async def material_search(
+    ctx: Context,
+    query: str = "",
+    source: str = "registered",
+    family: str = "",
+    category: str = "",
+    limit: int = 20,
+) -> Any:
+    """물성(MatNexus) 찾기 — 이름 · 별칭 · 번호로.
+
+    `source`: `registered`(기본 — 조직이 시험 · 등록한 재료) 또는 `literature`(문헌 카탈로그,
+    수천 건. 목록에는 값이 없다 — 고른 뒤 `material_get` 으로 받는다). 줄마다 번호(`code`) ·
+    이름 · 밀도 · 푸아송비가 온다. **물성 값을 지어내지 마라** — 여기서 찾은 것만 싣는다."""
+    got = await _get(
+        ctx,
+        "/api/materials",
+        {
+            "q": query,
+            "source": source,
+            "family": family,
+            "category": category,
+            "limit": max(1, min(int(limit), 100)),
+        },
+    )
+    if isinstance(got, dict) and isinstance(got.get("items"), list):
+        # 목록에서는 payload 를 뺀다 — 한 줄에 수 KB 라 스무 줄이면 대화가 그것으로 찬다.
+        got = {
+            **got,
+            "items": [
+                {key: value for key, value in row.items() if key != "payload"}
+                for row in got["items"]
+            ],
+        }
+    return got
+
+
+@mcp.tool()
+async def material_get(ctx: Context, code_or_id: str, source: str = "registered") -> Any:
+    """재료 하나를 **값까지** — 그리고 해석 조건에 그대로 넣을 항목(`condition_item`).
+
+    `condition_item` 을 조건의 `materials` 에 넣고 `apply_to` 에 바디 이름(`recipe_bodies`,
+    단품이면 `["전체"]`)을 적는다. **바디 하나에 물성 하나**다. 실험계획에서 재료를 훑을
+    후보라면 `apply_to: []`(담아만 둔다)로 넣고 재료 인자의 `values` 에 그 이름 · 번호를
+    쓴다."""
+    row = await _get(ctx, f"/api/materials/{code_or_id}", {"source": source})
+    if not isinstance(row, dict) or "error" in row:
+        return row
+    return {
+        "material": {key: value for key, value in row.items() if key != "payload"},
+        "condition_item": _condition_item(row),
+    }
+
+
+@mcp.tool()
 async def doe_preview(
     ctx: Context,
     factors: list[dict[str, Any]],
@@ -587,6 +675,7 @@ async def doe_create(
     work_id: str | None = None,
     idempotency_key: str = "",
     on_behalf_of: str = "",
+    conditions: dict[str, Any] | None = None,
 ) -> Any:
     """치수를 훑어 **형상 여러 벌**을 만든다 — 점마다 STEP 을 서버 보관 폴더에 쓴다.
 
@@ -607,7 +696,14 @@ async def doe_create(
     LHS 는 `seed` 를 적어 두면 같은 표를 다시 만든다 — 해석 결과와 형상을 잇는 열쇠다.
     먼저 `doe_preview` 로 개수를 확인하고 부른다(한 번에 만드는 상한은 관리자가 서버 설정
     화면에서 정한다, 기본 200 — preview 의 `max`). 표에는 바꾼 변수와 파일 이름만 적힌다 —
-    질량 · 크기는 계산하지 않는다(필요하면 `recipe_geometry` 로 따로)."""
+    질량 · 크기는 계산하지 않는다(필요하면 `recipe_geometry` 로 따로).
+    **해석 조건** — `conditions` 를 **안 주면 `work_id` 작업의 현재 버전 조건**이 실린다
+    (`set_conditions` 로 저장한 그것). 조건 없이 형상만 훑으려면 `{}` 를 준다.
+
+    **재료도 훑는다** — 인자에 `{"name": "블록 재료", "mode": "material", "bodies": ["블록"],
+    "values": ["SECC", "AL5052"]}`. 후보는 조건의 `materials` 에 **먼저 담아 둔 것**(이름 ·
+    번호 M-…)이어야 하고(`material_get` 의 `condition_item` 을 `apply_to: []` 로 담는다),
+    바디는 `recipe_bodies` 의 이름(단품이면 「전체」). 형상은 그대로라 한 벌을 나눠 쓴다."""
     return await _post(
         ctx,
         "/api/doe",
@@ -622,6 +718,8 @@ async def doe_create(
             "work_id": work_id,
             "idempotency_key": idempotency_key,
             "on_behalf_of": on_behalf_of,
+            # 안 주면 **보내지 않는다** — 서버가 작업의 현재 조건을 싣는다(`{}` 와 다르다).
+            **({"conditions": conditions} if conditions is not None else {}),
         },
     )
 
@@ -641,6 +739,7 @@ async def doe_run(
     on_behalf_of: str = "",
     export: bool = True,
     wait_seconds: int = 300,
+    conditions: dict[str, Any] | None = None,
 ) -> Any:
     """**한 번 부르면 폴더까지** — 만들고 · 기다리고 · 공유 폴더로 보낸다.
 
@@ -658,6 +757,13 @@ async def doe_run(
 
     **`on_behalf_of` 를 꼭 줘라**(그 사람의 계정 · 이메일) — 안 주면 사람이 제 활동에서 이
     DOE 를 못 찾는다. `export=false` 면 만들기만 한다(조건만 바꿔 가며 쌓아 둘 때).
+    **해석 조건** — `conditions` 를 **안 주면 `work_id` 작업의 현재 버전 조건**이 실린다
+    (`set_conditions` 로 저장한 그것). 조건 없이 형상만 훑으려면 `{}` 를 준다.
+
+    **재료도 훑는다** — 인자에 `{"name": "블록 재료", "mode": "material", "bodies": ["블록"],
+    "values": ["SECC", "AL5052"]}`. 후보는 조건의 `materials` 에 **먼저 담아 둔 것**(이름 ·
+    번호 M-…)이어야 하고(`material_get` 의 `condition_item` 을 `apply_to: []` 로 담는다),
+    바디는 `recipe_bodies` 의 이름(단품이면 「전체」). 형상은 그대로라 한 벌을 나눠 쓴다.
     """
     query = f"?wait_seconds={wait_seconds}&export={'true' if export else 'false'}"
     got = await _post(
@@ -674,6 +780,8 @@ async def doe_run(
             "work_id": work_id,
             "idempotency_key": idempotency_key,
             "on_behalf_of": on_behalf_of,
+            # 안 주면 **보내지 않는다** — 서버가 작업의 현재 조건을 싣는다(`{}` 와 다르다).
+            **({"conditions": conditions} if conditions is not None else {}),
         },
     )
     if not isinstance(got, dict) or "error" in got:

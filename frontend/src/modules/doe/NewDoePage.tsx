@@ -40,7 +40,14 @@ export default function NewDoePage() {
     return (
       <div>
         <PageHeader title={`DOE — ${snapshot.name} (다시)`} description="대상 작업이 지워져 그때의 도면 스냅샷으로 만듭니다." back={{ to: `/doe/${snapshot.id}`, label: '지난 DOE' }} />
-        <DoeForm recipe={snapshot.recipe} initial={snapshot} onCreated={(id) => navigate(`/doe/${id}`)} />
+        {/* 대상 작업이 없으니 서버가 조건을 가져올 곳도 없다 — 스냅샷의 조건을 실어 보낸다. */}
+        <DoeForm
+          recipe={snapshot.recipe}
+          initial={snapshot}
+          conditions={snapshot.conditions}
+          sendConditions
+          onCreated={(id) => navigate(`/doe/${id}`)}
+        />
       </div>
     )
   }
@@ -92,6 +99,7 @@ export default function NewDoePage() {
         <DoeForm
           key={from.data?.id ?? w.id}
           recipe={w.current.recipe}
+          conditions={w.current.conditions}
           workId={w.id}
           defaultName={`${w.name} 훑기`}
           initial={from.data ?? undefined}

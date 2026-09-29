@@ -68,6 +68,10 @@ def test_사람이_손으로_하는_일이_도구로_다_있다() -> None:
         "place_on",  # 면에 얹기
         "search",  # 이름으로 찾기
         "promote_jig_recipe",  # 손으로 그린 지그
+        "material_search",  # 물성 찾기
+        "material_get",  # 물성 받기 — 조건에 넣을 항목까지
+        "recipe_bodies",  # 물성을 붙일 바디
+        "doe_run",  # 조건까지 실어 폴더로
     }
     assert needed <= tools, f"빠진 도구: {sorted(needed - tools)}"
 
@@ -156,3 +160,47 @@ def test_폴링은_error_null_을_오류로_읽지_않는다(monkeypatch) -> Non
         )
     )
     assert got["status"] == "done" and got["summary"] == {"ok": 1}
+
+
+def test_물성과_바디_도구가_있다() -> None:
+    """물성을 지어내지 않게 — 찾고, 받고, 붙일 바디를 안다."""
+    for name in ("material_search", "material_get", "recipe_bodies"):
+        assert hasattr(server, name), name
+
+
+def test_재료_한_줄은_화면이_싣는_모양으로_조건에_들어간다() -> None:
+    row = {
+        "id": "u-1",
+        "code": "M-000158",
+        "name": "AL5052",
+        "source": "matnexus",
+        "payload": {"density": 2680},
+    }
+    item = server._condition_item(row)
+    assert item["apply_to"] == [] and item["payload"] == {"density": 2680}
+    assert item["ref"]["source"] == "matnexus" and item["ref"]["code"] == "M-000158"
+    literature = server._condition_item({**row, "source": "literature"})
+    assert literature["ref"]["source"] == "matnexus-literature"
+
+
+def test_버전_요약에_해석_조건이_있다() -> None:
+    slim = server._slim_version({"number": 3, "recipe": {}, "conditions": {"loads": [1]}})
+    assert slim["conditions"] == {"loads": [1]}
+
+
+def test_DOE_는_조건을_안_주면_보내지_않아_서버가_작업의_조건을_싣는다(monkeypatch) -> None:
+    import asyncio
+
+    sent: list[dict] = []
+
+    async def fake_post(ctx, path, json_body=None):
+        sent.append(json_body)
+        return {"id": "s"}
+
+    monkeypatch.setattr(server, "_post", fake_post)
+    asyncio.run(server.doe_create(None, name="a", recipe={}, factors=[], work_id="w"))
+    asyncio.run(
+        server.doe_create(None, name="b", recipe={}, factors=[], conditions={"loads": []})
+    )
+    assert "conditions" not in sent[0]
+    assert sent[1]["conditions"] == {"loads": []}

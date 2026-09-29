@@ -8,7 +8,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class FactorIn(BaseModel):
-    """인자 하나 — 고정이거나, 구간이거나, 값 목록."""
+    """인자 하나 — 고정이거나, 구간이거나, 값 목록이거나, **재료**(`material`).
+
+    재료 인자는 치수가 아니다: `bodies` 에 붙일 재료를 `values`(해석 조건에 담아 둔 재료의
+    이름 · 번호 M-…) 중에서 설계점마다 하나씩 고른다. 형상은 그대로다."""
 
     name: str = Field(min_length=1, max_length=40)
     mode: str = "fixed"
@@ -16,7 +19,9 @@ class FactorIn(BaseModel):
     start: float | None = None
     end: float | None = None
     steps: int = 5
-    values: list[float] = Field(default_factory=list)
+    values: list[float | str] = Field(default_factory=list)
+    bodies: list[str] = Field(default_factory=list)
+    """재료 인자 — 재료를 바꿔 끼울 바디(단품이면 `["전체"]`)."""
     resolution: float | None = Field(default=None, gt=0)
     """값을 맞추는 가공 단위(mm). 없으면 0.1 — 0.333 같은 치수는 가공할 수 없다."""
 
@@ -33,9 +38,10 @@ class StudyCreateRequest(PreviewRequest):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=2000)
     recipe: dict[str, Any]
-    conditions: dict[str, Any] = Field(default_factory=dict)
-    """해석 조건 한 벌 — 대상 버전의 것을 그대로 넘기면 스냅샷으로 박힌다.
-    비면 형상만 훑는다."""
+    conditions: dict[str, Any] | None = None
+    """해석 조건 한 벌 — 스냅샷으로 박힌다. **안 주면 `work_id` 작업의 현재 버전 조건**을
+    쓴다(화면 · MCP 가 따로 챙기지 않아도 저장된 조건이 따라간다). 조건 없이 형상만 훑으려면
+    빈 한 벌(`{}`)."""
     work_id: uuid.UUID | None = None
     on_behalf_of: str = Field(default="", max_length=200)
     """**누구를 위해 만드나** — 계정(이메일) 또는 사용자 id. 기계(오케스트레이터)가 쓴다.

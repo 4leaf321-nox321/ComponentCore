@@ -818,3 +818,27 @@ def test_모멘트_원격_변위는_면_엣지_메시_힌트는_면_엣지_바�
     with pytest.raises(ConditionError, match="면 · 엣지 · 바디 선택 그룹에만"):
         parse({**SPOTS, "mesh_hints": [{"on": "꼭짓점", "element_size": 1}]})
     assert spec()["groups"]["mesh_hints"]["accepts"]["*"][2] == {"entity": "body"}
+
+
+def test_재료를_바꿔_끼우면_그_바디만_옮기고_원본은_그대로다() -> None:
+    raw: dict[str, Any] = {
+        "materials": [
+            {"apply_to": ["받침판"], "ref": {"name": "SECC", "code": "M-1"}, "payload": {}},
+            {"apply_to": ["블록"], "ref": {"name": "AL5052", "code": "M-2"}, "payload": {}},
+            {"apply_to": [], "ref": {"name": "SUS304", "code": "M-3"}, "payload": {}},
+        ]
+    }
+    swapped = conditions.with_material(raw, ["블록"], "SUS304")
+    assert [one["apply_to"] for one in swapped["materials"]] == [["받침판"], [], ["블록"]]
+    # 번호로도 고른다. 원본은 안 바뀐다.
+    by_code = conditions.with_material(raw, ["블록"], "M-1")
+    assert [one["apply_to"] for one in by_code["materials"]] == [["받침판", "블록"], [], []]
+    assert raw["materials"][1]["apply_to"] == ["블록"]
+    with pytest.raises(ConditionError, match="조건에 없습니다"):
+        conditions.with_material(raw, ["블록"], "없는재료")
+    twin = {"materials": [*raw["materials"], {"apply_to": [], "ref": {"name": "SECC"}}]}
+    with pytest.raises(ConditionError, match="번호"):
+        conditions.with_material(twin, ["블록"], "SECC")
+    whole = {"materials": [{"apply_to": ["전체"], "ref": {"name": "A"}}, raw["materials"][2]]}
+    with pytest.raises(ConditionError, match="「전체」 에 붙어"):
+        conditions.with_material(whole, ["블록"], "SUS304")

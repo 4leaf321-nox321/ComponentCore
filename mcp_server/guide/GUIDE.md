@@ -1,4 +1,4 @@
-<!-- version: 2026-09-28.1 -->
+<!-- version: 2026-09-29.1 -->
 # CompCore MCP 가이드
 
 ## overview
@@ -15,6 +15,7 @@
 | **내가 그린 것의 치수** | `recipe_geometry(recipe)` — 구멍 지름 · 중심 · 깊이, 면의 법선 · 넓이 |
 | **제품을 기준으로 지그 그리기** | `part_geometry(part_id)` · `work_geometry(work_id)` — 치수표 + STEP id |
 | **해석 조건 붙이기** | `conditions_schema` → `recipe_find` · `recipe_selectors` → `set_conditions` — `get_guide("conditions")` |
+| **물성 붙이기** | `material_search` → `material_get`(→ `condition_item`) · `recipe_bodies` → `set_conditions` |
 | **형상 여러 벌 만들기(DOE)** | `doe_preview` → `doe_create` → `doe_points` → `doe_export` — 공유 폴더에 STEP 이 쌓인다 |
 | 레시피가 맞나, 만들어지나 | `recipe_check` — **저장 전에 반드시** |
 | 새 부품 시작 | `create_work(name, recipe)` |
@@ -253,5 +254,20 @@
    `frequency_range` 등. 빠진 필수 값은 저장에서 거절된다. 비운 칸은 기본값이다.
 5. 숫자 칸에는 레시피와 같은 식(`"=압력"`)을 쓸 수 있다 — 변수는 레시피 `params`(mm). 실험계획이
    그 변수를 훑으면 형상과 조건이 함께 움직인다.
-6. 물성은 `materials[].apply_to` 에 바디 이름 목록(단품이면 `["전체"]`) — 바디 하나에 물성 하나.
+6. **물성**: `material_search` 로 찾고 `material_get` 으로 받아 그 `condition_item` 을
+   `materials` 에 넣는다 — 값을 지어내지 않는다. `apply_to` 는 바디 이름 목록(`recipe_bodies`,
+   단품이면 `["전체"]`). 바디 하나에 물성 하나.
+7. 지금 저장된 조건은 `get_work` · `get_version` 의 `current.conditions` 에 있다 — 사람이 만든
+   조건이 있으면 **읽고 고쳐서** `set_conditions` 로 보낸다(통째로 덮어 지우지 않는다).
+
+### 조건을 실어 DOE 로 — 끝에서 끝까지
+
+1. 도면: `create_work` / `patch_work` — 훑을 치수는 `params` 의 변수로.
+2. 조건: `set_conditions`(선택 그룹 · 구속 · 하중 · 접촉 · 해석 설정 · 물성).
+3. DOE: `doe_run(work_id=…, recipe=그 버전의 레시피, factors=…, idempotency_key=…)` —
+   **`conditions` 를 안 주면 그 작업의 현재 조건이 실린다.** 점 파일마다 그 점의 치수로 풀린
+   조건 · 영역이 들어간다.
+4. **재료도 훑을 수 있다**: 후보 재료를 조건의 `materials` 에 `apply_to: []` 로 담아 두고
+   인자에 `{"name": "블록 재료", "mode": "material", "bodies": ["블록"], "values": [이름 · 번호…]}`.
+   치수 인자와 섞어 격자 · LHS 로 조합한다. 형상은 그대로라 한 벌을 나눠 쓴다.
 

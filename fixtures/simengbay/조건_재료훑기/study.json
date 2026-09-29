@@ -1,249 +1,104 @@
 {
-  "units": "mm",
-  "bodies": [
+  "id": "3b3618f1-3eab-4481-8d74-cb7b545cd18b",
+  "name": "조건_재료훑기",
+  "description": "",
+  "method": "factorial",
+  "samples": 20,
+  "seed": 1,
+  "factors": [
     {
-      "name": "받침판",
-      "step_product": "body_1",
-      "volume": 30000.0,
-      "centroid": [
-        0.0,
-        -0.0,
-        2.5
+      "end": null,
+      "mode": "material",
+      "name": "블록 재료",
+      "start": null,
+      "steps": 5,
+      "value": null,
+      "bodies": [
+        "블록"
       ],
-      "bbox": [
-        [
-          -50.0,
-          -30.0,
-          0.0
-        ],
-        [
-          50.0,
-          30.0,
-          5.0
-        ]
-      ]
-    },
-    {
-      "name": "블록",
-      "step_product": "body_2",
-      "volume": 32000.0,
-      "centroid": [
-        0.0,
-        0.0,
-        15.0
+      "values": [
+        "AL5052H32DEMO_-_-",
+        "SECC-EXAD87-DP_선언물성_0.8"
       ],
-      "bbox": [
-        [
-          -20.0,
-          -20.0,
-          5.0
-        ],
-        [
-          20.0,
-          20.0,
-          25.0
-        ]
-      ]
+      "resolution": null
     }
   ],
-  "regions": {
-    "바닥": [
+  "recipe": {
+    "nodes": [
       {
-        "centroid": [
-          0.0,
-          0.0,
-          0.0
+        "id": "받침판",
+        "op": "box",
+        "align": [
+          "center",
+          "center",
+          "min"
         ],
-        "area": 6000.0,
-        "normal": [
-          -0.0,
-          -0.0,
-          -1.0
-        ]
-      }
-    ],
-    "블록 윗면": [
-      {
-        "centroid": [
-          0.0,
-          0.0,
-          25.0
-        ],
-        "area": 1600.0,
-        "normal": [
-          0.0,
-          0.0,
-          1.0
-        ]
-      }
-    ],
-    "판 윗면": [
-      {
-        "centroid": [
-          0.0,
-          0.0,
-          5.0
-        ],
-        "area": 6000.0,
-        "normal": [
-          0.0,
-          0.0,
-          1.0
-        ]
+        "width": 60,
+        "height": "=두께",
+        "length": 100
       },
       {
-        "centroid": [
-          0.0,
-          0.0,
-          25.0
+        "at": [
+          0,
+          0,
+          "=두께"
         ],
-        "area": 1600.0,
-        "normal": [
-          0.0,
-          0.0,
-          1.0
+        "id": "블록",
+        "op": "box",
+        "align": [
+          "center",
+          "center",
+          "min"
+        ],
+        "width": 40,
+        "height": 20,
+        "length": 40
+      },
+      {
+        "id": "조립",
+        "op": "group",
+        "targets": [
+          "받침판",
+          "블록"
         ]
       }
     ],
-    "블록 아랫면": [
-      {
-        "centroid": [
-          0.0,
-          0.0,
-          5.0
-        ],
-        "area": 1600.0,
-        "normal": [
-          -0.0,
-          -0.0,
-          -1.0
-        ]
-      },
-      {
-        "centroid": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "area": 6000.0,
-        "normal": [
-          -0.0,
-          -0.0,
-          -1.0
-        ]
-      }
-    ]
-  },
-  "unresolved": [],
-  "point": {
-    "number": 1,
-    "study": {
-      "id": "ec754e9b-77bc-41d6-8996-2379bce245fb",
-      "name": "조건_두바디_두재료",
-      "method": "factorial",
-      "seed": 1
-    },
     "params": {
       "두께": 5.0
-    },
-    "step_file": "points/p0001.step"
+    }
   },
   "conditions": {
-    "schema_version": 1,
+    "loads": [
+      {
+        "on": "블록 윗면",
+        "name": "누름",
+        "type": "pressure",
+        "direction": "normal",
+        "magnitude": 1.5
+      }
+    ],
     "units": {
-      "system": "mm_n_tonne",
-      "label": "mm · N · tonne (MPa)",
-      "length": "mm",
-      "mass": "tonne",
-      "time": "s",
-      "force": "N",
-      "stress": "MPa",
-      "temperature": "C",
-      "density": "tonne/mm3",
-      "conductivity": "mW/(mm.K)",
-      "specific_heat": "mJ/(tonne.K)",
-      "per_temperature": "1/K",
-      "temperature_abs": "K",
-      "duration": "s",
-      "frequency": "1/s",
-      "viscosity": "N.s/mm2",
-      "force_per_length": "N/mm",
-      "diffusivity": "mm^2/s",
-      "energy": "mJ",
-      "moment": "N*mm",
-      "acceleration": "mm/s^2",
-      "angular_velocity": "rad/s"
+      "system": "mm_n_tonne"
     },
-    "named_selections": [
+    "analysis": {
+      "type": "static"
+    },
+    "contacts": [
       {
-        "name": "바닥",
-        "entity": "face",
-        "select": {
-          "role": "bottom",
-          "what": "faces"
-        }
-      },
-      {
-        "name": "블록 윗면",
-        "entity": "face",
-        "select": {
-          "near": [
-            0,
-            0,
-            25
-          ],
-          "role": "top",
-          "what": "faces"
-        }
-      },
-      {
-        "name": "판 윗면",
-        "entity": "face",
-        "select": {
-          "kind": "plane",
-          "near": [
-            40,
-            25,
-            5
-          ],
-          "what": "faces",
-          "normal": [
-            0,
-            0,
-            1
-          ]
-        }
-      },
-      {
-        "name": "블록 아랫면",
-        "entity": "face",
-        "select": {
-          "kind": "plane",
-          "near": [
-            0,
-            0,
-            5
-          ],
-          "what": "faces",
-          "normal": [
-            0,
-            0,
-            -1
-          ]
-        }
+        "name": "블록-판",
+        "type": "bonded",
+        "source": "블록 아랫면",
+        "target": "판 윗면"
       }
     ],
     "materials": [
       {
-        "apply_to": [
-          "받침판"
-        ],
         "ref": {
-          "source": "matnexus",
           "code": "M-000138",
-          "material_id": "6c296526-322f-494d-a792-ea7b4ade4694",
           "name": "SECC-EXAD87-DP_선언물성_0.8",
-          "fetched_at": "2026-09-28T00:00:00Z"
+          "source": "matnexus",
+          "fetched_at": "2026-09-28T00:00:00Z",
+          "material_id": "6c296526-322f-494d-a792-ea7b4ade4694"
         },
         "payload": {
           "id": "6c296526-322f-494d-a792-ea7b4ade4694",
@@ -364,81 +219,17 @@
           "spec_thickness_unit": "m",
           "owner_workspace_name": "기본 부서"
         },
-        "deck_formats": [],
-        "converted": {
-          "system": "mm_n_tonne",
-          "density": 7.85e-09,
-          "density_unit": "tonne/mm3",
-          "density_key": "physical.density",
-          "poisson_ratio": 0.29,
-          "poisson_key": "mechanical.poisson_ratio",
-          "properties": [
-            {
-              "item": "비열",
-              "unit": "mJ/(tonne.K)",
-              "points": [
-                {
-                  "temperature_C": null,
-                  "value": 470000000.0
-                }
-              ]
-            },
-            {
-              "item": "열전도율",
-              "unit": "mW/(mm.K)",
-              "points": [
-                {
-                  "temperature_C": null,
-                  "value": 50.0
-                }
-              ]
-            },
-            {
-              "item": "선팽창계수(CTE)",
-              "unit": "1/K",
-              "points": [
-                {
-                  "temperature_C": null,
-                  "value": 1.2e-05
-                }
-              ]
-            },
-            {
-              "item": "전단탄성계수",
-              "unit": "MPa",
-              "points": [
-                {
-                  "temperature_C": null,
-                  "value": 80000.0
-                }
-              ]
-            },
-            {
-              "item": "탄성계수",
-              "unit": "MPa",
-              "points": [
-                {
-                  "temperature_C": null,
-                  "value": 205000.0
-                }
-              ]
-            }
-          ],
-          "missing_structural": [
-            "탄성계수"
-          ]
-        }
+        "apply_to": [
+          "받침판"
+        ]
       },
       {
-        "apply_to": [
-          "블록"
-        ],
         "ref": {
-          "source": "matnexus",
           "code": "M-000158",
-          "material_id": "334ec690-e61e-4ff2-a326-a8f81becf7b5",
           "name": "AL5052H32DEMO_-_-",
-          "fetched_at": "2026-09-28T00:00:00Z"
+          "source": "matnexus",
+          "fetched_at": "2026-09-28T00:00:00Z",
+          "material_id": "334ec690-e61e-4ff2-a326-a8f81becf7b5"
         },
         "payload": {
           "id": "334ec690-e61e-4ff2-a326-a8f81becf7b5",
@@ -587,160 +378,88 @@
           "spec_thickness_unit": "m",
           "owner_workspace_name": "기본 부서"
         },
-        "deck_formats": [],
-        "converted": {
-          "system": "mm_n_tonne",
-          "density": 2.6800000000000003e-09,
-          "density_unit": "tonne/mm3",
-          "density_key": "physical.density",
-          "poisson_ratio": 0.33,
-          "poisson_key": "mechanical.poisson_ratio",
-          "properties": [
-            {
-              "item": "비열",
-              "unit": "mJ/(tonne.K)",
-              "points": [
-                {
-                  "temperature_C": null,
-                  "value": 880000000.0
-                }
-              ]
-            },
-            {
-              "item": "선팽창계수(CTE)",
-              "unit": "1/K",
-              "points": [
-                {
-                  "temperature_C": null,
-                  "value": 2.38e-05
-                }
-              ]
-            },
-            {
-              "item": "연신율",
-              "unit": "1",
-              "points": [
-                {
-                  "temperature_C": null,
-                  "value": 0.12
-                }
-              ]
-            },
-            {
-              "item": "열전도율",
-              "unit": "mW/(mm.K)",
-              "points": [
-                {
-                  "temperature_C": null,
-                  "value": 138.0
-                }
-              ]
-            },
-            {
-              "item": "인장강도",
-              "unit": "MPa",
-              "points": [
-                {
-                  "temperature_C": null,
-                  "value": 228.0
-                }
-              ]
-            },
-            {
-              "item": "탄성계수",
-              "unit": "MPa",
-              "points": [
-                {
-                  "temperature_C": null,
-                  "value": 70300.0
-                }
-              ]
-            },
-            {
-              "item": "항복강도",
-              "unit": "MPa",
-              "points": [
-                {
-                  "temperature_C": null,
-                  "value": 193.0
-                }
-              ]
-            }
-          ],
-          "missing_structural": [
-            "탄성계수"
-          ]
-        }
+        "apply_to": [
+          "블록"
+        ]
+      }
+    ],
+    "mesh_hints": [
+      {
+        "on": "전체",
+        "order": "quadratic",
+        "element_size": 4
       }
     ],
     "constraints": [
       {
-        "name": "바닥 고정",
-        "type": "fixed_support",
         "on": "바닥",
-        "cs": "global",
-        "location": "centroid",
-        "behavior": "deformable",
-        "x": null,
-        "y": null,
-        "z": null,
-        "rx": null,
-        "ry": null,
-        "rz": null,
-        "stiffness": null,
-        "radial": "fixed",
-        "axial": "fixed",
-        "tangential": "fixed"
+        "name": "바닥 고정",
+        "type": "fixed_support"
       }
     ],
-    "loads": [
+    "named_selections": [
       {
-        "name": "누름",
-        "type": "pressure",
-        "on": "블록 윗면",
-        "cs": "global",
-        "magnitude": 1.5,
-        "unit": "MPa",
-        "direction": "normal",
-        "preload": null
-      }
-    ],
-    "contacts": [
+        "name": "바닥",
+        "entity": "face",
+        "select": {
+          "role": "bottom",
+          "what": "faces"
+        }
+      },
       {
-        "name": "블록-판",
-        "type": "bonded",
-        "source": "블록 아랫면",
-        "target": "판 윗면",
-        "friction": null,
-        "formulation": "program_controlled",
-        "behavior": "program_controlled",
-        "pinball": null,
-        "interface_treatment": "add_offset_ramped"
-      }
-    ],
-    "initial": [],
-    "analysis": {
-      "type": "static",
-      "large_deflection": false,
-      "steps": 1,
-      "substeps": null,
-      "solver": "program_controlled"
-    },
-    "mesh_hints": [
+        "name": "블록 윗면",
+        "entity": "face",
+        "select": {
+          "near": [
+            0,
+            0,
+            25
+          ],
+          "role": "top",
+          "what": "faces"
+        }
+      },
       {
-        "on": "전체",
-        "element_size": 4.0,
-        "method": "automatic",
-        "order": "quadratic",
-        "inflation_layers": null,
-        "defeature_size": null
+        "name": "판 윗면",
+        "entity": "face",
+        "select": {
+          "kind": "plane",
+          "near": [
+            40,
+            25,
+            5
+          ],
+          "what": "faces",
+          "normal": [
+            0,
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "name": "블록 아랫면",
+        "entity": "face",
+        "select": {
+          "kind": "plane",
+          "near": [
+            0,
+            0,
+            5
+          ],
+          "what": "faces",
+          "normal": [
+            0,
+            0,
+            -1
+          ]
+        }
       }
-    ],
-    "coordinate_systems": []
+    ]
   },
-  "length_units": {
-    "geometry": "mm",
-    "regions": "mm",
-    "coordinate_systems": "mm"
-  }
+  "owner": {
+    "name": "member",
+    "email": "member-b45ec20f@example.local"
+  },
+  "requested_by": null
 }

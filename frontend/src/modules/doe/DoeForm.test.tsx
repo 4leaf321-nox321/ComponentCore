@@ -110,3 +110,42 @@ test('숫자 칸은 다 지울 수 있고, 비어 있으면 만들기가 막힌�
   expect(screen.getByLabelText('두께 단계')).toHaveValue(3)
   await waitFor(() => expect(screen.getByRole('button', { name: '만들기' })).toBeEnabled())
 })
+
+test('담아 둔 재료를 바디마다 후보로 고르면 **재료 인자**로 서버에 간다 — 조건은 서버가 싣는다', async () => {
+  const calls: { url: string; body: unknown }[] = []
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input)
+    const body = init?.body ? JSON.parse(String(init.body)) : null
+    calls.push({ url, body })
+    const payload = url.endsWith('/cad/recipe/bodies')
+      ? { items: [{ name: '받침판' }, { name: '블록' }] }
+      : url.endsWith('/doe/preview')
+        ? { count: 2, max: 200, max_samples: 500, too_many: false, points: [], varying: ['재료 · 블록'] }
+        : { id: 'study-1' }
+    return new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  })
+  const conditions = {
+    materials: [
+      { apply_to: ['받침판'], ref: { name: 'SECC', code: 'M-1' }, payload: {} },
+      { apply_to: ['블록'], ref: { name: 'AL5052', code: 'M-2' }, payload: {} },
+    ],
+  }
+  const onCreated = vi.fn()
+  render(<DoeForm recipe={RECIPE} conditions={conditions} workId="w-1" onCreated={onCreated} />)
+  await waitFor(() => screen.getByText('블록'))
+  expect(screen.getByText('지금: AL5052')).toBeInTheDocument()
+  expect(screen.getByText(/시뮬레이션 조건\(구속 · 하중 · 접촉 · 물성 · 해석 설정\)이 함께 실려/)).toBeInTheDocument()
+
+  // 재료만 훑어도 된다 — 치수는 모두 고정.
+  fireEvent.click(screen.getByLabelText('블록 후보 AL5052'))
+  fireEvent.click(screen.getByLabelText('블록 후보 SECC'))
+  fireEvent.change(screen.getByLabelText('이름'), { target: { value: '재료 훑기' } })
+  await waitFor(() => expect(screen.getByRole('button', { name: '만들기' })).not.toBeDisabled())
+  fireEvent.click(screen.getByRole('button', { name: '만들기' }))
+  await waitFor(() => expect(onCreated).toHaveBeenCalledWith('study-1'))
+
+  const created = calls.find((c) => c.url.endsWith('/doe'))!.body as { factors: unknown[]; conditions?: unknown }
+  expect(created.factors).toContainEqual({ name: '재료 · 블록', mode: 'material', bodies: ['블록'], values: ['AL5052', 'SECC'] })
+  // 작업이 있으면 조건을 싣지 않는다 — 서버가 그 작업의 현재 조건을 싣는다.
+  expect(created.conditions).toBeUndefined()
+})

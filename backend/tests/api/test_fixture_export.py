@@ -23,6 +23,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from tests.api.conftest import Signed
@@ -180,6 +181,23 @@ HOLE_SI: dict[str, Any] = {
 }
 
 
+#: ③ **재료 훑기** — 형상은 그대로, 블록의 재료만 Al5052 ↔ SECC 로 바꿔 끼운다. 두 점이 한
+#: 형상(`shapes/<지문>.step`)을 나눠 쓰고, 점 파일의 `conditions.materials` 만 다르다.
+MATERIAL_SWEEP: dict[str, Any] = {
+    "name": "조건_재료훑기",
+    "recipe": TWO_BODIES["recipe"],
+    "factors": [
+        {
+            "name": "블록 재료",
+            "mode": "material",
+            "bodies": ["블록"],
+            "values": ["AL5052H32DEMO_-_-", "SECC-EXAD87-DP_선언물성_0.8"],
+        }
+    ],
+    "conditions": TWO_BODIES["conditions"],
+}
+
+
 def _export(client: TestClient, member: Signed, root: Path, study: dict[str, Any]) -> Path:
     made = client.post("/api/doe", json=study, headers=member.headers)
     assert made.status_code == 201, made.text
@@ -201,6 +219,7 @@ def test_조건_픽스처를_실제_내보내기로_만든다(
 ) -> None:
     two = _export(client, member, export_root, TWO_BODIES)
     hole = _export(client, member, export_root, HOLE_SI)
+    sweep = _export(client, member, export_root, MATERIAL_SWEEP)
 
     # ① 바디마다 재료가 따로 — 받는 쪽이 부피 · 무게중심으로 짝지을 수 있게 둘 다 실린다.
     for point in _points(two):
@@ -238,12 +257,122 @@ def test_조건_픽스처를_실제_내보내기로_만든다(
             "solver",
         }
 
+    # ③ 재료만 바뀐다 — 형상 하나를 나눠 쓰고, 블록에 붙은 재료가 점마다 다르다.
+    swept = _points(sweep)
+    assert [one["point"]["params"]["블록 재료"] for one in swept] == [
+        "AL5052H32DEMO_-_-",
+        "SECC-EXAD87-DP_선언물성_0.8",
+    ]
+    assert swept[0]["point"]["step_file"] == swept[1]["point"]["step_file"]
+    assert swept[0]["point"]["step_file"].startswith("shapes/")
+    on_block = [
+        [
+            one["ref"]["code"]
+            for one in point["conditions"]["materials"]
+            if "블록" in one["apply_to"]
+        ]
+        for point in swept
+    ]
+    assert on_block == [["M-000158"], ["M-000138"]]
+    # 받침판은 그대로 SECC — 한 바디에 재료 하나.
+    for point in swept:
+        plate = [
+            one for one in point["conditions"]["materials"] if "받침판" in one["apply_to"]
+        ]
+        assert [one["ref"]["code"] for one in plate] == ["M-000138"]
+    manifest = (sweep / "manifest.csv").read_text(encoding="utf-8-sig")
+    assert "블록 재료" in manifest.splitlines()[0] and "AL5052H32DEMO_-_-" in manifest
+
     out = os.environ.get("COMPCORE_FIXTURE_OUT")
     if out:
         target = Path(out)
         target.mkdir(parents=True, exist_ok=True)
-        for folder in (two, hole):
+        for folder in (two, hole, sweep):
             # 폴더 이름의 끝(스터디 id 여덟 자리)은 돌릴 때마다 달라진다 — 이름만 남긴다.
             name = folder.name.rsplit("-", 1)[0]
             shutil.rmtree(target / name, ignore_errors=True)
             shutil.copytree(folder, target / name)
+
+
+def test_DOE_는_조건을_안_주면_작업의_현재_조건을_싣는다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    """화면 · MCP 가 조건을 따로 실어 보내지 않아 DOE 폴더에 조건이 빠지고 있었다."""
+    work = client.post(
+        "/api/works",
+        json={"name": "조건 따라가기", "recipe": TWO_BODIES["recipe"]},
+        headers=member.headers,
+    ).json()
+    saved = client.put(
+        f"/api/works/{work['id']}/versions/1/conditions",
+        json={"conditions": TWO_BODIES["conditions"]},
+        headers=member.headers,
+    )
+    assert saved.status_code == 200, saved.text
+    study = {
+        "name": "조건 따라가기",
+        "recipe": TWO_BODIES["recipe"],
+        "factors": TWO_BODIES["factors"],
+        "work_id": work["id"],
+    }
+    made = client.post("/api/doe", json=study, headers=member.headers)
+    assert made.status_code == 201, made.text
+    assert made.json()["conditions"]["contacts"][0]["name"] == "블록-판"
+    # 재료 인자도 작업의 조건에서 후보를 찾는다.
+    swept = client.post(
+        "/api/doe",
+        json={**study, "name": "작업 재료 훑기", "factors": MATERIAL_SWEEP["factors"]},
+        headers=member.headers,
+    )
+    assert swept.status_code == 201, swept.text
+    # 빈 한 벌을 주면 형상만 훑는다.
+    bare = client.post(
+        "/api/doe", json={**study, "name": "형상만", "conditions": {}}, headers=member.headers
+    )
+    assert bare.status_code == 201 and bare.json()["conditions"] == {}
+
+
+def test_재료_인자는_조건에_담긴_재료와_도면의_바디만_받는다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    def create(factor: dict[str, Any], conditions: dict[str, Any] | None = None) -> Any:
+        body = {
+            **MATERIAL_SWEEP,
+            "factors": [factor],
+            "conditions": TWO_BODIES["conditions"] if conditions is None else conditions,
+        }
+        return client.post("/api/doe", json=body, headers=member.headers)
+
+    base = MATERIAL_SWEEP["factors"][0]
+    bad = create({**base, "values": ["없는재료"]})
+    assert bad.status_code >= 400 and "조건에 없습니다" in bad.text
+    bad = create({**base, "bodies": ["다리"]})
+    assert bad.status_code >= 400 and "도면에 없는 바디" in bad.text
+    bad = create(base, conditions={})
+    assert bad.status_code >= 400 and "조건에 재료가 없습니다" in bad.text
+
+
+def test_남의_작업의_조건은_DOE_로_가져오지_못한다(
+    client: TestClient, member: Signed, db: Session, export_root: Path
+) -> None:
+    """조건에는 그 사람의 물성 · 하중이 들어 있다 — 작업 id 만 알면 가져가게 두지 않는다."""
+    from tests.api.conftest import _login, make_user
+
+    work = client.post(
+        "/api/works",
+        json={"name": "내 것", "recipe": TWO_BODIES["recipe"]},
+        headers=member.headers,
+    ).json()
+    other = make_user(db, label="other", is_system_admin=False)
+    headers = {"Authorization": f"Bearer {_login(client, other.email)}"}
+    got = client.post(
+        "/api/doe",
+        json={
+            "name": "남의 조건",
+            "recipe": TWO_BODIES["recipe"],
+            "factors": TWO_BODIES["factors"],
+            "work_id": work["id"],
+        },
+        headers=headers,
+    )
+    assert got.status_code == 403, got.text
