@@ -125,3 +125,17 @@ def test_좌표_규칙이_없으면_형상을_만들지도_않는다() -> None:
         [{"name": "윗면", "select": {"what": "faces", "role": "top"}}], BASE, FACTORS, build
     )
     assert tracks == {} and calls == []
+
+
+def test_규칙의_식을_풀고_식으로_적은_위치는_따라가지_않는다() -> None:
+    from app.core.recipe.follow import resolved, written_near
+
+    definitions: list[dict[str, Any]] = [
+        {"name": "구멍", "select": {"what": "faces", "radius": "=지름 / 2"}},
+        {"name": "끝", "select": {"any": [{"near": [1, 2, 3]}, {"near": ["=길이", 0, 0]}]}},
+    ]
+    got = resolved(definitions, {"지름": 8.0, "길이": 120.0})
+    assert got[0]["select"]["radius"] == 4.0
+    assert got[1]["select"]["any"][1]["near"] == [120.0, 0, 0]
+    assert definitions[0]["select"]["radius"] == "=지름 / 2"  # 원본은 그대로
+    assert written_near(definitions) == {(1, 1)}

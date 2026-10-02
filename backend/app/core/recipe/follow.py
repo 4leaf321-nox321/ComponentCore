@@ -26,6 +26,7 @@ from typing import Any
 
 from build123d import Shape
 
+from app.core.recipe.params import evaluate_expression
 from app.core.recipe.query import find_features
 
 #: 규칙이 가리키는 것의 대표 점 — `find_features` 가 `near` 를 잴 때 쓰는 칸과 같다.
@@ -64,21 +65,56 @@ class Track:
     rate: dict[str, list[float]] = field(default_factory=dict)
 
 
+def resolved(
+    definitions: list[dict[str, Any]], values: dict[str, float]
+) -> list[dict[str, Any]]:
+    """선택 규칙 안의 `"=식"` 을 그 값으로 푼 사본 — 위치(`near`) · 반지름도 도면 변수를
+    따를 수 있다(「반지름 =지름/2 인 원통면」). 전에는 저장된 그대로 찾다가 DOE 작업 전체가
+    「could not convert string to float」 로 죽었다(실측 2026-10-02)."""
+
+    def walk(value: Any) -> Any:
+        if isinstance(value, str) and value.startswith("="):
+            return evaluate_expression(value, values)
+        if isinstance(value, list | tuple):
+            return [walk(one) for one in value]
+        if isinstance(value, dict):
+            return {key: walk(one) for key, one in value.items()}
+        return value
+
+    return [walk(one) for one in definitions]
+
+
+def written_near(definitions: list[dict[str, Any]]) -> set[tuple[int, int]]:
+    """위치를 **식으로 적은** 규칙 — 식이 이미 자리를 옮기므로 따라가기에서 뺀다(빼지 않으면
+    두 번 옮긴다)."""
+    out = set()
+    for i, definition in enumerate(definitions):
+        for j, rule in enumerate(_rules(definition.get("select") or {})):
+            near = rule.get("near")
+            if isinstance(near, list) and any(
+                isinstance(one, str) and one.startswith("=") for one in near
+            ):
+                out.add((i, j))
+    return out
+
+
 def measure(
     definitions: list[dict[str, Any]],
     base_values: dict[str, float],
     factors: list[str],
     build: Build,
+    skip: set[tuple[int, int]] | None = None,
 ) -> dict[tuple[int, int], Track]:
     """좌표 규칙마다 **변수 하나를 조금 바꾸면 얼마나 움직이나**를 잰다.
 
     열쇠는 (정의 순번, 그 안의 규칙 순번). 좌표 규칙이 없으면 형상을 만들지도 않는다.
+    `definitions` 는 식을 기준값으로 푼 것(`resolved`), `skip` 은 따라가지 않을 규칙.
     """
     wanted = [
         (i, j, rule)
         for i, definition in enumerate(definitions)
         for j, rule in enumerate(_rules(definition.get("select") or {}))
-        if isinstance(rule.get("near"), list)
+        if isinstance(rule.get("near"), list) and (i, j) not in (skip or set())
     ]
     if not wanted:
         return {}

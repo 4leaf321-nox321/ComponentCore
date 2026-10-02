@@ -261,6 +261,94 @@ def _points(folder: Path) -> list[dict[str, Any]]:
     ]
 
 
+#: ⑤ **측면 가진 · 조화 응답** — 강판 위의 알루미늄 기둥 끝을 X 로 흔든다. 기둥 높이를 훑으면
+#: 첫 굽힘 모드(외팔보 어림 80 → 약 1290 Hz, 100 → 약 830 Hz)가 200 ~ 2000 Hz 창 안에서
+#: 움직인다 — 블록 윗면 Z 압력(29 ~ 31 kHz, 준정적)으로는 못 보던 공진 증폭이 보인다
+#: (SimEngBay 의 부탁, 2026-10-02). 기둥 끝 꼭짓점을 「측정점」 점 그룹으로 싣는다.
+LATERAL: dict[str, Any] = {
+    "name": "조건_측면가진",
+    "recipe": {
+        "params": {"기둥_높이": 100.0},
+        "nodes": [
+            {"id": "받침판", "op": "box", "length": 80, "width": 80, "height": 10,
+             "align": ["center", "center", "min"]},
+            {"id": "기둥", "op": "box", "length": 10, "width": 10, "height": "=기둥_높이",
+             "at": [0, 0, 10], "align": ["center", "center", "min"]},
+            {"id": "조립", "op": "group", "targets": ["받침판", "기둥"]},
+            # 닿는 자리를 새긴다 — 본딩 접촉의 두 면이 넓이 · 자리까지 같아진다.
+            {"id": "새김", "op": "imprint", "target": "조립"},
+        ],
+    },
+    "factors": [{"name": "기둥_높이", "mode": "list", "values": [80, 100]}],
+    "conditions": {
+        "units": {"system": "mm_n_tonne"},
+        "named_selections": [
+            _face("바닥", {"body": "받침판", "normal": [0, 0, -1]}),
+            _face("기둥 끝", {"body": "기둥", "normal": [0, 0, 1]}),
+            _face("접합 판쪽", {"tag": "받침판/기둥"}),
+            _face("접합 기둥쪽", {"tag": "기둥/받침판"}),
+            {"name": "측정점", "entity": "vertex",
+             "select": {"what": "vertices", "of_face": {"body": "기둥", "normal": [0, 0, 1]},
+                        "near": [5, 5, "=10 + 기둥_높이"], "limit": 1}},
+        ],
+        "materials": [
+            _material("M-000138", ["받침판"]),
+            _material("M-000158", ["기둥"]),
+        ],
+        "constraints": [{"name": "바닥 고정", "type": "fixed_support", "on": "바닥"}],
+        "loads": [
+            {"name": "측면 가진", "type": "force", "on": "기둥 끝", "magnitude": 10,
+             "direction": [1, 0, 0]}
+        ],
+        "contacts": [
+            {"name": "기둥-판", "type": "bonded", "source": "접합 기둥쪽",
+             "target": "접합 판쪽"}
+        ],
+        "mesh_hints": [{"on": "전체", "element_size": 2, "order": "quadratic"}],
+        "analysis": {
+            "type": "harmonic",
+            "frequency_range": [200, 2000],
+            "method": "mode_superposition",
+            "modes": 6,
+            "solution_intervals": 90,
+            "damping_ratio": 0.02,
+        },
+    },
+}  # fmt: skip
+
+
+def test_측면_가진_픽스처_공진이_창_안에서_움직인다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    folder = _export(client, member, export_root, LATERAL)
+    points = _points(folder)
+    assert [point["point"]["params"]["기둥_높이"] for point in points] == [80, 100]
+    for point in points:
+        height = point["point"]["params"]["기둥_높이"]
+        assert point["unresolved"] == []
+        regions = point["regions"]
+        # 측정점 — 기둥 끝 꼭짓점 하나, 점 지문은 자리(`point`)뿐이다.
+        assert regions["측정점"] == [{"point": [5.0, 5.0, 10.0 + height]}]
+        # 새긴 접합면 — 양쪽이 같은 넓이 · 자리, 법선만 반대.
+        (plate,) = regions["접합 판쪽"]
+        (post,) = regions["접합 기둥쪽"]
+        assert plate["area"] == post["area"] == pytest.approx(100)
+        assert plate["centroid"] == post["centroid"] == [0.0, 0.0, 10.0]
+        assert (plate["normal"], post["normal"]) == ([0.0, 0.0, 1.0], [0.0, 0.0, -1.0])
+        conditions = point["conditions"]
+        assert conditions["loads"][0]["direction"] == [1, 0, 0]
+        assert conditions["analysis"]["type"] == "harmonic"
+        assert conditions["analysis"]["frequency_range"] == [200, 2000]
+        bodies = {one["name"]: one for one in point["bodies"]}
+        assert bodies["기둥"]["volume"] == pytest.approx(100 * height)
+
+    out = os.environ.get("COMPCORE_FIXTURE_OUT")
+    if out:
+        target = Path(out) / folder.name.rsplit("-", 1)[0]
+        shutil.rmtree(target, ignore_errors=True)
+        shutil.copytree(folder, target)
+
+
 def test_조건_픽스처를_실제_내보내기로_만든다(
     client: TestClient, member: Signed, export_root: Path
 ) -> None:

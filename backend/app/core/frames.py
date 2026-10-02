@@ -114,8 +114,9 @@ def condition_frames(
     """해석 조건의 좌표계(식이 풀린 것) → 원점 · 축. 그리고 **못 푼 이름들.**
 
     선택 그룹에 붙인 것은 그 그룹의 **첫 면**(`regions` — 이 설계점에서 푼 지문)에서 원점 ·
-    법선을 얻는다. 원통면이면 축을 Z 로 쓴다. 그룹을 못 풀었으면 이 좌표계도 못 푼 것이다 —
-    조용히 전역으로 바꾸면 성분이 딴 방향으로 걸린다.
+    법선을 얻는다. 원통면이면 축을 Z 로 쓴다. 점 · 엣지 그룹이면 원점만 그 자리, 방향은
+    전역(정할 방향이 없다). 그룹을 못 풀었으면 이 좌표계도 못 푼 것이다 — 조용히 전역으로
+    바꾸면 성분이 딴 방향으로 걸린다.
     """
     out: list[dict[str, Any]] = []
     missing: list[str] = []
@@ -130,6 +131,12 @@ def condition_frames(
             continue
         rows = regions.get(group) or []
         face = rows[0] if rows else None
+        if face and ("point" in face or "midpoint" in face):
+            # 점 · 엣지 그룹 — 면처럼 정할 방향이 없다. 원점만 그 자리, 방향은 전역이다(원격
+            # 하중 · 변위의 기준점으로 쓰는 일이 대부분이다). 전에는 「못 풀었다」 로 빠졌다.
+            origin = face.get("point") or face.get("midpoint")
+            out.append(from_definition(name, "conditions", {"origin": origin}))
+            continue
         direction = (face or {}).get("normal") or (face or {}).get("axis")
         if not face or not direction:
             missing.append(name)

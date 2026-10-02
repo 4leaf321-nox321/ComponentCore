@@ -138,10 +138,17 @@ def recipe_find(payload: FindRequest, _: User = Depends(current_user)) -> dict[s
 
     **선택 그룹의 셀렉터도 그대로 푼다** — 여럿을 묶은 합(`{"any": [...]}`)과 면 나누기의
     태그(`tag`)까지. 화면이 트리에서 고른 그룹을 3D 에 비출 때 쓴다."""
+    from app.core.recipe.follow import resolved
+    from app.core.recipe.params import ExpressionError, resolve_params
     from app.core.recipe.query import select_features
 
     evaluation = services.build(payload.recipe)
-    return select_features(evaluation.shape, payload.query, evaluation.tags)
+    # 그룹의 규칙에 도면 변수 식(`"radius": "=지름/2"`)이 있으면 지금 값으로 풀어 묻는다.
+    try:
+        (query,) = resolved([payload.query], resolve_params(payload.recipe))
+    except ExpressionError as failure:
+        raise AppError(code("CAD", 16), f"규칙의 식을 풀지 못했습니다: {failure}") from failure
+    return select_features(evaluation.shape, query, evaluation.tags)
 
 
 @router.get("/conditions/schema")

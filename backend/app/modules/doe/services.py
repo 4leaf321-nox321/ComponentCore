@@ -1170,7 +1170,11 @@ def run_job(
                     if one not in engine.material_factors(study.factors)
                 ]
                 tracks = follow.measure(
-                    definitions, base_values, shape_factors, _builder(study.recipe)
+                    follow.resolved(definitions, base_values),
+                    base_values,
+                    shape_factors,
+                    _builder(study.recipe),
+                    skip=follow.written_near(definitions),
                 )
             except (RecipeError, RecipeValidationError, params.ExpressionError):
                 tracks = {}
@@ -1228,9 +1232,10 @@ def run_job(
                     # 좌표가 다르므로 점마다 한 장이다(topology.py 머리말).
                     # **조건의 이름표가 `divide_face` 패치를 가리킬 수 있다.** 그 번호는 이
                     # 평가 안에서만 뜻이 있으므로 평가가 찾아 준 것을 그대로 넘긴다.
+                    # 선택 규칙의 식은 **이 설계점의 값으로** 푼다 — 그다음 좌표를 따라 옮긴다.
                     moved = (
                         follow.follow(
-                            definitions,
+                            follow.resolved(definitions, params.resolve_params(recipe)),
                             tracks,
                             base_values,
                             _shape_params(study, point.params),
