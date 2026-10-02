@@ -24,7 +24,9 @@ class FindRequest(RecipeRequest):
 
 class SelectorsRequest(RecipeRequest):
     pick: dict[str, Any] = Field(default_factory=dict)
-    """`what`(faces · edges · vertices) 와 `point`([x, y, z] — 3D 에서 찍은 자리)."""
+    """`what`(faces · edges · vertices) 와 `point`([x, y, z] — 3D 에서 찍은 자리). 화면은
+    누른 면 · 엣지의 번호 `index`(`/cad/recipe/mesh` 의 번호)도 준다 — 중심이 같은 두 면(판
+    윗면과 그 위 블록의 아랫면)을 가른다."""
     picks: list[dict[str, Any]] | None = Field(default=None, max_length=500)
     """**여럿을 한 번에** — 화면의 사각형 선택(Shift + 끌기). 주면 `pick` 대신 이것을 보고
     `{"items": [후보 한 벌, …]}` 을 같은 순서로 돌려준다. 도면을 **한 번만** 만든다 — 하나씩

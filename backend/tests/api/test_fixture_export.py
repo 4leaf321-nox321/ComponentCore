@@ -103,10 +103,13 @@ TWO_BODIES: dict[str, Any] = {
     "conditions": {
         "units": {"system": "mm_n_tonne"},
         "named_selections": [
-            _face("바닥", {"role": "bottom"}),
-            _face("블록 윗면", {"role": "top", "near": [0, 0, 25]}),
-            _face("판 윗면", {"kind": "plane", "normal": [0, 0, 1], "near": [40, 25, 5]}),
-            _face("블록 아랫면", {"kind": "plane", "normal": [0, 0, -1], "near": [0, 0, 5]}),
+            # **바디와 방향으로** 고른다 — 좌표가 없어 두께를 훑어도 헛집지 않는다. 2026-10-02
+            # 까지는 「+Z 평면 중 (40, 25, 5) 의 면」 이었는데 near 가 순서만 정해 판 윗면과
+            # 블록 윗면을 둘 다 집었다(SimEngBay 가 받고 알려 줬다).
+            _face("바닥", {"body": "받침판", "normal": [0, 0, -1]}),
+            _face("블록 윗면", {"body": "블록", "normal": [0, 0, 1]}),
+            _face("판 윗면", {"body": "받침판", "normal": [0, 0, 1]}),
+            _face("블록 아랫면", {"body": "블록", "normal": [0, 0, -1]}),
         ],
         "materials": [
             _material("M-000138", ["받침판"]),
@@ -276,9 +279,19 @@ def test_조건_픽스처를_실제_내보내기로_만든다(
         assert [one["apply_to"] for one in materials] == [["받침판"], ["블록"]]
         assert materials[0]["ref"]["code"] == "M-000138"
         assert materials[1]["ref"]["code"] == "M-000158"
-        # 접촉 · 구속 · 하중의 선택 그룹이 이 점에서 풀렸다.
+        # 접촉 · 구속 · 하중의 선택 그룹이 이 점에서 풀렸다 — **그룹마다 그 면 하나만.**
         assert point["unresolved"] == []
         assert point["conditions"]["analysis"]["type"] == "static"
+        top = 5.0 if point["point"]["params"]["두께"] == 5 else 8.0
+        assert {
+            name: [(face["area"], face["centroid"][2]) for face in faces]
+            for name, faces in point["regions"].items()
+        } == {
+            "바닥": [(6000.0, 0.0)],
+            "블록 윗면": [(1600.0, top + 20)],
+            "판 윗면": [(6000.0, top)],
+            "블록 아랫면": [(1600.0, top)],
+        }
     thick = [
         {one["name"]: one["volume"] for one in point["bodies"]}["받침판"]
         for point in _points(two)

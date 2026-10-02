@@ -72,7 +72,9 @@ class NamedSelection(Base):
     name: str = Field(min_length=1, max_length=60)
     entity: Literal["face", "edge", "vertex", "body"] = "face"
     select: dict[str, Any] = Field(default_factory=dict)
-    """`query.find_features` 의 질의. `body` 면 `topology.bodies` 의 이름을 가리킨다.
+    """`query.find_features` 의 질의. `body` 면 `topology.bodies` 의 이름을 가리킨다 — 면 ·
+    엣지 · 점 그룹에서는 **그 바디의 것만** 거른다(조립에서 좌표 없이 「블록의 아랫면」).
+    `near` 는 가장 가까운 하나, `near` 가 없으면 맞는 것 전부다.
 
     **여럿을 묶으면 `{"any": [셀렉터, …]}`** — 3D 에서 Ctrl · Shift 로 하나씩 고른 것들의
     합이다(`query.select_features`). 고른 것마다 제 규칙을 두므로 치수를 바꿔도 같은 것들을

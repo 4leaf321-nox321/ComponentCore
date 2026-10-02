@@ -102,9 +102,13 @@ def test_MCP_만으로_도면_조건_물성_DOE_까지(bot: Bot, export_root: Pa
     assert spec["input_system"] == "mm_n_tonne"
     assert spec["groups"]["contacts"]["accepts"]["bonded"] == [{"entity": "face"}]
 
-    # 3) 면을 찾는다 — 좌표를 짐작하지 않고 질의로.
-    top = bot.call(server.recipe_find, RECIPE, {"what": "faces", "role": "top"})
-    assert top["total"] >= 1
+    # 3) 면을 찾는다 — 좌표를 짐작하지 않고 질의로. 바디 이름이 틀리면 있는 이름을 알려 준다.
+    top = bot.call(
+        server.recipe_find, RECIPE, {"what": "faces", "body": "받침판", "normal": "z"}
+    )
+    assert top["total"] == 1 and top["items"][0]["area"] == 6000
+    typo = bot.call(server.recipe_find, RECIPE, {"what": "faces", "body": "받침"})
+    assert typo["total"] == 0 and typo["bodies"] == ["받침판", "블록"]
 
     # 4) 물성 — 찾고, 받고, 조건에 넣을 항목을 그대로 쓴다.
     found = bot.call(server.material_search, "AL5052")
@@ -115,33 +119,15 @@ def test_MCP_만으로_도면_조건_물성_DOE_까지(bot: Bot, export_root: Pa
     assert aluminum["condition_item"]["payload"]["code"] == "M-000158"
 
     conditions: dict[str, Any] = {
+        # 조립은 **바디와 방향으로** 고른다 — 좌표가 없어 두께를 훑어도 헛집지 않는다.
         "named_selections": [
-            {"name": "바닥", "entity": "face", "select": {"what": "faces", "role": "bottom"}},
-            {
-                "name": "블록 윗면",
-                "entity": "face",
-                "select": {"what": "faces", "role": "top", "near": [0, 0, 25]},
-            },
-            {
-                "name": "판 윗면",
-                "entity": "face",
-                "select": {
-                    "what": "faces",
-                    "kind": "plane",
-                    "normal": [0, 0, 1],
-                    "near": [40, 25, 5],
-                },
-            },
-            {
-                "name": "블록 아랫면",
-                "entity": "face",
-                "select": {
-                    "what": "faces",
-                    "kind": "plane",
-                    "normal": [0, 0, -1],
-                    "near": [0, 0, 5],
-                },
-            },
+            {"name": name, "entity": "face", "select": {"what": "faces", **rule}}
+            for name, rule in (
+                ("바닥", {"body": "받침판", "normal": [0, 0, -1]}),
+                ("블록 윗면", {"body": "블록", "normal": [0, 0, 1]}),
+                ("판 윗면", {"body": "받침판", "normal": [0, 0, 1]}),
+                ("블록 아랫면", {"body": "블록", "normal": [0, 0, -1]}),
+            )
         ],
         "materials": [
             {**steel["condition_item"], "apply_to": ["받침판"]},
@@ -230,6 +216,13 @@ def test_MCP_만으로_도면_조건_물성_DOE_까지(bot: Bot, export_root: Pa
         plate = next(m for m in resolved["materials"] if "받침판" in m["apply_to"])
         assert plate["converted"]["scaled"] == {"탄성계수": params["받침판 E 배율"]}
         assert point["unresolved"] == []
+        # 그룹마다 그 면 하나 — 판 윗면에 블록 윗면이 섞이지 않는다.
+        assert {name: len(faces) for name, faces in point["regions"].items()} == {
+            "바닥": 1,
+            "블록 윗면": 1,
+            "판 윗면": 1,
+            "블록 아랫면": 1,
+        }
 
     # 7) 같은 열쇠로 다시 부르면 같은 한 벌(재시도).
     again = bot.call(

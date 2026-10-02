@@ -375,9 +375,14 @@ async def recipe_find(ctx: Context, recipe: dict[str, Any], query: dict[str, Any
     - 윗면 테두리 엣지: `{"what":"edges","of_face_role":"top","kind":"line"}`
     - 지름 8 구멍의 위 원: `{"kind":"circle","radius":4,"near":[20,10,12]}`
     - 옆면들: `{"what":"faces","role":"side"}`
-    칸: what(edges|faces) · kind · role(top|bottom|side|step|underside) · of_face_role ·
-    axis(x|y|z) · radius · min_length · max_length · near · limit. 답의 `midpoint`(엣지) ·
-    `center`(면)를 fillet/chamfer 의 `near`, 스케치의 `plane` 에 그대로 쓴다."""
+    - 조립에서 블록의 아랫면: `{"what":"faces","body":"블록","normal":[0,0,-1]}`
+    칸: what(edges|faces|vertices) · kind · role(top|bottom|side|step|underside) ·
+    of_face_role · axis(x|y|z) · normal · radius · min_length · max_length · body · near ·
+    limit. **`near` 는 그 점에서 가장 가까운 하나**다 — 여럿을 가까운 순으로 보려면 `limit` 을
+    함께 준다. `body` 는 `recipe_bodies` 의 이름(조립의 구성품, 단품은 「전체」) — 틀리면 답의
+    `bodies` 에 있는 이름이 온다. 답의 `midpoint`(엣지) · `center`(면)를 fillet/chamfer 의
+    `near`, 스케치의 `plane` 에 그대로 쓴다. 이 질의를 선택 그룹의 `select` 로 쓰면 **여기서
+    본 것과 같은 것**을 집는다(그룹은 `near` 가 없으면 맞는 것 전부)."""
     return await _post(ctx, "/api/cad/recipe/find", {"recipe": recipe, "query": query})
 
 

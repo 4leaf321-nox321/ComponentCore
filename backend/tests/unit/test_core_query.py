@@ -139,3 +139,99 @@ def test_좌표만_쓰면_치수가_바뀔_때_딴_면을_집고_방향으로_�
 
     헛집은것 = find_features(_long_plate(130), 좌표만["select"])["items"][0]
     assert 헛집은것["kind"] == "cylinder", "좌표만 쓰면 구멍을 집는다 — 기본이면 안 되는 까닭"
+
+
+#: 판 위에 블록이 앉은 조립 — 같은 방향의 면이 바디마다 있다(SimEngBay 픽스처의 모양).
+STACK: dict[str, Any] = {
+    "params": {"두께": 5.0},
+    "nodes": [
+        {"id": "받침판", "op": "box", "length": 100, "width": 60, "height": "=두께",
+         "align": ["center", "center", "min"]},
+        {"id": "블록", "op": "box", "length": 40, "width": 40, "height": 20,
+         "at": [0, 0, "=두께"], "align": ["center", "center", "min"]},
+        {"id": "조립", "op": "group", "targets": ["받침판", "블록"]},
+    ],
+}  # fmt: skip
+
+
+def _stack(두께: float = 5) -> Shape:
+    return evaluate(parse({**STACK, "params": {"두께": 두께}})).shape
+
+
+def test_near_는_가장_가까운_하나다() -> None:
+    """2026-10-02 까지 near 는 순서만 정했다 — 「+Z 평면 중 (40, 25, 5) 의 면」 이 판 윗면과
+    블록 윗면을 둘 다 집어 SimEngBay 가 받은 「판 윗면」 그룹에 블록 윗면이 섞였다. 여럿을
+    가까운 순으로 보려면 limit 을 준다."""
+    rule = {"what": "faces", "kind": "plane", "normal": [0, 0, 1], "near": [40, 25, 5]}
+    one = select_features(_stack(), rule)
+    assert [(row["area"], row["center"][2]) for row in one["items"]] == [(6000.0, 5.0)]
+    assert find_features(_stack(), rule)["items"] == one["items"]  # 찾기와 그룹이 같은 뜻
+    assert len(find_features(_stack(), {**rule, "limit": 5})["items"]) == 2
+
+
+def test_바디로_거르면_좌표_없이_그_바디의_면만_집는다() -> None:
+    블록아랫면 = {"what": "faces", "body": "블록", "normal": [0, 0, -1]}
+    for 두께 in (5, 12):
+        got = select_features(_stack(두께), 블록아랫면)["items"]
+        assert [(row["area"], row["center"][2]) for row in got] == [(1600.0, 두께)], 두께
+    # 엣지 · 점도 — 블록의 수직 엣지는 넷.
+    edges = find_features(_stack(), {"what": "edges", "body": "블록", "axis": "z"})
+    assert edges["total"] == 4
+    # 단품은 「전체」 하나 — 그 이름이면 거르지 않는다.
+    assert find_features(_shape(), {"what": "faces", "body": "전체"})["total"] == len(
+        _shape().faces()
+    )
+
+
+def test_없는_바디_이름이면_있는_이름을_알려_준다() -> None:
+    got = find_features(_stack(), {"what": "faces", "body": "블럭"})
+    assert got["total"] == 0 and got["bodies"] == ["받침판", "블록"]
+
+
+def _plate_top(shape: Shape) -> dict[str, Any]:
+    rows = find_features(shape, {"what": "faces", "body": "받침판", "normal": [0, 0, 1]})
+    return {
+        "what": "faces",
+        "point": rows["items"][0]["center"],
+        "index": rows["items"][0]["index"],
+    }
+
+
+def test_중심이_같은_두_면은_번호로_가른다() -> None:
+    """화면은 누른 면의 **중심**을 보낸다 — 판 윗면과 그 위 블록의 아랫면은 중심이 (0, 0, 5)
+    로 같아 자리만으로는 어느 쪽인지 모른다. 번호를 함께 보내면 그 면이다."""
+    shape = _stack()
+    pick = _plate_top(shape)
+    assert pick["point"] == [0.0, 0.0, 5.0]
+    picked = selector_candidates(shape, pick)["picked"]
+    assert picked["index"] == pick["index"] and picked["normal"] == [0.0, 0.0, 1.0]
+    # 번호가 자리와 안 맞으면(도면이 그새 바뀌었다) 믿지 않고 가장 가까운 것을 쓴다.
+    far = selector_candidates(shape, {**pick, "index": 0})["picked"]
+    assert far["center"] == [0.0, 0.0, 5.0]
+
+
+def test_조립에서_찍으면_그_바디의_방향_면이_먼저_나온다() -> None:
+    picked = selector_candidates(_stack(), _plate_top(_stack()))
+    stable = [one for one in picked["candidates"] if one["matches"] == 1 and one["stable"]]
+    # 화면은 「하나에 맞고 치수에 강한 것」 중 첫째를 기본으로 고른다 — 좌표 없는 규칙이다.
+    assert stable[0]["select"] == {
+        "what": "faces",
+        "body": "받침판",
+        "kind": "plane",
+        "normal": [0.0, 0.0, 1.0],
+    }
+
+
+def test_near_없는_그룹은_목록_상한에_잘리지_않는다() -> None:
+    """구멍이 예순 개를 넘어도 그룹은 전부다 — 찾기 목록은 60 에서 자른다."""
+    holes = [[x, y] for x in range(-36, 37, 8) for y in range(-20, 21, 5)]  # 10 x 9 = 90
+    recipe = {
+        "nodes": [
+            {"id": "b", "op": "box", "length": 80, "width": 50, "height": 4},
+            {"id": "h", "op": "hole", "target": "b", "at": holes, "diameter": 2},
+        ]
+    }
+    shape = evaluate(parse(recipe)).shape
+    rule = {"what": "faces", "kind": "cylinder"}
+    assert len(select_features(shape, rule)["items"]) == len(holes)
+    assert len(find_features(shape, rule)["items"]) == 60

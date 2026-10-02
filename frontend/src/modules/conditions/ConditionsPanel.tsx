@@ -101,12 +101,15 @@ import PickViewer from '@/shared/viewer/PickViewer'
  */
 type Editing = { group: string; index: number | null; item: ConditionItem } | null
 
-/** 3D 에서 찍은 것 → 서버에 물을 말. */
-function toPick(pick: MeasurePick): { what: string; point: number[]; label: string } {
+/**
+ * 3D 에서 찍은 것 → 서버에 물을 말. 면 · 엣지는 **번호도** 보낸다 — 판 윗면과 그 위 블록의
+ * 아랫면처럼 중심이 같은 두 면은 자리만으로는 못 가른다.
+ */
+function toPick(pick: MeasurePick): { what: string; point: number[]; index?: number; label: string } {
   if (pick.kind === 'point') return { what: 'vertices', point: pick.at, label: '점' }
-  if (pick.kind === 'edge') return { what: 'edges', point: pick.edge.midpoint, label: '엣지' }
+  if (pick.kind === 'edge') return { what: 'edges', point: pick.edge.midpoint, index: pick.edge.index, label: '엣지' }
   if (pick.kind === 'body') return { what: 'bodies', point: [], label: '바디' }
-  return { what: 'faces', point: pick.face.center, label: '면' }
+  return { what: 'faces', point: pick.face.center, index: pick.face.index, label: '면' }
 }
 
 /**
@@ -258,7 +261,7 @@ export function ConditionsPanel({
       return
     }
     if (mods.shift && had) return
-    const { what, point, label } = toPick(pick)
+    const { what, point, index, label } = toPick(pick)
     let candidates: SelectorCandidate[]
     // **바디는 서버에 물을 것이 없다.** 면 · 엣지 · 점은 「이 자리를 무엇으로 부를까」 를
     // 셀렉터 후보로 되받아야 하지만, 바디는 **이름이 곧 답**이다(`topology.bodies`).
@@ -266,7 +269,7 @@ export function ConditionsPanel({
       candidates = [{ label: `바디 「${pick.name}」`, select: { body: pick.name }, matches: 1 }]
     } else {
       try {
-        candidates = (await conditionsApi.selectors(recipe, what, point)).candidates
+        candidates = (await conditionsApi.selectors(recipe, what, point, index)).candidates
       } catch (failure) {
         setError(failure instanceof ApiError ? failure : new Error(String(failure)))
         return
@@ -304,7 +307,7 @@ export function ConditionsPanel({
     let answers: { candidates: SelectorCandidate[] }[] = []
     if (asking.length > 0) {
       try {
-        answers = (await conditionsApi.selectorsMany(recipe, asking.map(({ what, point }) => ({ what, point })))).items
+        answers = (await conditionsApi.selectorsMany(recipe, asking.map(({ what, point, index }) => ({ what, point, index })))).items
       } catch (failure) {
         setError(failure instanceof ApiError ? failure : new Error(String(failure)))
         return

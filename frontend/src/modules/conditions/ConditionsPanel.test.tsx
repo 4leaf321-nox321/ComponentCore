@@ -276,11 +276,14 @@ async function makeGroup(pick: string, name: string, rule?: string) {
 }
 
 test('선택하면 좌표가 아니라 **선택 규칙**으로 되돌려 주고, 그것이 선택 그룹이 된다', async () => {
+  const calls = vi.mocked((await import('@/shared/api/client')).api.post)
   await panel()
 
   fireEvent.click(screen.getByText('면 찍기'))
   // 창 없이 3D 를 선택하면 「선택 그룹 추가」 창이 열린다.
   await waitFor(() => screen.getByRole('dialog', { name: '선택 그룹 추가' }))
+  const asked = calls.mock.calls.filter((one) => String(one[0]).includes('selectors'))
+  expect((asked[asked.length - 1][1] as { pick: unknown }).pick).toEqual({ what: 'faces', point: [0, 0, 0], index: 0 })
   // 후보마다 「지금 몇 개에 맞나」 가 보여야 한다 — 하나만 집을지 부류 전부를 집을지 고른다.
   await waitFor(() => screen.getByRole('option', { name: 'bottom 면 (현재 1 개)' }))
   // 좌표만 쓰는 규칙은 **치수 변경에 취약하다고** 적혀 있다.
@@ -363,7 +366,8 @@ test('**Shift + 끌기**(사각형)로 고른 것들을 더하고, 규칙은 서
   // 도면을 고른 수만큼 다시 만들지 않는다 — 묻는 것은 한 번, 새로 담을 것만.
   const asked = calls.mock.calls.slice(before).filter((one) => String(one[0]).includes('selectors'))
   expect(asked).toHaveLength(1)
-  expect((asked[0][1] as { picks: unknown[] }).picks).toHaveLength(1)
+  // 누른 면의 **번호도** 보낸다 — 중심이 같은 두 면(판 윗면 · 그 위 블록의 아랫면)을 가른다.
+  expect((asked[0][1] as { picks: unknown[] }).picks).toEqual([{ what: 'faces', point: [5, 0, 9], index: 1 }])
 
   fireEvent.change(screen.getByLabelText('그룹 이름'), { target: { value: '위아래' } })
   fireEvent.click(screen.getByRole('button', { name: '생성' }))

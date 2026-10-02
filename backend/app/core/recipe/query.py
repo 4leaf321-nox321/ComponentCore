@@ -36,6 +36,14 @@ def _dot(a: Any, b: tuple[float, float, float]) -> float:
 
 
 _LIMIT = 60
+#: 선택 그룹은 맞는 것을 **전부** 집는다 — 목록 상한(60)에 말없이 잘리면 구멍 백 개 중 예순만
+#: 하중을 받는다.
+_EVERYTHING = 100_000
+#: 바디 이름 대신 쓰는 말 — 모든 바디. `topology.bodies` 가 단품을 이 이름 하나로 부른다.
+_ALL_BODIES = "전체"
+#: 찍은 자리와 면 · 엣지의 대표 점이 「같은 자리」 인 거리(mm) — 화면은 4 자리, 여기는 3 자리로
+#: 반올림한다.
+_SAME_PLACE = 0.01
 
 
 def _xyz(v: Any) -> list[float]:
@@ -145,15 +153,23 @@ def find_features(
       min_length / max_length
       tag         `divide_face` 가 붙인 이름 — 그 패치의 면만. `tags` 를 줘야 듣는다
       edges       이 점에 모이는 엣지 수(점) — 꼭짓점 3 · 구멍 테두리 2
-      near        [x, y, z] — 이 점에서 가까운 순으로
-      limit       기본 60
+      body        이 바디의 것만 — 조립의 구성품 이름표(`topology.bodies` 의 이름), 단품은
+                  「전체」. 좌표 없이 「블록의 아랫면」 을 말할 수 있다
+      near        [x, y, z] — **이 점에서 가장 가까운 것 하나.** 여럿을 가까운 순으로 보려면
+                  `limit` 을 함께 준다
+      limit       near 가 있으면 1, 없으면 60
     답의 `midpoint`(엣지) · `center`(면) · `point`(점)를 그대로 `near` 나 `plane` 에 쓴다.
+
+    **`near` 가 순서만 정하면 안 된다** — 2026-10-02 까지는 그랬고, 「+Z 평면 중
+    (40, 25, 5) 의 면」 이 판 윗면과 블록 윗면을 **둘 다** 집었다(SimEngBay 가 받은 픽스처).
+    사람이 near 를 쓰는 뜻은 「이 자리의 것」 이고, 3D 에서 고른 규칙도 늘 `limit: 1` 을 붙여
+    왔다. 그래서 near 는 하나다 — 찾기 · 선택 그룹 · 면 나누기가 같은 말을 같은 뜻으로 읽는다.
     """
     what = query.get("what", "edges")
     box = shape.bounding_box()
     z_lo, z_hi = float(box.min.Z), float(box.max.Z)
-    limit = int(query.get("limit") or _LIMIT)
     near = query.get("near")
+    limit = int(query.get("limit") or (1 if near else _LIMIT))
 
     if what == "vertices":
         rows = [_vertex_row(i, v, shape) for i, v in enumerate(shape.vertices())]
@@ -221,12 +237,49 @@ def find_features(
             rows = [r for r in rows if r["length"] <= float(query["max_length"])]
         key = "midpoint"
 
+    known_bodies: list[str] | None = None
+    if query.get("body") is not None:
+        rows, known_bodies = _in_body(shape, what, rows, str(query["body"]))
+
     if near:
         point = [float(v) for v in near]
         for r in rows:
             r["distance_from_near"] = round(_dist(r[key], point), 3)
         rows.sort(key=lambda r: r["distance_from_near"])
-    return {"what": what, "total": len(rows), "items": rows[:limit]}
+    out: dict[str, Any] = {"what": what, "total": len(rows), "items": rows[:limit]}
+    if known_bodies is not None:
+        # 없는 바디 이름 — 0 개라고만 하면 오타인지 알 길이 없다. 있는 이름을 알려 준다.
+        out["bodies"] = known_bodies
+    return out
+
+
+def body_parts(shape: Shape) -> dict[str, Shape]:
+    """바디 이름 → 그 덩어리. 이름표가 **모두** 붙은 조립이면 구성품마다, 아니면 빈 것(단품 —
+    「전체」 하나). `topology.bodies` 가 내는 이름과 같다."""
+    children = list(getattr(shape, "children", ()) or ())
+    if children and all(getattr(child, "label", "") for child in children):
+        return {str(child.label): child for child in children}
+    return {}
+
+
+def _in_body(
+    shape: Shape, what: str, rows: list[dict[str, Any]], name: str
+) -> tuple[list[dict[str, Any]], list[str] | None]:
+    """그 바디에 속한 줄만. 모르는 이름이면 (빈 목록, 있는 이름들)."""
+    if name == _ALL_BODIES:
+        return rows, None
+    parts = body_parts(shape)
+    part = parts.get(name)
+    if part is None:
+        return [], sorted(parts) or [_ALL_BODIES]
+    if what == "faces":
+        mine, every = set(part.faces()), shape.faces()
+    elif what == "vertices":
+        mine, every = set(part.vertices()), shape.vertices()
+    else:
+        mine, every = set(part.edges()), shape.edges()
+    keep = {index for index, one in enumerate(every) if one in mine}
+    return [row for row in rows if row["index"] in keep], None
 
 
 def select_features(
@@ -240,10 +293,12 @@ def select_features(
 
     두 규칙이 같은 것을 집으면 **한 번만** 센다(번호로 가른다) — 안 그러면 받는 쪽이 같은 면에
     하중을 두 번 건다.
+
+    `near` 없는 규칙은 맞는 것을 **전부** 집는다 — 목록 상한(60)에 잘리지 않는다.
     """
     members = select.get("any")
     if not isinstance(members, list):
-        return find_features(shape, select, tags)
+        return find_features(shape, _whole(select), tags)
     what = next(
         (one.get("what") for one in members if isinstance(one, dict) and one.get("what")),
         "faces",
@@ -251,12 +306,19 @@ def select_features(
     seen: set[int] = set()
     items: list[dict[str, Any]] = []
     for member in members:
-        for row in find_features(shape, member, tags)["items"]:
+        for row in find_features(shape, _whole(member), tags)["items"]:
             if row["index"] in seen:
                 continue
             seen.add(row["index"])
             items.append(row)
     return {"what": what, "total": len(items), "items": items}
+
+
+def _whole(rule: dict[str, Any]) -> dict[str, Any]:
+    """그룹의 규칙 — 상한을 안 적었고 `near` 도 없으면 맞는 것 전부."""
+    if rule.get("limit") or rule.get("near"):
+        return rule
+    return {**rule, "limit": _EVERYTHING}
 
 
 # --- 재기 -------------------------------------------------------------------------
@@ -357,7 +419,9 @@ Candidate = tuple[str, dict[str, Any], bool]
 _KIND_LABEL = {"cylinder": "원통면", "cone": "원뿔면", "sphere": "구면", "torus": "토러스면"}
 
 
-def _face_candidates(row: dict[str, Any], point: list[float]) -> list[Candidate]:
+def _face_candidates(
+    row: dict[str, Any], point: list[float], body: str | None = None
+) -> list[Candidate]:
     """면 하나를 부를 말들 — **좌표에 기대지 않는 것부터.**
 
     「이 좌표에 가장 가까운 면」 은 치수가 바뀌면 **말없이 다른 면을 집는다** — 못 찾는 게
@@ -365,8 +429,41 @@ def _face_candidates(row: dict[str, Any], point: list[float]) -> list[Candidate]
     옆면 대신 구멍 원통면이 잡혔다). 그래서 한 면을 고르는 기본은 **같은 종류 · 같은 방향
     중 가장 가까운 것**이다 — 방향은 치수가 바뀌어도 대개 그대로라, 헛집으려면 같은 방향의
     딴 면이 더 가까워야 한다. 좌표만 쓰는 후보는 맨 끝에 두고 `stable=False` 로 알린다.
+
+    조립이면 **「그 바디의 이 방향 면」** 을 맨 먼저 낸다(`body`) — 좌표가 아예 없어 치수가
+    바뀌어도 헛집을 수 없다. 판 위에 블록이 앉으면 「+Z 평면 중 이 면」 은 둘 중 가까운
+    것이지만 「받침판의 +Z 평면」 은 하나다.
     """
     out: list[Candidate] = []
+    if body is not None and row["kind"] == "plane" and row.get("normal"):
+        direction = _direction_label(row["normal"], signed=True)
+        out.append(
+            (
+                f"「{body}」 의 {direction} 방향 평면",
+                {
+                    "what": "faces",
+                    "body": body,
+                    "kind": "plane",
+                    "normal": _rounded(row["normal"]),
+                },
+                True,
+            )
+        )
+    elif body is not None and isinstance(row.get("axis"), dict):
+        direction = _direction_label(row["axis"]["direction"], signed=False)
+        kind = _KIND_LABEL.get(row["kind"], f"{row['kind']} 면")
+        out.append(
+            (
+                f"「{body}」 의 {direction}축 {kind}",
+                {
+                    "what": "faces",
+                    "body": body,
+                    "kind": row["kind"],
+                    "axis": _rounded(row["axis"]["direction"]),
+                },
+                True,
+            )
+        )
     role = row.get("role")
     if role:
         out.append((f"{role} 면", {"what": "faces", "role": role}, True))
@@ -477,6 +574,15 @@ def _vertex_candidates(row: dict[str, Any], point: list[float]) -> list[Candidat
     ]
 
 
+def _body_of(shape: Shape, index: int) -> str | None:
+    """조립이면 그 면이 속한 바디의 이름. 단품이면 None — 「전체」 로 거르는 것은 뜻이 없다."""
+    face = shape.faces()[index]
+    for name, part in body_parts(shape).items():
+        if face in set(part.faces()):
+            return name
+    return None
+
+
 def selector_candidates(shape: Shape, pick: dict[str, Any]) -> dict[str, Any]:
     """3D 에서 **고른 것을 말로 되돌려 준다** — 좌표가 아니라 셀렉터로.
 
@@ -493,13 +599,27 @@ def selector_candidates(shape: Shape, pick: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(point, list) or len(point) != 3:
         raise ValueError("pick.point: [x, y, z] 가 필요합니다")
 
-    found = find_features(shape, {"what": what, "near": point, "limit": 1})
-    if not found["items"]:
+    found = find_features(shape, {"what": what, "near": point, "limit": _EVERYTHING})["items"]
+    if not found:
         return {"picked": None, "candidates": []}
-    row = found["items"][0]
+    row = found[0]
+    # **번호가 있으면 그것을 믿는다** — 판 윗면과 그 위에 앉은 블록의 아랫면은 중심이 같아
+    # (0, 0, 5) 가장 가까운 것이 둘이고, 어느 쪽이 먼저인지는 면 순서가 정한다. 화면은 누른
+    # 면의 번호를 안다. 자리가 맞을 때만 쓴다 — 도면이 그새 바뀌었으면 번호가 딴 것을 가리킨다.
+    index = pick.get("index")
+    if isinstance(index, int):
+        exact = next(
+            (
+                one
+                for one in found
+                if one["index"] == index and one["distance_from_near"] <= _SAME_PLACE
+            ),
+            None,
+        )
+        row = exact or row
 
     if what == "faces":
-        pairs = _face_candidates(row, point)
+        pairs = _face_candidates(row, point, _body_of(shape, row["index"]))
     elif what == "vertices":
         pairs = _vertex_candidates(row, point)
     else:

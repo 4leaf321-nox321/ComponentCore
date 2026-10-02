@@ -1,5 +1,5 @@
 {
-  "id": "528eb5cc-7211-4995-ba81-a0400aee7834",
+  "id": "c01a72ad-dd50-4621-83e9-41112abdbb87",
   "name": "조건_재료훑기",
   "description": "",
   "method": "factorial",
@@ -404,33 +404,33 @@
         "name": "바닥",
         "entity": "face",
         "select": {
-          "role": "bottom",
-          "what": "faces"
+          "body": "받침판",
+          "what": "faces",
+          "normal": [
+            0,
+            0,
+            -1
+          ]
         }
       },
       {
         "name": "블록 윗면",
         "entity": "face",
         "select": {
-          "near": [
+          "body": "블록",
+          "what": "faces",
+          "normal": [
             0,
             0,
-            25
-          ],
-          "role": "top",
-          "what": "faces"
+            1
+          ]
         }
       },
       {
         "name": "판 윗면",
         "entity": "face",
         "select": {
-          "kind": "plane",
-          "near": [
-            40,
-            25,
-            5
-          ],
+          "body": "받침판",
           "what": "faces",
           "normal": [
             0,
@@ -443,12 +443,7 @@
         "name": "블록 아랫면",
         "entity": "face",
         "select": {
-          "kind": "plane",
-          "near": [
-            0,
-            0,
-            5
-          ],
+          "body": "블록",
           "what": "faces",
           "normal": [
             0,
@@ -461,7 +456,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-f63016b0@example.local"
+    "email": "member-970b6bcd@example.local"
   },
   "requested_by": null
 }

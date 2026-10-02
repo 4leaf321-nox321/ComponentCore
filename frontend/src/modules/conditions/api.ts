@@ -322,11 +322,11 @@ export const conditionsApi = {
   notes: (conditions: Conditions, recipe: Recipe) =>
     api.post<{ items: ExpressionNote[] }>('/cad/conditions/notes', { conditions, recipe }),
 
-  /** 찍은 자리를 말로 되돌려 받는다. `what` 은 faces · edges · vertices. */
-  selectors: (recipe: Recipe, what: string, point: number[]) =>
+  /** 찍은 자리를 말로 되돌려 받는다. `what` 은 faces · edges · vertices, `index` 는 누른 면 · 엣지의 번호. */
+  selectors: (recipe: Recipe, what: string, point: number[], index?: number) =>
     api.post<{ picked: Record<string, unknown> | null; candidates: SelectorCandidate[] }>(
       '/cad/recipe/selectors',
-      { recipe, pick: { what, point } },
+      { recipe, pick: { what, point, index } },
     ),
   /**
    * 선택 그룹의 셀렉터를 **지금 형상에서** 푼다 — 트리에서 고른 그룹을 3D 에 비출 때. 합(`any`) ·
@@ -347,7 +347,7 @@ export const conditionsApi = {
    * **여럿을 한 번에** — 사각형 선택(Shift + 끌기). 도면을 한 번만 만들고 같은 순서로 돌려준다.
    * 하나씩 부르면 스무 개를 고른 사각형이 도면을 스무 번 만든다.
    */
-  selectorsMany: (recipe: Recipe, picks: { what: string; point: number[] }[]) =>
+  selectorsMany: (recipe: Recipe, picks: { what: string; point: number[]; index?: number }[]) =>
     api.post<{ items: { picked: Record<string, unknown> | null; candidates: SelectorCandidate[] }[] }>(
       '/cad/recipe/selectors',
       { recipe, picks },
