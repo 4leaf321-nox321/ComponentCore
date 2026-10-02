@@ -1,4 +1,4 @@
-<!-- version: 2026-09-29.2 -->
+<!-- version: 2026-10-02.1 -->
 # CompCore MCP 가이드
 
 ## overview
@@ -79,6 +79,17 @@
   — **판금 절곡**: 옆에서 본 꺾은선대로 판을 접는다. 「2t 판, 30 올라가 20 꺾임, 폭 40, 굽힘 R3」
   이 그대로 칸이 된다. 꺾은선이 **폭의 가운데**에 오므로 구멍 자리는 평면 좌표 그대로 주면 된다.
   브래킷 · ㄱ자 앵글 · 덮개는 블록을 깎지 말고 이것으로) ·
+  `bend`(target, bends [{at, radius, toward up|down, until angle|end, angle}…], along [x,y,z],
+  k_factor — **펼친 판을 굽힌다**: 평평한 판(두께 한결같은 입체 — `box` 나 스케치 `extrude` 에
+  구멍 · 노치를 낸 것)을 굽힘선에서 반지름 R 로 접거나 원통에 감는다. `at` 은 **펼친 판**에서
+  `along` 방향 좌표(along 이 X 면 x 값)이고 굽힘선은 along 에 수직이다. 여러 굽힘은 `at` 이 커지는
+  순서로, 굽힘마다 그 뒤쪽 판이 따라 돈다. `until: end` 는 남은 판을 끝까지 감는다(마지막 굽힘만).
+  `toward: up` 은 판의 위쪽(누운 판이면 +Z). 굽힘 구간에 걸린 구멍도 같이 휘고, 굽힘면은
+  원통면(안쪽 R · 바깥 R+t)이라 `kind: cylinder` 로 고를 수 있다. 펼친 길이는 중립면
+  (`k_factor`, 기본 0.5 — 안쪽 면에서 두께의 몇 할)에서 보존된다. 포켓 · 단차 · 위아래 모서리
+  필렛 · 모따기가 있는 판은 거절한다 — 그런 것은 굽힌 **뒤에**. 굽힘선은 모두 평행이다(한 노드
+  안에서). 예 — 100 길이 판을 x=40 에서 R5 로 90° 세우기:
+  `{"op":"bend","target":"판","bends":[{"at":40,"radius":5,"angle":90}]}`) ·
   `import_step`(file — 사용자가 올린 STEP, 직접 만들지 않는다)
 - 조합 `union`(targets) · `cut`(target, tools) · `intersect`(targets) · `split`(target, plane
   {name, origin | origin, normal}, keep top|bottom|both — 평면으로 자르기)
@@ -176,7 +187,8 @@
 말로 받은 치수를 옮길 때:
 - 호는 `radius` · `tangent`, 장공은 `slot.measure: "centers"`, 삼각형은 변 · 각 — **도면이 주는
   값을 그대로** 넣어라. 좌표로 환산하면서 틀리는 일이 제일 많다.
-- 접어 만드는 것은 `sheet_metal`, 살을 붙이는 리브는 `path`(두께 있는 선), 감싸는 판은
+- 접어 만드는 것은 `sheet_metal`(옆모습 꺾은선이 주어질 때) 또는 `bend`(**전개도** — 펼친 판의
+  치수 · 구멍 자리가 주어질 때, 원통에 감는 띠), 살을 붙이는 리브는 `path`(두께 있는 선), 감싸는 판은
   `sketch.hull`, 제품에 맞춘 포켓은 `section`(단면) + `offset`(여유) 또는 `offset` 뒤 `cut`.
 
 자주 하는 실수:

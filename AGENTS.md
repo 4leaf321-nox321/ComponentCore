@@ -44,6 +44,10 @@
 - `Face.is_inside(point)` 는 구멍을 안다 — 구멍 중심에서 False. 그러나 받침 **원판**이 구멍에
   걸리는 것은 못 잡으므로 구멍과의 거리를 따로 본다(`planning._clear_of_holes`).
 - 구멍과 보스는 원기둥면의 **바깥 법선이 축을 향하는가**로 가른다(`features._is_hole`).
+- **`Face.wrap` 은 근사다** — 일반 곡면에 맞춰 엣지를 조금씩 늘려 스플라인으로 맞춘다. 원통에
+  감을 때는 그것을 쓰지 않고 엣지를 원통의 매개변수 평면(각 · 높이)으로 옮긴다(`recipe/bend.py`).
+- **build123d 의 `.volume` 은 오차가 크다** — B-스플라인 면이 있으면 4574 mm³ 를 4571 로 낸다
+  (실측). 정확도를 시험할 때는 `BRepGProp.VolumeProperties_s(shape, props, 1e-9, False)`.
 - OCP 는 mypy 에 타입이 없다. `pyproject.toml` 이 `app.core.*` 만 느슨하게 본다 — 그 경계
   밖(`modules`)은 strict 그대로다.
 

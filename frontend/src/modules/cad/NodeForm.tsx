@@ -96,6 +96,99 @@ function VectorInput({
   )
 }
 
+type Bend = { at?: unknown; radius?: unknown; toward?: string; until?: string; angle?: unknown }
+
+/** 굽힘 목록 — 줄마다 「어디서 · 반지름 · 어느 쪽 · 어디까지」. 앞에서부터 차례로 접는다. */
+function BendsInput({
+  value,
+  onChange,
+  params,
+  onCreateParam,
+}: {
+  value: unknown
+  onChange: (next: Bend[]) => void
+  params?: Record<string, number>
+  onCreateParam?: (name: string, value: number) => void
+}) {
+  const bends = Array.isArray(value) ? (value as Bend[]) : []
+  const put = (i: number, patch: Bend) => onChange(bends.map((one, j) => (j === i ? { ...one, ...patch } : one)))
+  const last = bends[bends.length - 1]
+  return (
+    <div className="space-y-2">
+      {bends.map((bend, i) => (
+        <div key={i} className="space-y-1 rounded border p-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-medium">굽힘 {i + 1}</span>
+            <button type="button" className="text-muted-foreground px-1 hover:text-destructive" onClick={() => onChange(bends.filter((_, j) => j !== i))} aria-label="지우기">
+              ×
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-1">
+            <label className="space-y-0.5 text-xs">
+              <span className="text-muted-foreground">시작 자리 (펼친 판의 좌표, mm)</span>
+              <NumberInput aria-label={`굽힘 ${i + 1} 시작 자리`} params={params} onCreateParam={onCreateParam} value={bend.at} onChange={(v) => put(i, { at: v ?? 0 })} />
+            </label>
+            <label className="space-y-0.5 text-xs">
+              <span className="text-muted-foreground">안쪽 반지름 (mm)</span>
+              <NumberInput aria-label={`굽힘 ${i + 1} 반지름`} params={params} onCreateParam={onCreateParam} value={bend.radius} step={0.5} onChange={(v) => put(i, { radius: v ?? 1 })} />
+            </label>
+            <label className="space-y-0.5 text-xs">
+              <span className="text-muted-foreground">어느 쪽으로</span>
+              <Select value={bend.toward ?? 'up'} onValueChange={(v) => put(i, { toward: v })}>
+                <SelectTrigger className="h-8">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="up">위로 (판의 위쪽)</SelectItem>
+                  <SelectItem value="down">아래로</SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="space-y-0.5 text-xs">
+              <span className="text-muted-foreground">어디까지</span>
+              <Select value={bend.until ?? 'angle'} onValueChange={(v) => put(i, { until: v })}>
+                <SelectTrigger className="h-8">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="angle">각도만큼</SelectItem>
+                  <SelectItem value="end">끝까지 감기</SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+          </div>
+          {(bend.until ?? 'angle') === 'angle' ? (
+            <label className="block space-y-0.5 text-xs">
+              <span className="text-muted-foreground">굽힘 각 (도)</span>
+              <NumberInput aria-label={`굽힘 ${i + 1} 각`} params={params} onCreateParam={onCreateParam} value={bend.angle ?? 90} step={5} onChange={(v) => put(i, { angle: v ?? 90 })} />
+            </label>
+          ) : (
+            <p className="text-muted-foreground text-xs">남은 판을 이 반지름으로 끝까지 감습니다 — 각도는 남은 길이가 정합니다.</p>
+          )}
+        </div>
+      ))}
+      <button
+        type="button"
+        className="text-muted-foreground text-xs hover:underline"
+        onClick={() =>
+          onChange([
+            ...bends,
+            {
+              at: typeof last?.at === 'number' ? last.at + 30 : 0,
+              radius: last?.radius ?? 5,
+              toward: 'up',
+              until: 'angle',
+              angle: 90,
+            },
+          ])
+        }
+      >
+        + 굽힘 추가
+      </button>
+    </div>
+  )
+}
+
 function RefSelect({
   value,
   candidates,
@@ -282,6 +375,9 @@ export function NodeForm({
                 })}
                 {candidatesFor(field).length === 0 && <p className="text-muted-foreground text-xs">앞에 고를 피처가 없습니다.</p>}
               </div>
+            )}
+            {field.kind === 'bends' && (
+              <BendsInput params={params} onCreateParam={onCreateParam} value={node[field.key]} onChange={(v) => set(field.key, v)} />
             )}
             {(field.kind === 'points' || field.kind === 'points3') && (
               <div className="space-y-1">

@@ -24,7 +24,15 @@ def test_말로_받은_치수를_넣을_칸을_가이드가_알려준다() -> No
     좌표로 환산하지 않아도 되는 칸이 적혀 있어야 한다."""
     _, sections = server._guide_sections()
     recipe = sections["recipe"]
-    for word in ("radius", "tangent", "measure overall|centers", "triangle", "sheet_metal"):
+    for word in (
+        "radius",
+        "tangent",
+        "measure overall|centers",
+        "triangle",
+        "sheet_metal",
+        "`bend`",
+        "until: end",
+    ):
         assert word in recipe, word
     assert "via" in recipe and "사람이 캔버스에서 찍을 때" in recipe
 

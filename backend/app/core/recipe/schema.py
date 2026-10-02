@@ -292,6 +292,58 @@ class SheetMetalNode(_Node):
     """두께가 붙는 쪽 — 꺾은선이 안쪽인가(left) 바깥쪽인가(right)."""
 
 
+class Bend(BaseModel):
+    """굽힘 하나 — 굽힘선은 `along` 에 수직이고, 펼친 판의 `at` 자리에서 굽기 시작한다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    at: float
+    """굽기 시작하는 자리 — **펼친 판**에서 `along` 방향의 좌표(mm). along 이 X 면 x 값."""
+    radius: Positive
+    """안쪽 반지름."""
+    toward: Literal["up", "down"] = "up"
+    """어느 쪽으로 — up 은 판의 위쪽(누운 판이면 +Z, 선 판이면 +Y, 그다음 +X)."""
+    until: Literal["angle", "end"] = "angle"
+    """어디까지 — `angle` 만큼(angle), 또는 남은 판을 **끝까지 감는다**(end — 원통에 감기)."""
+    angle: float = Field(default=90.0, gt=0, lt=360)
+    """굽힘 각(도). `until: end` 면 쓰지 않는다 — 남은 길이와 반지름이 정한다."""
+
+
+class BendNode(_Node):
+    """**펼친 판을 굽힌다** — 평평한 판을 굽힘선에서 반지름 R 로 접거나 원통에 감는다. 판금
+    전개도 · 띠 · 감는 판처럼 「펴진 모양으로 그린 뒤 굽히는」 것.
+
+    구멍 · 노치 · 윤곽은 **펼친 상태에서** 그린다. 굽힘 구간에 걸린 구멍도 같이 휘고 그 벽은
+    반지름 방향으로 선다. 펼친 길이는 중립면(`k_factor`)에서 보존된다.
+
+    판은 위 · 아래 면이 평평하고 옆면이 수직이어야 한다(두께가 한결같다). 포켓 · 단차 · 위아래
+    모서리의 필렛 · 모따기는 굽힌 **뒤에** 만든다."""
+
+    op: Literal["bend"]
+    target: str
+    bends: list[Bend] = Field(min_length=1, max_length=20)
+    """앞에서부터(`at` 이 커지는 순서). 굽힘마다 그 뒤쪽 판이 통째로 따라 돈다."""
+    along: XYZ = (1.0, 0.0, 0.0)
+    """굽혀 나가는 방향(판 위의 방향). 굽힘선은 이것에 수직이다."""
+    k_factor: float = Field(default=0.5, ge=0, le=1)
+    """중립면의 자리 — 안쪽 면에서 두께의 몇 할인가. 펼친 길이가 이 층에서 보존된다(판금의
+    K 계수, 보통 0.3 ~ 0.5)."""
+
+    @model_validator(mode="after")
+    def _in_order(self) -> BendNode:
+        for index in range(1, len(self.bends)):
+            if self.bends[index].at <= self.bends[index - 1].at:
+                raise ValueError(
+                    f"bends[{index}].at: 앞 굽힘({self.bends[index - 1].at})보다 뒤여야 합니다"
+                )
+        for index, one in enumerate(self.bends[:-1]):
+            if one.until == "end":
+                raise ValueError(
+                    f"bends[{index}].until: 끝까지 감기(end)는 마지막 굽힘만 됩니다"
+                )
+        return self
+
+
 class HelixNode(_Node):
     """스케치(단면)를 나선을 따라 밀어 — 스프링 · 나사산. 단면은 XY 에 원점 중심으로 그리면
     나선 시작점에 알맞게 놓인다."""
@@ -712,6 +764,7 @@ Node = Annotated[
     | SweepNode
     | HelixNode
     | SheetMetalNode
+    | BendNode
     | BoxNode
     | WedgeNode
     | BoltNode
@@ -840,6 +893,7 @@ _REFERENCE_FIELDS: dict[str, tuple[str, ...]] = {
     "draft": ("target",),
     "section": ("target",),
     "offset": ("target",),
+    "bend": ("target",),
 }
 
 

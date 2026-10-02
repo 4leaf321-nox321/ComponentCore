@@ -29,6 +29,7 @@ import {
   Wrench,
   Waves,
   Fence,
+  FoldHorizontal,
   SquareDashedBottom,
   SquareSplitHorizontal,
   Move3d,
@@ -67,6 +68,7 @@ export type FieldKind =
   | 'checkbox'
   | 'faceselect'
   | 'holeplane'
+  | 'bends'
 
 export interface FieldSpec {
   key: string
@@ -222,6 +224,26 @@ export const OP_SPECS: OpSpec[] = [
       plane: { name: 'XZ', origin: [0, 0, 0] },
       bend_radius: 3,
       side: 'left',
+    },
+  },
+  {
+    op: 'bend',
+    icon: FoldHorizontal,
+    label: '판 굽히기',
+    short: '굽히기',
+    group: '입체',
+    help: '펼친 판을 굽힘선에서 접거나 원통에 감는다 — 구멍 · 노치는 펼친 상태에서 그린다. 판은 두께가 한결같아야 하고(포켓 · 위아래 모서리 필렛은 굽힌 뒤에), 굽힘 구간의 구멍도 같이 휜다.',
+    fields: [
+      { key: 'target', label: '펼친 판', kind: 'ref', refKind: 'solid' },
+      { key: 'along', label: '굽혀 나가는 방향 (판 위, 굽힘선은 이것에 수직)', kind: 'xyz' },
+      { key: 'bends', label: '굽힘 (앞에서부터)', kind: 'bends' },
+      { key: 'k_factor', label: '중립면 위치 (K, 안쪽 면에서 두께의 몇 할 · 보통 0.3 ~ 0.5)', kind: 'number', step: 0.05 },
+    ],
+    defaults: {
+      target: '',
+      along: [1, 0, 0],
+      bends: [{ at: 0, radius: 5, toward: 'up', until: 'angle', angle: 90 }],
+      k_factor: 0.5,
     },
   },
   {

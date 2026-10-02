@@ -81,6 +81,7 @@ from build123d import (
 )
 
 from app.core.recipe import schema as S
+from app.core.recipe.bend import BendError, bend
 
 #: `import_step` 의 `file` 열쇠 → 실제 경로. 없으면 import_step 노드가 실패한다.
 FileResolver = Callable[[str], Path]
@@ -761,6 +762,11 @@ def _evaluate_node(
         # 그래야 구멍 자리를 평면 좌표 그대로 주고 좌우 대칭도 그대로다.
         shift = plane.z_dir * (-node.width / 2)
         return _to_part(formed.moved(Location(shift.to_tuple())))
+    if isinstance(node, S.BendNode):
+        try:
+            return bend(_as_part(made[node.target], node.id), node)
+        except BendError as failure:
+            raise RecipeError(node.id, str(failure)) from failure
     if isinstance(node, S.HelixNode):
         sketch = made[node.sketch]
         if not isinstance(sketch, Sketch):
