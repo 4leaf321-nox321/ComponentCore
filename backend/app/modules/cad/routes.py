@@ -23,6 +23,7 @@ from app.modules.cad import services
 from app.modules.cad.schemas import (
     BeamRequest,
     ConditionNotesRequest,
+    CutListRequest,
     FindRequest,
     FramesRequest,
     GeometryRequest,
@@ -121,6 +122,13 @@ def recipe_views(payload: ViewsRequest, _: User = Depends(current_user)) -> dict
         return {"views": views(evaluation.shape, tuple(payload.views), width=payload.width)}
     except ValueError as failure:
         raise AppError(code("CAD", 8), str(failure)) from failure
+
+
+@router.post("/recipe/cutlist")
+def recipe_cutlist(payload: CutListRequest, _: User = Depends(current_user)) -> dict[str, Any]:
+    """구조 프레임의 **절단 목록** — 부재마다 자를 길이(가장 긴 데) · 끝의 자르는 각(0 = 직각)
+    · 부피. 지그를 만들 때 그대로 재단 · 주문한다."""
+    return services.cut_list(payload.recipe, payload.node)
 
 
 @router.post("/recipe/find")
@@ -283,6 +291,8 @@ def recipe_mesh(payload: RecipeRequest, _: User = Depends(current_user)) -> dict
         "summary": evaluation.summary(),
         "mesh": mesh(evaluation.shape),
         "frames": evaluation.frames,
+        # 기준축 · 기준면 — 형상이 아니라 3D 에 따로 그린다.
+        "datums": evaluation.datums,
     }
 
 

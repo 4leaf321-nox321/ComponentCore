@@ -67,6 +67,7 @@ def test_사람이_손으로_하는_일이_도구로_다_있다() -> None:
         "recipe_views",  # 그림으로 본다
         "recipe_find",  # 엣지 · 면 · 점 좌표
         "recipe_selectors",  # 찍은 자리를 셀렉터로
+        "recipe_cutlist",  # 프레임의 절단 목록
         "conditions_schema",  # 해석 조건의 칸
         "set_conditions",  # 해석 조건 붙이기
         "doe_release",  # 해석이 다 읽었다

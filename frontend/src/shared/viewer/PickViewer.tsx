@@ -95,6 +95,16 @@ export interface FrameRow {
   source?: string
 }
 
+/** 기준축 · 기준면 — 형상이 아니라 3D 에 따로 그린다(서버 `datums.describe`). */
+export interface DatumRow {
+  id: string
+  kind: 'axis' | 'plane'
+  origin: number[]
+  direction?: number[]
+  normal?: number[]
+  x_dir?: number[]
+}
+
 export interface PickViewerProps {
   mesh: MeshData | null
   mode: PickMode
@@ -121,6 +131,8 @@ export interface PickViewerProps {
   measureMarks?: MeasureMarks
   /** 좌표계 — 원점에서 X(빨강) · Y(초록) · Z(파랑) 축과 이름을 그린다. 고르지는 않는다. */
   frames?: FrameRow[]
+  /** 기준축 · 기준면 — 주황 선 · 반투명 판과 이름. */
+  datums?: DatumRow[]
   /** 조립: 구성품 id → 색. 없는 구성품(과 조립이 아닌 면)은 기본색. */
   partColors?: Record<string, number>
   /** 조립: 이 구성품만 또렷하게, 나머지는 반투명으로 — 어느 것을 고치는지 보인다. */
@@ -163,6 +175,8 @@ const HOVER_COLOR = 0xf59e0b
 const EDGE_COLOR = 0x1f2937
 const PICKED_COLOR = 0xf59e0b
 const MEASURE_COLOR = 0xef4444
+/** 기준축 · 기준면의 색 — 형상(파랑 · 회색) · 측정(빨강)과 겹치지 않게. */
+const DATUM_COLOR = 0xf59e0b
 const DOT_COLOR = 0x2563eb
 /** 담아 둔 측정 — 지금 재는 것(빨강)보다 옅게. */
 const KEPT_COLOR = 0x9ca3af
@@ -332,7 +346,7 @@ function gatherDots(mesh: MeshData): { at: number[][]; kinds: string[] } {
 }
 
 /** 표준 방향 — 뒤에서 카메라가 설 자리(중심 기준 단위 벡터, CAD Z-up 기준). */
-export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, onBoxSelect, measureKinds, measureMarks, frames, frameHandle, onFrameHandle, partColors, emphasis, sync, dragPart, dragMode = 'translate', onMoved, className }: PickViewerProps) {
+export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, onBoxSelect, measureKinds, measureMarks, frames, datums, frameHandle, onFrameHandle, partColors, emphasis, sync, dragPart, dragMode = 'translate', onMoved, className }: PickViewerProps) {
   const syncId = useRef(`viewer-${Math.random().toString(36).slice(2)}`)
   const syncRef = useRef(sync)
   syncRef.current = sync
@@ -974,10 +988,43 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     const s = state.current
     if (!s) return
     s.axes.clear()
-    if (!frames?.length) return
     const size = (s.group.userData.size as number) || 50
     const length = size / 6
-    for (const frame of frames) {
+    // 기준 — 축은 형상 크기만큼 긴 주황 선, 면은 그 1/3 크기의 반투명 판. 이름을 곁에.
+    for (const datum of datums ?? []) {
+      const o = datum.origin
+      const label = makeLabel(datum.id, 'entity', '#f59e0b')
+      const labelHeight = size / 18
+      label.scale.set(labelHeight * (label.userData.aspect as number), labelHeight, 1)
+      if (datum.kind === 'axis' && datum.direction) {
+        const d = datum.direction
+        const half = size * 0.6
+        const line = fatLine([o[0] - d[0] * half, o[1] - d[1] * half, o[2] - d[2] * half, o[0] + d[0] * half, o[1] + d[1] * half, o[2] + d[2] * half], DATUM_COLOR, 2, s.resolution)
+        line.renderOrder = 9
+        ;(line.material as THREE.Material).depthTest = false
+        s.axes.add(line)
+        label.position.set(o[0] + d[0] * half, o[1] + d[1] * half, o[2] + d[2] * half)
+      } else if (datum.kind === 'plane' && datum.normal && datum.x_dir) {
+        const z = new THREE.Vector3(...datum.normal).normalize()
+        const x = new THREE.Vector3(...datum.x_dir).normalize()
+        const y = new THREE.Vector3().crossVectors(z, x)
+        const half = size / 6
+        const corner = (a: number, b: number) => new THREE.Vector3(...o).addScaledVector(x, a * half).addScaledVector(y, b * half)
+        const corners = [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)]
+        const sheet = new THREE.Mesh(
+          new THREE.BufferGeometry().setFromPoints([corners[0], corners[1], corners[2], corners[0], corners[2], corners[3]]),
+          new THREE.MeshBasicMaterial({ color: DATUM_COLOR, transparent: true, opacity: 0.15, side: THREE.DoubleSide, depthWrite: false }),
+        )
+        sheet.renderOrder = 8
+        s.axes.add(sheet)
+        const rim = fatLine([...corners, corners[0]].flatMap((one) => [one.x, one.y, one.z]), DATUM_COLOR, 2, s.resolution)
+        rim.renderOrder = 9
+        s.axes.add(rim)
+        label.position.copy(corners[2])
+      }
+      s.axes.add(label)
+    }
+    for (const frame of frames ?? []) {
       const o = frame.origin
       for (const [axis, color, letter] of [
         [frame.x, 0xef4444, 'X'],
@@ -1003,7 +1050,7 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       sprite.position.set(o[0], o[1], o[2] - height * 0.8)
       s.axes.add(sprite)
     }
-  }, [frames, mesh])
+  }, [frames, datums, mesh])
 
   // 측정 표시 — 점 · 치수선 · **값 글자** · 고른 엣지/면 강조. 무엇을 어디서 쟀는지 3D 에서 보인다.
   useEffect(() => {

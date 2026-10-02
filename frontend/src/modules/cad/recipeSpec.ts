@@ -8,7 +8,14 @@
 
 import {
   ArrowUpFromLine,
+  Axis3d,
+  Bolt,
   Box,
+  Cog,
+  CornerDownRight,
+  Disc,
+  Hexagon,
+  Paperclip,
   Circle,
   CircleDot,
   Combine,
@@ -19,6 +26,7 @@ import {
   Grid3x3,
   Import,
   Layers,
+  Eraser,
   Expand,
   Route,
   Scan,
@@ -29,6 +37,9 @@ import {
   Wrench,
   Waves,
   Fence,
+  Frame,
+  Stamp,
+  SquareDashed,
   FoldHorizontal,
   SquareDashedBottom,
   SquareSplitHorizontal,
@@ -69,6 +80,14 @@ export type FieldKind =
   | 'faceselect'
   | 'holeplane'
   | 'bends'
+  | 'axisref'
+  | 'planeref'
+  | 'datumaxis'
+  | 'datumplane'
+  | 'facepicks'
+  | 'profile'
+  | 'paths'
+  | 'query'
 
 export interface FieldSpec {
   key: string
@@ -78,15 +97,15 @@ export interface FieldSpec {
   step?: number
   help?: string
   /** 어떤 종류의 앞 피처를 가리키나 — ref/refs 에서 고를 목록을 좁힌다. */
-  refKind?: 'sketch' | 'solid' | 'any'
-  /** 비워도 되는 ref — 비우면 null 로 보낸다. */
+  refKind?: 'sketch' | 'solid' | 'any' | 'axis' | 'plane'
+  /** 비워도 되는 칸(ref · 숫자) — 비우면 null 로 보낸다. */
   optional?: boolean
 }
 
 export interface OpSpec {
   op: string
   label: string
-  group: '스케치' | '입체' | '조합' | '마감' | '배치' | '영역'
+  group: '스케치' | '입체' | '조합' | '마감' | '배치' | '기준' | '영역'
   /** 툴바에 보일 짧은 이름. 없으면 label. */
   short?: string
   icon: LucideIcon
@@ -104,6 +123,7 @@ const EDGE_OPTIONS = [
   { value: 'bottom', label: '바닥 둘레' },
 ]
 const AXIS_OPTIONS = ['X', 'Y', 'Z'].map((a) => ({ value: a, label: a }))
+const THREAD_OPTIONS = ['M3', 'M4', 'M5', 'M6', 'M8', 'M10', 'M12'].map((one) => ({ value: one, label: one }))
 export const PLANE_OPTIONS = ['XY', 'XZ', 'YZ', 'YX', 'ZX', 'ZY'].map((p) => ({
   value: p,
   label: p,
@@ -247,6 +267,55 @@ export const OP_SPECS: OpSpec[] = [
     },
   },
   {
+    op: 'frame',
+    icon: Frame,
+    label: '구조 프레임',
+    short: '프레임',
+    group: '입체',
+    help: '알루미늄 프로파일 · 각관 · 원관 · 앵글 · 채널 · H 형강을 선을 따라 세운다 — 지그의 받침 틀 · 기둥. 경로마다 점 사이가 부재 하나, 마지막 점이 처음 점과 같으면 닫힌 틀. 단면의 가운데가 경로 위, 위쪽은 +Z(서 있는 부재는 +X).',
+    fields: [
+      { key: 'profile', label: '단면', kind: 'profile' },
+      { key: 'paths', label: '경로 (점 사이가 부재 하나)', kind: 'paths' },
+      {
+        key: 'corner',
+        label: '꺾인 곳',
+        kind: 'select',
+        options: [
+          { value: 'miter', label: '45° 맞대기 (용접 틀)' },
+          { value: 'butt', label: '맞대기 — 앞 부재가 지나간다 (프로파일 조립)' },
+          { value: 'none', label: '겹치기' },
+        ],
+      },
+      {
+        key: 'meet',
+        label: '다른 경로에 닿는 끝 (기둥 → 틀)',
+        kind: 'select',
+        options: [
+          { value: 'butt', label: '그 부재의 옆면까지 맞춘다' },
+          { value: 'overlap', label: '그대로 겹친다' },
+        ],
+      },
+      { key: 'roll', label: '단면 돌리기 (°, 부재 축 둘레)', kind: 'number', step: 90 },
+      { key: 'separate', label: '부재를 합치지 않고 따로 둔다 (볼트 조립)', kind: 'checkbox' },
+    ],
+    defaults: {
+      profile: { type: 't_slot', size: 40 },
+      paths: [
+        [
+          [0, 0, 0],
+          [500, 0, 0],
+          [500, 300, 0],
+          [0, 300, 0],
+          [0, 0, 0],
+        ],
+      ],
+      corner: 'butt',
+      meet: 'butt',
+      roll: 0,
+      separate: false,
+    },
+  },
+  {
     op: 'helix',
     icon: Spline,
     label: '나선',
@@ -271,7 +340,7 @@ export const OP_SPECS: OpSpec[] = [
     help: '스케치를 축 둘레로 돌려 입체로.',
     fields: [
       { key: 'sketch', label: '스케치', kind: 'ref', refKind: 'sketch' },
-      { key: 'axis', label: '축', kind: 'select', options: AXIS_OPTIONS },
+      { key: 'axis', label: '축 (원점의 X · Y · Z 또는 기준축)', kind: 'axisref' },
       { key: 'angle', label: '각도 (°)', kind: 'number', step: 1 },
     ],
     defaults: { sketch: '', axis: 'Z', angle: 360 },
@@ -357,6 +426,133 @@ export const OP_SPECS: OpSpec[] = [
       { key: 'chamfer', label: '끝 모따기 (mm)', kind: 'number', step: 0.1 },
     ],
     defaults: { at: [0, 0, 0], diameter: 8, length: 25, chamfer: 0.8 },
+  },
+  {
+    op: 'nut',
+    icon: Hexagon,
+    label: '너트',
+    group: '입체',
+    help: '육각 너트(ISO 4032). 「기준 자리」 는 너트가 앉는 면의 점, 방향 쪽으로 쌓인다.',
+    fields: [
+      { key: 'at', label: '앉는 점', kind: 'xyz' },
+      { key: 'thread', label: '나사', kind: 'select', options: THREAD_OPTIONS },
+      { key: 'direction', label: '쌓이는 방향', kind: 'xyz' },
+    ],
+    defaults: { at: [0, 0, 0], thread: 'M6', direction: [0, 0, 1] },
+  },
+  {
+    op: 'washer',
+    icon: Disc,
+    label: '와셔',
+    group: '입체',
+    help: '평와셔(ISO 7089). 「기준 자리」 는 와셔가 앉는 면의 점, 방향 쪽으로 쌓인다.',
+    fields: [
+      { key: 'at', label: '앉는 점', kind: 'xyz' },
+      { key: 'thread', label: '나사', kind: 'select', options: THREAD_OPTIONS },
+      { key: 'direction', label: '쌓이는 방향', kind: 'xyz' },
+    ],
+    defaults: { at: [0, 0, 0], thread: 'M6', direction: [0, 0, 1] },
+  },
+  {
+    op: 'bearing',
+    icon: Cog,
+    label: '베어링',
+    group: '입체',
+    help: '깊은 홈 볼 베어링 — 안 · 바깥 링을 한 고리로 단순화. 「기준 자리」 는 한쪽 면의 가운데, 방향 쪽으로 폭만큼.',
+    fields: [
+      { key: 'at', label: '한쪽 면의 가운데', kind: 'xyz' },
+      {
+        key: 'designation',
+        label: '호칭',
+        kind: 'select',
+        options: ['625', '626', '608', '6000', '6001', '6002', '6003', '6004', '6005', '6200', '6201', '6202', '6203', '6204', '6205'].map((one) => ({ value: one, label: one })),
+      },
+      { key: 'direction', label: '축 방향', kind: 'xyz' },
+    ],
+    defaults: { at: [0, 0, 0], designation: '608', direction: [0, 0, 1] },
+  },
+  {
+    op: 'spring',
+    icon: Paperclip,
+    label: '압축 스프링',
+    short: '스프링',
+    group: '입체',
+    help: '선 지름 · 평균 지름 · 자유 길이 · 감김 수. 「기준 자리」 는 밑면 가운데, 방향 쪽으로 선다.',
+    fields: [
+      { key: 'at', label: '밑면 가운데', kind: 'xyz' },
+      { key: 'wire', label: '선 지름 (mm)', kind: 'number', step: 0.1 },
+      { key: 'diameter', label: '평균 지름 (mm)', kind: 'number' },
+      { key: 'length', label: '자유 길이 (mm)', kind: 'number' },
+      { key: 'coils', label: '감김 수', kind: 'number', step: 0.5 },
+      { key: 'direction', label: '서는 방향', kind: 'xyz' },
+    ],
+    defaults: { at: [0, 0, 0], wire: 2, diameter: 16, length: 50, coils: 8, direction: [0, 0, 1] },
+  },
+  {
+    op: 'bracket',
+    icon: CornerDownRight,
+    label: '코너 브래킷',
+    short: '브래킷',
+    group: '입체',
+    help: '알루미늄 프로파일 코너 브래킷(L, 근사 치수). 「기준 자리」 는 두 프로파일 면이 만나는 안쪽 모서리의 점, 다리 둘이 뻗는 방향(서로 수직).',
+    fields: [
+      { key: 'at', label: '안쪽 모서리의 점', kind: 'xyz' },
+      { key: 'size', label: '계열', kind: 'select', options: ['20', '30', '40', '45'].map((one) => ({ value: one, label: one })) },
+      { key: 'legs', label: '두 다리의 방향', kind: 'points3' },
+    ],
+    defaults: {
+      at: [0, 0, 0],
+      size: 40,
+      legs: [
+        [1, 0, 0],
+        [0, 0, 1],
+      ],
+    },
+  },
+  {
+    op: 'fasten',
+    icon: Bolt,
+    label: '구멍에 맞춰 놓기',
+    short: '체결',
+    group: '배치',
+    help: '규칙으로 찾은 구멍마다 볼트 · 너트 · 와셔 · 핀을 그 축에 놓는다 — 좌표가 없어 치수가 바뀌어도 따라간다. 나사를 비우면 구멍 지름으로 고르고, 카운터보어면 턱에 앉는다.',
+    fields: [
+      { key: 'target', label: '구멍이 있는 입체', kind: 'ref', refKind: 'solid' },
+      { key: 'holes', label: '구멍 고르기 (recipe_find 질의)', kind: 'query' },
+      {
+        key: 'part',
+        label: '놓을 것',
+        kind: 'select',
+        options: [
+          { value: 'bolt', label: '볼트' },
+          { value: 'nut', label: '너트' },
+          { value: 'washer', label: '와셔' },
+          { value: 'pin', label: '핀 (구멍 지름 그대로)' },
+        ],
+      },
+      { key: 'thread', label: '나사', kind: 'select', options: [{ value: '__none__', label: '구멍 지름으로' }, ...THREAD_OPTIONS] },
+      { key: 'length', label: '길이 (mm, 비우면 구멍 깊이)', kind: 'number', optional: true },
+      {
+        key: 'head',
+        label: '볼트 머리',
+        kind: 'select',
+        options: [
+          { value: 'socket', label: '소켓(원통)' },
+          { value: 'hex', label: '육각' },
+        ],
+      },
+      { key: 'washer', label: '볼트 머리 밑 와셔', kind: 'checkbox' },
+      {
+        key: 'side',
+        label: '구멍의 어느 끝',
+        kind: 'select',
+        options: [
+          { value: 'top', label: '위 (+Z)' },
+          { value: 'bottom', label: '아래' },
+        ],
+      },
+    ],
+    defaults: { target: '', holes: { kind: 'cylinder' }, part: 'bolt', thread: null, length: null, head: 'socket', washer: false, side: 'top' },
   },
   {
     op: 'standoff',
@@ -507,11 +703,13 @@ export const OP_SPECS: OpSpec[] = [
     icon: Radius,
     label: '블렌드',
     group: '마감',
-    help: '엣지를 둥글린다(필렛 · 라운드). 반지름은 인접 면보다 작게.',
+    help: '엣지를 둥글린다(필렛 · 라운드). 반지름은 인접 면보다 작게. 끝 반지름을 주면 엣지를 따라 반지름이 고르게 변한다.',
     fields: [
       { key: 'target', label: '대상', kind: 'ref', refKind: 'solid' },
       { key: 'edges', label: '엣지', kind: 'select', options: EDGE_OPTIONS },
       { key: 'radius', label: '반지름 (mm)', kind: 'number' },
+      { key: 'radius_end', label: '끝 반지름 (mm, 비우면 한결같이)', kind: 'number', optional: true },
+      { key: 'start', label: '「반지름」 쪽 끝 근처의 점 (끝 반지름을 줄 때)', kind: 'xyz' },
     ],
     defaults: { target: '', edges: 'vertical', radius: 2 },
   },
@@ -551,16 +749,37 @@ export const OP_SPECS: OpSpec[] = [
     defaults: { target: '', plane: { name: 'XY', origin: [0, 0, 0] }, offset: 0 },
   },
   {
+    op: 'imprint',
+    icon: Stamp,
+    label: '접촉 자리 새기기',
+    short: '새기기',
+    group: '영역',
+    help: '조립(그룹)의 바디끼리 닿는 자리를 서로의 면에 새겨 나눈다 — 판 위의 블록이면 판 윗면이 「블록이 닿는 자리」 와 나머지로 갈려, 접촉면 짝이 넓이 · 자리까지 꼭 같아진다. 닿는 자리마다 태그 「받침판/블록」(받침판 쪽) · 「블록/받침판」(블록 쪽)이 붙어 시뮬레이션 조건이 집는다. 겹치는(간섭) 바디는 거절한다.',
+    fields: [{ key: 'target', label: '조립 (그룹)', kind: 'ref', refKind: 'solid' }],
+    defaults: { target: '' },
+  },
+  {
     op: 'divide_face',
     icon: SquareDashedBottom,
     label: '면 나누기',
     group: '영역',
-    help: '면을 영역으로 나눈다 — 하중 · 접촉을 면의 일부에만 걸 수 있게. 형상은 그대로다(부피가 변하지 않는다). 생긴 조각에 붙인 이름을 「시뮬레이션 조건」 탭이 선택 그룹으로 집는다.',
+    help: '면을 영역으로 나눈다 — 하중 · 접촉을 면의 일부에만 걸 수 있게. 원 · 사각, 또는 면 위에 그린 스케치 모양대로(도형 여럿 · 고리도). 형상은 그대로다(부피가 변하지 않는다). 생긴 조각에 붙인 이름을 「시뮬레이션 조건」 탭이 선택 그룹으로 집는다.',
     fields: [
       { key: 'target', label: '대상', kind: 'ref', refKind: 'solid' },
-      { key: 'shape', label: '모양', kind: 'select', options: [{ value: 'circle', label: '원' }, { value: 'rect', label: '사각' }] },
-      { key: 'radius', label: '반지름 (mm)', kind: 'number' },
-      { key: 'at', label: '가운데 (x,y,z)', kind: 'xyz' },
+      {
+        key: 'shape',
+        label: '모양',
+        kind: 'select',
+        options: [
+          { value: 'circle', label: '원' },
+          { value: 'rect', label: '사각' },
+          { value: 'sketch', label: '스케치 모양대로' },
+        ],
+      },
+      { key: 'radius', label: '반지름 (mm, 원)', kind: 'number' },
+      { key: 'size', label: '가로 · 세로 (mm, 사각)', kind: 'xy' },
+      { key: 'at', label: '가운데 (x,y,z — 원 · 사각)', kind: 'xyz' },
+      { key: 'sketch', label: '스케치 (스케치 모양 — 나눌 면 위에 그린 것, 그 면을 저절로 고른다)', kind: 'ref', refKind: 'sketch', optional: true },
       { key: 'tag', label: '이름', kind: 'text' },
     ],
     defaults: { target: '', on: { role: 'top' }, shape: 'circle', radius: 8, tag: '패치' },
@@ -570,11 +789,14 @@ export const OP_SPECS: OpSpec[] = [
     icon: Diamond,
     label: '챔퍼',
     group: '마감',
-    help: '엣지를 비스듬히 깎는다(모따기).',
+    help: '엣지를 비스듬히 깎는다(모따기). 두 거리(비대칭) 또는 거리와 각. 길이는 기준면에서 잰다 — 안 고르면 두 면 중 위(+Z)를 보는 면.',
     fields: [
       { key: 'target', label: '대상', kind: 'ref', refKind: 'solid' },
       { key: 'edges', label: '엣지', kind: 'select', options: EDGE_OPTIONS },
-      { key: 'length', label: '길이 (mm)', kind: 'number' },
+      { key: 'length', label: '길이 (mm, 기준면 쪽)', kind: 'number' },
+      { key: 'length2', label: '다른 면 쪽 길이 (mm, 비대칭 — 비우면 같은 길이)', kind: 'number', optional: true },
+      { key: 'angle', label: '각 (°, 거리-각도 — 두 거리와 함께 쓰지 않는다)', kind: 'number', optional: true },
+      { key: 'reference', label: '기준면 (3D 에서)', kind: 'facepicks' },
     ],
     defaults: { target: '', edges: 'all', length: 1 },
   },
@@ -674,6 +896,20 @@ export const OP_SPECS: OpSpec[] = [
     defaults: { target: '', amount: 0.5, corners: 'round' },
   },
   {
+    op: 'defeature',
+    icon: Eraser,
+    label: '면 지우기',
+    group: '마감',
+    help: '작은 구멍 · 필렛이나 고른 면을 지우고 이웃 면을 늘려 메운다 — 해석용 단순화, 가져온 STEP 고치기. 기준(지름 · 반지름)으로 고른 것은 DOE 가 치수를 바꾸면 설계점마다 다시 가린다.',
+    fields: [
+      { key: 'target', label: '대상', kind: 'ref', refKind: 'solid' },
+      { key: 'faces', label: '고른 면 (3D 에서)', kind: 'facepicks' },
+      { key: 'holes_below', label: '이 지름보다 작은 구멍 (mm, 비우면 안 지움)', kind: 'number', step: 0.5, optional: true },
+      { key: 'fillets_below', label: '이 반지름보다 작은 필렛 (mm, 비우면 안 지움)', kind: 'number', step: 0.5, optional: true },
+    ],
+    defaults: { target: '', faces: 'none', holes_below: 6, fillets_below: 2 },
+  },
+  {
     op: 'draft',
     icon: Waves,
     label: '구배',
@@ -719,12 +955,7 @@ export const OP_SPECS: OpSpec[] = [
       { key: 'spacing', label: '간격 (직선 · 격자 X)', kind: 'xyz' },
       { key: 'count_y', label: '격자 Y 개수', kind: 'number', step: 1 },
       { key: 'spacing_y', label: '격자 Y 간격', kind: 'xyz' },
-      {
-        key: 'axis',
-        label: '축 (원형)',
-        kind: 'select',
-        options: AXIS_OPTIONS,
-      },
+      { key: 'axis', label: '축 (원형 — 원점의 X · Y · Z 또는 기준축)', kind: 'axisref' },
       { key: 'angle', label: '전체 각도 (원형)', kind: 'number', step: 1 },
     ],
     defaults: {
@@ -743,14 +974,15 @@ export const OP_SPECS: OpSpec[] = [
     icon: Move3d,
     label: '이동',
     group: '배치',
-    help: '크기를 바꾸고(원점 기준) 회전한 뒤 이동한다.',
+    help: '크기를 바꾸고 회전한 뒤 이동한다 — 회전 · 배율은 중심점 둘레로.',
     fields: [
       { key: 'target', label: '대상', kind: 'ref', refKind: 'any' },
       { key: 'translate', label: '이동', kind: 'xyz' },
       { key: 'rotate', label: '회전 (°)', kind: 'xyz' },
+      { key: 'pivot', label: '회전 · 배율 중심', kind: 'xyz' },
       { key: 'scale', label: '배율 (1 = 그대로)', kind: 'number', step: 0.1 },
     ],
-    defaults: { target: '', translate: [0, 0, 0], rotate: [0, 0, 0], scale: 1 },
+    defaults: { target: '', translate: [0, 0, 0], rotate: [0, 0, 0], pivot: [0, 0, 0], scale: 1 },
   },
   {
     op: 'mirror',
@@ -760,15 +992,33 @@ export const OP_SPECS: OpSpec[] = [
     help: '평면에 비춘다(대칭 복사).',
     fields: [
       { key: 'target', label: '대상', kind: 'ref', refKind: 'any' },
-      {
-        key: 'plane',
-        label: '대칭 평면',
-        kind: 'select',
-        options: PLANE_OPTIONS,
-      },
+      { key: 'plane', label: '대칭 평면 (원점을 지나는 평면 또는 기준면)', kind: 'planeref' },
       { key: 'keep_original', label: '원본도 남긴다', kind: 'checkbox' },
     ],
     defaults: { target: '', plane: 'YZ', keep_original: true },
+  },
+  {
+    op: 'datum_axis',
+    icon: Axis3d,
+    label: '기준축',
+    group: '기준',
+    help: '형상을 만들지 않는 축 — 회전 · 원형 패턴이 이 축 둘레로 돈다. 점과 방향 · 두 점, 또는 구멍(원통면)의 축 · 직선 엣지에서 뽑는다(치수를 바꾸면 따라간다).',
+    fields: [{ key: 'origin', label: '정하는 법', kind: 'datumaxis' }],
+    defaults: { origin: [0, 0, 0], direction: [0, 0, 1] },
+  },
+  {
+    op: 'datum_plane',
+    icon: SquareDashed,
+    label: '기준면',
+    group: '기준',
+    help: '형상을 만들지 않는 평면 — 스케치 · 자르기 · 단면 · 대칭의 평면 칸에서 고른다. 이름 있는 평면 · 세 점, 또는 형상의 평면에서 뽑아 띄우고(offset) 축 둘레로 기울인다(hinge · angle).',
+    fields: [
+      { key: 'plane', label: '정하는 법', kind: 'datumplane' },
+      { key: 'offset', label: '띄우기 (mm, 법선 쪽 · 음수면 반대)', kind: 'number', step: 1 },
+      { key: 'hinge', label: '기울일 축 (없으면 기울이지 않는다)', kind: 'axisref', optional: true },
+      { key: 'angle', label: '기울이는 각 (°)', kind: 'number', step: 5 },
+    ],
+    defaults: { plane: { name: 'XY', origin: [0, 0, 0] }, offset: 10, hinge: null, angle: 0 },
   },
   {
     op: 'import_step',
@@ -861,7 +1111,9 @@ export function makeNode(op: string, nodes: RecipeNode[]): RecipeNode {
 }
 
 /** 이 피처가 만드는 것이 스케치인가 입체인가 — ref 목록을 좁힐 때 쓴다. */
-export function nodeKind(node: RecipeNode, nodes: RecipeNode[]): 'sketch' | 'solid' {
+export function nodeKind(node: RecipeNode, nodes: RecipeNode[]): 'sketch' | 'solid' | 'axis' | 'plane' {
+  if (node.op === 'datum_axis') return 'axis'
+  if (node.op === 'datum_plane') return 'plane'
   if (node.op === 'sketch' || node.op === 'section') return 'sketch'
   if (node.op === 'pattern' || node.op === 'transform' || node.op === 'mirror') {
     const source = nodes.find((n) => n.id === (node.source ?? node.target))
@@ -881,8 +1133,20 @@ export function referencesOf(node: RecipeNode): string[] {
     const value = node[key]
     if (Array.isArray(value)) out.push(...(value as string[]))
   }
+  // 기준 — 축 · 평면 칸의 값이 전역 이름(X · XY …)이 아니면 앞의 기준축 · 기준면이다.
+  const axisRefs = [node.op === 'revolve' || node.op === 'pattern' ? node.axis : null, node.op === 'datum_plane' ? node.hinge : null]
+  for (const value of axisRefs) if (typeof value === 'string' && value && !GLOBAL_AXES.has(value)) out.push(value)
+  if (node.op === 'mirror' && typeof node.plane === 'string' && !GLOBAL_PLANES.has(node.plane)) out.push(node.plane)
+  for (const value of Object.values(node)) {
+    const datum = value && typeof value === 'object' ? (value as { datum?: unknown }).datum : null
+    if (typeof datum === 'string' && datum) out.push(datum)
+  }
   return out
 }
+
+/** 원점을 지나는 축 · 평면의 이름 — 축 · 평면 칸에서 기준 id 대신 쓴다(서버 `GLOBAL_AXES` · `GLOBAL_PLANES`). */
+export const GLOBAL_AXES = new Set(['X', 'Y', 'Z'])
+export const GLOBAL_PLANES = new Set(['XY', 'XZ', 'YZ', 'YX', 'ZX', 'ZY'])
 
 export function nodesOf(recipe: Recipe): RecipeNode[] {
   return recipe.nodes as RecipeNode[]

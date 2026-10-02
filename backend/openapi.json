@@ -3053,6 +3053,50 @@
         }
       }
     },
+    "/api/cad/recipe/cutlist": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Recipe Cutlist",
+        "description": "구조 프레임의 **절단 목록** — 부재마다 자를 길이(가장 긴 데) · 끝의 자르는 각(0 = 직각)\n· 부피. 지그를 만들 때 그대로 재단 · 주문한다.",
+        "operationId": "recipe_cutlist_api_cad_recipe_cutlist_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CutListRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Recipe Cutlist Api Cad Recipe Cutlist Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/cad/recipe/find": {
       "post": {
         "tags": [
@@ -5707,6 +5751,25 @@
         ],
         "title": "CreateAccountRequest",
         "description": "관리자가 직접 계정을 만든다. 임시 비밀번호는 응답에서 한 번만 나온다."
+      },
+      "CutListRequest": {
+        "properties": {
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "node": {
+            "type": "string",
+            "title": "Node"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipe",
+          "node"
+        ],
+        "title": "CutListRequest"
       },
       "DiskOut": {
         "properties": {

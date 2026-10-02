@@ -188,6 +188,30 @@ def interference(raw: dict[str, Any], *, tolerance: float | None = None) -> dict
     }
 
 
+def cut_list(raw: dict[str, Any], node_id: str) -> dict[str, Any]:
+    """구조 프레임의 **절단 목록** — 부재마다 자를 길이 · 끝의 각 · 부피. 프레임은 앞 노드를
+    가리키지 않으므로 레시피를 풀기만(변수 식) 하고 그 노드만 만든다."""
+    from app.core.recipe import schema as recipe_schema
+    from app.core.recipe.frame import FrameError
+    from app.core.recipe.frame import cut_list as frame_cut_list
+
+    try:
+        recipe = parse(raw)
+    except RecipeValidationError as failure:
+        raise AppError(
+            code("CAD", 2),
+            "레시피가 올바르지 않습니다",
+            details={"problems": failure.problems},
+        ) from failure
+    node = next((one for one in recipe.nodes if one.id == node_id), None)
+    if not isinstance(node, recipe_schema.FrameNode):
+        raise AppError(code("CAD", 15), f"'{node_id}' 는 구조 프레임(frame)이 아닙니다")
+    try:
+        return {"node": node_id, **frame_cut_list(node)}
+    except FrameError as failure:
+        raise AppError(code("CAD", 15), str(failure)) from failure
+
+
 def build(raw: dict[str, Any], *, allow_sketch: bool = False) -> Evaluation:
     """만들어 본다. 실패는 AppError — 메시지가 그대로 화면 · AI 에 간다. `allow_sketch` 는
     미리보기(info · preview · mesh)만 — 그리는 도중의 2D 도 보여 줘야 한다."""

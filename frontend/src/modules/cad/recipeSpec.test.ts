@@ -38,3 +38,13 @@ test('참조와 종류 판정', () => {
   expect(nodeKind(sketch, [sketch])).toBe('sketch')
   expect(nodeKind(pattern, [sketch, extrude, pattern])).toBe('solid')
 })
+
+test('기준을 가리키는 칸도 참조다 — 전역 이름(X · XY)은 빼고', () => {
+  expect(referencesOf({ id: 'r', op: 'revolve', sketch: 's', axis: '축' })).toEqual(['s', '축'])
+  expect(referencesOf({ id: 'r', op: 'revolve', sketch: 's', axis: 'Z' })).toEqual(['s'])
+  expect(referencesOf({ id: 'm', op: 'mirror', target: 'b', plane: '면' })).toEqual(['b', '면'])
+  expect(referencesOf({ id: 'm', op: 'mirror', target: 'b', plane: 'YZ' })).toEqual(['b'])
+  expect(referencesOf({ id: 's', op: 'sketch', plane: { datum: '면' } })).toEqual(['면'])
+  expect(referencesOf({ id: 'd', op: 'datum_plane', plane: { name: 'XY' }, hinge: '축' })).toEqual(['축'])
+  expect(nodeKind({ id: '축', op: 'datum_axis' }, [])).toBe('axis')
+})

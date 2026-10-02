@@ -51,7 +51,7 @@ export function pretty(recipe: Recipe): string {
 
 // **「영역」 은 형상을 바꾸지 않는다** — 면을 나눠 이름을 붙일 뿐이다. 그래도 리본에 있는
 // 이유는 그것이 레시피 노드이기 때문이다: 설계점마다 같은 자리에 다시 생겨야 한다.
-const GROUPS = ['스케치', '입체', '조합', '마감', '배치', '영역'] as const
+const GROUPS = ['스케치', '입체', '조합', '마감', '배치', '기준', '영역'] as const
 
 /** 「파일」 탭이 부르는 것들 — 호출부(새 작업 · 내 작업)가 준다. 없는 것은 단추가 안 뜬다. */
 export interface FileActions {
@@ -77,7 +77,9 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
   const [jsonError, setJsonError] = useState<string | null>(null)
   const [pickMode, setPickMode] = useState<PickMode>('none')
   /** 면을 골라 어디에 쓰나 — 새 스케치 · 쉘의 open · 구멍의 plane. */
-  const [faceTarget, setFaceTarget] = useState<'sketch' | 'shell-open' | 'hole-plane'>('sketch')
+  const [faceTarget, setFaceTarget] = useState<'sketch' | 'shell-open' | 'hole-plane' | 'datum'>('sketch')
+  /** 3D 에서 누른 면을 담을 칸 — 쉘의 `open` · 면 지우기의 `faces` 처럼 `{near: [...]}` 인 칸. */
+  const [faceKey, setFaceKey] = useState('open')
   const [measures, setMeasures] = useState<Pick[]>([])
   /** 담아 둔 측정 — 3D 에 남아 여러 곳을 한 화면에서 비교한다. */
   const [kept, setKept] = useState<KeptMeasure[]>([])
@@ -87,7 +89,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
   const [loading, setLoading] = useState<'recipe' | 'work' | null>(null)
   /** 끌고 있는 피처의 자리 · 놓을 수 있는 칸들 · 지금 가리키는 칸 · 막힌 이유. */
   const [drag, setDrag] = useState<{ from: number; allowed: Set<number>; at: number | null; refused: string | null } | null>(null)
-  const { problems, summary, mesh, frames, drawing, error } = useRecipeMesh(value)
+  const { problems, summary, mesh, frames, datums, drawing, error } = useRecipeMesh(value)
   /** 좌표계 창 — 도면의 이름 붙인 원점 · 축(해석 조건의 「좌표계」 칸이 가리킨다). */
   const [framing, setFraming] = useState(false)
   /** 고치는 좌표계와, 화면에서 지정하는 중인 것(점 · 선 · 면을 누르거나 손잡이로 돌리기). */
@@ -266,11 +268,29 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
   }, [edgePicking])
 
   function onFacePicked(face: MeshFace) {
-    if (faceTarget === 'shell-open' && selected?.op === 'shell') {
-      const current = isNear(selected.open) ? (selected.open as { near: number[][] }) : { near: [] }
+    // 기준을 형상에서 — 원통면이면 그 축, 평면이면 그 면. 위치(near)는 그 면을 고를 때만 쓰고,
+    // 종류 · 방향으로 먼저 거른다(치수가 바뀌어도 같은 면을 찾게).
+    if (faceTarget === 'datum' && selected && (selected.op === 'datum_axis' || selected.op === 'datum_plane')) {
+      const axisWanted = selected.op === 'datum_axis'
+      const fits = axisWanted ? face.kind === 'cylinder' || face.kind === 'cone' : face.kind === 'plane'
+      if (!fits) return
+      const round = (v: number[]) => v.map((one) => Math.round(one * 1000) / 1000)
+      updateNode({
+        ...selected,
+        select: axisWanted
+          ? { what: 'faces', kind: face.kind, near: round(face.center) }
+          : { what: 'faces', kind: 'plane', normal: round(face.normal), near: round(face.center) },
+      })
+      setPickMode('none')
+      setFaceTarget('sketch')
+      setEditing(true)
+      return
+    }
+    if (faceTarget === 'shell-open' && selected) {
+      const current = isNear(selected[faceKey]) ? (selected[faceKey] as { near: number[][] }) : { near: [] }
       const same = (p: number[]) => Math.hypot(p[0] - face.center[0], p[1] - face.center[1], p[2] - face.center[2]) <= 0.5
       const near = current.near.some(same) ? current.near.filter((p) => !same(p)) : [...current.near, face.center]
-      updateNode({ ...selected, open: { near, tolerance: 1 } })
+      updateNode({ ...selected, [faceKey]: near.length ? { near, tolerance: 1 } : selected.op === 'shell' ? { near: [], tolerance: 1 } : 'none' })
       return
     }
     if (faceTarget === 'hole-plane' && selected && OP_BY_NAME[selected.op]?.fields.some((f) => f.key === 'plane')) {
@@ -294,7 +314,8 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
 
   /** 폼에서 「3D 에서 면 고르기」 — 모달을 닫고 3D 로 넘긴다. */
   function pickFacesFor(fieldKey: string) {
-    setFaceTarget(fieldKey === 'plane' ? 'hole-plane' : 'shell-open')
+    setFaceTarget(fieldKey === 'plane' ? 'hole-plane' : fieldKey === 'datum' ? 'datum' : 'shell-open')
+    if (fieldKey !== 'plane' && fieldKey !== 'datum') setFaceKey(fieldKey)
     setPickMode('face')
     setEditing(false)
   }
@@ -717,9 +738,17 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
               {pickMode === 'face'
                 ? faceTarget === 'sketch'
                   ? '3D 에서 면을 누르면 그 면 위에 스케치가 생깁니다.'
+                  : faceTarget === 'datum'
+                    ? selected?.op === 'datum_axis'
+                      ? '원통면(구멍 · 축)을 누르면 그 축이 기준축이 됩니다.'
+                      : '평면을 누르면 그 면이 기준면이 됩니다.'
                   : faceTarget === 'hole-plane'
                     ? '면을 누르면 그 면이 이 피처의 평면이 됩니다.'
-                    : '뚫을 면을 누르세요. 다시 누르면 뺍니다. 끝나면 피처를 다시 열어 확인하세요.'
+                    : selected?.op === 'defeature'
+                      ? '지울 면을 누르세요. 다시 누르면 뺍니다. 끝나면 피처를 다시 열어 확인하세요.'
+                      : selected?.op === 'chamfer'
+                        ? '길이를 잴 기준면을 누르세요. 다시 누르면 뺍니다. 끝나면 피처를 다시 열어 확인하세요.'
+                        : '뚫을 면을 누르세요. 다시 누르면 뺍니다. 끝나면 피처를 다시 열어 확인하세요.'
                 : pickMode === 'edge'
                   ? `엣지를 눌러 고릅니다 (${(selected?.edges as { near?: number[][] })?.near?.length ?? 0} 개). 다시 누르면 뺍니다.`
                   : pickMode === 'measure'
@@ -768,6 +797,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                   onFrameHandle={setFrame}
                   measureMarks={pickMode === 'measure' || kept.length > 0 ? measureMarks(measures, kept) : undefined}
                   frames={frames}
+                  datums={datums}
                   className="h-full w-full rounded-md border"
                 />
               </Suspense>
@@ -794,6 +824,17 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                 {summary.bbox.size.map((v) => v.toFixed(1)).join(' × ')} mm
                 {!summary.is_sketch && ` · 부피 ${summary.volume.toLocaleString()} mm³`} · 면 {summary.face_count} · 피처 {summary.nodes.length}
               </p>
+            )}
+            {/* 실패는 아니지만 알려야 할 것 — 면 지우기가 메우지 못하고 남긴 면 같은 것. 스케치
+                안내는 위의 띠가 따로 말한다. */}
+            {summary && summary.warnings.filter((one) => !one.startsWith('아직 스케치')).length > 0 && (
+              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-amber-600">
+                {summary.warnings
+                  .filter((one) => !one.startsWith('아직 스케치'))
+                  .map((one) => (
+                    <li key={one}>{one}</li>
+                  ))}
+              </ul>
             )}
           </div>
         </div>

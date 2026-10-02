@@ -1,4 +1,4 @@
-<!-- version: 2026-10-02.2 -->
+<!-- version: 2026-10-02.11 -->
 # CompCore MCP 가이드
 
 ## overview
@@ -75,7 +75,16 @@
   (major_radius, minor_radius) · `wedge`(length, width, height, top_x_min/max, top_z_min/max —
   경사 블록) · **표준 부품** `bolt`(at=머리가 앉는 점, nominal, length, head hex|socket, washer,
   down) · `pin`(at=밑면 중심, diameter, length, chamfer) · `standoff`(at=밑면 중심, outer, hole,
-  height) — 볼트 · 핀 · 스페이서를 원통으로 손수 그리지 않는다 · `sheet_metal`(thickness, width, path [[x, y]…], plane, bend_radius, side left|right
+  height) · `nut`(at, thread M3~M12, direction) · `washer`(at, thread, direction) ·
+  `bearing`(at, designation 608 · 625 · 626 · 6000~6005 · 6200~6205, direction) ·
+  `spring`(at, wire, diameter — 평균 지름, length — 자유 길이, coils, direction) ·
+  `bracket`(at — 두 프로파일 면이 만나는 안쪽 모서리, size 20|30|40|45, legs [[다리1], [다리2]]
+  — 알루미늄 프로파일 코너 브래킷) — 볼트 · 핀 · 스페이서 · 너트를 원통으로 손수 그리지 않는다.
+  **구멍에 볼트를 꽂을 때는 `fasten`**(target, holes — 구멍 면 질의 예 `{"kind":"cylinder",
+  "radius":3.3}`, part bolt|nut|washer|pin, thread — 비우면 구멍 지름으로(여유 구멍 · 탭 드릴),
+  length — 비우면 구멍 깊이, head socket|hex, washer, side top|bottom): 구멍마다 그 축에 놓는다
+  — 볼트는 머리가 side 끝(카운터보어면 턱)에, 너트 · 와셔는 side 끝에서 바깥으로, 핀은 반대쪽
+  끝에서 들어가 지름만큼 나온다. 좌표가 없어 DOE 가 구멍을 옮겨도 따라간다 · `sheet_metal`(thickness, width, path [[x, y]…], plane, bend_radius, side left|right
   — **판금 절곡**: 옆에서 본 꺾은선대로 판을 접는다. 「2t 판, 30 올라가 20 꺾임, 폭 40, 굽힘 R3」
   이 그대로 칸이 된다. 꺾은선이 **폭의 가운데**에 오므로 구멍 자리는 평면 좌표 그대로 주면 된다.
   브래킷 · ㄱ자 앵글 · 덮개는 블록을 깎지 말고 이것으로) ·
@@ -90,21 +99,78 @@
   필렛 · 모따기가 있는 판은 거절한다 — 그런 것은 굽힌 **뒤에**. 굽힘선은 모두 평행이다(한 노드
   안에서). 예 — 100 길이 판을 x=40 에서 R5 로 90° 세우기:
   `{"op":"bend","target":"판","bends":[{"at":40,"radius":5,"angle":90}]}`) ·
+  `frame`(profile, paths [[[x,y,z]…]…], corner miter|butt|none, meet butt|overlap, roll,
+  separate — **구조
+  프레임**: 단면을 경로의 부재마다 세운다. profile 은 `{"type":"t_slot","size":20|30|40|45}`
+  (알루미늄 프로파일, 근사 단면) · `square_tube`(width, thickness) · `rect_tube`(width, height,
+  thickness) · `round_tube`(diameter, thickness) · `round_bar`(diameter) · `flat_bar`(width,
+  height) · `angle`(width, height, thickness) · `channel`(width, height, thickness) ·
+  `h_beam`(width, height, web, flange). 경로 하나는 점 목록 — 점 사이가 부재 하나, 마지막 점이
+  처음 점과 같으면 닫힌 틀. 단면 가운데가 경로 위, 단면 위쪽이 +Z(서 있는 부재는 +X) — roll 로
+  돌린다. corner: miter 45° 맞대기 · butt 앞 부재가 지나가고 뒤 부재가 그 옆면에서 시작(직각에서
+  꼭 맞는다) · none 겹치기. **다른 경로에 닿는 열린 끝**(기둥 → 틀)은 meet 가 정한다 — butt
+  (기본)면 그 부재의 옆면까지 맞춘다: 기둥 경로를 틀의 **중심선 점까지** 그리면 틀 밑면에서
+  멈춘다(조금 모자라도 단면 안이면 늘인다), overlap 이면 그대로 겹친다. 기본은 한 덩어리,
+  separate 면 부재마다 따로(볼트 조립 프레임을 부재별로 해석). **절단 목록**은
+  `recipe_cutlist(recipe, node_id)` — 부재마다 자를 길이 · 끝의 각(0 = 직각) · 부피. 예 — 600 x 400 탁자 틀:
+  `{"op":"frame","profile":{"type":"t_slot","size":40},"corner":"butt",
+  "paths":[[[0,0,0],[600,0,0],[600,400,0],[0,400,0],[0,0,0]]]}`) ·
   `import_step`(file — 사용자가 올린 STEP, 직접 만들지 않는다)
 - 조합 `union`(targets) · `cut`(target, tools) · `intersect`(targets) · `split`(target, plane
   {name, origin | origin, normal}, keep top|bottom|both — 평면으로 자르기)
-- 마감 `fillet`(target, edges, radius — 화면에서는 「블렌드」) · `chamfer`(target, edges, length —
-  「챔퍼」) · `shell`(target, thickness, open top|bottom|none|{near}) · `offset`(target, amount,
+- 마감 `fillet`(target, edges, radius, radius_end · start — 화면에서는 「블렌드」. radius_end 를
+  주면 엣지를 따라 반지름이 radius → radius_end 로 변하고, start 점에 가까운 끝이 radius) ·
+  `chamfer`(target, edges, length, length2 | angle, reference — 「챔퍼」. length2 는 비대칭 두
+  거리, angle 은 거리-각도(도). length 는 기준면 쪽 — reference {"near": [[x,y,z]]} 로 고르고,
+  비우면 두 면 중 위(+Z)를 보는 면) · `shell`(target, thickness, open top|bottom|none|{near}) · `offset`(target, amount,
   corners round|sharp — 전체를 두껍게/얇게. **제품에 여유를 주어 지그 포켓을 만들 때**) ·
   `draft`(target, faces sides|top|bottom|all|{near}, angle, neutral — 면을 기울여 구배) · `hole`(target, at [[x, y]…], kind simple|counterbore|
   countersink|tap, thread M3~M12 — 주면 지름 · 카운터 치수를 표에서, diameter, depth — 비우면 관통,
   counter_diameter, counter_depth, plane — 뚫을 면 {origin, normal}; 안 주면 윗면 +Z 에서 아래로)
-  - `edges` 는 `all` · `vertical` · `horizontal` · `top` · `bottom` 또는 `{"near": [[x,y,z]…]}`
-    (엣지 중점 위치로 고르기 — 사람이 3D 에서 누른 것. AI 는 이름 있는 선택자를 쓰는 편이 안전)
+  · `defeature`(target, faces {"near": [[x,y,z]…]}, holes_below, fillets_below — **면을 지우고
+  메운다**: 지름이 holes_below 보다 작은 구멍(카운터보어 · 카운터싱크 포함), 반지름이
+  fillets_below 보다 작은 필렛, 고른 면을 지우고 이웃 면을 늘려 막는다. 해석용 단순화와 피처
+  이력이 없는 `import_step` 제품을 고칠 때. 이어진 필렛이 끝면 둘레를 다 두르면 메울 수 없어
+  남기고 요약의 `warnings` 에 적는다 — 그때는 기준을 줄이거나 faces 로 골라 지운다)
+- 영역 `imprint`(target — **접촉 자리 새기기**: 조립(group)의 바디끼리 닿는 자리를 서로의 면에
+  새겨 나눈다. 판 위의 블록이면 판 윗면이 닿는 자리와 나머지로 갈려 접촉면 짝이 넓이 · 자리까지
+  같아진다. 닿는 자리마다 태그 `받침판/블록`(받침판 쪽 면) · `블록/받침판`(블록 쪽 면) — 접촉
+  조건은 `source`·`target` 선택 그룹을 `{"what":"faces","tag":"블록/받침판"}` ·
+  `{"what":"faces","tag":"받침판/블록"}` 로. 겹치는(간섭) 바디는 거절, 조립의 마지막에 둔다) ·
+  `divide_face`(target, on — 나눌 면 질의, shape circle|rect|sketch, radius · size · at ·
+  sketch, tag — **면을 영역으로 나눈다**: 형상은 그대로이고, 생긴 조각에 tag 가 붙어 조건의
+  선택 그룹이 `{"what":"faces","tag":"<tag>"}` 로 집는다. `shape: sketch` 는 앞의 스케치 윤곽대로
+  — 도형 여럿이면 패치도 여럿, 구멍 뚫린 도형이면 고리. 스케치는 나눌 면 위에(평면을 그 면에)
+  그리고, `on` 을 비우면 스케치가 놓인 면을 저절로 고른다. 치수를 바꿔도 같은 자리에 다시 생긴다)
+  - `edges` 는 `all` · `vertical` · `horizontal` · `top` · `bottom`, `{"near": [[x,y,z]…]}`
+    (엣지 중점 위치 — 사람이 3D 에서 누른 것), 또는 **`{"query": {…}}`**(`recipe_find` 의 질의).
+    **AI 는 query 를 쓴다** — 위치는 DOE 가 치수를 바꾸면 그 자리에 엣지가 없어 실패한다.
+    예: 구멍 위 원 `{"query":{"kind":"circle","radius":5,"near":[35,0,100]}}`, 블록 윗면 둘레
+    `{"query":{"of_face":{"body":"블록","normal":[0,0,1]}}}`(of_face = 그 면들의 테두리).
+    면 칸(shell.open · draft.faces · defeature.faces · chamfer.reference)도 같은 `{"query": …}`
+    를 받는다. near 가 없으면 맞는 것 전부, 있으면 가장 가까운 하나
 - 배치 `pattern`(source, kind linear|grid|circular, count, spacing | count_y+spacing_y | axis+angle)
   — 결과는 **복사본 묶음**
   이라 `cut` 의 tools 나 `union` 의 targets 로 쓴다 · `transform`(target, translate, rotate,
-  scale) · `mirror`(target, plane, keep_original)
+  scale, pivot — 회전 · 배율의 중심) · `mirror`(target, plane, keep_original)
+- **기준축 · 기준면** — 형상을 만들지 않고 축 · 평면 칸이 가리킨다. 원점을 지나는 `X` · `Y` · `Z`
+  축과 `XY` · `YZ` … 평면 말고 아무 축 · 평면에 돌리고 비추고 그릴 때.
+  - `datum_axis` — `origin`+`direction` · `through` [[두 점]] · `target`+`select`(앞 입체의 원통 ·
+    원뿔면의 축 또는 직선 엣지, `recipe_find` 의 질의 — 예 `{"what":"faces","kind":"cylinder",
+    "near":[x,y,z]}`) 중 하나. `revolve.axis` · 원형 `pattern.axis` · `datum_plane.hinge` 에
+    id 로 쓴다.
+  - `datum_plane` — `plane`({name, origin} 또는 {origin, normal}) · `points` [[세 점]] ·
+    `target`+`select`(앞 입체의 평면 하나) 중 하나, 그리고 `offset`(법선 쪽으로 띄우기) ·
+    `hinge`+`angle`(축 둘레로 기울이기). 평면 칸(스케치 · split · section · draft.neutral · hole)에
+    `{"datum": "<id>"}` 로, `mirror.plane` 에 id 로 쓴다.
+  - 형상의 평면에서 뽑은 기준면의 원점은 **전역 원점을 그 면에 내린 점**, X 는 전역 X 방향 —
+    그래서 누운 면(윗면)에 그린 스케치의 좌표는 **전역 x · y 그대로** 준다(높이만 면을 따른다).
+  - 형상에서 뽑은 기준은 **치수를 바꿔도 따라간다** — 「구멍 축 둘레로 핀 여섯」 ·
+    「윗면에서 10 띄운 면에 스케치」 가 DOE 설계점마다 맞는다. select 가 여럿에 맞으면 거절된다
+    (near 로 하나를 고른다).
+  - 예 — 구멍 축 둘레로 6 개: `{"op":"datum_axis","id":"구멍축","target":"판",
+    "select":{"what":"faces","kind":"cylinder","radius":10}}` →
+    `{"op":"pattern","source":"핀","kind":"circular","count":6,"axis":"구멍축"}`
 
 치수를 **변수로** 두고 싶을 때(파라메트릭 — 화면에서는 「변수」):
 - 레시피에 `"params": {"판_길이": 80, "두께": 10}` 을 두고, **어느 숫자 칸에든**(피처의 칸도,

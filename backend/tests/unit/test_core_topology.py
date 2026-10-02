@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from build123d import Box, Compound, Location, Shape
 
-from app.core.recipe import evaluate, parse
+from app.core.recipe import RecipeError, evaluate, parse
 from app.core.recipe.topology import bodies, document, regions, slug
 
 #: 볼트 고정 지그의 모양 — 판 + 수직 관통 구멍 넷. 두께는 변수다(설계점마다 바뀐다).
@@ -231,3 +232,73 @@ def test_점_선택_그룹의_지문은_그_자리다() -> None:
         [{"name": "점", "select": {"what": "vertices", "near": [5, 5, 5], "limit": 1}}],
     )
     assert unresolved == [] and found["점"] == [{"point": [5.0, 5.0, 2.5]}]
+
+
+def _sketch_patch(두께: float, shapes: list[dict[str, Any]], **extra: Any) -> Any:
+    """판 윗면 위에 그린 스케치 모양대로 나눈다 — 스케치 평면이 두께를 따라 올라간다."""
+    return evaluate(
+        parse(
+            {
+                "params": {"두께": 두께},
+                "nodes": [
+                    {"id": "b", "op": "box", "length": 100, "width": 60, "height": "=두께",
+                     "align": ["center", "center", "min"]},
+                    {"id": "모양", "op": "sketch",
+                     "plane": {"name": "XY", "origin": [0, 0, "=두께"]}, "shapes": shapes},
+                    {"id": "나눔", "op": "divide_face", "target": "b", "shape": "sketch",
+                     "sketch": "모양", "tag": "패드", **extra},
+                ],
+            }
+        )
+    )  # fmt: skip
+
+
+#: ㄴ자 패드(30 x 10 + 10 x 20 = 500 mm²)와 고리(반지름 12 - 6 → π · 108 = 339.29 mm²).
+L_AND_RING: list[dict[str, Any]] = [
+    {"type": "polyline", "start": [-40, -20],
+     "segments": [{"to": [-10, -20]}, {"to": [-10, -10]}, {"to": [-30, -10]},
+                  {"to": [-30, 10]}, {"to": [-40, 10]}]},
+    {"type": "circle", "radius": 12, "at": [25, 0]},
+    {"type": "circle", "radius": 6, "at": [25, 0], "mode": "cut"},
+]  # fmt: skip
+
+
+@pytest.mark.parametrize("두께", [5.0, 12.0])
+def test_스케치_모양대로_나누고_고리의_섬은_빠진다(두께: float) -> None:
+    got = _sketch_patch(두께, L_AND_RING)
+    faces = [got.shape.faces()[i] for i in got.tags["패드"]]
+    assert sorted(round(one.area, 2) for one in faces) == [339.29, 500.0]
+    assert all(abs(one.center().Z - 두께) < 1e-6 for one in faces)
+    plain = 100 * 60 * 두께
+    assert abs(got.shape.volume - plain) < 1e-6  # 형상은 그대로
+
+
+def test_스케치가_면과_나란하지_않거나_떠_있으면_말한다() -> None:
+    import re
+
+    tilted = {"type": "rect", "width": 10, "height": 4}
+    with pytest.raises(RecipeError, match=re.escape("스케치가 놓인 면이 없습니다")):
+        evaluate(
+            parse(
+                {
+                    "nodes": [
+                        {"id": "b", "op": "box", "length": 100, "width": 60, "height": 10},
+                        {"id": "모양", "op": "sketch",
+                         "plane": {"name": "XY", "origin": [0, 0, 3]}, "shapes": [tilted]},
+                        {"id": "나눔", "op": "divide_face", "target": "b", "shape": "sketch",
+                         "sketch": "모양", "tag": "패드"},
+                    ]
+                }
+            )
+        )  # fmt: skip
+    # 윗면을 골랐는데 스케치는 옆(XZ)에 그렸다.
+    upright = {
+        "nodes": [
+            {"id": "b", "op": "box", "length": 100, "width": 60, "height": 10},
+            {"id": "모양", "op": "sketch", "plane": {"name": "XZ"}, "shapes": [tilted]},
+            {"id": "나눔", "op": "divide_face", "target": "b", "on": {"role": "top"},
+             "shape": "sketch", "sketch": "모양", "tag": "패드"},
+        ]
+    }  # fmt: skip
+    with pytest.raises(RecipeError, match="나란해야"):
+        evaluate(parse(upright))

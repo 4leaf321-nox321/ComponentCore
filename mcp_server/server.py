@@ -377,13 +377,23 @@ async def recipe_find(ctx: Context, recipe: dict[str, Any], query: dict[str, Any
     - 옆면들: `{"what":"faces","role":"side"}`
     - 조립에서 블록의 아랫면: `{"what":"faces","body":"블록","normal":[0,0,-1]}`
     칸: what(edges|faces|vertices) · kind · role(top|bottom|side|step|underside) ·
-    of_face_role · axis(x|y|z) · normal · radius · min_length · max_length · body · near ·
-    limit. **`near` 는 그 점에서 가장 가까운 하나**다 — 여럿을 가까운 순으로 보려면 `limit` 을
-    함께 준다. `body` 는 `recipe_bodies` 의 이름(조립의 구성품, 단품은 「전체」) — 틀리면 답의
+    of_face_role · of_face(면 질의 — 그 면들의 테두리 엣지 · 꼭짓점) · axis(x|y|z) · normal ·
+    radius · min_length · max_length · body · near · limit. 이 질의를 그대로 fillet · chamfer
+    의 `edges: {"query": …}` 에 쓰면 DOE 가 치수를 바꿔도 같은 엣지를 찾는다. **`near` 는 그
+    점에서 가장 가까운 하나**다 — 여럿을 가까운 순으로 보려면 `limit` 을 함께 준다.
+    `body` 는 `recipe_bodies` 의 이름(조립의 구성품, 단품은 「전체」) — 틀리면 답의
     `bodies` 에 있는 이름이 온다. 답의 `midpoint`(엣지) · `center`(면)를 fillet/chamfer 의
     `near`, 스케치의 `plane` 에 그대로 쓴다. 이 질의를 선택 그룹의 `select` 로 쓰면 **여기서
     본 것과 같은 것**을 집는다(그룹은 `near` 가 없으면 맞는 것 전부)."""
     return await _post(ctx, "/api/cad/recipe/find", {"recipe": recipe, "query": query})
+
+
+@mcp.tool()
+async def recipe_cutlist(ctx: Context, recipe: dict[str, Any], node_id: str) -> Any:
+    """구조 프레임(`frame`)의 **절단 목록** — 부재마다 자를 길이(가장 긴 데, mm) · 시작 · 끝의
+    자르는 각(도, 0 = 직각 · 45 = 45° 맞대기) · 부피(mm³), 그리고 합계. 질량은 재료 밀도 x
+    부피(알루미늄 2.7 · 강 7.85 g/cm³). 지그를 실제로 만들 때 재단 · 주문 목록으로 쓴다."""
+    return await _post(ctx, "/api/cad/recipe/cutlist", {"recipe": recipe, "node": node_id})
 
 
 @mcp.tool()

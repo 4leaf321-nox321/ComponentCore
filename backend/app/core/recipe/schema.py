@@ -221,6 +221,8 @@ class PlaneSpec(BaseModel):
     """평면의 법선(= 돌출 방향). 있으면 이름 대신 이것으로 평면을 만든다."""
     x_dir: XYZ | None = None
     """스케치의 X 방향. 비우면 법선과 직교하는 방향 하나를 고른다."""
+    datum: str | None = None
+    """앞의 **기준면**(`datum_plane`) id — 있으면 이름 · 원점 · 법선 대신 그 면을 쓴다."""
 
 
 # --- 노드 ---------------------------------------------------------------------
@@ -344,6 +346,194 @@ class BendNode(_Node):
         return self
 
 
+# --- 구조 프레임의 단면 -------------------------------------------------------------
+
+
+class _Profile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+#: 알루미늄 프로파일 계열 — 크기(mm) → (슬롯 입구, 입술 두께, 안쪽 폭, 슬롯 깊이, 가운데 구멍).
+#: 제조사마다 조금씩 다른 **근사 단면**이다(강성 · 질량이 몇 % 다를 수 있다).
+T_SLOT_SERIES: dict[int, tuple[float, float, float, float, float]] = {
+    20: (6.2, 1.8, 11.0, 6.1, 4.2),
+    30: (8.2, 2.2, 16.5, 9.0, 6.8),
+    40: (8.2, 4.3, 20.0, 12.2, 6.8),
+    45: (10.0, 4.4, 20.0, 13.0, 8.5),
+}
+
+
+class TSlotProfile(_Profile):
+    """알루미늄 프로파일(T 슬롯) — 정사각 단면의 네 변에 슬롯, 가운데 구멍. 계열 20 · 30 ·
+    40 · 45."""
+
+    type: Literal["t_slot"]
+    size: float = 20.0
+    """계열(한 변, mm) — 20 · 30 · 40 · 45."""
+
+    @model_validator(mode="after")
+    def _series(self) -> TSlotProfile:
+        if round(self.size) not in T_SLOT_SERIES or abs(self.size - round(self.size)) > 1e-9:
+            raise ValueError(f"size: {' · '.join(map(str, T_SLOT_SERIES))} 중 하나입니다")
+        return self
+
+
+class SquareTubeProfile(_Profile):
+    """각관(정사각 파이프)."""
+
+    type: Literal["square_tube"]
+    width: Positive
+    thickness: Positive
+    """벽 두께."""
+
+    @model_validator(mode="after")
+    def _wall(self) -> SquareTubeProfile:
+        if self.thickness * 2 >= self.width:
+            raise ValueError("thickness: 벽 두께의 두 배가 폭보다 작아야 합니다")
+        return self
+
+
+class RectTubeProfile(_Profile):
+    """사각관(직사각 파이프) — `height` 가 단면의 위쪽 방향."""
+
+    type: Literal["rect_tube"]
+    width: Positive
+    height: Positive
+    thickness: Positive
+
+    @model_validator(mode="after")
+    def _wall(self) -> RectTubeProfile:
+        if self.thickness * 2 >= min(self.width, self.height):
+            raise ValueError("thickness: 벽 두께의 두 배가 폭 · 높이보다 작아야 합니다")
+        return self
+
+
+class RoundTubeProfile(_Profile):
+    """원관(파이프)."""
+
+    type: Literal["round_tube"]
+    diameter: Positive
+    """바깥 지름."""
+    thickness: Positive
+
+    @model_validator(mode="after")
+    def _wall(self) -> RoundTubeProfile:
+        if self.thickness * 2 >= self.diameter:
+            raise ValueError("thickness: 벽 두께의 두 배가 지름보다 작아야 합니다")
+        return self
+
+
+class RoundBarProfile(_Profile):
+    """환봉."""
+
+    type: Literal["round_bar"]
+    diameter: Positive
+
+
+class FlatBarProfile(_Profile):
+    """평철 · 각재(속이 찬 직사각)."""
+
+    type: Literal["flat_bar"]
+    width: Positive
+    height: Positive
+
+
+class AngleProfile(_Profile):
+    """앵글(L) — 가로 다리 `width`, 세로 다리 `height`, 두께 `thickness`. 모서리가 단면의 왼쪽
+    아래(`roll` 로 돌린다)."""
+
+    type: Literal["angle"]
+    width: Positive
+    height: Positive
+    thickness: Positive
+
+    @model_validator(mode="after")
+    def _legs(self) -> AngleProfile:
+        if self.thickness >= min(self.width, self.height):
+            raise ValueError("thickness: 다리 길이보다 작아야 합니다")
+        return self
+
+
+class ChannelProfile(_Profile):
+    """채널(ㄷ) — 웨브 높이 `height`, 플랜지 폭 `width`, 두께 `thickness`. 열린 쪽이 +X."""
+
+    type: Literal["channel"]
+    width: Positive
+    height: Positive
+    thickness: Positive
+
+    @model_validator(mode="after")
+    def _legs(self) -> ChannelProfile:
+        if self.thickness >= self.width or self.thickness * 2 >= self.height:
+            raise ValueError("thickness: 플랜지 폭과 웨브 높이의 절반보다 작아야 합니다")
+        return self
+
+
+class HBeamProfile(_Profile):
+    """H 형강 — 플랜지 폭 `width`, 높이 `height`, 웨브 두께 `web`, 플랜지 두께 `flange`."""
+
+    type: Literal["h_beam"]
+    width: Positive
+    height: Positive
+    web: Positive
+    flange: Positive
+
+    @model_validator(mode="after")
+    def _plates(self) -> HBeamProfile:
+        if self.web >= self.width or self.flange * 2 >= self.height:
+            raise ValueError("web · flange: 웨브는 폭보다, 플랜지 둘은 높이보다 얇아야 합니다")
+        return self
+
+
+FrameProfile = Annotated[
+    TSlotProfile
+    | SquareTubeProfile
+    | RectTubeProfile
+    | RoundTubeProfile
+    | RoundBarProfile
+    | FlatBarProfile
+    | AngleProfile
+    | ChannelProfile
+    | HBeamProfile,
+    Field(discriminator="type"),
+]
+
+
+class FrameNode(_Node):
+    """**구조 프레임** — 알루미늄 프로파일 · 각관 · 원관 · 앵글 · 채널 · H 형강을 선을 따라
+    세운다. 지그의 받침 틀 · 기둥 · 가로대.
+
+    `paths` 는 경로 여럿, 경로 하나는 점 목록이다 — 점 사이가 부재 하나. 마지막 점이 처음 점과
+    같으면 **닫힌 틀**이다(그 모서리도 잇는다). 단면의 가운데(경계상자)가 경로 위에 온다.
+    단면의 위쪽은 +Z(부재가 서 있으면 +X) — `roll` 로 부재 축 둘레로 돌린다.
+
+    꺾인 곳(`corner`): `miter` 는 두 부재를 이등분 면에서 맞댄다(용접 틀) · `butt` 는 앞 부재가
+    모서리까지 지나가고 뒤 부재가 그 옆면에 맞닿는다(프로파일 볼트 조립) · `none` 은 둘 다
+    모서리까지 늘여 겹친다. 다른 경로에 닿는 끝(기둥 → 틀)은 `meet` 가 정한다.
+
+    자를 길이 · 각은 절단 목록(`/cad/recipe/cutlist`, MCP `recipe_cutlist`)이 준다."""
+
+    op: Literal["frame"]
+    profile: FrameProfile
+    paths: list[list[XYZ]] = Field(min_length=1, max_length=100)
+    corner: Literal["miter", "butt", "none"] = "miter"
+    meet: Literal["butt", "overlap"] = "butt"
+    """경로의 **열린 끝**이 다른 경로의 부재에 닿을 때 — `butt` 는 그 부재의 옆면까지 맞춘다
+    (기둥이 틀 밑면에서 멈춘다, 모자라면 늘인다), `overlap` 은 그대로 겹친다."""
+    roll: float = 0.0
+    """단면을 부재 축 둘레로 돌린다(도)."""
+    separate: bool = False
+    """부재를 합치지 않고 따로 둔다 — 볼트로 조립하는 프레임을 부재마다 해석할 때. 기본은
+    한 덩어리(용접 · 본딩으로 본다)."""
+
+    @model_validator(mode="after")
+    def _paths(self) -> FrameNode:
+        for index, path in enumerate(self.paths):
+            if len(path) < 2:
+                raise ValueError(f"paths[{index}]: 점이 둘 이상이어야 부재가 됩니다")
+        return self
+
+
 class HelixNode(_Node):
     """스케치(단면)를 나선을 따라 밀어 — 스프링 · 나사산. 단면은 XY 에 원점 중심으로 그리면
     나선 시작점에 알맞게 놓인다."""
@@ -373,7 +563,8 @@ class SweepNode(_Node):
 class RevolveNode(_Node):
     op: Literal["revolve"]
     sketch: str
-    axis: Literal["X", "Y", "Z"] = "Z"
+    axis: str = "Z"
+    """회전축 — 원점을 지나는 `X` · `Y` · `Z`, 또는 앞의 **기준축**(`datum_axis`) id."""
     angle: float = Field(default=360.0, gt=0, le=360)
 
 
@@ -458,7 +649,22 @@ class EdgeNear(BaseModel):
     tolerance: float = Field(default=1.0, gt=0)
 
 
-EdgeSelect = Literal["all", "vertical", "horizontal", "top", "bottom"] | EdgeNear
+class SelectRule(BaseModel):
+    """**규칙으로 고른다** — `recipe_find` 의 질의(`kind` · `axis` · `radius` · `normal` ·
+    `body` · `of_face` …). 위치로 고르면 DOE 가 치수를 바꾸는 순간 그 자리에 엣지 · 면이
+    없어 실패한다(실측 2026-10-02: 판 두께를 훑자 모따기 엣지를 못 찾았다). 규칙은
+    설계점마다 다시 찾는다.
+
+    예 — 블록 윗면의 테두리: `{"query": {"of_face": {"body": "블록", "normal": [0, 0, 1]}}}`,
+    지름 30 구멍의 위 원: `{"query": {"kind": "circle", "radius": 15, "near": [0, 0, 20]}}`.
+    `near` 가 없으면 맞는 것 **전부**, 있으면 가장 가까운 하나(`limit` 을 주면 그만큼)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: dict[str, Any] = Field(min_length=1)
+
+
+EdgeSelect = Literal["all", "vertical", "horizontal", "top", "bottom"] | EdgeNear | SelectRule
 
 
 class FilletNode(_Node):
@@ -466,13 +672,32 @@ class FilletNode(_Node):
     target: str
     edges: EdgeSelect = "all"
     radius: Positive
+    radius_end: Positive | None = None
+    """주면 **반지름이 변한다** — 엣지를 따라 `radius` 에서 이 값으로 고르게."""
+    start: XYZ | None = None
+    """`radius_end` 를 줄 때 `radius` 가 걸리는 끝 — 이 점에 가까운 끝. 비우면 엣지의 방향대로
+    (어느 끝인지 알 수 없다)."""
 
 
 class ChamferNode(_Node):
+    """모따기 — 같은 길이, 두 거리(`length2`), 또는 거리와 각(`angle`)."""
+
     op: Literal["chamfer"]
     target: str
     edges: EdgeSelect = "all"
     length: Positive
+    length2: Positive | None = None
+    """주면 **비대칭** — `length` 는 기준면 쪽, 이것은 다른 면 쪽 거리."""
+    angle: float | None = Field(default=None, gt=0, lt=90)
+    """주면 **거리-각도** — 기준면에서 `length` 만큼, 그 면에서 이 각(도)으로 깎는다."""
+    reference: FaceSelect | None = None
+    """`length` 를 재는 면(기준면). 비우면 엣지의 두 면 중 더 위(+Z)를 보는 면."""
+
+    @model_validator(mode="after")
+    def _one_way(self) -> ChamferNode:
+        if self.length2 is not None and self.angle is not None:
+            raise ValueError("length2(두 거리)와 angle(거리-각도) 중 하나만 씁니다")
+        return self
 
 
 #: 미터 나사 — (탭 드릴, 여유 구멍, 카운터보어 지름, 카운터보어 깊이, 카운터싱크 지름). mm.
@@ -526,7 +751,7 @@ class HoleNode(_Node):
         return self
 
 
-FaceSelect = Literal["top", "bottom", "sides", "all", "none"] | EdgeNear
+FaceSelect = Literal["top", "bottom", "sides", "all", "none"] | EdgeNear | SelectRule
 
 
 class ShellNode(_Node):
@@ -551,15 +776,26 @@ class DivideFaceNode(_Node):
     target: str
     on: dict[str, Any] = Field(default_factory=lambda: {"role": "top"})
     """나눌 면 고르기 — `query.find_features` 의 말(`role` · `kind` · `radius` · `near`)."""
-    shape: Literal["circle", "rect"] = "circle"
+    shape: Literal["circle", "rect", "sketch"] = "circle"
     radius: Positive | None = None
     """`circle` 의 반지름."""
     size: XY | None = None
     """`rect` 의 가로 · 세로."""
+    sketch: str | None = None
+    """`sketch` — 앞의 스케치. 그 윤곽(도형 여럿이면 여럿, 구멍 뚫린 도형이면 고리)을 면에 비춰
+    나눈다. 스케치 평면이 그 면과 나란해야 한다 — 면 위에 그리면 된다(`plane` 에 그 면, 또는
+    3D 에서 면을 눌러 만든 스케치)."""
     at: XYZ | None = None
-    """패치의 한가운데(전역 좌표). 면 위로 투영한다. 비우면 면의 한가운데."""
+    """패치의 한가운데(전역 좌표). 면 위로 투영한다. 비우면 면의 한가운데. `sketch` 는 스케치의
+    자리를 그대로 쓴다."""
     tag: str = Field(min_length=1, max_length=60)
     """생긴 안쪽 면에 붙는 이름. 조건은 `{"tag": "패드"}` 로 집는다."""
+
+    @model_validator(mode="after")
+    def _shape_needs(self) -> DivideFaceNode:
+        if self.shape == "sketch" and self.sketch is None:
+            raise ValueError("sketch: 모양을 스케치로 하려면 그 스케치를 고릅니다")
+        return self
 
 
 class PatternNode(_Node):
@@ -576,8 +812,8 @@ class PatternNode(_Node):
     """grid: Y 방향 개수."""
     spacing_y: XYZ = (0.0, 10.0, 0.0)
     """grid: Y 방향 간격 벡터."""
-    axis: Literal["X", "Y", "Z"] = "Z"
-    """circular: 회전축(원점 통과)."""
+    axis: str = "Z"
+    """circular: 회전축 — 원점을 지나는 `X` · `Y` · `Z`, 또는 앞의 기준축(`datum_axis`) id."""
     angle: float = Field(default=360.0, gt=0, le=360)
     """circular: 전체 각도."""
 
@@ -589,7 +825,9 @@ class TransformNode(_Node):
     rotate: XYZ = (0.0, 0.0, 0.0)
     """X · Y · Z 축 회전(도). 회전 뒤 이동."""
     scale: float = Field(default=1.0, gt=0)
-    """원점 기준 배율. 크기 · 회전 · 이동 순."""
+    """배율. 크기 · 회전 · 이동 순."""
+    pivot: XYZ = (0.0, 0.0, 0.0)
+    """회전 · 배율의 중심. 기본은 원점."""
 
 
 class WedgeNode(_Node):
@@ -662,6 +900,184 @@ class StandoffNode(_Node):
         return self
 
 
+#: ISO 4032 육각 너트 — 호칭 → (맞변 거리, 높이). mm.
+NUTS: dict[str, tuple[float, float]] = {
+    "M3": (5.5, 2.4),
+    "M4": (7.0, 3.2),
+    "M5": (8.0, 4.7),
+    "M6": (10.0, 5.2),
+    "M8": (13.0, 6.8),
+    "M10": (16.0, 8.4),
+    "M12": (18.0, 10.8),
+}
+#: ISO 7089 평와셔 — 호칭 → (안지름, 바깥지름, 두께). mm.
+WASHERS: dict[str, tuple[float, float, float]] = {
+    "M3": (3.2, 7.0, 0.5),
+    "M4": (4.3, 9.0, 0.8),
+    "M5": (5.3, 10.0, 1.0),
+    "M6": (6.4, 12.0, 1.6),
+    "M8": (8.4, 16.0, 1.6),
+    "M10": (10.5, 20.0, 2.0),
+    "M12": (13.0, 24.0, 2.5),
+}
+#: 깊은 홈 볼 베어링 — 호칭 → (안지름, 바깥지름, 폭). mm.
+BEARINGS: dict[str, tuple[float, float, float]] = {
+    "625": (5, 16, 5),
+    "626": (6, 19, 6),
+    "608": (8, 22, 7),
+    "6000": (10, 26, 8),
+    "6001": (12, 28, 8),
+    "6002": (15, 32, 9),
+    "6003": (17, 35, 10),
+    "6004": (20, 42, 12),
+    "6005": (25, 47, 12),
+    "6200": (10, 30, 9),
+    "6201": (12, 32, 10),
+    "6202": (15, 35, 11),
+    "6203": (17, 40, 12),
+    "6204": (20, 47, 14),
+    "6205": (25, 52, 15),
+}
+#: 알루미늄 프로파일 코너 브래킷 — 계열 → (다리 길이, 폭, 두께, 구멍 지름). mm. 근사 치수.
+BRACKETS: dict[int, tuple[float, float, float, float]] = {
+    20: (20.0, 20.0, 3.0, 5.5),
+    30: (28.0, 28.0, 4.0, 6.6),
+    40: (38.0, 38.0, 5.0, 8.5),
+    45: (43.0, 43.0, 5.0, 9.0),
+}
+
+
+def _known(value: str, table: dict[str, Any], field: str) -> None:
+    if value not in table:
+        raise ValueError(f"{field}: {' · '.join(table)} 중 하나입니다")
+
+
+class NutNode(_Node):
+    """육각 너트(ISO 4032) — `at` 은 **너트가 앉는 면의 점**, `direction` 쪽으로 쌓인다."""
+
+    op: Literal["nut"]
+    at: XYZ
+    thread: str
+    """M3 · M4 · M5 · M6 · M8 · M10 · M12."""
+    direction: XYZ = (0.0, 0.0, 1.0)
+
+    @model_validator(mode="after")
+    def _table(self) -> NutNode:
+        _known(self.thread, NUTS, "thread")
+        return self
+
+
+class WasherNode(_Node):
+    """평와셔(ISO 7089) — `at` 은 **와셔가 앉는 면의 점**, `direction` 쪽으로 쌓인다."""
+
+    op: Literal["washer"]
+    at: XYZ
+    thread: str
+    direction: XYZ = (0.0, 0.0, 1.0)
+
+    @model_validator(mode="after")
+    def _table(self) -> WasherNode:
+        _known(self.thread, WASHERS, "thread")
+        return self
+
+
+class BearingNode(_Node):
+    """깊은 홈 볼 베어링 — 안 · 바깥 링을 한 고리로 단순화. `at` 은 **한쪽 면의 가운데**,
+    `direction` 쪽으로 폭만큼."""
+
+    op: Literal["bearing"]
+    at: XYZ
+    designation: str
+    """608 · 625 · 626 · 6000 ~ 6005 · 6200 ~ 6205."""
+    direction: XYZ = (0.0, 0.0, 1.0)
+
+    @model_validator(mode="after")
+    def _table(self) -> BearingNode:
+        _known(self.designation, BEARINGS, "designation")
+        return self
+
+
+class SpringNode(_Node):
+    """압축 스프링 — 선 지름 `wire`, 평균 지름 `diameter`, 자유 길이 `length`, 감김 수 `coils`.
+    `at` 은 **밑면 가운데**, `direction` 쪽으로 선다."""
+
+    op: Literal["spring"]
+    at: XYZ = (0.0, 0.0, 0.0)
+    wire: Positive
+    diameter: Positive
+    """평균 지름(선의 가운데로 잰 코일 지름)."""
+    length: Positive
+    coils: float = Field(gt=0.5, le=200)
+    direction: XYZ = (0.0, 0.0, 1.0)
+
+    @model_validator(mode="after")
+    def _fits(self) -> SpringNode:
+        if self.wire >= self.diameter:
+            raise ValueError("wire: 선 지름이 평균 지름보다 작아야 합니다")
+        if (self.length - self.wire) / self.coils <= self.wire * 1.05:
+            raise ValueError(
+                "coils: 감김이 촘촘해 코일끼리 닿습니다 — 줄이거나 길이를 늘리세요"
+            )
+        return self
+
+
+class BracketNode(_Node):
+    """알루미늄 프로파일 **코너 브래킷**(L) — 계열 20 · 30 · 40 · 45. `at` 은 두 프로파일 면이
+    만나는 **안쪽 모서리의 점**, `legs` 는 두 다리가 뻗는 방향(서로 수직). 다리마다 구멍
+    하나."""
+
+    op: Literal["bracket"]
+    at: XYZ
+    size: float = 40.0
+    legs: tuple[XYZ, XYZ] = ((1.0, 0.0, 0.0), (0.0, 0.0, 1.0))
+
+    @model_validator(mode="after")
+    def _series(self) -> BracketNode:
+        if round(self.size) not in BRACKETS or abs(self.size - round(self.size)) > 1e-9:
+            raise ValueError(f"size: {' · '.join(map(str, BRACKETS))} 중 하나입니다")
+        a, b = self.legs
+        if (
+            abs(sum(x * y for x, y in zip(a, b, strict=True)))
+            > 1e-6 * (sum(x * x for x in a) * sum(y * y for y in b)) ** 0.5
+        ):
+            raise ValueError("legs: 두 다리 방향이 서로 수직이어야 합니다")
+        return self
+
+
+class FastenNode(_Node):
+    """**구멍에 맞춰 놓는다** — 규칙으로 찾은 구멍마다 볼트 · 너트 · 와셔 · 핀을 그 축에.
+
+    좌표 없이 「이 판의 M6 구멍들에 볼트」 — 치수가 바뀌어 구멍이 움직여도 따라간다. 나사
+    호칭을 비우면 구멍 지름으로 고른다(여유 구멍 ±0.3 · 탭 드릴 ±0.2). 카운터보어면 턱에
+    앉는다(가장 가는 구멍의 끝).
+
+    - `bolt` — 머리가 `side` 쪽 끝에 앉고 몸통이 구멍으로. `length` 를 비우면 구멍 깊이
+    - `nut` · `washer` — `side` 쪽 끝에서 바깥으로 쌓인다
+    - `pin` — 반대쪽 끝에서 들어가 `side` 쪽으로 나온다. 지름은 구멍 그대로, `length` 를
+      비우면 구멍 깊이 + 지름만큼 나온다"""
+
+    op: Literal["fasten"]
+    target: str
+    holes: dict[str, Any] = Field(default_factory=lambda: {"kind": "cylinder"})
+    """구멍 고르기 — `recipe_find` 의 면 질의(원통면). 예
+    `{"kind": "cylinder", "radius": 3.3}`."""
+    part: Literal["bolt", "nut", "washer", "pin"] = "bolt"
+    thread: str | None = None
+    """M3 ~ M12. 비우면 구멍 지름으로 고른다."""
+    length: Positive | None = None
+    head: Literal["hex", "socket"] = "socket"
+    washer: bool = False
+    """볼트 머리 밑에 와셔."""
+    side: Literal["top", "bottom"] = "top"
+    """구멍의 어느 끝 — 위(+Z 쪽, 구멍이 누웠으면 +X · +Y 쪽) · 아래."""
+
+    @model_validator(mode="after")
+    def _table(self) -> FastenNode:
+        if self.thread is not None:
+            _known(self.thread, THREADS, "thread")
+        return self
+
+
 class DraftNode(_Node):
     """고른 면에 구배를 준다 — 기준 평면은 그대로 두고 면을 기울인다. 금형 · 빼기 편한 포켓."""
 
@@ -671,6 +1087,50 @@ class DraftNode(_Node):
     angle: float = Field(default=3.0, gt=0, lt=45)
     neutral: PlaneSpec = Field(default_factory=PlaneSpec)
     """이 평면에 닿는 자리는 치수가 그대로다."""
+
+
+class DefeatureNode(_Node):
+    """**면을 지우고 메운다** — 작은 구멍 · 필렛이나 고른 면을 없애고 이웃 면을 늘려 막는다.
+    해석용 단순화(작은 필렛 · 구멍이 메시를 촘촘하게 만든다)와, 피처 이력이 없는 가져온 STEP 을
+    고칠 때.
+
+    무엇을 지울지(하나 이상):
+    - `faces` — 고른 면(3D 에서 누른 자리 `{"near": [[x, y, z], …]}`)
+    - `holes_below` — 지름이 이보다 작은 **구멍**(카운터보어 · 카운터싱크의 턱 · 원뿔도 함께)
+    - `fillets_below` — 반지름이 이보다 작은 **필렛**(둥근 모서리 — 볼록 · 오목 모두)
+
+    기준으로 고른 것이 하나도 없으면 그대로 지나간다 — DOE 가 구멍을 키워 기준을 넘으면 그
+    설계점에서는 남는다."""
+
+    op: Literal["defeature"]
+    target: str
+    faces: FaceSelect = "none"
+    holes_below: Positive | None = None
+    """이 지름(mm)보다 작은 구멍을 지운다."""
+    fillets_below: Positive | None = None
+    """이 반지름(mm)보다 작은 필렛을 지운다."""
+
+    @model_validator(mode="after")
+    def _something(self) -> DefeatureNode:
+        if self.faces == "none" and self.holes_below is None and self.fillets_below is None:
+            raise ValueError(
+                "faces · holes_below · fillets_below 중 하나는 있어야 지울 것이 있습니다"
+            )
+        if self.faces in ("all", "top", "bottom", "sides"):
+            raise ValueError('faces: 지울 면은 3D 에서 고른 자리({"near": [...]})로 줍니다')
+        return self
+
+
+class ImprintNode(_Node):
+    """**접촉 자리 새기기** — 조립(group)의 바디끼리 닿는 자리를 서로의 면에 새겨 나눈다.
+
+    판 위에 블록이 앉으면 판 윗면이 「블록이 닿는 자리」 와 나머지로 갈린다 — 접촉면 짝이
+    넓이 · 자리까지 꼭 같아지고, 해석의 메시가 두 바디에서 맞물린다. 닿는 자리마다 태그가
+    붙는다: `받침판/블록`(받침판 쪽 면), `블록/받침판`(블록 쪽 면) — 조건이
+    `{"what": "faces", "tag": "받침판/블록"}` 로 집는다. 겹치는(간섭) 바디는 거절한다."""
+
+    op: Literal["imprint"]
+    target: str
 
 
 class SplitNode(_Node):
@@ -714,7 +1174,9 @@ class OffsetNode(_Node):
 class MirrorNode(_Node):
     op: Literal["mirror"]
     target: str
-    plane: PlaneName = "YZ"
+    plane: str = "YZ"
+    """대칭면 — 원점을 지나는 이름 있는 평면(`XY` · `YZ` · `XZ` …), 또는 앞의 기준면
+    (`datum_plane`) id."""
     keep_original: bool = True
 
 
@@ -757,6 +1219,100 @@ class ImportStepNode(_Node):
     file: str = Field(min_length=1)
 
 
+#: 원점을 지나는 전역 축 — 축 칸에서 기준축 id 대신 쓰는 이름. 피처 id 로 쓰면 이것이 먼저다.
+GLOBAL_AXES = ("X", "Y", "Z")
+#: 원점을 지나는 이름 있는 평면 — 평면 칸에서 기준면 id 대신 쓰는 이름.
+GLOBAL_PLANES = ("XY", "XZ", "YZ", "YX", "ZX", "ZY")
+#: 형상을 만들지 않는 노드 — 축 · 평면 칸만 가리킨다.
+DATUM_OPS = ("datum_axis", "datum_plane")
+
+
+def _one_way(node: BaseModel, ways: dict[str, bool]) -> None:
+    """정의 방법이 **꼭 하나**인지 — 둘을 섞으면 어느 쪽인지 알 수 없다."""
+    chosen = [name for name, given in ways.items() if given]
+    if len(chosen) != 1:
+        raise ValueError(
+            f"{' · '.join(ways)} 중 하나로 정합니다"
+            + (f" — 지금 {' · '.join(chosen)}" if chosen else " — 지금 없음")
+        )
+
+
+class DatumAxisNode(_Node):
+    """**기준축** — 형상을 만들지 않고, 회전체(`revolve`) · 원형 패턴이 도는 축이 된다. 원점을
+    지나는 X · Y · Z 말고 아무 축이나 쓸 수 있게.
+
+    정하는 법(하나만):
+    - `origin` + `direction` — 점과 방향
+    - `through` — 두 점
+    - `target` + `select` — 앞 입체의 **원통 · 원뿔면의 축** 또는 **직선 엣지**
+      (`recipe_find` 의 질의, 예 `{"what": "faces", "kind": "cylinder", "near": [x, y, z]}`).
+      치수가 바뀌면 그 구멍 · 엣지를 따라간다."""
+
+    op: Literal["datum_axis"]
+    origin: XYZ | None = None
+    direction: XYZ | None = None
+    through: list[XYZ] | None = Field(default=None, min_length=2, max_length=2)
+    target: str | None = None
+    select: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _defined(self) -> DatumAxisNode:
+        _one_way(
+            self,
+            {
+                "origin + direction": self.origin is not None or self.direction is not None,
+                "through": self.through is not None,
+                "target + select": self.target is not None or self.select is not None,
+            },
+        )
+        if (self.origin is None) != (self.direction is None):
+            raise ValueError("origin 과 direction 은 함께 줍니다")
+        if (self.target is None) != (self.select is None):
+            raise ValueError("target 과 select 는 함께 줍니다")
+        return self
+
+
+class DatumPlaneNode(_Node):
+    """**기준면** — 형상을 만들지 않고, 스케치 · 자르기 · 단면 · 대칭이 놓이는 평면이 된다.
+    평면 칸(`plane`)에 `{"datum": "<이 id>"}` 로, 대칭면(`mirror.plane`)에 id 로 쓴다.
+
+    정하는 법(하나만). 그다음 `offset` 으로 법선 쪽으로 띄우고, `hinge` + `angle` 로 축 둘레로
+    기울인다:
+    - `plane` — 이름 있는 평면 또는 원점 · 법선
+    - `points` — 세 점
+    - `target` + `select` — 앞 입체의 **평면** 하나(`recipe_find` 의 질의). 치수가 바뀌면
+      그 면을 따라간다 — 「윗면에서 10 띄운 면」."""
+
+    op: Literal["datum_plane"]
+    plane: PlaneSpec | None = None
+    points: list[XYZ] | None = Field(default=None, min_length=3, max_length=3)
+    target: str | None = None
+    select: dict[str, Any] | None = None
+    offset: float = 0.0
+    """법선 쪽으로 띄운다(음수면 반대쪽)."""
+    hinge: str | None = None
+    """기울일 축 — `X` · `Y` · `Z` 또는 앞의 기준축 id. `angle` 과 함께."""
+    angle: float = Field(default=0.0, ge=-360, le=360)
+    """`hinge` 둘레로 돌리는 각(도). 「이 엣지를 지나 30° 기운 면」 은 엣지로 기준축을 만들고
+    그 엣지를 지나는 면을 그 축 둘레로 30°."""
+
+    @model_validator(mode="after")
+    def _defined(self) -> DatumPlaneNode:
+        _one_way(
+            self,
+            {
+                "plane": self.plane is not None,
+                "points": self.points is not None,
+                "target + select": self.target is not None or self.select is not None,
+            },
+        )
+        if (self.target is None) != (self.select is None):
+            raise ValueError("target 과 select 는 함께 줍니다")
+        if self.angle and self.hinge is None:
+            raise ValueError("angle 은 hinge(기울일 축)와 함께 줍니다")
+        return self
+
+
 Node = Annotated[
     SketchNode
     | ExtrudeNode
@@ -765,11 +1321,18 @@ Node = Annotated[
     | HelixNode
     | SheetMetalNode
     | BendNode
+    | FrameNode
     | BoxNode
     | WedgeNode
     | BoltNode
     | PinNode
     | StandoffNode
+    | NutNode
+    | WasherNode
+    | BearingNode
+    | SpringNode
+    | BracketNode
+    | FastenNode
     | CylinderNode
     | SphereNode
     | ConeNode
@@ -790,9 +1353,13 @@ Node = Annotated[
     | ComponentNode
     | GroupNode
     | DraftNode
+    | DefeatureNode
+    | ImprintNode
     | SectionNode
     | OffsetNode
-    | ImportStepNode,
+    | ImportStepNode
+    | DatumAxisNode
+    | DatumPlaneNode,
     Field(discriminator="op"),
 ]
 
@@ -849,10 +1416,11 @@ class Recipe(BaseModel):
 
     @model_validator(mode="after")
     def _check_references(self) -> Recipe:
-        seen: set[str] = set()
+        seen: dict[str, str] = {}
         for index, node in enumerate(self.nodes):
             if node.id in seen:
                 raise ValueError(f"nodes[{index}]: id '{node.id}' 가 겹칩니다")
+            datums = datum_references(node)
             for key, value in _references(node):
                 names = value if isinstance(value, list) else [value]
                 for name in names:
@@ -861,7 +1429,23 @@ class Recipe(BaseModel):
                             f"nodes[{index}] ({node.id}).{key}: "
                             f"'{name}' 은 앞에 없는 피처입니다"
                         )
-            seen.add(node.id)
+                    # 기준은 형상이 아니다 — 축 · 평면 칸에만 쓴다.
+                    if seen[name] in DATUM_OPS and key not in {one[0] for one in datums}:
+                        raise ValueError(
+                            f"nodes[{index}] ({node.id}).{key}: '{name}' 은 기준(축 · 면)"
+                            "이라 형상이 아닙니다 — 축 · 평면 칸에 씁니다"
+                        )
+            for key, name, wanted in datums:
+                if seen[name] != wanted:
+                    what = (
+                        "기준축(datum_axis)"
+                        if wanted == "datum_axis"
+                        else "기준면(datum_plane)"
+                    )
+                    raise ValueError(
+                        f"nodes[{index}] ({node.id}).{key}: '{name}' 은 {what}이 아닙니다"
+                    )
+            seen[node.id] = node.op
         if self.result is not None and self.result not in seen:
             raise ValueError(f"result: '{self.result}' 피처가 없습니다")
         return self
@@ -894,6 +1478,12 @@ _REFERENCE_FIELDS: dict[str, tuple[str, ...]] = {
     "section": ("target",),
     "offset": ("target",),
     "bend": ("target",),
+    "divide_face": ("target", "sketch"),
+    "defeature": ("target",),
+    "imprint": ("target",),
+    "fasten": ("target",),
+    "datum_axis": ("target",),
+    "datum_plane": ("target",),
 }
 
 
@@ -903,6 +1493,22 @@ def _references(node: Any) -> list[tuple[str, str | list[str]]]:
         value = getattr(node, key)
         if value is not None:  # extrude.target 처럼 비어도 되는 칸
             out.append((key, value))
+    return out + [(key, name) for key, name, _ in datum_references(node)]
+
+
+def datum_references(node: Any) -> list[tuple[str, str, str]]:
+    """기준을 가리키는 칸 — (칸, id, 있어야 할 종류). 전역 이름(`X` · `XY` …)은 빼고."""
+    out: list[tuple[str, str, str]] = []
+    if node.op in ("revolve", "pattern") and node.axis not in GLOBAL_AXES:
+        out.append(("axis", node.axis, "datum_axis"))
+    if node.op == "datum_plane" and node.hinge is not None and node.hinge not in GLOBAL_AXES:
+        out.append(("hinge", node.hinge, "datum_axis"))
+    if node.op == "mirror" and node.plane not in GLOBAL_PLANES:
+        out.append(("plane", node.plane, "datum_plane"))
+    for key in type(node).model_fields:
+        value = getattr(node, key)
+        if isinstance(value, PlaneSpec) and value.datum is not None:
+            out.append((f"{key}.datum", value.datum, "datum_plane"))
     return out
 
 

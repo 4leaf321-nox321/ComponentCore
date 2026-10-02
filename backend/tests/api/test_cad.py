@@ -126,6 +126,27 @@ def test_스케치만_있어도_미리보기는_보이고_저장은_거절(
     )  # 평가가 「입체를 만드세요」 로 실패한다
 
 
+def test_미리보기는_기준축_기준면을_따로_싣는다(client: TestClient, member: Signed) -> None:
+    """기준은 형상이 아니다 — 메시에는 없고 `datums` 로 와서 편집기가 3D 에 따로 그린다.
+    기준을 막 더해 마지막 노드가 기준이어도 미리보기는 그 앞의 형상을 그린다."""
+    recipe = {
+        "nodes": [
+            {"id": "b", "op": "box", "length": 40, "width": 30, "height": 10},
+            {"id": "위", "op": "datum_plane", "plane": {"name": "XY"}, "offset": 20},
+            {"id": "축", "op": "datum_axis", "origin": [10, 0, 0], "direction": [0, 0, 1]},
+        ]
+    }
+    got = client.post("/api/cad/recipe/mesh", json={"recipe": recipe}, headers=member.headers)
+    assert got.status_code == 200, got.text
+    body = got.json()
+    assert len(body["mesh"]["faces"]) == 6
+    assert [(one["id"], one["kind"]) for one in body["datums"]] == [
+        ("위", "plane"),
+        ("축", "axis"),
+    ]
+    assert body["datums"][0]["origin"] == [0.0, 0.0, 20.0]
+
+
 def test_치수를_훑어_고르고_보_공진을_가늠한다(client: TestClient, member: Signed) -> None:
     """지그를 세트의 공진에 맞추는 흐름 — 연결부는 그대로, 튜닝부만 바꿔 가며 고른다."""
     jig = {
@@ -423,3 +444,30 @@ def test_좌표계를_지금_치수로_풀어_준다(client: TestClient, member:
     ]
     # 아무것도 안 집는 그룹에 붙인 것은 못 푼 것으로 — 조용히 전역으로 바꾸지 않는다.
     assert got["missing"] == ["계단 좌표"]
+
+
+def test_구조_프레임의_절단_목록(client: TestClient, member: Signed) -> None:
+    recipe = {
+        "params": {"폭": 500},
+        "nodes": [
+            {"id": "틀", "op": "frame", "corner": "miter",
+             "profile": {"type": "square_tube", "width": 40, "thickness": 2},
+             "paths": [[[0, 0, 0], ["=폭", 0, 0], ["=폭", 300, 0], [0, 300, 0], [0, 0, 0]]]},
+            {"id": "판", "op": "box", "length": 10, "width": 10, "height": 10},
+        ],
+    }  # fmt: skip
+    got = client.post(
+        "/api/cad/recipe/cutlist",
+        json={"recipe": recipe, "node": "틀"},
+        headers=member.headers,
+    )
+    assert got.status_code == 200, got.text
+    body = got.json()
+    assert [one["length"] for one in body["items"]] == [540.0, 340.0, 540.0, 340.0]
+    assert body["total_length"] == 1760.0
+    wrong = client.post(
+        "/api/cad/recipe/cutlist",
+        json={"recipe": recipe, "node": "판"},
+        headers=member.headers,
+    )
+    assert wrong.status_code == 400 and "구조 프레임" in wrong.json()["error"]["message"]

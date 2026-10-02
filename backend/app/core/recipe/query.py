@@ -147,6 +147,8 @@ def find_features(
       kind        line | circle | arc | plane | cylinder … (엣지 · 면의 기하 종류)
       role        top | bottom | side | step | underside (면)
       of_face_role  이 역할의 **가장 넓은 면**에 속한 엣지만 (예: top → 윗면 테두리)
+      of_face     면 질의 — 그 면들의 **테두리** 엣지만(점이면 그 면들의 꼭짓점). 예
+                  `{"body": "블록", "normal": [0, 0, 1]}` → 블록 윗면 둘레
       axis        x | y | z (직선 엣지의 방향) — 면이면 원통 · 원뿔의 축(`[x, y, z]` 도 된다)
       normal      [x, y, z] 또는 x | y | z — 이 방향을 보는 평면만(면)
       radius      이 반지름(±0.05)의 원 · 원통만
@@ -173,6 +175,10 @@ def find_features(
 
     if what == "vertices":
         rows = [_vertex_row(i, v, shape) for i, v in enumerate(shape.vertices())]
+        if isinstance(query.get("of_face"), dict):
+            corners = _rim(shape, query["of_face"], tags, "vertices")
+            vertices = shape.vertices()
+            rows = [r for r in rows if vertices[r["index"]] in corners]
         if query.get("edges") is not None:
             rows = [r for r in rows if r["edges"] == int(query["edges"])]
         key = "point"
@@ -222,6 +228,9 @@ def find_features(
                 edges = [(i, e) for i, e in edges if any(e.is_same(w) for w in rim)]
             else:
                 edges = []
+        if isinstance(query.get("of_face"), dict):
+            around = _rim(shape, query["of_face"], tags, "edges")
+            edges = [(i, e) for i, e in edges if e in around]
         rows = [_edge_row(i, e) for i, e in edges]
         if query.get("kind"):
             rows = [r for r in rows if r["kind"] == query["kind"]]
@@ -250,6 +259,19 @@ def find_features(
     if known_bodies is not None:
         # 없는 바디 이름 — 0 개라고만 하면 오타인지 알 길이 없다. 있는 이름을 알려 준다.
         out["bodies"] = known_bodies
+    return out
+
+
+def _rim(
+    shape: Shape, face_query: dict[str, Any], tags: dict[str, list[int]] | None, what: str
+) -> set[Any]:
+    """면 질의에 맞는 면들의 테두리 엣지(또는 꼭짓점) — `of_face` 가 쓴다."""
+    faces = shape.faces()
+    found = select_features(shape, {**face_query, "what": "faces"}, tags)["items"]
+    out: set[Any] = set()
+    for row in found:
+        face = faces[row["index"]]
+        out |= set(face.edges() if what == "edges" else face.vertices())
     return out
 
 

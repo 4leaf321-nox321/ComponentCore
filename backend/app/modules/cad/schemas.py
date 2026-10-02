@@ -16,6 +16,11 @@ class ViewsRequest(RecipeRequest):
     width: int = Field(default=640, ge=120, le=2000)
 
 
+class CutListRequest(RecipeRequest):
+    node: str
+    """구조 프레임(`frame`) 노드의 id."""
+
+
 class FindRequest(RecipeRequest):
     query: dict[str, Any] = Field(default_factory=dict)
     """what · kind · role · of_face_role · axis · radius · min_length · max_length · near ·

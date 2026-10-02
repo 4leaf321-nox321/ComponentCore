@@ -1,5 +1,5 @@
 import { api, postForBlob } from '@/shared/api/client'
-import type { FrameRow, MeshData } from '@/shared/viewer/PickViewer'
+import type { DatumRow, FrameRow, MeshData } from '@/shared/viewer/PickViewer'
 
 /** 레시피 — 서버 `core/recipe/schema.py` 가 정본. 화면은 JSON 으로만 다룬다. */
 export type Recipe = {
@@ -56,18 +56,31 @@ export interface RecipeSummary {
  * 상태 없는 레시피 API — 검증 · 미리보기 · 내려받기. 저장은 남의 일이다:
  * 버전은 `works`, 시작점(템플릿)은 `templates`.
  */
+/** 구조 프레임의 절단 목록 — 서버 `frame.cut_list`. 각은 도(0 = 직각). */
+export interface CutList {
+  node: string
+  profile: string
+  section_area: number
+  items: { path: number; member: number; length: number; start_cut: number; end_cut: number; volume: number }[]
+  count: number
+  total_length: number
+  total_volume: number
+}
+
 export const cadApi = {
   schema: () => api.get<RecipeSchema>('/cad/recipe/schema'),
   check: (recipe: Recipe) => api.post<{ ok: boolean; problems: string[] }>('/cad/recipe/check', { recipe }),
   info: (recipe: Recipe) => api.post<{ summary: RecipeSummary }>('/cad/recipe/info', { recipe }),
   preview: (recipe: Recipe) => postForBlob('/cad/recipe/preview', { recipe }),
   mesh: (recipe: Recipe) =>
-    api.post<{ summary: RecipeSummary; mesh: MeshData; frames?: FrameRow[] }>('/cad/recipe/mesh', { recipe }),
+    api.post<{ summary: RecipeSummary; mesh: MeshData; frames?: FrameRow[]; datums?: DatumRow[] }>('/cad/recipe/mesh', { recipe }),
   /** 구성품을 다른 것의 면에 얹는 translate — 서버가 경계 상자로 잰다. */
   place: (recipe: Recipe, body: { mover: string; onto: string; face: string; offset: number; align: string }) =>
     api.post<{ recipe: Recipe; translate: number[]; problems: string[] }>('/cad/recipe/place', { recipe, ...body }),
   /** 조립의 구성품끼리 겹치는가 — 모든 쌍의 겹침 부피. */
   interference: (recipe: Recipe, tolerance?: number) => api.post<Interference>('/cad/recipe/interference', { recipe, tolerance }),
+  /** 구조 프레임의 절단 목록 — 부재마다 자를 길이 · 끝의 각 · 부피. */
+  cutList: (recipe: Recipe, node: string) => api.post<CutList>('/cad/recipe/cutlist', { recipe, node }),
   step: (recipe: Recipe) => postForBlob('/cad/recipe/step', { recipe }),
   stl: (recipe: Recipe) => postForBlob('/cad/recipe/stl', { recipe }),
   dxf: (recipe: Recipe) => postForBlob('/cad/recipe/dxf', { recipe }),

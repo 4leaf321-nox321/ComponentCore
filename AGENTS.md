@@ -48,6 +48,16 @@
   감을 때는 그것을 쓰지 않고 엣지를 원통의 매개변수 평면(각 · 높이)으로 옮긴다(`recipe/bend.py`).
 - **build123d 의 `.volume` 은 오차가 크다** — B-스플라인 면이 있으면 4574 mm³ 를 4571 로 낸다
   (실측). 정확도를 시험할 때는 `BRepGProp.VolumeProperties_s(shape, props, 1e-9, False)`.
+- **`Vector.get_angle` 은 도를 돌려준다** — 라디안인 줄 알고 `degrees` 를 또 씌우면 90° 가
+  5157° 가 된다.
+- **`Plane.rotated` 는 법선까지 돌린다** — 부재 축 둘레로 단면만 돌리려다 부재 방향이 바뀌었다.
+  축 둘레 회전은 x · y 방향을 직접 돌린다(`recipe/frame.py`).
+- **`Rectangle` 은 가운데 맞춤, `Polygon` 은 준 좌표 그대로**(align 기본값이 다르다).
+- **OCC 의 면 지우기(`BRepAlgoAPI_Defeaturing`)는 실패를 말하지 않을 때가 있다** — 모든
+  모서리를 둥글린 ㄴ자의 필렛을 한꺼번에 지우면 **경계상자로 메운** 상자를 돌려준다(6424 →
+  24000 mm³). 결과의 부피 변화가 지운 면들의 경계상자 안에 드는지 본다(`recipe/defeature.py`).
+- **`BoundBox.add` 는 새 상자를 돌려준다** — 제자리에서 키우지 않는다. `box.add(…)` 만 쓰면
+  첫 상자 그대로라, 볼트 넷의 와셔 자리 중 하나만 잡혔다(`recipe/imprint.py`).
 - OCP 는 mypy 에 타입이 없다. `pyproject.toml` 이 `app.core.*` 만 느슨하게 본다 — 그 경계
   밖(`modules`)은 strict 그대로다.
 
