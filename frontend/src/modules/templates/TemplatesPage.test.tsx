@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
 import TemplatesPage from '@/modules/templates/TemplatesPage'
+import { AuthProvider } from '@/shared/auth/AuthContext'
 
 const MINE = {
   id: 'a',
@@ -12,6 +13,7 @@ const MINE = {
   is_shared: false,
   mine: true,
   node_count: 3,
+  folder: '',
   updated_at: '2026-09-19T00:00:00Z',
 }
 const SHARED = { ...MINE, id: 'b', name: '공용 지그판', is_shared: true, mine: false, owner_name: '동료' }
@@ -21,8 +23,12 @@ function mockFetch(items: unknown[]) {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input)
     calls.push({ url, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : null })
-    const body = url.includes('/templates/tags')
+    const body = url.includes('/auth/refresh')
+      ? { access_token: 't', expires_in: 900, user: { id: 'u1', email: 'me@x', display_name: '나', status: 'active', is_system_admin: false, must_change_password: false } }
+      : url.includes('/templates/tags')
       ? ['브래킷']
+      : url.includes('/templates/folders')
+      ? [{ path: '', count: 2 }]
       : url.includes('/templates?')
         ? { items, total: items.length, limit: 20, offset: 0 }
         : {}
@@ -34,9 +40,11 @@ function mockFetch(items: unknown[]) {
 test('자리(내 것 · 공용)로 나눠 보고, 내 것은 공용으로 내놓고 남의 것은 복사한다', async () => {
   const calls = mockFetch([MINE, SHARED])
   render(
-    <MemoryRouter>
-      <TemplatesPage />
-    </MemoryRouter>,
+    <AuthProvider>
+      <MemoryRouter>
+        <TemplatesPage />
+      </MemoryRouter>
+    </AuthProvider>,
   )
   await waitFor(() => expect(screen.getByText('내 브래킷')).toBeInTheDocument())
 

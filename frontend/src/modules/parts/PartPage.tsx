@@ -12,6 +12,7 @@ import { useAuth } from '@/shared/auth/AuthContext'
 import { canEditProject } from '@/shared/auth/roles'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
+import { FolderLine } from '@/shared/folders/FolderParts'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { StatusBadge } from '@/shared/components/StatusBadge'
 import { Button } from '@/shared/components/ui/button'
@@ -73,6 +74,15 @@ export default function PartPage() {
         }
       />
       <ErrorNotice error={error} />
+      <FolderLine
+        folder={p.folder}
+        editable={editable}
+        suggestions={partsApi.folders}
+        onMove={async (folder) => {
+          await partsApi.update(id, { folder })
+          part.reload()
+        }}
+      />
 
       <div className="grid gap-4 lg:grid-cols-4">
         <div className="space-y-4 lg:col-span-1">

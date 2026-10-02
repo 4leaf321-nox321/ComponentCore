@@ -33,7 +33,7 @@ from app.modules.jobs.models import Artifact, Job
 from app.modules.parts.models import Part, PartVersion
 from app.modules.works.models import VERSION_SOURCES, WORK_KINDS, Work, WorkVersion
 from app.modules.works.schemas import PromoteJigOut, VersionOut, WorkOut, WorkSummaryOut
-from app.shared import filestore
+from app.shared import filestore, folders
 from app.shared.errors import AppError, Forbidden, NotFound, code
 
 logger = logging.getLogger(__name__)
@@ -154,6 +154,7 @@ def work_out(db: Session, work: Work) -> WorkOut:
         jig_options=work.jig_options,
         unit_system=work.unit_system,
         tags=list(work.tags or []),
+        folder=work.folder,
         deleted_at=work.deleted_at,
         jig_run_count=runs,
         last_jig_status=last,
@@ -191,9 +192,21 @@ def work_summary(db: Session, work: Work) -> WorkSummaryOut:
         promoted_part_id=part_id,
         promoted_jig_id=jig_id,
         tags=list(work.tags or []),
+        folder=work.folder,
+        created_at=work.created_at,
         updated_at=work.updated_at,
         deleted_at=work.deleted_at,
     )
+
+
+#: 폴더 경로가 틀렸을 때 · 폴더째 옮길 수 없을 때.
+_BAD_FOLDER = code("WORKS", 33)
+_BAD_RENAME = code("WORKS", 34)
+
+
+def normalize_folder(raw: str) -> str:
+    """사람이 적은 폴더 경로를 한 모양으로(`shared/folders.normalize`)."""
+    return folders.normalize(raw, _BAD_FOLDER)
 
 
 def list_works(
@@ -206,9 +219,16 @@ def list_works(
     tag: str = "",
     kind: str = "",
     trashed: bool = False,
+    folder: str | None = None,
+    subfolders: bool = True,
+    year: int | None = None,
+    order: str = "updated",
 ) -> tuple[list[Work], int]:
     """내 작업 — 이름 · 설명으로 찾고(`query`), 꼬리표 · 종류로 거른다. `trashed` 면 지운
-    것만."""
+    것만. `folder` 를 주면 그 폴더(`subfolders` 면 그 아래까지), `year` 면 그해에 만든 것.
+
+    연도는 DB 접속의 시간대로 뽑는다(서버가 한국에 있으면 한국 시각) — 화면도 그 시각을
+    쓴다."""
     base = select(Work).where(Work.owner_id == owner.id)
     base = base.where(Work.deleted_at.is_not(None) if trashed else Work.deleted_at.is_(None))
     if query.strip():
@@ -218,9 +238,14 @@ def list_works(
         base = base.where(Work.tags.contains([tag.strip()]))
     if kind.strip():
         base = base.where(Work.kind == kind.strip())
+    base = folders.narrowed(base, Work.folder, folder, subfolders, _BAD_FOLDER)
+    if year is not None:
+        base = base.where(func.extract("year", Work.created_at) == year)
     total = int(db.scalar(select(func.count()).select_from(base.subquery())) or 0)
-    order = Work.deleted_at.desc() if trashed else Work.updated_at.desc()
-    rows = list(db.scalars(base.order_by(order).limit(limit).offset(offset)))
+    # 연도별로 묶어 볼 때는 만든 날짜 순이어야 같은 해가 한데 모인다.
+    newest = Work.created_at.desc() if order == "created" else Work.updated_at.desc()
+    sort = Work.deleted_at.desc() if trashed else newest
+    rows = list(db.scalars(base.order_by(sort, Work.id).limit(limit).offset(offset)))
     return rows, total
 
 
@@ -234,6 +259,55 @@ def my_tags(db: Session, owner: User) -> list[str]:
         for one in tags or []:
             seen[one] = seen.get(one, 0) + 1
     return sorted(seen, key=lambda t: (-seen[t], t))
+
+
+def my_folders(db: Session, owner: User) -> list[folders.FolderOut]:
+    """내 작업이 놓인 폴더들과 **바로 그 폴더에** 있는 작업 수(지운 것 제외). 위 폴더도
+    빠짐없이 — 화면이 나무를 그린다."""
+    return folders.tree(db, Work.folder, Work.owner_id == owner.id, Work.deleted_at.is_(None))
+
+
+def my_years(db: Session, owner: User) -> list[dict[str, int]]:
+    """내 작업을 만든 해들과 그해의 작업 수(지운 것 제외) — 최근 해부터."""
+    year = func.extract("year", Work.created_at)
+    rows = db.execute(
+        select(year, func.count())
+        .where(Work.owner_id == owner.id, Work.deleted_at.is_(None))
+        .group_by(year)
+        .order_by(year.desc())
+    ).all()
+    return [{"year": int(value), "count": int(count)} for value, count in rows]
+
+
+def rename_folder(db: Session, owner: User, *, path: str, to: str) -> int:
+    """폴더를 옮긴다 · 이름을 바꾼다 — 그 아래 하위 폴더까지 함께. `to` 가 이미 있으면
+    합친다. 지운 작업도 따라간다(되살리면 같은 자리에 있게). 옮긴 작업 수를 돌려준다."""
+    old, new = folders.checked_rename(path, to, _BAD_RENAME)
+    if new == old:
+        return 0
+    rows = list(
+        db.scalars(
+            select(Work).where(Work.owner_id == owner.id, folders.under(Work.folder, old))
+        )
+    )
+    for work in rows:
+        work.folder = folders.renamed(work.folder, old, new, _BAD_RENAME)
+    db.commit()
+    return len(rows)
+
+
+def move_works(db: Session, owner: User, *, ids: list[uuid.UUID], folder: str) -> int:
+    """작업 여럿을 한 폴더로. 남의 작업 · 없는 작업이 섞이면 아무것도 옮기지 않는다."""
+    path = normalize_folder(folder)
+    rows = list(db.scalars(select(Work).where(Work.id.in_(ids))))
+    if len(rows) != len(set(ids)):
+        raise NotFound(code("WORKS", 1), "작업을 찾을 수 없습니다.")
+    for work in rows:
+        require_owner(work, owner)
+    for work in rows:
+        work.folder = path
+    db.commit()
+    return len(rows)
 
 
 def restore_work(db: Session, work: Work) -> Work:
@@ -259,6 +333,7 @@ def duplicate_work(db: Session, work: Work, *, by: User, name: str | None) -> Wo
         jig_for_part_id=work.jig_for_part_id,
     )
     made.tags = list(work.tags or [])
+    made.folder = work.folder
     made.jig_options = dict(work.jig_options or {})
     made.unit_system = work.unit_system
     db.commit()
@@ -340,9 +415,11 @@ def create_work(
     kind: str = "part",
     jig_for_part_id: uuid.UUID | None = None,
     unit_system: str | None = None,
+    folder: str = "",
 ) -> Work:
     if recipe is not None:
         _validated(recipe)
+    path = normalize_folder(folder)
     if unit_system is not None:
         _check_unit_system(unit_system)
     if kind not in WORK_KINDS:
@@ -354,6 +431,7 @@ def create_work(
         kind=kind,
         jig_for_part_id=jig_for_part_id,
         unit_system=unit_system or "mm_n_tonne",
+        folder=path,
     )
     db.add(work)
     db.flush()
@@ -383,6 +461,9 @@ def update_work(db: Session, work: Work, *, fields: dict[str, Any]) -> Work:
         raise AppError(code("WORKS", 23), f"모르는 종류입니다: {fields['kind']} (part · jig)")
     for key, value in fields.items():
         if value is None:
+            continue
+        if key == "folder":
+            work.folder = normalize_folder(value)
             continue
         if key == "tags":
             cleaned: list[str] = []
@@ -805,8 +886,10 @@ def promote_part(
             owner_id=by.id,
             work_id=work.id,
             # **꼬리표를 물려받는다.** 안 옮기면 사람이 붙여 둔 것이 공용 공간으로 나가는
-            # 순간 없어진다 — 정작 남이 찾아야 하는 자리에서.
+            # 순간 없어진다 — 정작 남이 찾아야 하는 자리에서. **폴더도** 처음 한 번만 —
+            # 카탈로그에서 옮긴 뒤 다시 올려도 제자리로 끌고 오지 않는다.
             tags=list(work.tags or []),
+            folder=work.folder,
         )
         db.add(part)
         db.flush()
@@ -907,6 +990,7 @@ def _jig_for(
             work_id=work.id,
             part_id=part_version.part_id if part_version else None,
             tags=list(work.tags or []),
+            folder=work.folder,
         )
         db.add(jig)
         db.flush()

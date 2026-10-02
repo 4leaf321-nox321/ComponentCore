@@ -10,13 +10,14 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.recipe.schema import RecipeValidationError, parse
 from app.modules.accounts.models import User
 from app.modules.templates.models import RecipeTemplate
 from app.modules.templates.schemas import TemplateOut, TemplateSummaryOut
+from app.shared import folders
 from app.shared.errors import AppError, Forbidden, NotFound, code
 
 #: 목록에서 고를 수 있는 자리.
@@ -46,6 +47,7 @@ def template_summary(
         mine=template.owner_id == viewer.id,
         node_count=_node_count(template.recipe),
         tags=list(template.tags or []),
+        folder=template.folder,
         updated_at=template.updated_at,
     )
 
@@ -56,6 +58,26 @@ def template_out(db: Session, template: RecipeTemplate, viewer: User) -> Templat
     )
 
 
+def _visible(viewer: User) -> ColumnElement[bool]:
+    """볼 수 있는 템플릿 — 내 것과 공용."""
+    return or_(RecipeTemplate.owner_id == viewer.id, RecipeTemplate.is_shared.is_(True))
+
+
+def _scoped(viewer: User, scope: str) -> ColumnElement[bool]:
+    """`scope` 는 mine(내 것) · shared(공용) · all(둘 다)."""
+    if scope not in SCOPES:
+        raise AppError(code("TPL", 3), f"모르는 자리입니다: {scope}")
+    if scope == "mine":
+        return RecipeTemplate.owner_id == viewer.id
+    if scope == "shared":
+        return RecipeTemplate.is_shared.is_(True)
+    return _visible(viewer)
+
+
+#: 폴더 경로가 틀렸을 때 · 폴더째 옮길 수 없을 때.
+_BAD_FOLDER = code("TPL", 5)
+
+
 def list_templates(
     db: Session,
     viewer: User,
@@ -63,18 +85,16 @@ def list_templates(
     scope: str = "all",
     query: str = "",
     tag: str = "",
+    folder: str | None = None,
+    subfolders: bool = True,
     limit: int,
     offset: int,
 ) -> tuple[list[RecipeTemplate], int]:
     """`scope` 는 mine(내 것) · shared(공용) · all(둘 다). 내 것이 먼저 온다."""
-    if scope not in SCOPES:
-        raise AppError(code("TPL", 3), f"모르는 자리입니다: {scope}")
-    visible = or_(RecipeTemplate.owner_id == viewer.id, RecipeTemplate.is_shared.is_(True))
-    if scope == "mine":
-        visible = RecipeTemplate.owner_id == viewer.id
-    elif scope == "shared":
-        visible = RecipeTemplate.is_shared.is_(True)
-    statement = select(RecipeTemplate).where(visible)
+    statement = select(RecipeTemplate).where(_scoped(viewer, scope))
+    statement = folders.narrowed(
+        statement, RecipeTemplate.folder, folder, subfolders, _BAD_FOLDER
+    )
     if query.strip():
         like = f"%{query.strip()}%"
         statement = statement.where(
@@ -87,11 +107,49 @@ def list_templates(
         statement.order_by(
             (RecipeTemplate.owner_id != viewer.id),  # 내 것이 먼저
             RecipeTemplate.updated_at.desc(),
+            RecipeTemplate.id,
         )
         .limit(limit)
         .offset(offset)
     ).all()
     return list(rows), total
+
+
+def template_folders(
+    db: Session, viewer: User, *, scope: str = "all"
+) -> list[folders.FolderOut]:
+    """보이는 템플릿의 폴더들 — 남의 비공개 템플릿이 놓인 폴더는 안 보인다."""
+    return folders.tree(db, RecipeTemplate.folder, _scoped(viewer, scope))
+
+
+def rename_folder(db: Session, user: User, *, path: str, to: str) -> int:
+    """보이는 것만 옮긴다 — 남의 비공개 템플릿은 같은 이름의 폴더에 있어도 그대로 둔다."""
+    return folders.rename_shared(
+        db,
+        RecipeTemplate,
+        _visible(user),
+        path=path,
+        to=to,
+        user=user,
+        noun="템플릿",
+        error_code=_BAD_FOLDER,
+        forbidden_code=code("TPL", 2),
+    )
+
+
+def move_templates(db: Session, user: User, *, ids: list[uuid.UUID], folder: str) -> int:
+    return folders.move_shared(
+        db,
+        RecipeTemplate,
+        _visible(user),
+        ids=ids,
+        folder=folder,
+        user=user,
+        noun="템플릿",
+        error_code=_BAD_FOLDER,
+        forbidden_code=code("TPL", 2),
+        missing_code=code("TPL", 1),
+    )
 
 
 def get_template(db: Session, template_id: uuid.UUID, viewer: User) -> RecipeTemplate:
@@ -128,8 +186,10 @@ def create_template(
     recipe: dict[str, Any],
     is_shared: bool,
     tags: list[str] | None = None,
+    folder: str = "",
 ) -> RecipeTemplate:
     template = RecipeTemplate(
+        folder=folders.normalize(folder, _BAD_FOLDER),
         name=name.strip(),
         description=description.strip(),
         owner_id=owner.id,
@@ -150,6 +210,8 @@ def update_template(
 ) -> RecipeTemplate:
     if fields.get("recipe") is not None:
         _checked(fields["recipe"])
+    if fields.get("folder") is not None:
+        fields["folder"] = folders.normalize(fields["folder"], _BAD_FOLDER)
     for key, value in fields.items():
         if value is None:
             continue
@@ -169,6 +231,8 @@ def copy_to_mine(db: Session, template: RecipeTemplate, *, owner: User) -> Recip
         description=template.description,
         recipe=template.recipe,
         is_shared=False,
+        tags=list(template.tags or []),
+        folder=template.folder,
     )
 
 
@@ -179,9 +243,8 @@ def delete_template(db: Session, template: RecipeTemplate) -> None:
 
 def all_tags(db: Session, viewer: User) -> list[str]:
     """볼 수 있는 템플릿의 꼬리표 전부 — 부품 · 지그와 같은 모양."""
-    visible = or_(RecipeTemplate.owner_id == viewer.id, RecipeTemplate.is_shared.is_(True))
     seen: dict[str, int] = {}
-    for tags in db.scalars(select(RecipeTemplate.tags).where(visible)):
+    for tags in db.scalars(select(RecipeTemplate.tags).where(_visible(viewer))):
         for one in tags or []:
             seen[one] = seen.get(one, 0) + 1
     return sorted(seen, key=lambda t: (-seen[t], t))

@@ -1,4 +1,4 @@
-<!-- version: 2026-10-02.12 -->
+<!-- version: 2026-10-03.1 -->
 # CompCore MCP 가이드
 
 ## overview
@@ -24,6 +24,7 @@
 | 부품에서 지그 생성 | `jig_preview(source, options)` 로 계획을 보고 → `run_jig` → 지그 작업이 생긴다 |
 | 남에게 내놓기 | `promote_part` · `promote_jig_recipe` — **사용자가 시킬 때만** |
 | 남의 것 가져오기 | `list_parts` → `copy_part_to_work` |
+| 폴더로 나눠 보기 | `list_works` · `list_parts` · `list_jigs` 의 `folder`(그 아래까지). 만들 때 `create_work(folder)` · `save_template(folder)` |
 | 이름으로 찾기 | `search("브래킷")` — 내 작업 · 공용 부품 · 지그 · 템플릿 한꺼번에 |
 
 기본 습관:

@@ -16,6 +16,7 @@ from app.modules.templates.schemas import (
     TemplateSummaryOut,
     TemplateUpdateRequest,
 )
+from app.shared import folders
 from app.shared.auth import current_user
 from app.shared.pagination import Page, clamp_limit
 
@@ -30,20 +31,65 @@ def template_tags(
     return services.all_tags(db, user)
 
 
+@router.get("/folders", response_model=list[folders.FolderOut])
+def template_folders(
+    scope: str = Query(default="all", description="mine · shared · all"),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> list[folders.FolderOut]:
+    """보이는 템플릿의 폴더들 — 경로와 바로 그 폴더의 수. 위 폴더도 빠짐없이."""
+    return services.template_folders(db, user, scope=scope)
+
+
+@router.post("/folders/rename", response_model=folders.MovedOut)
+def rename_folder(
+    payload: folders.FolderRenameRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> folders.MovedOut:
+    """폴더 이름 바꾸기 · 옮기기(하위까지). 남의 공용 템플릿이 든 폴더는 관리자만."""
+    return folders.MovedOut(
+        moved=services.rename_folder(db, user, path=payload.path, to=payload.to)
+    )
+
+
+@router.post("/move", response_model=folders.MovedOut)
+def move_templates(
+    payload: folders.FolderMoveRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> folders.MovedOut:
+    """템플릿 여럿을 한 폴더로 — 소유자 · 관리자만."""
+    return folders.MovedOut(
+        moved=services.move_templates(db, user, ids=payload.ids, folder=payload.folder)
+    )
+
+
 @router.get("", response_model=Page[TemplateSummaryOut])
 def list_templates(
     scope: str = Query(default="all", description="mine · shared · all"),
     q: str = Query(default="", max_length=120),
     tag: str = Query(default="", max_length=40),
+    folder: str | None = Query(default=None, max_length=255),
+    subfolders: bool = Query(default=True),
     limit: int | None = Query(default=None, ge=1),
     offset: int = Query(default=0, ge=0),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> Page[TemplateSummaryOut]:
-    """내 템플릿 · 공용 템플릿. 내장 넷은 `cad/recipe/schema` 의 templates 에 있다."""
+    """내 템플릿 · 공용 템플릿. 내장 넷은 `cad/recipe/schema` 의 templates 에 있다.
+    `folder` 면 그 폴더(`subfolders` 면 하위까지)."""
     size = clamp_limit(limit)
     rows, total = services.list_templates(
-        db, user, scope=scope, query=q, tag=tag, limit=size, offset=offset
+        db,
+        user,
+        scope=scope,
+        query=q,
+        tag=tag,
+        folder=folder,
+        subfolders=subfolders,
+        limit=size,
+        offset=offset,
     )
     return Page(
         items=[services.template_summary(db, one, user) for one in rows],
@@ -75,6 +121,7 @@ def create_template(
         recipe=payload.recipe,
         is_shared=payload.is_shared,
         tags=payload.tags,
+        folder=payload.folder,
     )
     return services.template_out(db, made, user)
 

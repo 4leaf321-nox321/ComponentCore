@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.modules.jobs.schemas import JobOut
+from app.shared import folders
 
 
 class WorkCreateRequest(BaseModel):
@@ -26,6 +27,8 @@ class WorkCreateRequest(BaseModel):
     note: str = Field(default="", max_length=2000)
     unit_system: str | None = None
     """기본 내보내기 단위계(`mm_n_tonne` · `si`) — 비우면 mm · N · tonne."""
+    folder: str = Field(default="", max_length=255)
+    """놓을 폴더 — `고객A/2026` 같은 경로. 비우면 맨 위."""
 
 
 class WorkUpdateRequest(BaseModel):
@@ -39,6 +42,20 @@ class WorkUpdateRequest(BaseModel):
     """꼬리표 전체를 바꾼다(빈 목록이면 다 뗀다)."""
     unit_system: str | None = None
     """기본 내보내기 단위계 — 새 시뮬레이션 조건이 이 계로 내보낸다(있는 조건은 그대로)."""
+    folder: str | None = Field(default=None, max_length=255)
+    """옮길 폴더 — 빈 문자열이면 맨 위로."""
+
+
+class YearOut(BaseModel):
+    year: int
+    count: int
+
+
+# 폴더의 요청 · 응답은 부품 · 지그 · 템플릿과 같은 모양이다 — 한 곳에 둔다.
+FolderOut = folders.FolderOut
+FolderRenameRequest = folders.FolderRenameRequest
+WorksMoveRequest = folders.FolderMoveRequest
+MovedOut = folders.MovedOut
 
 
 class VersionCreateRequest(BaseModel):
@@ -91,6 +108,7 @@ class WorkOut(BaseModel):
     promoted_jig_id: uuid.UUID | None
     """이 작업에서 승격된 부품 · 지그(있으면). 다시 승격하면 그쪽에 다음 버전이 붙는다."""
     tags: list[str] = []
+    folder: str = ""
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None = None
@@ -112,6 +130,8 @@ class WorkSummaryOut(BaseModel):
     promoted_part_id: uuid.UUID | None
     promoted_jig_id: uuid.UUID | None
     tags: list[str] = []
+    folder: str = ""
+    created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None = None
 

@@ -15,6 +15,7 @@ from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Job
 from app.modules.parts.models import Part, PartVersion
 from app.modules.parts.schemas import PartOut, PartSummaryOut, PartVersionOut
+from app.shared import folders
 from app.shared.errors import Forbidden, NotFound, code
 
 
@@ -84,6 +85,7 @@ def part_out(db: Session, part: Part) -> PartOut:
         jig_count=_jig_count(db, part.id),
         created_at=part.created_at,
         tags=list(part.tags or []),
+        folder=part.folder,
         updated_at=part.updated_at,
     )
 
@@ -94,26 +96,76 @@ def part_summary(db: Session, part: Part) -> PartSummaryOut:
         id=part.id,
         name=part.name,
         description=part.description,
+        owner_id=part.owner_id,
         owner_name=owner.display_name if owner else "(삭제된 계정)",
         current_version=part.current_version,
         jig_count=_jig_count(db, part.id),
         tags=list(part.tags or []),
+        folder=part.folder,
         updated_at=part.updated_at,
     )
 
 
 def list_parts(
-    db: Session, *, limit: int, offset: int, query: str = "", tag: str = ""
+    db: Session,
+    *,
+    limit: int,
+    offset: int,
+    query: str = "",
+    tag: str = "",
+    folder: str | None = None,
+    subfolders: bool = True,
 ) -> tuple[list[Part], int]:
     base = select(Part).where(Part.deleted_at.is_(None))
+    base = folders.narrowed(base, Part.folder, folder, subfolders, _BAD_FOLDER)
     if query.strip():
         like = f"%{query.strip()}%"
         base = base.where(or_(Part.name.ilike(like), Part.description.ilike(like)))
     if tag.strip():
         base = base.where(Part.tags.contains([tag.strip()]))
     total = int(db.scalar(select(func.count()).select_from(base.subquery())) or 0)
-    rows = list(db.scalars(base.order_by(Part.updated_at.desc()).limit(limit).offset(offset)))
+    rows = list(
+        db.scalars(base.order_by(Part.updated_at.desc(), Part.id).limit(limit).offset(offset))
+    )
     return rows, total
+
+
+#: 폴더 경로가 틀렸을 때 · 폴더째 옮길 수 없을 때.
+_BAD_FOLDER = code("PARTS", 4)
+
+
+def part_folders(db: Session) -> list[folders.FolderOut]:
+    """카탈로그의 폴더들 — 지운 부품은 세지 않는다."""
+    return folders.tree(db, Part.folder, Part.deleted_at.is_(None))
+
+
+def rename_folder(db: Session, user: User, *, path: str, to: str) -> int:
+    return folders.rename_shared(
+        db,
+        Part,
+        Part.deleted_at.is_(None),
+        path=path,
+        to=to,
+        user=user,
+        noun="부품",
+        error_code=_BAD_FOLDER,
+        forbidden_code=code("PARTS", 2),
+    )
+
+
+def move_parts(db: Session, user: User, *, ids: list[uuid.UUID], folder: str) -> int:
+    return folders.move_shared(
+        db,
+        Part,
+        Part.deleted_at.is_(None),
+        ids=ids,
+        folder=folder,
+        user=user,
+        noun="부품",
+        error_code=_BAD_FOLDER,
+        forbidden_code=code("PARTS", 2),
+        missing_code=code("PARTS", 1),
+    )
 
 
 def list_versions(db: Session, part: Part) -> list[PartVersion]:
@@ -127,6 +179,8 @@ def list_versions(db: Session, part: Part) -> list[PartVersion]:
 
 
 def update_part(db: Session, part: Part, *, fields: dict[str, Any]) -> Part:
+    if fields.get("folder") is not None:
+        fields["folder"] = folders.normalize(fields["folder"], _BAD_FOLDER)
     for key, value in fields.items():
         if value is not None:
             setattr(part, key, value.strip() if isinstance(value, str) else value)

@@ -29,7 +29,7 @@ beforeEach(() => {
         ? []
         : url.includes('/works/jig-options')
           ? {}
-          : url.endsWith('/works/tags')
+          : url.endsWith('/works/tags') || url.endsWith('/works/folders')
             ? []
             : url.includes('/works/w1')
               ? WORK

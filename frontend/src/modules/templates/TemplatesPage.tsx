@@ -3,7 +3,8 @@
  *
  * 부품 · 지그와 달리 승격이 없다. 자리가 둘이고(**내 것** · **공용**) 그 사이는 스위치 하나다 —
  * 템플릿은 시작점일 뿐이라 버전을 남길 것이 없기 때문이다. 남의 공용 템플릿은 고치지 못하고
- * 「내 것으로 복사」 해서 쓴다.
+ * 「내 것으로 복사」 해서 쓴다. 내 것과 공용이 **한 폴더 나무**를 쓴다 — 옮기는 것은 만든 사람
+ * · 관리자.
  */
 
 import { useState } from 'react'
@@ -12,6 +13,11 @@ import { useNavigate } from 'react-router-dom'
 import { templatesApi } from '@/modules/templates/api'
 import type { TemplateScope, TemplateSummary } from '@/modules/templates/api'
 import { ApiError } from '@/shared/api/client'
+import { useAuth } from '@/shared/auth/AuthContext'
+import { isSystemAdmin } from '@/shared/auth/roles'
+import { ChosenBar, FolderCrumbs, FolderDialogs, FolderSelect, PickAll, PickBox, RowFolder } from '@/shared/folders/FolderParts'
+import { FolderTree } from '@/shared/folders/FolderTree'
+import { useFolderSpace } from '@/shared/folders/useFolderSpace'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { EmptyState } from '@/shared/components/EmptyState'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
@@ -52,9 +58,21 @@ export default function TemplatesPage() {
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [removing, setRemoving] = useState<TemplateSummary | null>(null)
   const PAGE = useDisplay().list_page_size
-  const page = useResource(() => templatesApi.list({ scope, q: query, tag, offset, limit: PAGE }), [scope, query, tag, offset, PAGE])
+  /** 폴더 나무는 지금 자리(scope)에 보이는 것만 센다. */
+  const space = useFolderSpace(
+    'templates',
+    { ...templatesApi, folders: () => templatesApi.folders(scope) },
+    { onRefilter: () => setOffset(0), deps: [scope] },
+  )
+  const page = useResource(
+    () => templatesApi.list({ scope, q: query, tag, folder: space.folder, offset, limit: PAGE }),
+    [scope, query, tag, offset, PAGE, space.folder, space.version],
+  )
   const tags = useResource(() => templatesApi.tags(), [page.data])
   const rows = page.data?.items ?? []
+  /** 옮길 수 있는 줄 — 만든 사람 · 관리자. 판정은 서버가 다시 한다. */
+  const { user } = useAuth()
+  const movable = (row: TemplateSummary) => row.mine || isSystemAdmin(user)
 
   async function act(run: () => Promise<unknown>, id: string) {
     setBusy(id)
@@ -62,6 +80,7 @@ export default function TemplatesPage() {
     try {
       await run()
       page.reload()
+      space.refresh()
     } catch (caught) {
       setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
     } finally {
@@ -81,7 +100,14 @@ export default function TemplatesPage() {
         }
       />
 
+      <div className="flex gap-4">
+        {/* 폴더 — 넓은 화면에서 왼쪽에. 좁으면 위의 고르개로. */}
+        <aside className="hidden w-56 shrink-0 md:block">
+          <FolderTree space={space} allLabel="모든 템플릿" noun="템플릿" />
+        </aside>
+        <div className="min-w-0 flex-1">
       <div className="mb-4 flex flex-wrap items-center gap-2">
+        <FolderSelect space={space} allLabel="모든 템플릿" />
         <Tabs
           value={scope}
           onValueChange={(value) => {
@@ -110,13 +136,15 @@ export default function TemplatesPage() {
         <TagFilter tags={tags.data ?? []} value={tag} onChange={(next) => { setTag(next); setOffset(0) }} />
         <span className="text-muted-foreground text-xs">{SCOPES.find((one) => one.value === scope)?.hint}</span>
       </div>
+      <FolderCrumbs space={space} allLabel="모든 템플릿" />
+      <ChosenBar space={space} />
 
       <ErrorNotice error={error ?? page.error} className="mb-4" />
 
       {rows.length === 0 && !page.loading ? (
         <EmptyState
-          title={query ? '찾는 템플릿이 없습니다' : scope === 'shared' ? '공용으로 내놓은 템플릿이 없습니다' : '아직 템플릿이 없습니다'}
-          hint="그리기에서 「파일」 탭의 「템플릿」 단추로 저장하면 여기 뜹니다."
+          title={query || tag ? '찾는 템플릿이 없습니다' : space.folder !== null ? '이 폴더에 템플릿이 없습니다' : scope === 'shared' ? '공용으로 내놓은 템플릿이 없습니다' : '아직 템플릿이 없습니다'}
+          hint={space.folder !== null ? '템플릿을 이 폴더로 끌어다 놓거나, 그리기에서 저장할 때 폴더를 적으세요.' : '그리기에서 「파일」 탭의 「템플릿」 단추로 저장하면 여기 뜹니다.'}
           action={<Button onClick={() => navigate('/draw')}>그리기로 가기</Button>}
         />
       ) : (
@@ -124,6 +152,9 @@ export default function TemplatesPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-8">
+                  <PickAll space={space} ids={rows.filter(movable).map((row) => row.id)} />
+                </TableHead>
                 <TableHead>이름</TableHead>
                 <TableHead>자리</TableHead>
                 <TableHead>피처</TableHead>
@@ -134,11 +165,20 @@ export default function TemplatesPage() {
             </TableHeader>
             <TableBody>
               {rows.map((row) => (
-                <TableRow key={row.id}>
+                <TableRow
+                  key={row.id}
+                  draggable={movable(row)}
+                  onDragStart={(event) => space.startDrag(event, row.id)}
+                  data-state={space.chosen.has(row.id) ? 'selected' : undefined}
+                >
+                  <TableCell>
+                    <PickBox space={space} id={row.id} name={row.name} disabled={!movable(row)} />
+                  </TableCell>
                   <TableCell>
                     <button type="button" className="text-left font-medium hover:underline" onClick={() => navigate(`/draw?template=${row.id}`)}>
                       {row.name}
                     </button>
+                    <RowFolder space={space} folder={row.folder} />
                     {row.description && <p className="text-muted-foreground truncate text-xs">{row.description}</p>}
                   </TableCell>
                   <TableCell>
@@ -175,9 +215,14 @@ export default function TemplatesPage() {
               ))}
             </TableBody>
           </Table>
-          {page.data && <Pagination total={page.data.total} limit={page.data.limit} offset={page.data.offset} onChange={setOffset} />}
+          {page.data && (
+            <Pagination total={page.data.total} limit={page.data.limit} offset={page.data.offset} onChange={(next) => { setOffset(next); space.setChosen(new Set()) }} />
+          )}
         </>
       )}
+        </div>
+      </div>
+      <FolderDialogs space={space} noun="템플릿" shared />
 
       <ConfirmDialog
         open={removing !== null}

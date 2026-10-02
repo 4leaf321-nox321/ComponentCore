@@ -3,6 +3,7 @@ import type { Job } from '@/modules/jobs/api'
 import type { MeshData } from '@/shared/viewer/PickViewer'
 import { api } from '@/shared/api/client'
 import type { Page } from '@/shared/api/types'
+import type { FolderRow } from '@/shared/folders/paths'
 
 export interface WorkVersion {
   id: string
@@ -49,9 +50,34 @@ export interface Work {
   promoted_part_id: string | null
   promoted_jig_id: string | null
   tags: string[]
+  /** 놓인 폴더 — `고객A/2026` 같은 경로, 빈 것이 맨 위. */
+  folder: string
   created_at: string
   updated_at: string
   deleted_at: string | null
+}
+
+/** 폴더 하나 — 공간마다 같은 모양(`@/shared/folders/paths`). */
+export type { FolderRow }
+
+export interface YearRow {
+  year: number
+  count: number
+}
+
+export interface WorkFilter {
+  q?: string
+  tag?: string
+  kind?: string
+  trashed?: boolean
+  /** 폴더 — 주면 그 폴더(하위까지가 기본). 안 주면 모든 폴더. */
+  folder?: string | null
+  /** false 면 바로 그 폴더만. */
+  subfolders?: boolean
+  /** 만든 해. */
+  year?: number | null
+  /** 만든 순(연도별로 묶어 볼 때) · 고친 순(기본). */
+  order?: 'updated' | 'created'
 }
 
 export interface WorkSummary {
@@ -68,6 +94,8 @@ export interface WorkSummary {
   promoted_part_id: string | null
   promoted_jig_id: string | null
   tags: string[]
+  folder: string
+  created_at: string
   updated_at: string
   deleted_at: string | null
 }
@@ -93,14 +121,26 @@ export interface JigPreview {
 
 export const worksApi = {
   jigOptions: () => api.get<Record<string, unknown>>('/works/jig-options'),
-  list: (offset = 0, limit = 50, filter: { q?: string; tag?: string; kind?: string; trashed?: boolean } = {}) => {
+  list: (offset = 0, limit = 50, filter: WorkFilter = {}) => {
     const query = new URLSearchParams({ offset: String(offset), limit: String(limit) })
     if (filter.q) query.set('q', filter.q)
     if (filter.tag) query.set('tag', filter.tag)
     if (filter.kind) query.set('kind', filter.kind)
     if (filter.trashed) query.set('trashed', 'true')
+    if (filter.folder != null) query.set('folder', filter.folder)
+    if (filter.subfolders === false) query.set('subfolders', 'false')
+    if (filter.year != null) query.set('year', String(filter.year))
+    if (filter.order === 'created') query.set('order', 'created')
     return api.get<Page<WorkSummary>>(`/works?${query}`)
   },
+  /** 내 작업이 놓인 폴더들 — 화면이 나무로 그린다. */
+  folders: () => api.get<FolderRow[]>('/works/folders'),
+  /** 내 작업을 만든 해들 — 최근 해부터. */
+  years: () => api.get<YearRow[]>('/works/years'),
+  /** 폴더 이름 바꾸기 · 옮기기(하위까지). `to` 가 빈 문자열이면 맨 위로 합친다 — 폴더 지우기. */
+  renameFolder: (path: string, to: string) => api.post<{ moved: number }>('/works/folders/rename', { path, to }),
+  /** 작업 여럿을 한 폴더로. */
+  move: (ids: string[], folder: string) => api.post<{ moved: number }>('/works/move', { ids, folder }),
   /** 내 작업에 붙은 꼬리표 — 많이 쓴 것부터. */
   tags: () => api.get<string[]>('/works/tags'),
   /** 휴지통에서 되살린다. */
@@ -121,7 +161,16 @@ export const worksApi = {
     api.post<Work>('/works', body),
   update: (
     id: string,
-    body: { name?: string; description?: string; jig_options?: Record<string, unknown>; kind?: WorkKind; jig_for_part_id?: string | null; tags?: string[]; unit_system?: string },
+    body: {
+      name?: string
+      description?: string
+      jig_options?: Record<string, unknown>
+      kind?: WorkKind
+      jig_for_part_id?: string | null
+      tags?: string[]
+      unit_system?: string
+      folder?: string
+    },
   ) =>
     api.patch<Work>(`/works/${id}`, body),
   remove: (id: string) => api.delete<void>(`/works/${id}`),

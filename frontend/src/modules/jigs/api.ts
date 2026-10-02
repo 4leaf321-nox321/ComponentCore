@@ -1,6 +1,7 @@
 import type { Job } from '@/modules/jobs/api'
 import { api } from '@/shared/api/client'
 import type { Page } from '@/shared/api/types'
+import type { FolderRow } from '@/shared/folders/paths'
 
 export interface InterferenceItem {
   a: string
@@ -60,6 +61,8 @@ export interface Jig {
   current_version: number
   version_count: number
   current: JigVersion | null
+  /** 놓인 폴더 — `고객A/2026`, 빈 것이 맨 위. */
+  folder: string
   created_at: string
   updated_at: string
 }
@@ -70,20 +73,26 @@ export interface JigCatalogSummary {
   id: string
   name: string
   description: string
+  owner_id: string
   owner_name: string
   part_id: string | null
   part_name: string | null
   current_version: number
   interference_ok: boolean | null
+  /** 놓인 폴더 — `고객A/2026`, 빈 것이 맨 위. 승격할 때 작업의 폴더를 한 번 물려받는다. */
+  folder: string
   updated_at: string
 }
 
 export const jigsApi = {
-  list: (params: { part_id?: string; offset?: number; limit?: number; q?: string; tag?: string } = {}) => {
+  list: (params: { part_id?: string; offset?: number; limit?: number; q?: string; tag?: string; folder?: string | null } = {}) => {
     const query = new URLSearchParams()
     if (params.part_id) query.set('part_id', params.part_id)
     if (params.q) query.set('q', params.q)
     if (params.tag) query.set('tag', params.tag)
+    // 폴더 — null 이면 전부, '' 이면 폴더 없는 것만(그때는 하위를 안 본다).
+    if (params.folder != null) query.set('folder', params.folder)
+    if (params.folder === '') query.set('subfolders', 'false')
     query.set('offset', String(params.offset ?? 0))
     query.set('limit', String(params.limit ?? 50))
     return api.get<Page<JigCatalogSummary>>(`/jigs?${query.toString()}`)
@@ -95,6 +104,12 @@ export const jigsApi = {
   tags: () => api.get<string[]>('/jigs/tags'),
   get: (id: string) => api.get<Jig>(`/jigs/${id}`),
   versions: (id: string) => api.get<JigVersion[]>(`/jigs/${id}/versions`),
-  update: (id: string, body: { name?: string; description?: string }) => api.patch<Jig>(`/jigs/${id}`, body),
+  update: (id: string, body: { name?: string; description?: string; folder?: string }) => api.patch<Jig>(`/jigs/${id}`, body),
+  /** 카탈로그의 폴더들 — 경로와 바로 그 폴더의 지그 수. */
+  folders: () => api.get<FolderRow[]>('/jigs/folders'),
+  /** 폴더째 옮기기 · 이름 바꾸기(하위까지). 남의 지그가 든 폴더는 관리자만. */
+  renameFolder: (path: string, to: string) => api.post<{ moved: number }>('/jigs/folders/rename', { path, to }),
+  /** 지그 여럿을 한 폴더로 — 올린 사람 · 관리자만. */
+  move: (ids: string[], folder: string) => api.post<{ moved: number }>('/jigs/move', { ids, folder }),
   remove: (id: string) => api.delete<void>(`/jigs/${id}`),
 }

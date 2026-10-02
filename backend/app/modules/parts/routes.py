@@ -19,6 +19,7 @@ from app.modules.parts.schemas import (
 )
 from app.modules.works import services as works
 from app.modules.works.schemas import WorkOut
+from app.shared import folders
 from app.shared.auth import current_user
 from app.shared.errors import NotFound, code
 from app.shared.pagination import Page, clamp_limit
@@ -36,17 +37,60 @@ def part_tags(_: User = Depends(current_user), db: Session = Depends(get_db)) ->
     return services.all_tags(db)
 
 
+@router.get("/folders", response_model=list[folders.FolderOut])
+def part_folders(
+    _: User = Depends(current_user), db: Session = Depends(get_db)
+) -> list[folders.FolderOut]:
+    """카탈로그의 폴더들 — 경로와 바로 그 폴더의 부품 수. 위 폴더도 빠짐없이."""
+    return services.part_folders(db)
+
+
+@router.post("/folders/rename", response_model=folders.MovedOut)
+def rename_folder(
+    payload: folders.FolderRenameRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> folders.MovedOut:
+    """폴더 이름 바꾸기 · 옮기기(하위까지). 남의 부품이 든 폴더는 관리자만."""
+    return folders.MovedOut(
+        moved=services.rename_folder(db, user, path=payload.path, to=payload.to)
+    )
+
+
+@router.post("/move", response_model=folders.MovedOut)
+def move_parts(
+    payload: folders.FolderMoveRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> folders.MovedOut:
+    """부품 여럿을 한 폴더로 — 올린 사람 · 관리자만."""
+    return folders.MovedOut(
+        moved=services.move_parts(db, user, ids=payload.ids, folder=payload.folder)
+    )
+
+
 @router.get("", response_model=Page[PartSummaryOut])
 def list_parts(
     limit: int | None = Query(default=None, ge=1),
     offset: int = Query(default=0, ge=0),
     q: str = Query(default="", max_length=120),
     tag: str = Query(default="", max_length=40),
+    folder: str | None = Query(default=None, max_length=255),
+    subfolders: bool = Query(default=True),
     _: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> Page[PartSummaryOut]:
+    """부품 카탈로그 — `q` · `tag` 로 찾고, `folder` 면 그 폴더(`subfolders` 면 하위까지)."""
     size = clamp_limit(limit)
-    rows, total = services.list_parts(db, limit=size, offset=offset, query=q, tag=tag)
+    rows, total = services.list_parts(
+        db,
+        limit=size,
+        offset=offset,
+        query=q,
+        tag=tag,
+        folder=folder,
+        subfolders=subfolders,
+    )
     return Page(
         items=[services.part_summary(db, one) for one in rows],
         total=total,

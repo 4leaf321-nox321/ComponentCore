@@ -17,6 +17,8 @@ const row = (id: string, name: string, extra: Record<string, unknown> = {}) => (
   promoted_part_id: null,
   promoted_jig_id: null,
   tags: [],
+  folder: '',
+  created_at: '2026-09-01T00:00:00Z',
   updated_at: '2026-09-20T00:00:00Z',
   deleted_at: null,
   ...extra,
@@ -30,6 +32,7 @@ test('찾기 · 꼬리표 · 휴지통은 서버가 거르고, 되살리기가 �
     const u = new URL(url, 'http://x')
     let body: unknown
     if (u.pathname.endsWith('/works/tags')) body = ['진동', 'P1']
+    else if (u.pathname.endsWith('/works/folders') || u.pathname.endsWith('/works/years')) body = []
     else if (u.pathname.endsWith('/restore')) body = row('w2', '모터 브래킷')
     else if (u.pathname.endsWith('/works')) {
       const items = u.searchParams.get('trashed')

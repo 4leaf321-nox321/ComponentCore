@@ -42,6 +42,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/components/ui/tabs'
+import { FolderDialog } from '@/shared/folders/FolderDialog'
 import { TagEditor } from '@/modules/works/TagEditor'
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
@@ -64,6 +65,9 @@ export default function WorkPage() {
   /** 지그 작업이 부품에서 생성됐으면 그 생성 기록 — 계획 · 간섭 검사를 되짚어 본다. */
   const runs = useResource(() => worksApi.jigRuns(id), [id])
   const allTags = useResource(() => worksApi.tags(), [])
+  /** 폴더 옮기기 창 — 있는 폴더를 고르거나 새 경로를 적는다. */
+  const [moving, setMoving] = useState(false)
+  const allFolders = useResource(() => worksApi.folders(), [moving])
   /** 고를 수 있는 단위계 — 정본은 서버(조건 사양표). */
   const conditionSpec = useResource(() => conditionsApi.schema(), [])
 
@@ -252,6 +256,28 @@ export default function WorkPage() {
       />
       <ErrorNotice error={error} />
 
+      {/* 폴더 — 「내 작업」 의 어디에 놓였나. 꼬리표와 달리 한 곳이다. */}
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-muted-foreground">폴더</span>
+        <span>{w.folder ? w.folder.split('/').join(' › ') : '없음(맨 위)'}</span>
+        <button type="button" className="text-muted-foreground underline" onClick={() => setMoving(true)} disabled={busy}>
+          옮기기
+        </button>
+      </div>
+      <FolderDialog
+        open={moving}
+        title="폴더로 옮기기"
+        description="있는 폴더를 고르거나 새 경로(예: 고객A/2026)를 적습니다. 비우면 맨 위로."
+        initial={w.folder}
+        suggestions={(allFolders.data ?? []).map((one) => one.path)}
+        allowEmpty
+        confirmLabel="옮기기"
+        onSubmit={async (folder) => {
+          await worksApi.update(id, { folder })
+          work.reload()
+        }}
+        onClose={() => setMoving(false)}
+      />
       {/* 꼬리표 — 프로젝트 · 제품군으로 묶는다. 내 작업 목록이 이것으로 거른다. */}
       <div className="flex items-center gap-2">
         <span className="text-muted-foreground text-xs">꼬리표</span>
@@ -614,6 +640,7 @@ export default function WorkPage() {
           open={savingTemplate}
           recipe={editing && draft ? draft : selectedVersion.recipe}
           defaultName={w.name}
+          defaultFolder={w.folder}
           onClose={() => setSavingTemplate(false)}
         />
       )}

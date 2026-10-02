@@ -11,6 +11,7 @@ import { canEditProject } from '@/shared/auth/roles'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { EmptyState } from '@/shared/components/EmptyState'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
+import { FolderLine } from '@/shared/folders/FolderParts'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { Button } from '@/shared/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card'
@@ -71,6 +72,16 @@ export default function JigPage() {
             )}
           </>
         }
+      />
+
+      <FolderLine
+        folder={j.folder}
+        editable={editable}
+        suggestions={jigsApi.folders}
+        onMove={async (folder) => {
+          await jigsApi.update(id, { folder })
+          jig.reload()
+        }}
       />
 
       <div className="grid gap-4 lg:grid-cols-4">

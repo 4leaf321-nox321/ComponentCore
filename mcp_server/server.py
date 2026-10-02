@@ -281,6 +281,7 @@ async def recipe_schema(ctx: Context) -> Any:
                 "name": t["name"],
                 "description": t["description"],
                 "where": "내 것" if t["mine"] else f"공용 · {t['owner_name']}",
+                "folder": t.get("folder", ""),
                 "node_count": t["node_count"],
             }
             for t in saved.get("items", [])
@@ -302,15 +303,24 @@ async def save_template(
     recipe: dict[str, Any],
     description: str = "",
     shared: bool = False,
+    folder: str = "",
 ) -> Any:
     """지금 레시피를 **템플릿으로 저장**한다 — 다음에 그릴 때의 출발점. `shared` 를 켜면 공용
-    자리에 놓여 누구나 고른다(고치는 것은 만든 사람뿐).
+    자리에 놓여 누구나 고른다(고치는 것은 만든 사람뿐). `folder` 는 템플릿 공간의 폴더
+    경로(`판금/브래킷` — 비우면 맨 위). 있는 폴더는 `recipe_schema` 의 `saved_templates` 에
+    보인다.
 
     한 번 쓰고 말 것은 저장하지 않는다. 치수만 바꿔 되풀이해 쓸 모양일 때만."""
     return await _post(
         ctx,
         "/api/templates",
-        {"name": name, "description": description, "recipe": recipe, "is_shared": shared},
+        {
+            "name": name,
+            "description": description,
+            "recipe": recipe,
+            "is_shared": shared,
+            "folder": folder,
+        },
     )
 
 
@@ -1066,9 +1076,17 @@ async def _with_geometry(ctx: Context, version: Any, head: dict[str, Any]) -> An
 # 내 작업
 # --------------------------------------------------------------------------- #
 @mcp.tool()
-async def list_works(ctx: Context, limit: int = 50) -> Any:
-    """사용자의 내 작업 목록(이름 · 현재 버전 · 지그 생성 횟수 · 승격 여부)."""
-    page = await _get(ctx, "/api/works", {"limit": limit})
+async def list_works(
+    ctx: Context, limit: int = 50, folder: str | None = None, year: int | None = None
+) -> Any:
+    """사용자의 내 작업 목록(이름 · 폴더 · 현재 버전 · 지그 생성 횟수 · 승격 여부).
+    `folder`(`고객A/2026` 같은 경로 — 그 아래까지) · `year`(만든 해)로 거른다."""
+    query: dict[str, Any] = {"limit": limit}
+    if folder is not None:
+        query["folder"] = folder
+    if year is not None:
+        query["year"] = year
+    page = await _get(ctx, "/api/works", query)
     if isinstance(page, dict) and "items" in page:
         return {
             "total": page["total"],
@@ -1076,6 +1094,7 @@ async def list_works(ctx: Context, limit: int = 50) -> Any:
                 {
                     "work_id": w["id"],
                     "name": w["name"],
+                    "folder": w.get("folder", ""),
                     "description": w["description"],
                     "current_version": w["current_version"],
                     "jig_runs": w["jig_run_count"],
@@ -1171,9 +1190,11 @@ async def create_work(
     note: str = "",
     kind: str = "part",
     jig_for_part_id: str | None = None,
+    folder: str = "",
 ) -> Any:
     """새 작업을 만든다(첫 버전 = 이 레시피, 출처 "ai"). 평가가 끝날 때까지 기다려 요약을
-    돌려준다. **`recipe_check` 를 통과한 레시피만 넣는다.**
+    돌려준다. **`recipe_check` 를 통과한 레시피만 넣는다.** `folder` 는 「내 작업」 의 폴더
+    경로(`고객A/2026` — 비우면 맨 위). 사용자가 쓰는 폴더는 `list_works` 의 `folder` 로 본다.
 
     `kind` 는 **무엇을 그렸나**다: `part`(제품 · 부품) 또는 `jig`(지그). 그리는 방법은 같고,
     종류가 **어느 카탈로그로 올라가는지**와 덤으로 쓰는 도구를 정한다(부품엔 지그 생성기,
@@ -1190,6 +1211,7 @@ async def create_work(
             "note": note or "AI 가 만듦",
             "kind": kind,
             "jig_for_part_id": jig_for_part_id,
+            "folder": folder,
         },
     )
     if not isinstance(work, dict) or "error" in work:
@@ -1394,9 +1416,13 @@ async def promote_jig_recipe(
 
 
 @mcp.tool()
-async def list_parts(ctx: Context, limit: int = 50) -> Any:
-    """부품 카탈로그(누구나 보는 것). 고치려면 `copy_part_to_work` 로 내 공간에 복사한다."""
-    page = await _get(ctx, "/api/parts", {"limit": limit})
+async def list_parts(ctx: Context, limit: int = 50, folder: str | None = None) -> Any:
+    """부품 카탈로그(누구나 보는 것). 고치려면 `copy_part_to_work` 로 내 공간에 복사한다.
+    `folder`(`고객A/2026` 같은 경로 — 그 아래까지)로 거른다. 각 부품의 `folder` 가 놓인 곳."""
+    params: dict[str, Any] = {"limit": limit}
+    if folder is not None:
+        params["folder"] = folder
+    page = await _get(ctx, "/api/parts", params)
     if isinstance(page, dict) and "items" in page:
         return {"total": page["total"], "parts": page["items"]}
     return page
@@ -1430,11 +1456,15 @@ async def copy_part_to_work(ctx: Context, part_id: str, name: str | None = None)
 
 
 @mcp.tool()
-async def list_jigs(ctx: Context, part_id: str | None = None, limit: int = 50) -> Any:
-    """지그 카탈로그. `part_id` 를 주면 그 부품의 지그만."""
+async def list_jigs(
+    ctx: Context, part_id: str | None = None, limit: int = 50, folder: str | None = None
+) -> Any:
+    """지그 카탈로그. `part_id` 를 주면 그 부품의 지그만, `folder` 면 그 폴더(아래까지)만."""
     params: dict[str, Any] = {"limit": limit}
     if part_id:
         params["part_id"] = part_id
+    if folder is not None:
+        params["folder"] = folder
     page = await _get(ctx, "/api/jigs", params)
     if isinstance(page, dict) and "items" in page:
         return {"total": page["total"], "jigs": page["items"]}

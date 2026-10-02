@@ -16,6 +16,7 @@ from app.modules.jigs.schemas import JigOut, JigSummaryOut, JigVersionOut
 from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Job
 from app.modules.parts.models import Part, PartVersion
+from app.shared import folders
 from app.shared.errors import Forbidden, NotFound, code
 
 
@@ -86,6 +87,7 @@ def jig_out(db: Session, jig: Jig) -> JigOut:
         current=version_out(db, current) if current else None,
         created_at=jig.created_at,
         tags=list(jig.tags or []),
+        folder=jig.folder,
         updated_at=jig.updated_at,
     )
 
@@ -101,12 +103,14 @@ def jig_summary(db: Session, jig: Jig) -> JigSummaryOut:
         id=jig.id,
         name=jig.name,
         description=jig.description,
+        owner_id=jig.owner_id,
         owner_name=owner.display_name if owner else "(삭제된 계정)",
         part_id=jig.part_id,
         part_name=part.name if part else None,
         current_version=jig.current_version,
         interference_ok=ok,
         tags=list(jig.tags or []),
+        folder=jig.folder,
         updated_at=jig.updated_at,
     )
 
@@ -119,8 +123,11 @@ def list_jigs(
     offset: int,
     query: str = "",
     tag: str = "",
+    folder: str | None = None,
+    subfolders: bool = True,
 ) -> tuple[list[Jig], int]:
     base = select(Jig).where(Jig.deleted_at.is_(None))
+    base = folders.narrowed(base, Jig.folder, folder, subfolders, _BAD_FOLDER)
     if part_id is not None:
         base = base.where(Jig.part_id == part_id)
     if query.strip():
@@ -129,8 +136,48 @@ def list_jigs(
     if tag.strip():
         base = base.where(Jig.tags.contains([tag.strip()]))
     total = int(db.scalar(select(func.count()).select_from(base.subquery())) or 0)
-    rows = list(db.scalars(base.order_by(Jig.updated_at.desc()).limit(limit).offset(offset)))
+    rows = list(
+        db.scalars(base.order_by(Jig.updated_at.desc(), Jig.id).limit(limit).offset(offset))
+    )
     return rows, total
+
+
+#: 폴더 경로가 틀렸을 때 · 폴더째 옮길 수 없을 때.
+_BAD_FOLDER = code("JIGS", 4)
+
+
+def jig_folders(db: Session) -> list[folders.FolderOut]:
+    """카탈로그의 폴더들 — 지운 지그는 세지 않는다."""
+    return folders.tree(db, Jig.folder, Jig.deleted_at.is_(None))
+
+
+def rename_folder(db: Session, user: User, *, path: str, to: str) -> int:
+    return folders.rename_shared(
+        db,
+        Jig,
+        Jig.deleted_at.is_(None),
+        path=path,
+        to=to,
+        user=user,
+        noun="지그",
+        error_code=_BAD_FOLDER,
+        forbidden_code=code("JIGS", 2),
+    )
+
+
+def move_jigs(db: Session, user: User, *, ids: list[uuid.UUID], folder: str) -> int:
+    return folders.move_shared(
+        db,
+        Jig,
+        Jig.deleted_at.is_(None),
+        ids=ids,
+        folder=folder,
+        user=user,
+        noun="지그",
+        error_code=_BAD_FOLDER,
+        forbidden_code=code("JIGS", 2),
+        missing_code=code("JIGS", 1),
+    )
 
 
 def list_versions(db: Session, jig: Jig) -> list[JigVersion]:
@@ -144,6 +191,8 @@ def list_versions(db: Session, jig: Jig) -> list[JigVersion]:
 
 
 def update_jig(db: Session, jig: Jig, *, fields: dict[str, Any]) -> Jig:
+    if fields.get("folder") is not None:
+        fields["folder"] = folders.normalize(fields["folder"], _BAD_FOLDER)
     for key, value in fields.items():
         if value is not None:
             setattr(jig, key, value.strip() if isinstance(value, str) else value)

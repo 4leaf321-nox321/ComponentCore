@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from sqlalchemy.orm import Session
@@ -22,8 +22,11 @@ from app.modules.works.schemas import (
     AssembleOut,
     AssembleRequest,
     ConditionsRequest,
+    FolderOut,
+    FolderRenameRequest,
     JigFromPartOut,
     JigFromPartRequest,
+    MovedOut,
     PromoteJigOut,
     PromoteJigRecipeRequest,
     PromotePartRequest,
@@ -32,8 +35,10 @@ from app.modules.works.schemas import (
     WorkCreateRequest,
     WorkOut,
     WorkPatchRequest,
+    WorksMoveRequest,
     WorkSummaryOut,
     WorkUpdateRequest,
+    YearOut,
 )
 from app.shared.auth import current_user
 from app.shared.errors import AppError, code
@@ -64,13 +69,30 @@ def list_works(
     tag: str = Query(default="", max_length=40),
     kind: str = Query(default="", max_length=10),
     trashed: bool = Query(default=False),
+    folder: str | None = Query(default=None, max_length=255),
+    subfolders: bool = Query(default=True),
+    year: int | None = Query(default=None, ge=1900, le=3000),
+    order: Literal["updated", "created"] = Query(default="updated"),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> Page[WorkSummaryOut]:
-    """내 작업 — `q` 로 이름 · 설명을 찾고, `tag` · `kind` 로 거르고, `trashed` 면 휴지통."""
+    """내 작업 — `q` 로 이름 · 설명을 찾고, `tag` · `kind` 로 거르고, `trashed` 면 휴지통.
+    `folder` 면 그 폴더(`subfolders` 면 그 아래까지 — 기본), `year` 면 그해에 만든 것.
+    `order` 는 최근에 고친 것부터(updated) · 만든 것부터(created — 연도별로 묶어 볼 때)."""
     size = clamp_limit(limit)
     rows, total = services.list_works(
-        db, owner=user, limit=size, offset=offset, query=q, tag=tag, kind=kind, trashed=trashed
+        db,
+        owner=user,
+        limit=size,
+        offset=offset,
+        query=q,
+        tag=tag,
+        kind=kind,
+        trashed=trashed,
+        folder=folder,
+        subfolders=subfolders,
+        year=year,
+        order=order,
     )
     return Page(
         items=[services.work_summary(db, one) for one in rows],
@@ -97,6 +119,7 @@ def create_work(
         kind=payload.kind,
         jig_for_part_id=payload.jig_for_part_id,
         unit_system=payload.unit_system,
+        folder=payload.folder,
     )
     return services.work_out(db, work)
 
@@ -124,6 +147,45 @@ def create_work_from_step(
 def my_tags(user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[str]:
     """내 작업에 붙은 꼬리표 — 많이 쓴 것부터."""
     return services.my_tags(db, user)
+
+
+@router.get("/folders", response_model=list[FolderOut])
+def my_folders(
+    user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> list[FolderOut]:
+    """내 작업이 놓인 폴더들 — 경로와 **바로 그 폴더의** 작업 수. 위 폴더도 빠짐없이 나온다."""
+    return services.my_folders(db, user)
+
+
+@router.get("/years", response_model=list[YearOut])
+def my_years(
+    user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> list[YearOut]:
+    """내 작업을 만든 해들과 그해의 작업 수 — 최근 해부터."""
+    return [YearOut(**one) for one in services.my_years(db, user)]
+
+
+@router.post("/folders/rename", response_model=MovedOut)
+def rename_folder(
+    payload: FolderRenameRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> MovedOut:
+    """폴더 이름 바꾸기 · 옮기기 — 하위 폴더까지 함께. 새 경로가 있으면 합친다. 폴더를
+    지우는 것은 위 폴더로 합치는 것이다(작업은 지우지 않는다)."""
+    return MovedOut(moved=services.rename_folder(db, user, path=payload.path, to=payload.to))
+
+
+@router.post("/move", response_model=MovedOut)
+def move_works(
+    payload: WorksMoveRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> MovedOut:
+    """작업 여럿을 한 폴더로 — 화면의 끌어다 놓기 · 골라 옮기기."""
+    return MovedOut(
+        moved=services.move_works(db, user, ids=payload.ids, folder=payload.folder)
+    )
 
 
 @router.post("/{work_id}/restore", response_model=WorkOut)

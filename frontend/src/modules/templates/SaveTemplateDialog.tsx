@@ -7,6 +7,7 @@ import type { Recipe } from '@/modules/cad/api'
 import { templatesApi } from '@/modules/templates/api'
 import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
+import { normalizePath } from '@/shared/folders/paths'
 import { Button } from '@/shared/components/ui/button'
 import {
   Dialog,
@@ -23,18 +24,22 @@ export function SaveTemplateDialog({
   open,
   recipe,
   defaultName,
+  defaultFolder,
   onClose,
   onSaved,
 }: {
   open: boolean
   recipe: Recipe
   defaultName?: string
+  /** 처음 칸에 든 폴더 — 작업에서 저장하면 그 작업의 폴더. */
+  defaultFolder?: string
   onClose: () => void
   onSaved?: () => void
 }) {
   const [name, setName] = useState(defaultName ?? '')
   const [description, setDescription] = useState('')
   const [shared, setShared] = useState(false)
+  const [folder, setFolder] = useState(defaultFolder ?? '')
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -43,7 +48,7 @@ export function SaveTemplateDialog({
     setBusy(true)
     setError(null)
     try {
-      await templatesApi.create({ name, description, recipe, is_shared: shared })
+      await templatesApi.create({ name, description, recipe, is_shared: shared, folder: normalizePath(folder) })
       onSaved?.()
       onClose()
     } catch (caught) {
@@ -71,6 +76,10 @@ export function SaveTemplateDialog({
           <div className="space-y-2">
             <Label htmlFor="tpl-desc">설명</Label>
             <Input id="tpl-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="언제 쓰는 시작점인가" />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="tpl-folder">폴더</Label>
+            <Input id="tpl-folder" value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="비우면 맨 위 · 예: 판금/브래킷" />
           </div>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} />

@@ -33,6 +33,9 @@ class Part(Base):
     tags: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
     """꼬리표 — 승격할 때 **내 작업의 것을 그대로 물려받는다.** 공용 공간은 남의 것까지
     쌓이므로 이름만으로는 못 찾는다(내 작업은 열두 개쯤이라 이름으로 충분하다)."""
+    folder: Mapped[str] = mapped_column(String(255), default="", server_default="", index=True)
+    """놓인 **폴더** — `고객A/2026` 같은 경로, 빈 것이 맨 위(`shared/folders.py`). 여럿이 함께
+    쓰는 공간이라 옮기기는 주인 · 관리자만, 남의 것이 든 폴더의 이름은 관리자만 바꾼다."""
     work_id: Mapped[uuid.UUID | None] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("works.id", ondelete="SET NULL"), nullable=True
     )

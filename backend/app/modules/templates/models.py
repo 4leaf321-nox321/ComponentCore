@@ -30,6 +30,9 @@ class RecipeTemplate(Base):
     tags: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
     """꼬리표 — 템플릿은 **작업과의 연결을 안 남기므로** 저장할 때 받는다(부품 · 지그는
     승격이 물려받는다)."""
+    folder: Mapped[str] = mapped_column(String(255), default="", server_default="", index=True)
+    """놓인 **폴더** — `고객A/2026` 같은 경로, 빈 것이 맨 위(`shared/folders.py`). 여럿이 함께
+    쓰는 공간이라 옮기기는 주인 · 관리자만, 남의 것이 든 폴더의 이름은 관리자만 바꾼다."""
     owner_id: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
     )

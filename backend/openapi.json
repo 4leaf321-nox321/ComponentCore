@@ -715,7 +715,7 @@
           "works"
         ],
         "summary": "List Works",
-        "description": "내 작업 — `q` 로 이름 · 설명을 찾고, `tag` · `kind` 로 거르고, `trashed` 면 휴지통.",
+        "description": "내 작업 — `q` 로 이름 · 설명을 찾고, `tag` · `kind` 로 거르고, `trashed` 면 휴지통.\n`folder` 면 그 폴더(`subfolders` 면 그 아래까지 — 기본), `year` 면 그해에 만든 것.\n`order` 는 최근에 고친 것부터(updated) · 만든 것부터(created — 연도별로 묶어 볼 때).",
         "operationId": "list_works_api_works_get",
         "parameters": [
           {
@@ -787,6 +787,65 @@
               "type": "boolean",
               "default": false,
               "title": "Trashed"
+            }
+          },
+          {
+            "name": "folder",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 255
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Folder"
+            }
+          },
+          {
+            "name": "subfolders",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Subfolders"
+            }
+          },
+          {
+            "name": "year",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 3000,
+                  "minimum": 1900
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Year"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "updated",
+                "created"
+              ],
+              "type": "string",
+              "default": "updated",
+              "title": "Order"
             }
           }
         ],
@@ -914,6 +973,142 @@
                   },
                   "type": "array",
                   "title": "Response My Tags Api Works Tags Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/works/folders": {
+      "get": {
+        "tags": [
+          "works"
+        ],
+        "summary": "My Folders",
+        "description": "내 작업이 놓인 폴더들 — 경로와 **바로 그 폴더의** 작업 수. 위 폴더도 빠짐없이 나온다.",
+        "operationId": "my_folders_api_works_folders_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FolderOut"
+                  },
+                  "type": "array",
+                  "title": "Response My Folders Api Works Folders Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/works/years": {
+      "get": {
+        "tags": [
+          "works"
+        ],
+        "summary": "My Years",
+        "description": "내 작업을 만든 해들과 그해의 작업 수 — 최근 해부터.",
+        "operationId": "my_years_api_works_years_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/YearOut"
+                  },
+                  "type": "array",
+                  "title": "Response My Years Api Works Years Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/works/folders/rename": {
+      "post": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Rename Folder",
+        "description": "폴더 이름 바꾸기 · 옮기기 — 하위 폴더까지 함께. 새 경로가 있으면 합친다. 폴더를\n지우는 것은 위 폴더로 합치는 것이다(작업은 지우지 않는다).",
+        "operationId": "rename_folder_api_works_folders_rename_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderRenameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/works/move": {
+      "post": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Move Works",
+        "description": "작업 여럿을 한 폴더로 — 화면의 끌어다 놓기 · 골라 옮기기.",
+        "operationId": "move_works_api_works_move_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderMoveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -1891,12 +2086,123 @@
         }
       }
     },
+    "/api/parts/folders": {
+      "get": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "Part Folders",
+        "description": "카탈로그의 폴더들 — 경로와 바로 그 폴더의 부품 수. 위 폴더도 빠짐없이.",
+        "operationId": "part_folders_api_parts_folders_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FolderOut"
+                  },
+                  "type": "array",
+                  "title": "Response Part Folders Api Parts Folders Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/parts/folders/rename": {
+      "post": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "Rename Folder",
+        "description": "폴더 이름 바꾸기 · 옮기기(하위까지). 남의 부품이 든 폴더는 관리자만.",
+        "operationId": "rename_folder_api_parts_folders_rename_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderRenameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/parts/move": {
+      "post": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "Move Parts",
+        "description": "부품 여럿을 한 폴더로 — 올린 사람 · 관리자만.",
+        "operationId": "move_parts_api_parts_move_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderMoveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/parts": {
       "get": {
         "tags": [
           "parts"
         ],
         "summary": "List Parts",
+        "description": "부품 카탈로그 — `q` · `tag` 로 찾고, `folder` 면 그 폴더(`subfolders` 면 하위까지).",
         "operationId": "list_parts_api_parts_get",
         "parameters": [
           {
@@ -1947,6 +2253,33 @@
               "maxLength": 40,
               "default": "",
               "title": "Tag"
+            }
+          },
+          {
+            "name": "folder",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 255
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Folder"
+            }
+          },
+          {
+            "name": "subfolders",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Subfolders"
             }
           }
         ],
@@ -2229,12 +2562,123 @@
         }
       }
     },
+    "/api/jigs/folders": {
+      "get": {
+        "tags": [
+          "jigs"
+        ],
+        "summary": "Jig Folders",
+        "description": "카탈로그의 폴더들 — 경로와 바로 그 폴더의 지그 수. 위 폴더도 빠짐없이.",
+        "operationId": "jig_folders_api_jigs_folders_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FolderOut"
+                  },
+                  "type": "array",
+                  "title": "Response Jig Folders Api Jigs Folders Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jigs/folders/rename": {
+      "post": {
+        "tags": [
+          "jigs"
+        ],
+        "summary": "Rename Folder",
+        "description": "폴더 이름 바꾸기 · 옮기기(하위까지). 남의 지그가 든 폴더는 관리자만.",
+        "operationId": "rename_folder_api_jigs_folders_rename_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderRenameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jigs/move": {
+      "post": {
+        "tags": [
+          "jigs"
+        ],
+        "summary": "Move Jigs",
+        "description": "지그 여럿을 한 폴더로 — 올린 사람 · 관리자만.",
+        "operationId": "move_jigs_api_jigs_move_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderMoveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/jigs": {
       "get": {
         "tags": [
           "jigs"
         ],
         "summary": "List Jigs",
+        "description": "지그 카탈로그 — `q` · `tag` 로 찾고, `folder` 면 그 폴더(`subfolders` 면 하위까지).",
         "operationId": "list_jigs_api_jigs_get",
         "parameters": [
           {
@@ -2302,6 +2746,33 @@
               "maxLength": 40,
               "default": "",
               "title": "Tag"
+            }
+          },
+          {
+            "name": "folder",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 255
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Folder"
+            }
+          },
+          {
+            "name": "subfolders",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Subfolders"
             }
           }
         ],
@@ -3791,13 +4262,147 @@
         }
       }
     },
+    "/api/templates/folders": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "Template Folders",
+        "description": "보이는 템플릿의 폴더들 — 경로와 바로 그 폴더의 수. 위 폴더도 빠짐없이.",
+        "operationId": "template_folders_api_templates_folders_get",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "mine · shared · all",
+              "default": "all",
+              "title": "Scope"
+            },
+            "description": "mine · shared · all"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FolderOut"
+                  },
+                  "title": "Response Template Folders Api Templates Folders Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/templates/folders/rename": {
+      "post": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "Rename Folder",
+        "description": "폴더 이름 바꾸기 · 옮기기(하위까지). 남의 공용 템플릿이 든 폴더는 관리자만.",
+        "operationId": "rename_folder_api_templates_folders_rename_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderRenameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/templates/move": {
+      "post": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "Move Templates",
+        "description": "템플릿 여럿을 한 폴더로 — 소유자 · 관리자만.",
+        "operationId": "move_templates_api_templates_move_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderMoveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/templates": {
       "get": {
         "tags": [
           "templates"
         ],
         "summary": "List Templates",
-        "description": "내 템플릿 · 공용 템플릿. 내장 넷은 `cad/recipe/schema` 의 templates 에 있다.",
+        "description": "내 템플릿 · 공용 템플릿. 내장 넷은 `cad/recipe/schema` 의 templates 에 있다.\n`folder` 면 그 폴더(`subfolders` 면 하위까지).",
         "operationId": "list_templates_api_templates_get",
         "parameters": [
           {
@@ -3832,6 +4437,33 @@
               "maxLength": 40,
               "default": "",
               "title": "Tag"
+            }
+          },
+          {
+            "name": "folder",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 255
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Folder"
+            }
+          },
+          {
+            "name": "subfolders",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Subfolders"
             }
           },
           {
@@ -5958,6 +6590,70 @@
         ],
         "title": "FindRequest"
       },
+      "FolderMoveRequest": {
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Ids"
+          },
+          "folder": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Folder",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "ids"
+        ],
+        "title": "FolderMoveRequest"
+      },
+      "FolderOut": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "count"
+        ],
+        "title": "FolderOut"
+      },
+      "FolderRenameRequest": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Path"
+          },
+          "to": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "To",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "title": "FolderRenameRequest"
+      },
       "FramesRequest": {
         "properties": {
           "recipe": {
@@ -6184,6 +6880,11 @@
               }
             ]
           },
+          "folder": {
+            "type": "string",
+            "title": "Folder",
+            "default": ""
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -6235,6 +6936,11 @@
             "type": "string",
             "title": "Description"
           },
+          "owner_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Owner Id"
+          },
           "owner_name": {
             "type": "string",
             "title": "Owner Name"
@@ -6277,6 +6983,11 @@
             ],
             "title": "Interference Ok"
           },
+          "folder": {
+            "type": "string",
+            "title": "Folder",
+            "default": ""
+          },
           "updated_at": {
             "type": "string",
             "format": "date-time",
@@ -6288,6 +6999,7 @@
           "id",
           "name",
           "description",
+          "owner_id",
           "owner_name",
           "part_id",
           "part_name",
@@ -6323,6 +7035,18 @@
               }
             ],
             "title": "Description"
+          },
+          "folder": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder"
           }
         },
         "type": "object",
@@ -6690,6 +7414,19 @@
         ],
         "title": "MeasureRequest"
       },
+      "MovedOut": {
+        "properties": {
+          "moved": {
+            "type": "integer",
+            "title": "Moved"
+          }
+        },
+        "type": "object",
+        "required": [
+          "moved"
+        ],
+        "title": "MovedOut"
+      },
       "Page_JigSummaryOut_": {
         "properties": {
           "items": {
@@ -6941,6 +7678,11 @@
             "type": "integer",
             "title": "Jig Count"
           },
+          "folder": {
+            "type": "string",
+            "title": "Folder",
+            "default": ""
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -6991,6 +7733,11 @@
             "type": "string",
             "title": "Description"
           },
+          "owner_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Owner Id"
+          },
           "owner_name": {
             "type": "string",
             "title": "Owner Name"
@@ -7003,6 +7750,11 @@
             "type": "integer",
             "title": "Jig Count"
           },
+          "folder": {
+            "type": "string",
+            "title": "Folder",
+            "default": ""
+          },
           "updated_at": {
             "type": "string",
             "format": "date-time",
@@ -7014,6 +7766,7 @@
           "id",
           "name",
           "description",
+          "owner_id",
           "owner_name",
           "current_version",
           "jig_count",
@@ -7047,6 +7800,18 @@
               }
             ],
             "title": "Description"
+          },
+          "folder": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder"
           }
         },
         "type": "object",
@@ -8353,6 +9118,12 @@
             },
             "type": "array",
             "title": "Tags"
+          },
+          "folder": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Folder",
+            "default": ""
           }
         },
         "type": "object",
@@ -8404,6 +9175,11 @@
           "node_count": {
             "type": "integer",
             "title": "Node Count"
+          },
+          "folder": {
+            "type": "string",
+            "title": "Folder",
+            "default": ""
           },
           "updated_at": {
             "type": "string",
@@ -8473,6 +9249,11 @@
           "node_count": {
             "type": "integer",
             "title": "Node Count"
+          },
+          "folder": {
+            "type": "string",
+            "title": "Folder",
+            "default": ""
           },
           "updated_at": {
             "type": "string",
@@ -8544,6 +9325,18 @@
               }
             ],
             "title": "Is Shared"
+          },
+          "folder": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder"
           }
         },
         "type": "object",
@@ -8900,6 +9693,12 @@
               }
             ],
             "title": "Unit System"
+          },
+          "folder": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Folder",
+            "default": ""
           }
         },
         "type": "object",
@@ -9033,6 +9832,11 @@
             "type": "array",
             "title": "Tags",
             "default": []
+          },
+          "folder": {
+            "type": "string",
+            "title": "Folder",
+            "default": ""
           },
           "created_at": {
             "type": "string",
@@ -9195,6 +9999,16 @@
             "title": "Tags",
             "default": []
           },
+          "folder": {
+            "type": "string",
+            "title": "Folder",
+            "default": ""
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
           "updated_at": {
             "type": "string",
             "format": "date-time",
@@ -9227,6 +10041,7 @@
           "last_jig_status",
           "promoted_part_id",
           "promoted_jig_id",
+          "created_at",
           "updated_at"
         ],
         "title": "WorkSummaryOut"
@@ -9317,10 +10132,40 @@
               }
             ],
             "title": "Unit System"
+          },
+          "folder": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder"
           }
         },
         "type": "object",
         "title": "WorkUpdateRequest"
+      },
+      "YearOut": {
+        "properties": {
+          "year": {
+            "type": "integer",
+            "title": "Year"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "year",
+          "count"
+        ],
+        "title": "YearOut"
       }
     },
     "securitySchemes": {
