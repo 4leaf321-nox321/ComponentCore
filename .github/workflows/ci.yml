@@ -59,7 +59,9 @@ jobs:
         continue-on-error: true
         run: |
           sudo apt-get update -o Acquire::Retries=3 || sudo apt-get update -o Acquire::Retries=3
-          for pkg in libgl1 libglu1-mesa libxrender1 libxext1; do
+          # libcairo2 는 도면 그림(SVG → PDF · PNG, cairosvg)이 ctypes 로 찾는다 — 없으면
+          # 도면 시험이 「cairo 를 못 찾는다」 로 죽는다(v0.6.0 부터).
+          for pkg in libgl1 libglu1-mesa libxrender1 libxext1 libcairo2; do
             sudo apt-get install -y --no-install-recommends "$pkg" \
               || { echo "::warning::$pkg 를 깔지 못했습니다"; apt-cache policy "$pkg" || true; }
           done
