@@ -141,7 +141,9 @@ async def _post(
     return _unwrap(response)
 
 
-async def _post_bytes(ctx: Context, path: str, json_body: Any = None) -> bytes | dict[str, Any]:
+async def _post_bytes(
+    ctx: Context, path: str, json_body: Any = None
+) -> bytes | dict[str, Any]:
     """파일로 오는 답(PNG 등) — 성공이면 바이트, 실패면 `_unwrap` 과 같은 오류 봉투."""
     try:
         async with _client(120) as client:
@@ -472,9 +474,9 @@ async def recipe_drawing(
     note: str = "",
     node_id: str | None = None,
 ) -> Any:
-    """**도면**(2D) — 3각법 세 뷰(정면 · 평면 · 우측면) · 전체 치수 · 구멍 기호와 구멍표(지름 ·
-    관통/깊이 · 카운터보어 · 위치) · 표제란(이름 · 재료 · 축척 · 메모). 답은 요약(축척 · 구멍표 ·
-    치수 값)과 도면 그림 한 장.
+    """**도면**(2D) — 3각법 세 뷰(정면 · 평면 · 우측면) · 전체 치수 · 구멍 기호와 구멍표
+    (지름 · 관통/깊이 · 카운터보어 · 위치) · 표제란(이름 · 재료 · 축척 · 메모). 답은 요약
+    (축척 · 구멍표 · 치수 값)과 도면 그림 한 장.
 
     `sheet` 는 A3 · A4. 축척은 표준 축척(5:1 … 1:100) 중 들어가는 가장 큰 것을 서버가
     고른다. 구멍 위치(x, y)는 그 구멍이 원으로 보이는 뷰의 **왼쪽 아래 모서리**에서 잰다.
@@ -513,11 +515,11 @@ async def sketch_solve(
 async def recipe_midsurface(
     ctx: Context, recipe: dict[str, Any], node_id: str | None = None
 ) -> Any:
-    """얇은 판의 **중간면** — 두께 가운데의 면(셸 요소 해석용) 요약: 판마다 두께 · 넓이 · 면 수,
-    그리고 알림(두께가 곳곳에 다르면 그 자리가 빠졌을 수 있다).
+    """얇은 판의 **중간면** — 두께 가운데의 면(셸 요소 해석용) 요약: 판마다 두께 · 넓이 ·
+    면 수, 그리고 알림(두께가 곳곳에 다르면 그 자리가 빠졌을 수 있다).
 
     판금 · 굽힌 판 · 쉘 상자 · 가져온 판금 STEP. 판이 아니면(두께가 윗면 폭보다 크다) 까닭과
-    함께 거절한다. STEP 은 사람이 화면의 「파일 › 중간면」 으로 받고, DOE 는
+    함께 거절한다. STEP 은 사람이 화면의 「파일」 탭 「중간면」 으로 받고, DOE 는
     `doe_create(..., outputs=["midsurface"])` 로 점마다 함께 낸다."""
     return await _post(ctx, "/api/cad/recipe/midsurface", {"recipe": recipe, "node": node_id})
 
