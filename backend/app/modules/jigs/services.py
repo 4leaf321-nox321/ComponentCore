@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import exists, func, literal, select
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
@@ -16,7 +16,7 @@ from app.modules.jigs.schemas import JigOut, JigSummaryOut, JigVersionOut
 from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Job
 from app.modules.parts.models import Part, PartVersion
-from app.shared import folders, shape_search
+from app.shared import folders, search, shape_search
 from app.shared.errors import Forbidden, NotFound, code
 
 
@@ -136,9 +136,20 @@ def list_jigs(
     base = folders.narrowed(base, Jig.folder, folder, subfolders, _BAD_FOLDER)
     if part_id is not None:
         base = base.where(Jig.part_id == part_id)
-    if query.strip():
-        like = f"%{query.strip()}%"
-        base = base.where(or_(Jig.name.ilike(like), Jig.description.ilike(like)))
+    found = search.matches(
+        query,
+        columns=[Jig.name, Jig.description],
+        tags=Jig.tags,
+        owner=Jig.owner_id,
+        # 어느 부품의 지그인가 — 부품 이름으로도 찾는다.
+        also=[
+            lambda like: exists(
+                select(literal(1)).where(Part.id == Jig.part_id, Part.name.ilike(like))
+            )
+        ],
+    )
+    if found is not None:
+        base = base.where(found)
     if tag.strip():
         base = base.where(Jig.tags.contains([tag.strip()]))
     total = int(db.scalar(select(func.count()).select_from(base.subquery())) or 0)

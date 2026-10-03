@@ -21,7 +21,17 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -39,6 +49,23 @@ WORK_KINDS = ("part", "jig", "assembly")
 
 class Work(Base):
     __tablename__ = "works"
+    __table_args__ = (
+        # 찾기(`shared/search.py`)의 `ILIKE %낱말%` 이 타는 트라이그램 색인 — 마이그레이션
+        # 0028. 모델에도 적어 둬야 `alembic check` 가 「지울 것」 으로 읽지 않는다.
+        Index(
+            "ix_works_name_trgm",
+            "name",
+            postgresql_using="gin",
+            postgresql_ops={"name": "gin_trgm_ops"},
+        ),
+        Index(
+            "ix_works_description_trgm",
+            "description",
+            postgresql_using="gin",
+            postgresql_ops={"description": "gin_trgm_ops"},
+        ),
+        Index("ix_works_tags_trgm", text("(tags::text) gin_trgm_ops"), postgresql_using="gin"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True), primary_key=True, default=uuid.uuid4

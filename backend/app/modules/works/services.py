@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 from build123d import Shape
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -34,7 +34,7 @@ from app.modules.jobs.models import Artifact, Job
 from app.modules.parts.models import Part, PartVersion
 from app.modules.works.models import VERSION_SOURCES, WORK_KINDS, Work, WorkVersion
 from app.modules.works.schemas import PromoteJigOut, VersionOut, WorkOut, WorkSummaryOut
-from app.shared import filestore, folders, shape_search
+from app.shared import filestore, folders, search, shape_search
 from app.shared.errors import AppError, Forbidden, NotFound, code
 
 logger = logging.getLogger(__name__)
@@ -234,9 +234,11 @@ def list_works(
     쓴다."""
     base = select(Work).where(Work.owner_id == owner.id)
     base = base.where(Work.deleted_at.is_not(None) if trashed else Work.deleted_at.is_(None))
-    if query.strip():
-        like = f"%{query.strip()}%"
-        base = base.where(or_(Work.name.ilike(like), Work.description.ilike(like)))
+    found = search.matches(
+        query, columns=[Work.name, Work.description], tags=Work.tags, owner=Work.owner_id
+    )
+    if found is not None:
+        base = base.where(found)
     if tag.strip():
         base = base.where(Work.tags.contains([tag.strip()]))
     if kind.strip():

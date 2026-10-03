@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
@@ -15,7 +15,7 @@ from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Job
 from app.modules.parts.models import Part, PartVersion
 from app.modules.parts.schemas import PartOut, PartSummaryOut, PartVersionOut
-from app.shared import folders, shape_search
+from app.shared import folders, search, shape_search
 from app.shared.errors import Forbidden, NotFound, code
 
 
@@ -125,9 +125,11 @@ def list_parts(
             base, shape, model=Part, version=PartVersion, owner=PartVersion.part_id
         )
     base = folders.narrowed(base, Part.folder, folder, subfolders, _BAD_FOLDER)
-    if query.strip():
-        like = f"%{query.strip()}%"
-        base = base.where(or_(Part.name.ilike(like), Part.description.ilike(like)))
+    found = search.matches(
+        query, columns=[Part.name, Part.description], tags=Part.tags, owner=Part.owner_id
+    )
+    if found is not None:
+        base = base.where(found)
     if tag.strip():
         base = base.where(Part.tags.contains([tag.strip()]))
     total = int(db.scalar(select(func.count()).select_from(base.subquery())) or 0)

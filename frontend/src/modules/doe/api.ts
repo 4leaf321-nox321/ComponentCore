@@ -281,12 +281,19 @@ export const doeApi = {
    */
   probe: (body: PlanBody & { recipe: Recipe; work_id?: string | null; conditions?: Record<string, unknown> }) =>
     api.post<ProbeResult>('/doe/probe', body),
-  /** `scope='all'` 이면 **남이 공개한 것까지** — 같은 훑기를 다시 도는 것이 가장 큰 낭비다. */
-  list: (options: { workId?: string; offset?: number; limit?: number; scope?: 'mine' | 'all' } = {}) => {
+  /**
+   * `scope='all'` 이면 **남이 공개한 것까지** — 같은 훑기를 다시 도는 것이 가장 큰 낭비다.
+   * `q` 는 이름 · 설명 · 대상 작업 이름 · 만든 사람(다른 목록과 같은 규칙), `tag` 는 대상 작업의 꼬리표.
+   */
+  list: (options: { workId?: string; offset?: number; limit?: number; scope?: 'mine' | 'all'; q?: string; tag?: string } = {}) => {
     const query = new URLSearchParams({ offset: String(options.offset ?? 0), limit: String(options.limit ?? 50), scope: options.scope ?? 'mine' })
     if (options.workId) query.set('work_id', options.workId)
+    if (options.q) query.set('q', options.q)
+    if (options.tag) query.set('tag', options.tag)
     return api.get<Page<DoeStudySummary>>(`/doe?${query}`)
   },
+  /** 보이는 DOE 들의 대상 작업 꼬리표 — 많이 쓴 것부터(거르개). */
+  tags: (scope: 'mine' | 'all' = 'mine') => api.get<string[]>(`/doe/tags?scope=${scope}`),
   get: (id: string) => api.get<DoeStudy>(`/doe/${id}`),
   create: (body: {
     name: string

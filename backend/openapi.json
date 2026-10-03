@@ -5514,7 +5514,7 @@
           "doe"
         ],
         "summary": "List Studies",
-        "description": "`scope=mine`(기본) 은 내 것, `all` 은 **공개된 것까지.**\n\n기본이 「내 것」 인 까닭: 「내 활동」 화면이 이것을 쓴다. 공개를 기본으로 하면 남의 것이\n내 활동에 섞인다 — 남의 이력을 찾는 것은 다른 물음이라 따로 묻게 한다.",
+        "description": "`scope=mine`(기본) 은 내 것, `all` 은 **공개된 것까지.**\n\n기본이 「내 것」 인 까닭: 「내 활동」 화면이 이것을 쓴다. 공개를 기본으로 하면 남의 것이\n내 활동에 섞인다 — 남의 이력을 찾는 것은 다른 물음이라 따로 묻게 한다.\n\n`q` 는 이름 · 설명 · **대상 작업 이름** · 만든 사람(낱말마다 AND — 다른 목록과 같은 규칙),\n`tag` 는 **대상 작업의 꼬리표**.",
         "operationId": "list_studies_api_doe_get",
         "parameters": [
           {
@@ -5543,6 +5543,28 @@
               "pattern": "^(mine|all)$",
               "default": "mine",
               "title": "Scope"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 120,
+              "default": "",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 40,
+              "default": "",
+              "title": "Tag"
             }
           },
           {
@@ -5621,6 +5643,55 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StudyOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/doe/tags": {
+      "get": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Study Tags",
+        "description": "보이는 DOE 들의 **대상 작업** 꼬리표 — 많이 쓴 것부터. 목록의 거르개가 쓴다.",
+        "operationId": "study_tags_api_doe_tags_get",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(mine|all)$",
+              "default": "mine",
+              "title": "Scope"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Response Study Tags Api Doe Tags Get"
                 }
               }
             }

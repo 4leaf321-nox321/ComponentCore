@@ -17,7 +17,7 @@ from app.core.recipe.schema import RecipeValidationError, parse
 from app.modules.accounts.models import User
 from app.modules.templates.models import RecipeTemplate
 from app.modules.templates.schemas import TemplateOut, TemplateSummaryOut
-from app.shared import folders
+from app.shared import folders, search
 from app.shared.errors import AppError, Forbidden, NotFound, code
 
 #: 목록에서 고를 수 있는 자리.
@@ -95,11 +95,14 @@ def list_templates(
     statement = folders.narrowed(
         statement, RecipeTemplate.folder, folder, subfolders, _BAD_FOLDER
     )
-    if query.strip():
-        like = f"%{query.strip()}%"
-        statement = statement.where(
-            or_(RecipeTemplate.name.ilike(like), RecipeTemplate.description.ilike(like))
-        )
+    found = search.matches(
+        query,
+        columns=[RecipeTemplate.name, RecipeTemplate.description],
+        tags=RecipeTemplate.tags,
+        owner=RecipeTemplate.owner_id,
+    )
+    if found is not None:
+        statement = statement.where(found)
     if tag.strip():
         statement = statement.where(RecipeTemplate.tags.contains([tag.strip()]))
     total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0

@@ -128,6 +128,8 @@ def probe(
 def list_studies(
     work_id: uuid.UUID | None = Query(default=None),
     scope: str = Query(default="mine", pattern="^(mine|all)$"),
+    q: str = Query(default="", max_length=120),
+    tag: str = Query(default="", max_length=40),
     limit: int | None = Query(default=None, ge=1),
     offset: int = Query(default=0, ge=0),
     user: User = Depends(current_user),
@@ -136,14 +138,27 @@ def list_studies(
     """`scope=mine`(기본) 은 내 것, `all` 은 **공개된 것까지.**
 
     기본이 「내 것」 인 까닭: 「내 활동」 화면이 이것을 쓴다. 공개를 기본으로 하면 남의 것이
-    내 활동에 섞인다 — 남의 이력을 찾는 것은 다른 물음이라 따로 묻게 한다."""
+    내 활동에 섞인다 — 남의 이력을 찾는 것은 다른 물음이라 따로 묻게 한다.
+
+    `q` 는 이름 · 설명 · **대상 작업 이름** · 만든 사람(낱말마다 AND — 다른 목록과 같은 규칙),
+    `tag` 는 **대상 작업의 꼬리표**."""
     size = clamp_limit(limit)
     rows, total = services.list_studies(
-        db, user, work_id=work_id, limit=size, offset=offset, scope=scope
+        db, user, work_id=work_id, limit=size, offset=offset, scope=scope, query=q, tag=tag
     )
     return Page(
         items=[_summary(db, one) for one in rows], total=total, limit=size, offset=offset
     )
+
+
+@router.get("/tags", response_model=list[str])
+def study_tags(
+    scope: str = Query(default="mine", pattern="^(mine|all)$"),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> list[str]:
+    """보이는 DOE 들의 **대상 작업** 꼬리표 — 많이 쓴 것부터. 목록의 거르개가 쓴다."""
+    return services.study_tags(db, user, scope=scope)
 
 
 def _acting_for(db: Session, caller: User, request: Request, asked: str) -> User | None:

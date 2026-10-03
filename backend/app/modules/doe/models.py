@@ -35,6 +35,19 @@ class DoeStudy(Base):
             unique=True,
             postgresql_where=text("idempotency_key <> ''"),
         ),
+        # 찾기의 트라이그램 색인(마이그레이션 0028) — DOE 에는 꼬리표가 없어 이름 · 설명만.
+        Index(
+            "ix_doe_studies_name_trgm",
+            "name",
+            postgresql_using="gin",
+            postgresql_ops={"name": "gin_trgm_ops"},
+        ),
+        Index(
+            "ix_doe_studies_description_trgm",
+            "description",
+            postgresql_using="gin",
+            postgresql_ops={"description": "gin_trgm_ops"},
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

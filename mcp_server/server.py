@@ -1290,16 +1290,27 @@ async def doe_keep(ctx: Context, study_id: str, keep: bool = True) -> Any:
 
 @mcp.tool()
 async def doe_studies(
-    ctx: Context, work_id: str | None = None, limit: int = 20, scope: str = "mine"
+    ctx: Context,
+    work_id: str | None = None,
+    limit: int = 20,
+    scope: str = "mine",
+    query: str = "",
+    tag: str = "",
 ) -> Any:
     """실험계획 목록 — 무엇을 언제 훑었나.
 
     `scope="mine"`(기본) 은 네 토큰의 계정 것, `"all"` 은 **공개된 것까지**. 남이 이미 같은
-    훑기를 돌았는지 보려면 `all` 로 찾아라 — 같은 것을 다시 도는 것이 가장 큰 낭비다."""
-    query: dict[str, Any] = {"limit": limit, "scope": scope}
+    훑기를 돌았는지 보려면 `all` 로 찾아라 — 같은 것을 다시 도는 것이 가장 큰 낭비다.
+    `query` 는 이름 · 설명 · **대상 작업 이름** · 만든 사람(낱말마다 AND), `tag` 는 대상 작업의
+    꼬리표 — 「브래킷 EMC 에 건 DOE 가 있나」 를 목록을 넘기지 않고 묻는다."""
+    params: dict[str, Any] = {"limit": limit, "scope": scope}
     if work_id:
-        query["work_id"] = work_id
-    page = await _get(ctx, "/api/doe", query)
+        params["work_id"] = work_id
+    if query:
+        params["q"] = query
+    if tag:
+        params["tag"] = tag
+    page = await _get(ctx, "/api/doe", params)
     if isinstance(page, dict) and "items" in page:
         return {"total": page["total"], "studies": page["items"]}
     return page
@@ -1413,9 +1424,11 @@ async def list_works(
 
 @mcp.tool()
 async def search(ctx: Context, query: str, limit: int = 10) -> Any:
-    """이름 · 설명으로 **한꺼번에 찾는다** — 내 작업(부품 · 지그 · 조립) · 공용 부품 ·
-    공용 지그 · 템플릿. 사용자가 「센서 브래킷」 「진동」 처럼 말하면 목록을 다 훑지 말고
-    이것부터. 답의 id 를 `work:<id>` · `part:<id>` · `jig:<id>` 로 다른 도구에 넘긴다."""
+    """이름 · 설명 · **꼬리표 · 만든 사람**으로 **한꺼번에 찾는다** — 내 작업(부품 · 지그 ·
+    조립) · 공용 부품 · 공용 지그 · 템플릿. 낱말마다 AND(「알루미늄 브래킷」 은 둘 다 든 것).
+    사용자가 「센서 브래킷」 「진동」 처럼 말하면 목록을 다 훑지 말고 이것부터. 답의 id 를
+    `work:<id>` · `part:<id>` · `jig:<id>` 로 다른 도구에 넘긴다. 형상으로 찾으려면
+    `find_by_shape`, DOE 는 `doe_studies(query=…)`."""
     works, parts, jigs, templates = await asyncio.gather(
         _get(ctx, "/api/works", {"q": query, "limit": limit}),
         _get(ctx, "/api/parts", {"q": query, "limit": limit}),

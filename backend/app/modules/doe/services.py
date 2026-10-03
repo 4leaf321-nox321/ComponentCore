@@ -25,8 +25,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import exists, func, literal, or_, select
 from sqlalchemy.orm import Session, object_session
+from sqlalchemy.sql import ColumnElement
 
 from app.config import get_settings
 from app.core import conditions as condition_model
@@ -47,7 +48,8 @@ from app.modules.jobs import registry
 from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Job
 from app.modules.server import settings_store
-from app.shared import filestore
+from app.modules.works.models import Work
+from app.shared import filestore, search
 from app.shared.errors import AppError, Forbidden, NotFound, code
 
 JOB_KIND = "doe"
@@ -883,6 +885,18 @@ def set_visibility(db: Session, study: DoeStudy, value: str) -> DoeStudy:
     return study
 
 
+def _visible(viewer: User, scope: str) -> ColumnElement[bool]:
+    """내 것(대행으로 내 이름이 된 것 포함), `all` 이면 공개된 것까지."""
+    if scope == "all":
+        return or_(DoeStudy.visibility == "read", DoeStudy.owner_id == viewer.id)
+    return DoeStudy.owner_id == viewer.id
+
+
+def _target_named(like: str) -> ColumnElement[bool]:
+    """대상 작업의 이름에 이 낱말이 있나 — 「브래킷의 DOE」 를 찾는 길."""
+    return exists(select(literal(1)).where(Work.id == DoeStudy.work_id, Work.name.ilike(like)))
+
+
 def list_studies(
     db: Session,
     viewer: User,
@@ -891,24 +905,54 @@ def list_studies(
     limit: int,
     offset: int,
     scope: str = "mine",
+    query: str = "",
+    tag: str = "",
 ) -> tuple[list[DoeStudy], int]:
     """`scope="mine"` 은 내 것(대행으로 내 이름이 된 것 포함), `"all"` 은 공개된 것까지.
 
     기본이 「내 것」 인 까닭: 「내 활동」 화면이 이것을 쓴다. 공개를 기본으로 하면 남의 것이
-    내 활동에 섞인다 — 찾는 것은 `scope=all` 로 따로 묻는다."""
-    if scope == "all":
-        statement = select(DoeStudy).where(
-            or_(DoeStudy.visibility == "read", DoeStudy.owner_id == viewer.id)
-        )
-    else:
-        statement = select(DoeStudy).where(DoeStudy.owner_id == viewer.id)
+    내 활동에 섞인다 — 찾는 것은 `scope=all` 로 따로 묻는다.
+
+    `query` 는 한 곳의 규칙(`shared/search.py` — 이름 · 설명 · 만든 사람)에 **대상 작업의
+    이름**을 더한 것, `tag` 는 **대상 작업의 꼬리표**다(DOE 에는 꼬리표가 없다 — 「브래킷 EMC」
+    에 건 DOE 들을 꼬리표로 모은다)."""
+    statement = select(DoeStudy).where(_visible(viewer, scope))
     if work_id is not None:
         statement = statement.where(DoeStudy.work_id == work_id)
+    found = search.matches(
+        query,
+        columns=[DoeStudy.name, DoeStudy.description],
+        owner=DoeStudy.owner_id,
+        also=[_target_named],
+    )
+    if found is not None:
+        statement = statement.where(found)
+    if tag.strip():
+        statement = statement.where(
+            exists(
+                select(literal(1)).where(
+                    Work.id == DoeStudy.work_id, Work.tags.contains([tag.strip()])
+                )
+            )
+        )
     total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0
     rows = db.scalars(
         statement.order_by(DoeStudy.created_at.desc()).limit(limit).offset(offset)
     ).all()
     return list(rows), total
+
+
+def study_tags(db: Session, viewer: User, *, scope: str = "mine") -> list[str]:
+    """보이는 DOE 들의 **대상 작업** 꼬리표 — 많이 쓴 것부터(내 작업의 꼬리표 목록과 같은 꼴).
+    거르개 · 자동 완성이 쓴다."""
+    targets = select(DoeStudy.work_id).where(
+        _visible(viewer, scope), DoeStudy.work_id.is_not(None)
+    )
+    seen: dict[str, int] = {}
+    for tags in db.scalars(select(Work.tags).where(Work.id.in_(targets))):
+        for one in tags or []:
+            seen[one] = seen.get(one, 0) + 1
+    return sorted(seen, key=lambda t: (-seen[t], t))
 
 
 def points(db: Session, study: DoeStudy) -> list[DoePoint]:
