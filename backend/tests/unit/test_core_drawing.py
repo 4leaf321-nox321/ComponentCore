@@ -27,7 +27,7 @@ def _plate() -> object:
 
 
 def test_구멍은_관통_막힘_자리파기를_가르고_보스_필렛은_구멍이_아니다() -> None:
-    found = drawing.holes(_plate())  # type: ignore[arg-type]
+    found = drawing.holes(_plate())
     specs = sorted((one["diameter"], one["depth"]) for one in found)
     assert specs == [
         (5.0, 16.0),
@@ -40,16 +40,16 @@ def test_구멍은_관통_막힘_자리파기를_가르고_보스_필렛은_구�
     ]
     # 기둥(보스)은 볼록하고, 주머니 안 모서리 필렛은 오목해도 한 바퀴가 아니다.
     boss = Box(40, 40, 5) + Pos(0, 0, 5) * Cylinder(6, 10)
-    assert drawing.holes(boss) == []  # type: ignore[arg-type]
+    assert drawing.holes(boss) == []
     pocket = Box(40, 40, 20) - Pos(0, 0, 5) * Box(30, 30, 20)
     corners = pocket.edges().filter_by(Axis.Z).filter_by_position(Axis.Z, 0, 20)
     inner = [one for one in corners if abs(one.center().X) < 16]
     rounded = fillet(inner, 3)
-    assert drawing.holes(rounded) == []  # type: ignore[arg-type]
+    assert drawing.holes(rounded) == []
 
 
 def test_도면_한_장_축척_치수_구멍표() -> None:
-    sheet = drawing.make_sheet(_plate(), title="시험 판", material="AL6061")  # type: ignore[arg-type]
+    sheet = drawing.make_sheet(_plate(), title="시험 판", material="AL6061")
     assert sheet.scale_text == "2:1"
     dims = sorted(one.value for one in sheet.items if isinstance(one, drawing.Dim))
     assert dims == pytest.approx([12, 50, 80])
@@ -66,17 +66,18 @@ def test_도면_한_장_축척_치수_구멍표() -> None:
     assert "축척 2:1" in sheet.notes[0]
 
     # 큰 것은 줄여 그린다 — 표준 축척으로.
-    big = drawing.make_sheet(Box(1200, 600, 300))  # type: ignore[arg-type]
+    big = drawing.make_sheet(Box(1200, 600, 300))
     assert big.scale_text in ("1:5", "1:10")
 
 
 def test_DXF_는_진짜_치수_객체이고_글씨는_실제_크기다() -> None:
-    import ezdxf
+    from ezdxf.entities import Dimension
+    from ezdxf.filemanagement import read
 
-    sheet = drawing.make_sheet(_plate(), title="판")  # type: ignore[arg-type]
-    doc = ezdxf.read(io.StringIO(drawing.write_dxf(sheet)))
+    sheet = drawing.make_sheet(_plate(), title="판")
+    doc = read(io.StringIO(drawing.write_dxf(sheet)))
     msp = doc.modelspace()
-    dims = [one for one in msp if one.dxftype() == "DIMENSION"]
+    dims = [one for one in msp if isinstance(one, Dimension)]
     assert len(dims) == 3
     shown = set()
     for dim in dims:
@@ -91,10 +92,10 @@ def test_DXF_는_진짜_치수_객체이고_글씨는_실제_크기다() -> None
 
 
 def test_SVG_PDF_PNG() -> None:
-    sheet = drawing.make_sheet(_plate(), title="판", sheet="A4")  # type: ignore[arg-type]
+    sheet = drawing.make_sheet(_plate(), title="판", sheet="A4")
     svg = drawing.write_svg(sheet)
     assert svg.startswith("<svg") and 'width="297mm"' in svg and ">80<" in svg
     assert drawing.write_pdf(sheet).startswith(b"%PDF")
     assert drawing.write_png(sheet, width=400).startswith(b"\x89PNG")
     with pytest.raises(ValueError, match="용지"):
-        drawing.make_sheet(Box(1, 1, 1), sheet="A0")  # type: ignore[arg-type]
+        drawing.make_sheet(Box(1, 1, 1), sheet="A0")

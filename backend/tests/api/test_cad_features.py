@@ -384,7 +384,7 @@ def test_중간면_요약과_STEP(client: TestClient, member: Signed, tmp_path: 
 
 
 def test_구속_윤곽을_풀어_본다(client: TestClient, member: Signed) -> None:
-    shape = {
+    shape: dict[str, Any] = {
         "type": "constrained",
         "points": {"a": [1, -2], "b": [55, 3], "c": [58, 37], "d": [-3, 44]},
         "segments": [
