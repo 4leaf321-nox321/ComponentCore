@@ -71,7 +71,7 @@ def test_도면_한_장_축척_치수_구멍표() -> None:
 
 
 def test_DXF_는_진짜_치수_객체이고_글씨는_실제_크기다() -> None:
-    from ezdxf.entities import Dimension
+    from ezdxf.entities import Dimension, MText
     from ezdxf.filemanagement import read
 
     sheet = drawing.make_sheet(_plate(), title="판")
@@ -83,7 +83,7 @@ def test_DXF_는_진짜_치수_객체이고_글씨는_실제_크기다() -> None
     for dim in dims:
         block = dim.get_geometry_block()
         assert block is not None
-        shown |= {one.plain_text() for one in block if one.dxftype() == "MTEXT"}
+        shown |= {one.plain_text() for one in block if isinstance(one, MText)}
     assert {"80", "50", "12"} <= shown  # 2:1 로 그렸지만 글씨는 실제 크기
     layers = {one.dxf.layer for one in msp}
     assert {"VISIBLE", "HIDDEN", "CENTER", "BORDER", "TABLE"} <= layers
