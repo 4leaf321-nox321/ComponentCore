@@ -71,7 +71,8 @@ def test_도면_한_장_축척_치수_구멍표() -> None:
 
 
 def test_DXF_는_진짜_치수_객체이고_글씨는_실제_크기다() -> None:
-    from ezdxf.entities import Dimension, MText
+    from ezdxf.entities import Dimension
+    from ezdxf.entities.mtext import MText
     from ezdxf.filemanagement import read
 
     sheet = drawing.make_sheet(_plate(), title="판")
