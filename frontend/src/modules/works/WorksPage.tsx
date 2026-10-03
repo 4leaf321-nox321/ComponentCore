@@ -4,9 +4,10 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { worksApi } from '@/modules/works/api'
-import type { WorkKind } from '@/modules/works/api'
 import { AssembleDialog } from '@/modules/works/AssembleDialog'
 import { groupByYear } from '@/modules/works/folders'
+import { KindFilter } from '@/modules/works/KindFilter'
+import type { KindChoice } from '@/modules/works/KindFilter'
 import { ChosenBar, FolderCrumbs, FolderDialogs, FolderSelect, PickAll, PickBox, RowFolder } from '@/shared/folders/FolderParts'
 import { FolderTree } from '@/shared/folders/FolderTree'
 import { useFolderSpace } from '@/shared/folders/useFolderSpace'
@@ -38,7 +39,7 @@ export default function WorksPage() {
   const navigate = useNavigate()
   const [offset, setOffset] = useState(0)
   /** 「내 지그가 어디 있지」 를 한 번에 — 종류로 가려 본다. */
-  const [kind, setKind] = useState<'all' | WorkKind>('all')
+  const [kind, setKind] = useState<KindChoice>('all')
   const [starting, setStarting] = useState(false)
   const [assembling, setAssembling] = useState(false)
   /** 찾기 · 꼬리표 · 휴지통 — 서버가 거른다(수십 개를 넘으면 한 쪽에 다 안 온다). */
@@ -146,28 +147,7 @@ export default function WorksPage() {
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <FolderSelect space={space} allLabel="모든 작업" />
         <SearchBox value={q} onChange={(next) => refilter(() => setQ(next))} />
-        <div className="flex items-center gap-1">
-        {(
-          [
-            { value: 'all', label: '전체' },
-            { value: 'part', label: '부품' },
-            { value: 'jig', label: '지그' },
-            { value: 'assembly', label: '조립' },
-          ] as const
-        ).map((one) => (
-          <button
-            key={one.value}
-            type="button"
-            onClick={() => refilter(() => setKind(one.value))}
-            aria-pressed={kind === one.value}
-            className={`rounded-md border px-3 py-1 text-sm ${
-              kind === one.value ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-accent'
-            }`}
-          >
-            {one.label}
-          </button>
-        ))}
-        </div>
+        <KindFilter value={kind} onChange={(next) => refilter(() => setKind(next))} />
         <TagFilter tags={tags.data ?? []} value={tag} onChange={(next) => refilter(() => setTag(next))} />
         <ShapeFilter value={shape} onChange={(next) => refilter(() => setShape(next))} />
         <button

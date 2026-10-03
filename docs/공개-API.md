@@ -155,7 +155,7 @@ curl -X POST -H "Authorization: Bearer <PAT>" "http://<호스트>/api/doe/<id>/r
 | 묶음 | 무엇 |
 | --- | --- |
 | `auth` | 로그인 · PAT 발급 · 범위 목록(`GET /auth/token-scopes`) |
-| `works` | **내 작업** — 비공개로 그리는 자리. 버전마다 레시피와 해석 조건 |
+| `works` | **내 작업** — 비공개로 그리는 자리. 버전마다 레시피와 해석 조건. 시스템 관리자는 목록 · 꼬리표 · 폴더에 `owner=all` · `owner=<사람 id>` 로 남의 것을 찾는다 |
 | `parts` · `jigs` · `templates` | 승격된 공용 카탈로그(불변 버전) |
 | `cad` | 레시피 검증 · 평가 · 질의 · 셀렉터 후보 · 조건 사양표. **대부분 아무것도 저장하지 않는다** |
 | `doe` | 위 3장 |

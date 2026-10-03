@@ -12,8 +12,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 
 from app.config import get_settings
+from tests.api.conftest import Signed
 
 # 도구를 진짜 앱에 붙이는 손(`_asgi_transport`)과 기계 자격(`bot`)은 그쪽 것을 쓴다 — 픽스처는
 # 이름으로 찾으므로 들여오기만 하면 된다(아래 시험의 인자 `bot` 이 그것이다).
@@ -322,3 +324,26 @@ def test_닮은_형상(bot: Bot) -> None:  # noqa: F811
     first = next(one for one in got["items"] if one["name"] == "닮음 비교판")
     assert first["score"] > 0.9 and "크기 비슷" in first["why"]
     assert "error" in bot.call(server.find_similar)
+
+
+def test_관리자만_남의_작업을_둘러본다(
+    bot: Bot,  # noqa: F811
+    client: TestClient,
+    admin: Signed,
+) -> None:
+    made = bot.call(server.create_work, "둘러볼 작업", BOX)
+    # 일반 사용자의 자격 — 거절된다(조용히 내 것만 주지 않는다).
+    assert "error" in bot.call(server.list_works, owner="all")
+
+    token = client.post(
+        "/api/auth/tokens",
+        json={"name": "관리자 Claude", "scopes": ["read"]},
+        headers=admin.headers,
+    ).json()["token"]
+    boss = Bot(str(token))
+    mine = bot.call(server.list_works)["works"]
+    owner = next(one for one in mine if one["work_id"] == made["work_id"])
+    assert "owner" not in owner  # 내 것만 볼 때는 붙이지 않는다
+    seen = boss.call(server.list_works, owner="all", query="둘러볼")["works"]
+    row = next(one for one in seen if one["work_id"] == made["work_id"])
+    assert row["owner"] == "member"

@@ -32,6 +32,7 @@ import { jobsApi } from '@/modules/jobs/api'
 import { worksApi } from '@/modules/works/api'
 import type { WorkVersion } from '@/modules/works/api'
 import { ApiError, downloadFile } from '@/shared/api/client'
+import { useAuth } from '@/shared/auth/AuthContext'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { EmptyState } from '@/shared/components/EmptyState'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
@@ -67,10 +68,14 @@ export default function WorkPage() {
   const versions = useResource(() => worksApi.versions(id), [id])
   /** 지그 작업이 부품에서 생성됐으면 그 생성 기록 — 계획 · 간섭 검사를 되짚어 본다. */
   const runs = useResource(() => worksApi.jigRuns(id), [id])
-  const allTags = useResource(() => worksApi.tags(), [])
+  const { user } = useAuth()
+  /** 남의 작업이면(관리자가 열었다) 그 사람 — 꼬리표 · 폴더 제안도 그 사람의 것에서. */
+  const ownerId = work.data?.owner_id
+  const othersOwner = ownerId && ownerId !== user?.id ? ownerId : undefined
+  const allTags = useResource(() => worksApi.tags(othersOwner), [othersOwner])
   /** 폴더 옮기기 창 — 있는 폴더를 고르거나 새 경로를 적는다. */
   const [moving, setMoving] = useState(false)
-  const allFolders = useResource(() => worksApi.folders(), [moving])
+  const allFolders = useResource(() => worksApi.folders(othersOwner), [moving, othersOwner])
   /** 고를 수 있는 단위계 — 정본은 서버(조건 사양표). */
   const conditionSpec = useResource(() => conditionsApi.schema(), [])
 
@@ -209,7 +214,7 @@ export default function WorkPage() {
       <PageHeader
         title={w.name}
         description={w.description || `v${w.current_version} · ${shownDateTime(w.updated_at)}`}
-        back={{ to: '/works', label: '내 작업' }}
+        back={othersOwner ? { to: `/admin/works?owner=${othersOwner}`, label: '모든 작업' } : { to: '/works', label: '내 작업' }}
         actions={
           <>
             {/* 여러 벌 만드는 일은 실험계획 공간에서 — 여기서는 이 도면을 대상으로 넘겨 줄 뿐이다. */}
@@ -250,6 +255,13 @@ export default function WorkPage() {
         }
       />
       <ErrorNotice error={error} />
+      {othersOwner && (
+        // 관리자는 남의 작업을 열고 고칠 수 있다 — 고친 것이 누구의 이력에 남는지 늘 보이게.
+        <p role="note" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+          <strong>{w.owner_name}</strong> 의 작업입니다 — 시스템 관리자로 보고 있습니다. 저장 · 승격 · 옮기기 ·
+          지우기는 그 사람의 작업에 그대로 남습니다. 복제하면 내 작업으로 옵니다.
+        </p>
+      )}
 
       {/* 폴더 — 「내 작업」 의 어디에 놓였나. 꼬리표와 달리 한 곳이다. */}
       <div className="flex items-center gap-2 text-xs">

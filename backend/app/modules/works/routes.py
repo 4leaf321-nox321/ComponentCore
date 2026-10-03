@@ -1,4 +1,5 @@
-"""내 작업 라우터 — 전부 소유자(또는 관리자)만. 목록은 내 것만 나온다."""
+"""내 작업 라우터 — 전부 소유자(또는 관리자)만. 목록은 내 것만 나온다 — 시스템 관리자는
+`owner` 로 남의 것 · 모두의 것을 둘러본다."""
 
 from __future__ import annotations
 
@@ -41,7 +42,7 @@ from app.modules.works.schemas import (
     YearOut,
 )
 from app.shared.auth import current_user
-from app.shared.errors import AppError, code
+from app.shared.errors import AppError, Forbidden, code
 from app.shared.pagination import Page, clamp_limit
 from app.shared.shape_search import ShapeFilter, shape_query
 
@@ -62,6 +63,32 @@ def _mine(db: Session, work_id: uuid.UUID, user: User) -> Work:
     return work
 
 
+#: `owner` 로 고를 수 있는 것 — 비우면 나, `all` 이면 모두, 사람 id 면 그 사람.
+OWNER_HELP = "비우면 내 것. `all`(모두) · 사람 id(그 사람) 는 시스템 관리자만."
+
+
+def _whose(owner: str, user: User) -> uuid.UUID | None:
+    """목록의 주인 — None 이면 모두. **남의 것은 시스템 관리자만** 둘러본다(작업 하나를 여는
+    것은 `require_owner` 가 이미 관리자를 들인다 — 여기는 그것을 찾게 해 줄 뿐이다)."""
+    raw = owner.strip()
+    if raw in ("", "me"):
+        return user.id
+    if raw == "all":
+        whose = None
+    else:
+        try:
+            whose = uuid.UUID(raw)
+        except ValueError as failure:
+            raise AppError(
+                code("WORKS", 36), "owner 는 비우거나 all 이거나 사람 id 여야 합니다."
+            ) from failure
+        if whose == user.id:
+            return whose
+    if not user.is_system_admin:
+        raise Forbidden(code("WORKS", 35), "남의 작업 목록은 시스템 관리자만 봅니다.")
+    return whose
+
+
 @router.get("", response_model=Page[WorkSummaryOut])
 def list_works(
     limit: int | None = Query(default=None, ge=1),
@@ -75,10 +102,13 @@ def list_works(
     year: int | None = Query(default=None, ge=1900, le=3000),
     order: Literal["updated", "created"] = Query(default="updated"),
     shape: ShapeFilter = Depends(shape_query),
+    owner: str = Query(default="", max_length=36, description=OWNER_HELP),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> Page[WorkSummaryOut]:
     """내 작업 — `q` 로 이름 · 설명을 찾고, `tag` · `kind` 로 거르고, `trashed` 면 휴지통.
+    `owner` 면 그 사람의 것 · 모두의 것(시스템 관리자만 — 둘러보기. `q` 는 만든 사람의 이름도
+    본다).
     `folder` 면 그 폴더(`subfolders` 면 그 아래까지 — 기본), `year` 면 그해에 만든 것.
     `order` 는 최근에 고친 것부터(updated) · 만든 것부터(created — 연도별로 묶어 볼 때).
     **형상으로**: `has` · `thread` · `param` · `fits` · `volume_min` · `volume_max` · `hole` ·
@@ -86,7 +116,7 @@ def list_works(
     size = clamp_limit(limit)
     rows, total = services.list_works(
         db,
-        owner=user,
+        owner_id=_whose(owner, user),
         limit=size,
         offset=offset,
         query=q,
@@ -149,17 +179,24 @@ def create_work_from_step(
 
 
 @router.get("/tags", response_model=list[str])
-def my_tags(user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[str]:
-    """내 작업에 붙은 꼬리표 — 많이 쓴 것부터."""
-    return services.my_tags(db, user)
+def my_tags(
+    owner: str = Query(default="", max_length=36, description=OWNER_HELP),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> list[str]:
+    """내 작업에 붙은 꼬리표 — 많이 쓴 것부터. `owner` 는 목록과 같다."""
+    return services.my_tags(db, _whose(owner, user))
 
 
 @router.get("/folders", response_model=list[FolderOut])
 def my_folders(
-    user: User = Depends(current_user), db: Session = Depends(get_db)
+    owner: str = Query(default="", max_length=36, description=OWNER_HELP),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
 ) -> list[FolderOut]:
-    """내 작업이 놓인 폴더들 — 경로와 **바로 그 폴더의** 작업 수. 위 폴더도 빠짐없이 나온다."""
-    return services.my_folders(db, user)
+    """내 작업이 놓인 폴더들 — 경로와 **바로 그 폴더의** 작업 수. 위 폴더도 빠짐없이 나온다.
+    `owner` 는 목록과 같다."""
+    return services.my_folders(db, _whose(owner, user))
 
 
 @router.get("/years", response_model=list[YearOut])

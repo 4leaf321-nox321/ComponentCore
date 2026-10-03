@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import type { FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 
 import { accountsApi } from '@/modules/accounts/api'
 import { ApiError } from '@/shared/api/client'
@@ -131,6 +132,10 @@ export default function AccountsAdminPage() {
                   <TableCell>{row.is_system_admin ? '시스템 관리자' : '사용자'}</TableCell>
                   <TableCell>{shownDate(row.created_at)}</TableCell>
                   <TableCell className="space-x-1 text-right">
+                    {/* 이 사람의 내 작업 — 모든 작업 화면에서 이 사람으로 거른다. */}
+                    <Button size="sm" variant="outline" asChild>
+                      <Link to={`/admin/works?owner=${row.id}`}>작업</Link>
+                    </Button>
                     {row.status === 'active' ? (
                       <Button
                         size="sm"

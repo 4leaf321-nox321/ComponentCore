@@ -11,6 +11,7 @@ import {
   FileStack,
   FlaskConical,
   FolderPen,
+  FolderSearch,
   Layers,
   ListChecks,
   Server,
@@ -69,6 +70,13 @@ export const NAV_GROUPS: NavGroup[] = [
     title: '관리',
     audience: 'system_admin',
     items: [
+      {
+        label: '모든 작업',
+        icon: FolderSearch,
+        to: '/admin/works',
+        audience: 'system_admin',
+        summary: '모든 사람의 내 작업 — 찾아 열어 본다. 고치면 그 사람의 작업에 새 버전이 생긴다.',
+      },
       { label: '계정', icon: Users, to: '/admin/accounts', audience: 'system_admin' },
       { label: '서버', icon: Server, to: '/admin/server', audience: 'system_admin' },
     ],

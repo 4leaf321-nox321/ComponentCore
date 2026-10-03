@@ -715,7 +715,7 @@
           "works"
         ],
         "summary": "List Works",
-        "description": "내 작업 — `q` 로 이름 · 설명을 찾고, `tag` · `kind` 로 거르고, `trashed` 면 휴지통.\n`folder` 면 그 폴더(`subfolders` 면 그 아래까지 — 기본), `year` 면 그해에 만든 것.\n`order` 는 최근에 고친 것부터(updated) · 만든 것부터(created — 연도별로 묶어 볼 때).\n**형상으로**: `has` · `thread` · `param` · `fits` · `volume_min` · `volume_max` · `hole` ·\n`holes` — 최신 버전의 형상 색인으로 거른다(`shared/shape_search.py`).",
+        "description": "내 작업 — `q` 로 이름 · 설명을 찾고, `tag` · `kind` 로 거르고, `trashed` 면 휴지통.\n`owner` 면 그 사람의 것 · 모두의 것(시스템 관리자만 — 둘러보기. `q` 는 만든 사람의 이름도\n본다).\n`folder` 면 그 폴더(`subfolders` 면 그 아래까지 — 기본), `year` 면 그해에 만든 것.\n`order` 는 최근에 고친 것부터(updated) · 만든 것부터(created — 연도별로 묶어 볼 때).\n**형상으로**: `has` · `thread` · `param` · `fits` · `volume_min` · `volume_max` · `hole` ·\n`holes` — 최신 버전의 형상 색인으로 거른다(`shared/shape_search.py`).",
         "operationId": "list_works_api_works_get",
         "parameters": [
           {
@@ -847,6 +847,19 @@
               "default": "updated",
               "title": "Order"
             }
+          },
+          {
+            "name": "owner",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 36,
+              "description": "비우면 내 것. `all`(모두) · 사람 id(그 사람) 는 시스템 관리자만.",
+              "default": "",
+              "title": "Owner"
+            },
+            "description": "비우면 내 것. `all`(모두) · 사람 id(그 사람) 는 시스템 관리자만."
           },
           {
             "name": "has",
@@ -1089,19 +1102,44 @@
           "works"
         ],
         "summary": "My Tags",
-        "description": "내 작업에 붙은 꼬리표 — 많이 쓴 것부터.",
+        "description": "내 작업에 붙은 꼬리표 — 많이 쓴 것부터. `owner` 는 목록과 같다.",
         "operationId": "my_tags_api_works_tags_get",
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 36,
+              "description": "비우면 내 것. `all`(모두) · 사람 id(그 사람) 는 시스템 관리자만.",
+              "default": "",
+              "title": "Owner"
+            },
+            "description": "비우면 내 것. `all`(모두) · 사람 id(그 사람) 는 시스템 관리자만."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
+                  "type": "array",
                   "items": {
                     "type": "string"
                   },
-                  "type": "array",
                   "title": "Response My Tags Api Works Tags Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -1115,19 +1153,44 @@
           "works"
         ],
         "summary": "My Folders",
-        "description": "내 작업이 놓인 폴더들 — 경로와 **바로 그 폴더의** 작업 수. 위 폴더도 빠짐없이 나온다.",
+        "description": "내 작업이 놓인 폴더들 — 경로와 **바로 그 폴더의** 작업 수. 위 폴더도 빠짐없이 나온다.\n`owner` 는 목록과 같다.",
         "operationId": "my_folders_api_works_folders_get",
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 36,
+              "description": "비우면 내 것. `all`(모두) · 사람 id(그 사람) 는 시스템 관리자만.",
+              "default": "",
+              "title": "Owner"
+            },
+            "description": "비우면 내 것. `all`(모두) · 사람 id(그 사람) 는 시스템 관리자만."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
+                  "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/FolderOut"
                   },
-                  "type": "array",
                   "title": "Response My Folders Api Works Folders Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -11880,7 +11943,7 @@
     },
     {
       "name": "works",
-      "description": "**내 작업** — 비공개로 그리는 자리. 버전마다 레시피와 해석 조건이 붙고, 「승격」 하면 공용 부품 · 지그 카탈로그로 나간다."
+      "description": "**내 작업** — 비공개로 그리는 자리. 버전마다 레시피와 해석 조건이 붙고, 「승격」 하면 공용 부품 · 지그 카탈로그로 나간다. 시스템 관리자는 목록의 `owner`(all · 사람 id)로 남의 작업을 찾는다."
     },
     {
       "name": "parts",

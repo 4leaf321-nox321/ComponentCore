@@ -1382,12 +1382,16 @@ async def list_works(
     tag: str = "",
     kind: str = "",
     trashed: bool = False,
+    owner: str = "",
 ) -> Any:
     """사용자의 내 작업 목록(이름 · 종류 · 폴더 · 꼬리표 · 현재 버전 · 지그 생성 횟수 ·
     승격 여부). `folder`(`고객A/2026` 같은 경로 — 그 아래까지, `""` 이면 폴더 없는 것만) ·
-    `year`(만든 해) · `query`(이름 · 설명) · `tag` · `kind`(part · jig · assembly)로 거른다.
-    `trashed` 면 휴지통."""
+    `year`(만든 해) · `query`(이름 · 설명 · 만든 사람) · `tag` · `kind`(part · jig ·
+    assembly)로 거른다. `trashed` 면 휴지통. **시스템 관리자만**: `owner="all"` 이면 모두의
+    작업, 사람 id 면 그 사람의 것(답에 `owner` 가 붙는다) — 아니면 거절된다."""
     params: dict[str, Any] = {"limit": limit}
+    if owner:
+        params["owner"] = owner
     if folder is not None:
         params["folder"] = folder
         if folder == "":
@@ -1415,6 +1419,7 @@ async def list_works(
                     "jig_runs": w["jig_run_count"],
                     "promoted_part_id": w["promoted_part_id"],
                     "promoted_jig_id": w["promoted_jig_id"],
+                    **({"owner": w.get("owner_name")} if owner else {}),
                 }
                 for w in page["items"]
             ],

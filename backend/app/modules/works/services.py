@@ -214,7 +214,7 @@ def normalize_folder(raw: str) -> str:
 def list_works(
     db: Session,
     *,
-    owner: User,
+    owner_id: uuid.UUID | None,
     limit: int,
     offset: int,
     query: str = "",
@@ -227,12 +227,15 @@ def list_works(
     order: str = "updated",
     shape: shape_search.ShapeFilter | None = None,
 ) -> tuple[list[Work], int]:
-    """내 작업 — 이름 · 설명으로 찾고(`query`), 꼬리표 · 종류로 거른다. `trashed` 면 지운
-    것만. `folder` 를 주면 그 폴더(`subfolders` 면 그 아래까지), `year` 면 그해에 만든 것.
+    """`owner_id` 의 작업(None 이면 모두 — 관리자가 둘러볼 때. 권한은 라우터가 본다) — 이름 ·
+    설명으로 찾고(`query`), 꼬리표 · 종류로 거른다. `trashed` 면 지운 것만. `folder` 를 주면 그
+    폴더(`subfolders` 면 그 아래까지), `year` 면 그해에 만든 것.
 
     연도는 DB 접속의 시간대로 뽑는다(서버가 한국에 있으면 한국 시각) — 화면도 그 시각을
     쓴다."""
-    base = select(Work).where(Work.owner_id == owner.id)
+    base = select(Work)
+    if owner_id is not None:
+        base = base.where(Work.owner_id == owner_id)
     base = base.where(Work.deleted_at.is_not(None) if trashed else Work.deleted_at.is_(None))
     found = search.matches(
         query, columns=[Work.name, Work.description], tags=Work.tags, owner=Work.owner_id
@@ -258,11 +261,13 @@ def list_works(
     return rows, total
 
 
-def my_tags(db: Session, owner: User) -> list[str]:
-    """내 작업에 붙은 꼬리표 전부(지운 것 제외) — 거르개 · 자동 완성."""
-    rows = db.scalars(
-        select(Work.tags).where(Work.owner_id == owner.id, Work.deleted_at.is_(None))
-    )
+def my_tags(db: Session, owner_id: uuid.UUID | None) -> list[str]:
+    """`owner_id` 의 작업(None 이면 모두)에 붙은 꼬리표 전부(지운 것 제외) — 거르개 · 자동
+    완성."""
+    found = select(Work.tags).where(Work.deleted_at.is_(None))
+    if owner_id is not None:
+        found = found.where(Work.owner_id == owner_id)
+    rows = db.scalars(found)
     seen: dict[str, int] = {}
     for tags in rows:
         for one in tags or []:
@@ -270,10 +275,13 @@ def my_tags(db: Session, owner: User) -> list[str]:
     return sorted(seen, key=lambda t: (-seen[t], t))
 
 
-def my_folders(db: Session, owner: User) -> list[folders.FolderOut]:
-    """내 작업이 놓인 폴더들과 **바로 그 폴더에** 있는 작업 수(지운 것 제외). 위 폴더도
-    빠짐없이 — 화면이 나무를 그린다."""
-    return folders.tree(db, Work.folder, Work.owner_id == owner.id, Work.deleted_at.is_(None))
+def my_folders(db: Session, owner_id: uuid.UUID | None) -> list[folders.FolderOut]:
+    """`owner_id` 의 작업(None 이면 모두)이 놓인 폴더들과 **바로 그 폴더에** 있는 작업 수(지운
+    것 제외). 위 폴더도 빠짐없이 — 화면이 나무를 그린다."""
+    where: list[Any] = [Work.deleted_at.is_(None)]
+    if owner_id is not None:
+        where.append(Work.owner_id == owner_id)
+    return folders.tree(db, Work.folder, *where)
 
 
 def my_years(db: Session, owner: User) -> list[dict[str, int]]:

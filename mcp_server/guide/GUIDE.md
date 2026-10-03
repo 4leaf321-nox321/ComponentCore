@@ -1,4 +1,4 @@
-<!-- version: 2026-10-03.16 -->
+<!-- version: 2026-10-04.1 -->
 # CompCore MCP 가이드
 
 ## overview
@@ -35,6 +35,7 @@
 | 복제 · 휴지통 | `duplicate_work`(`with_conditions` — 해석 조건까지; 사용자가 안 정했으면 묻는다) · `delete_work`(휴지통 — **사용자가 지우라고 할 때만**) · `restore_work`(`list_works(trashed=True)` 로 본다) |
 | 템플릿 · 카탈로그 고치기 | `list_templates` · `update_template`(이름 · 공용 여부 · 폴더) · `copy_template` · `update_catalog_item(parts\|jigs)` — 내 것만 |
 | 멈추기 · 워커 | `cancel_job` · `doe_cancel`(만든 점은 남고 `doe_rerun(only="failed")` 로 잇는다) — **사용자가 멈추라고 할 때만**. 작업이 안 돌면 `worker_status`(관리자) |
+| 남의 작업 둘러보기(시스템 관리자만) | `list_works(owner="all")` · `list_works(owner=<사람 id>)` — 답에 `owner`. 작업 하나는 `get_work` 로 그대로 열린다. **고치면 그 사람의 작업에 새 버전이 생긴다** — 사용자가 시킬 때만 |
 | 이름 · 꼬리표 · 만든 사람으로 찾기 | `search("알루미늄 브래킷")` — 내 작업 · 공용 부품 · 지그 · 템플릿 한꺼번에(낱말마다 AND). DOE 는 `doe_studies(query=…, tag=…)` — 대상 작업 이름 · 꼬리표로도 |
 
 기본 습관:

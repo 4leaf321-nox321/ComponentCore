@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 
 import pytest
@@ -83,6 +84,48 @@ def test_내_공간은_남이_못_본다(
         client.get(f"/api/artifacts/{artifact}/download", headers=headers).status_code == 403
     )
     assert isinstance(db, Session)
+
+
+def test_시스템_관리자는_남의_작업을_둘러본다(
+    client: TestClient, member: Signed, admin: Signed
+) -> None:
+    """작업 하나는 관리자가 이미 연다 — 목록의 `owner` 로 그것을 **찾는다**. 남은 못 쓴다."""
+    t = uuid.uuid4().hex[:6]
+    work = client.post(
+        "/api/works", json={"name": f"남의 작업{t}", "recipe": BOX}, headers=member.headers
+    ).json()
+    client.patch(f"/api/works/{work['id']}", json={"tags": [f"꼬{t}"]}, headers=member.headers)
+    owner = str(work["owner_id"])
+
+    def listed(who: Signed, **params: str) -> list[str]:
+        got = client.get("/api/works", params={"q": t, **params}, headers=who.headers)
+        assert got.status_code == 200, got.text
+        return [one["id"] for one in got.json()["items"]]
+
+    # 기본은 여전히 내 것만 — 관리자도.
+    assert listed(admin) == []
+    assert listed(admin, owner="all") == [work["id"]]
+    assert listed(admin, owner=owner) == [work["id"]]
+    found = client.get("/api/works", params={"owner": owner}, headers=admin.headers).json()
+    assert {one["owner_name"] for one in found["items"]} == {"member"}
+    tags = client.get("/api/works/tags", params={"owner": owner}, headers=admin.headers)
+    assert tags.json() == [f"꼬{t}"]
+    assert f"꼬{t}" not in client.get("/api/works/tags", headers=admin.headers).json()
+    client.patch(f"/api/works/{work['id']}", json={"folder": f"폴{t}"}, headers=member.headers)
+    tree = client.get("/api/works/folders", params={"owner": owner}, headers=admin.headers)
+    assert f"폴{t}" in {one["path"] for one in tree.json()}
+    mine = client.get("/api/works/folders", headers=admin.headers).json()
+    assert f"폴{t}" not in {one["path"] for one in mine}
+
+    # 나를 내 id 로 고르는 것은 괜찮다. 남 · 모두는 관리자만.
+    assert listed(member, owner=owner) == [work["id"]]
+    for raw in ("all", str(uuid.uuid4())):
+        refused = client.get("/api/works", params={"owner": raw}, headers=member.headers)
+        assert refused.status_code == 403 and refused.json()["error"]["code"].endswith(
+            "WORKS-0035"
+        )
+    bad = client.get("/api/works", params={"owner": "누구"}, headers=admin.headers)
+    assert bad.status_code == 400 and bad.json()["error"]["code"].endswith("WORKS-0036")
 
 
 def test_STEP_을_올리면_import_step_버전(

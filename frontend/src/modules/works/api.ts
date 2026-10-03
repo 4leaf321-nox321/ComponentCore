@@ -82,6 +82,8 @@ export interface WorkFilter {
   order?: 'updated' | 'created'
   /** 형상 조건 — 최신 버전의 형상 색인으로. */
   shape?: ShapeQuery
+  /** 누구의 것 — 안 주면 내 것. `all`(모두) · 사람 id 는 시스템 관리자만(아니면 403). */
+  owner?: string
 }
 
 export interface WorkSummary {
@@ -137,19 +139,22 @@ export const worksApi = {
     if (filter.subfolders === false) query.set('subfolders', 'false')
     if (filter.year != null) query.set('year', String(filter.year))
     if (filter.order === 'created') query.set('order', 'created')
+    if (filter.owner) query.set('owner', filter.owner)
     addShapeParams(query, filter.shape)
     return api.get<Page<WorkSummary>>(`/works?${query}`)
   },
-  /** 내 작업이 놓인 폴더들 — 화면이 나무로 그린다. */
-  folders: () => api.get<FolderRow[]>('/works/folders'),
+  /** 내 작업이 놓인 폴더들 — 화면이 나무로 그린다. `owner` 는 `list` 와 같다(관리자만). */
+  folders: (owner?: string) =>
+    api.get<FolderRow[]>(owner ? `/works/folders?${new URLSearchParams({ owner })}` : '/works/folders'),
   /** 내 작업을 만든 해들 — 최근 해부터. */
   years: () => api.get<YearRow[]>('/works/years'),
   /** 폴더 이름 바꾸기 · 옮기기(하위까지). `to` 가 빈 문자열이면 맨 위로 합친다 — 폴더 지우기. */
   renameFolder: (path: string, to: string) => api.post<{ moved: number }>('/works/folders/rename', { path, to }),
   /** 작업 여럿을 한 폴더로. */
   move: (ids: string[], folder: string) => api.post<{ moved: number }>('/works/move', { ids, folder }),
-  /** 내 작업에 붙은 꼬리표 — 많이 쓴 것부터. */
-  tags: () => api.get<string[]>('/works/tags'),
+  /** 내 작업에 붙은 꼬리표 — 많이 쓴 것부터. `owner` 는 `list` 와 같다(관리자만). */
+  tags: (owner?: string) =>
+    api.get<string[]>(owner ? `/works/tags?${new URLSearchParams({ owner })}` : '/works/tags'),
   /** 휴지통에서 되살린다. */
   restoreWork: (id: string) => api.post<Work>(`/works/${id}/restore`, {}),
   /** 현재 도면으로 새 작업 — 종류 · 꼬리표가 따라간다. */
