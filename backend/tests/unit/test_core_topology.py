@@ -302,3 +302,48 @@ def test_스케치가_면과_나란하지_않거나_떠_있으면_말한다() ->
     }  # fmt: skip
     with pytest.raises(RecipeError, match="나란해야"):
         evaluate(parse(upright))
+
+
+def test_겹쳐_놓은_바디의_패치는_같은_평면의_면만_잡는다() -> None:
+    """위판 윗면의 패치(z 10)와 그 바로 아래 아래판 윗면에 새긴 자리(z 5)는 법선이 같고
+    경계상자도 겹친다 — 평면이 다르면 그 패치가 아니다. 전단 이음 픽스처를 만들다 잡았다
+    (2026-10-03): 클램프 압력이 이음 속 면에도 걸릴 뻔했다."""
+    made = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {"id": "아래판", "op": "box", "length": 100, "width": 25, "height": 5,
+                     "align": ["min", "center", "min"]},
+                    {"id": "위판_원형", "op": "box", "length": 100, "width": 25, "height": 5,
+                     "at": [60, 0, 5], "align": ["min", "center", "min"]},
+                    {"id": "위판", "op": "divide_face", "target": "위판_원형",
+                     "on": {"normal": [0, 0, 1]}, "shape": "rect", "size": [40, 20],
+                     "at": [80, 0, 10], "tag": "클램프"},
+                    {"id": "조립", "op": "group", "targets": ["아래판", "위판"]},
+                    {"id": "새김", "op": "imprint", "target": "조립"},
+                ]
+            }
+        )
+    )  # fmt: skip
+    faces = made.shape.faces()
+    clamp = [
+        (round(faces[i].area, 1), round(faces[i].center().Z, 3)) for i in made.tags["클램프"]
+    ]
+    assert clamp == [(800.0, 10.0)]
+    assert [round(faces[i].center().Z, 3) for i in made.tags["아래판/위판"]] == [5.0]
+    # 조립의 지문에는 바디 이름이 붙는다 — 같은 자리의 점을 바디로 가른다.
+    found, unresolved = regions(
+        made.shape,
+        [
+            {"name": "위", "select": {"what": "vertices", "near": [60, 12.5, 5], "limit": 1,
+                                      "of_face": {"body": "위판", "normal": [0, 0, -1]}}},
+            {"name": "아래", "select": {"what": "vertices", "near": [60, 12.5, 5], "limit": 1,
+                                        "of_face": {"body": "아래판", "normal": [0, 0, 1]}}},
+            {"name": "클램프면", "select": {"what": "faces", "tag": "클램프"}},
+        ],
+        made.tags,
+    )  # fmt: skip
+    assert unresolved == []
+    assert found["위"] == [{"point": [60.0, 12.5, 5.0], "body": "위판"}]
+    assert found["아래"] == [{"point": [60.0, 12.5, 5.0], "body": "아래판"}]
+    assert found["클램프면"][0]["body"] == "위판" and found["클램프면"][0]["area"] == 800.0

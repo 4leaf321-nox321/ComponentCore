@@ -24,7 +24,7 @@ from typing import Any
 
 from build123d import Shape
 
-from app.core.recipe.query import select_features
+from app.core.recipe.query import body_parts, select_features
 
 #: 기본 영역 — **지그 생성기가 이미 아는 것**을 이름으로 낸다. 사람이 조건 편집기에서 더 고르기
 #: 전에도 「바닥 고정 모달」 한 줄기는 이것만으로 돈다.
@@ -136,6 +136,36 @@ def _axis_matches(row: dict[str, Any], axis: str) -> bool:
     return abs(direction[index]) > 0.95
 
 
+class _Owners:
+    """조립에서 면 · 엣지 · 점이 **어느 바디의 것인가** — 처음 물을 때 종류마다 한 번 센다.
+    단품이면 묻지 않는다(바디가 「전체」 하나뿐이다)."""
+
+    def __init__(self, shape: Shape) -> None:
+        self._shape = shape
+        self._parts = body_parts(shape)
+        self._tables: dict[str, dict[int, str]] = {}
+
+    def of(self, what: str, index: int) -> str | None:
+        if not self._parts:
+            return None
+        if what not in self._tables:
+            every = getattr(self._shape, what)()
+            table: dict[int, str] = {}
+            for name, part in self._parts.items():
+                mine = set(getattr(part, what)())
+                for number, one in enumerate(every):
+                    if number not in table and one in mine:
+                        table[number] = name
+            self._tables[what] = table
+        return self._tables[what].get(index)
+
+
+def _with_body(fingerprint: dict[str, Any], body: str | None) -> dict[str, Any]:
+    if body is not None:
+        fingerprint["body"] = body
+    return fingerprint
+
+
 def regions(
     shape: Shape,
     definitions: list[dict[str, Any]] | None = None,
@@ -145,9 +175,14 @@ def regions(
 
     못 푼 것을 조용히 빼지 않고 돌려주는 이유: 받는 쪽이 0개를 집으면 **하중 없는 해석**이
     끝까지 돌아 버린다. 어디서 끊겼는지는 이 목록이 유일한 증인이다.
+
+    조립이면 지문마다 `body`(어느 구성품의 것인가)를 붙인다 — 맞닿은 두 바디의 점은 **자리가
+    같아** 자리만으로는 못 가른다(전단 이음의 미끄럼을 읽는 점 둘, 2026-10-03). 면도 중심 ·
+    넓이가 같고 법선만 반대라 이름이 있는 편이 낫다. 단품에는 붙지 않는다.
     """
     found: dict[str, list[dict[str, Any]]] = {}
     unresolved: list[str] = []
+    owners = _Owners(shape)
     for definition in definitions if definitions is not None else DEFAULT_REGIONS:
         name = definition["name"]
         select = dict(definition.get("select") or {})
@@ -159,13 +194,18 @@ def regions(
         if not rows:
             unresolved.append(name)
             continue
-        if answer["what"] == "faces":
+        what = str(answer["what"])
+        if what == "faces":
             faces = shape.faces()
-            found[name] = [_face_fingerprint(r, faces[r["index"]]) for r in rows]
-        elif answer["what"] == "vertices":
-            found[name] = [_vertex_fingerprint(r) for r in rows]
+            prints = [_face_fingerprint(r, faces[r["index"]]) for r in rows]
+        elif what == "vertices":
+            prints = [_vertex_fingerprint(r) for r in rows]
         else:
-            found[name] = [_edge_fingerprint(r) for r in rows]
+            prints = [_edge_fingerprint(r) for r in rows]
+        found[name] = [
+            _with_body(one, owners.of(what, r["index"]))
+            for one, r in zip(prints, rows, strict=True)
+        ]
     return found, unresolved
 
 

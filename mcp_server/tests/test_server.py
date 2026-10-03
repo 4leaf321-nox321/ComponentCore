@@ -81,6 +81,28 @@ def test_사람이_손으로_하는_일이_도구로_다_있다() -> None:
         "material_get",  # 물성 받기 — 조건에 넣을 항목까지
         "recipe_bodies",  # 물성을 붙일 바디
         "doe_run",  # 조건까지 실어 폴더로
+        "doe_probe",  # 끝 점 미리 만들어 보기
+        "doe_extend",  # 점 더하기
+        "list_folders",  # 폴더 나무
+        "move_to_folder",  # 골라 옮기기
+        "rename_folder",  # 폴더 이름 바꾸기 · 지우기
+        "list_tags",  # 꼬리표
+        "update_work",  # 이름 · 꼬리표 · 폴더
+        "duplicate_work",  # 복제
+        "delete_work",  # 휴지통
+        "restore_work",  # 되살리기
+        "list_templates",  # 템플릿 공간
+        "update_template",  # 공용으로 내놓기 · 옮기기
+        "copy_template",  # 남의 것을 내 것으로
+        "update_catalog_item",  # 부품 · 지그 이름 · 폴더
+        "cancel_job",  # 멈추기
+        "doe_cancel",  # DOE 멈추기 — 만든 점은 남긴다
+        "worker_status",  # 워커가 살아 있나 · 줄
+        "recipe_unfold",  # 판금 전개도
+        "recipe_drawing",  # 2D 도면 — 세 뷰 · 치수 · 구멍표
+        "find_by_shape",  # 형상으로 찾기 — 새로 그리기 전에
+        "recipe_midsurface",  # 셸 해석용 중간면
+        "sketch_solve",  # 구속 윤곽 풀어 보기
     }
     assert needed <= tools, f"빠진 도구: {sorted(needed - tools)}"
 
@@ -99,6 +121,12 @@ def test_가이드가_파라메트릭과_지그_시작을_알려준다() -> None
         "모달 해석이 없다",  # 못 하는 것을 숨기지 않는다
         "doe_create",
         "공유 폴더",
+        '"mates"',  # 조립 구속 — 치수가 바뀌어도 따라 앉는다
+        "corner_relief",  # 상자 날개
+        "`deform`",  # 비틀기 · 테이퍼
+        "`constrained`",  # 구속 윤곽
+        "`thicken`",  # 곡면에 두께
+        "free_rotation",
     ):
         assert word in recipe, word
 

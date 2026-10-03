@@ -28,6 +28,8 @@ import {
 } from '@/shared/components/ui/table'
 import { useDisplay } from '@/shared/api/display'
 import { TagFilter } from '@/shared/components/TagFilter'
+import { describeShape, ShapeFilter, shapeConditionCount } from '@/shared/components/ShapeFilter'
+import type { ShapeQuery } from '@/shared/components/ShapeFilter'
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
@@ -46,6 +48,8 @@ export default function WorksPage() {
   const [year, setYear] = useState<number | null>(null)
   /** 연도별로 묶어 본다 — 만든 순으로 받아야 같은 해가 한데 모인다. */
   const [byYear, setByYear] = useState(false)
+  /** 형상 조건 — 이름이 아니라 형상으로(최신 버전의 형상 색인). */
+  const [shape, setShape] = useState<ShapeQuery>({})
   /** 폴더 — null 이면 모든 작업, '' 이면 폴더에 넣지 않은 것만. 고른 폴더는 하위까지 보인다. */
   const space = useFolderSpace('works', worksApi, { onRefilter: () => setOffset(0) })
   const { folder, chosen, setChosen } = space
@@ -61,8 +65,9 @@ export default function WorksPage() {
         subfolders: folder !== '',
         year,
         order: byYear ? 'created' : 'updated',
+        shape,
       }),
-    [offset, q, tag, kind, trashed, PAGE, folder, year, byYear, space.version],
+    [offset, q, tag, kind, trashed, PAGE, folder, year, byYear, shape, space.version],
   )
   const tags = useResource(() => worksApi.tags(), [page.data])
   const years = useResource(() => worksApi.years(), [page.data])
@@ -164,6 +169,7 @@ export default function WorksPage() {
         ))}
         </div>
         <TagFilter tags={tags.data ?? []} value={tag} onChange={(next) => refilter(() => setTag(next))} />
+        <ShapeFilter value={shape} onChange={(next) => refilter(() => setShape(next))} />
         <button
           type="button"
           onClick={() => refilter(() => setByYear(!byYear))}
@@ -196,8 +202,8 @@ export default function WorksPage() {
       {rows.length === 0 && !page.loading ? (
         trashed ? (
           <EmptyState title="휴지통이 비었습니다" hint="지운 작업이 여기 오고, 되살릴 수 있습니다." />
-        ) : q || tag || folder !== null || year !== null ? (
-          <EmptyState title="맞는 작업이 없습니다" hint="찾는 말 · 꼬리표 · 폴더 · 연도를 바꿔 보세요. 빈 폴더라면 작업을 끌어다 놓으세요." />
+        ) : q || tag || folder !== null || year !== null || shapeConditionCount(shape) > 0 ? (
+          <EmptyState title="맞는 작업이 없습니다" hint="찾는 말 · 꼬리표 · 폴더 · 연도 · 형상 조건을 바꿔 보세요. 빈 폴더라면 작업을 끌어다 놓으세요." />
         ) : (
           <EmptyState
             title="작업이 없습니다"
@@ -243,6 +249,7 @@ export default function WorksPage() {
             {row.description && (
               <p className="text-muted-foreground max-w-md truncate text-xs">{row.description}</p>
             )}
+            {row.shape && <p className="text-muted-foreground font-mono text-[11px]">{describeShape(row.shape)}</p>}
             {row.tags.length > 0 && (
               <p className="mt-0.5 flex flex-wrap gap-1">
                 {row.tags.map((one) => (

@@ -16,6 +16,38 @@ class ViewsRequest(RecipeRequest):
     width: int = Field(default=640, ge=120, le=2000)
 
 
+class SketchSolveRequest(BaseModel):
+    shape: dict[str, Any]
+    """구속 윤곽(`type: "constrained"`) 하나."""
+    params: dict[str, Any] = Field(default_factory=dict)
+    """치수 칸의 `=변수` 를 풀 도면 변수."""
+
+
+class MidSurfaceRequest(RecipeRequest):
+    node: str | None = None
+    """중간면을 뽑을 노드 — 없으면 레시피의 결과."""
+
+
+class UnfoldRequest(RecipeRequest):
+    k_factor: float = Field(default=0.5, ge=0, le=1)
+    """중립면 위치 — 안쪽 면에서 두께의 몇 할. 굽힐 때(`bend`)와 같아야 한다."""
+    flip: bool = False
+    """기준면을 반대쪽 겉면으로 — 굽힘의 위 · 아래가 바뀐다."""
+    node: str | None = None
+    """펼 노드 — 없으면 레시피의 결과."""
+
+
+class DrawingRequest(RecipeRequest):
+    title: str = Field(default="", max_length=120)
+    """표제란의 이름 — 비우면 「(이름 없음)」."""
+    sheet: str = Field(default="A3", pattern="^(A3|A4)$")
+    material: str = Field(default="", max_length=60)
+    note: str = Field(default="", max_length=200)
+    """도면 왼쪽 아래에 적을 한 줄(공차 · 다듬질 같은 것)."""
+    node: str | None = None
+    """그릴 노드 — 없으면 레시피의 결과."""
+
+
 class CutListRequest(RecipeRequest):
     node: str
     """구조 프레임(`frame`) 노드의 id."""
@@ -64,6 +96,18 @@ class PlaceRequest(RecipeRequest):
     face: str = "top"
     offset: float = 0.0
     align: str = "center"
+
+
+class MatePickRequest(RecipeRequest):
+    node: str
+    """구속을 거는 구성품(`component`)의 id."""
+    side: str = Field(pattern="^(this|to)$")
+    """`this` — 그 구성품에서 고른 것(답은 가져온 도면의 좌표로 된 질의). `to` — 앞에 놓인
+    것(`target`)에서 고른 것."""
+    target: str | None = None
+    what: str = Field(default="faces", pattern="^(faces|edges)$")
+    point: list[float] = Field(min_length=3, max_length=3)
+    """3D 에서 누른 자리(조립의 좌표) — 면이면 그 면의 가운데, 엣지면 가운데 점."""
 
 
 class InterferenceRequest(RecipeRequest):

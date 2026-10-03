@@ -269,3 +269,152 @@ def test_새긴_접촉_자리와_체결_부품이_DOE_설계점마다_따라간�
         assert len(seats) == 4
         assert sorted({abs(one["centroid"][0]) for one in seats}) == [params["구멍_x"]]
         assert {one["centroid"][2] for one in seats} == {220 + params["두께"]}
+
+
+SHEET = {
+    "nodes": [
+        {
+            "id": "m",
+            "op": "sheet_metal",
+            "thickness": 2,
+            "width": 40,
+            "path": [[0, 30], [0, 0], [40, 0], [40, 25]],
+            "bend_radius": 3,
+        }
+    ]
+}
+
+
+def test_전개도는_요약_DXF_SVG_로_받는다(client: TestClient, member: Signed) -> None:
+    got = client.post("/api/cad/recipe/unfold", json={"recipe": SHEET}, headers=member.headers)
+    assert got.status_code == 200, got.text
+    summary = got.json()
+    assert summary["thickness"] == 2 and len(summary["bends"]) == 2
+    assert {one["direction"] for one in summary["bends"]} == {"up"}
+
+    dxf = client.post(
+        "/api/cad/recipe/unfold?format=dxf", json={"recipe": SHEET}, headers=member.headers
+    )
+    assert dxf.status_code == 200 and dxf.headers["content-type"].startswith("application/dxf")
+    text = dxf.text
+    # CAM 이 층으로 가른다 — 외곽 · 굽힘선 · 글씨.
+    for layer in ("OUTLINE", "BEND_UP", "BEND_TEXT", "UP 90"):
+        assert layer in text, layer
+    svg = client.post(
+        "/api/cad/recipe/unfold?format=svg",
+        json={"recipe": SHEET, "flip": True},
+        headers=member.headers,
+    )
+    assert svg.status_code == 200 and "<svg" in svg.text
+
+    box = {"nodes": [{"id": "b", "op": "box", "length": 10, "width": 10, "height": 10}]}
+    bad = client.post("/api/cad/recipe/unfold", json={"recipe": box}, headers=member.headers)
+    assert bad.status_code == 400 and "펼 수 없습니다" in bad.json()["error"]["message"]
+
+
+def test_도면은_PDF_DXF_SVG_PNG_요약으로_받는다(client: TestClient, member: Signed) -> None:
+    plate = {
+        "nodes": [
+            {"id": "p", "op": "box", "length": 80, "width": 50, "height": 10},
+            {
+                "id": "h",
+                "op": "hole",
+                "target": "p",
+                "at": [[-30, -15], [30, 15]],
+                "diameter": 6.6,
+            },
+        ]
+    }
+    body = {"recipe": plate, "title": "받침판", "material": "SS400"}
+    summary = client.post(
+        "/api/cad/recipe/drawing?format=json", json=body, headers=member.headers
+    )
+    assert summary.status_code == 200, summary.text
+    got = summary.json()
+    assert got["sheet"] == "A3" and got["scale"] == "2:1"
+    assert [one["spec"] for one in got["holes"]] == ["Ø6.6 관통", "Ø6.6 관통"]
+    assert sorted(one["value"] for one in got["dimensions"]) == [10, 50, 80]
+    for fmt, head in (
+        ("pdf", b"%PDF"),
+        ("png", b"\x89PNG"),
+        ("svg", b"<svg"),
+        ("dxf", b"  0"),
+    ):
+        made = client.post(
+            f"/api/cad/recipe/drawing?format={fmt}", json=body, headers=member.headers
+        )
+        assert made.status_code == 200, (fmt, made.text[:200])
+        assert made.content.startswith(head), fmt
+    bad = client.post(
+        "/api/cad/recipe/drawing", json={**body, "sheet": "A0"}, headers=member.headers
+    )
+    assert bad.status_code == 422
+
+
+def test_중간면_요약과_STEP(client: TestClient, member: Signed, tmp_path: Path) -> None:
+    box = {
+        "nodes": [
+            {"id": "b", "op": "box", "length": 100, "width": 60, "height": 40},
+            {"id": "s", "op": "shell", "target": "b", "thickness": 2, "open": "top"},
+        ]
+    }
+    got = client.post(
+        "/api/cad/recipe/midsurface", json={"recipe": box}, headers=member.headers
+    )
+    assert got.status_code == 200, got.text
+    assert got.json()["bodies"][0]["thickness"] == 2
+    assert got.json()["area"] == pytest.approx(98 * 58 + 2 * (98 + 58) * 39, rel=1e-6)
+
+    step = client.post(
+        "/api/cad/recipe/midsurface?format=step", json={"recipe": box}, headers=member.headers
+    )
+    assert step.status_code == 200 and step.headers["content-type"] == "application/step"
+    path = tmp_path / "mid.step"
+    path.write_bytes(step.content)
+    from build123d import import_step
+
+    shape = import_step(path)
+    assert shape.solids() == [] and len(shape.faces()) == 5  # 바닥 + 네 벽, 솔리드가 아니다
+
+    cube = {"nodes": [{"id": "c", "op": "box", "length": 20, "width": 20, "height": 20}]}
+    bad = client.post(
+        "/api/cad/recipe/midsurface", json={"recipe": cube}, headers=member.headers
+    )
+    assert bad.status_code == 400 and "판이 아닙니다" in bad.json()["error"]["message"]
+
+
+def test_구속_윤곽을_풀어_본다(client: TestClient, member: Signed) -> None:
+    shape = {
+        "type": "constrained",
+        "points": {"a": [1, -2], "b": [55, 3], "c": [58, 37], "d": [-3, 44]},
+        "segments": [
+            {"from": "a", "to": "b"},
+            {"from": "b", "to": "c"},
+            {"from": "c", "to": "d"},
+            {"from": "d", "to": "a"},
+        ],
+        "constraints": [
+            {"type": "fix", "points": ["a"], "at": [0, 0]},
+            {"type": "horizontal", "segments": [0]},
+            {"type": "vertical", "segments": [1]},
+            {"type": "horizontal", "segments": [2]},
+            {"type": "vertical", "segments": [3]},
+            {"type": "length", "segments": [0], "value": "=폭"},
+        ],
+    }
+    got = client.post(
+        "/api/cad/recipe/sketch-solve",
+        json={"shape": shape, "params": {"폭": 70}},
+        headers=member.headers,
+    )
+    assert got.status_code == 200, got.text
+    assert got.json()["points"]["b"] == [70, 0]
+    assert got.json()["free"] == 1  # 높이를 안 정했다
+
+    shape["constraints"].append({"type": "length", "segments": [2], "value": 50})
+    bad = client.post(
+        "/api/cad/recipe/sketch-solve",
+        json={"shape": shape, "params": {"폭": 70}},
+        headers=member.headers,
+    )
+    assert bad.status_code == 400 and "구속 7(길이)" in bad.json()["error"]["message"]

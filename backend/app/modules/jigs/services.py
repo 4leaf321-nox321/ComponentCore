@@ -16,7 +16,7 @@ from app.modules.jigs.schemas import JigOut, JigSummaryOut, JigVersionOut
 from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Job
 from app.modules.parts.models import Part, PartVersion
-from app.shared import folders
+from app.shared import folders, shape_search
 from app.shared.errors import Forbidden, NotFound, code
 
 
@@ -112,6 +112,7 @@ def jig_summary(db: Session, jig: Jig) -> JigSummaryOut:
         tags=list(jig.tags or []),
         folder=jig.folder,
         updated_at=jig.updated_at,
+        shape=shape_search.latest_shape(db, current.job_id if current else None),
     )
 
 
@@ -125,8 +126,13 @@ def list_jigs(
     tag: str = "",
     folder: str | None = None,
     subfolders: bool = True,
+    shape: shape_search.ShapeFilter | None = None,
 ) -> tuple[list[Jig], int]:
     base = select(Jig).where(Jig.deleted_at.is_(None))
+    if shape is not None:
+        base = shape_search.narrowed(
+            base, shape, model=Jig, version=JigVersion, owner=JigVersion.jig_id
+        )
     base = folders.narrowed(base, Jig.folder, folder, subfolders, _BAD_FOLDER)
     if part_id is not None:
         base = base.where(Jig.part_id == part_id)

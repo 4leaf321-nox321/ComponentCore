@@ -86,26 +86,118 @@ class _Zone:
 
 def bend(part: Part, node: S.BendNode) -> Part:
     plate = _plate(part, Vector(*node.along))
-    t = plate.thickness
-    u_min, u_max, v_min, v_max = _extent(plate.pattern)
-    zones = _zones(node, t, u_min, u_max)
+    if node.also:
+        pieces = _flanged(plate, node)
+    else:
+        pieces = _bent(plate.pattern, plate.thickness, node.bends, node.k_factor)
+    if not pieces:  # pragma: no cover — 윤곽이 있으면 띠도 있다
+        raise BendError("굽힐 판이 없습니다")
+    placed = plate.plane.location * _fused(pieces)
+    return Part(children=[_upright(one) for one in placed.solids()])
+
+
+def _bent(
+    pattern: list[Face], t: float, bends: list[S.Bend], k_factor: float, where: str = "bends"
+) -> list[Shape]:
+    """한 방향(+x)으로 차례로 굽힌 조각들 — 지역 좌표(아래 면 z=0)에서."""
+    u_min, u_max, v_min, v_max = _extent(pattern)
+    zones = _zones(bends, k_factor, t, u_min, u_max, where)
 
     # 자를 띠: 평평 · 굽힘 · 평평 … 순서. 굽힘 띠 뒤의 모든 것은 그 굽힘만큼 돈다.
     pieces: list[Shape] = []
     carried = Location()
     flat_from = u_min - 1.0
     for zone in zones:
-        pieces += [carried * one for one in _flat(plate, flat_from, zone.start, v_min, v_max)]
-        for face in _strip(plate.pattern, zone.start, zone.start + zone.length, v_min, v_max):
-            pieces.append(carried * _wrapped(face, zone, t, node.k_factor))
+        pieces += [
+            carried * one for one in _flat(pattern, t, flat_from, zone.start, v_min, v_max)
+        ]
+        for face in _strip(pattern, zone.start, zone.start + zone.length, v_min, v_max):
+            pieces.append(carried * _wrapped(face, zone, t, k_factor))
         carried = carried * _after(zone, t)
         flat_from = zone.start + zone.length
-    pieces += [carried * one for one in _flat(plate, flat_from, u_max + 1.0, v_min, v_max)]
+    pieces += [
+        carried * one for one in _flat(pattern, t, flat_from, u_max + 1.0, v_min, v_max)
+    ]
+    return pieces
 
-    if not pieces:  # pragma: no cover — 윤곽이 있으면 띠도 있다
-        raise BendError("굽힐 판이 없습니다")
-    placed = plate.plane.location * _fused(pieces)
-    return Part(children=[_upright(one) for one in placed.solids()])
+
+# --- 여러 방향(상자 날개) ----------------------------------------------------------
+
+
+def _flanged(plate: _Plate, node: S.BendNode) -> list[Shape]:
+    """판을 「바탕」 과 묶음마다의 날개(그 묶음의 첫 굽힘선 너머)로 나눠 날개마다 따로 굽힌다.
+
+    날개마다 그 묶음의 `along` 이 +x 가 되게 판 위에서 돌려 한 방향 굽힘(`_bent`)을 그대로
+    쓰고 되돌린다. 두 날개가 모서리에서 겹치면(사각 판의 이웃한 두 변) 거절하거나
+    (`corner_relief`) 겹친 자리를 둘 다에서 따낸다."""
+    groups = [(Vector(*node.along), node.bends)] + [
+        (Vector(*one.along), one.bends) for one in node.also
+    ]
+    u_min, u_max, v_min, v_max = _extent(plate.pattern)
+    reach = 4 * (abs(u_min) + abs(u_max) + abs(v_min) + abs(v_max)) + 100.0
+    sides: list[tuple[float, Face]] = []  # (판 위의 각, 날개 쪽 반평면)
+    for index, (along, bends) in enumerate(groups):
+        where = "bends" if index == 0 else f"also[{index - 1}]"
+        local = plate.plane.to_local_coords(along) - plate.plane.to_local_coords(Vector())
+        if math.hypot(local.X, local.Y) < 0.1 * along.length:
+            raise BendError(
+                f"{where}.along: 판 위의 방향이어야 합니다 — 두께 방향을 가리킵니다"
+            )
+        angle = math.atan2(local.Y, local.X)
+        start = bends[0].at
+        half = Plane.XY.rotated((0, 0, math.degrees(angle))).location * (
+            Pos(start + reach / 2, 0) * Rectangle(reach, reach)
+        )
+        sides.append((angle, Face(half.wrapped)))
+
+    regions = [_common(plate.pattern, side) for _, side in sides]
+    for i in range(len(regions)):
+        for j in range(i + 1, len(regions)):
+            shared = sum(one.area for a in regions[i] for one in _common([a], sides[j][1]))
+            if shared > _TOL and not node.corner_relief:
+                raise BendError(
+                    f"{_name(i)} 와 {_name(j)} 의 날개가 모서리에서 겹칩니다(넓이 "
+                    f"{shared:.3g} mm²) — 펼친 판의 모서리를 따내거나 corner_relief: true"
+                )
+    pieces: list[Shape] = []
+    base = _cut(plate.pattern, [side for _, side in sides])
+    pieces += [extrude(face, plate.thickness, dir=(0, 0, 1)) for face in base]
+    for index, ((angle, _), (_, bends)) in enumerate(zip(sides, groups, strict=True)):
+        others = [side for k, (_, side) in enumerate(sides) if k != index]
+        region = _cut(regions[index], others) if node.corner_relief else regions[index]
+        if not region:
+            continue
+        turn = Location((0, 0, 0), (0, 0, math.degrees(angle)))
+        flat = [Face((turn.inverse() * face).wrapped) for face in region]
+        where = "bends" if index == 0 else f"also[{index - 1}].bends"
+        bent = _bent(flat, plate.thickness, bends, node.k_factor, where)
+        pieces += [turn * one for one in bent]
+    return pieces
+
+
+def _name(index: int) -> str:
+    return "bends" if index == 0 else f"also[{index - 1}]"
+
+
+def _faces_of(shape: Shape | None) -> list[Face]:
+    """불리언의 답 — 비면 None 이 온다."""
+    if shape is None:
+        return []
+    return [Face(one.wrapped) for one in shape.faces() if one.area > _TOL**2]
+
+
+def _common(faces: list[Face], side: Face) -> list[Face]:
+    out: list[Face] = []
+    for face in faces:
+        out += _faces_of(face & side)
+    return out
+
+
+def _cut(faces: list[Face], sides: list[Face]) -> list[Face]:
+    out = list(faces)
+    for side in sides:
+        out = [piece for face in out for piece in _faces_of(face - side)]
+    return out
 
 
 # --- 판을 알아본다 ---------------------------------------------------------------
@@ -196,10 +288,12 @@ def _extent(faces: list[Face]) -> tuple[float, float, float, float]:
 # --- 굽힘 구간 ---------------------------------------------------------------------
 
 
-def _zones(node: S.BendNode, t: float, u_min: float, u_max: float) -> list[_Zone]:
+def _zones(
+    bends: list[S.Bend], k_factor: float, t: float, u_min: float, u_max: float, name: str
+) -> list[_Zone]:
     zones: list[_Zone] = []
-    for index, one in enumerate(node.bends):
-        where = f"bends[{index}]"
+    for index, one in enumerate(bends):
+        where = f"{name}[{index}]"
         # 판 끝(u_min)에서 바로 굽기 시작해도 된다 — 통째로 감기.
         if not u_min - _TOL <= one.at < u_max - _TOL:
             raise BendError(
@@ -211,7 +305,7 @@ def _zones(node: S.BendNode, t: float, u_min: float, u_max: float) -> list[_Zone
             raise BendError(
                 f"{where}.at: 앞 굽힘이 {before:g} 까지입니다 — 그 뒤에서 시작하세요"
             )
-        neutral = one.radius + node.k_factor * t
+        neutral = one.radius + k_factor * t
         if one.until == "end":
             length = u_max - one.at
             angle = length / neutral
@@ -263,11 +357,12 @@ def _strip(
     return out
 
 
-def _flat(plate: _Plate, start: float, end: float, v_min: float, v_max: float) -> list[Shape]:
+def _flat(
+    pattern: list[Face], t: float, start: float, end: float, v_min: float, v_max: float
+) -> list[Shape]:
     """평평한 띠 — 그대로 두께만큼 세운다."""
     return [
-        extrude(face, plate.thickness, dir=(0, 0, 1))
-        for face in _strip(plate.pattern, start, end, v_min, v_max)
+        extrude(face, t, dir=(0, 0, 1)) for face in _strip(pattern, start, end, v_min, v_max)
     ]
 
 

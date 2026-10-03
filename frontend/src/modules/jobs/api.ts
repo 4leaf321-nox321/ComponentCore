@@ -20,7 +20,7 @@ export interface Stage {
   detail: string
 }
 
-export type JobStatus = 'queued' | 'running' | 'done' | 'failed'
+export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
 
 export interface Job {
   id: string
@@ -38,9 +38,14 @@ export interface Job {
   created_at: string
   started_at: string | null
   finished_at: string | null
+  /** 도는 중에 멈추라고 했다 — 워커가 다음 단계에서 멈춘다(화면은 「멈추는 중」). */
+  cancel_requested_at?: string | null
 }
 
-export const isFinished = (job: Job) => job.status === 'done' || job.status === 'failed'
+export const isFinished = (job: Job) => job.status === 'done' || job.status === 'failed' || job.status === 'cancelled'
+
+/** 배지에 보일 상태 — 도는 중에 멈추라고 했으면 「멈추는 중」. */
+export const runState = (job: Job) => (job.status === 'running' && job.cancel_requested_at ? 'cancelling' : job.status)
 
 export const jobsApi = {
   list: (params: { mine?: boolean; work_id?: string; kind?: string; status?: string; offset?: number; limit?: number }) => {
@@ -54,6 +59,8 @@ export const jobsApi = {
     return api.get<Page<Job>>(`/jobs?${query.toString()}`)
   },
   get: (id: string) => api.get<Job>(`/jobs/${id}`),
+  /** 멈춘다 — 대기 중이면 바로 취소, 도는 중이면 다음 단계에서 멈춘다. 건 사람 · 주인 · 관리자만. */
+  cancel: (id: string) => api.post<Job>(`/jobs/${id}/cancel`, {}),
   artifactPath: (id: string) => `/artifacts/${id}/download`,
   artifactBlob: (id: string) => fetchBlob(`/artifacts/${id}/download`),
 }

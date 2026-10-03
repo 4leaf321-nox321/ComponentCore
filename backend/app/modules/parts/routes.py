@@ -23,6 +23,7 @@ from app.shared import folders
 from app.shared.auth import current_user
 from app.shared.errors import NotFound, code
 from app.shared.pagination import Page, clamp_limit
+from app.shared.shape_search import ShapeFilter, shape_query
 
 router = APIRouter(prefix="/parts", tags=["parts"])
 
@@ -77,10 +78,13 @@ def list_parts(
     tag: str = Query(default="", max_length=40),
     folder: str | None = Query(default=None, max_length=255),
     subfolders: bool = Query(default=True),
+    shape: ShapeFilter = Depends(shape_query),
     _: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> Page[PartSummaryOut]:
-    """부품 카탈로그 — `q` · `tag` 로 찾고, `folder` 면 그 폴더(`subfolders` 면 하위까지)."""
+    """부품 카탈로그 — `q` · `tag` 로 찾고, `folder` 면 그 폴더(`subfolders` 면 하위까지).
+    **형상으로**: `has` · `thread` · `param` · `fits` · `volume_min` · `volume_max` · `hole` ·
+    `holes` — 최신 버전의 형상 색인으로 거른다."""
     size = clamp_limit(limit)
     rows, total = services.list_parts(
         db,
@@ -90,6 +94,7 @@ def list_parts(
         tag=tag,
         folder=folder,
         subfolders=subfolders,
+        shape=shape,
     )
     return Page(
         items=[services.part_summary(db, one) for one in rows],

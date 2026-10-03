@@ -21,6 +21,7 @@ import ast
 import math
 import operator
 from collections.abc import Callable
+from functools import lru_cache
 from typing import Any
 
 #: 식에서 부를 수 있는 함수.
@@ -53,14 +54,87 @@ class ExpressionError(ValueError):
     """식이 틀렸다 — 어디가 왜인지 사람 말로."""
 
 
+@lru_cache(maxsize=4096)
+def _parsed(body: str) -> ast.Expression:
+    """같은 식을 거듭 읽지 않는다 — DOE 는 후보 수만 줄마다 같은 식을 푼다. 트리는 읽기만
+    하므로 나눠 써도 된다."""
+    return ast.parse(body, mode="eval")
+
+
 def evaluate_expression(text: str, values: dict[str, float]) -> float:
     """`"=길이 / 2"` 를 숫자로. 앞의 `=` 는 있어도 없어도 된다."""
     body = text[1:] if text.startswith("=") else text
     try:
-        tree = ast.parse(body, mode="eval")
+        tree = _parsed(body)
     except SyntaxError as failure:
         raise ExpressionError(f"식 '{text}' 을 읽지 못했습니다") from failure
     return _node(tree.body, values, text)
+
+
+_COMPARE: dict[type[ast.cmpop], Callable[[float, float], bool]] = {
+    ast.Lt: operator.lt,
+    ast.LtE: operator.le,
+    ast.Gt: operator.gt,
+    ast.GtE: operator.ge,
+    ast.Eq: operator.eq,
+    ast.NotEq: operator.ne,
+}
+
+
+def evaluate_condition(text: str, values: dict[str, float]) -> bool:
+    """`"구멍_간격 > 2 * 구멍_지름"` 이 참인가 — DOE 의 **제약식**.
+
+    비교(`<` · `<=` · `>` · `>=` · `==` · `!=`, `4 <= 두께 <= 12` 처럼 이어 써도 된다)와
+    `and` · `or` · `not` 에, 양쪽은 치수 식과 같은 계산기다. 비교가 없는 식(`두께 * 2`)은
+    틀린 것으로 본다 — 「0 이 아니면 참」 으로 읽으면 오타가 조용히 통과한다."""
+    body = text.strip()
+    try:
+        tree = _parsed(body)
+    except SyntaxError as failure:
+        raise ExpressionError(f"제약 '{text}' 을 읽지 못했습니다") from failure
+    return _truth(tree.body, values, text)
+
+
+def _truth(node: ast.AST, values: dict[str, float], text: str) -> bool:
+    if isinstance(node, ast.BoolOp):
+        parts = [_truth(one, values, text) for one in node.values]
+        return all(parts) if isinstance(node.op, ast.And) else any(parts)
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        return not _truth(node.operand, values, text)
+    if isinstance(node, ast.Compare):
+        left = _node(node.left, values, text)
+        for op, right_node in zip(node.ops, node.comparators, strict=True):
+            handler = _COMPARE.get(type(op))
+            if handler is None:
+                raise ExpressionError(f"제약 '{text}': 쓸 수 없는 비교입니다")
+            right = _node(right_node, values, text)
+            if not handler(left, right):
+                return False
+            left = right
+        return True
+    raise ExpressionError(
+        f"제약 '{text}': 비교(<, <=, >, >=, ==, !=)가 있어야 합니다 — 예: 간격 > 2 * 지름"
+    )
+
+
+def names_in(text: str) -> set[str]:
+    """식이 부르는 이름들(함수 · 상수는 빼고). 못 읽으면 빈 것 — 읽기 오류는 푸는 쪽이
+    말한다."""
+    body = text[1:] if text.startswith("=") else text
+    try:
+        tree = _parsed(body.strip())
+    except SyntaxError:
+        return set()
+    called = {
+        one.func.id
+        for one in ast.walk(tree)
+        if isinstance(one, ast.Call) and isinstance(one.func, ast.Name)
+    }
+    return {
+        one.id
+        for one in ast.walk(tree)
+        if isinstance(one, ast.Name) and one.id not in called and one.id not in CONSTANTS
+    }
 
 
 def _node(node: ast.AST, values: dict[str, float], text: str) -> float:

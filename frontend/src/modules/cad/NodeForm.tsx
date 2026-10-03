@@ -3,6 +3,7 @@
 import { useState } from 'react'
 
 import { Input } from '@/shared/components/ui/input'
+import { Textarea } from '@/shared/components/ui/textarea'
 import { Label } from '@/shared/components/ui/label'
 import {
   Select,
@@ -394,6 +395,48 @@ function BendsInput({
   )
 }
 
+/** 다른 방향의 굽힘선 묶음 — 상자의 다른 날개. 묶음마다 방향과 굽힘들. */
+type BendGroup = { along?: (number | string)[]; bends?: Bend[] }
+
+function BendGroupsInput({
+  value,
+  onChange,
+  params,
+  onCreateParam,
+}: {
+  value: unknown
+  onChange: (next: BendGroup[]) => void
+  params?: Record<string, number>
+  onCreateParam?: (name: string, value: number) => void
+}) {
+  const groups = Array.isArray(value) ? (value as BendGroup[]) : []
+  const put = (i: number, patch: BendGroup) => onChange(groups.map((one, j) => (j === i ? { ...one, ...patch } : one)))
+  return (
+    <div className="space-y-2">
+      {groups.map((group, i) => (
+        <div key={i} className="space-y-1 rounded border border-dashed p-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-medium">날개 {i + 2}</span>
+            <button type="button" className="text-muted-foreground px-1 hover:text-destructive" onClick={() => onChange(groups.filter((_, j) => j !== i))} aria-label={`날개 ${i + 2} 지우기`}>
+              ×
+            </button>
+          </div>
+          <span className="text-muted-foreground text-xs">굽혀 나가는 방향 (이 날개 쪽)</span>
+          <VectorInput params={params} onCreateParam={onCreateParam} value={group.along ?? [0, 1, 0]} size={3} onChange={(v) => put(i, { along: v })} />
+          <BendsInput params={params} onCreateParam={onCreateParam} value={group.bends ?? []} onChange={(v) => put(i, { bends: v })} />
+        </div>
+      ))}
+      <button
+        type="button"
+        className="text-muted-foreground text-xs hover:underline"
+        onClick={() => onChange([...groups, { along: [0, 1, 0], bends: [{ at: 0, radius: 5, toward: 'up', until: 'angle', angle: 90 }] }])}
+      >
+        + 다른 방향 날개
+      </button>
+    </div>
+  )
+}
+
 function RefSelect({
   value,
   candidates,
@@ -423,6 +466,37 @@ function RefSelect({
 }
 
 /** 규칙으로 고르기 — `recipe_find` 의 질의를 JSON 으로. DOE 가 치수를 바꿔도 다시 찾는다. */
+/** 중첩된 값(점 격자 · 곡선들)을 JSON 으로 — 읽히면 바로 반영하고, 아니면 칸을 붉힌다. */
+function JsonInput({ value, onChange, label }: { value: unknown; onChange: (next: unknown) => void; label: string }) {
+  const [text, setText] = useState(value === undefined || value === null ? '' : JSON.stringify(value))
+  const [trouble, setTrouble] = useState<string | null>(null)
+  return (
+    <div className="space-y-1 text-xs">
+      <Textarea
+        aria-label={label}
+        rows={4}
+        className={`font-mono text-xs ${trouble ? 'border-destructive' : ''}`}
+        value={text}
+        onChange={(event) => {
+          setText(event.target.value)
+          if (!event.target.value.trim()) {
+            setTrouble(null)
+            onChange(null)
+            return
+          }
+          try {
+            onChange(JSON.parse(event.target.value) as unknown)
+            setTrouble(null)
+          } catch (failure) {
+            setTrouble(failure instanceof Error ? failure.message : '읽을 수 없습니다')
+          }
+        }}
+      />
+      {trouble && <p className="text-destructive">{trouble}</p>}
+    </div>
+  )
+}
+
 function RuleInput({
   value,
   what,
@@ -722,7 +796,7 @@ export function NodeForm({
               <Input id={`node-${field.key}`} value={String(node[field.key] ?? '')} onChange={(e) => set(field.key, e.target.value)} className="h-8 font-mono text-xs" />
             )}
             {field.kind === 'checkbox' && (
-              <input type="checkbox" checked={Boolean(node[field.key])} onChange={(e) => set(field.key, e.target.checked)} />
+              <input type="checkbox" aria-label={field.label} checked={Boolean(node[field.key])} onChange={(e) => set(field.key, e.target.checked)} />
             )}
             {field.kind === 'select' && field.key === 'edges' && (
               <div className="space-y-1">
@@ -833,8 +907,12 @@ export function NodeForm({
               <PathsInput params={params} onCreateParam={onCreateParam} value={node[field.key]} onChange={(v) => set(field.key, v)} />
             )}
             {field.kind === 'query' && <RuleInput bare value={node[field.key]} what="faces" onChange={(v) => set(field.key, v)} />}
+            {field.kind === 'json' && <JsonInput label={field.label} value={node[field.key]} onChange={(v) => set(field.key, v)} />}
             {field.kind === 'bends' && (
               <BendsInput params={params} onCreateParam={onCreateParam} value={node[field.key]} onChange={(v) => set(field.key, v)} />
+            )}
+            {field.kind === 'bendgroups' && (
+              <BendGroupsInput params={params} onCreateParam={onCreateParam} value={node[field.key]} onChange={(v) => set(field.key, v)} />
             )}
             {(field.kind === 'points' || field.kind === 'points3') && (
               <div className="space-y-1">

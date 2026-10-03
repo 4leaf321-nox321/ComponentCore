@@ -51,10 +51,13 @@ import {
   Scissors,
   Shapes,
   Torus,
+  Tornado,
+  UnfoldHorizontal,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 import type { Recipe } from '@/modules/cad/api'
+import { defaultConstrained } from '@/modules/cad/ConstrainedSketch'
 
 export type RecipeNode = Record<string, unknown> & {
   id: string
@@ -80,6 +83,7 @@ export type FieldKind =
   | 'faceselect'
   | 'holeplane'
   | 'bends'
+  | 'bendgroups'
   | 'axisref'
   | 'planeref'
   | 'datumaxis'
@@ -88,6 +92,7 @@ export type FieldKind =
   | 'profile'
   | 'paths'
   | 'query'
+  | 'json'
 
 export interface FieldSpec {
   key: string
@@ -252,11 +257,13 @@ export const OP_SPECS: OpSpec[] = [
     label: '판 굽히기',
     short: '굽히기',
     group: '입체',
-    help: '펼친 판을 굽힘선에서 접거나 원통에 감는다 — 구멍 · 노치는 펼친 상태에서 그린다. 판은 두께가 한결같아야 하고(포켓 · 위아래 모서리 필렛은 굽힌 뒤에), 굽힘 구간의 구멍도 같이 휜다.',
+    help: '펼친 판을 굽힘선에서 접거나 원통에 감는다 — 구멍 · 노치는 펼친 상태에서 그린다. 판은 두께가 한결같아야 하고(포켓 · 위아래 모서리 필렛은 굽힌 뒤에), 굽힘 구간의 구멍도 같이 휜다. 「다른 방향의 날개」 로 상자 전개도의 네 변을 한 번에 접는다.',
     fields: [
       { key: 'target', label: '펼친 판', kind: 'ref', refKind: 'solid' },
       { key: 'along', label: '굽혀 나가는 방향 (판 위, 굽힘선은 이것에 수직)', kind: 'xyz' },
       { key: 'bends', label: '굽힘 (앞에서부터)', kind: 'bends' },
+      { key: 'also', label: '다른 방향의 날개 (상자처럼 — 날개마다 방향과 굽힘)', kind: 'bendgroups' },
+      { key: 'corner_relief', label: '날개가 모서리에서 겹치면 따내기', kind: 'checkbox' },
       { key: 'k_factor', label: '중립면 위치 (K, 안쪽 면에서 두께의 몇 할 · 보통 0.3 ~ 0.5)', kind: 'number', step: 0.05 },
     ],
     defaults: {
@@ -265,6 +272,108 @@ export const OP_SPECS: OpSpec[] = [
       bends: [{ at: 0, radius: 5, toward: 'up', until: 'angle', angle: 90 }],
       k_factor: 0.5,
     },
+  },
+  {
+    op: 'surface',
+    icon: Waves,
+    label: '곡면',
+    group: '입체',
+    help: '입체가 아니라 면 — 점 격자를 지나는 자유 곡면(잰 점) · 3D 곡선들을 잇는 곡면 · 닫힌 테두리를 메우는 곡면. 그대로는 결과가 될 수 없고 「두께 주기」 로 입체를 만들거나 「자르기」 의 가를 곡면으로 쓴다.',
+    fields: [
+      {
+        key: 'kind',
+        label: '어떻게',
+        kind: 'select',
+        options: [
+          { value: 'grid', label: '점 격자를 지나는 곡면' },
+          { value: 'loft', label: '곡선들을 잇는 곡면' },
+          { value: 'fill', label: '테두리를 메우는 곡면' },
+        ],
+      },
+      { key: 'grid', label: '점 격자 — [[[x,y,z], …] 행마다, …] (격자일 때)', kind: 'json' },
+      { key: 'curves', label: '곡선들 — [[[x,y,z], …] 곡선마다, …] (곡선 잇기일 때)', kind: 'json' },
+      { key: 'boundary', label: '테두리 점 (테두리 메우기일 때)', kind: 'points3' },
+      { key: 'through', label: '지나야 할 안쪽 점 (테두리 메우기)', kind: 'points3' },
+      { key: 'smooth', label: '곡선 · 테두리를 점을 지나는 매끈한 곡선으로', kind: 'checkbox' },
+      { key: 'ruled', label: '곡선 사이를 직선으로 잇기', kind: 'checkbox' },
+    ],
+    defaults: {
+      kind: 'grid',
+      grid: [
+        [
+          [-40, -30, 0],
+          [0, -30, 5],
+          [40, -30, 0],
+        ],
+        [
+          [-40, 0, 5],
+          [0, 0, 10],
+          [40, 0, 5],
+        ],
+        [
+          [-40, 30, 0],
+          [0, 30, 5],
+          [40, 30, 0],
+        ],
+      ],
+      smooth: true,
+      ruled: false,
+      through: [],
+    },
+  },
+  {
+    op: 'thicken',
+    icon: Layers,
+    label: '두께 주기',
+    short: '두께',
+    group: '입체',
+    help: '곡면에 두께를 줘서 입체로 — 굽은 면에 맞닿는 받침 · 얇은 덮개. 앞은 곡면의 법선 쪽(점의 차례가 정한다), 양쪽이면 반씩.',
+    fields: [
+      { key: 'target', label: '곡면', kind: 'ref', refKind: 'any' },
+      { key: 'thickness', label: '두께 (mm)', kind: 'number', step: 0.5 },
+      {
+        key: 'side',
+        label: '어느 쪽으로',
+        kind: 'select',
+        options: [
+          { value: 'front', label: '앞(법선 쪽)' },
+          { value: 'back', label: '뒤' },
+          { value: 'both', label: '양쪽(반씩)' },
+        ],
+      },
+    ],
+    defaults: { target: '', thickness: 2, side: 'front' },
+  },
+  {
+    op: 'deform',
+    icon: Tornado,
+    label: '비틀기 · 테이퍼',
+    short: '비틀기',
+    group: '입체',
+    help: '축을 따라 단면을 돌리고(비틀기) 줄인다(테이퍼) — 비틀린 띠 · 날개, 끝으로 갈수록 가는 보. 구간(시작 ~ 끝)에서 0 → 각만큼 돌고 1 → 배율로 줄며, 그 앞은 그대로 · 그 뒤는 끝의 변형 그대로. 비우면 대상 전체. 곡면은 NURBS 로 근사한다.',
+    fields: [
+      { key: 'target', label: '대상', kind: 'ref', refKind: 'solid' },
+      { key: 'axis', label: '축 (원점의 X · Y · Z 또는 기준축)', kind: 'axisref' },
+      { key: 'twist', label: '비트는 각 (도, 끝에서)', kind: 'number', step: 5 },
+      { key: 'taper', label: '끝의 단면 배율 (1 = 그대로, 0.5 = 절반)', kind: 'number', step: 0.05 },
+      { key: 'start', label: '시작 (축 위 mm, 비우면 대상의 시작)', kind: 'number', optional: true },
+      { key: 'end', label: '끝 (축 위 mm, 비우면 대상의 끝)', kind: 'number', optional: true },
+    ],
+    defaults: { target: '', axis: 'Z', twist: 90, taper: 1, start: null, end: null },
+  },
+  {
+    op: 'unfold',
+    icon: UnfoldHorizontal,
+    label: '판 펴기',
+    short: '펴기',
+    group: '입체',
+    help: '굽힌 판(두께가 한결같은 판금)을 펼친 모양으로 — XY 위에 두께만큼 눕힌다. 레시피로 굽힌 판도, 가져온 판금 STEP 도 편다. 굽힘은 중립면 길이로 펴므로 K 는 굽힐 때와 같아야 한다. 굽힘선 · 위아래 · 각이 든 DXF 는 「파일 › 전개도」.',
+    fields: [
+      { key: 'target', label: '굽힌 판', kind: 'ref', refKind: 'solid' },
+      { key: 'k_factor', label: '중립면 위치 (K — 굽힐 때와 같게)', kind: 'number', step: 0.05 },
+      { key: 'flip', label: '반대쪽 겉면을 기준으로 (굽힘의 위 · 아래가 바뀐다)', kind: 'checkbox' },
+    ],
+    defaults: { target: '', k_factor: 0.5, flip: false },
   },
   {
     op: 'frame',
@@ -718,10 +827,11 @@ export const OP_SPECS: OpSpec[] = [
     icon: SquareSplitHorizontal,
     label: '자르기',
     group: '조합',
-    help: '평면으로 자른다 — 반쪽 지그 · 단면 보기. 「위」 는 평면 법선 쪽.',
+    help: '평면으로 자른다 — 반쪽 지그 · 단면 보기. 「위」 는 평면 법선 쪽. 「가를 곡면」 을 고르면 평면 대신 그 곡면으로(위는 곡면의 앞 쪽) — 굽은 면을 따라 잘라 낸 둥지.',
     fields: [
       { key: 'target', label: '대상', kind: 'ref', refKind: 'solid' },
       { key: 'plane', label: '자르는 평면', kind: 'plane' },
+      { key: 'tool', label: '가를 곡면 (비우면 평면으로)', kind: 'ref', refKind: 'any', optional: true },
       {
         key: 'keep',
         label: '남길 쪽',
@@ -1040,6 +1150,7 @@ export const SHAPE_TYPES = [
   { value: 'regular_polygon', label: '정다각형' },
   { value: 'polygon', label: '다각형' },
   { value: 'polyline', label: '임의 윤곽' },
+  { value: 'constrained', label: '구속 윤곽' },
   { value: 'path', label: '선 (두께)' },
   { value: 'rounded_rect', label: '둥근 사각형' },
   { value: 'trapezoid', label: '사다리꼴' },
@@ -1079,6 +1190,9 @@ export function defaultShape(type: string): Record<string, unknown> {
       return { type, text: 'AJ', size: 8, bold: false, ...base }
     case 'path':
       return { type, start: [0, 0], segments: [{ to: [30, 0] }, { to: [30, 20] }], width: 3, corners: 'round', ...base }
+    case 'constrained':
+      // 점을 대충 두고 관계 · 치수로 정한다 — 처음은 왼쪽 아래를 고정한 40 x 30 네모.
+      return { type, ...defaultConstrained(), ...base }
     case 'polyline':
       return {
         type,

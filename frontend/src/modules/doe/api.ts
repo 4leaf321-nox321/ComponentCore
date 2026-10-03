@@ -41,6 +41,74 @@ export interface DoePoint {
   /** 조립이면 구성품끼리 겹침(ok · items · total_volume). 구성품이 하나면 null. */
   interference: { ok: boolean; total_volume: number; items: { a: string; b: string; volume: number; ok: boolean }[] } | null
   step_file: string
+  /** 형상 점검 — 메시가 막힐 자리. 꺼 두었거나 아직이면 null. */
+  quality?: Quality | null
+  /** 측정값 — 스터디의 정의대로. 못 잰 것은 null(0 이 아니다). */
+  measures?: Record<string, number | null> | null
+}
+
+/**
+ * 측정값 정의 — 점마다 형상에서 바로 나오는 값을 표의 열로.
+ * 부피 · 겉넓이 · 크기(축) · 선택 그룹 넓이 · 두 그룹 사이 거리 · 식(도면 변수와 앞의 측정값).
+ */
+export interface Measure {
+  name: string
+  kind: 'volume' | 'area' | 'size' | 'region_area' | 'distance' | 'expr'
+  axis?: 'x' | 'y' | 'z'
+  body?: string
+  region?: string
+  a?: string
+  b?: string
+  expr?: string
+}
+
+/** 형상 점검의 잰 값 — `warnings` 가 비면 기준을 다 지켰다. `notes` 는 알림(면 수 변화). */
+export interface Quality {
+  valid?: boolean
+  solids?: number
+  faces?: number
+  min_wall?: number | null
+  min_wall_at?: number[] | null
+  shortest_edge?: number | null
+  short_edges?: number
+  narrowest_face?: number | null
+  narrow_faces?: number
+  warnings: string[]
+  notes?: string[]
+}
+
+/** 형상 점검 기준(mm) — 바꿀 것만 보낸다. */
+export interface Checks {
+  enabled?: boolean
+  min_wall?: number
+  short_edge?: number
+  narrow_face?: number
+}
+
+/** 서버의 기본 기준(core/quality.DEFAULTS)과 같다. */
+export const CHECK_DEFAULTS = { min_wall: 0.5, short_edge: 0.1, narrow_face: 0.1 }
+
+/** 설계점을 뽑는 방식 — 격자 · LHS · 직접 준 표 · 하나씩 바꾸기 · 중심 합성 · Box-Behnken · Sobol. */
+export type DoeMethod = 'factorial' | 'lhs' | 'table' | 'oat' | 'ccd' | 'bbd' | 'sobol'
+
+/** 방식의 사람 말 — 결과 화면 · 목록. */
+export const METHOD_LABELS: Record<DoeMethod, string> = {
+  factorial: '전체 조합',
+  lhs: 'LHS',
+  table: '직접 준 표',
+  oat: '하나씩 바꾸기',
+  ccd: '중심 합성',
+  bbd: 'Box-Behnken',
+  sobol: 'Sobol',
+}
+
+/** 표본 수 · 시드를 받는 방식(난수 · 수열). */
+export const SAMPLED: DoeMethod[] = ['lhs', 'sobol']
+
+/** 방식 배지 — 난수를 쓰는 방식은 시드를 함께 적는다(같은 표를 다시 만드는 열쇠). */
+export function methodBadge(study: { method: DoeMethod; seed: number }): string {
+  const label = METHOD_LABELS[study.method] ?? study.method
+  return SAMPLED.includes(study.method) ? `${label} · 시드 ${study.seed}` : label
 }
 
 export interface DoeStudySummary {
@@ -50,7 +118,7 @@ export interface DoeStudySummary {
   work_id: string | null
   work_name: string | null
   work_kind: 'part' | 'jig' | 'assembly' | null
-  method: 'factorial' | 'lhs'
+  method: DoeMethod
   samples: number
   seed: number
   point_count: number
@@ -67,6 +135,18 @@ export interface DoeStudySummary {
 export interface DoeStudy extends DoeStudySummary {
   recipe: Recipe
   factors: Factor[]
+  /** 만들기 전에 거른 제약식(`간격 > 2 * 지름`). 점을 더할 때도 같은 것이 걸린다. */
+  constraints?: string[]
+  /** 형상 점검 기준(mm) — 비면 서버 기본값. */
+  checks?: Checks
+  /** 점마다 잰 값의 정의 — 표에 열로 붙는다. */
+  measures?: Measure[]
+  /** 점마다 더 내보내는 것 — `midsurface`(셸 해석용 중간면 STEP). */
+  outputs?: string[]
+  /** 만든 뒤 더한 설계점 묶음의 이력. */
+  batches?: Batch[]
+  /** 보낸 뒤에 점을 더했다 — 공유 폴더의 표가 옛것이다. */
+  export_stale?: boolean
   /** 만들 때 박은 해석 조건 스냅샷 — 비었으면 형상만 훑었다. */
   conditions?: Record<string, unknown>
   /**
@@ -95,18 +175,112 @@ export interface PointMesh {
 }
 
 export interface Preview {
+  /** 만들 설계점 수 — 제약이 있으면 거른 뒤의 수. */
   count: number
+  /** 방식이 낸 수 — 격자 칸 수 · LHS 표본 수. */
+  requested?: number
   max: number
   /** LHS 표본 수 상한 — 관리자 설정. */
   max_samples: number
   too_many: boolean
-  points: Record<string, number>[]
+  /** 만들 설계점 전부(상한 안). */
+  points: Record<string, number | string>[]
   varying: string[]
+  /** 제약에 걸린 후보 수 · 훑어본 후보 수 · 제약마다 걸린 수 · LHS 가 못 채운 수. */
+  rejected?: number
+  candidates?: number
+  hits?: number[]
+  shortfall?: number
+  /** 걸러진 후보 몇 줄 — 흩뿌림에 옅게 그린다. */
+  rejected_points?: Record<string, number | string>[]
+}
+
+/** 「미리 만들어 보기」 의 한 점 — 끝 점(모두 최소 · 최대, 인자마다 최소 · 최대)과 가운데. */
+export interface ProbePoint {
+  label: string
+  params: Record<string, number | string | boolean | null>
+  /** 만듦 · 실패 · 건너뜀(제약을 어김 · 시간이 다 됨). */
+  status: 'ok' | 'failed' | 'skipped'
+  error: string
+  ms?: number
+  /** 이 점에서 못 찾은 선택 그룹 — 해석이 하중 · 구속을 붙일 자리가 없다. */
+  unresolved?: string[]
+  /** 예측한 자리에서 멀리 집은 그룹 — 딴 면을 집었을 수 있어 못 푼 것으로 돌렸다. */
+  drift?: { name: string; distance: number }[]
+  interference?: DoePoint['interference']
+  solids?: number
+  faces?: number
+  /** 레시피 평가의 경고(면 지우기를 다 못 했다 등). */
+  warnings?: string[]
+  quality?: Quality | null
+  measures?: Record<string, number | null>
+}
+
+export interface ProbeResult {
+  points: ProbePoint[]
+  /** 만든 점의 평균 시간 — 전체 시간을 가늠한다. */
+  mean_ms: number | null
+  /** 선택 그룹이 치수를 따라가는지 재는 데 든 시간(스터디마다 한 번). */
+  setup_ms: number
+  /** 이 조건의 선택 그룹 이름들. */
+  regions: string[]
+}
+
+/** 만든 뒤 더한 설계점 묶음 하나 — 방식 · 시드 · 번호 구간. */
+export interface Batch {
+  number: number
+  method: DoeMethod
+  samples: number
+  seed: number
+  factors: Factor[]
+  from: number
+  to: number
+  added: number
+  /** 이미 있는 점과 값이 같아 뺀 수. */
+  skipped: number
+  /** 제약에 걸린 후보 수. */
+  rejected?: number
+  at?: string
+  requested_by?: string
+  reused?: boolean
+}
+
+/** 점 더하기 — 방식 · 표본 수 · 시드 · **바꿀 변수만** · 표. */
+export interface ExtendBody {
+  method: DoeMethod
+  samples?: number
+  seed?: number | null
+  factors?: Factor[]
+  table?: Record<string, unknown>[]
+  idempotency_key?: string
+}
+
+/** 미리보기 · 만들기가 함께 받는 계획 — 인자 · 방식 · 제약. */
+export interface PlanBody {
+  factors: Factor[]
+  method?: string
+  samples?: number
+  seed?: number
+  /** 변수끼리의 조건 — 어긴 조합은 만들기 전에 거른다. */
+  constraints?: string[]
+  /** 제약식이 인자 아닌 치수를 부를 때 풀 도면. */
+  recipe?: Recipe
+  /** 형상 점검 기준(mm) — 바꿀 것만. */
+  checks?: Checks
+  /** `method='table'` 의 설계점 — 줄마다 `{변수: 값}`. 값은 그대로 만든다. */
+  table?: Record<string, unknown>[]
+  /** 점마다 잴 값 — 표에 열로 붙는다. */
+  measures?: Measure[]
 }
 
 export const doeApi = {
-  preview: (body: { factors: Factor[]; method?: string; samples?: number; seed?: number }) =>
-    api.post<Preview>('/doe/preview', body),
+  preview: (body: PlanBody) => api.post<Preview>('/doe/preview', body),
+  /**
+   * **끝 점 몇 개를 먼저 만들어 본다** — 실패 · 못 푼 영역 · 어긋남 · 겹침 · 시간. 파일은 안
+   * 쓴다. 조건은 `work_id` 작업의 것(만들 때와 같다)이고, 대상이 없으면 `conditions` 로.
+   */
+  probe: (body: PlanBody & { recipe: Recipe; work_id?: string | null; conditions?: Record<string, unknown> }) =>
+    api.post<ProbeResult>('/doe/probe', body),
   /** `scope='all'` 이면 **남이 공개한 것까지** — 같은 훑기를 다시 도는 것이 가장 큰 낭비다. */
   list: (options: { workId?: string; offset?: number; limit?: number; scope?: 'mine' | 'all' } = {}) => {
     const query = new URLSearchParams({ offset: String(options.offset ?? 0), limit: String(options.limit ?? 50), scope: options.scope ?? 'mine' })
@@ -122,6 +296,12 @@ export const doeApi = {
     method?: string
     samples?: number
     seed?: number
+    constraints?: string[]
+    checks?: Checks
+    table?: Record<string, unknown>[]
+    measures?: Measure[]
+    /** `['midsurface']` 면 점마다 중간면 STEP(`<형상>_mid.step`)도. */
+    outputs?: 'midsurface'[]
     work_id?: string | null
     /**
      * 해석 조건 — **안 보내면 `work_id` 작업의 현재 조건**을 서버가 싣는다. 대상 작업이 없는
@@ -131,6 +311,14 @@ export const doeApi = {
   }) => api.post<DoeStudy>('/doe', body),
   /** 설계점 하나의 형상 — 화면이 점마다 3D 로 본다. */
   pointMesh: (id: string, number: number) => api.get<PointMesh>(`/doe/${id}/points/${number}/mesh`),
+  /**
+   * **점을 더한다** — 번호를 이어서 같은 폴더에. 스터디의 제약이 걸리고 이미 있는 값은 뺀다.
+   * `dryRun` 이면 세기만 한다.
+   */
+  extend: (id: string, body: ExtendBody, dryRun = false) =>
+    api.post<{ batch: Batch; study: DoeStudy }>(`/doe/${id}/extend${dryRun ? '?dry_run=true' : ''}`, body),
+  /** 만들기를 멈춘다 — 만든 점과 표는 남고, 남은 점은 「다시 만들기」 가 잇는다. */
+  cancel: (id: string) => api.post<DoeStudy>(`/doe/${id}/cancel`, {}),
   /** 서버 보관 폴더의 STEP · 표를 공유 폴더로 — 해석은 그때부터 읽는다. 다시 누르면 덮어쓴다. */
   export: (id: string) => api.post<DoeStudy>(`/doe/${id}/export`),
   /**

@@ -188,6 +188,141 @@ class TextShape(_Shape, _Aligned):
     bold: bool = False
 
 
+class SketchSegment(BaseModel):
+    """구속 윤곽의 한 구간 — 점 이름 `from` 에서 `to` 까지. `center` 를 주면 그 점을 중심으로
+    하는 호(`ccw` 면 반시계로 돈다), 아니면 직선."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    start: str = Field(alias="from")
+    end: str = Field(alias="to")
+    center: str | None = None
+    ccw: bool = True
+
+
+SKETCH_CONSTRAINTS: dict[str, tuple[int, int, bool]] = {
+    # 종류: (점 수, 구간 수, 값이 있어야 하나). 수평 · 수직은 구간 하나 또는 점 둘.
+    "fix": (1, 0, False),
+    "coincident": (2, 0, False),
+    "horizontal": (0, 1, False),
+    "vertical": (0, 1, False),
+    "distance": (2, 0, True),
+    "length": (0, 1, True),
+    "dx": (2, 0, True),
+    "dy": (2, 0, True),
+    "angle": (0, 2, True),
+    "parallel": (0, 2, False),
+    "perpendicular": (0, 2, False),
+    "equal": (0, 2, False),
+    "radius": (0, 1, True),
+    "tangent": (0, 2, False),
+    "on": (1, 1, False),
+    "midpoint": (1, 1, False),
+    "symmetric": (2, 1, False),
+}
+
+
+class SketchConstraint(BaseModel):
+    """구속 하나 — 점은 이름으로, 구간은 `segments` 의 번호(0 부터)로 가리킨다.
+
+    fix(점 · `at`) · coincident(점 둘) · horizontal · vertical(구간, 또는 점 둘) ·
+    distance · dx · dy(점 둘, 값) · length(직선 구간, 값) · angle(구간 둘, 값 도 — 그린
+    쪽으로) · parallel · perpendicular · equal(구간 둘 — 선끼리 길이, 호끼리 반지름) ·
+    radius(호 구간, 값) · tangent(구간 둘 — 선과 호, 호와 호) · on(점이 구간 위) ·
+    midpoint(점이 구간 가운데) · symmetric(점 둘이 직선 구간에 대칭)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal[
+        "fix",
+        "coincident",
+        "horizontal",
+        "vertical",
+        "distance",
+        "length",
+        "dx",
+        "dy",
+        "angle",
+        "parallel",
+        "perpendicular",
+        "equal",
+        "radius",
+        "tangent",
+        "on",
+        "midpoint",
+        "symmetric",
+    ]
+    points: list[str] = Field(default_factory=list, max_length=2)
+    segments: list[int] = Field(default_factory=list, max_length=2)
+    value: float | None = None
+    at: XY | None = None
+    """`fix` 의 자리 — 비우면 그린 자리에 고정."""
+
+
+class ConstrainedShape(_Shape):
+    """**구속 윤곽** — 점을 대충 두고 치수 · 관계를 적으면 풀이가 점을 맞춘다.
+
+    `points` 는 이름 → 그린 자리, `segments` 는 닫힌 고리(앞 구간의 `to` 가 다음 구간의 `from`,
+    마지막의 `to` 가 처음의 `from`), `constraints` 는 관계와 치수. 치수 칸에 `=변수` 를 쓰면
+    실험계획이 훑는다. 정해지지 않은 쪽은 그린 자리를 지키고, 맞지 않는 구속은 몇째인지
+    말한다."""
+
+    type: Literal["constrained"]
+    points: dict[str, XY] = Field(min_length=2, max_length=60)
+    segments: list[SketchSegment] = Field(min_length=2, max_length=60)
+    constraints: list[SketchConstraint] = Field(default_factory=list, max_length=120)
+
+    @model_validator(mode="after")
+    def _closed(self) -> ConstrainedShape:
+        names = set(self.points)
+        for index, segment in enumerate(self.segments):
+            for role, name in (
+                ("from", segment.start),
+                ("to", segment.end),
+                ("center", segment.center),
+            ):
+                if name is not None and name not in names:
+                    raise ValueError(f"segments[{index}].{role}: 없는 점 '{name}'")
+            following = self.segments[(index + 1) % len(self.segments)]
+            if segment.end != following.start:
+                raise ValueError(
+                    f"segments[{index}].to: 다음 구간의 from('{following.start}')과 같아야 "
+                    "윤곽이 닫힙니다"
+                )
+        for index, one in enumerate(self.constraints):
+            points, segments, valued = SKETCH_CONSTRAINTS[one.type]
+            where = f"constraints[{index}] ({one.type})"
+            if one.type in ("horizontal", "vertical"):
+                if not (len(one.segments) == 1 and not one.points) and not (
+                    len(one.points) == 2 and not one.segments
+                ):
+                    raise ValueError(f"{where}: 구간 하나 또는 점 둘입니다")
+            elif len(one.points) != points or len(one.segments) != segments:
+                raise ValueError(f"{where}: 점 {points} 개 · 구간 {segments} 개가 필요합니다")
+            if valued and one.value is None:
+                raise ValueError(f"{where}: 값(value)이 필요합니다")
+            for name in one.points:
+                if name not in names:
+                    raise ValueError(f"{where}: 없는 점 '{name}'")
+            for number in one.segments:
+                if not 0 <= number < len(self.segments):
+                    raise ValueError(f"{where}: 없는 구간 {number}")
+            if one.type == "radius" and self.segments[one.segments[0]].center is None:
+                raise ValueError(f"{where}: 호(center 가 있는 구간)여야 합니다")
+            if one.type in (
+                "length",
+                "parallel",
+                "perpendicular",
+                "angle",
+                "symmetric",
+            ) and any(
+                self.segments[number].center is not None
+                for number in (one.segments if one.type != "symmetric" else one.segments[:1])
+            ):
+                raise ValueError(f"{where}: 직선 구간이어야 합니다")
+        return self
+
+
 SketchShape = Annotated[
     Rect
     | CircleShape
@@ -200,7 +335,8 @@ SketchShape = Annotated[
     | TrapezoidShape
     | TriangleShape
     | EllipseShape
-    | TextShape,
+    | TextShape
+    | ConstrainedShape,
     Field(discriminator="type"),
 ]
 
@@ -294,6 +430,22 @@ class SheetMetalNode(_Node):
     """두께가 붙는 쪽 — 꺾은선이 안쪽인가(left) 바깥쪽인가(right)."""
 
 
+class UnfoldNode(_Node):
+    """판 펴기 — 굽힌 판(두께가 한결같은 입체)을 **전개도**로: 펼친 판을 XY 평면에 눕혀
+    두께만큼 세운다. 레이저 · 워터젯에 보낼 모양이다(굽힘선 · 방향은 「전개도 DXF」 가 층으로
+    따로 적는다).
+
+    레시피로 굽힌 판(`bend` · `sheet_metal`)도, 가져온 판금 STEP 도 편다. 굽힘은 중립면(안쪽
+    반지름 + `k_factor · t`)의 길이로 펴므로 `k_factor` 는 굽힐 때와 같아야 한다."""
+
+    op: Literal["unfold"]
+    target: str
+    k_factor: float = Field(default=0.5, ge=0, le=1)
+    """중립면 위치 — 안쪽 면에서 두께의 몇 할. 굽힐 때(`bend`)와 같은 값."""
+    flip: bool = False
+    """기준면을 **반대쪽 겉면**으로 — 전개도가 뒤집혀 굽힘의 위 · 아래가 바뀐다."""
+
+
 class Bend(BaseModel):
     """굽힘 하나 — 굽힘선은 `along` 에 수직이고, 펼친 판의 `at` 자리에서 굽기 시작한다."""
 
@@ -309,6 +461,62 @@ class Bend(BaseModel):
     """어디까지 — `angle` 만큼(angle), 또는 남은 판을 **끝까지 감는다**(end — 원통에 감기)."""
     angle: float = Field(default=90.0, gt=0, lt=360)
     """굽힘 각(도). `until: end` 면 쓰지 않는다 — 남은 길이와 반지름이 정한다."""
+
+
+class DeformNode(_Node):
+    """**비틀기 · 테이퍼** — 축을 따라 단면을 돌리고(`twist`) 줄인다(`taper`). 비틀린 띠 ·
+    날개, 끝으로 갈수록 가늘어지는 보.
+
+    축 위의 자리가 `start` → `end` 로 갈 때 그 높이의 단면을 축 둘레로 0 → `twist` 도 돌리고,
+    축에서의 거리를 1 → `taper` 배로 줄인다. 그 앞은 그대로, 그 뒤는 끝의 변형 그대로. 비우면
+    대상이 축 위에서 차지하는 구간 전체. 곡면은 NURBS 로 맞춘다(허용 오차 안에서 근사)."""
+
+    op: Literal["deform"]
+    target: str
+    axis: str = "Z"
+    """변형의 축 — 원점을 지나는 `X` · `Y` · `Z`, 또는 앞의 **기준축**(`datum_axis`) id."""
+    twist: float = Field(default=0.0, ge=-720, le=720)
+    """`start` 에서 `end` 까지 도는 각(도). 축 방향을 보고 반시계가 양(+)."""
+    taper: Positive = 1.0
+    """`end` 의 단면 배율(`start` 는 1). 0.5 면 끝이 절반."""
+    start: float | None = None
+    """변형이 시작하는 자리 — 축의 원점에서 축 방향으로 잰 거리(mm)."""
+    end: float | None = None
+
+    @model_validator(mode="after")
+    def _something(self) -> DeformNode:
+        if not self.twist and self.taper == 1:
+            raise ValueError(
+                "twist · taper 중 하나는 있어야 합니다 — 지금은 바꾸는 것이 없습니다"
+            )
+        if self.start is not None and self.end is not None and self.end <= self.start:
+            raise ValueError("end: start 보다 커야 합니다")
+        return self
+
+
+class BendGroup(BaseModel):
+    """다른 방향의 굽힘선 묶음 — 상자의 다른 날개. `at` 은 이 묶음의 `along` 방향 좌표."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    along: XYZ
+    bends: list[Bend] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def _in_order(self) -> BendGroup:
+        _check_bend_order(self.bends)
+        return self
+
+
+def _check_bend_order(bends: list[Bend]) -> None:
+    for index in range(1, len(bends)):
+        if bends[index].at <= bends[index - 1].at:
+            raise ValueError(
+                f"bends[{index}].at: 앞 굽힘({bends[index - 1].at})보다 뒤여야 합니다"
+            )
+    for index, one in enumerate(bends[:-1]):
+        if one.until == "end":
+            raise ValueError(f"bends[{index}].until: 끝까지 감기(end)는 마지막 굽힘만 됩니다")
 
 
 class BendNode(_Node):
@@ -330,19 +538,16 @@ class BendNode(_Node):
     k_factor: float = Field(default=0.5, ge=0, le=1)
     """중립면의 자리 — 안쪽 면에서 두께의 몇 할인가. 펼친 길이가 이 층에서 보존된다(판금의
     K 계수, 보통 0.3 ~ 0.5)."""
+    also: list[BendGroup] = Field(default_factory=list, max_length=7)
+    """**다른 방향의 굽힘선** — 상자 날개처럼. 묶음마다 `along` 과 굽힘들. 판은 「바탕」 과
+    묶음마다의 날개(그 묶음의 첫 굽힘선 너머)로 나뉘고, 날개는 서로 따로 굽는다."""
+    corner_relief: bool = False
+    """두 날개가 모서리에서 겹치면(사각 판의 네 변을 다 접을 때) 겹친 자리를 따낸다. 아니면
+    거절한다 — 펼친 판에서 모서리를 직접 따내도 된다."""
 
     @model_validator(mode="after")
     def _in_order(self) -> BendNode:
-        for index in range(1, len(self.bends)):
-            if self.bends[index].at <= self.bends[index - 1].at:
-                raise ValueError(
-                    f"bends[{index}].at: 앞 굽힘({self.bends[index - 1].at})보다 뒤여야 합니다"
-                )
-        for index, one in enumerate(self.bends[:-1]):
-            if one.until == "end":
-                raise ValueError(
-                    f"bends[{index}].until: 끝까지 감기(end)는 마지막 굽힘만 됩니다"
-                )
+        _check_bend_order(self.bends)
         return self
 
 
@@ -1135,12 +1340,60 @@ class ImprintNode(_Node):
 
 class SplitNode(_Node):
     """평면으로 자른다 — 반쪽 지그 · 단면 확인. `keep` 은 평면 법선 쪽(top)인가 반대(bottom)
-    인가. both 면 두 조각 다(묶음)."""
+    인가. both 면 두 조각 다(묶음). `tool` 에 곡면 노드를 주면 평면 대신 **그 곡면으로**
+    가른다(top 은 곡면의 앞 쪽) — 제품의 굽은 면을 따라 잘라 낸 둥지."""
 
     op: Literal["split"]
     target: str
     plane: PlaneSpec = Field(default_factory=PlaneSpec)
     keep: Literal["top", "bottom", "both"] = "top"
+    tool: str | None = None
+    """가를 곡면(`surface` 노드 id). 주면 `plane` 은 쓰지 않는다."""
+
+
+class SurfaceNode(_Node):
+    """**곡면** — 입체가 아니라 면. 그대로는 결과가 될 수 없고 `thicken` 으로 두께를 주거나
+    `split` 의 `tool` 로 쓴다.
+
+    - `grid`: 점 격자(행마다 같은 수, 2 x 2 이상)를 **지나는** 자유 곡면 — 잰 점으로 받은 면.
+    - `loft`: 3D 곡선 둘 이상(`curves` — 곡선마다 점들)을 잇는다. `ruled` 면 곡선 사이를
+      직선으로.
+    - `fill`: 닫힌 3D 테두리(`boundary`)를 메운다. `through` 의 점을 지난다.
+    `smooth` 면 곡선 · 테두리가 점을 지나는 스플라인, 아니면 꺾은선."""
+
+    op: Literal["surface"]
+    kind: Literal["grid", "loft", "fill"]
+    grid: list[list[XYZ]] | None = None
+    curves: list[list[XYZ]] | None = None
+    boundary: list[XYZ] | None = None
+    through: list[XYZ] = Field(default_factory=list, max_length=50)
+    ruled: bool = False
+    smooth: bool = True
+
+    @model_validator(mode="after")
+    def _enough(self) -> SurfaceNode:
+        if self.kind == "grid":
+            rows = self.grid or []
+            if len(rows) < 2 or len(rows[0]) < 2:
+                raise ValueError("grid: 2 x 2 점 이상이 필요합니다")
+            if any(len(row) != len(rows[0]) for row in rows):
+                raise ValueError("grid: 행마다 점의 수가 같아야 합니다")
+        if self.kind == "loft":
+            curves = self.curves or []
+            if len(curves) < 2 or any(len(one) < 2 for one in curves):
+                raise ValueError("curves: 곡선 둘 이상, 곡선마다 점 둘 이상입니다")
+        if self.kind == "fill" and len(self.boundary or []) < 3:
+            raise ValueError("boundary: 테두리는 점 셋 이상입니다")
+        return self
+
+
+class ThickenNode(_Node):
+    """곡면에 **두께**를 — 입체가 된다. `side` 는 면의 앞(법선 쪽) · 뒤 · 양쪽(반씩)."""
+
+    op: Literal["thicken"]
+    target: str
+    thickness: Positive
+    side: Literal["front", "back", "both"] = "front"
 
 
 class SectionNode(_Node):
@@ -1190,6 +1443,43 @@ class GroupNode(_Node):
     targets: list[str] = Field(min_length=1)
 
 
+MATE_KINDS = ("touch", "flush", "concentric", "parallel", "perpendicular", "angle")
+
+
+class Mate(BaseModel):
+    """조립 구속 하나 — **이 구성품의 면 · 축을 앞에 놓인 것의 면 · 축에.**
+
+    - `touch` 맞대기: 평면끼리, 법선이 마주 본다. `offset` 은 두 면 사이 틈(mm).
+    - `flush` 면 맞춤: 평면끼리, 법선이 같은 쪽. `offset` 은 저 면에서 법선 쪽으로 띄운 거리.
+    - `concentric` 동심: 축끼리(원통면 · 원뿔면 · 직선 엣지 · 원 엣지). `flip` 은 축의 방향을
+      뒤집는다(기본은 손으로 놓은 쪽에 가까운 방향).
+    - `parallel` 평행 · `perpendicular` 직각 · `angle` 각도(`angle`, 도): 방향만 — 평면은 법선,
+      축은 축 방향끼리 잰다.
+
+    `this` 는 이 구성품(**가져온 도면의 좌표**)에서 하나를 집는 질의 — `recipe_find` 와
+    같은 말(`{"what": "faces", "role": "bottom"}`). `to` 는 앞의 피처 id 와 `select`(그
+    형상에서 하나를 집는 질의), 또는 기준축 · 기준면(`X` · `XY` · 기준 피처 id — 그때는
+    `select` 없이)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["touch", "flush", "concentric", "parallel", "perpendicular", "angle"]
+    this: dict[str, Any]
+    to: str = Field(min_length=1)
+    select: dict[str, Any] | None = None
+    offset: float = 0.0
+    angle: float | None = Field(default=None, ge=0, le=180)
+    flip: bool = False
+
+    @model_validator(mode="after")
+    def _check_angle(self) -> Mate:
+        if self.type == "angle" and self.angle is None:
+            raise ValueError("angle: 각도 구속에는 각(도)이 필요합니다")
+        if self.offset and self.type not in ("touch", "flush"):
+            raise ValueError("offset: 맞대기 · 면 맞춤에만 씁니다")
+        return self
+
+
 class ComponentNode(_Node):
     """**다른 도면을 그대로 가져다 놓는다** — 조립의 한 칸.
 
@@ -1209,6 +1499,9 @@ class ComponentNode(_Node):
     translate: XYZ = (0.0, 0.0, 0.0)
     rotate: XYZ = (0.0, 0.0, 0.0)
     """X · Y · Z 축 회전(도). 회전 뒤 이동 — `transform` 과 같은 규칙."""
+    mates: list[Mate] = Field(default_factory=list, max_length=6)
+    """조립 구속 — 주면 `translate` · `rotate` 는 **처음 자리**가 되고, 구속이 정한 만큼만
+    옮긴다(정하지 않은 쪽은 손으로 놓은 그대로). 차례대로: 방향 다음 위치."""
 
 
 class ImportStepNode(_Node):
@@ -1321,6 +1614,10 @@ Node = Annotated[
     | HelixNode
     | SheetMetalNode
     | BendNode
+    | DeformNode
+    | SurfaceNode
+    | ThickenNode
+    | UnfoldNode
     | FrameNode
     | BoxNode
     | WedgeNode
@@ -1430,7 +1727,12 @@ class Recipe(BaseModel):
                             f"'{name}' 은 앞에 없는 피처입니다"
                         )
                     # 기준은 형상이 아니다 — 축 · 평면 칸에만 쓴다.
-                    if seen[name] in DATUM_OPS and key not in {one[0] for one in datums}:
+                    # 구속은 기준축 · 기준면에도 건다(`mates[…].to`).
+                    if (
+                        seen[name] in DATUM_OPS
+                        and key not in {one[0] for one in datums}
+                        and not key.startswith("mates[")
+                    ):
                         raise ValueError(
                             f"nodes[{index}] ({node.id}).{key}: '{name}' 은 기준(축 · 면)"
                             "이라 형상이 아닙니다 — 축 · 평면 칸에 씁니다"
@@ -1473,11 +1775,14 @@ _REFERENCE_FIELDS: dict[str, tuple[str, ...]] = {
     "transform": ("target",),
     "mirror": ("target",),
     "group": ("targets",),
-    "split": ("target",),
+    "split": ("target", "tool"),
     "draft": ("target",),
     "section": ("target",),
     "offset": ("target",),
     "bend": ("target",),
+    "deform": ("target",),
+    "thicken": ("target",),
+    "unfold": ("target",),
     "divide_face": ("target", "sketch"),
     "defeature": ("target",),
     "imprint": ("target",),
@@ -1493,13 +1798,17 @@ def _references(node: Any) -> list[tuple[str, str | list[str]]]:
         value = getattr(node, key)
         if value is not None:  # extrude.target 처럼 비어도 되는 칸
             out.append((key, value))
+    if node.op == "component":
+        for index, mate in enumerate(node.mates):
+            if mate.to not in GLOBAL_AXES and mate.to not in GLOBAL_PLANES:
+                out.append((f"mates[{index}].to", mate.to))
     return out + [(key, name) for key, name, _ in datum_references(node)]
 
 
 def datum_references(node: Any) -> list[tuple[str, str, str]]:
     """기준을 가리키는 칸 — (칸, id, 있어야 할 종류). 전역 이름(`X` · `XY` …)은 빼고."""
     out: list[tuple[str, str, str]] = []
-    if node.op in ("revolve", "pattern") and node.axis not in GLOBAL_AXES:
+    if node.op in ("revolve", "pattern", "deform") and node.axis not in GLOBAL_AXES:
         out.append(("axis", node.axis, "datum_axis"))
     if node.op == "datum_plane" and node.hinge is not None and node.hinge not in GLOBAL_AXES:
         out.append(("hinge", node.hinge, "datum_axis"))

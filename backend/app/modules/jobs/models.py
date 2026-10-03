@@ -20,8 +20,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
-#: 작업 상태. queued → running → done | failed.
-JOB_STATUSES = ("queued", "running", "done", "failed")
+#: 작업 상태. queued → running → done | failed | cancelled. 대기 중에 취소하면 곧장 cancelled.
+JOB_STATUSES = ("queued", "running", "done", "failed", "cancelled")
+#: 끝난 상태 — 더 바뀌지 않는다.
+FINISHED = ("done", "failed", "cancelled")
 
 
 class Job(Base):
@@ -66,6 +68,11 @@ class Job(Base):
 
     worker_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    """도는 작업에 **취소를 요청한** 때. 워커가 단계마다 보고 멈춘다 — 돌던 계산을 자르지
+    않는다(파일이 반쯤 쓰인 채 남는다). 단계가 없는 짧은 작업은 끝까지 돌고 결과가 남는다."""
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
@@ -114,5 +121,31 @@ class Artifact(Base):
     content_type: Mapped[str] = mapped_column(String(100))
     size_bytes: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+
+class WorkerBeat(Base):
+    """워커 하나 — **살아 있다는 신호**와 지금 하는 일.
+
+    워커는 작업을 하는 동안에도(지그 하나가 몇 분) 따로 도는 줄에서 신호를 적는다. 신호가 오래
+    끊기면 그 워커는 죽은 것이고, 잡고 있던 작업은 되살린다(`services.requeue_stale`)."""
+
+    __tablename__ = "workers"
+
+    id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    """`호스트:pid` — 작업의 `worker_id` 와 같은 이름."""
+    hostname: Mapped[str] = mapped_column(String(120), default="", server_default="")
+    pid: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    version: Mapped[str] = mapped_column(String(40), default="", server_default="")
+    state: Mapped[str] = mapped_column(String(20), default="idle", server_default="idle")
+    """idle(기다림) · busy(작업 중) · stopping(끝내는 중) · stopped(멈춤)."""
+    current_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )

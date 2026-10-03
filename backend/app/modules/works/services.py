@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -17,7 +18,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.core import pipeline
+from app.core import pipeline, shape_index
 from app.core.geometry import GeometryError
 from app.core.options import JigOptions
 from app.core.planning import PlanningError
@@ -33,7 +34,7 @@ from app.modules.jobs.models import Artifact, Job
 from app.modules.parts.models import Part, PartVersion
 from app.modules.works.models import VERSION_SOURCES, WORK_KINDS, Work, WorkVersion
 from app.modules.works.schemas import PromoteJigOut, VersionOut, WorkOut, WorkSummaryOut
-from app.shared import filestore, folders
+from app.shared import filestore, folders, shape_search
 from app.shared.errors import AppError, Forbidden, NotFound, code
 
 logger = logging.getLogger(__name__)
@@ -196,6 +197,7 @@ def work_summary(db: Session, work: Work) -> WorkSummaryOut:
         created_at=work.created_at,
         updated_at=work.updated_at,
         deleted_at=work.deleted_at,
+        shape=shape_search.latest_shape(db, current.job_id if current else None),
     )
 
 
@@ -223,6 +225,7 @@ def list_works(
     subfolders: bool = True,
     year: int | None = None,
     order: str = "updated",
+    shape: shape_search.ShapeFilter | None = None,
 ) -> tuple[list[Work], int]:
     """내 작업 — 이름 · 설명으로 찾고(`query`), 꼬리표 · 종류로 거른다. `trashed` 면 지운
     것만. `folder` 를 주면 그 폴더(`subfolders` 면 그 아래까지), `year` 면 그해에 만든 것.
@@ -241,6 +244,10 @@ def list_works(
     base = folders.narrowed(base, Work.folder, folder, subfolders, _BAD_FOLDER)
     if year is not None:
         base = base.where(func.extract("year", Work.created_at) == year)
+    if shape is not None:
+        base = shape_search.narrowed(
+            base, shape, model=Work, version=WorkVersion, owner=WorkVersion.work_id
+        )
     total = int(db.scalar(select(func.count()).select_from(base.subquery())) or 0)
     # 연도별로 묶어 볼 때는 만든 날짜 순이어야 같은 해가 한데 모인다.
     newest = Work.created_at.desc() if order == "created" else Work.updated_at.desc()
@@ -318,8 +325,15 @@ def restore_work(db: Session, work: Work) -> Work:
     return work
 
 
-def duplicate_work(db: Session, work: Work, *, by: User, name: str | None) -> Work:
-    """현재 도면으로 **새 작업** — 종류 · 꼬리표 · 잡는 부품을 따라가고, 버전은 1 부터."""
+def duplicate_work(
+    db: Session, work: Work, *, by: User, name: str | None, conditions: bool = False
+) -> Work:
+    """현재 도면으로 **새 작업** — 종류 · 꼬리표 · 폴더 · 잡는 부품을 따라가고, 버전은 1 부터.
+
+    `conditions` 면 **해석 조건도** 새 버전 1 에 복사한다(경계 · 하중 · 접촉 · 물성 …). 고르게
+    둔 까닭: 변형을 그릴 때는 같은 조건으로 DOE 를 돌리는 일이 흔하지만, 다른 부품의 출발점으로
+    복제할 때는 옛 조건의 선택 그룹이 엉뚱한 면을 가리킨다. 조건의 선택 그룹은 좌표 · 규칙이라
+    작업에 묶이지 않아 그대로 옮겨도 된다."""
     version = current_version(db, work)
     made = create_work(
         db,
@@ -336,6 +350,10 @@ def duplicate_work(db: Session, work: Work, *, by: User, name: str | None) -> Wo
     made.folder = work.folder
     made.jig_options = dict(work.jig_options or {})
     made.unit_system = work.unit_system
+    if conditions and version is not None and version.conditions:
+        first = current_version(db, made)
+        if first is not None:
+            first.conditions = deepcopy(version.conditions)
     db.commit()
     db.refresh(made)
     return made
@@ -850,7 +868,10 @@ def run_jig_job(
         for key, path in result.files.items()
         if key in _ARTIFACT_KINDS
     ]
-    return registry.Outcome(summary=result.summary(), artifacts=artifacts)
+    summary = result.summary()
+    # 형상으로 찾을 수 있게 — 지그 부품 전부(제품 제외)와 같은 지그를 그린 레시피로.
+    summary["shape"] = shape_index.safe_index(result.jig, result.recipe)
+    return registry.Outcome(summary=summary, artifacts=artifacts)
 
 
 # --- 승격 ---------------------------------------------------------------------

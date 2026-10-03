@@ -209,3 +209,181 @@ test('**조건 바꿔 보기**와 **물성 배율**이 고르기 · 배율 인�
   })
   expect(created.factors).toContainEqual({ name: '탄성계수 배율 · 블록', mode: 'scale', bodies: ['블록'], property: '탄성계수', values: [0.9, 1.1] })
 })
+
+test('제약식을 적으면 미리보기가 거른 수와 제약마다 걸린 수를 보여 주고, 만들 때 함께 보낸다', async () => {
+  const calls: { url: string; body: Record<string, unknown> | null }[] = []
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input)
+    const body = init?.body ? JSON.parse(String(init.body)) : null
+    calls.push({ url, body })
+    const filtered = Array.isArray(body?.constraints) && body.constraints.length > 0
+    const payload = url.endsWith('/doe/preview')
+      ? { count: filtered ? 4 : 6, requested: 6, max: 200, max_samples: 500, too_many: false, points: [], varying: ['두께'], rejected: filtered ? 2 : 0, candidates: 6, hits: filtered ? [2] : [], shortfall: 0 }
+      : { id: 'study-1' }
+    return new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  })
+  const onCreated = vi.fn()
+  render(<DoeForm recipe={RECIPE} onCreated={onCreated} />)
+  fireEvent.click(screen.getAllByRole('combobox')[0])
+  fireEvent.click(await screen.findByRole('option', { name: '값 목록' }))
+  fireEvent.change(screen.getByLabelText('두께 값 목록'), { target: { value: '4, 8, 12' } })
+  fireEvent.click(screen.getByRole('button', { name: '+ 제약 더하기' }))
+  fireEvent.change(screen.getByLabelText('제약 1'), { target: { value: '길이 >= 10 * 두께' } })
+
+  await waitFor(() => expect(screen.getByText(/6 개 중 2 개를 제약이 걸렀습니다/)).toBeInTheDocument())
+  expect(screen.getByText('2개 걸림')).toBeInTheDocument()
+  const asked = calls.filter((c) => c.url.endsWith('/doe/preview')).at(-1)!.body!
+  expect(asked.constraints).toEqual(['길이 >= 10 * 두께'])
+  expect(asked.recipe).toEqual(RECIPE)
+
+  fireEvent.change(screen.getByLabelText('이름'), { target: { value: '제약 훑기' } })
+  fireEvent.click(screen.getByRole('button', { name: '만들기' }))
+  await waitFor(() => expect(onCreated).toHaveBeenCalledWith('study-1'))
+  const made = calls.find((c) => c.url.endsWith('/doe') && c.body?.name === '제약 훑기')!.body!
+  expect(made.constraints).toEqual(['길이 >= 10 * 두께'])
+})
+
+test('끝 점을 미리 만들어 보면 실패 · 건너뜀 · 그룹 어긋남과 걸릴 시간을 보여 준다', async () => {
+  const calls: { url: string; body: Record<string, unknown> | null }[] = []
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input)
+    const body = init?.body ? JSON.parse(String(init.body)) : null
+    calls.push({ url, body })
+    const payload = url.endsWith('/doe/preview')
+      ? { count: 120, max: 200, max_samples: 500, too_many: false, points: [], varying: ['두께'] }
+      : url.endsWith('/doe/probe')
+        ? {
+            mean_ms: 2000,
+            setup_ms: 0,
+            regions: ['고정면'],
+            points: [
+              { label: '가운데', params: { 두께: 8 }, status: 'ok', error: '', ms: 2000, unresolved: [], drift: [], interference: null, solids: 1, faces: 10, warnings: [] },
+              { label: '두께 최소', params: { 두께: 0 }, status: 'failed', error: '높이가 0 입니다', ms: 5 },
+              { label: '두께 최대', params: { 두께: 12 }, status: 'ok', error: '', ms: 2000, unresolved: ['고정면'], drift: [{ name: '하중면', distance: 3.5 }], interference: null, solids: 2, faces: 12, warnings: [] },
+            ],
+          }
+        : {}
+    return new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  })
+  render(<DoeForm recipe={RECIPE} workId="w1" onCreated={() => {}} />)
+  fireEvent.click(screen.getAllByRole('combobox')[0])
+  fireEvent.click(await screen.findByRole('option', { name: '값 목록' }))
+  fireEvent.change(screen.getByLabelText('두께 값 목록'), { target: { value: '0, 8, 12' } })
+  await waitFor(() => expect(screen.getByText('120')).toBeInTheDocument())
+
+  fireEvent.click(screen.getByRole('button', { name: '끝 점 미리 만들어 보기' }))
+  expect(await screen.findByText(/2 개에 문제가 있습니다/)).toBeInTheDocument()
+  expect(screen.getByText(/실패 — 높이가 0 입니다/)).toBeInTheDocument()
+  expect(screen.getByText(/못 찾은 그룹: 고정면/)).toBeInTheDocument()
+  expect(screen.getByText(/하중면 이 예측 자리에서 3.50 mm 벗어남/)).toBeInTheDocument()
+  expect(screen.getByText(/바디 1 → 2/)).toBeInTheDocument()
+  // 한 점 2초 × 120점 = 4분.
+  expect(screen.getByText(/설계점 120 개면 약 4 분/)).toBeInTheDocument()
+  const asked = calls.find((c) => c.url.endsWith('/doe/probe'))!.body!
+  expect(asked.work_id).toBe('w1')
+
+  // 설정을 바꾸면 옛 결과라고 말한다.
+  fireEvent.change(screen.getByLabelText('두께 값 목록'), { target: { value: '2, 8, 12' } })
+  expect(await screen.findByText(/설정이 바뀌었습니다/)).toBeInTheDocument()
+})
+
+test('형상 점검 기준은 바꾼 것만 보낸다', async () => {
+  const calls = mockApi(3)
+  render(<DoeForm recipe={RECIPE} onCreated={() => {}} />)
+  fireEvent.click(screen.getAllByRole('combobox')[0])
+  fireEvent.click(await screen.findByRole('option', { name: '값 목록' }))
+  fireEvent.change(screen.getByLabelText('두께 값 목록'), { target: { value: '4, 8, 12' } })
+  fireEvent.change(screen.getByLabelText('최소 벽 두께 기준'), { target: { value: '1.5' } })
+  fireEvent.change(screen.getByLabelText('이름'), { target: { value: '점검' } })
+  await waitFor(() => expect(screen.getByRole('button', { name: '만들기' })).not.toBeDisabled())
+  fireEvent.click(screen.getByRole('button', { name: '만들기' }))
+  await waitFor(() => expect(calls.some((c) => c.url.endsWith('/doe'))).toBe(true))
+  const made = calls.find((c) => c.url.endsWith('/doe'))!.body as Record<string, unknown>
+  expect(made.checks).toEqual({ min_wall: 1.5 })
+})
+
+test('표 직접 넣기 — 붙여 넣은 표를 줄 그대로 보내고, 표에 없는 변수는 고정이다', async () => {
+  const calls = mockApi(2)
+  render(<DoeForm recipe={RECIPE} onCreated={() => {}} />)
+  fireEvent.click(screen.getByLabelText('방법'))
+  fireEvent.click(await screen.findByRole('option', { name: '표 직접 넣기 (CSV)' }))
+  expect(screen.getByText(/설계점 표를 붙여 넣거나/)).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('설계점 표 (CSV)'), { target: { value: 'point\t두께\n1\t6.333\n2\t4\n' } })
+  expect(screen.getByText(/2 줄 · 열: 두께/)).toBeInTheDocument()
+  expect(screen.getByText('표의 값')).toBeInTheDocument()
+
+  await waitFor(() => expect(calls.some((c) => c.url.endsWith('/doe/preview'))).toBe(true))
+  const asked = calls.filter((c) => c.url.endsWith('/doe/preview')).at(-1)!.body as Record<string, unknown>
+  expect(asked.method).toBe('table')
+  expect(asked.table).toEqual([{ 두께: '6.333' }, { 두께: '4' }])
+  expect(asked.factors).toEqual([
+    { name: '두께', mode: 'fixed', value: 6 },
+    { name: '길이', mode: 'fixed', value: 90 },
+  ])
+
+  // 도면에 없는 열은 미리 말한다.
+  fireEvent.change(screen.getByLabelText('설계점 표 (CSV)'), { target: { value: '높이\n3\n' } })
+  expect(screen.getByText('도면에 없는 변수: 높이')).toBeInTheDocument()
+})
+
+test('측정값 — 종류를 고르면 이름이 붙고, 선택 그룹은 조건의 것에서 고르며, 만들 때 함께 보낸다', async () => {
+  const calls = mockApi(3)
+  const conditions = { named_selections: [{ name: '바닥', entity: 'face', select: {} }, { name: '블록', entity: 'body', select: {} }] }
+  render(<DoeForm recipe={RECIPE} conditions={conditions} onCreated={() => {}} />)
+  fireEvent.click(screen.getAllByRole('combobox')[0])
+  fireEvent.click(await screen.findByRole('option', { name: '값 목록' }))
+  fireEvent.change(screen.getByLabelText('두께 값 목록'), { target: { value: '4, 8, 12' } })
+
+  fireEvent.change(screen.getByLabelText('측정값 더하기'), { target: { value: 'volume' } })
+  fireEvent.change(screen.getByLabelText('측정값 더하기'), { target: { value: 'region_area' } })
+  fireEvent.change(screen.getByLabelText('측정값 더하기'), { target: { value: 'expr' } })
+  expect(screen.getByLabelText('측정값 1 이름')).toHaveValue('부피')
+  // 바디 그룹은 넓이를 잴 수 없다 — 면 그룹만 고른다.
+  const group = screen.getByLabelText('측정값 2 그룹')
+  expect([...group.querySelectorAll('option')].map((one) => one.textContent)).toEqual(['그룹…', '바닥'])
+  fireEvent.change(group, { target: { value: '바닥' } })
+  fireEvent.change(screen.getByLabelText('측정값 3 식'), { target: { value: '부피 * 7.85e-6' } })
+  fireEvent.change(screen.getByLabelText('측정값 3 이름'), { target: { value: '질량_kg' } })
+
+  fireEvent.change(screen.getByLabelText('이름'), { target: { value: '측정' } })
+  await waitFor(() => expect(screen.getByRole('button', { name: '만들기' })).not.toBeDisabled())
+  fireEvent.click(screen.getByRole('button', { name: '만들기' }))
+  await waitFor(() => expect(calls.some((c) => c.url.endsWith('/doe'))).toBe(true))
+  const made = calls.find((c) => c.url.endsWith('/doe'))!.body as Record<string, unknown>
+  expect(made.measures).toEqual([
+    { name: '부피', kind: 'volume' },
+    { name: '그룹_넓이', kind: 'region_area', region: '바닥' },
+    { name: '질량_kg', kind: 'expr', expr: '부피 * 7.85e-6' },
+  ])
+})
+
+test('Sobol · 중심 합성 — 방식마다 언제 쓰는지 알려 주고, Sobol 은 표본 수 · 시드를 받는다', async () => {
+  const calls = mockApi(9)
+  render(<DoeForm recipe={RECIPE} onCreated={() => {}} />)
+  fireEvent.click(screen.getAllByRole('combobox')[0])
+  fireEvent.click(await screen.findByRole('option', { name: '값 목록' }))
+  fireEvent.change(screen.getByLabelText('두께 값 목록'), { target: { value: '4, 8, 12' } })
+  fireEvent.click(screen.getByLabelText('방법'))
+  fireEvent.click(await screen.findByRole('option', { name: 'Sobol 수열' }))
+  expect(screen.getByText(/같은 수열을 이어 뽑아/)).toBeInTheDocument()
+  expect(screen.getByLabelText(/표본 수/)).toBeInTheDocument()
+  await waitFor(() => expect(calls.some((c) => (c.body as Record<string, unknown> | null)?.method === 'sobol')).toBe(true))
+
+  fireEvent.click(screen.getByLabelText('방법'))
+  fireEvent.click(await screen.findByRole('option', { name: '중심 합성 (CCF)' }))
+  expect(screen.getByText(/2차 응답면/)).toBeInTheDocument()
+  expect(screen.queryByLabelText(/표본 수/)).toBeNull()
+})
+
+test('「중간면 STEP 도」 를 켜면 점마다 중간면을 내라고 보낸다', async () => {
+  const calls = mockApi(5)
+  render(<DoeForm recipe={RECIPE} onCreated={() => {}} />)
+  fireEvent.click(screen.getAllByRole('combobox')[0])
+  fireEvent.click(await screen.findByRole('option', { name: '구간' }))
+  fireEvent.change(screen.getByLabelText('이름'), { target: { value: 'shell' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: /중간면 STEP 도/ }))
+  await waitFor(() => expect(screen.getByRole('button', { name: '만들기' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: '만들기' }))
+  await waitFor(() => expect(calls.some((c) => c.url.endsWith('/doe'))).toBe(true))
+  expect(calls.find((c) => c.url.endsWith('/doe'))!.body).toMatchObject({ outputs: ['midsurface'] })
+})

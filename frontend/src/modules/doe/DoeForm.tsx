@@ -15,7 +15,12 @@ import { appliedTo, conditionsApi } from '@/modules/conditions/api'
 import type { MaterialItem } from '@/modules/conditions/api'
 import { choiceFactor, choiceTargets, factorName, propertyNames } from '@/modules/doe/conditionFactors'
 import { doeApi } from '@/modules/doe/api'
-import type { DoeStudy, Factor, Preview } from '@/modules/doe/api'
+import { CHECK_DEFAULTS, SAMPLED } from '@/modules/doe/api'
+import type { Checks, DoeMethod, DoeStudy, Factor, Measure, Preview, ProbeResult } from '@/modules/doe/api'
+import { formatTable, parseTable } from '@/modules/doe/csvTable'
+import { MeasuresInput } from '@/modules/doe/MeasuresInput'
+import { PointsScatter, ScatterDetails } from '@/modules/doe/PointsScatter'
+import { ProbePanel } from '@/modules/doe/ProbePanel'
 import { ApiError } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { Button } from '@/shared/components/ui/button'
@@ -53,6 +58,14 @@ function materialKey(one: MaterialItem, all: MaterialItem[]): string {
 function refText(one: MaterialItem, key: string): string {
   const value = one.ref?.[key]
   return value === undefined || value === null ? '' : String(value)
+}
+
+/** 방식마다 언제 쓰나. */
+const METHOD_HINTS: Partial<Record<DoeMethod, string>> = {
+  sobol: 'Sobol — 공간을 고르게 채우는 수열입니다. 나중에 「점 더하기」 로 같은 수열을 이어 뽑아 빈 곳을 메웁니다. 표본 수는 2의 거듭제곱(8 · 16 · 32 …)이 가장 고릅니다.',
+  oat: '하나씩 바꾸기 — 가운데 한 점에서 변수마다 제 값들을 하나씩 바꿉니다(나머지는 가운데). 어느 변수가 중요한지 먼저 고를 때.',
+  ccd: '중심 합성(면 중심) — 모서리 2^k + 축 2k + 가운데. 범위 밖으로 나가지 않습니다. 해석 쪽이 2차 응답면을 만들 때의 표준입니다. 수 변수만.',
+  bbd: 'Box-Behnken — 변수 둘씩 끝, 나머지는 가운데 + 가운데 한 점. 모두 끝인 모서리를 만들지 않아 끝끼리 겹치면 깨지는 형상에 맞습니다. 수 변수 셋 이상.',
 }
 
 /** 서버의 기본 가공 단위와 같다(core/doe.py DEFAULT_RESOLUTION). */
@@ -118,14 +131,28 @@ export function DoeForm({
   defaultName?: string
   onCreated: (id: string) => void
   /** 지난 DOE 의 설정으로 시작할 때 — 「설정 바꿔 다시 만들기」. 도면에 없어진 변수는 버린다. */
-  initial?: Pick<DoeStudy, 'name' | 'description' | 'factors' | 'method' | 'samples' | 'seed'>
+  initial?: Pick<DoeStudy, 'name' | 'description' | 'factors' | 'method' | 'samples' | 'seed' | 'constraints' | 'checks' | 'measures'> & Partial<Pick<DoeStudy, 'points' | 'outputs'>>
   /** 「치수가 없다」 일 때 편집기로 보내 준다 — 글로만 알려 주면 못 찾는다. */
   onEditRecipe?: () => void
 }) {
   const params = Object.entries((recipe.params ?? {}) as Record<string, number>)
   const [name, setName] = useState(initial?.name ?? defaultName ?? '')
   const [description, setDescription] = useState(initial?.description ?? '')
-  const [method, setMethod] = useState<'factorial' | 'lhs'>(initial?.method ?? 'factorial')
+  const [method, setMethod] = useState<DoeMethod>(initial?.method ?? 'factorial')
+  /**
+   * 「표 직접 넣기」 의 표(CSV · 엑셀에서 복사한 탭) — 지난 DOE 가 표였으면 그 표를 되돌려 놓는다.
+   * 줄 순서가 설계점 번호다.
+   */
+  const [tableText, setTableText] = useState(() => {
+    if (initial?.method !== 'table' || !initial.points) return ''
+    const columns = initial.factors.filter((one) => one.mode !== 'fixed').map((one) => one.name)
+    return formatTable(
+      columns,
+      initial.points.filter((one) => one.number <= initial.samples).map((one) => one.params),
+    )
+  })
+  const tableMode = method === 'table'
+  const parsed = parseTable(tableText)
   // 숫자 칸은 비울 수 있다(null) — 다 지우고 처음부터 치는 것을 막으면 첫 자리부터 못 친다.
   // 비어 있으면 미리보기를 안 묻고 「만들기」 가 막힌다.
   const [samples, setSamples] = useState<number | null>(initial?.samples ?? 20)
@@ -189,18 +216,59 @@ export function DoeForm({
       property: one.property,
       values: one.values,
     }))
+  /** 변수끼리의 조건 — 「간격 > 2 * 지름」. 빈 줄은 보내지 않는다. */
+  const [constraints, setConstraints] = useState<string[]>(initial?.constraints ?? [])
+  const rules = constraints.map((one) => one.trim()).filter(Boolean)
+  /** 점마다 잴 값 — 고른 것만 표의 열이 된다. */
+  const [measures, setMeasures] = useState<Measure[]>(initial?.measures ?? [])
+  /** 점마다 중간면 STEP 도 — 얇은 판을 셸 요소로 푸는 쪽이 받는다. */
+  const [midsurface, setMidsurface] = useState(Boolean(initial?.outputs?.includes('midsurface')))
+  /** 측정값이 부를 선택 그룹 — 해석 조건의 것(바디 그룹은 빼고). */
+  const regions = ((conditions?.named_selections ?? []) as { name?: string; entity?: string }[])
+    .filter((one) => one.name && one.entity !== 'body')
+    .map((one) => one.name as string)
+  /** 형상 점검 기준(mm) — 칸은 늘 다 보이고, 서버에는 기본값과 다른 것만 보낸다. */
+  const [checks, setChecks] = useState<Required<Checks>>({ enabled: true, ...CHECK_DEFAULTS, ...initial?.checks })
+  const changedChecks: Checks = Object.fromEntries(
+    Object.entries(checks).filter(([key, value]) => (key === 'enabled' ? value === false : value !== CHECK_DEFAULTS[key as keyof typeof CHECK_DEFAULTS])),
+  )
   const [preview, setPreview] = useState<Preview | null>(null)
+  const [previewError, setPreviewError] = useState<ApiError | Error | null>(null)
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [busy, setBusy] = useState(false)
+  /** 끝 점 미리 만들어 보기 — 결과와 그때의 설정(설정이 바뀌면 옛 결과라고 말한다). */
+  const [probe, setProbe] = useState<{ result: ProbeResult; signature: string } | null>(null)
+  const [probing, setProbing] = useState(false)
+  const [probeError, setProbeError] = useState<ApiError | Error | null>(null)
 
-  const list = [...Object.values(factors), ...swapFactors, ...choiceFactors, ...scaleFactors]
-  const varying = list.filter((one) => one.mode !== 'fixed')
+  /**
+   * 보낼 인자 — 표로 넣으면 표가 값을 주는 변수는 서버가 표에 맞추고, 표에 없는 치수는 **고정**
+   * 이다(구간 · 값 목록으로 둔 것도). 표가 곧 설계점이기 때문이다.
+   */
+  const list = [
+    ...Object.values(factors).map((one) => (tableMode && one.mode !== 'fixed' ? { name: one.name, mode: 'fixed' as const, value: one.value ?? Number(recipe.params?.[one.name] ?? 0) } : one)),
+    ...swapFactors,
+    ...choiceFactors,
+    ...scaleFactors,
+  ]
+  const varying: Factor[] = tableMode ? parsed.columns.map((name) => ({ name, mode: 'list' })) : list.filter((one) => one.mode !== 'fixed')
+  /** 표에 있는데 도면 변수도 재료 · 조건 인자도 아닌 열 — 서버가 「레시피에 없는 치수」 로 거절한다. */
+  const strangeColumns = parsed.columns.filter((name) => !(name in factors) && !list.some((one) => one.name === name))
   /** 빈 칸이 있으면 아직 쓰는 중이다 — 서버에 묻지도, 만들지도 않는다. */
-  const incomplete =
-    varying.some((one) =>
-      one.mode === 'range' ? one.start == null || one.end == null || one.steps == null : (one.values ?? []).length === 0,
-    ) ||
-    (method === 'lhs' && (samples == null || seed == null))
+  const incomplete = tableMode
+    ? parsed.rows.length === 0
+    : varying.some((one) =>
+        one.mode === 'range' ? one.start == null || one.end == null || one.steps == null : (one.values ?? []).length === 0,
+      ) ||
+      (SAMPLED.includes(method) && (samples == null || seed == null))
+  /** 미리보기 · 만들기 · 미리 만들어 보기가 함께 보내는 계획. */
+  const planBody = {
+    factors: list,
+    method,
+    samples: samples ?? 20,
+    seed: seed ?? 1,
+    ...(tableMode ? { table: parsed.rows } : {}),
+  }
 
   useEffect(() => {
     if (varying.length === 0 || incomplete) {
@@ -208,15 +276,24 @@ export function DoeForm({
       return
     }
     let alive = true
+    // 제약식은 쓰는 중에 틀린 것이 보통이다 — 오류는 표 아래에 적고 개수만 지운다.
     void doeApi
-      .preview({ factors: list, method, samples: samples ?? 20, seed: seed ?? 1 })
-      .then((got) => alive && setPreview(got))
-      .catch(() => alive && setPreview(null))
+      .preview({ ...planBody, ...(rules.length ? { constraints: rules, recipe } : {}) })
+      .then((got) => {
+        if (!alive) return
+        setPreview(got)
+        setPreviewError(null)
+      })
+      .catch((caught) => {
+        if (!alive) return
+        setPreview(null)
+        setPreviewError(caught instanceof Error ? caught : null)
+      })
     return () => {
       alive = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(list), method, samples, seed, incomplete])
+  }, [JSON.stringify(planBody), incomplete, JSON.stringify(rules)])
 
   /**
    * 방식을 바꿀 때 칸의 기본값을 **상태에도** 넣는다. 화면만 기본값을 보여 주고 상태는 비워 두면,
@@ -248,6 +325,30 @@ export function DoeForm({
     setFactors((all) => ({ ...all, [key]: { ...all[key], ...patch } }))
   }
 
+  /** 지금 설정의 지문 — 미리 만들어 본 결과가 지금 것인지 가린다. */
+  const signature = JSON.stringify([planBody, rules, changedChecks, measures])
+
+  async function tryEnds() {
+    setProbing(true)
+    setProbeError(null)
+    try {
+      const result = await doeApi.probe({
+        ...planBody,
+        recipe,
+        constraints: rules,
+        checks: changedChecks,
+        measures,
+        work_id: workId ?? null,
+        ...(sendConditions && conditions ? { conditions } : {}),
+      })
+      setProbe({ result, signature })
+    } catch (caught) {
+      setProbeError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+    } finally {
+      setProbing(false)
+    }
+  }
+
   async function run() {
     setBusy(true)
     setError(null)
@@ -256,10 +357,11 @@ export function DoeForm({
         name,
         description,
         recipe,
-        factors: list,
-        method,
-        samples: samples ?? 20,
-        seed: seed ?? 1,
+        ...planBody,
+        constraints: rules,
+        checks: changedChecks,
+        measures,
+        outputs: midsurface ? ['midsurface'] : [],
         work_id: workId ?? null,
         ...(sendConditions && conditions ? { conditions } : {}),
       })
@@ -314,6 +416,23 @@ export function DoeForm({
         </div>
         {params.map(([key]) => {
           const factor = factors[key]
+          if (tableMode) {
+            // 표로 넣을 때 — 표에 있는 변수는 표가 값을 주고, 없는 것은 고정값 하나.
+            const fromTable = parsed.columns.includes(key)
+            return (
+              <div key={key} className="grid grid-cols-[minmax(6rem,1fr)_auto_minmax(0,3fr)] items-center gap-3 border-b px-3 py-2 last:border-b-0">
+                <span className="truncate font-mono text-xs" title={key}>
+                  {key}
+                </span>
+                <span className="text-muted-foreground w-28 text-xs">{fromTable ? '표의 값' : '고정'}</span>
+                {fromTable ? (
+                  <span className="text-muted-foreground font-mono text-[11px]">{[...new Set(parsed.rows.map((row) => row[key]))].slice(0, 8).join(' · ')}</span>
+                ) : (
+                  <Input type="number" step={0.5} value={factor.value ?? ''} onChange={(e) => set(key, { value: numberOrNull(e.target.value) })} className="h-8" aria-label={`${key} 고정값`} />
+                )}
+              </div>
+            )
+          }
           return (
             <div key={key} className="grid grid-cols-[minmax(6rem,1fr)_auto_minmax(0,3fr)] items-center gap-3 border-b px-3 py-2 last:border-b-0">
               <span className="truncate font-mono text-xs" title={key}>
@@ -370,6 +489,87 @@ export function DoeForm({
             </div>
           )
         })}
+      </div>
+
+      {/* 제약식 — 범위만으로는 말이 안 되는 조합(벽이 구멍보다 얇은 판)을 만들기 전에 거른다. */}
+      <div className="rounded-md border" aria-label="제약식">
+        <div className="bg-muted/40 flex items-center gap-3 border-b px-3 py-2 text-xs font-medium">
+          <span>제약식 — 어긴 조합은 만들지 않습니다</span>
+          <button type="button" className="text-muted-foreground hover:text-foreground ml-auto font-normal" onClick={() => setConstraints([...constraints, ''])}>
+            + 제약 더하기
+          </button>
+        </div>
+        {constraints.length === 0 ? (
+          <p className="text-muted-foreground px-3 py-2 text-xs">
+            예: <code>구멍_간격 &gt; 2 * 구멍_지름</code> · <code>4 &lt;= 두께 &lt;= 높이 / 2</code>. 도면의 다른 변수(식으로 정해진 것까지)도 부를 수 있습니다.
+          </p>
+        ) : (
+          constraints.map((text, index) => {
+            const hit = preview?.hits?.[rules.indexOf(text.trim())]
+            return (
+              <div key={index} className="flex items-center gap-2 border-b px-3 py-1.5 last:border-b-0">
+                <span className="text-muted-foreground w-5 text-xs">{index + 1}</span>
+                <Input
+                  value={text}
+                  onChange={(e) => setConstraints(constraints.map((one, i) => (i === index ? e.target.value : one)))}
+                  placeholder="간격 > 2 * 지름"
+                  className="h-8 flex-1 font-mono text-xs"
+                  aria-label={`제약 ${index + 1}`}
+                />
+                {text.trim() && hit !== undefined && (
+                  <span className={`shrink-0 text-xs ${hit > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'}`}>{hit > 0 ? `${hit}개 걸림` : '걸린 것 없음'}</span>
+                )}
+                <button type="button" className="text-muted-foreground hover:text-foreground text-xs" onClick={() => setConstraints(constraints.filter((_, i) => i !== index))} aria-label={`제약 ${index + 1} 빼기`}>
+                  빼기
+                </button>
+              </div>
+            )
+          })
+        )}
+        {constraints.length > 0 && (
+          <p className="text-muted-foreground px-3 py-1.5 text-[11px]">
+            쓸 수 있는 이름: {params.map(([key]) => key).join(', ') || '(없음)'} · 비교 &lt; &lt;= &gt; &gt;= == != · and · or · not
+          </p>
+        )}
+      </div>
+
+      <MeasuresInput value={measures} onChange={setMeasures} regions={regions} />
+
+      <label className="flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs" title="두께가 한결같은 판(판금 · 굽힌 판 · 쉘)이면 점마다 두께 가운데의 면을 STEP 으로 — 표의 mid_file. 판이 아닌 점은 warnings 에 까닭.">
+        <input type="checkbox" checked={midsurface} onChange={(e) => setMidsurface(e.target.checked)} />
+        <span className="font-medium">중간면 STEP 도</span>
+        <span className="text-muted-foreground">— 얇은 판을 셸 요소로 풀 때(점마다 &lt;형상&gt;_mid.step)</span>
+      </label>
+
+      {/* 형상 점검 — 해석이 메시를 못 만들 점(얇은 벽 · 짧은 모서리 · 좁은 면 · 쪼개진 바디)을 표에 적는다. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border px-3 py-2 text-xs" aria-label="형상 점검">
+        <label className="flex items-center gap-1.5 font-medium">
+          <input type="checkbox" checked={checks.enabled} onChange={(e) => setChecks({ ...checks, enabled: e.target.checked })} />
+          형상 점검
+        </label>
+        {(
+          [
+            ['min_wall', '최소 벽 두께'],
+            ['short_edge', '짧은 모서리'],
+            ['narrow_face', '좁은 면'],
+          ] as const
+        ).map(([key, label]) => (
+          <label key={key} className="flex items-center gap-1">
+            <span className="text-muted-foreground">{label}</span>
+            <Input
+              type="number"
+              min={0}
+              step={0.05}
+              disabled={!checks.enabled}
+              value={checks[key]}
+              onChange={(e) => setChecks({ ...checks, [key]: numberOrNull(e.target.value) ?? 0 })}
+              className="h-7 w-20 text-xs"
+              aria-label={`${label} 기준`}
+            />
+            <span className="text-muted-foreground">mm</span>
+          </label>
+        ))}
+        <span className="text-muted-foreground">이보다 작으면 표의 「점검」 에 경고로 적습니다 — 해석이 메시에서 막힐 점을 미리 압니다.</span>
       </div>
 
       {materials.length > 0 && (
@@ -527,17 +727,22 @@ export function DoeForm({
       <div className="flex flex-wrap items-end gap-3">
         <div className="space-y-1">
           <Label htmlFor="doe-method">방법</Label>
-          <Select value={method} onValueChange={(v) => setMethod(v as 'factorial' | 'lhs')}>
+          <Select value={method} onValueChange={(v) => setMethod(v as DoeMethod)}>
             <SelectTrigger id="doe-method" className="w-48">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="factorial">전체 조합 (격자)</SelectItem>
               <SelectItem value="lhs">라틴 하이퍼큐브 (LHS)</SelectItem>
+              <SelectItem value="sobol">Sobol 수열</SelectItem>
+              <SelectItem value="oat">하나씩 바꾸기 (OAT)</SelectItem>
+              <SelectItem value="ccd">중심 합성 (CCF)</SelectItem>
+              <SelectItem value="bbd">Box-Behnken</SelectItem>
+              <SelectItem value="table">표 직접 넣기 (CSV)</SelectItem>
             </SelectContent>
           </Select>
         </div>
-        {method === 'lhs' && (
+        {SAMPLED.includes(method) && (
           <>
             <div className="space-y-1">
               <Label htmlFor="doe-samples">표본 수{preview?.max_samples ? ` (≤ ${preview.max_samples})` : ''}</Label>
@@ -550,26 +755,104 @@ export function DoeForm({
           </>
         )}
         <div className="text-muted-foreground text-xs">
-          {varying.length === 0 ? (
+          {tableMode && parsed.rows.length === 0 ? (
+            '아래에 설계점 표를 붙여 넣거나 CSV 파일을 여세요.'
+          ) : varying.length === 0 ? (
             '바꿀 변수를 하나는 고르세요 — 「구간」 이나 「값 목록」 으로.'
           ) : incomplete ? (
             '빈 칸을 채우면 설계점을 셉니다.'
           ) : preview ? (
-            <span className={preview.too_many ? 'text-destructive' : ''}>
+            <span className={preview.too_many || preview.count === 0 ? 'text-destructive' : ''}>
               설계점 <b>{preview.count}</b> 개{' '}
               {preview.too_many && `— 한 번에 ${preview.max} 개까지 만듭니다(서버 설정 DOE_MAX_POINTS). 단계를 줄이거나, LHS 로 표본 수를 정하세요.`}
+              {!!preview.rejected && (
+                <span className="text-muted-foreground">
+                  {' '}
+                  (후보 {preview.candidates} 개 중 {preview.rejected} 개를 제약이 걸렀습니다)
+                </span>
+              )}
+              {!!preview.shortfall && <span className="text-destructive"> — 제약이 좁아 {preview.shortfall} 개를 못 채웠습니다</span>}
             </span>
+          ) : previewError && (rules.length > 0 || tableMode) ? (
+            <span className="text-destructive">{previewError.message}</span>
           ) : (
             '세는 중…'
           )}
         </div>
-        <Button className="ml-auto" disabled={busy || !name.trim() || varying.length === 0 || incomplete || !!preview?.too_many} onClick={() => void run()}>
+        <Button className="ml-auto" disabled={busy || !name.trim() || varying.length === 0 || incomplete || !!preview?.too_many || preview?.count === 0} onClick={() => void run()}>
           {busy ? '만드는 중…' : '만들기'}
         </Button>
       </div>
-      {method === 'lhs' && (
+      {SAMPLED.includes(method) && (
         <p className="text-muted-foreground text-xs">시드를 적어 두면 <strong>같은 표</strong>를 다시 만들 수 있습니다 — 해석 결과와 형상을 잇는 열쇠입니다.</p>
       )}
+      {/* 설계점 분포 — 만들기 전에 고르게 퍼졌는지, 제약이 어디를 잘랐는지. */}
+      {preview && !preview.too_many && preview.points.length > 0 && varying.length > 0 && (
+        <ScatterDetails summary="설계점 분포 보기 — 고르게 퍼졌는지 · 제약이 어디를 잘랐는지">
+          {() => (
+            <PointsScatter
+              names={varying.map((one) => one.name)}
+              points={[
+                ...(preview.rejected_points ?? []).map((values) => ({ values, status: 'rejected' as const })),
+                ...preview.points.map((values) => ({ values })),
+              ]}
+            />
+          )}
+        </ScatterDetails>
+      )}
+      {/* 방식마다 언제 쓰는지 — 이름만으로는 고를 수 없다. */}
+      {METHOD_HINTS[method] && <p className="text-muted-foreground text-xs">{METHOD_HINTS[method]}</p>}
+      {/* 표 직접 넣기 — 엑셀에서 짠 표 · 해석 쪽 최적화기가 고른 점을 그대로 만든다. */}
+      {tableMode && (
+        <div className="space-y-1.5 rounded-md border p-3" aria-label="설계점 표">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-medium">설계점 표</span>
+            <span className="text-muted-foreground">첫 줄은 변수 이름, 한 줄이 설계점 하나(줄 순서가 번호). 값은 가공 단위로 맞추지 않고 그대로 만듭니다.</span>
+            <label className="text-muted-foreground hover:text-foreground ml-auto cursor-pointer underline">
+              CSV 파일 열기
+              <input
+                type="file"
+                accept=".csv,.tsv,.txt,text/csv"
+                className="sr-only"
+                aria-label="CSV 파일 열기"
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (file) void file.text().then(setTableText)
+                }}
+              />
+            </label>
+          </div>
+          <Textarea
+            value={tableText}
+            onChange={(e) => setTableText(e.target.value)}
+            rows={6}
+            className="font-mono text-xs"
+            placeholder={`${params.map(([key]) => key).join(',')}\n${params.map(([, value]) => value).join(',')}`}
+            aria-label="설계점 표 (CSV)"
+          />
+          <p className="text-muted-foreground text-xs">
+            {parsed.rows.length > 0 ? `${parsed.rows.length} 줄 · 열: ${parsed.columns.join(', ')}` : '엑셀에서 복사해 붙여 넣어도 됩니다(탭으로 나뉜 표).'} 표에 없는 변수는 위 칸의 값으로 고정됩니다.
+          </p>
+          {strangeColumns.length > 0 && <p className="text-destructive text-xs">도면에 없는 변수: {strangeColumns.join(', ')}</p>}
+          {parsed.problems.map((one) => (
+            <p key={one} className="text-xs text-amber-700 dark:text-amber-400">
+              {one}
+            </p>
+          ))}
+        </div>
+      )}
+      {/* 끝 점 미리 만들어 보기 — 다 돌리기 전에 범위의 끝에서 깨지는지 · 그룹이 어긋나는지. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="outline" size="sm" disabled={probing || varying.length === 0 || incomplete} onClick={() => void tryEnds()}>
+          {probing ? '만들어 보는 중…' : '끝 점 미리 만들어 보기'}
+        </Button>
+        <span className="text-muted-foreground text-xs">
+          가운데 · 모두 최소 · 모두 최대 · 변수마다 최소 · 최대만 먼저 만들어 실패 · 그룹 어긋남 · 겹침 · 걸리는 시간을 봅니다. 파일은 쓰지 않습니다.
+        </span>
+        {probe && probe.signature !== signature && <span className="text-xs text-amber-700 dark:text-amber-400">설정이 바뀌었습니다 — 다시 만들어 보세요.</span>}
+      </div>
+      <ErrorNotice error={probeError} />
+      {probe && <ProbePanel result={probe.result} recipe={recipe} names={varying.map((one) => one.name)} measures={measures.map((one) => one.name)} count={preview?.count ?? null} />}
       <ErrorNotice error={error} />
     </div>
   )

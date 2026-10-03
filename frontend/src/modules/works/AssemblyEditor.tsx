@@ -12,12 +12,14 @@ import { Boxes, ExternalLink, Layers, Pencil, Plus, Trash2 } from 'lucide-react'
 import { lazy, Suspense, useMemo, useState } from 'react'
 
 import { cadApi } from '@/modules/cad/api'
-import type { Recipe } from '@/modules/cad/api'
+import type { Mate, Recipe } from '@/modules/cad/api'
 import { NumberField } from '@/modules/cad/NumberField'
 import { ParamsPanel } from '@/modules/cad/ParamsPanel'
 import { useRecipeEmit } from '@/modules/cad/useRecipeEmit'
 import { useRecipeMesh } from '@/modules/cad/useRecipeMesh'
 import { jigsApi } from '@/modules/jigs/api'
+import { MatesPanel } from '@/modules/works/MatesPanel'
+import type { MateDraft } from '@/modules/works/MatesPanel'
 import { partsApi } from '@/modules/parts/api'
 import { worksApi } from '@/modules/works/api'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
@@ -29,6 +31,7 @@ import { Input } from '@/shared/components/ui/input'
 import { Skeleton } from '@/shared/components/ui/skeleton'
 import { useFillHeight } from '@/shared/hooks/useFillHeight'
 import { useResource } from '@/shared/hooks/useResource'
+import type { MeshFace } from '@/shared/viewer/PickViewer'
 
 const PickViewer = lazy(() => import('@/shared/viewer/PickViewer'))
 
@@ -41,6 +44,8 @@ type Placed = Record<string, unknown> & {
   params?: Record<string, number | string>
   translate?: (number | string)[]
   rotate?: (number | string)[]
+  /** 조립 구속 — 주면 translate · rotate 는 처음 자리가 된다. */
+  mates?: Mate[]
 }
 
 const AXES = ['X', 'Y', 'Z'] as const
@@ -88,6 +93,10 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
   /** 3D 손잡이 — 고른 구성품을 화살표로 옮기거나 고리로 돌린다. */
   const [dragMode, setDragMode] = useState<'translate' | 'rotate'>('translate')
   const [dragNote, setDragNote] = useState<string | null>(null)
+  /** 만드는 중인 구속과 지금 3D 에서 고르는 쪽(이것 · 상대). 고르는 동안은 손잡이를 뗀다. */
+  const [draft, setDraft] = useState<MateDraft | null>(null)
+  const [picking, setPicking] = useState<'this' | 'to' | null>(null)
+  const [pickNote, setPickNote] = useState<string | null>(null)
   const params = (value.params ?? {}) as Record<string, number>
 
   const works = useResource(() => worksApi.list(0, 100), [])
@@ -95,7 +104,7 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
   const jigs = useResource(() => jigsApi.list({ limit: 100 }), [])
 
   const emit = useRecipeEmit(value, onChange)
-  const { mesh, problems, drawing, error, interference } = useRecipeMesh(value, { interference: true })
+  const { mesh, summary, problems, drawing, error, interference } = useRecipeMesh(value, { interference: true })
   /** 겹친 구성품 — 3D 에서 빨갛게. 목록에서도 표시한다. */
   const colliding = useMemo(() => new Set((interference?.items ?? []).filter((one) => !one.ok).flatMap((one) => [one.a, one.b])), [interference])
   const partColors = useMemo(
@@ -166,13 +175,56 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
   }
 
   function update(id: string, patch: Partial<Placed>) {
-    put(placed.map((one) => (one.id === id ? { ...one, ...patch } : one)))
+    // 이름이 바뀌면 그것을 상대로 건 구속도 따라간다.
+    const renamed = patch.id && patch.id !== id ? patch.id : null
+    put(
+      placed.map((one) => {
+        const next = one.id === id ? { ...one, ...patch } : one
+        if (!renamed || !next.mates) return next
+        return { ...next, mates: next.mates.map((mate) => (mate.to === id ? { ...mate, to: renamed } : mate)) }
+      }),
+    )
   }
 
   function remove(id: string) {
-    put(placed.filter((other) => other.id !== id))
+    // 뺀 것을 상대로 건 구속은 함께 뺀다 — 남기면 「앞에 없는 피처」 로 도면이 깨진다.
+    put(placed.filter((other) => other.id !== id).map((one) => (one.mates?.some((mate) => mate.to === id) ? { ...one, mates: one.mates.filter((mate) => mate.to !== id) } : one)))
     if (selected === id) setSelected(null)
-    if (editing === id) setEditing(null)
+    if (editing === id) closeEditor()
+  }
+
+  function closeEditor() {
+    setEditing(null)
+    setDraft(null)
+    setPicking(null)
+    setPickNote(null)
+  }
+
+  /** 구속을 고르는 중에 3D 의 면을 눌렀다 — 서버가 그 면을 질의로 바꿔 준다. */
+  async function pickedFace(face: MeshFace) {
+    if (!editing || !draft || !picking) return
+    const before = placed.slice(0, placed.findIndex((one) => one.id === editing)).map((one) => one.id)
+    if (picking === 'this' && face.part !== editing) {
+      setPickNote('이 구성품의 면을 누르세요.')
+      return
+    }
+    if (picking === 'to' && (!face.part || !before.includes(face.part))) {
+      setPickNote(face.part === editing ? '상대는 다른 구성품입니다.' : '구속은 앞에 놓인 구성품에만 겁니다(목록에서 위에 있는 것).')
+      return
+    }
+    try {
+      const got = await cadApi.matePick(value, { node: editing, side: picking, target: picking === 'to' ? face.part : undefined, point: face.center })
+      setPickNote(null)
+      if (picking === 'this') {
+        setDraft({ ...draft, this: got.select })
+        setPicking(draft.to ? null : 'to')
+      } else {
+        setDraft({ ...draft, to: face.part, select: got.select })
+        setPicking(null)
+      }
+    } catch (caught) {
+      setPickNote(caught instanceof Error ? caught.message : '고르지 못했습니다')
+    }
   }
 
   const editingNode = placed.find((one) => one.id === editing) ?? null
@@ -227,6 +279,8 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
                         onClick={() => {
                           setSelected(one.id)
                           setEditing(one.id)
+                          setDraft(null)
+                          setPicking(null)
                         }}
                       >
                         <Pencil className="size-3.5" />
@@ -343,10 +397,11 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
           <Suspense fallback={<Skeleton className="h-full w-full" />}>
             <PickViewer
               mesh={mesh}
-              mode="none"
+              mode={picking ? 'face' : 'none'}
+              onPickFace={(face) => void pickedFace(face)}
               partColors={partColors}
-              emphasis={selected}
-              dragPart={selected}
+              emphasis={picking === 'to' ? null : selected}
+              dragPart={picking ? null : selected}
               dragMode={dragMode}
               onMoved={moved}
               className="h-full w-full rounded-md border"
@@ -386,7 +441,7 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
       </div>
 
       {/* 편집 창 — 3D 를 가리지 않게 오른쪽에 붙고(모달 아님), 고치는 대로 3D 가 따라온다. */}
-      <Dialog open={editingNode !== null} modal={false} onOpenChange={(open) => !open && setEditing(null)}>
+      <Dialog open={editingNode !== null} modal={false} onOpenChange={(open) => !open && closeEditor()}>
         <DialogContent
           overlay={false}
           className="top-24 right-6 left-auto max-h-[80vh] w-96 translate-x-0 translate-y-0 overflow-y-auto sm:max-w-md"
@@ -461,6 +516,23 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
                   </div>
                 </div>
                 <PlaceOnRow node={editingNode} others={placed.filter((one) => one.id !== editingNode.id)} onPlace={(onto, face, offset) => void placeOn(editingNode.id, onto, face, offset)} />
+                <MatesPanel
+                  node={editingNode}
+                  earlier={placed.slice(0, placed.findIndex((one) => one.id === editingNode.id))}
+                  mates={editingNode.mates ?? []}
+                  params={params}
+                  onCreateParam={createParam}
+                  onChange={(next) => update(editingNode.id, { mates: next })}
+                  draft={draft}
+                  onDraft={setDraft}
+                  picking={picking}
+                  onPicking={(next) => {
+                    setPicking(next)
+                    setPickNote(null)
+                  }}
+                  placement={summary?.nodes.find((one) => one.id === editingNode.id)?.placement}
+                  note={pickNote}
+                />
                 <ComponentParams node={editingNode} params={params} onCreateParam={createParam} onChange={(next) => update(editingNode.id, { params: next })} />
               </div>
             </>

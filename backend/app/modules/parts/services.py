@@ -15,7 +15,7 @@ from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Job
 from app.modules.parts.models import Part, PartVersion
 from app.modules.parts.schemas import PartOut, PartSummaryOut, PartVersionOut
-from app.shared import folders
+from app.shared import folders, shape_search
 from app.shared.errors import Forbidden, NotFound, code
 
 
@@ -92,6 +92,7 @@ def part_out(db: Session, part: Part) -> PartOut:
 
 def part_summary(db: Session, part: Part) -> PartSummaryOut:
     owner = db.get(User, part.owner_id)
+    current = current_version(db, part)
     return PartSummaryOut(
         id=part.id,
         name=part.name,
@@ -103,6 +104,7 @@ def part_summary(db: Session, part: Part) -> PartSummaryOut:
         tags=list(part.tags or []),
         folder=part.folder,
         updated_at=part.updated_at,
+        shape=shape_search.latest_shape(db, current.job_id if current else None),
     )
 
 
@@ -115,8 +117,13 @@ def list_parts(
     tag: str = "",
     folder: str | None = None,
     subfolders: bool = True,
+    shape: shape_search.ShapeFilter | None = None,
 ) -> tuple[list[Part], int]:
     base = select(Part).where(Part.deleted_at.is_(None))
+    if shape is not None:
+        base = shape_search.narrowed(
+            base, shape, model=Part, version=PartVersion, owner=PartVersion.part_id
+        )
     base = folders.narrowed(base, Part.folder, folder, subfolders, _BAD_FOLDER)
     if query.strip():
         like = f"%{query.strip()}%"

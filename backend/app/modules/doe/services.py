@@ -13,23 +13,28 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import time
 import uuid
 from collections import Counter, OrderedDict
+from collections.abc import Iterator
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.config import get_settings
 from app.core import conditions as condition_model
 from app.core import doe as engine
 from app.core import export as shapes
 from app.core import frames
+from app.core import measures as measuring
+from app.core import quality as checking
 from app.core.recipe import RecipeError, evaluate, follow, params, parse, topology
 from app.core.recipe.mesh import mesh
 from app.core.recipe.schema import RecipeValidationError
@@ -68,10 +73,61 @@ def check_root() -> Path:
     return root
 
 
+def _table_factors(
+    factors_raw: list[dict[str, Any]], table: list[dict[str, Any]] | None
+) -> list[dict[str, Any]]:
+    """**표의 열**에서 인자 정의를 세운다 — 표가 값을 주는 변수는 그 표의 값 목록(`list`)으로.
+
+    정의를 표에 맞춰 두는 까닭: 결과 화면 · README · 「바꾼 변수」 열이 인자 정의를 읽는다.
+    표에만 있고 정의에 없는 변수는 더한다(MCP 가 표만 줘도 되게). 재료 · 고르기 · 배율 인자는
+    후보를 정의가 들고 있으므로 그대로 둔다."""
+    if not isinstance(table, list) or not table:
+        raise AppError(code("DOE", 25), "표가 비었습니다 — 설계점을 한 줄 이상 주세요")
+    columns: list[str] = []
+    for number, row in enumerate(table, start=1):
+        if not isinstance(row, dict):
+            raise AppError(code("DOE", 25), f"표 {number} 줄: 이름과 값의 짝이어야 합니다")
+        for key in row:
+            if str(key) not in columns:
+                columns.append(str(key))
+
+    def distinct(name: str) -> list[float]:
+        values: set[float] = set()
+        for number, row in enumerate(table, start=1):
+            if name not in row or row[name] in (None, ""):
+                continue
+            try:
+                values.add(float(row[name]))
+            except (TypeError, ValueError) as failure:
+                raise AppError(
+                    code("DOE", 25),
+                    f"표 {number} 줄: '{name}' 이 숫자가 아닙니다 ({row[name]!r})",
+                ) from failure
+        return sorted(values)
+
+    given = {str(one.get("name")) for one in factors_raw}
+    out: list[dict[str, Any]] = []
+    for one in factors_raw:
+        name = str(one.get("name"))
+        if name in columns and one.get("mode") not in engine.NON_SHAPE:
+            # 표의 값은 가공 단위로 맞추지 않는다 — 정의도 그 값 그대로(1e-6 까지).
+            out.append({**one, "mode": "list", "values": distinct(name), "resolution": 1e-6})
+        else:
+            out.append(one)
+    for name in columns:
+        if name not in given:
+            out.append(
+                {"name": name, "mode": "list", "values": distinct(name), "resolution": 1e-6}
+            )
+    return out
+
+
 def _samples(db: Session, raw: dict[str, Any]) -> int:
     """LHS 표본 수 — 상한은 관리자 설정. 넘으면 이유와 상한을 말한다."""
+    if raw.get("method") == "table":
+        return len(raw.get("table") or [])
     samples = int(raw.get("samples") or 20)
-    if raw.get("method", "factorial") == "lhs":
+    if raw.get("method", "factorial") in ("lhs", "sobol"):
         limit = settings_store.doe_max_samples(db)
         if samples > limit:
             raise AppError(
@@ -83,26 +139,125 @@ def _samples(db: Session, raw: dict[str, Any]) -> int:
 
 
 def preview(db: Session, raw: dict[str, Any]) -> dict[str, Any]:
-    """만들기 전에 **몇 개인지** 와 앞 몇 줄. 격자는 곱으로 늘어난다."""
+    """만들기 전에 **몇 개인지** 와 그 표. 격자는 곱으로 늘어난다.
+
+    제약식이 있으면 거른 뒤의 수다 — 몇 개가 어느 제약에 걸렸는지도 함께(`rejected` ·
+    `hits`). 표는 다 준다(상한 안이다) — 화면이 흩뿌림으로 그린다."""
+    if raw.get("method") == "table":
+        raw = {**raw, "factors": _table_factors(raw.get("factors") or [], raw.get("table"))}
+    found = _plan(db, raw)
     factors = _factors(raw.get("factors") or [])
-    method = raw.get("method", "factorial")
-    samples = _samples(db, raw)
-    seed = int(raw.get("seed") or 1)
-    total = engine.count(factors, method, samples)
-    limit = settings_store.doe_max_points(db)
-    rows: list[dict[str, float | str]] = []
-    if total <= limit:
-        rows = engine.build_points(
-            factors, method=method, samples=samples, seed=seed, limit=limit
-        )
     return {
-        "count": total,
-        "max": limit,
+        "count": found.kept,
+        "requested": found.requested,
+        "max": settings_store.doe_max_points(db),
         "max_samples": settings_store.doe_max_samples(db),
-        "too_many": total > limit,
-        "points": rows[:20],
+        "too_many": found.too_many,
+        "points": found.rows,
         "varying": [f.name for f in factors if f.varying],
+        "rejected": found.rejected,
+        "candidates": found.candidates,
+        "hits": found.hits,
+        "shortfall": found.shortfall,
+        "rejected_points": found.rejected_rows,
     }
+
+
+def _constraint_check(
+    recipe: dict[str, Any] | None, factors: list[dict[str, Any]], constraints: list[str]
+) -> engine.Check | None:
+    """제약식을 **미리 읽어 보고** 설계점 한 줄을 판정하는 함수로 만든다.
+
+    식은 도면의 치수 전체(이 점의 값을 덮어 푼 것)로 푼다 — `판_폭 = 길이 / 2` 처럼 다른
+    치수에서 나온 값도 부를 수 있어야 한다. 재료 · 고르기 · 배율 인자는 수가 아니라 못 쓴다.
+    한 줄에서 식이 풀리지 않으면(0 으로 나눔 등) 그 제약에 걸린 것으로 본다 — 만들어 봐야
+    알 수 없는 점을 내보내지 않는다."""
+    if not constraints:
+        return None
+    base = dict((recipe or {}).get("params") or {})
+    other = {str(one.get("name")) for one in factors if one.get("mode") in engine.NON_SHAPE}
+    try:
+        known = set(params.resolve_params({"params": base})) | {
+            str(one.get("name")) for one in factors if one.get("mode") not in engine.NON_SHAPE
+        }
+    except params.ExpressionError as failure:
+        raise AppError(
+            code("DOE", 23), f"도면의 치수를 풀지 못했습니다: {failure}"
+        ) from failure
+    for index, text in enumerate(constraints, start=1):
+        names = params.names_in(text)
+        clash = sorted(names & other)
+        if clash:
+            raise AppError(
+                code("DOE", 23),
+                f"제약 {index} 「{text}」: {', '.join(clash)} 는 재료 · 고르기 · 배율 인자라 "
+                "식에 못 씁니다",
+            )
+        unknown = sorted(names - known)
+        if unknown:
+            raise AppError(
+                code("DOE", 23),
+                f"제약 {index} 「{text}」: 모르는 이름 {', '.join(unknown)} — 있는 변수: "
+                f"{', '.join(sorted(known)) or '(없음)'}",
+            )
+        try:
+            params.evaluate_condition(text, {name: 1.0 for name in known})
+        except params.ExpressionError as failure:
+            raise AppError(code("DOE", 23), f"제약 {index}: {failure}") from failure
+        except (ArithmeticError, ValueError):
+            pass  # 시험값 1 로 0 을 나눈 것뿐 — 실제 값으로는 풀릴 수 있다.
+
+    def check(row: dict[str, float | str]) -> list[int]:
+        try:
+            values = params.resolve_params(
+                {"params": {**base, **engine.shape_values(row, factors)}}
+            )
+        except (params.ExpressionError, ArithmeticError, ValueError):
+            return list(range(len(constraints)))
+        failed = []
+        for index, text in enumerate(constraints):
+            try:
+                if not params.evaluate_condition(text, values):
+                    failed.append(index)
+            except (params.ExpressionError, ArithmeticError, ValueError):
+                failed.append(index)
+        return failed
+
+    return check
+
+
+#: 고를 수 있는 방식 — `core/doe.Method` 와 같다.
+METHODS = ("factorial", "lhs", "table", "oat", "ccd", "bbd", "sobol")
+
+
+def _plan(db: Session, raw: dict[str, Any]) -> engine.Plan:
+    """요청 한 벌 → 제약을 거친 설계점 표."""
+    method = raw.get("method", "factorial")
+    if method not in METHODS:
+        raise AppError(
+            code("DOE", 2), f"모르는 방식입니다: {method} — {' · '.join(METHODS)} 중 하나"
+        )
+    factors_raw = raw.get("factors") or []
+    factors = _factors(factors_raw)
+    try:
+        constraints = engine.parse_constraints(raw.get("constraints"))
+    except engine.DoeError as failure:
+        raise AppError(code("DOE", 23), str(failure)) from failure
+    check = _constraint_check(raw.get("recipe"), factors_raw, constraints)
+    try:
+        return engine.plan(
+            factors,
+            method=raw.get("method", "factorial"),
+            samples=_samples(db, raw),
+            seed=int(raw.get("seed") or 1),
+            limit=settings_store.doe_max_points(db),
+            check=check,
+            constraints=len(constraints),
+            table=raw.get("table"),
+            offset=int(raw.get("offset") or 0),
+        )
+    except engine.DoeError as failure:
+        raise AppError(code("DOE", 3), str(failure)) from failure
 
 
 def _factors(raw: list[dict[str, Any]]) -> list[engine.Factor]:
@@ -113,16 +268,28 @@ def _factors(raw: list[dict[str, Any]]) -> list[engine.Factor]:
 
 
 def _points(db: Session, raw: dict[str, Any]) -> list[dict[str, float | str]]:
-    try:
-        return engine.build_points(
-            _factors(raw.get("factors") or []),
-            method=raw.get("method", "factorial"),
-            samples=_samples(db, raw),
-            seed=int(raw.get("seed") or 1),
-            limit=settings_store.doe_max_points(db),
+    found = _plan(db, raw)
+    limit = settings_store.doe_max_points(db)
+    if found.too_many:
+        raise AppError(
+            code("DOE", 3),
+            f"설계점이 {len(found.rows) or found.requested} 개입니다 — 한 번에 {limit} 개까지 "
+            "만듭니다. 단계를 줄이거나 인자를 빼거나, LHS 로 표본 수를 정하세요.",
         )
-    except engine.DoeError as failure:
-        raise AppError(code("DOE", 3), str(failure)) from failure
+    if raw.get("method") == "table" and found.rejected:
+        # 표는 사람(또는 최적화기)이 고른 점이다 — 말없이 빼면 번호가 표의 줄과 어긋난다.
+        raise AppError(
+            code("DOE", 23),
+            f"표의 {found.rejected} 줄이 제약을 어깁니다 — 미리보기에서 걸린 줄을 보고 표에서 "
+            "빼거나 제약을 고치세요.",
+        )
+    if not found.rows:
+        raise AppError(
+            code("DOE", 23),
+            f"제약을 지키는 설계점이 하나도 없습니다 — 후보 {found.candidates} 개가 모두 "
+            "걸렸습니다. 제약이나 범위를 고치세요.",
+        )
+    return found.rows
 
 
 def _work_conditions(db: Session, work_id: uuid.UUID, owner: User) -> dict[str, Any]:
@@ -290,6 +457,11 @@ def _request_digest(
     seed: int,
     conditions: dict[str, Any] | None,
     work_id: uuid.UUID | None,
+    constraints: list[str] | None = None,
+    checks: dict[str, Any] | None = None,
+    table: list[dict[str, Any]] | None = None,
+    measures: list[dict[str, Any]] | None = None,
+    outputs: list[str] | None = None,
 ) -> str:
     """이 요청이 **무엇을 만들라는 것인가**의 지문. 멱등 열쇠가 같은데 이것이 다르면 사고다.
 
@@ -304,6 +476,17 @@ def _request_digest(
         "conditions": conditions or {},
         "work_id": str(work_id) if work_id else None,
     }
+    # 더한 칸은 **있을 때만** 넣는다 — 예전 요청의 지문이 그대로여야 재시도가 이어진다.
+    if constraints:
+        payload["constraints"] = constraints
+    if checks:
+        payload["checks"] = checks
+    if table:
+        payload["table"] = table
+    if measures:
+        payload["measures"] = measures
+    if outputs:
+        payload["outputs"] = sorted(set(outputs))
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -318,7 +501,176 @@ def digest_of(study: DoeStudy) -> str:
         seed=study.seed,
         conditions=study.conditions,
         work_id=study.work_id,
+        constraints=list(study.constraints or []),
+        checks=dict(study.checks or {}),
+        table=_table_of(study),
+        measures=list(study.measures or []),
+        outputs=list(study.outputs or []),
     )
+
+
+def _normal_table(
+    factors: list[dict[str, Any]], table: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """표를 한 모양으로 — 바꾸는 변수만, 수는 수로(CSV 는 글자로 온다). 멱등 지문이 설계점에서
+    되짚은 표(`_table_of`)와 같아야 재시도가 이어진다."""
+    try:
+        parsed = engine.table_points(engine.parse_factors(factors), table)
+    except engine.DoeError as failure:
+        raise AppError(code("DOE", 25), str(failure)) from failure
+    names = [str(one["name"]) for one in factors if one.get("mode") != "fixed"]
+    return [{name: row[name] for name in names} for row in parsed]
+
+
+def _table_of(study: DoeStudy) -> list[dict[str, Any]] | None:
+    """표로 만든 스터디의 **처음 표** — 설계점에서 되짚는다(더한 묶음은 빼고)."""
+    if study.method != "table":
+        return None
+    first = int(study.samples or 0)
+    names = [
+        str(one["name"])
+        for one in study.factors
+        if one.get("mode") != "fixed" and one.get("name") is not None
+    ]
+    db = object_session(study)
+    if db is None:
+        return None
+    rows = [
+        {name: point.params.get(name) for name in names}
+        for point in points(db, study)
+        if point.number <= first
+    ]
+    return rows or None
+
+
+def _check_factor_names(recipe: dict[str, Any], factors: list[dict[str, Any]]) -> None:
+    """치수 인자는 도면에 있어야 하고, 재료 · 고르기 · 배율 인자는 도면 치수와 이름이 겹치면
+    안 된다."""
+    names = recipe.get("params") or {}
+    # 재료 · 고르기 · 배율 인자는 치수가 아니다 — 레시피에 없는 것이 맞다.
+    other = {str(one.get("name")) for one in factors if one.get("mode") in engine.NON_SHAPE}
+    clash = sorted(other & set(names))
+    if clash:
+        raise AppError(
+            code("DOE", 22), f"인자 이름이 도면의 치수 이름과 겹칩니다: {', '.join(clash)}"
+        )
+    unknown = [one["name"] for one in factors if one.get("name") not in set(names) | other]
+    if unknown:
+        known = ", ".join(sorted(names)) or "(없음)"
+        raise AppError(
+            code("DOE", 5),
+            f"레시피에 없는 치수입니다: {', '.join(unknown)} — 있는 치수: {known}",
+        )
+
+
+#: 「미리 만들어 보기」 가 쓰는 시간의 상한(초). 넘으면 남은 점은 건너뛴다 — 요청 하나가 서버를
+#: 오래 잡지 않게. 그래도 무엇을 못 봤는지는 점마다 말한다.
+PROBE_SECONDS = 90.0
+
+
+def probe(db: Session, owner: User, raw: dict[str, Any]) -> dict[str, Any]:
+    """**만들기 전에 몇 점만 먼저 만들어 본다** — 범위의 끝(모두 최소 · 모두 최대 · 인자마다
+    혼자 최소 · 최대)과 가운데.
+
+    설계점 200개를 한참 돌린 뒤에야 「절반이 깨졌다」 · 「고정면이 딴 면을 집었다」 를 아는
+    일을 막는다. 만들기 작업과 **같은 길**(`_shape_point`)로 만들고, 점마다 실패 사유 · 못 푼
+    영역 · 어긋남(drift) · 겹침 · 걸린 시간을 돌려준다. 걸린 시간의 평균으로 화면이 전체 시간을
+    가늠한다. 파일은 쓰지 않는다."""
+    recipe = raw.get("recipe") or {}
+    factors_raw = raw.get("factors") or []
+    try:
+        parse(recipe)
+    except RecipeValidationError as failure:
+        raise AppError(
+            code("DOE", 4),
+            "레시피가 올바르지 않습니다",
+            details={"problems": failure.problems},
+        ) from failure
+    if raw.get("method") == "table":
+        # 표의 열이 바꿀 변수다 — 끝 점은 표의 값들 중 가장 작은 · 큰 것으로 고른다.
+        factors_raw = _table_factors(factors_raw, raw.get("table"))
+    _check_factor_names(recipe, factors_raw)
+    factors = _factors(factors_raw)
+    try:
+        constraints = engine.parse_constraints(raw.get("constraints"))
+    except engine.DoeError as failure:
+        raise AppError(code("DOE", 23), str(failure)) from failure
+    check = _constraint_check(recipe, factors_raw, constraints)
+    conditions = raw.get("conditions")
+    if conditions is None:
+        work_id = raw.get("work_id")
+        conditions = _work_conditions(db, uuid.UUID(str(work_id)), owner) if work_id else {}
+    try:
+        limits = checking.thresholds(raw.get("checks"))
+    except checking.QualityError as failure:
+        raise AppError(code("DOE", 24), str(failure)) from failure
+    started = time.perf_counter()
+    definitions, base_values, tracks = _tracking(recipe, conditions, factors_raw)
+    limits, reference = _checking(recipe, raw.get("checks"))
+    measure_list = _measures(raw.get("measures"), recipe, conditions, factors_raw)
+    setup_ms = int((time.perf_counter() - started) * 1000)
+    out: list[dict[str, Any]] = []
+    for label, row in engine.probe_points(factors):
+        entry: dict[str, Any] = {"label": label, "params": row}
+        failed = check(row) if check else []
+        if failed:
+            out.append(
+                {
+                    **entry,
+                    "status": "skipped",
+                    "error": "제약 "
+                    + ", ".join(str(i + 1) for i in failed)
+                    + " 을 어겨 만들지 않습니다(실제 DOE 에도 이 조합은 없습니다)",
+                }
+            )
+            continue
+        if time.perf_counter() - started > PROBE_SECONDS:
+            out.append({**entry, "status": "skipped", "error": "시간이 다 돼 건너뛰었습니다"})
+            continue
+        values = engine.shape_values(row, factors_raw)
+        begun = time.perf_counter()
+        try:
+            made = _shape_point(
+                _with_values(recipe, values), values, definitions, tracks, base_values
+            )
+        except (
+            Exception
+        ) as failure:  # 무엇이든 그 점의 실패다 — 미리보기가 500 으로 죽지 않게.
+            out.append(
+                {
+                    **entry,
+                    "status": "failed",
+                    "error": str(failure)[:500] or type(failure).__name__,
+                    "ms": int((time.perf_counter() - begun) * 1000),
+                }
+            )
+            continue
+        summary = made.evaluation.summary()
+        out.append(
+            {
+                **entry,
+                "status": "ok",
+                "error": "",
+                "ms": int((time.perf_counter() - begun) * 1000),
+                "unresolved": made.topology["unresolved"],
+                "drift": made.topology.get("drift", []),
+                "interference": made.interference,
+                "solids": summary["solid_count"],
+                "faces": summary["face_count"],
+                "warnings": summary["warnings"],
+                "quality": _inspect(made.evaluation.shape, limits, reference),
+                "measures": _measure_point(
+                    measure_list, made, None, _with_values(recipe, values)
+                )[1],
+            }
+        )
+    timed = [one["ms"] for one in out if one["status"] == "ok"]
+    return {
+        "points": out,
+        "mean_ms": int(sum(timed) / len(timed)) if timed else None,
+        "setup_ms": setup_ms,
+        "regions": [one["name"] for one in definitions or []],
+    }
 
 
 def create_study(
@@ -336,6 +688,11 @@ def create_study(
     conditions: dict[str, Any] | None = None,
     idempotency_key: str = "",
     requested_by: User | None = None,
+    constraints: list[str] | None = None,
+    checks: dict[str, Any] | None = None,
+    table: list[dict[str, Any]] | None = None,
+    measures: list[dict[str, Any]] | None = None,
+    outputs: list[str] | None = None,
 ) -> tuple[DoeStudy, bool]:
     """스터디를 만들고 작업을 건다. 레시피와 **해석 조건**을 스냅샷으로 박는다.
 
@@ -360,6 +717,22 @@ def create_study(
     """
     if conditions is None:
         conditions = _work_conditions(db, work_id, owner) if work_id else {}
+    try:
+        constraints = engine.parse_constraints(constraints)
+    except engine.DoeError as failure:
+        raise AppError(code("DOE", 23), str(failure)) from failure
+    checks = dict(checks or {})
+    try:
+        checking.thresholds(checks)
+    except checking.QualityError as failure:
+        raise AppError(code("DOE", 24), str(failure)) from failure
+    if method == "table":
+        # 표가 값을 주는 변수는 정의를 표에 맞춘다(결과 화면 · README 가 정의를 읽는다).
+        factors = _table_factors(factors, table)
+        table = _normal_table(factors, table or [])
+        samples = len(table)
+    else:
+        table = None
     if idempotency_key:
         found = db.scalar(
             select(DoeStudy).where(
@@ -376,6 +749,11 @@ def create_study(
                 seed=seed,
                 conditions=conditions,
                 work_id=work_id,
+                constraints=constraints,
+                checks=checks,
+                table=table,
+                measures=measures or [],
+                outputs=outputs or [],
             )
             if digest_of(found) != asked:
                 raise AppError(
@@ -393,22 +771,8 @@ def create_study(
             "레시피가 올바르지 않습니다",
             details={"problems": failure.problems},
         ) from failure
-    params = recipe.get("params") or {}
+    _check_factor_names(recipe, factors)
     swaps = engine.material_factors(factors)
-    # 재료 · 고르기 · 배율 인자는 치수가 아니다 — 레시피에 없는 것이 맞다.
-    other = {str(one.get("name")) for one in factors if one.get("mode") in engine.NON_SHAPE}
-    clash = sorted(other & set(params))
-    if clash:
-        raise AppError(
-            code("DOE", 22), f"인자 이름이 도면의 치수 이름과 겹칩니다: {', '.join(clash)}"
-        )
-    unknown = [one["name"] for one in factors if one.get("name") not in set(params) | other]
-    if unknown:
-        known = ", ".join(sorted(params)) or "(없음)"
-        raise AppError(
-            code("DOE", 5),
-            f"레시피에 없는 치수입니다: {', '.join(unknown)} — 있는 치수: {known}",
-        )
     # **조건을 지금 검증한다.** 설계점 마흔 개를 만든 뒤에 「그런 이름표가 없다」 를 알면
     # 늦다 — 그때는 폴더에 반쪽짜리가 남는다.
     #
@@ -423,8 +787,18 @@ def create_study(
     if swaps:
         _check_material_factors(recipe, conditions, factors)
     _check_condition_factors(recipe, conditions or {}, factors)
+    measures = _measures(measures, recipe, conditions, factors)
     rows = _points(
-        db, {"factors": factors, "method": method, "samples": samples, "seed": seed}
+        db,
+        {
+            "factors": factors,
+            "method": method,
+            "samples": samples,
+            "seed": seed,
+            "recipe": recipe,
+            "constraints": constraints,
+            "table": table,
+        },
     )
     study = DoeStudy(
         name=name.strip(),
@@ -436,6 +810,10 @@ def create_study(
         recipe=recipe,
         conditions=conditions or {},
         factors=factors,
+        constraints=constraints,
+        checks=checks,
+        measures=measures,
+        outputs=sorted(set(outputs or [])),
         method=method,
         samples=samples,
         seed=seed,
@@ -633,6 +1011,9 @@ def status_of(db: Session, study: DoeStudy) -> dict[str, Any]:
         "exported_at": study.exported_at.isoformat() if study.exported_at else None,
         "released_at": study.released_at.isoformat() if study.released_at else None,
         "keep_forever": study.keep_forever,
+        # 보낸 뒤에 점을 더했으면 공유 폴더가 옛것이다 — 기계는 이것을 보고 다시 보낸다.
+        "export_stale": export_stale(study),
+        "batches": len(study.batches or []),
     }
 
 
@@ -661,10 +1042,208 @@ def _needs_build(folder: Path, point: DoePoint, only: str) -> bool:
     """이 점을 다시 만들어야 하나 — 다 하라고 했거나, 실패했거나, **파일이 사라졌거나.**
 
     작업 함수와 「다시 만들기」 가 **같은 규칙을 본다.** 다르면 화면의 진행 표시가 건너뛴 점을
-    두고 거짓말을 한다."""
+    두고 거짓말을 한다.
+
+    `new` 는 **점을 더했을 때** — 새 점(pending)과 파일이 사라진 점만. 실패한 점은 실패로 둔다
+    (같은 값이면 또 실패한다 — 다시 해 보려면 「실패한 점만 다시」)."""
+    if only == "new":
+        if point.status == "pending":
+            return True
+        if point.status == "failed":
+            return False
+        return not (point.step_file and (folder / point.step_file).exists())
     if only != "failed" or point.status != "ok":
         return True
     return not (point.step_file and (folder / point.step_file).exists())
+
+
+def _batch_factors(
+    study: DoeStudy, overrides: list[dict[str, Any]] | None
+) -> list[dict[str, Any]]:
+    """더할 묶음의 인자 — 스터디의 것에서 **준 것만 바꾼다**(범위를 좁히거나 단계를 바꾼다).
+
+    변수를 새로 더하거나 빼지는 못한다 — 표의 열이 묶음마다 달라지면 한 폴더가 한 실험이 아니게
+    된다(그건 새 DOE 다). 재료 · 고르기 · 배율 인자는 다른 방식으로 바꿀 수 없다(후보의 뜻이
+    달라진다)."""
+    current = {str(one["name"]): one for one in study.factors}
+    out = {name: dict(one) for name, one in current.items()}
+    for one in overrides or []:
+        name = str(one.get("name") or "")
+        if name not in current:
+            raise AppError(
+                code("DOE", 26),
+                f"이 DOE 에 없는 변수입니다: {name} — 변수를 더하려면 새 DOE 를 만드세요",
+            )
+        before = current[name].get("mode")
+        after = one.get("mode", before)
+        if (before in engine.NON_SHAPE or after in engine.NON_SHAPE) and before != after:
+            raise AppError(
+                code("DOE", 26), f"'{name}' 은 {before} 인자라 방식을 바꿀 수 없습니다"
+            )
+        out[name] = {**current[name], **one}
+    return list(out.values())
+
+
+def _sobol_drawn(db: Session, study: DoeStudy, seed: int) -> int:
+    """이 시드의 Sobol 수열을 **이미 몇 번째까지 썼나** — 이어 뽑을 자리.
+
+    첫 묶음이 Sobol 이면 그 계획을 다시 세워 센다(제약에 걸려 더 뽑았을 수 있다 — 산수라
+    거저다). 더한 묶음은 제 `next` 를 적어 두었다."""
+    drawn = 0
+    if study.method == "sobol" and study.seed == seed:
+        drawn = _plan(
+            db,
+            {
+                "factors": study.factors,
+                "method": "sobol",
+                "samples": study.samples,
+                "seed": study.seed,
+                "recipe": study.recipe,
+                "constraints": study.constraints or [],
+            },
+        ).next_index
+    for batch in study.batches or []:
+        if batch.get("method") == "sobol" and int(batch.get("seed") or 0) == seed:
+            drawn = max(drawn, int(batch.get("next") or 0))
+    return drawn
+
+
+def extend_study(
+    db: Session,
+    study: DoeStudy,
+    *,
+    requester: User,
+    raw: dict[str, Any],
+    dry_run: bool = False,
+) -> tuple[DoeStudy, dict[str, Any]]:
+    """**이미 만든 DOE 에 설계점을 더한다** — 번호를 이어서, 같은 폴더에.
+
+    첫 결과를 보고 관심 구간을 좁혀 더 뽑을 때 쓴다. 새 DOE 로 만들면 폴더 · 표가 둘로 갈라져
+    해석 쪽이 둘을 이어 붙여야 한다. 묶음마다 방식 · 시드 · 범위를 `batches` 에 남긴다(스냅샷과
+    같은 까닭 — 「이 점은 어디서 왔나」 를 나중에 되짚는다).
+
+    - 스터디의 **제약식**이 그대로 걸린다.
+    - 이미 있는 점과 값이 같은 줄은 빼고(`skipped`) 센다 — 격자를 좁히면 끝 값이 겹친다.
+    - `idempotency_key` 가 같은 묶음이 이미 있으면 **더하지 않고** 그것을 돌려준다(기계의
+      재시도).
+    - `dry_run` 이면 세기만 한다(화면의 미리보기)."""
+    job = db.get(Job, study.job_id) if study.job_id else None
+    if job is not None and job.status in ("queued", "running"):
+        raise AppError(code("DOE", 17), "아직 만드는 중입니다 — 끝나면 점을 더할 수 있습니다.")
+    key = str(raw.get("idempotency_key") or "")
+    if key and not dry_run:
+        for batch in study.batches or []:
+            if batch.get("idempotency_key") == key:
+                return study, {**batch, "reused": True}
+    method = str(raw.get("method") or "lhs")
+    factors = _batch_factors(study, raw.get("factors"))
+    table = raw.get("table") if method == "table" else None
+    if method == "table":
+        columns = {str(k) for row in table or [] if isinstance(row, dict) for k in row}
+        extra = sorted(columns - {str(one["name"]) for one in factors})
+        if extra:
+            raise AppError(
+                code("DOE", 26),
+                f"이 DOE 에 없는 변수입니다: {', '.join(extra)} — 변수를 더하려면 새 DOE 를 "
+                "만드세요",
+            )
+        factors = _table_factors(factors, table)
+    batches = list(study.batches or [])
+    # 시드를 안 주면 묶음마다 다르게 — 같은 시드면 첫 묶음과 같은 점이 다시 나온다. Sobol 은
+    # 거꾸로 **같은 시드로 이어 뽑는다** — 앞의 점들과 함께 공간을 고르게 채우는 것이
+    # 그 뜻이다.
+    if method == "sobol":
+        seed = int(raw.get("seed") or study.seed)
+    else:
+        seed = int(raw.get("seed") or (study.seed + len(batches) + 1))
+    found = _plan(
+        db,
+        {
+            "factors": factors,
+            "method": method,
+            "samples": raw.get("samples") or 10,
+            "seed": seed,
+            "recipe": study.recipe,
+            "constraints": study.constraints or [],
+            "table": table,
+            "offset": _sobol_drawn(db, study, seed) if method == "sobol" else 0,
+        },
+    )
+    if found.too_many:
+        limit = settings_store.doe_max_points(db)
+        raise AppError(
+            code("DOE", 3),
+            f"더할 점이 {found.kept} 개입니다 — 한 번에 {limit} 개까지 더합니다.",
+        )
+    if method == "table" and found.rejected:
+        raise AppError(
+            code("DOE", 23),
+            f"표의 {found.rejected} 줄이 제약을 어깁니다 — 빼거나 제약을 고치세요.",
+        )
+    existing = points(db, study)
+    names = [str(one["name"]) for one in study.factors]
+
+    def same(row: dict[str, Any]) -> str:
+        return json.dumps([row.get(name) for name in names], ensure_ascii=False, default=str)
+
+    seen = {same(one.params) for one in existing}
+    fresh: list[dict[str, Any]] = []
+    skipped = 0
+    for row in found.rows:
+        signature = same(row)
+        # 표는 사람이 고른 점이라 겹쳐도 둔다 — 줄 번호가 설계점 번호여야 한다.
+        if signature in seen and method != "table":
+            skipped += 1
+            continue
+        seen.add(signature)
+        fresh.append(row)
+    first = max((one.number for one in existing), default=0) + 1
+    summary: dict[str, Any] = {
+        "number": len(batches) + 2,
+        "method": method,
+        "samples": int(raw.get("samples") or len(fresh)),
+        "seed": seed,
+        "factors": factors,
+        "from": first,
+        "to": first + len(fresh) - 1,
+        "added": len(fresh),
+        "skipped": skipped,
+        "rejected": found.rejected,
+    }
+    if method == "sobol":
+        # 다음에 더할 때 여기서 잇는다.
+        summary["next"] = found.next_index
+    if dry_run:
+        return study, summary
+    if not fresh:
+        raise AppError(
+            code("DOE", 27),
+            f"더할 새 점이 없습니다 — {skipped} 개가 이미 있는 점과 같습니다. 범위나 시드를 "
+            "바꾸세요.",
+        )
+    for offset, row in enumerate(fresh):
+        db.add(
+            DoePoint(study_id=study.id, number=first + offset, params=row, status="pending")
+        )
+    summary["at"] = datetime.now(UTC).isoformat()
+    summary["requested_by"] = requester.display_name or requester.email
+    if key:
+        summary["idempotency_key"] = key
+    study.batches = [*batches, summary]
+    study.point_count = (study.point_count or 0) + len(fresh)
+    db.flush()
+    fresh_job = jobs.enqueue(
+        db,
+        kind=JOB_KIND,
+        requested_by=requester,
+        work_id=study.work_id,
+        input={"study_id": str(study.id), "only": "new"},
+        options={},
+    )
+    study.job_id = fresh_job.id
+    db.commit()
+    db.refresh(study)
+    return study, summary
 
 
 def rerun_study(
@@ -708,6 +1287,16 @@ def rerun_study(
     db.commit()
     db.refresh(study)
     return study
+
+
+def export_stale(study: DoeStudy) -> bool:
+    """보낸 뒤에 점을 더했나 — 그러면 공유 폴더의 표가 옛것이다."""
+    if not study.exported_at:
+        return False
+    added = [
+        datetime.fromisoformat(str(one["at"])) for one in study.batches or [] if one.get("at")
+    ]
+    return bool(added) and max(added) > study.exported_at
 
 
 def local_ready(study: DoeStudy) -> bool:
@@ -1096,6 +1685,306 @@ def _interference_of(shape: Any) -> dict[str, Any] | None:
     return report.summary()
 
 
+def _tracking(
+    recipe: dict[str, Any], conditions: dict[str, Any] | None, factors: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]] | None, dict[str, float], dict[tuple[int, int], follow.Track]]:
+    """영역 정의와 **치수를 따라가는 자** — 스터디마다 한 번 잰다.
+
+    **좌표가 든 선택 규칙은 치수를 따라간다**(core/recipe/follow.py) — 변수마다 조금씩 바꿔 그
+    면이 얼마나 움직이는지 **한 번** 재 두고, 설계점마다 그만큼 옮겨 찾는다. 못 재면 따라가지
+    않을 뿐 스터디는 돈다(예전과 같다)."""
+    definitions = _region_definitions(conditions)
+    base_values: dict[str, float] = {}
+    tracks: dict[tuple[int, int], follow.Track] = {}
+    if definitions:
+        try:
+            base_values = params.resolve_params(recipe)
+            # 재료 · 고르기 · 배율 인자는 형상을 안 바꾸므로 잴 것이 없다 — 치수 인자만.
+            shape_factors = [
+                str(one["name"]) for one in factors if one.get("mode") not in engine.NON_SHAPE
+            ]
+            tracks = follow.measure(
+                follow.resolved(definitions, base_values),
+                base_values,
+                shape_factors,
+                _builder(recipe),
+                skip=follow.written_near(definitions),
+            )
+        except (RecipeError, RecipeValidationError, params.ExpressionError):
+            tracks = {}
+    return definitions, base_values, tracks
+
+
+class ShapePoint:
+    """설계점 하나의 형상과 거기서 바로 나오는 것 — 영역 지문 · 겹침."""
+
+    def __init__(
+        self,
+        evaluation: Any,
+        topology_doc: dict[str, Any],
+        interference: dict[str, Any] | None,
+        moved: list[dict[str, Any]] | None = None,
+    ) -> None:
+        self.evaluation = evaluation
+        self.topology = topology_doc
+        self.interference = interference
+        self.moved = moved
+        """이 점의 값으로 옮긴 영역 정의 — 측정값(거리)이 같은 그룹을 다시 찾는다."""
+
+
+def _shape_point(
+    recipe: dict[str, Any],
+    values: dict[str, Any],
+    definitions: list[dict[str, Any]] | None,
+    tracks: dict[tuple[int, int], follow.Track],
+    base_values: dict[str, float],
+) -> ShapePoint:
+    """`recipe`(이 점의 값을 이미 덮은 것)로 형상을 만들고 영역을 찾는다. 만들기 작업과 「미리
+    만들어 보기」 가 **같은 길**을 간다 — 다르면 미리 본 것이 실제와 어긋난다.
+
+    **영역 지문을 STEP 옆에 나란히 쓴다.** STEP 은 이름표를 못 나르므로, 해석이 「어느 면이
+    고정면인가」 를 물을 곳은 이 파일뿐이다. 설계점마다 좌표가 다르므로 점마다 한 장이다
+    (topology.py 머리말). **조건의 이름표가 `divide_face` 패치를 가리킬 수 있다.** 그 번호는 이
+    평가 안에서만 뜻이 있으므로 평가가 찾아 준 것을 그대로 넘긴다. 선택 규칙의 식은 **이
+    설계점의 값으로** 푼다 — 그다음 좌표를 따라 옮긴다."""
+    evaluation = evaluate(
+        parse(recipe), resolve_file=resolve_import, resolve_component=resolve_component
+    )
+    moved = (
+        follow.follow(
+            follow.resolved(definitions, params.resolve_params(recipe)),
+            tracks,
+            base_values,
+            values,
+        )
+        if definitions
+        else definitions
+    )
+    topo = topology.document(evaluation.shape, moved, tags=evaluation.tags)
+    if moved and tracks:
+        _mark_drift(
+            topo,
+            follow.drift(
+                moved,
+                tracks,
+                evaluation.shape,
+                evaluation.tags,
+                follow.tolerance_for(evaluation.shape),
+            ),
+        )
+    # 조립이면 구성품끼리 겹치는지 — 변수를 바꾸다 부품이 판에 파묻히는 것을 잡는다. 형상이
+    # 같으면 겹침도 같다.
+    return ShapePoint(evaluation, topo, _interference_of(evaluation.shape), moved)
+
+
+def _checking(
+    recipe: dict[str, Any], checks: dict[str, Any] | None
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """점검 기준과 **기준 형상**(도면 그대로)의 잰 값 — 설계점마다 견줄 바디 · 면 수.
+
+    도면이 그대로는 안 만들어지면(드물다) 견주지 않을 뿐 점검은 한다."""
+    limits = checking.thresholds(checks)
+    if not limits["enabled"]:
+        return limits, None
+    try:
+        made = evaluate(
+            parse(recipe), resolve_file=resolve_import, resolve_component=resolve_component
+        )
+        return limits, checking.inspect(made.shape, limits)
+    except Exception:  # 기준이 없으면 견주지 않는다 — 점검 자체는 점마다 한다.
+        return limits, None
+
+
+def _inspect(
+    shape: Any, limits: dict[str, Any], reference: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    """설계점 하나를 잰다 — 꺼 두었으면 None. 재다가 깨지면 그 사실을 경고로 남긴다(형상은
+    만들어졌으니 점을 실패로 돌리지 않는다)."""
+    if not limits["enabled"]:
+        return None
+    try:
+        return checking.compare(checking.inspect(shape, limits), reference)
+    except Exception as failure:
+        return {"warnings": [f"형상 점검을 못 했습니다: {str(failure)[:120]}"], "notes": []}
+
+
+def _measure_point(
+    measures: list[dict[str, Any]],
+    made: ShapePoint | None,
+    geometric: dict[str, float | None] | None,
+    recipe: dict[str, Any],
+) -> tuple[dict[str, float | None], dict[str, float | None]]:
+    """점 하나의 측정값 — (형상에서 잰 것, 식까지 채운 전부). 형상이 같은 점은 앞의 것을
+    그대로 받는다(`geometric`)."""
+    if not measures:
+        return {}, {}
+    if geometric is None:
+        geometric = (
+            measuring.geometric(
+                made.evaluation.shape,
+                measures,
+                topology_doc=made.topology,
+                definitions=made.moved,
+                tags=made.evaluation.tags,
+            )
+            if made is not None
+            else {}
+        )
+    try:
+        variables = params.resolve_params(recipe)
+    except (params.ExpressionError, ArithmeticError, ValueError):
+        variables = {}
+    return geometric, measuring.derived(measures, variables, geometric)
+
+
+def _measures(
+    raw: list[dict[str, Any]] | None,
+    recipe: dict[str, Any],
+    conditions: dict[str, Any] | None,
+    factors: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """측정값 정의를 **만들기 전에** 본다 — 이름이 열과 겹치나, 선택 그룹 · 바디가 있나, 식이
+    아는 이름만 부르나."""
+    if not raw:
+        return []
+    try:
+        variables = set(params.resolve_params(recipe))
+    except params.ExpressionError:
+        variables = set((recipe.get("params") or {}).keys())
+    regions = {
+        str(one.get("name"))
+        for one in (conditions or {}).get("named_selections") or []
+        if one.get("entity", "face") != "body"
+    }
+    try:
+        return measuring.parse(
+            raw,
+            taken={str(one.get("name")) for one in factors},
+            variables=variables,
+            regions=regions,
+            bodies=_body_names(recipe) if any(one.get("body") for one in raw) else None,
+        )
+    except measuring.MeasureError as failure:
+        raise AppError(code("DOE", 28), str(failure)) from failure
+
+
+def _point_warnings(geometry: dict[str, Any] | None) -> list[str]:
+    found = list(((geometry or {}).get("quality") or {}).get("warnings") or [])
+    mid_error = (geometry or {}).get("mid_error")
+    if mid_error:
+        found.append(f"중간면: {mid_error}")
+    return found
+
+
+def _with_values(recipe: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
+    """도면에 이 점의 형상 값을 덮는다."""
+    return {**recipe, "params": {**(recipe.get("params") or {}), **values}}
+
+
+def _build_shape(task: dict[str, Any]) -> dict[str, Any]:
+    """형상 하나를 만들어 STEP 을 쓰고, 형상에서 나오는 것(영역 · 겹침 · 좌표계 · 점검 ·
+    측정값)을 돌려준다. **다른 프로세스에서 돈다** — 받는 것도 주는 것도 사전 · 목록뿐이고
+    DB 는 만지지 않는다(도면이 부르는 부품 · 가져온 STEP 은 제 연결로 찾는다).
+
+    점마다 다른 것(조건 · 점 파일 · DB)은 부른 쪽이 붙인다 — 같은 형상을 여러 점이 나눠
+    쓴다."""
+    started = time.perf_counter()
+    try:
+        made = _shape_point(
+            task["recipe"],
+            task["values"],
+            task["definitions"],
+            task["tracks"],
+            task["base_values"],
+        )
+        path = Path(task["step_path"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        shapes.write_step(made.evaluation.shape, path)
+        mid: dict[str, Any] | None = None
+        if task.get("midsurface"):
+            # 셸 해석용 중간면 — 판이 아니면 실패가 아니라 그 점의 알림이다.
+            from app.core.recipe.midsurface import MidSurfaceError, midsurface
+
+            try:
+                surface = midsurface(made.evaluation.shape)
+                mid_path = path.with_name(f"{path.stem}_mid.step")
+                shapes.write_step(surface.shape, mid_path)
+                mid = {"name": mid_path.name, "summary": surface.summary()}
+            except MidSurfaceError as failure:
+                mid = {"error": str(failure)[:300]}
+        geometric = (
+            measuring.geometric(
+                made.evaluation.shape,
+                task["measures"],
+                topology_doc=made.topology,
+                definitions=made.moved,
+                tags=made.evaluation.tags,
+            )
+            if task["measures"]
+            else {}
+        )
+        return {
+            "ok": True,
+            "topology": made.topology,
+            "interference": made.interference,
+            "frames": made.evaluation.frames,
+            "quality": _inspect(made.evaluation.shape, task["limits"], task["reference"]),
+            "measures": geometric,
+            "midsurface": mid,
+            "ms": int((time.perf_counter() - started) * 1000),
+        }
+    except (RecipeError, RecipeValidationError, ValueError, RuntimeError) as failure:
+        return {
+            "ok": False,
+            "error": str(failure)[:500],
+            "ms": int((time.perf_counter() - started) * 1000),
+        }
+
+
+def _workers() -> int:
+    """설계점을 몇 프로세스로 나눠 만드나 — 설정(`DOE_WORKERS`)이 0 이면 코어 수에 맞춘다
+    (하나는 웹 · DB 몫으로 남기고 넷까지)."""
+    configured = int(get_settings().doe_workers or 0)
+    if configured > 0:
+        return configured
+    return max(1, min(4, (os.cpu_count() or 2) - 1))
+
+
+def _pool_context() -> Any:
+    """새 프로세스를 띄우는 길 — 리눅스는 **forkserver**: build123d 를 한 번 읽어 둔 깨끗한
+    프로세스에서 갈라 나오므로 빨리 뜨고, 웹 · DB 연결을 물려받지 않는다. 없으면 spawn."""
+    import multiprocessing
+
+    if "forkserver" in multiprocessing.get_all_start_methods():
+        context = multiprocessing.get_context("forkserver")
+        context.set_forkserver_preload(["app.modules.doe.services"])
+        return context
+    return multiprocessing.get_context("spawn")
+
+
+def _built_shapes(
+    tasks: list[tuple[str, str, dict[str, Any]]], workers: int
+) -> Iterator[tuple[str, str, dict[str, Any]]]:
+    """만들 형상들 — 끝나는 차례대로 내준다. 일꾼이 하나거나 형상이 하나면 이 프로세스에서
+    차례로(띄우는 값이 더 든다). 도중에 멈추면(부른 쪽의 오류) 남은 일은 거둔다."""
+    if workers <= 1 or len(tasks) < 2:
+        for key, relative, task in tasks:
+            yield key, relative, _build_shape(task)
+        return
+    pool = ProcessPoolExecutor(
+        max_workers=min(workers, len(tasks)), mp_context=_pool_context()
+    )
+    try:
+        futures = {
+            pool.submit(_build_shape, task): (key, relative) for key, relative, task in tasks
+        }
+        for future in as_completed(futures):
+            key, relative = futures[future]
+            yield key, relative, future.result()
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
+
+
 def run_job(
     input: dict[str, Any], options: dict[str, Any], out_dir: Path, progress: registry.Progress
 ) -> registry.Outcome:
@@ -1110,7 +1999,11 @@ def run_job(
 
     **같은 형상은 한 번만 만든다.** 조건만 훑으면(압력 2 · 3 MPa) 설계점마다 형상이 똑같다 —
     그것을 N 벌 만들어 N 벌 쓰면 시간도 파일도 N 배다. 만들기 전에 지문으로 가려내고
-    (`shape_digest`), 둘 이상이 나눠 쓰는 형상은 `shapes/<지문>.step` 에 한 벌만 둔다."""
+    (`shape_digest`), 둘 이상이 나눠 쓰는 형상은 `shapes/<지문>.step` 에 한 벌만 둔다.
+
+    **형상은 여러 프로세스가 나눠 만든다**(`doe_workers`, 기본은 코어 수에 맞춰 넷까지) —
+    만드는 것이 거의 전부라 점이 많으면 그만큼 빨라진다. DB · 조건 · 점 파일은 이 프로세스가
+    붙인다."""
     del options, out_dir
     from app.database import SessionLocal
 
@@ -1122,7 +2015,12 @@ def run_job(
         folder = Path(study.local_dir)
         (folder / "points").mkdir(parents=True, exist_ok=True)
         factor_names = [one["name"] for one in study.factors]
-        columns = files.manifest_columns(factor_names)
+        measure_list = list(study.measures or [])
+        columns = files.manifest_columns(
+            factor_names,
+            [one["name"] for one in measure_list],
+            midsurface="midsurface" in (study.outputs or []),
+        )
         rows: list[dict[str, Any]] = []
         made = 0
         failed = 0
@@ -1152,214 +2050,24 @@ def run_job(
         # 둘 이상이 나눠 쓰는 것만 `shapes/` 로 뺀다 — 형상 훑기(흔한 쪽)에서는 이름이 예전
         # 그대로 `points/pNNNN.step` 이고, 이름이 바뀌면 그것이 곧 「나눠 쓴다」 는 뜻이다.
         shared = {one for one, many in Counter(digests.values()).items() if one and many > 1}
-        #: 지문 → 이미 만든 것(파일 경로 · 영역 지문). 값이 있으면 **다시 만들지 않는다.**
-        built: dict[str, dict[str, Any]] = {}
         # **좌표가 든 선택 규칙은 치수를 따라간다**(core/recipe/follow.py) — 변수마다 조금씩
         # 바꿔 그 면이 얼마나 움직이는지 **한 번** 재 두고, 설계점마다 그만큼 옮겨 찾는다.
         # 못 재면 따라가지 않을 뿐 스터디는 돈다(예전과 같다).
-        definitions = _region_definitions(study.conditions)
-        base_values: dict[str, float] = {}
-        tracks: dict[tuple[int, int], follow.Track] = {}
-        if definitions:
-            try:
-                base_values = params.resolve_params(study.recipe)
-                # 재료 인자는 형상을 안 바꾸므로 잴 것이 없다 — 치수 인자만.
-                shape_factors = [
-                    one
-                    for one in factor_names
-                    if one not in engine.material_factors(study.factors)
-                ]
-                tracks = follow.measure(
-                    follow.resolved(definitions, base_values),
-                    base_values,
-                    shape_factors,
-                    _builder(study.recipe),
-                    skip=follow.written_near(definitions),
-                )
-            except (RecipeError, RecipeValidationError, params.ExpressionError):
-                tracks = {}
+        definitions, base_values, tracks = _tracking(
+            study.recipe, study.conditions, study.factors
+        )
+        limits, reference = _checking(study.recipe, study.checks)
+        # **만들 점을 형상 지문으로 묶는다** — 형상마다 한 번만 만들고, 여럿이면 여러
+        # 프로세스로 나눠 만든다(`doe_workers`). 형상이 나오는 대로 그 형상을 쓰는 점들을
+        # 마무리한다(조건 · 점 파일 · DB · 표). 만들지 않는 점은 표에 제 줄을 그대로 쓴다.
+        groups: dict[str, list[DoePoint]] = {}
         for point in all_points:
-            started = time.perf_counter()
-            if not _needs_build(folder, point, only):
-                made += 1
-                rows.append(
-                    files.manifest_row(
-                        point.number,
-                        point.params,
-                        factor_names,
-                        status="ok",
-                        step_file=point.step_file,
-                        point_file=point.point_file,
-                        unresolved=(point.geometry or {}).get("topology_unresolved"),
-                        interference=(point.geometry or {}).get("interference"),
-                    )
-                )
+            if _needs_build(folder, point, only):
+                digest = digests.get(point.number, "")
+                groups.setdefault(digest or f"#{point.number}", []).append(point)
                 continue
-            recipe = {
-                **study.recipe,
-                "params": {
-                    **(study.recipe.get("params") or {}),
-                    **_shape_params(study, point.params),
-                },
-            }
-            digest = digests.get(point.number, "")
-            try:
-                if digest and digest in built:
-                    # **이미 만든 형상이다.** 다시 만들지도, 다시 쓰지도 않는다 — 영역 지문도
-                    # 형상에서만 나오므로 그대로 쓴다. 점마다 다른 것은 아래의 `point` 와
-                    # `conditions` 뿐이다.
-                    same = built[digest]
-                    point.step_file = str(same["step_file"])
-                    topo = deepcopy(same["topology"])
-                    interference = deepcopy(same["interference"])
-                    cad_frames = deepcopy(same["frames"])
-                else:
-                    evaluation = evaluate(
-                        parse(recipe),
-                        resolve_file=resolve_import,
-                        resolve_component=resolve_component,
-                    )
-                    if digest in shared:
-                        name = f"{digest}.step"
-                        shapes.write_step(evaluation.shape, folder / "shapes" / name)
-                        point.step_file = f"shapes/{name}"
-                    else:
-                        name = f"p{point.number:04d}.step"
-                        shapes.write_step(evaluation.shape, folder / "points" / name)
-                        point.step_file = f"points/{name}"
-                    # **영역 지문을 STEP 옆에 나란히 쓴다.** STEP 은 이름표를 못 나르므로,
-                    # 해석이 「어느 면이 고정면인가」 를 물을 곳은 이 파일뿐이다. 설계점마다
-                    # 좌표가 다르므로 점마다 한 장이다(topology.py 머리말).
-                    # **조건의 이름표가 `divide_face` 패치를 가리킬 수 있다.** 그 번호는 이
-                    # 평가 안에서만 뜻이 있으므로 평가가 찾아 준 것을 그대로 넘긴다.
-                    # 선택 규칙의 식은 **이 설계점의 값으로** 푼다 — 그다음 좌표를 따라 옮긴다.
-                    moved = (
-                        follow.follow(
-                            follow.resolved(definitions, params.resolve_params(recipe)),
-                            tracks,
-                            base_values,
-                            _shape_params(study, point.params),
-                        )
-                        if definitions
-                        else definitions
-                    )
-                    topo = topology.document(evaluation.shape, moved, tags=evaluation.tags)
-                    if moved and tracks:
-                        _mark_drift(
-                            topo,
-                            follow.drift(
-                                moved,
-                                tracks,
-                                evaluation.shape,
-                                evaluation.tags,
-                                follow.tolerance_for(evaluation.shape),
-                            ),
-                        )
-                    # 조립이면 구성품끼리 겹치는지 — 변수를 바꾸다 부품이 판에 파묻히는 것을
-                    # 잡는다. 형상이 같으면 겹침도 같다.
-                    interference = _interference_of(evaluation.shape)
-                    cad_frames = evaluation.frames
-                    if digest:
-                        built[digest] = {
-                            "step_file": point.step_file,
-                            "topology": deepcopy(topo),
-                            "interference": deepcopy(interference),
-                            "frames": deepcopy(cad_frames),
-                        }
-                point.status = "ok"
-                # **이 점이 무엇인가**를 파일이 스스로 말하게 한다 — 결과가 우리에게 돌아오지
-                # 않으므로, 해석 쪽은 파일만 보고 「이 결과가 두께 8 짜리」 를 알아야 한다.
-                topo["point"] = {
-                    "number": point.number,
-                    "study": {
-                        "id": str(study.id),
-                        "name": study.name,
-                        "method": study.method,
-                        "seed": study.seed,
-                    },
-                    "params": point.params,
-                    # **`point.step_file` 을 그대로 쓴다.** 여기서 경로를 다시 지으면
-                    # 어긋난다 — 나눠 쓰는 형상은 `shapes/` 에 있는데 `points/` 라고 적어
-                    # 두고 있었다(살아 있는 서버로 한 바퀴 돌려 보다 잡았다, 2026-09-24).
-                    # 해석 쪽이 형상을 찾을 곳은 이 칸뿐이다.
-                    "step_file": point.step_file,
-                }
-                # **점 하나 = 파일 하나.** 영역과 조건은 늘 짝으로 읽히므로 나눠 두면
-                # 「하나는 있고 하나는 없는」 상태가 생길 자리만 는다.
-                if study.conditions:
-                    # 값은 mm · N · t 로 적혔고, 여기서 내보내기 단위계로 옮긴다.
-                    # 재료 인자면 이 점의 재료를 바꿔 끼운 조건으로 — 치수는 형상 값만.
-                    # **식은 도면 변수 전체에 이 점의 값을 덮어** 푼다 — 인자로 안 준 변수(압력
-                    # 처럼 형상에 안 쓰는 것)를 부르면 모든 점이 「모르는 이름」 으로 실패했다.
-                    topo["conditions"] = _with_scales(
-                        study,
-                        point.params,
-                        condition_model.resolve(
-                            _point_conditions(study, point.params),
-                            {
-                                **(study.recipe.get("params") or {}),
-                                **_shape_params(study, point.params),
-                            },
-                            names,
-                        ),
-                    )
-                # **좌표계** — 도면의 것은 이 점의 치수로 푼 것, 조건의 것은 식을 이 점의
-                # 값으로 풀고 면에 붙인 것은 이 점의 영역에서 얻는다. 조건의 `cs` 가 이름으로
-                # 가리킨다. 그룹을 못 풀어 좌표계를 못 정하면 「못 풀었다」 — 조용히 전역으로
-                # 바꾸면 성분이 딴 방향으로 걸린다.
-                condition_side, missing = frames.condition_frames(
-                    (topo.get("conditions") or {}).get("coordinate_systems") or [],
-                    topo["regions"],
-                )
-                # **길이 단위를 파일이 스스로 말한다.** 형상(STEP) · 영역은 도면의 mm 이고,
-                # 좌표계 원점은 조건의 값과 같은 계로 옮긴다 — 원격점 · 회전축 자리가 mm 로
-                # 남으면 SI 로 푼 조건과 1000 배 어긋난다.
-                system = str(
-                    ((topo.get("conditions") or {}).get("units") or {}).get("system") or ""
-                )
-                placed, frame_length = frames.in_system([*cad_frames, *condition_side], system)
-                topo["length_units"] = {
-                    "geometry": "mm",
-                    "regions": "mm",
-                    "coordinate_systems": frame_length,
-                }
-                if placed:
-                    topo["coordinate_systems"] = placed
-                for name in missing:
-                    if name not in topo["unresolved"]:
-                        topo["unresolved"].append(name)
-                # **솔버 덱은 폴더에 한 벌**이고 점마다 같다 — 점 파일은 가리키기만 한다.
-                # 재료를 훑으면 점마다 어느 덱이 어느 바디에 붙는지가 다르다.
-                point_decks = _decks_for_point(decks, topo.get("conditions") or {})
-                if point_decks:
-                    topo["material_decks"] = point_decks
-                point_name = f"p{point.number:04d}.json"
-                (folder / "points" / point_name).write_text(
-                    json.dumps(topo, ensure_ascii=False, indent=2), encoding="utf-8"
-                )
-                point.point_file = f"points/{point_name}"
-                point.geometry = {
-                    "interference": interference,
-                    # manifest.csv 를 나중에 다시 그릴 때(내려받기 API)도
-                    # 같은 값을 적어야 한다.
-                    "topology_unresolved": topo["unresolved"],
-                }
-                made += 1
-                rows.append(
-                    files.manifest_row(
-                        point.number,
-                        point.params,
-                        factor_names,
-                        status="ok",
-                        step_file=point.step_file,
-                        point_file=point.point_file,
-                        unresolved=topo["unresolved"],
-                        interference=point.geometry["interference"],
-                    )
-                )
-            except (RecipeError, RecipeValidationError, ValueError, RuntimeError) as failure:
-                point.status = "failed"
-                point.error = str(failure)[:500]
+            if point.status == "failed":
+                # 점을 더할 때 건드리지 않은 실패 — 표에는 그대로 실패로 적는다.
                 failed += 1
                 rows.append(
                     files.manifest_row(
@@ -1370,12 +2078,236 @@ def run_job(
                         error=point.error,
                     )
                 )
-            db.commit()
-            progress(
-                f"point-{point.number}",
-                int((time.perf_counter() - started) * 1000),
-                f"{made + failed}/{study.point_count}",
+                continue
+            made += 1
+            rows.append(
+                files.manifest_row(
+                    point.number,
+                    point.params,
+                    factor_names,
+                    status="ok",
+                    step_file=point.step_file,
+                    point_file=point.point_file,
+                    unresolved=(point.geometry or {}).get("topology_unresolved"),
+                    interference=(point.geometry or {}).get("interference"),
+                    warnings=_point_warnings(point.geometry),
+                    measures=(point.geometry or {}).get("measures"),
+                    mid_file=(point.geometry or {}).get("mid_file") or "",
+                )
             )
+        tasks: list[tuple[str, str, dict[str, Any]]] = []
+        for key, members in groups.items():
+            first = members[0]
+            digest = digests.get(first.number, "")
+            # 둘 이상이 나눠 쓰는 형상만 `shapes/<지문>.step` — 아니면 예전 이름 그대로.
+            relative = (
+                f"shapes/{digest}.step"
+                if digest in shared
+                else f"points/p{first.number:04d}.step"
+            )
+            values = _shape_params(study, first.params)
+            tasks.append(
+                (
+                    key,
+                    relative,
+                    {
+                        "recipe": _with_values(study.recipe, values),
+                        "values": values,
+                        "definitions": definitions,
+                        "tracks": tracks,
+                        "base_values": base_values,
+                        "limits": limits,
+                        "reference": reference,
+                        "measures": measure_list,
+                        "midsurface": "midsurface" in (study.outputs or []),
+                        "step_path": str(folder / relative),
+                    },
+                )
+            )
+        #: 사람이 멈추라고 했으면(진행을 적다가 안다) 그때까지 만든 점의 표를 쓰고 멈춘다.
+        stopped: registry.Cancelled | None = None
+        try:
+            for key, relative, result in _built_shapes(tasks, _workers()):
+                for order, point in enumerate(groups[key]):
+                    try:
+                        if not result["ok"]:
+                            raise RuntimeError(result["error"])
+                        point.step_file = relative
+                        topo = deepcopy(result["topology"])
+                        interference = deepcopy(result["interference"])
+                        cad_frames = deepcopy(result["frames"])
+                        found = deepcopy(result["quality"])
+                        recipe = _with_values(study.recipe, _shape_params(study, point.params))
+                        measured: dict[str, float | None] = {}
+                        if measure_list:
+                            try:
+                                variables = params.resolve_params(recipe)
+                            except (params.ExpressionError, ArithmeticError, ValueError):
+                                variables = {}
+                            measured = measuring.derived(
+                                measure_list, variables, result["measures"]
+                            )
+                        point.status = "ok"
+                        point.error = ""
+                        if measured:
+                            # 형상에서 바로 나오는 값 — 해석 쪽이 목표 · 제약으로 쓴다.
+                            topo["measures"] = measured
+                        mid_file, mid_error = "", ""
+                        mid = result.get("midsurface")
+                        if mid and mid.get("name"):
+                            # 형상 STEP 곁에 — 나눠 쓰는 형상이면 `shapes/` 에 같이 있다.
+                            mid_file = str(Path(relative).with_name(mid["name"]))
+                            topo["midsurface"] = {"step_file": mid_file, **mid["summary"]}
+                        elif mid:
+                            mid_error = str(mid.get("error") or "")
+                            topo["midsurface"] = {"error": mid_error}
+                        if found is not None:
+                            # 메시가 막힐 자리(얇은 벽 · 짧은 모서리 · 좁은 면 · 쪼개진 바디) —
+                            # 해석이 200점 중에서 하나씩 찾게 두지 않는다.
+                            topo["quality"] = found
+                        # **이 점이 무엇인가**를 파일이 스스로 말하게 한다 — 결과가 우리에게
+                        # 돌아오지 않으므로, 해석 쪽은 파일만 보고 「이 결과가 두께 8 짜리」 를
+                        # 알아야 한다.
+                        topo["point"] = {
+                            "number": point.number,
+                            "study": {
+                                "id": str(study.id),
+                                "name": study.name,
+                                "method": study.method,
+                                "seed": study.seed,
+                            },
+                            "params": point.params,
+                            # **`point.step_file` 을 그대로 쓴다.** 여기서 경로를 다시 지으면
+                            # 어긋난다 — 나눠 쓰는 형상은 `shapes/` 에 있는데 `points/` 라고
+                            # 적어 두고 있었다(살아 있는 서버로 한 바퀴 돌려 보다 잡았다,
+                            # 2026-09-24). 해석 쪽이 형상을 찾을 곳은 이 칸뿐이다.
+                            "step_file": point.step_file,
+                        }
+                        # **점 하나 = 파일 하나.** 영역과 조건은 늘 짝으로 읽히므로 나눠 두면
+                        # 「하나는 있고 하나는 없는」 상태가 생길 자리만 는다.
+                        if study.conditions:
+                            # 값은 mm · N · t 로 적혔고, 여기서 내보내기 단위계로 옮긴다.
+                            # 재료 인자면 이 점의 재료를 바꿔 끼운 조건으로 — 치수는 형상 값만.
+                            # **식은 도면 변수 전체에 이 점의 값을 덮어** 푼다 — 인자로 안 준
+                            # 변수(압력처럼 형상에 안 쓰는 것)를 부르면 모든 점이 「모르는
+                            # 이름」 으로 실패했다.
+                            topo["conditions"] = _with_scales(
+                                study,
+                                point.params,
+                                condition_model.resolve(
+                                    _point_conditions(study, point.params),
+                                    {
+                                        **(study.recipe.get("params") or {}),
+                                        **_shape_params(study, point.params),
+                                    },
+                                    names,
+                                ),
+                            )
+                        # **좌표계** — 도면의 것은 이 점의 치수로 푼 것, 조건의 것은 식을 이
+                        # 점의 값으로 풀고 면에 붙인 것은 이 점의 영역에서 얻는다. 조건의 `cs`
+                        # 가 이름으로 가리킨다. 그룹을 못 풀어 좌표계를 못 정하면 「못 풀었다」
+                        # — 조용히 전역으로 바꾸면 성분이 딴 방향으로 걸린다.
+                        condition_side, missing = frames.condition_frames(
+                            (topo.get("conditions") or {}).get("coordinate_systems") or [],
+                            topo["regions"],
+                        )
+                        # **길이 단위를 파일이 스스로 말한다.** 형상(STEP) · 영역은 도면의 mm
+                        # 이고, 좌표계 원점은 조건의 값과 같은 계로 옮긴다 — 원격점 · 회전축
+                        # 자리가 mm 로 남으면 SI 로 푼 조건과 1000 배 어긋난다.
+                        system = str(
+                            ((topo.get("conditions") or {}).get("units") or {}).get("system")
+                            or ""
+                        )
+                        placed, frame_length = frames.in_system(
+                            [*cad_frames, *condition_side], system
+                        )
+                        topo["length_units"] = {
+                            "geometry": "mm",
+                            "regions": "mm",
+                            "coordinate_systems": frame_length,
+                        }
+                        if placed:
+                            topo["coordinate_systems"] = placed
+                        for name in missing:
+                            if name not in topo["unresolved"]:
+                                topo["unresolved"].append(name)
+                        # **솔버 덱은 폴더에 한 벌**이고 점마다 같다 — 점 파일은 가리키기만
+                        # 한다. 재료를 훑으면 점마다 어느 덱이 어느 바디에 붙는지가 다르다.
+                        point_decks = _decks_for_point(decks, topo.get("conditions") or {})
+                        if point_decks:
+                            topo["material_decks"] = point_decks
+                        point_name = f"p{point.number:04d}.json"
+                        (folder / "points" / point_name).write_text(
+                            json.dumps(topo, ensure_ascii=False, indent=2), encoding="utf-8"
+                        )
+                        point.point_file = f"points/{point_name}"
+                        point.geometry = {
+                            "interference": interference,
+                            # manifest.csv 를 나중에 다시 그릴 때(내려받기 API)도
+                            # 같은 값을 적어야 한다.
+                            "topology_unresolved": topo["unresolved"],
+                            "quality": found,
+                            "measures": measured or None,
+                            "mid_file": mid_file or None,
+                            "mid_error": mid_error or None,
+                        }
+                        made += 1
+                        rows.append(
+                            files.manifest_row(
+                                point.number,
+                                point.params,
+                                factor_names,
+                                status="ok",
+                                step_file=point.step_file,
+                                point_file=point.point_file,
+                                unresolved=topo["unresolved"],
+                                interference=point.geometry["interference"],
+                                warnings=_point_warnings(point.geometry),
+                                measures=measured,
+                                mid_file=mid_file,
+                            )
+                        )
+                    except (
+                        RecipeError,
+                        RecipeValidationError,
+                        ValueError,
+                        RuntimeError,
+                    ) as failure:
+                        point.status = "failed"
+                        point.error = str(failure)[:500]
+                        failed += 1
+                        rows.append(
+                            files.manifest_row(
+                                point.number,
+                                point.params,
+                                factor_names,
+                                status="failed",
+                                error=point.error,
+                            )
+                        )
+                    db.commit()
+                    progress(
+                        f"point-{point.number}",
+                        int(result.get("ms") or 0) if order == 0 else 0,
+                        f"{made + failed}/{study.point_count}",
+                    )
+        except registry.Cancelled as stop:
+            stopped = stop
+            # 못 만든 점도 표에 제 줄을 둔다 — 「다시 만들기」 가 그 점들을 잇는다.
+            written = {int(row["point"]) for row in rows}
+            for point in all_points:
+                if point.number not in written:
+                    rows.append(
+                        files.manifest_row(
+                            point.number,
+                            point.params,
+                            factor_names,
+                            status="pending",
+                            error="취소로 멈췄습니다 — 「다시 만들기」 로 잇습니다",
+                        )
+                    )
+        # 여러 프로세스가 끝나는 차례대로 왔다 — 표는 번호 차례로.
+        rows.sort(key=lambda row: int(row["point"]))
         files.write_manifest(folder, columns, rows)
         files.write_study(
             folder,
@@ -1387,6 +2319,14 @@ def run_job(
                 "samples": study.samples,
                 "seed": study.seed,
                 "factors": study.factors,
+                "constraints": study.constraints or [],
+                # 점마다 잰 값의 정의 — 표의 측정값 열이 무엇인지.
+                "measures": study.measures or [],
+                # 만든 뒤 **더한** 묶음 — 방식 · 시드 · 범위 · 번호 구간. 첫 묶음은 위의
+                # 칸이다.
+                "batches": study.batches or [],
+                # 형상 점검의 기준(mm) — 표의 `warnings` 가 무엇에 견준 것인지.
+                "checks": checking.thresholds(study.checks),
                 "recipe": study.recipe,
                 "conditions": study.conditions,
                 # **누가 시켰나.** 「폴더 하나가 자기를 설명한다」 는 원칙을 이 칸이 어기고
@@ -1410,9 +2350,13 @@ def run_job(
                 "method": study.method,
                 "seed": study.seed,
                 "factors": study.factors,
+                "constraints": study.constraints or [],
+                "outputs": list(study.outputs or []),
             },
             study.point_count,
         )
+        if stopped is not None:
+            raise stopped
         return registry.Outcome(
             summary={
                 "points": study.point_count,

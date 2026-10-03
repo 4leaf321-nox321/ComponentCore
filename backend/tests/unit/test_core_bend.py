@@ -237,3 +237,68 @@ def test_판_위의_방향이어야_한다() -> None:
 def test_굽힘_목록의_모양(bends: list[dict[str, Any]], words: str) -> None:
     with pytest.raises(RecipeValidationError, match=words):
         parse(_box_then(bends=bends))
+
+
+def _box_net(shapes: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
+    """상자 전개도 — 바탕 100 x 60, 네 변에 깊이 20 의 날개(판 두께 2)."""
+    return {
+        "nodes": [
+            {"id": "s", "op": "sketch", "shapes": shapes},
+            {"id": "p", "op": "extrude", "sketch": "s", "distance": T},
+            {
+                "id": "b",
+                "op": "bend",
+                "target": "p",
+                "along": [1, 0, 0],
+                "bends": [{"at": 50, "radius": 2, "angle": 90}],
+                "also": [
+                    {"along": [-1, 0, 0], "bends": [{"at": 50, "radius": 2, "angle": 90}]},
+                    {"along": [0, 1, 0], "bends": [{"at": 30, "radius": 2, "angle": 90}]},
+                    {"along": [0, -1, 0], "bends": [{"at": 30, "radius": 2, "angle": 90}]},
+                ],
+                **extra,
+            },
+        ]
+    }
+
+
+CROSS = [
+    {"type": "rect", "width": 140, "height": 60, "at": [0, 0]},
+    {"type": "rect", "width": 100, "height": 100, "at": [0, 0]},
+]
+CROSS_AREA = 140 * 60 + 100 * 100 - 100 * 60
+
+
+def test_네_방향으로_접으면_상자() -> None:
+    made, low, high = _bbox(_box_net(CROSS))
+    assert len(made.shape.solids()) == 1 and made.shape.is_valid
+    assert _volume(made.shape) == pytest.approx(CROSS_AREA * T, rel=1e-6)
+    # 바탕 100 x 60 에 날개 두께 2 + 안쪽 R 2 가 양쪽으로. 날개 높이 = R + t + (20 - 굽힘 호).
+    assert [h - lo for h, lo in zip(high, low, strict=True)] == pytest.approx(
+        [108, 68, 2 + T + 20 - 3 * math.pi / 2], abs=1e-3
+    )
+
+
+def test_모서리가_겹치면_거절하거나_따낸다() -> None:
+    full = [{"type": "rect", "width": 140, "height": 100, "at": [0, 0]}]
+    with pytest.raises(RecipeError, match="모서리에서 겹칩니다"):
+        evaluate(parse(_box_net(full)))
+    made = evaluate(parse(_box_net(full, corner_relief=True)))
+    # 네 모서리(20 x 20)를 따내면 십자 전개도와 같은 상자다.
+    assert _volume(made.shape) == pytest.approx(CROSS_AREA * T, rel=1e-6)
+
+
+def test_상자도_전개도로_되돌아간다() -> None:
+    from app.core.recipe.unfold import unfold
+
+    raw = _box_net(CROSS)
+    groups = raw["nodes"][2]["also"]
+    groups[1]["bends"][0]["toward"] = "down"  # 한 날개는 아래로
+    groups[2]["bends"] = [  # 한 날개는 두 번(45° 씩)
+        {"at": 30, "radius": 3, "angle": 45},
+        {"at": 40, "radius": 2, "angle": 45},
+    ]
+    flat = unfold(evaluate(parse(raw)).shape)
+    assert flat.summary()["size"] == pytest.approx([140, 100], abs=1e-3)
+    assert flat.summary()["area"] == pytest.approx(CROSS_AREA, rel=1e-6)
+    assert len(flat.bends) == 5

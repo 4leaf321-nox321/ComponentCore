@@ -16,10 +16,12 @@ from typing import Any
 
 from sqlalchemy import select
 
-from app.core import export
+from app.core import export, shape_index
 from app.core.recipe import Evaluation, RecipeError, evaluate, parse
 from app.core.recipe.digest import digest
 from app.core.recipe.schema import RecipeValidationError
+from app.core.recipe.unfold import Unfolded, UnfoldError
+from app.core.recipe.unfold import unfold as unfold_shape
 from app.modules.jobs import registry
 from app.modules.jobs.models import Artifact
 from app.shared import filestore
@@ -166,6 +168,65 @@ def place(
     return {"recipe": made, "translate": translate, "problems": check(made)}
 
 
+def mate_pick(
+    raw: dict[str, Any],
+    *,
+    node: str,
+    side: str,
+    what: str,
+    point: list[float],
+    target: str | None = None,
+) -> dict[str, Any]:
+    """3D 에서 누른 면 · 엣지를 **구속의 질의로** — `this` 는 구성품 자신의 좌표로 되돌려서.
+
+    누른 자리는 조립의 좌표다. 구속의 `this` 는 가져온 도면의 좌표로 적어야 구성품이 어디로
+    옮겨 가도 같은 면을 가리킨다 — 그래서 그 구성품의 지금 자리(회전 · 이동)를 거꾸로 걸어
+    되돌린 점으로 고른다. 후보 중 **하나에만 맞는 것**을 고르고, 후보 전부도 함께 준다."""
+    import numpy as np
+
+    from app.core.recipe.query import selector_candidates
+
+    nodes = list(raw.get("nodes") or [])
+    ids = [str(one.get("id")) for one in nodes]
+    if node not in ids:
+        raise AppError(code("CAD", 19), f"'{node}' 피처가 없습니다")
+    mover = nodes[ids.index(node)]
+    if mover.get("op") != "component":
+        raise AppError(code("CAD", 19), f"'{node}' 는 가져온 구성품(component)이 아닙니다")
+    if side == "to":
+        if target is None or target not in ids[: ids.index(node)]:
+            raise AppError(
+                code("CAD", 19), "target: 구속은 이 구성품보다 앞에 놓인 것에만 겁니다"
+            )
+        shape = build({**raw, "nodes": nodes[: ids.index(target) + 1], "result": None}).shape
+        at = list(point)
+    else:
+        # 지금 자리 — 구속이 아직 안 맞으면(고치는 중) 손으로 놓은 자리로.
+        upto = nodes[: ids.index(node) + 1]
+        try:
+            info = build({**raw, "nodes": upto, "result": node}).nodes[-1]
+        except AppError:
+            info = build({**raw, "nodes": [*upto[:-1], {**mover, "mates": []}]}).nodes[-1]
+        placed = info.placement or {}
+        rotation = np.array(placed.get("rotation") or np.eye(3))
+        moved = np.array(placed.get("translation") or [0.0, 0.0, 0.0])
+        at = [float(v) for v in rotation.T @ (np.array(point, dtype=float) - moved)]
+        alone = {**mover, "translate": [0, 0, 0], "rotate": [0, 0, 0], "mates": []}
+        shape = build({**raw, "nodes": [alone], "result": None}).shape
+    try:
+        found = selector_candidates(shape, {"what": what, "point": at})
+    except ValueError as failure:
+        raise AppError(code("CAD", 19), str(failure)) from failure
+    candidates = found["candidates"]
+    best = next(
+        (one for one in candidates if one["matches"] == 1 and one["stable"]),
+        next((one for one in candidates if one["matches"] == 1), None),
+    )
+    if best is None:
+        raise AppError(code("CAD", 19), "누른 자리에서 면 · 엣지를 하나로 집지 못했습니다")
+    return {"select": best["select"], "label": best["label"], "candidates": candidates}
+
+
 #: 조립 간섭의 기본 허용치(mm³) — 닿는 면의 수치 오차가 이 아래로 나온다(지그 생성기와 같다).
 DEFAULT_INTERFERENCE_TOLERANCE = 0.5
 
@@ -210,6 +271,80 @@ def cut_list(raw: dict[str, Any], node_id: str) -> dict[str, Any]:
         return {"node": node_id, **frame_cut_list(node)}
     except FrameError as failure:
         raise AppError(code("CAD", 15), str(failure)) from failure
+
+
+def unfold(
+    raw: dict[str, Any], *, k_factor: float, flip: bool = False, node: str | None = None
+) -> Unfolded:
+    """레시피의 결과(또는 `node`)를 만들어 **전개도**로 편다. 펼 수 없으면 까닭과 함께 400."""
+
+    evaluation = build({**raw, "result": node} if node else raw)
+    try:
+        return unfold_shape(evaluation.shape, k_factor=k_factor, flip=flip)
+    except UnfoldError as failure:
+        raise AppError(code("CAD", 17), f"펼 수 없습니다 — {failure}") from failure
+
+
+def solve_sketch(shape: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+    """구속 윤곽 하나를 풀어 점의 자리와 남은 움직임 — 캔버스가 푼 모양을 그린다."""
+    from app.core.recipe import schema as recipe_schema
+    from app.core.recipe.sketch_solver import SketchSolveError, solve
+
+    try:
+        recipe = parse(
+            {"params": params, "nodes": [{"id": "s", "op": "sketch", "shapes": [shape]}]}
+        )
+    except RecipeValidationError as failure:
+        raise AppError(
+            code("CAD", 21),
+            "구속 윤곽이 올바르지 않습니다",
+            details={"problems": failure.problems},
+        ) from failure
+    node = recipe.nodes[0]
+    assert isinstance(node, recipe_schema.SketchNode)
+    one = node.shapes[0]
+    if not isinstance(one, recipe_schema.ConstrainedShape):
+        raise AppError(code("CAD", 21), "구속 윤곽(type: constrained)이 아닙니다")
+    try:
+        solved = solve(one)
+    except SketchSolveError as failure:
+        raise AppError(code("CAD", 21), str(failure)) from failure
+    return {
+        "points": {name: [round(x, 6), round(y, 6)] for name, (x, y) in solved.points.items()},
+        "free": solved.free,
+    }
+
+
+def mid_surface(raw: dict[str, Any], *, node: str | None = None) -> Any:
+    """레시피의 결과(또는 `node`)를 만들어 **중간면**으로. 판이 아니면 까닭과 함께 400."""
+    from app.core.recipe.midsurface import MidSurfaceError, midsurface
+
+    evaluation = build({**raw, "result": node} if node else raw)
+    try:
+        return midsurface(evaluation.shape)
+    except MidSurfaceError as failure:
+        raise AppError(code("CAD", 20), f"중간면을 뽑지 못했습니다 — {failure}") from failure
+
+
+def drawing_sheet(
+    raw: dict[str, Any],
+    *,
+    title: str = "",
+    sheet: str = "A3",
+    material: str = "",
+    note: str = "",
+    node: str | None = None,
+) -> Any:
+    """레시피의 결과(또는 `node`)를 만들어 **도면 한 장**으로."""
+    from app.core import drawing
+
+    evaluation = build({**raw, "result": node} if node else raw)
+    try:
+        return drawing.make_sheet(
+            evaluation.shape, title=title, sheet=sheet, material=material, note=note
+        )
+    except ValueError as failure:
+        raise AppError(code("CAD", 18), f"도면을 그리지 못했습니다 — {failure}") from failure
 
 
 def build(raw: dict[str, Any], *, allow_sketch: bool = False) -> Evaluation:
@@ -305,8 +440,14 @@ def run_job(
     glb = export.write_gltf(evaluation.shape, out_dir / "model.glb")
     progress("export", int((time.perf_counter() - started) * 1000), "STEP · glTF")
 
+    # 형상으로 찾을 수 있게 — 만든 김에 색인을 요약에 적는다(`core/shape_index.py`).
+    started = time.perf_counter()
+    summary = evaluation.summary()
+    summary["shape"] = shape_index.safe_index(evaluation.shape, dict(input["recipe"]))
+    progress("index", int((time.perf_counter() - started) * 1000), "형상 색인")
+
     return registry.Outcome(
-        summary=evaluation.summary(),
+        summary=summary,
         artifacts=[
             registry.ArtifactSpec(
                 kind="model_step", path=step, content_type="application/step"

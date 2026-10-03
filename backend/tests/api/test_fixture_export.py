@@ -328,7 +328,7 @@ def test_측면_가진_픽스처_공진이_창_안에서_움직인다(
         assert point["unresolved"] == []
         regions = point["regions"]
         # 측정점 — 기둥 끝 꼭짓점 하나, 점 지문은 자리(`point`)뿐이다.
-        assert regions["측정점"] == [{"point": [5.0, 5.0, 10.0 + height]}]
+        assert regions["측정점"] == [{"point": [5.0, 5.0, 10.0 + height], "body": "기둥"}]
         # 새긴 접합면 — 양쪽이 같은 넓이 · 자리, 법선만 반대.
         (plate,) = regions["접합 판쪽"]
         (post,) = regions["접합 기둥쪽"]
@@ -341,6 +341,165 @@ def test_측면_가진_픽스처_공진이_창_안에서_움직인다(
         assert conditions["analysis"]["frequency_range"] == [200, 2000]
         bodies = {one["name"]: one for one in point["bodies"]}
         assert bodies["기둥"]["volume"] == pytest.approx(100 * height)
+
+    out = os.environ.get("COMPCORE_FIXTURE_OUT")
+    if out:
+        target = Path(out) / folder.name.rsplit("-", 1)[0]
+        shutil.rmtree(target, ignore_errors=True)
+        shutil.copytree(folder, target)
+
+
+#: ⑥ **전단을 받는 이음 — 마찰이 할 일이 있는 자리.** 강판(SECC) 위에 알루미늄 판(Al5052)을
+#: 40 mm 겹쳐 놓고(겹침 이음), 겹친 자리를 위에서 누른 채(클램프 압력 P, 40 x 20 자리) 위판
+#: 끝을 X 로 당긴다(변위 제어 — 미끄러져도 강체 운동이 아니다). 지금까지의 픽스처는 이음이
+#: 압축만 받아 마찰이 할 일이 없었고, 두 솔버가 「마찰은 차이 없음」 에 동의할 뿐이었다
+#: (SimEngBay, 2026-10-03). 여기서는 전단이 이음을 지나므로 본딩 · 마찰(붙음) · 마찰(미끄러짐)
+#: 이 서로 다른 답을 내고, 미끄러지는 한계가 손셈 μ · N(N = P · 800 mm²)이다.
+SHEAR_JOINT: dict[str, Any] = {
+    "name": "조건_전단이음",
+    "method": "table",
+    "recipe": {
+        "params": {"당김": 0.04, "클램프": 12.5, "마찰계수": 0.15},
+        "nodes": [
+            {"id": "아래판", "op": "box", "length": 100, "width": 25, "height": 5,
+             "align": ["min", "center", "min"]},
+            {"id": "위판_원형", "op": "box", "length": 100, "width": 25, "height": 5,
+             "at": [60, 0, 5], "align": ["min", "center", "min"]},
+            # 클램프가 누르는 자리 — 겹친 자리 위 40 x 20. 판 폭(25)보다 좁게 둬 면의
+            # 테두리와 겹치지 않는다.
+            {"id": "위판", "op": "divide_face", "target": "위판_원형",
+             "on": {"normal": [0, 0, 1]}, "shape": "rect", "size": [40, 20], "at": [80, 0, 10],
+             "tag": "클램프"},
+            {"id": "조립", "op": "group", "targets": ["아래판", "위판"]},
+            # 닿는 자리를 새긴다 — 이음의 두 면이 넓이 · 자리까지 같다.
+            {"id": "새김", "op": "imprint", "target": "조립"},
+        ],
+    },
+    "factors": [
+        {"name": "접촉 종류", "mode": "choice",
+         "target": {"group": "contacts", "item": "이음", "field": "type"},
+         "values": ["bonded", "frictional"]},
+    ],
+    # 표로 준다 — 본딩에는 마찰계수가 뜻이 없어 격자로 짜면 같은 점이 둘 생긴다.
+    "table": [
+        {"접촉 종류": "bonded", "마찰계수": 0.15, "클램프": 12.5},
+        {"접촉 종류": "frictional", "마찰계수": 0.15, "클램프": 12.5},  # μN 1.5 kN — 미끄러짐
+        {"접촉 종류": "frictional", "마찰계수": 0.6, "클램프": 12.5},  # μN 6 kN — 붙어 있다
+        {"접촉 종류": "frictional", "마찰계수": 0.3, "클램프": 25},  # μN 6 kN — 셋째와 같아야
+    ],
+    "measures": [
+        {"name": "접합_넓이", "kind": "region_area", "region": "접합 위판쪽"},
+        {"name": "클램프_넓이", "kind": "region_area", "region": "클램프면"},
+    ],
+    "conditions": {
+        "units": {"system": "mm_n_tonne"},
+        "named_selections": [
+            _face("고정단", {"body": "아래판", "normal": [-1, 0, 0]}),
+            _face("바닥", {"body": "아래판", "normal": [0, 0, -1]}),
+            _face("당기는 끝", {"body": "위판", "normal": [1, 0, 0]}),
+            _face("클램프면", {"tag": "클램프"}),
+            _face("접합 아래판쪽", {"tag": "아래판/위판"}),
+            _face("접합 위판쪽", {"tag": "위판/아래판"}),
+            # 미끄럼을 읽는 점 둘 — **같은 자리, 다른 바디**(이음 입구의 모서리). 두 점의 X
+            # 변위 차가 곧 이음의 미끄럼이다.
+            {"name": "이음 입구 위판", "entity": "vertex",
+             "select": {"what": "vertices", "of_face": {"body": "위판", "normal": [0, 0, -1]},
+                        "near": [60, 12.5, 5], "limit": 1}},
+            {"name": "이음 입구 아래판", "entity": "vertex",
+             "select": {"what": "vertices", "of_face": {"body": "아래판", "normal": [0, 0, 1]},
+                        "near": [60, 12.5, 5], "limit": 1}},
+        ],
+        "materials": [
+            _material("M-000138", ["아래판"]),
+            _material("M-000158", ["위판"]),
+        ],
+        "constraints": [
+            {"name": "고정단 고정", "type": "fixed_support", "on": "고정단"},
+            # 아래판은 평평한 바닥에 놓여 있다 — 클램프 압력을 바닥이 받는다(없으면 외팔보).
+            {"name": "바닥 받침", "type": "frictionless", "on": "바닥"},
+            {"name": "당김", "type": "displacement", "on": "당기는 끝", "cs": "global",
+             "x": "=당김", "y": 0, "z": 0},
+        ],
+        "loads": [
+            {"name": "클램프", "type": "pressure", "on": "클램프면", "magnitude": "=클램프",
+             "direction": "normal"}
+        ],
+        "contacts": [
+            {"name": "이음", "type": "bonded", "source": "접합 위판쪽",
+             "target": "접합 아래판쪽", "friction": "=마찰계수"}
+        ],
+        "mesh_hints": [
+            {"on": "전체", "element_size": 2.5, "order": "quadratic"},
+            {"on": "접합 위판쪽", "element_size": 1.25},
+        ],
+        "analysis": {"type": "static"},
+    },
+}  # fmt: skip
+
+
+def _only(regions: dict[str, Any], name: str) -> dict[str, Any]:
+    """그 그룹에 든 **하나** — 둘이면 짝이 어긋난 것이다."""
+    (one,) = regions[name]
+    return one  # type: ignore[no-any-return]
+
+
+def test_전단_이음_픽스처_마찰이_할_일이_있다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    folder = _export(client, member, export_root, SHEAR_JOINT)
+    points = _points(folder)
+    rows = [
+        (p["point"]["params"]["접촉 종류"], p["point"]["params"]["마찰계수"],
+         p["point"]["params"]["클램프"])
+        for p in points
+    ]  # fmt: skip
+    assert rows == [
+        ("bonded", 0.15, 12.5),
+        ("frictional", 0.15, 12.5),
+        ("frictional", 0.6, 12.5),
+        ("frictional", 0.3, 25),
+    ]
+    # 형상은 하나 — 네 점이 `shapes/` 의 STEP 한 벌을 나눠 쓴다(조건만 다르다).
+    assert len({p["point"]["step_file"] for p in points}) == 1
+    assert points[0]["point"]["step_file"].startswith("shapes/")
+    for point in points:
+        assert point["unresolved"] == []
+        regions = point["regions"]
+        assert _only(regions, "고정단")["area"] == pytest.approx(125)
+        assert _only(regions, "고정단")["centroid"] == [0.0, 0.0, 2.5]
+        assert _only(regions, "당기는 끝")["area"] == pytest.approx(125)
+        assert _only(regions, "당기는 끝")["centroid"] == [160.0, 0.0, 7.5]
+        assert _only(regions, "바닥")["area"] == pytest.approx(2500)
+        assert _only(regions, "바닥")["normal"] == [0.0, 0.0, -1.0]
+        clamp = _only(regions, "클램프면")
+        assert clamp["area"] == pytest.approx(800) and clamp["centroid"] == [80.0, 0.0, 10.0]
+        assert clamp["body"] == "위판"
+        lower, upper = _only(regions, "접합 아래판쪽"), _only(regions, "접합 위판쪽")
+        assert lower["area"] == upper["area"] == pytest.approx(1000)
+        assert lower["centroid"] == upper["centroid"] == [80.0, 0.0, 5.0]
+        assert (lower["normal"], upper["normal"]) == ([0.0, 0.0, 1.0], [0.0, 0.0, -1.0])
+        assert (lower["body"], upper["body"]) == ("아래판", "위판")
+        # 미끄럼을 읽는 점 — 같은 자리, 바디로 가른다.
+        assert regions["이음 입구 위판"] == [{"point": [60.0, 12.5, 5.0], "body": "위판"}]
+        assert regions["이음 입구 아래판"] == [{"point": [60.0, 12.5, 5.0], "body": "아래판"}]
+        params = point["point"]["params"]
+        conditions = point["conditions"]
+        joint = conditions["contacts"][0]
+        assert joint["type"] == params["접촉 종류"]
+        assert joint["friction"] == pytest.approx(params["마찰계수"])
+        assert conditions["loads"][0]["magnitude"] == pytest.approx(params["클램프"])
+        pull = next(c for c in conditions["constraints"] if c["type"] == "displacement")
+        assert pull["x"] == pytest.approx(0.04) and pull["y"] == 0 and pull["z"] == 0
+        assert conditions["analysis"]["type"] == "static"
+        assert point["measures"]["접합_넓이"] == pytest.approx(1000)
+        assert point["measures"]["클램프_넓이"] == pytest.approx(800)
+    # 받는 쪽은 `study.json` 의 factors 를 「바꾼 변수」 의 정본으로 읽는다(SimEngBay v0.2.0).
+    spec = json.loads((folder / "study.json").read_text(encoding="utf-8"))
+    declared = {one["name"]: one for one in spec["factors"]}
+    assert set(declared) == {"접촉 종류", "마찰계수", "클램프"}
+    assert declared["마찰계수"]["values"] == [0.15, 0.3, 0.6]
+    header = (folder / "manifest.csv").read_text(encoding="utf-8-sig").splitlines()[0]
+    assert {"접촉 종류", "마찰계수", "클램프", "접합_넓이"} <= set(header.split(","))
 
     out = os.environ.get("COMPCORE_FIXTURE_OUT")
     if out:

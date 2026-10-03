@@ -684,3 +684,35 @@ def test_작업의_기본_단위계를_정하고_복제에_따라간다(
     client.patch(f"/api/works/{work_id}", json={"unit_system": "si"}, headers=member.headers)
     copy = client.post(f"/api/works/{work_id}/duplicate", headers=member.headers)
     assert copy.json()["unit_system"] == "si"
+
+
+def test_복제는_해석_조건을_고를_때만_함께_옮긴다(client: TestClient, member: Signed) -> None:
+    """변형을 그릴 때는 같은 조건으로 DOE 를 돌리는 일이 흔하다 — 그러나 다른 부품의 출발점으로
+    복제하면 옛 조건이 엉뚱한 면을 가리킨다. 그래서 고른다(기본은 도면만)."""
+    work = _work(client, member)
+    conditions = {
+        "named_selections": [
+            {"name": "바닥", "entity": "face", "select": {"what": "faces", "role": "bottom"}}
+        ],
+        "constraints": [{"name": "고정", "type": "fixed_support", "on": "바닥"}],
+    }
+    put = client.put(
+        f"/api/works/{work['id']}/versions/1/conditions",
+        json={"conditions": conditions},
+        headers=member.headers,
+    )
+    assert put.status_code == 200, put.text
+
+    def conditions_of(copy: dict[str, object]) -> dict[str, object]:
+        got = client.get(f"/api/works/{copy['id']}/versions/1", headers=member.headers)
+        return dict(got.json()["conditions"] or {})
+
+    plain = client.post(f"/api/works/{work['id']}/duplicate", headers=member.headers)
+    assert plain.status_code == 201 and conditions_of(plain.json()) == {}
+
+    both = client.post(
+        f"/api/works/{work['id']}/duplicate?conditions=true&name=조건까지",
+        headers=member.headers,
+    )
+    assert both.status_code == 201 and both.json()["name"] == "조건까지"
+    assert conditions_of(both.json())["constraints"] == conditions["constraints"]

@@ -8,6 +8,8 @@
 import { useMemo, useRef, useState } from 'react'
 import type { PointerEvent } from 'react'
 
+import { ConstrainedForm, ConstrainedSvg, isConstrained, useSolvedSketches } from '@/modules/cad/ConstrainedSketch'
+import type { Solved } from '@/modules/cad/ConstrainedSketch'
 import { evalNumber } from '@/modules/cad/expr'
 import { NumberField } from '@/modules/cad/NumberField'
 import { SHAPE_TYPES, defaultShape } from '@/modules/cad/recipeSpec'
@@ -58,7 +60,8 @@ function extent(shapes: SketchShape[]): number {
       s.type === 'triangle' ? Math.max(n(s.a ?? 0), n(s.b ?? 0), n(s.c ?? 0)) * 2 : 0,
       n(s.y_radius ?? 0) * 2,
       s.type === 'text' ? String(s.text ?? '').length * n(s.size, 0) * 0.7 : 0,
-      ...(((s.points as number[][]) ?? []).flat().map((v) => Math.abs(v) * 2)),
+      // 다각형은 점 목록, 구속 윤곽은 이름 → 점(그린 자리)이다.
+      ...(Array.isArray(s.points) ? (s.points as number[][]) : Object.values((s.points as Record<string, number[]>) ?? {})).flat().map((v) => Math.abs(Number(v) || 0) * 2),
       ...polylinePoints(s).flat().map((v) => Math.abs(v) * 2),
     )
     r = Math.max(r, Math.abs(x) + size / 2 + 10, Math.abs(y) + size / 2 + 10)
@@ -328,6 +331,9 @@ export function SketchCanvas({
   const [drafting, setDrafting] = useState<number[][] | null>(null)
   const svg = useRef<SVGSVGElement | null>(null)
   const drag = useRef<{ index: number; startX: number; startY: number; atX: number; atY: number } | null>(null)
+  /** 구속 윤곽의 점을 끄는 중 — 그린 자리를 옮기면 서버가 다시 푼다. */
+  const pointDrag = useRef<{ index: number; name: string; startX: number; startY: number; px: number; py: number } | null>(null)
+  const solved = useSolvedSketches(shapes, params)
   const half = useMemo(() => extent(shapes), [shapes])
   const scale = Math.min(W, H) / (half * 2)
 
@@ -393,7 +399,31 @@ export function SketchCanvas({
     ;(event.target as Element).setPointerCapture?.(event.pointerId)
   }
 
+  function onPointDown(index: number, name: string, event: PointerEvent) {
+    event.stopPropagation()
+    setSelected(index)
+    const [x, y] = toWorld(event)
+    const shape = shapes[index]
+    const at = ((shape.points as Record<string, number[]>) ?? {})[name] ?? [0, 0]
+    pointDrag.current = { index, name, startX: x, startY: y, px: Number(at[0]) || 0, py: Number(at[1]) || 0 }
+    ;(event.target as Element).setPointerCapture?.(event.pointerId)
+  }
+
   function onMove(event: PointerEvent) {
+    if (pointDrag.current) {
+      const [x, y] = toWorld(event)
+      const fine = !event.shiftKey
+      const { index, name, startX, startY, px, py } = pointDrag.current
+      // 도형이 돌아 있으면 끈 만큼을 도형의 좌표로 되돌린다.
+      const turn = (-n(shapes[index].rotation ?? 0) * Math.PI) / 180
+      const dx = x - startX
+      const dy = y - startY
+      const lx = dx * Math.cos(turn) - dy * Math.sin(turn)
+      const ly = dx * Math.sin(turn) + dy * Math.cos(turn)
+      const points = (shapes[index].points as Record<string, number[]>) ?? {}
+      update(index, { points: { ...points, [name]: [snap(px + lx, fine), snap(py + ly, fine)] } })
+      return
+    }
     if (!drag.current) return
     const [x, y] = toWorld(event)
     const fine = !event.shiftKey
@@ -403,6 +433,7 @@ export function SketchCanvas({
   }
   function onUp() {
     drag.current = null
+    pointDrag.current = null
   }
 
   const current = selected !== null ? shapes[selected] : null
@@ -458,9 +489,21 @@ export function SketchCanvas({
                 <line x1={-half} y1={v} x2={half} y2={v} stroke="#9ca3af" strokeWidth={v === 0 ? 0.6 : 0.2} vectorEffect="non-scaling-stroke" opacity={0.5} />
               </g>
             ))}
-            {shapes.map((shape, i) => (
-              <ShapeSvg key={i} shape={shape} selected={i === selected} onPointerDown={(e) => onShapeDown(i, e)} />
-            ))}
+            {shapes.map((shape, i) =>
+              isConstrained(shape) ? (
+                <ConstrainedSvg
+                  key={i}
+                  shape={shape}
+                  solved={solved[i]}
+                  selected={i === selected}
+                  scale={scale}
+                  onPointerDown={(e) => onShapeDown(i, e)}
+                  onPointDown={(name, e) => onPointDown(i, name, e)}
+                />
+              ) : (
+                <ShapeSvg key={i} shape={shape} selected={i === selected} onPointerDown={(e) => onShapeDown(i, e)} />
+              ),
+            )}
             {drafting && (
               <g>
                 <polyline points={drafting.map(([x, y]) => `${x},${y}`).join(' ')} fill="none" stroke="#f59e0b" strokeWidth={0.6} vectorEffect="non-scaling-stroke" strokeDasharray="2 1" />
@@ -481,6 +524,7 @@ export function SketchCanvas({
           <ShapeForm
             params={params}
             onCreateParam={onCreateParam}
+            solved={selected !== null ? solved[selected] : undefined}
             shape={current}
             onChange={(patch) => update(selected!, patch)}
             onDelete={() => {
@@ -511,8 +555,11 @@ function ShapeForm({
   onMove,
   params,
   onCreateParam,
+  solved,
 }: {
   shape: SketchShape
+  /** 구속 윤곽의 풀이 — 상태 줄과 「점을 푼 자리로」 에 쓴다. */
+  solved?: Solved
   params: Record<string, number>
   onCreateParam?: (name: string, value: number) => void
   onChange: (patch: Record<string, unknown>) => void
@@ -567,6 +614,7 @@ function ShapeForm({
           </>
         )}
         {shape.type === 'circle' && numberField('radius', '반지름')}
+        {isConstrained(shape) && <ConstrainedForm shape={shape} solved={solved} params={params} onCreateParam={onCreateParam} onChange={(patch) => onChange(patch)} />}
         {shape.type === 'slot' && (
           <>
             {numberField('length', shape.measure === 'centers' ? '중심 사이 거리' : '전체 길이')}

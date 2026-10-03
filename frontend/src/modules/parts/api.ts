@@ -4,6 +4,8 @@ import type { Work } from '@/modules/works/api'
 import { api } from '@/shared/api/client'
 import type { Page } from '@/shared/api/types'
 import type { FolderRow } from '@/shared/folders/paths'
+import { addShapeParams } from '@/shared/components/ShapeFilter'
+import type { ShapeIndex, ShapeQuery } from '@/shared/components/ShapeFilter'
 
 export interface PartVersion {
   id: string
@@ -48,11 +50,15 @@ export interface PartSummary {
   /** 놓인 폴더 — `고객A/2026`, 빈 것이 맨 위. 승격할 때 작업의 폴더를 한 번 물려받는다. */
   folder: string
   updated_at: string
+  /** 최신 버전의 형상 색인 — 이 기능 전의 버전이면 없다. */
+  shape?: ShapeIndex | null
 }
 
 /** 목록을 거르는 폴더 — null 이면 전부, '' 이면 폴더 없는 것만(그때는 하위를 안 본다). */
 export interface FolderFilter {
   folder?: string | null
+  /** 형상 조건 — 최신 버전의 형상 색인으로. */
+  shape?: ShapeQuery
 }
 
 export const partsApi = {
@@ -62,6 +68,7 @@ export const partsApi = {
     if (tag) query.set('tag', tag)
     if (filter.folder != null) query.set('folder', filter.folder)
     if (filter.folder === '') query.set('subfolders', 'false')
+    addShapeParams(query, filter.shape)
     return api.get<Page<PartSummary>>(`/parts?${query}`)
   },
   /** 카탈로그의 폴더들 — 경로와 바로 그 폴더의 부품 수. */

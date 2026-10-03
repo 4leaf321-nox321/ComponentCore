@@ -25,6 +25,8 @@ const RUN: Record<string, { label: string; tone: Tone }> = {
   running: { label: '생성 중', tone: 'warn' },
   done: { label: '완료', tone: 'good' },
   failed: { label: '실패', tone: 'bad' },
+  cancelled: { label: '멈춤', tone: 'neutral' },
+  cancelling: { label: '멈추는 중', tone: 'warn' },
 }
 
 const INTERFERENCE: Record<string, { label: string; tone: Tone }> = {

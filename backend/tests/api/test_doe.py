@@ -136,6 +136,7 @@ def test_설계점마다_STEP_을_공유_폴더에_쓴다(
         "point_file",
         "unresolved",
         "interference",
+        "warnings",
         "error",
     ]
 
@@ -1314,3 +1315,51 @@ def test_덱을_못_뽑아도_폴더는_나가고_까닭이_남는다(
     까닭 = (folder / "materials" / "README.txt").read_text(encoding="utf-8")
     assert "무언가/ansys" in 까닭 and "중립 물성" in 까닭
     assert not list((folder / "materials").glob("*.dat"))
+
+
+def test_설계점마다_중간면도_내보낸다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    """셸 요소로 푸는 쪽은 입체가 아니라 두께 가운데의 면을 받는다. 판이 아닌 점은 실패가
+    아니라 알림이다."""
+    plate = {
+        "params": {"두께": 2.0},
+        "nodes": [
+            {"id": "판", "op": "box", "length": 100, "width": 40, "height": "=두께"},
+        ],
+    }
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "판 두께",
+            "recipe": plate,
+            # 30 이면 판이 아니다 — 두께가 윗면의 폭(넓이 x 2 / 둘레 ≈ 28.6)보다 크다.
+            "factors": [{"name": "두께", "mode": "list", "values": [2, 4, 30]}],
+            "outputs": ["midsurface"],
+        },
+        headers=member.headers,
+    )
+    assert made.status_code == 201, made.text
+    study = made.json()
+    assert study["outputs"] == ["midsurface"]
+    got = client.get(f"/api/doe/{study['id']}", headers=member.headers).json()
+    assert got["done"] == 3 and got["failed"] == 0  # 중간면을 못 뽑아도 점은 만들어진다
+
+    client.post(f"/api/doe/{study['id']}/export", headers=member.headers)
+    folder = next(export_root.iterdir())
+    rows = list(
+        csv.DictReader((folder / "manifest.csv").read_text(encoding="utf-8-sig").splitlines())
+    )
+    assert "mid_file" in rows[0]
+    assert [row["mid_file"] for row in rows] == [
+        "points/p0001_mid.step",
+        "points/p0002_mid.step",
+        "",
+    ]
+    assert "중간면: 판이 아닙니다" in rows[2]["warnings"]
+    assert (folder / "points" / "p0001_mid.step").read_bytes().startswith(b"ISO-10303-21")
+    topo = json.loads((folder / "points" / "p0002.json").read_text(encoding="utf-8"))
+    assert topo["midsurface"]["step_file"] == "points/p0002_mid.step"
+    assert topo["midsurface"]["bodies"][0]["thickness"] == 4
+    assert topo["midsurface"]["area"] == pytest.approx(100 * 40)
+    assert "_mid.step" in (folder / "README.txt").read_text(encoding="utf-8")

@@ -25,6 +25,7 @@ import { RecipeEditor } from '@/modules/cad/RecipeEditor'
 import { ConditionsPanel } from '@/modules/conditions/ConditionsPanel'
 import { conditionsApi } from '@/modules/conditions/api'
 import { saveRecipeAs } from '@/modules/cad/download'
+import type { DownloadFormat } from '@/modules/cad/download'
 import { SaveTemplateDialog } from '@/modules/templates/SaveTemplateDialog'
 import { JigResultView } from '@/modules/jigs/JigResultView'
 import { jobsApi } from '@/modules/jobs/api'
@@ -43,6 +44,7 @@ import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/components/ui/tabs'
 import { FolderDialog } from '@/shared/folders/FolderDialog'
+import { DuplicateDialog } from '@/modules/works/DuplicateDialog'
 import { TagEditor } from '@/modules/works/TagEditor'
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
@@ -80,6 +82,8 @@ export default function WorkPage() {
   const [promoteName, setPromoteName] = useState('')
   const [promoteNote, setPromoteNote] = useState('')
   const [deleting, setDeleting] = useState(false)
+  /** 복제 창 — 해석 조건도 옮길지 고른다. */
+  const [duplicating, setDuplicating] = useState(false)
   const [savingTemplate, setSavingTemplate] = useState(false)
   /** 저장 갈림길 — 이 작업에 새 버전으로, 또는 새 작업으로 따로. */
   const [saveChoice, setSaveChoice] = useState(false)
@@ -116,7 +120,7 @@ export default function WorkPage() {
     setEditing(true)
   }
 
-  async function downloadDraft(format: 'step' | 'stl' | 'dxf' | 'svg') {
+  async function downloadDraft(format: DownloadFormat) {
     if (!draft) return
     setError(null)
     try {
@@ -235,17 +239,7 @@ export default function WorkPage() {
                 지그로 올라감
               </Link>
             )}
-            <Button
-              variant="ghost"
-              disabled={busy}
-              title="현재 도면으로 새 작업 — 종류 · 꼬리표가 따라갑니다"
-              onClick={() =>
-                void act(async () => {
-                  const made = await worksApi.duplicate(id)
-                  navigate(`/works/${made.id}`)
-                })
-              }
-            >
+            <Button variant="ghost" disabled={busy} title="현재 도면으로 새 작업 — 종류 · 꼬리표 · 폴더가 따라갑니다" onClick={() => setDuplicating(true)}>
               복제
             </Button>
             <Button variant="ghost" onClick={() => setDeleting(true)} disabled={busy}>
@@ -382,6 +376,7 @@ export default function WorkPage() {
                     },
                     onLoaded: (label, source) => setNote(source === 'copy' ? `${label} 에서 복사` : `${label} 템플릿에서`),
                     currentWorkId: id,
+                    drawingTitle: w.name,
                   }}
                 />
                 )}
@@ -645,6 +640,18 @@ export default function WorkPage() {
         />
       )}
 
+      <DuplicateDialog
+        key={String(duplicating)}
+        open={duplicating}
+        workId={id}
+        workName={w.name}
+        conditions={w.current?.conditions}
+        onClose={() => setDuplicating(false)}
+        onMade={(made) => {
+          setDuplicating(false)
+          navigate(`/works/${made}`)
+        }}
+      />
       <ConfirmDialog
         open={deleting}
         title="작업을 지웁니다"

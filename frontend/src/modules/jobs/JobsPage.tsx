@@ -3,7 +3,8 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import { jobsApi } from '@/modules/jobs/api'
+import { jobsApi, runState } from '@/modules/jobs/api'
+import { CancelJobButton } from '@/modules/jobs/CancelJobButton'
 import type { Job } from '@/modules/jobs/api'
 import { downloadFile } from '@/shared/api/client'
 import { EmptyState } from '@/shared/components/EmptyState'
@@ -87,7 +88,7 @@ export default function JobsPage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <StatusBadge kind="run" value={job.status} />
+                    <StatusBadge kind="run" value={runState(job)} />
                     {job.error && (
                       <p className="text-destructive mt-1 max-w-xs truncate text-xs" title={job.error}>
                         {job.error}
@@ -96,6 +97,7 @@ export default function JobsPage() {
                   </TableCell>
                   <TableCell className="font-mono text-xs">{elapsed(job)}</TableCell>
                   <TableCell className="space-x-1">
+                    <CancelJobButton job={job} onCancelled={page.reload} />
                     {job.artifacts
                       .filter((one) => one.kind in ARTIFACT_LABELS)
                       .map((one) => (

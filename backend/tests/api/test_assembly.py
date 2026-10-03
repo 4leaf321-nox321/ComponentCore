@@ -238,3 +238,102 @@ def test_조립의_구성품끼리_겹치면_어느_것끼리_얼마나인지_�
     assert flags == {1: False, 2: True}
     csv_out = client.get(f"/api/doe/{study['id']}/manifest.csv", headers=member.headers).text
     assert "interference" in csv_out and "ok" in csv_out
+
+
+def test_구속으로_놓으면_치수가_바뀌어도_따라_앉는다(
+    client: TestClient, member: Signed
+) -> None:
+    """손으로 적은 `translate: [0, 0, 25]` 는 지그 높이가 바뀌면 부품이 허공에 뜬다. 구속
+    (부품 바닥 ↔ 지그 윗면)은 설계점마다 다시 풀린다."""
+    part = _work(client, member, "판", PLATE, "part")
+    jig = _work(client, member, "받침", BASE, "jig")
+    assembly: dict[str, Any] = {
+        "params": {"지그_높이": 25.0},
+        "nodes": [
+            {
+                "id": "지그",
+                "op": "component",
+                "source": f"work:{jig['id']}",
+                "params": {"높이": "=지그_높이"},
+            },
+            {
+                "id": "부품",
+                "op": "component",
+                "source": f"work:{part['id']}",
+                "translate": [5, 7, 100],
+            },
+            {"id": "조립", "op": "group", "targets": ["지그", "부품"]},
+        ],
+    }
+
+    # 3D 에서 누른 면을 구속의 질의로 — `this` 는 부품 자신의 좌표로 되돌려 고른다
+    # (부품은 지금 z = 100~110 에 떠 있지만 질의는 가져온 도면의 바닥 z = 0 을 가리킨다).
+    this = client.post(
+        "/api/cad/recipe/mate-pick",
+        json={
+            "recipe": assembly,
+            "node": "부품",
+            "side": "this",
+            "what": "faces",
+            "point": [5, 7, 100],
+        },
+        headers=member.headers,
+    )
+    assert this.status_code == 200, this.text
+    assert this.json()["select"] == {"what": "faces", "role": "bottom"}
+    to = client.post(
+        "/api/cad/recipe/mate-pick",
+        json={
+            "recipe": assembly,
+            "node": "부품",
+            "side": "to",
+            "target": "지그",
+            "what": "faces",
+            "point": [0, 0, 25],
+        },
+        headers=member.headers,
+    )
+    assert to.status_code == 200, to.text
+    assert to.json()["select"] == {"what": "faces", "role": "top"}
+    # 뒤에 놓인 것에는 걸 수 없다.
+    late = client.post(
+        "/api/cad/recipe/mate-pick",
+        json={
+            "recipe": assembly,
+            "node": "지그",
+            "side": "to",
+            "target": "부품",
+            "point": [0, 0, 0],
+        },
+        headers=member.headers,
+    )
+    assert late.status_code == 400
+
+    assembly["nodes"][1]["mates"] = [
+        {
+            "type": "touch",
+            "this": this.json()["select"],
+            "to": "지그",
+            "select": to.json()["select"],
+        }
+    ]
+    swept = client.post(
+        "/api/cad/recipe/sweep",
+        json={"recipe": assembly, "param": "지그_높이", "values": [25, 40]},
+        headers=member.headers,
+    )
+    assert swept.status_code == 200, swept.text
+    # 지그 높이 + 판 10 — 떠 있던 부품이 윗면에 앉고, 높이를 바꿔도 따라 앉는다.
+    sizes = [row["geometry"]["bbox"]["size"][2] for row in swept.json()["results"]]
+    assert sizes == [35.0, 50.0]
+
+    info = client.post(
+        "/api/cad/recipe/info", json={"recipe": assembly}, headers=member.headers
+    )
+    placed = next(one for one in info.json()["summary"]["nodes"] if one["id"] == "부품")
+    # 높이만 정했다 — X · Y 는 손으로 놓은 (5, 7) 그대로, 남은 움직임은 회전 1 · 이동 2.
+    assert placed["placement"]["translation"] == [5.0, 7.0, 25.0]
+    assert (placed["placement"]["free_rotation"], placed["placement"]["free_translation"]) == (
+        1,
+        2,
+    )

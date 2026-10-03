@@ -77,6 +77,24 @@ class DoeStudy(Base):
     """대상 버전의 해석 조건을 **그때 떠 둔 것**. 작업이 나중에 바뀌어도 이 DOE 가 무엇으로
     돌았는지 남는다 — 레시피 스냅샷과 같은 까닭이다."""
     factors: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    constraints: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
+    """변수끼리의 조건(`간격 > 2 * 지름`) — 어긋난 조합은 만들기 **전에** 거른다. 점을 더할
+    때도 같은 것이 걸린다."""
+    checks: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
+    """형상 점검 기준(mm) — `min_wall` · `short_edge` · `narrow_face`. 비면 기본값
+    (`core/quality.DEFAULTS`). `{"enabled": false}` 면 재지 않는다."""
+    measures: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, default=list, server_default="[]"
+    )
+    """점마다 잴 값 — 표에 열로 붙는다(부피 · 크기 · 영역 넓이 · 거리 · 식). 해석 결과가 아니라
+    **형상에서 바로 나오는 값**만이다."""
+    batches: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, default=list, server_default="[]"
+    )
+    """만든 뒤 **더한** 묶음의 이력 — 방식 · 표본 수 · 시드 · 범위 · 번호 구간. 첫 묶음은 위의
+    `method` · `samples` · `seed` · `factors` 가 말한다."""
+    outputs: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
+    """설계점마다 **더 내보낼 것** — `midsurface`(셸 해석용 중간면 STEP, `<형상>_mid.step`)."""
     method: Mapped[str] = mapped_column(String(20), default="factorial")
     samples: Mapped[int] = mapped_column(Integer, default=20)
     seed: Mapped[int] = mapped_column(Integer, default=1)

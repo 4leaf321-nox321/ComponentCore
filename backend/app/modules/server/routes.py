@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import shutil
 from datetime import UTC, datetime
+from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -14,9 +15,10 @@ from app.config import get_settings
 from app.database import Base, engine, get_db
 from app.modules.accounts.models import User
 from app.modules.jigs.models import Jig
+from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Artifact, Job
 from app.modules.parts.models import Part
-from app.modules.server import settings_store
+from app.modules.server import settings_store, shape_fill
 from app.modules.server.schemas import (
     DiskOut,
     DisplayOut,
@@ -95,6 +97,37 @@ def status(
         build123d_version=_build123d_version(),
         started_at=STARTED_AT,
     )
+
+
+@router.get("/workers")
+def workers(
+    _: User = Depends(require_system_admin), db: Session = Depends(get_db)
+) -> dict[str, Any]:
+    """워커 — 살아 있나(마지막 신호) · 무엇을 하나 · 줄이 얼마나 긴가.
+
+    `state` 는 idle · busy · stopping · stopped, 그리고 신호가 2분 넘게 끊긴 것은 **lost**(죽은
+    것으로 본다 — 잡고 있던 작업은 워커 루프가 되살린다). 살아 있는 워커가 없는데 줄이 서
+    있으면(`alive` 0, `queue.queued` > 0) 작업이 영영 안 돈다 — 화면이 그것을 크게 말한다."""
+    return jobs.workers_overview(db)
+
+
+@router.get("/shape-index")
+def shape_index_status(
+    _: User = Depends(require_system_admin), db: Session = Depends(get_db)
+) -> dict[str, Any]:
+    """형상 색인이 **없는** 최신 버전 수 — 이 기능 전에 만든 것. 형상으로 찾으면 빠진다."""
+    return {"missing": shape_fill.missing(db)}
+
+
+@router.post("/shape-index")
+def fill_shape_index(
+    limit: int = Query(default=20, ge=1, le=200),
+    _: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """형상 색인을 `limit` 개까지 채운다 — 그 버전이 남긴 STEP 에서. 남은 것(`remaining`)이
+    0 이 될 때까지 다시 부른다."""
+    return shape_fill.fill(db, limit=limit)
 
 
 @router.get("/display", response_model=DisplayOut)

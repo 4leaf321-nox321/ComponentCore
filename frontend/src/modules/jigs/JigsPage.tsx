@@ -25,6 +25,8 @@ import {
 } from '@/shared/components/ui/table'
 import { useDisplay } from '@/shared/api/display'
 import { TagFilter } from '@/shared/components/TagFilter'
+import { describeShape, ShapeFilter, shapeConditionCount } from '@/shared/components/ShapeFilter'
+import type { ShapeQuery } from '@/shared/components/ShapeFilter'
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
@@ -34,18 +36,20 @@ export default function JigsPage() {
   const [q, setQ] = useState('')
   /** 고른 꼬리표 — 빈 문자열이면 안 거른다. */
   const [tag, setTag] = useState('')
+  /** 형상 조건 — 「이 제품에 맞는 지그가 있나」 를 크기 · 구멍으로. */
+  const [shape, setShape] = useState<ShapeQuery>({})
   const PAGE = useDisplay().list_page_size
   const space = useFolderSpace('jigs', jigsApi, { onRefilter: () => setOffset(0) })
   const page = useResource(
-    () => jigsApi.list({ offset, limit: PAGE, q, tag, folder: space.folder }),
-    [offset, q, tag, PAGE, space.folder, space.version],
+    () => jigsApi.list({ offset, limit: PAGE, q, tag, folder: space.folder, shape }),
+    [offset, q, tag, shape, PAGE, space.folder, space.version],
   )
   const tags = useResource(() => jigsApi.tags(), [page.data])
   const rows = page.data?.items ?? []
   /** 옮길 수 있는 줄 — 올린 사람 · 관리자. 판정은 서버가 다시 한다. */
   const { user } = useAuth()
   const movable = (ownerId: string) => canEditProject(user, ownerId)
-  const filtered = Boolean(q || tag || space.folder !== null)
+  const filtered = Boolean(q || tag || space.folder !== null || shapeConditionCount(shape) > 0)
 
   return (
     <div>
@@ -60,13 +64,14 @@ export default function JigsPage() {
         <FolderSelect space={space} allLabel="모든 지그" />
         <SearchBox value={q} onChange={(next) => { setQ(next); setOffset(0) }} />
         <TagFilter tags={tags.data ?? []} value={tag} onChange={(next) => { setTag(next); setOffset(0) }} />
+        <ShapeFilter value={shape} onChange={(next) => { setShape(next); setOffset(0) }} />
       </div>
       <FolderCrumbs space={space} allLabel="모든 지그" />
       <ChosenBar space={space} />
       <ErrorNotice error={page.error} className="mb-4" />
       {rows.length === 0 && !page.loading ? (
         filtered ? (
-          <EmptyState title="맞는 지그가 없습니다" hint="찾는 말 · 꼬리표 · 폴더를 바꿔 보세요. 빈 폴더라면 지그를 끌어다 놓으세요." />
+          <EmptyState title="맞는 지그가 없습니다" hint="찾는 말 · 꼬리표 · 폴더 · 형상 조건을 바꿔 보세요. 빈 폴더라면 지그를 끌어다 놓으세요." />
         ) : (
           <EmptyState title="아직 올라온 지그가 없습니다" hint="내 작업의 지그 탭에서 결과를 「지그로 승격」 하면 여기 뜹니다." />
         )
@@ -102,6 +107,7 @@ export default function JigsPage() {
                       {row.name}
                     </Link>
                     <RowFolder space={space} folder={row.folder} />
+                    {row.shape && <p className="text-muted-foreground font-mono text-[11px]">{describeShape(row.shape)}</p>}
                   </TableCell>
                   <TableCell>
                     {row.part_id ? (

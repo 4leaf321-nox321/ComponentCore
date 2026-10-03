@@ -715,7 +715,7 @@
           "works"
         ],
         "summary": "List Works",
-        "description": "내 작업 — `q` 로 이름 · 설명을 찾고, `tag` · `kind` 로 거르고, `trashed` 면 휴지통.\n`folder` 면 그 폴더(`subfolders` 면 그 아래까지 — 기본), `year` 면 그해에 만든 것.\n`order` 는 최근에 고친 것부터(updated) · 만든 것부터(created — 연도별로 묶어 볼 때).",
+        "description": "내 작업 — `q` 로 이름 · 설명을 찾고, `tag` · `kind` 로 거르고, `trashed` 면 휴지통.\n`folder` 면 그 폴더(`subfolders` 면 그 아래까지 — 기본), `year` 면 그해에 만든 것.\n`order` 는 최근에 고친 것부터(updated) · 만든 것부터(created — 연도별로 묶어 볼 때).\n**형상으로**: `has` · `thread` · `param` · `fits` · `volume_min` · `volume_max` · `hole` ·\n`holes` — 최신 버전의 형상 색인으로 거른다(`shared/shape_search.py`).",
         "operationId": "list_works_api_works_get",
         "parameters": [
           {
@@ -846,6 +846,135 @@
               "type": "string",
               "default": "updated",
               "title": "Order"
+            }
+          },
+          {
+            "name": "has",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 12,
+              "default": [],
+              "title": "Has"
+            }
+          },
+          {
+            "name": "thread",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 12,
+              "default": "",
+              "title": "Thread"
+            }
+          },
+          {
+            "name": "param",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 40,
+              "default": "",
+              "title": "Param"
+            }
+          },
+          {
+            "name": "fits",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 40,
+              "default": "",
+              "title": "Fits"
+            }
+          },
+          {
+            "name": "volume_min",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Volume Min"
+            }
+          },
+          {
+            "name": "volume_max",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Volume Max"
+            }
+          },
+          {
+            "name": "hole",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 10000,
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hole"
+            }
+          },
+          {
+            "name": "hole_tol",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "maximum": 10,
+              "minimum": 0,
+              "default": 0.1,
+              "title": "Hole Tol"
+            }
+          },
+          {
+            "name": "holes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 10000,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Holes"
             }
           }
         ],
@@ -1166,7 +1295,7 @@
           "works"
         ],
         "summary": "Duplicate Work",
-        "description": "현재 도면으로 새 작업 — 종류 · 꼬리표 · 잡는 부품을 따라간다.",
+        "description": "현재 도면으로 새 작업 — 종류 · 꼬리표 · 폴더 · 잡는 부품을 따라간다. `conditions` 면\n해석 조건도 복사한다(기본은 도면만).",
         "operationId": "duplicate_work_api_works__work_id__duplicate_post",
         "parameters": [
           {
@@ -1194,6 +1323,16 @@
                 }
               ],
               "title": "Name"
+            }
+          },
+          {
+            "name": "conditions",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Conditions"
             }
           }
         ],
@@ -2202,7 +2341,7 @@
           "parts"
         ],
         "summary": "List Parts",
-        "description": "부품 카탈로그 — `q` · `tag` 로 찾고, `folder` 면 그 폴더(`subfolders` 면 하위까지).",
+        "description": "부품 카탈로그 — `q` · `tag` 로 찾고, `folder` 면 그 폴더(`subfolders` 면 하위까지).\n**형상으로**: `has` · `thread` · `param` · `fits` · `volume_min` · `volume_max` · `hole` ·\n`holes` — 최신 버전의 형상 색인으로 거른다.",
         "operationId": "list_parts_api_parts_get",
         "parameters": [
           {
@@ -2280,6 +2419,135 @@
               "type": "boolean",
               "default": true,
               "title": "Subfolders"
+            }
+          },
+          {
+            "name": "has",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 12,
+              "default": [],
+              "title": "Has"
+            }
+          },
+          {
+            "name": "thread",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 12,
+              "default": "",
+              "title": "Thread"
+            }
+          },
+          {
+            "name": "param",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 40,
+              "default": "",
+              "title": "Param"
+            }
+          },
+          {
+            "name": "fits",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 40,
+              "default": "",
+              "title": "Fits"
+            }
+          },
+          {
+            "name": "volume_min",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Volume Min"
+            }
+          },
+          {
+            "name": "volume_max",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Volume Max"
+            }
+          },
+          {
+            "name": "hole",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 10000,
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hole"
+            }
+          },
+          {
+            "name": "hole_tol",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "maximum": 10,
+              "minimum": 0,
+              "default": 0.1,
+              "title": "Hole Tol"
+            }
+          },
+          {
+            "name": "holes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 10000,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Holes"
             }
           }
         ],
@@ -2678,7 +2946,7 @@
           "jigs"
         ],
         "summary": "List Jigs",
-        "description": "지그 카탈로그 — `q` · `tag` 로 찾고, `folder` 면 그 폴더(`subfolders` 면 하위까지).",
+        "description": "지그 카탈로그 — `q` · `tag` 로 찾고, `folder` 면 그 폴더(`subfolders` 면 하위까지).\n**형상으로**: `has` · `thread` · `param` · `fits` · `volume_min` · `volume_max` · `hole` ·\n`holes` — 최신 버전의 형상 색인으로 거른다.",
         "operationId": "list_jigs_api_jigs_get",
         "parameters": [
           {
@@ -2773,6 +3041,135 @@
               "type": "boolean",
               "default": true,
               "title": "Subfolders"
+            }
+          },
+          {
+            "name": "has",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 12,
+              "default": [],
+              "title": "Has"
+            }
+          },
+          {
+            "name": "thread",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 12,
+              "default": "",
+              "title": "Thread"
+            }
+          },
+          {
+            "name": "param",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 40,
+              "default": "",
+              "title": "Param"
+            }
+          },
+          {
+            "name": "fits",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 40,
+              "default": "",
+              "title": "Fits"
+            }
+          },
+          {
+            "name": "volume_min",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Volume Min"
+            }
+          },
+          {
+            "name": "volume_max",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Volume Max"
+            }
+          },
+          {
+            "name": "hole",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 10000,
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hole"
+            }
+          },
+          {
+            "name": "hole_tol",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "maximum": 10,
+              "minimum": 0,
+              "default": 0.1,
+              "title": "Hole Tol"
+            }
+          },
+          {
+            "name": "holes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 10000,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Holes"
             }
           }
         ],
@@ -3061,7 +3458,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "pattern": "^(queued|running|done|failed)$"
+                  "pattern": "^(queued|running|done|failed|cancelled)$"
                 },
                 {
                   "type": "null"
@@ -3131,6 +3528,50 @@
         "summary": "Get Job",
         "description": "화면이 도는 동안 이것을 폴링한다 — `progress` 가 단계마다 늘어난다.",
         "operationId": "get_job_api_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{job_id}/cancel": {
+      "post": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Cancel Job",
+        "description": "작업을 **멈춘다** — 대기 중이면 바로 취소, 도는 중이면 취소를 요청한다(워커가 다음\n단계에서 멈춘다 · `cancel_requested_at`). 건 사람 · 그 작업의 주인 · 관리자만.\n\nDOE 는 그때까지 만든 점과 표를 남기고, 「다시 만들기」 로 남은 점을 잇는다. 단계가 없는\n짧은 작업(부품 평가)은 끝까지 돌고 결과가 남는다.",
+        "operationId": "cancel_job_api_jobs__job_id__cancel_post",
         "parameters": [
           {
             "name": "job_id",
@@ -3944,6 +4385,50 @@
         }
       }
     },
+    "/api/cad/recipe/mate-pick": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Recipe Mate Pick",
+        "description": "조립 구속을 **눌러서** — 3D 에서 누른 면 · 엣지를 구속의 `this` · `select` 질의로.\n`this` 는 구성품 자신(가져온 도면)의 좌표로 되돌려 고른다.",
+        "operationId": "recipe_mate_pick_api_cad_recipe_mate_pick_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MatePickRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Recipe Mate Pick Api Cad Recipe Mate Pick Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/cad/recipe/interference": {
       "post": {
         "tags": [
@@ -4129,6 +4614,209 @@
             }
           },
           "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cad/recipe/unfold": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Recipe Unfold",
+        "description": "**전개도** — 굽힌 판을 펼친 모양으로(`json` 요약 · `dxf` · `svg`).\n\nDXF 는 층으로 가른다: 외곽(구멍 포함) `OUTLINE`, 굽힘선 `BEND_UP` · `BEND_DOWN`(점선),\n「UP 90° R3」 글씨 `BEND_TEXT` — 레이저 · 절곡기 CAM 이 층으로 읽는다. 요약은 두께 · 크기 ·\n넓이 · 굽힘(선 · 각 · 안쪽 반지름 · 방향 · 굽힘 여유)과 알림(날개끼리 겹침 등).\n\n펼 수 없는 형상(두께가 한결같지 않음 · 솔리드 여럿)이면 400 과 까닭.",
+        "operationId": "recipe_unfold_api_cad_recipe_unfold_post",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(json|dxf|svg)$",
+              "default": "json",
+              "title": "Format"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnfoldRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cad/recipe/sketch-solve": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Recipe Sketch Solve",
+        "description": "**구속 윤곽**을 풀어 본다 — 점의 자리와 남은 움직임(0 이면 다 정해졌다). 맞지 않는\n구속은 몇째인지 400 으로 말한다. 캔버스가 그린 대로가 아니라 푼 모양을 보여 준다.",
+        "operationId": "recipe_sketch_solve_api_cad_recipe_sketch_solve_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SketchSolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Recipe Sketch Solve Api Cad Recipe Sketch Solve Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cad/recipe/midsurface": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Recipe Midsurface",
+        "description": "**중간면** — 두께가 한결같은 얇은 판의 가운데 면(셸 요소 해석용). `json` 은 판마다\n두께 · 넓이 · 면 수와 알림, `step` 은 그 면들(솔리드가 아니다 — 셸).\n\n판금 · 굽힌 판 · 쉘 상자 · 가져온 판금 STEP. 두께가 곳곳에 다르면(리브 · 보스) 그 자리는\n빠질 수 있고 `notes` 가 알린다. 판이 아니면 400 과 까닭.",
+        "operationId": "recipe_midsurface_api_cad_recipe_midsurface_post",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(json|step)$",
+              "default": "json",
+              "title": "Format"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MidSurfaceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cad/recipe/drawing": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Recipe Drawing",
+        "description": "**도면** — 3각법 세 뷰(정면 · 평면 · 우측면, 숨은 선 점선)에 전체 치수 · 구멍 기호와\n구멍표 · 표제란(이름 · 축척 · 재료 · 날짜). 축척은 표준 축척 중 들어가는 가장 큰 것.\n\n`pdf`(기본) · `dxf`(치수가 진짜 치수 객체 — CAD 에서 고친다) · `svg` · `png` ·\n`json`(축척 · 구멍표 · 치수 값). 구멍 위치는 그 구멍이 원으로 보이는 뷰의 왼쪽 아래\n모서리에서 잰다.",
+        "operationId": "recipe_drawing_api_cad_recipe_drawing_post",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(pdf|dxf|svg|png|json)$",
+              "default": "pdf",
+              "title": "Format"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DrawingRequest"
+              }
+            }
+          }
         },
         "responses": {
           "200": {
@@ -4776,6 +5464,50 @@
         }
       }
     },
+    "/api/doe/probe": {
+      "post": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Probe",
+        "description": "**만들기 전에 끝 점 몇 개를 먼저 만들어 본다** — 가운데, 모두 최소 · 최대, 인자마다 혼자\n최소 · 최대. 점마다 실패 사유 · 못 푼 영역 · 어긋남 · 겹침 · 걸린 시간. 파일은 안 쓴다.\n\n설계점 200개를 다 돌린 뒤에 절반이 깨진 것을 아는 일을 막는다. 요청 하나가 서버를 오래\n잡지 않게 90초까지만 만들고 남은 점은 건너뛴다(어느 점을 못 봤는지는 답이 말한다).",
+        "operationId": "probe_api_doe_probe_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProbeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Probe Api Doe Probe Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/doe": {
       "get": {
         "tags": [
@@ -5236,6 +5968,116 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StudyOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/doe/{study_id}/cancel": {
+      "post": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Cancel Study",
+        "description": "**만들기를 멈춘다** — 그때까지 만든 점과 표는 남기고, 남은 점은 「기다리는 중」 으로\n둔다. 「다시 만들기」(`rerun`)가 남은 점을 잇는다. 도는 중이면 지금 만드는 형상까지 마치고\n멈춘다.",
+        "operationId": "cancel_study_api_doe__study_id__cancel_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/doe/{study_id}/extend": {
+      "post": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Extend Study",
+        "description": "**점을 더한다** — 번호를 이어서, 같은 폴더에. 첫 결과를 보고 관심 구간을 좁혀 더\n뽑을 때.\n\n스터디의 제약식이 그대로 걸리고, 이미 있는 점과 같은 값은 뺀다. `dry_run` 이면 세기만\n한다. 답: `batch`(이번 묶음 — 방식 · 시드 · 번호 구간 · 더한 수 · 뺀 수)와 `study`(만들기\n작업이 걸린 스터디 — `dry_run` 이면 그대로). 보낸 뒤에 더했으면 다시 보내야 한다\n(`export_stale`).",
+        "operationId": "extend_study_api_doe__study_id__extend_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          },
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Dry Run"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtendRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Extend Study Api Doe  Study Id  Extend Post"
                 }
               }
             }
@@ -5865,6 +6707,100 @@
         }
       }
     },
+    "/api/server/workers": {
+      "get": {
+        "tags": [
+          "server"
+        ],
+        "summary": "Workers",
+        "description": "워커 — 살아 있나(마지막 신호) · 무엇을 하나 · 줄이 얼마나 긴가.\n\n`state` 는 idle · busy · stopping · stopped, 그리고 신호가 2분 넘게 끊긴 것은 **lost**(죽은\n것으로 본다 — 잡고 있던 작업은 워커 루프가 되살린다). 살아 있는 워커가 없는데 줄이 서\n있으면(`alive` 0, `queue.queued` > 0) 작업이 영영 안 돈다 — 화면이 그것을 크게 말한다.",
+        "operationId": "workers_api_server_workers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Workers Api Server Workers Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/server/shape-index": {
+      "get": {
+        "tags": [
+          "server"
+        ],
+        "summary": "Shape Index Status",
+        "description": "형상 색인이 **없는** 최신 버전 수 — 이 기능 전에 만든 것. 형상으로 찾으면 빠진다.",
+        "operationId": "shape_index_status_api_server_shape_index_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Shape Index Status Api Server Shape Index Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "server"
+        ],
+        "summary": "Fill Shape Index",
+        "description": "형상 색인을 `limit` 개까지 채운다 — 그 버전이 남긴 STEP 에서. 남은 것(`remaining`)이\n0 이 될 때까지 다시 부른다.",
+        "operationId": "fill_shape_index_api_server_shape_index_post",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Fill Shape Index Api Server Shape Index Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/server/display": {
       "get": {
         "tags": [
@@ -6450,6 +7386,112 @@
         "title": "DisplayOut",
         "description": "화면이 읽는 설정 — 관리자가 아닌 사람도 본다(목록 줄 수 · 형상 보기 수)."
       },
+      "DrawingRequest": {
+        "properties": {
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 120,
+            "title": "Title",
+            "default": ""
+          },
+          "sheet": {
+            "type": "string",
+            "pattern": "^(A3|A4)$",
+            "title": "Sheet",
+            "default": "A3"
+          },
+          "material": {
+            "type": "string",
+            "maxLength": 60,
+            "title": "Material",
+            "default": ""
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Note",
+            "default": ""
+          },
+          "node": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipe"
+        ],
+        "title": "DrawingRequest"
+      },
+      "ExtendRequest": {
+        "properties": {
+          "method": {
+            "type": "string",
+            "title": "Method",
+            "default": "lhs"
+          },
+          "samples": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Samples",
+            "default": 10
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          },
+          "factors": {
+            "items": {
+              "$ref": "#/components/schemas/FactorIn"
+            },
+            "type": "array",
+            "title": "Factors"
+          },
+          "table": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Idempotency Key",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "ExtendRequest",
+        "description": "이미 만든 DOE 에 **점을 더한다** — 번호를 이어서, 같은 폴더에."
+      },
       "FactorIn": {
         "properties": {
           "name": {
@@ -6988,6 +8030,18 @@
             "title": "Folder",
             "default": ""
           },
+          "shape": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shape"
+          },
           "updated_at": {
             "type": "string",
             "format": "date-time",
@@ -7298,6 +8352,18 @@
               }
             ],
             "title": "Finished At"
+          },
+          "cancel_requested_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancel Requested At"
           }
         },
         "type": "object",
@@ -7364,6 +8430,58 @@
         ],
         "title": "LoginResponse"
       },
+      "MatePickRequest": {
+        "properties": {
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "node": {
+            "type": "string",
+            "title": "Node"
+          },
+          "side": {
+            "type": "string",
+            "pattern": "^(this|to)$",
+            "title": "Side"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "what": {
+            "type": "string",
+            "pattern": "^(faces|edges)$",
+            "title": "What",
+            "default": "faces"
+          },
+          "point": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Point"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipe",
+          "node",
+          "side",
+          "point"
+        ],
+        "title": "MatePickRequest"
+      },
       "McpInfoOut": {
         "properties": {
           "url": {
@@ -7413,6 +8531,31 @@
           "b"
         ],
         "title": "MeasureRequest"
+      },
+      "MidSurfaceRequest": {
+        "properties": {
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "node": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipe"
+        ],
+        "title": "MidSurfaceRequest"
       },
       "MovedOut": {
         "properties": {
@@ -7754,6 +8897,18 @@
             "type": "string",
             "title": "Folder",
             "default": ""
+          },
+          "shape": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shape"
           },
           "updated_at": {
             "type": "string",
@@ -8144,6 +9299,39 @@
             "type": "string",
             "title": "Point File",
             "default": ""
+          },
+          "quality": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality"
+          },
+          "measures": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measures"
           }
         },
         "type": "object",
@@ -8181,13 +9369,184 @@
             "type": "integer",
             "title": "Seed",
             "default": 1
+          },
+          "constraints": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Constraints"
+          },
+          "recipe": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipe"
+          },
+          "table": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table"
+          },
+          "measures": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measures"
+          },
+          "checks": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checks"
+          }
+        },
+        "type": "object",
+        "title": "PreviewRequest"
+      },
+      "ProbeRequest": {
+        "properties": {
+          "factors": {
+            "items": {
+              "$ref": "#/components/schemas/FactorIn"
+            },
+            "type": "array",
+            "title": "Factors"
+          },
+          "method": {
+            "type": "string",
+            "title": "Method",
+            "default": "factorial"
+          },
+          "samples": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Samples",
+            "default": 20
+          },
+          "seed": {
+            "type": "integer",
+            "title": "Seed",
+            "default": 1
+          },
+          "constraints": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Constraints"
+          },
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "table": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table"
+          },
+          "measures": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measures"
+          },
+          "checks": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checks"
+          },
+          "conditions": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conditions"
+          },
+          "work_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Id"
           }
         },
         "type": "object",
         "required": [
-          "factors"
+          "recipe"
         ],
-        "title": "PreviewRequest"
+        "title": "ProbeRequest",
+        "description": "「미리 만들어 보기」 — 만들 때와 같은 도면 · 인자 · 제약 · 조건으로 끝 점 몇 개만."
       },
       "ProfileUpdateRequest": {
         "properties": {
@@ -8618,6 +9977,25 @@
         "title": "SettingUpdateRequest",
         "description": "`value` 가 None 이면 덮어쓴 것을 지워 .env 기본값으로."
       },
+      "SketchSolveRequest": {
+        "properties": {
+          "shape": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Shape"
+          },
+          "params": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Params"
+          }
+        },
+        "type": "object",
+        "required": [
+          "shape"
+        ],
+        "title": "SketchSolveRequest"
+      },
       "StageOut": {
         "properties": {
           "name": {
@@ -8666,22 +10044,80 @@
             "title": "Seed",
             "default": 1
           },
+          "constraints": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Constraints"
+          },
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "table": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table"
+          },
+          "measures": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measures"
+          },
+          "checks": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checks"
+          },
           "name": {
             "type": "string",
             "maxLength": 120,
             "minLength": 1,
             "title": "Name"
           },
+          "outputs": {
+            "items": {
+              "type": "string",
+              "const": "midsurface"
+            },
+            "type": "array",
+            "title": "Outputs"
+          },
           "description": {
             "type": "string",
             "maxLength": 2000,
             "title": "Description",
             "default": ""
-          },
-          "recipe": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Recipe"
           },
           "conditions": {
             "anyOf": [
@@ -8722,9 +10158,8 @@
         },
         "type": "object",
         "required": [
-          "factors",
-          "name",
-          "recipe"
+          "recipe",
+          "name"
         ],
         "title": "StudyCreateRequest"
       },
@@ -8825,6 +10260,46 @@
             },
             "type": "array",
             "title": "Factors"
+          },
+          "constraints": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Constraints"
+          },
+          "checks": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Checks"
+          },
+          "measures": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Measures"
+          },
+          "outputs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Outputs"
+          },
+          "batches": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Batches"
+          },
+          "export_stale": {
+            "type": "boolean",
+            "title": "Export Stale",
+            "default": false
           },
           "requested_by_name": {
             "type": "string",
@@ -9382,6 +10857,43 @@
           "descriptions"
         ],
         "title": "TokenScopesOut"
+      },
+      "UnfoldRequest": {
+        "properties": {
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "k_factor": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "K Factor",
+            "default": 0.5
+          },
+          "flip": {
+            "type": "boolean",
+            "title": "Flip",
+            "default": false
+          },
+          "node": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipe"
+        ],
+        "title": "UnfoldRequest"
       },
       "UserOut": {
         "properties": {
@@ -10025,6 +11537,18 @@
               }
             ],
             "title": "Deleted At"
+          },
+          "shape": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shape"
           }
         },
         "type": "object",

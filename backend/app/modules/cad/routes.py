@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 
 from app.core import export, vibration
@@ -24,11 +24,14 @@ from app.modules.cad.schemas import (
     BeamRequest,
     ConditionNotesRequest,
     CutListRequest,
+    DrawingRequest,
     FindRequest,
     FramesRequest,
     GeometryRequest,
     InterferenceRequest,
+    MatePickRequest,
     MeasureRequest,
+    MidSurfaceRequest,
     PatchRequest,
     PlaceRequest,
     RecipeInfoOut,
@@ -36,7 +39,9 @@ from app.modules.cad.schemas import (
     RecipeRequest,
     RecipeSchemaOut,
     SelectorsRequest,
+    SketchSolveRequest,
     SweepRequest,
+    UnfoldRequest,
     ViewsRequest,
 )
 from app.shared.auth import current_user
@@ -279,6 +284,22 @@ def recipe_place(payload: PlaceRequest, _: User = Depends(current_user)) -> dict
     )
 
 
+@router.post("/recipe/mate-pick")
+def recipe_mate_pick(
+    payload: MatePickRequest, _: User = Depends(current_user)
+) -> dict[str, Any]:
+    """조립 구속을 **눌러서** — 3D 에서 누른 면 · 엣지를 구속의 `this` · `select` 질의로.
+    `this` 는 구성품 자신(가져온 도면)의 좌표로 되돌려 고른다."""
+    return services.mate_pick(
+        payload.recipe,
+        node=payload.node,
+        side=payload.side,
+        what=payload.what,
+        point=payload.point,
+        target=payload.target,
+    )
+
+
 @router.post("/recipe/interference")
 def recipe_interference(
     payload: InterferenceRequest, _: User = Depends(current_user)
@@ -343,6 +364,109 @@ def recipe_dxf(payload: RecipeRequest, _: User = Depends(current_user)) -> Respo
             media_type="application/dxf",
             headers={"Content-Disposition": 'attachment; filename="model.dxf"'},
         )
+
+
+@router.post("/recipe/unfold", response_model=None)
+def recipe_unfold(
+    payload: UnfoldRequest,
+    format: str = Query(default="json", pattern="^(json|dxf|svg)$"),
+    _: User = Depends(current_user),
+) -> Response | dict[str, Any]:
+    """**전개도** — 굽힌 판을 펼친 모양으로(`json` 요약 · `dxf` · `svg`).
+
+    DXF 는 층으로 가른다: 외곽(구멍 포함) `OUTLINE`, 굽힘선 `BEND_UP` · `BEND_DOWN`(점선),
+    「UP 90° R3」 글씨 `BEND_TEXT` — 레이저 · 절곡기 CAM 이 층으로 읽는다. 요약은 두께 · 크기 ·
+    넓이 · 굽힘(선 · 각 · 안쪽 반지름 · 방향 · 굽힘 여유)과 알림(날개끼리 겹침 등).
+
+    펼 수 없는 형상(두께가 한결같지 않음 · 솔리드 여럿)이면 400 과 까닭."""
+    unfolded = services.unfold(
+        payload.recipe, k_factor=payload.k_factor, flip=payload.flip, node=payload.node
+    )
+    if format == "json":
+        return unfolded.summary()
+    writer = export.write_flat_dxf if format == "dxf" else export.write_flat_svg
+    media = "application/dxf" if format == "dxf" else "image/svg+xml"
+    with tempfile.TemporaryDirectory() as folder:
+        target = Path(folder) / f"flat.{format}"
+        writer(unfolded, target)
+        return Response(
+            target.read_bytes(),
+            media_type=media,
+            headers={"Content-Disposition": f'attachment; filename="flat.{format}"'},
+        )
+
+
+@router.post("/recipe/sketch-solve")
+def recipe_sketch_solve(
+    payload: SketchSolveRequest, _: User = Depends(current_user)
+) -> dict[str, Any]:
+    """**구속 윤곽**을 풀어 본다 — 점의 자리와 남은 움직임(0 이면 다 정해졌다). 맞지 않는
+    구속은 몇째인지 400 으로 말한다. 캔버스가 그린 대로가 아니라 푼 모양을 보여 준다."""
+    return services.solve_sketch(payload.shape, payload.params)
+
+
+@router.post("/recipe/midsurface", response_model=None)
+def recipe_midsurface(
+    payload: MidSurfaceRequest,
+    format: str = Query(default="json", pattern="^(json|step)$"),
+    _: User = Depends(current_user),
+) -> Response | dict[str, Any]:
+    """**중간면** — 두께가 한결같은 얇은 판의 가운데 면(셸 요소 해석용). `json` 은 판마다
+    두께 · 넓이 · 면 수와 알림, `step` 은 그 면들(솔리드가 아니다 — 셸).
+
+    판금 · 굽힌 판 · 쉘 상자 · 가져온 판금 STEP. 두께가 곳곳에 다르면(리브 · 보스) 그 자리는
+    빠질 수 있고 `notes` 가 알린다. 판이 아니면 400 과 까닭."""
+    mid = services.mid_surface(payload.recipe, node=payload.node)
+    if format == "json":
+        return dict(mid.summary())
+    with tempfile.TemporaryDirectory() as folder:
+        target = export.write_step(mid.shape, Path(folder) / "midsurface.step")
+        return Response(
+            target.read_bytes(),
+            media_type="application/step",
+            headers={"Content-Disposition": 'attachment; filename="midsurface.step"'},
+        )
+
+
+@router.post("/recipe/drawing", response_model=None)
+def recipe_drawing(
+    payload: DrawingRequest,
+    format: str = Query(default="pdf", pattern="^(pdf|dxf|svg|png|json)$"),
+    _: User = Depends(current_user),
+) -> Response | dict[str, Any]:
+    """**도면** — 3각법 세 뷰(정면 · 평면 · 우측면, 숨은 선 점선)에 전체 치수 · 구멍 기호와
+    구멍표 · 표제란(이름 · 축척 · 재료 · 날짜). 축척은 표준 축척 중 들어가는 가장 큰 것.
+
+    `pdf`(기본) · `dxf`(치수가 진짜 치수 객체 — CAD 에서 고친다) · `svg` · `png` ·
+    `json`(축척 · 구멍표 · 치수 값). 구멍 위치는 그 구멍이 원으로 보이는 뷰의 왼쪽 아래
+    모서리에서 잰다."""
+    from app.core import drawing
+
+    sheet = services.drawing_sheet(
+        payload.recipe,
+        title=payload.title,
+        sheet=payload.sheet,
+        material=payload.material,
+        note=payload.note,
+        node=payload.node,
+    )
+    if format == "json":
+        summary: dict[str, Any] = sheet.summary()
+        return summary
+    content: bytes
+    if format == "pdf":
+        content, media = drawing.write_pdf(sheet), "application/pdf"
+    elif format == "png":
+        content, media = drawing.write_png(sheet), "image/png"
+    elif format == "svg":
+        content, media = drawing.write_svg(sheet).encode("utf-8"), "image/svg+xml"
+    else:
+        content, media = drawing.write_dxf(sheet).encode("utf-8"), "application/dxf"
+    return Response(
+        content,
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="drawing.{format}"'},
+    )
 
 
 @router.post("/recipe/svg")

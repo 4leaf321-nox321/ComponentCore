@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -38,15 +38,68 @@ class FactorIn(BaseModel):
 
 
 class PreviewRequest(BaseModel):
-    factors: list[FactorIn]
+    factors: list[FactorIn] = Field(default_factory=list)
     method: str = "factorial"
+    """`factorial`(격자) · `lhs` · `table`(직접 준 표 — `table`) · `oat`(하나씩 바꾸기) ·
+    `ccd`(중심 합성, 면 중심) · `bbd`(Box-Behnken, 변수 셋 이상) · `sobol`(Sobol 수열 —
+    `samples` · `seed`, 점을 더하면 이어 뽑는다)."""
     samples: int = Field(default=20, ge=1)
     """LHS 표본 수. 상한은 서버 설정(관리자가 바꾼다) — 서비스가 본다."""
     seed: int = 1
+    constraints: list[str] = Field(default_factory=list, max_length=20)
+    """변수끼리의 조건 — `간격 > 2 * 지름`, `4 <= 두께 <= 0.5 * 높이`. 어긴 조합은 **만들기
+    전에** 거른다(격자는 빼고, LHS 는 표본 수가 찰 때까지 더 뽑는다). 도면의 다른 치수(식으로
+    정해진 것까지)도 부를 수 있다."""
+    recipe: dict[str, Any] | None = None
+    """미리보기에서 제약식을 풀 도면 — 식이 인자 아닌 치수를 부를 때 필요하다."""
+    table: list[dict[str, Any]] | None = None
+    """`method="table"` 일 때의 설계점 — 줄마다 `{변수: 값}`. 엑셀로 짠 표나 해석 쪽 최적화기가
+    고른 점을 **그대로** 만든다(가공 단위로 맞추지 않고, 겹친 줄도 둔다 — 번호가 표의 줄과
+    같다). 표에만 있는 변수는 인자로 더해진다. 제약을 어긴 줄이 있으면 만들지 않는다."""
+    measures: list[dict[str, Any]] | None = None
+    """점마다 잴 값 — 표에 열로 붙는다.
+
+    - `{"name": "부피", "kind": "volume"}` · `area` · `{"kind": "size", "axis": "z"}` — `body`
+      를 주면 그 바디만.
+    - `{"kind": "region_area", "region": "고정면"}` — 선택 그룹의 넓이.
+    - `{"kind": "distance", "a": "구멍1", "b": "구멍2"}` — 두 선택 그룹 사이 거리.
+    - `{"kind": "expr", "expr": "부피 * 7.85e-6"}` — 도면 변수와 앞의 측정값을 부른다."""
+    checks: dict[str, Any] | None = None
+    """형상 점검 기준(mm) — `{"min_wall": 0.5, "short_edge": 0.1, "narrow_face": 0.1}` 에서
+    바꿀 것만. `{"enabled": false}` 면 재지 않는다. 기준보다 작은 것은 표의 `warnings` 로."""
+
+
+class ProbeRequest(PreviewRequest):
+    """「미리 만들어 보기」 — 만들 때와 같은 도면 · 인자 · 제약 · 조건으로 끝 점 몇 개만."""
+
+    recipe: dict[str, Any]
+    conditions: dict[str, Any] | None = None
+    """안 주면 `work_id` 작업의 현재 조건(만들 때와 같다) — 영역이 따라가는지 보려면 있어야
+    한다."""
+    work_id: uuid.UUID | None = None
+
+
+class ExtendRequest(BaseModel):
+    """이미 만든 DOE 에 **점을 더한다** — 번호를 이어서, 같은 폴더에."""
+
+    method: str = "lhs"
+    samples: int = Field(default=10, ge=1)
+    seed: int | None = None
+    """안 주면 묶음마다 다르게(스터디 시드 + 묶음 수) — 같은 시드면 첫 묶음과 같은 점이
+    나온다."""
+    factors: list[FactorIn] = Field(default_factory=list)
+    """**바꿀 변수만** — 범위를 좁히거나 단계를 바꾼다. 없는 변수를 더할 수는 없다(새 DOE)."""
+    table: list[dict[str, Any]] | None = None
+    """`method="table"` 의 설계점 — 해석 쪽 최적화기가 고른 다음 점들."""
+    idempotency_key: str = Field(default="", max_length=200)
+    """같은 열쇠의 묶음이 이미 있으면 더하지 않고 그것을 돌려준다(기계의 재시도)."""
 
 
 class StudyCreateRequest(PreviewRequest):
     name: str = Field(min_length=1, max_length=120)
+    outputs: list[Literal["midsurface"]] = Field(default_factory=list)
+    """설계점마다 **더 내보낼 것** — `midsurface`: 두께가 한결같은 판이면 중간면 STEP
+    (`<형상>_mid.step`, 셸 요소 해석용). 판이 아닌 점은 실패가 아니라 `warnings` 에 적힌다."""
     description: str = Field(default="", max_length=2000)
     recipe: dict[str, Any]
     conditions: dict[str, Any] | None = None
@@ -83,6 +136,10 @@ class PointOut(BaseModel):
     step_file: str
     point_file: str = ""
     """이 점의 모든 것(변수 · 영역 · 풀린 조건). 해석이 물을 유일한 창구다."""
+    quality: dict[str, Any] | None = None
+    """형상 점검 — 최소 벽 두께 · 짧은 모서리 · 좁은 면 · 바디 수와 `warnings` · `notes`."""
+    measures: dict[str, float | None] | None = None
+    """측정값 — 스터디의 `measures` 정의대로. 못 잰 것은 None."""
 
 
 class StudySummaryOut(BaseModel):
@@ -113,6 +170,16 @@ class StudyOut(StudySummaryOut):
     conditions: dict[str, Any] = Field(default_factory=dict)
     """이 스터디가 돌던 때의 해석 조건 — 작업이 나중에 바뀌어도 여기 남는다."""
     factors: list[dict[str, Any]]
+    constraints: list[str] = Field(default_factory=list)
+    """만들기 전에 거른 제약식 — 「설정 바꿔 다시 만들기」 가 그대로 채운다."""
+    checks: dict[str, Any] = Field(default_factory=dict)
+    measures: list[dict[str, Any]] = Field(default_factory=list)
+    outputs: list[str] = Field(default_factory=list)
+    """설계점마다 더 내보내는 것 — `midsurface`."""
+    batches: list[dict[str, Any]] = Field(default_factory=list)
+    """만든 뒤 **더한** 묶음 — 방식 · 시드 · 범위 · 번호 구간(`from` · `to`)."""
+    export_stale: bool = False
+    """보낸 뒤에 점을 더했다 — 공유 폴더가 옛것이다(다시 보내야 한다)."""
     requested_by_name: str = ""
     """**누가 실제로 돌렸나** — 대행일 때만 찬다(오케스트레이터의 서비스 계정)."""
     keep_forever: bool = False

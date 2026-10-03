@@ -43,6 +43,7 @@ from app.modules.works.schemas import (
 from app.shared.auth import current_user
 from app.shared.errors import AppError, code
 from app.shared.pagination import Page, clamp_limit
+from app.shared.shape_search import ShapeFilter, shape_query
 
 router = APIRouter(prefix="/works", tags=["works"])
 
@@ -73,12 +74,15 @@ def list_works(
     subfolders: bool = Query(default=True),
     year: int | None = Query(default=None, ge=1900, le=3000),
     order: Literal["updated", "created"] = Query(default="updated"),
+    shape: ShapeFilter = Depends(shape_query),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> Page[WorkSummaryOut]:
     """내 작업 — `q` 로 이름 · 설명을 찾고, `tag` · `kind` 로 거르고, `trashed` 면 휴지통.
     `folder` 면 그 폴더(`subfolders` 면 그 아래까지 — 기본), `year` 면 그해에 만든 것.
-    `order` 는 최근에 고친 것부터(updated) · 만든 것부터(created — 연도별로 묶어 볼 때)."""
+    `order` 는 최근에 고친 것부터(updated) · 만든 것부터(created — 연도별로 묶어 볼 때).
+    **형상으로**: `has` · `thread` · `param` · `fits` · `volume_min` · `volume_max` · `hole` ·
+    `holes` — 최신 버전의 형상 색인으로 거른다(`shared/shape_search.py`)."""
     size = clamp_limit(limit)
     rows, total = services.list_works(
         db,
@@ -93,6 +97,7 @@ def list_works(
         subfolders=subfolders,
         year=year,
         order=order,
+        shape=shape,
     )
     return Page(
         items=[services.work_summary(db, one) for one in rows],
@@ -204,12 +209,16 @@ def restore_work(
 def duplicate_work(
     work_id: uuid.UUID,
     name: str | None = Query(default=None, max_length=120),
+    conditions: bool = Query(default=False),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> WorkOut:
-    """현재 도면으로 새 작업 — 종류 · 꼬리표 · 잡는 부품을 따라간다."""
+    """현재 도면으로 새 작업 — 종류 · 꼬리표 · 폴더 · 잡는 부품을 따라간다. `conditions` 면
+    해석 조건도 복사한다(기본은 도면만)."""
     work = _mine(db, work_id, user)
-    return services.work_out(db, services.duplicate_work(db, work, by=user, name=name))
+    return services.work_out(
+        db, services.duplicate_work(db, work, by=user, name=name, conditions=conditions)
+    )
 
 
 @router.get("/{work_id}", response_model=WorkOut)

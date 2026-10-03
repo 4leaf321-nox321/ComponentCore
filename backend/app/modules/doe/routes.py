@@ -19,8 +19,10 @@ from app.modules.doe import export as files
 from app.modules.doe import services
 from app.modules.doe.models import DoeStudy
 from app.modules.doe.schemas import (
+    ExtendRequest,
     PointOut,
     PreviewRequest,
+    ProbeRequest,
     StudyCreateRequest,
     StudyOut,
     StudySummaryOut,
@@ -68,6 +70,8 @@ def _name_of(db: Session, user_id: uuid.UUID | None) -> str:
 def _point_out(point: Any) -> PointOut:
     out = PointOut.model_validate(point)
     out.interference = (point.geometry or {}).get("interference")
+    out.quality = (point.geometry or {}).get("quality")
+    out.measures = (point.geometry or {}).get("measures")
     return out
 
 
@@ -83,6 +87,12 @@ def _out(db: Session, study: DoeStudy) -> StudyOut:
         released_at=study.released_at,
         local_ready=services.local_ready(study),
         factors=study.factors,
+        constraints=list(study.constraints or []),
+        checks=dict(study.checks or {}),
+        measures=list(study.measures or []),
+        outputs=list(study.outputs or []),
+        batches=list(study.batches or []),
+        export_stale=services.export_stale(study),
         export_dir_windows=files.windows_path(Path(study.export_dir))
         if study.export_dir
         else "",
@@ -100,6 +110,18 @@ def preview(
 ) -> dict[str, Any]:
     """**만들기 전에** 설계점이 몇 개인지와 앞 스무 줄. 격자는 곱으로 늘어난다."""
     return services.preview(db, payload.model_dump())
+
+
+@router.post("/probe")
+def probe(
+    payload: ProbeRequest, user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> dict[str, Any]:
+    """**만들기 전에 끝 점 몇 개를 먼저 만들어 본다** — 가운데, 모두 최소 · 최대, 인자마다 혼자
+    최소 · 최대. 점마다 실패 사유 · 못 푼 영역 · 어긋남 · 겹침 · 걸린 시간. 파일은 안 쓴다.
+
+    설계점 200개를 다 돌린 뒤에 절반이 깨진 것을 아는 일을 막는다. 요청 하나가 서버를 오래
+    잡지 않게 90초까지만 만들고 남은 점은 건너뛴다(어느 점을 못 봤는지는 답이 말한다)."""
+    return services.probe(db, user, payload.model_dump())
 
 
 @router.get("", response_model=Page[StudySummaryOut])
@@ -176,6 +198,11 @@ def _create(
         work_id=payload.work_id,
         conditions=payload.conditions,
         idempotency_key=payload.idempotency_key,
+        constraints=payload.constraints,
+        checks=payload.checks,
+        table=payload.table,
+        measures=payload.measures,
+        outputs=list(payload.outputs),
     )
 
 
@@ -331,6 +358,43 @@ def rerun_study(
     return _out(db, services.rerun_study(db, study, requester=user, only=only))
 
 
+@router.post("/{study_id}/cancel", response_model=StudyOut)
+def cancel_study(
+    study_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> StudyOut:
+    """**만들기를 멈춘다** — 그때까지 만든 점과 표는 남기고, 남은 점은 「기다리는 중」 으로
+    둔다. 「다시 만들기」(`rerun`)가 남은 점을 잇는다. 도는 중이면 지금 만드는 형상까지 마치고
+    멈춘다."""
+    study = services.owned_study(db, study_id, user)
+    job = db.get(Job, study.job_id) if study.job_id else None
+    if job is None:
+        raise AppError(code("DOE", 29), "멈출 작업이 없습니다.")
+    jobs.cancel(db, job)
+    return _out(db, study)
+
+
+@router.post("/{study_id}/extend")
+def extend_study(
+    study_id: uuid.UUID,
+    payload: ExtendRequest,
+    dry_run: bool = Query(default=False),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """**점을 더한다** — 번호를 이어서, 같은 폴더에. 첫 결과를 보고 관심 구간을 좁혀 더
+    뽑을 때.
+
+    스터디의 제약식이 그대로 걸리고, 이미 있는 점과 같은 값은 뺀다. `dry_run` 이면 세기만
+    한다. 답: `batch`(이번 묶음 — 방식 · 시드 · 번호 구간 · 더한 수 · 뺀 수)와 `study`(만들기
+    작업이 걸린 스터디 — `dry_run` 이면 그대로). 보낸 뒤에 더했으면 다시 보내야 한다
+    (`export_stale`)."""
+    study = services.owned_study(db, study_id, user)
+    raw = payload.model_dump()
+    raw["factors"] = [one.model_dump(exclude_unset=True) for one in payload.factors]
+    study, batch = services.extend_study(db, study, requester=user, raw=raw, dry_run=dry_run)
+    return {"batch": batch, "study": _out(db, study).model_dump(mode="json")}
+
+
 @router.get("/{study_id}/points/{number}/mesh")
 def point_mesh(
     study_id: uuid.UUID,
@@ -350,7 +414,11 @@ def manifest(
     """공유 폴더에 있는 것과 같은 표 — 화면에서 바로 받을 때."""
     study = services.get_study(db, study_id, user)
     names = [one["name"] for one in study.factors]
-    columns = files.manifest_columns(names)
+    columns = files.manifest_columns(
+        names,
+        [one["name"] for one in study.measures or []],
+        midsurface="midsurface" in (study.outputs or []),
+    )
     rows = [
         files.manifest_row(
             point.number,
@@ -362,6 +430,9 @@ def manifest(
             unresolved=(point.geometry or {}).get("topology_unresolved"),
             error=point.error,
             interference=(point.geometry or {}).get("interference"),
+            warnings=services._point_warnings(point.geometry),
+            measures=(point.geometry or {}).get("measures"),
+            mid_file=(point.geometry or {}).get("mid_file") or "",
         )
         for point in services.points(db, study)
     ]

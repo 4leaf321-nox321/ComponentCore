@@ -28,7 +28,9 @@ def list_jobs(
     mine: bool = Query(default=True, description="내가 건 것만"),
     work_id: uuid.UUID | None = None,
     kind: str | None = None,
-    status: str | None = Query(default=None, pattern="^(queued|running|done|failed)$"),
+    status: str | None = Query(
+        default=None, pattern="^(queued|running|done|failed|cancelled)$"
+    ),
     limit: int | None = Query(default=None, ge=1),
     offset: int = Query(default=0, ge=0),
     user: User = Depends(current_user),
@@ -63,6 +65,21 @@ def get_job(
     job = services.get_job(db, job_id)
     services.require_visible(db, job, user)
     return services.job_out(db, job)
+
+
+@router.post("/jobs/{job_id}/cancel", response_model=JobOut)
+def cancel_job(
+    job_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> JobOut:
+    """작업을 **멈춘다** — 대기 중이면 바로 취소, 도는 중이면 취소를 요청한다(워커가 다음
+    단계에서 멈춘다 · `cancel_requested_at`). 건 사람 · 그 작업의 주인 · 관리자만.
+
+    DOE 는 그때까지 만든 점과 표를 남기고, 「다시 만들기」 로 남은 점을 잇는다. 단계가 없는
+    짧은 작업(부품 평가)은 끝까지 돌고 결과가 남는다."""
+    job = services.get_job(db, job_id)
+    services.require_visible(db, job, user)
+    services.require_cancel(db, job, user)
+    return services.job_out(db, services.cancel(db, job))
 
 
 @router.get("/artifacts/{artifact_id}", response_model=ArtifactOut)

@@ -34,6 +34,8 @@ os.environ["LOG_DIR"] = os.path.join(_TEMP_STORE, "logs")
 # API 시험은 워커 없이 돈다 — 작업이 요청 안에서 끝난다. 워커 자체는 tests/api/test_jobs.py 가
 # 직접 부른다(claim → execute).
 os.environ.setdefault("JOBS_INLINE", "1")
+# 설계점은 한 프로세스로 — 시험마다 일꾼을 띄우면 느리다. 나눠 만드는 길은 그 시험이 켠다.
+os.environ.setdefault("DOE_WORKERS", "1")
 # **시험은 살아 있는 MatNexus 에 닿지 않는다.** `.env` 의 주소를 그대로 쓰면 그쪽이 꺼져 있는
 # 날 연결을 기다리느라 스위트가 25초에서 7분이 됐다(실측 2026-09-25 — 호출마다 15초 제한).
 # MatNexus 를 쓰는 시험은 클라이언트 함수를 바꿔 끼운다.

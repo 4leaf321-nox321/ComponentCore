@@ -10,6 +10,7 @@
 
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import type { DownloadFormat } from '@/modules/cad/download'
 import type { Recipe } from '@/modules/cad/api'
 import type { WorkKind } from '@/modules/works/api'
 import { LoadRecipeDialog, LoadWorkDialog } from '@/modules/cad/LoadDialogs'
@@ -26,6 +27,7 @@ import { RibbonButton, RibbonGroup } from '@/modules/cad/Ribbon'
 import { NodeForm } from '@/modules/cad/NodeForm'
 import { ParamsPanel } from '@/modules/cad/ParamsPanel'
 import { allowedDrops, dropProblem, moveTo } from '@/modules/cad/reorder'
+import { DrawingDialog } from '@/modules/cad/DrawingDialog'
 import { OP_BY_NAME, OP_SPECS, makeNode, nodesOf, referencesOf } from '@/modules/cad/recipeSpec'
 import type { RecipeNode } from '@/modules/cad/recipeSpec'
 import { SketchCanvas } from '@/modules/cad/SketchCanvas'
@@ -33,7 +35,7 @@ import type { SketchShape } from '@/modules/cad/SketchCanvas'
 import { ApiError } from '@/shared/api/client'
 import { useFillHeight } from '@/shared/hooks/useFillHeight'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
-import { Axis3d, Boxes, Braces, BookmarkPlus, Download, FileAxis3d, FileUp, GripVertical, Image, FilePlus, FolderOpen, Files, Maximize2, Minimize2, Pencil, Redo2, Ruler, Save, SquareDashedMousePointer, Trash2, Undo2 } from 'lucide-react'
+import { Axis3d, Boxes, Braces, BookmarkPlus, Download, FileAxis3d, FileUp, GripVertical, Image, FilePlus, FolderOpen, Files, Maximize2, Minimize2, Pencil, Redo2, Ruler, Save, SquareDashedMousePointer, Trash2, Undo2, UnfoldHorizontal, FileText, Layers } from 'lucide-react'
 
 import { useFullscreen } from '@/shared/viewer/FullscreenFrame'
 import type { MeshEdge, MeshFace, PickMode } from '@/shared/viewer/PickViewer'
@@ -61,17 +63,21 @@ export interface FileActions {
   /** STEP 파일에서 시작 — 고른 파일을 호출부가 올린다(작업이 생기고 그 화면으로 간다). */
   importStep?: { label: string; title?: string; run: (file: File) => void; busy?: boolean }
   /** 형식별 내려받기 — 호출부가 blob 을 받아 저장한다. */
-  download?: (format: 'step' | 'stl' | 'dxf' | 'svg') => void
+  download?: (format: DownloadFormat) => void
   /** 불러온 뒤 알린다 — 출처 표시와, 기존 작업이면 **그 작업에 덮어 저장**할 수 있게. */
   onLoaded?: (label: string, source: 'template' | 'copy', work?: { id: string; name: string; kind: WorkKind }) => void
   /** 지금 작업 id — 작업 불러오기 목록에서 자기 자신은 뺀다. */
   currentWorkId?: string
+  /** 도면의 표제란에 먼저 적어 둘 이름(작업 이름). */
+  drawingTitle?: string
 }
 
 export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChange: (recipe: Recipe) => void; file?: FileActions }) {
   const nodes = useMemo(() => nodesOf(value), [value])
   const [selectedId, setSelectedId] = useState<string | null>(nodes[nodes.length - 1]?.id ?? null)
   const [editing, setEditing] = useState(false)
+  /** 도면 창 — 3각법 세 뷰 · 치수 · 구멍표. */
+  const [sheetOpen, setSheetOpen] = useState(false)
   const [mode, setMode] = useState<'form' | 'json'>('form')
   const [text, setText] = useState(() => pretty(value))
   const [jsonError, setJsonError] = useState<string | null>(null)
@@ -466,6 +472,27 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                       disabled={nodes.length === 0}
                     />
                     <RibbonButton
+                      icon={FileText}
+                      label="도면"
+                      title="도면 — 3각법 세 뷰 · 전체 치수 · 구멍표 · 표제란(PDF · DXF)"
+                      onClick={() => setSheetOpen(true)}
+                      disabled={nodes.length === 0 || !!summary?.is_sketch}
+                    />
+                    <RibbonButton
+                      icon={UnfoldHorizontal}
+                      label="전개도"
+                      title="전개도 DXF — 굽힌 판을 펼친 모양(레이저). 외곽 · 굽힘선(위 · 아래) · 각을 층으로 나눠 적는다. 두께가 한결같은 판금만"
+                      onClick={() => file.download?.('flat')}
+                      disabled={nodes.length === 0 || !!summary?.is_sketch}
+                    />
+                    <RibbonButton
+                      icon={Layers}
+                      label="중간면"
+                      title="중간면 STEP — 얇은 판의 두께 가운데 면(셸 요소 해석용). 두께가 한결같은 판만"
+                      onClick={() => file.download?.('mid')}
+                      disabled={nodes.length === 0 || !!summary?.is_sketch}
+                    />
+                    <RibbonButton
                       icon={Image}
                       label="SVG"
                       title="SVG 받기 — 문서에 붙이는 2D 그림"
@@ -839,6 +866,8 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
           </div>
         </div>
       )}
+
+      {sheetOpen && <DrawingDialog open recipe={value} defaultTitle={file?.drawingTitle} onClose={() => setSheetOpen(false)} />}
 
       {/* 피처 편집 모달 — 머리글 · 바닥글은 붙박이, 가운데만 굴러서 화면 밖으로 안 나간다(DialogContent). */}
       <Dialog open={editing && selected !== null} onOpenChange={(open) => !open && setEditing(false)}>

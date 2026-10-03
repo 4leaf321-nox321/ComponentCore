@@ -75,6 +75,9 @@ test('리본 — 탭이 종류를 가르고, 「파일」 탭 단추가 호출�
   expect(download).toHaveBeenCalledWith('step')
   fireEvent.click(screen.getByRole('button', { name: /DXF/ }))
   expect(download).toHaveBeenCalledWith('dxf')
+  // 전개도 — 굽힌 판을 펼친 DXF(외곽 · 굽힘선 · 위아래 · 각).
+  fireEvent.click(screen.getByRole('button', { name: /전개도/ }))
+  expect(download).toHaveBeenCalledWith('flat')
 })
 
 test('실행 취소 · 다시 실행 — 호출부가 value 를 되돌려 주면 한 걸음씩 오간다', async () => {

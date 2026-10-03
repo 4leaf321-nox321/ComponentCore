@@ -47,7 +47,12 @@ def windows_path(path: Path) -> str:
     return text
 
 
-def manifest_columns(factor_names: list[str]) -> list[str]:
+def manifest_columns(
+    factor_names: list[str],
+    measure_names: list[str] | None = None,
+    *,
+    midsurface: bool = False,
+) -> list[str]:
     """표의 열 — 되짚는 열쇠(번호 · 상태), 바꾼 변수, 파일, 실패 사유. 해석 결과 열은 해석이
     붙인다.
 
@@ -58,10 +63,15 @@ def manifest_columns(factor_names: list[str]) -> list[str]:
         "point",
         "status",
         *factor_names,
+        # 측정값 — 형상에서 바로 나오는 값(부피 · 크기 · 거리 · 식). 고른 것만.
+        *(measure_names or []),
         "step_file",
+        # 중간면(셸 해석용) — 고른 스터디만. 판이 아닌 점은 빈 칸(까닭은 warnings).
+        *(["mid_file"] if midsurface else []),
         "point_file",
         "unresolved",
         "interference",
+        "warnings",
         "error",
     ]
 
@@ -77,6 +87,9 @@ def manifest_row(
     interference: dict[str, Any] | None = None,
     point_file: str = "",
     unresolved: list[str] | None = None,
+    warnings: list[str] | None = None,
+    measures: dict[str, Any] | None = None,
+    mid_file: str = "",
 ) -> dict[str, Any]:
     # 조립이면 겹침 — ok 또는 「N건 (총 부피)」. 구성품이 하나면 빈 칸.
     if interference is None:
@@ -90,12 +103,18 @@ def manifest_row(
         "point": number,
         "status": status,
         **{name: params.get(name, "") for name in factor_names},
+        # 못 잰 값은 빈 칸 — 0 으로 적으면 「질량 0」 인 점이 최적으로 뽑힌다.
+        **{name: ("" if value is None else value) for name, value in (measures or {}).items()},
         "step_file": step_file,
+        "mid_file": mid_file,
         "point_file": point_file,
         # 못 푼 영역 이름을 **그대로** 적는다 — 개수만 적으면 어느 것이 빠졌는지
         # 다시 물어야 한다.
         "unresolved": " ".join(unresolved or []),
         "interference": collision,
+        # 형상 점검 — 메시가 막힐 자리(얇은 벽 · 짧은 모서리 · 좁은 면 · 쪼개진 바디).
+        # 비면 통과.
+        "warnings": " / ".join(warnings or []),
         "error": error,
     }
 
@@ -141,31 +160,48 @@ def write_readme(folder: Path, study: dict[str, Any], point_count: int) -> Path:
     factors = "\n".join(
         f"  - {one['name']}: " + _factor_text(one) for one in study.get("factors", [])
     )
+    # 제약식 — 범위 안이라도 이 조건을 어긴 조합은 만들지 않았다(만들기 전에 걸렀다).
+    constraints = (
+        "\n제약 (어긴 조합은 만들지 않았다)\n"
+        + "\n".join(f"  - {one}" for one in study.get("constraints") or [])
+        + "\n"
+        if study.get("constraints")
+        else ""
+    )
+    # 중간면 — 고른 스터디만. 셸 요소로 푸는 쪽이 읽는다.
+    mid = (
+        "  <형상>_mid.step   중간면 — 두께 가운데의 면(셸 요소용). 판마다 두께는\n"
+        "                    점 파일의 `midsurface`, 표에서는 `mid_file`. 판이 아닌 점은\n"
+        "                    비고 warnings 에 까닭이 있다.\n"
+        if "midsurface" in (study.get("outputs") or [])
+        else ""
+    )
     text = f"""{study.get("name", "DOE")}
 {"=" * 60}
 
 {study.get("description", "") or "(설명 없음)"}
 
 만든 때: {datetime.now(UTC).astimezone().strftime("%Y-%m-%d %H:%M")}
-방법: {"전체 조합" if study.get("method") == "factorial" else "라틴 하이퍼큐브(LHS)"}
+방법: {_method_text(str(study.get("method") or ""))}
 설계점: {point_count} 개
 시드: {study.get("seed")}   ← 같은 표를 다시 만들 때 쓴다
 
 바꾼 치수
 {factors or "  (없음)"}
-
+{constraints}
 파일
-  manifest.csv   설계점마다 바꾼 변수 값 · 파일 이름 · 상태
+  manifest.csv   설계점마다 바꾼 변수 값 · 파일 이름 · 상태 · 형상 점검 경고(warnings)
   study.json     기준 레시피와 인자 정의 전부(다시 만들 때)
   conditions.json  해석 조건 한 벌 — 선택 그룹 · 구속 · 하중 · 접촉 · 초기 · 해석 설정 · 물성
                    (숫자 칸에 "=식" 이 있을 수 있다. 푼 값은 점 파일 안에)
   points/        p0001.step   형상 (그 점만 쓰는 것)
                  p0001.json   이 점의 모든 것 — 변수 값 · 영역과 바디의 좌표 지문 ·
-                              그 변수로 **풀린** 조건 · 이 점이 쓰는 STEP 파일
+                              그 변수로 **풀린** 조건 · 이 점이 쓰는 STEP 파일 ·
+                              형상 점검(quality — 최소 벽 두께 · 짧은 모서리 · 좁은 면)
   shapes/        <지문>.step  **여러 점이 나눠 쓰는 형상.** 조건만 훑으면(압력 2 · 3 MPa)
                               형상이 모든 점에서 같으므로 한 벌만 둔다. 이 폴더가 없으면
                               점마다 형상이 다른 것이다.
-
+{mid}
 어느 점이 어느 STEP 을 쓰는지는 **표와 점 파일의 `step_file`** 이 말한다 — 파일 이름을
 짐작하지 마라. 같은 STEP 을 가리키는 점들은 메시도 한 번만 만들면 된다.
 
@@ -175,6 +211,22 @@ STEP 은 mm 단위이며, 바꾸지 않은 치수(연결부 등)는 모든 점�
     path = folder / "README.txt"
     path.write_text(text, encoding="utf-8")
     return path
+
+
+#: 방식의 사람 말.
+METHOD_TEXT = {
+    "factorial": "전체 조합",
+    "lhs": "라틴 하이퍼큐브(LHS)",
+    "table": "직접 준 표(값 그대로 — 가공 단위로 맞추지 않았다)",
+    "oat": "하나씩 바꾸기(OAT — 가운데에서 변수마다 제 값들을)",
+    "ccd": "중심 합성(면 중심 CCF — 모서리 · 축 · 가운데)",
+    "bbd": "Box-Behnken(변수 둘씩 끝 · 나머지 가운데)",
+    "sobol": "Sobol 수열(시드로 디지털 이동 — 이어 뽑으면 이어진다)",
+}
+
+
+def _method_text(method: str) -> str:
+    return METHOD_TEXT.get(method, method)
 
 
 def _factor_text(factor: dict[str, Any]) -> str:

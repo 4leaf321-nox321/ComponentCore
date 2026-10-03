@@ -47,6 +47,13 @@ class UserFacingError(Exception):
     """
 
 
+class Cancelled(Exception):
+    """사람이 작업을 **취소했다** — 진행(`progress`)을 적다가 요청을 보면 던진다.
+
+    실행 함수가 정리할 것이 있으면(DOE 는 그때까지 만든 점의 표를 쓴다) 잡아서 하고 다시
+    던진다. 서비스가 상태를 `cancelled` 로 적는다."""
+
+
 _handlers: dict[str, Handler] = {}
 
 

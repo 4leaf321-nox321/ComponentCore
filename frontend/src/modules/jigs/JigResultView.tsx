@@ -7,7 +7,8 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 
 import type { JigSummary } from '@/modules/jigs/api'
-import { isFinished, jobsApi } from '@/modules/jobs/api'
+import { isFinished, jobsApi, runState } from '@/modules/jobs/api'
+import { CancelJobButton } from '@/modules/jobs/CancelJobButton'
 import type { Job } from '@/modules/jobs/api'
 import { useJobPolling } from '@/modules/jobs/useJobPolling'
 import { downloadFile } from '@/shared/api/client'
@@ -94,7 +95,10 @@ function Progress({ job }: { job: Job }) {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          {job.status === 'queued' ? '대기 중' : '만드는 중'} <StatusBadge kind="run" value={job.status} />
+          {job.status === 'queued' ? '대기 중' : '만드는 중'} <StatusBadge kind="run" value={runState(job)} />
+          <span className="ml-auto">
+            <CancelJobButton job={job} what="지그 만들기" />
+          </span>
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -153,6 +157,21 @@ export function JigResultView({
   }, [job.status])
 
   if (!isFinished(job)) return <Progress job={job} />
+
+  if (job.status === 'cancelled') {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            멈췄습니다 <StatusBadge kind="run" value="cancelled" />
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-muted-foreground text-sm">{job.error ?? '멈췄습니다.'} 다시 만들려면 지그 생성을 다시 겁니다.</p>
+        </CardContent>
+      </Card>
+    )
+  }
 
   if (job.status === 'failed') {
     return (

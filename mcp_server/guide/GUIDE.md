@@ -1,4 +1,4 @@
-<!-- version: 2026-10-03.1 -->
+<!-- version: 2026-10-03.14 -->
 # CompCore MCP 가이드
 
 ## overview
@@ -16,7 +16,12 @@
 | **제품을 기준으로 지그 그리기** | `part_geometry(part_id)` · `work_geometry(work_id)` — 치수표 + STEP id |
 | **해석 조건 붙이기** | `conditions_schema` → `recipe_find` · `recipe_selectors` → `set_conditions` — `get_guide("conditions")` |
 | **물성 붙이기** | `material_search` → `material_get`(→ `condition_item`) · `recipe_bodies` → `set_conditions` |
-| **형상 여러 벌 만들기(DOE)** | `doe_preview` → `doe_create` → `doe_points` → `doe_export` — 공유 폴더에 STEP 이 쌓인다 |
+| **형상 여러 벌 만들기(DOE)** | `doe_preview` → `doe_probe`(끝 점 미리) → `doe_create` → `doe_points` → `doe_export` — 공유 폴더에 STEP 이 쌓인다. 더 뽑을 때 `doe_extend` |
+| **2D 도면(가공 맡길 때)** | `recipe_drawing(recipe, title, material)` — 3각법 세 뷰 · 전체 치수 · 구멍표 · 표제란. 답은 요약 + 그림. PDF · DXF 는 화면의 「파일 › 도면」 |
+| **조립에서 면끼리 맞대기 · 구멍 동심** | component 의 `mates` — 아래 「작업은 셋 중 하나다」 의 조립 |
+| **셸 해석용 중간면** | `recipe_midsurface(recipe)` — 판마다 두께 · 넓이. DOE 는 `doe_create(..., outputs=["midsurface"])` 로 점마다 `_mid.step` |
+| **판금 전개도** | `recipe_unfold(recipe)` — 펼친 크기 · 굽힘(선 · 각 · R · 위아래). 레시피 안에서는 `unfold` 노드. DXF 는 화면의 「파일 › 전개도」 |
+| **이미 있는 것부터 찾기** | `find_by_shape(has, thread, fits, hole, holes …)` — 내 작업 · 부품 · 지그의 최신 버전을 형상으로. **새로 그리기 전에** |
 | 레시피가 맞나, 만들어지나 | `recipe_check` — **저장 전에 반드시** |
 | 새 부품 시작 | `create_work(name, recipe)` |
 | 있는 부품 고치기 | `get_work` 로 레시피를 받아 고쳐 `save_version` |
@@ -24,7 +29,11 @@
 | 부품에서 지그 생성 | `jig_preview(source, options)` 로 계획을 보고 → `run_jig` → 지그 작업이 생긴다 |
 | 남에게 내놓기 | `promote_part` · `promote_jig_recipe` — **사용자가 시킬 때만** |
 | 남의 것 가져오기 | `list_parts` → `copy_part_to_work` |
-| 폴더로 나눠 보기 | `list_works` · `list_parts` · `list_jigs` 의 `folder`(그 아래까지). 만들 때 `create_work(folder)` · `save_template(folder)` |
+| 폴더로 나눠 보기 | `list_folders(space)` 로 나무를 보고 `list_works` · `list_parts` · `list_jigs` · `list_templates` 의 `folder`(그 아래까지)로 거른다. 만들 때 `create_work(folder)` · `save_template(folder)` |
+| **정리하기** | `move_to_folder(space, ids, folder)` · `rename_folder(space, path, to)`(지우기 = 위 폴더로 합치기) · `update_work`(이름 · 설명 · 꼬리표 · 폴더 · 종류) · `list_tags` — 공용 공간은 올린 사람 · 관리자만 옮긴다 |
+| 복제 · 휴지통 | `duplicate_work`(`with_conditions` — 해석 조건까지; 사용자가 안 정했으면 묻는다) · `delete_work`(휴지통 — **사용자가 지우라고 할 때만**) · `restore_work`(`list_works(trashed=True)` 로 본다) |
+| 템플릿 · 카탈로그 고치기 | `list_templates` · `update_template`(이름 · 공용 여부 · 폴더) · `copy_template` · `update_catalog_item(parts\|jigs)` — 내 것만 |
+| 멈추기 · 워커 | `cancel_job` · `doe_cancel`(만든 점은 남고 `doe_rerun(only="failed")` 로 잇는다) — **사용자가 멈추라고 할 때만**. 작업이 안 돌면 `worker_status`(관리자) |
 | 이름으로 찾기 | `search("브래킷")` — 내 작업 · 공용 부품 · 지그 · 템플릿 한꺼번에 |
 
 기본 습관:
@@ -64,6 +73,15 @@
   **글로 치수를 받았으면 `radius` · `tangent` 를 써라** — `via` 는 호 위의 점을 미리 계산해야 하고
   조금만 틀려도 엉뚱한 곡률이 된다(사람이 캔버스에서 찍을 때 쓰는 칸이다).
   `polyline` 의 `corner_radius` 는 모든 모서리를 둥글린다(호 `via` 와 함께는 못 쓴다).
+  **`constrained`(구속 윤곽)** — 좌표 대신 **관계 · 치수로** 정하는 윤곽: `points`(이름 → 대충
+  그린 [x, y]) · `segments`(닫힌 고리 `{"from":"a","to":"b"}`, 호는 `"center":"o","ccw":…`) ·
+  `constraints`(`{"type":"length","segments":[0],"value":"=폭"}` — fix(점 · at) · horizontal ·
+  vertical(구간 또는 점 둘) · length · distance · dx · dy · angle(선 사이, 그린 쪽) · parallel ·
+  perpendicular · equal · radius · tangent(선-호 · 호-호) · coincident · on · midpoint ·
+  symmetric). 풀이가 점을 **가장 덜 옮겨** 맞춘다 — 치수에 `=변수` 를 쓰면 DOE 가 훑는다. 먼저
+  `sketch_solve(shape, params)` 로 풀어 보면 점의 자리 · **남은 움직임**(`free`, 0 이면 다
+  정해졌다)이 오고, 맞지 않으면 「구속 7(길이) — 앞의 구속과 맞지 않습니다」. 점 하나를 fix 하고
+  한 변을 수평으로 두면 대개 free 가 0 이 된다.
   스케치의 `hull: true` 는 도형들을 **감싸는 볼록 윤곽** 하나로 만든다(흩어진 자리를 덮는 베이스
   판). 스케치의 `offset` 은 합친 윤곽을 밖(+)/안(−)으로 띄운다(2D 여유). `section`(target, plane,
   offset) 은 입체를 평면으로 자른 단면을 **스케치로** 준다 — 여유를 주고 돌출하면 포켓 윤곽.
@@ -89,6 +107,8 @@
   — **판금 절곡**: 옆에서 본 꺾은선대로 판을 접는다. 「2t 판, 30 올라가 20 꺾임, 폭 40, 굽힘 R3」
   이 그대로 칸이 된다. 꺾은선이 **폭의 가운데**에 오므로 구멍 자리는 평면 좌표 그대로 주면 된다.
   브래킷 · ㄱ자 앵글 · 덮개는 블록을 깎지 말고 이것으로) ·
+  `unfold`(target, k_factor, flip — **굽힌 판을 편다**: 두께가 한결같은 판금(레시피로 굽힌 것 ·
+  가져온 STEP)을 전개도로 눕혀 두께만큼 세운다. k 는 굽힐 때와 같게) ·
   `bend`(target, bends [{at, radius, toward up|down, until angle|end, angle}…], along [x,y,z],
   k_factor — **펼친 판을 굽힌다**: 평평한 판(두께 한결같은 입체 — `box` 나 스케치 `extrude` 에
   구멍 · 노치를 낸 것)을 굽힘선에서 반지름 R 로 접거나 원통에 감는다. `at` 은 **펼친 판**에서
@@ -97,9 +117,23 @@
   `toward: up` 은 판의 위쪽(누운 판이면 +Z). 굽힘 구간에 걸린 구멍도 같이 휘고, 굽힘면은
   원통면(안쪽 R · 바깥 R+t)이라 `kind: cylinder` 로 고를 수 있다. 펼친 길이는 중립면
   (`k_factor`, 기본 0.5 — 안쪽 면에서 두께의 몇 할)에서 보존된다. 포켓 · 단차 · 위아래 모서리
-  필렛 · 모따기가 있는 판은 거절한다 — 그런 것은 굽힌 **뒤에**. 굽힘선은 모두 평행이다(한 노드
-  안에서). 예 — 100 길이 판을 x=40 에서 R5 로 90° 세우기:
-  `{"op":"bend","target":"판","bends":[{"at":40,"radius":5,"angle":90}]}`) ·
+  필렛 · 모따기가 있는 판은 거절한다 — 그런 것은 굽힌 **뒤에**. `bends` 의 굽힘선은 서로
+  평행이고, **다른 방향의 날개**(상자 전개도의 네 변)는 `also: [{along, bends}…]` 로 — 판이
+  「바탕」 과 묶음마다의 날개(그 묶음의 첫 굽힘선 너머)로 나뉘어 따로 굽는다. 이웃한 두 날개가
+  모서리에서 겹치면 거절하고, `corner_relief: true` 면 겹친 자리를 따낸다. 예 — 100 길이 판을
+  x=40 에서 R5 로 90° 세우기: `{"op":"bend","target":"판","bends":[{"at":40,"radius":5,"angle":90}]}`;
+  십자 전개도(바탕 100 x 60)로 상자: `"along":[1,0,0],"bends":[{"at":50,…}],"also":[{"along":[-1,0,0],
+  "bends":[{"at":50,…}]},{"along":[0,1,0],"bends":[{"at":30,…}]},{"along":[0,-1,0],"bends":[{"at":30,…}]}]`) ·
+  `surface`(kind grid|loft|fill — **곡면**, 입체가 아니라 면: `grid` [[[x,y,z]…]…] 점 격자를 지나는
+  자유 곡면(잰 점) · `loft` curves [[[x,y,z]…]…] 3D 곡선들을 잇는 면(ruled) · `fill` boundary
+  [[x,y,z]…] 닫힌 테두리를 메우는 면(through 의 점을 지난다), smooth 면 점을 지나는 스플라인.
+  그대로는 결과가 못 된다) · `thicken`(target 곡면, thickness, side front|back|both — 곡면에
+  두께를 줘 입체로: 굽은 면에 맞닿는 받침) · `split` 의 `tool`(곡면 id — 평면 대신 그 곡면으로
+  가른다, top 은 곡면의 앞 쪽: 굽은 면을 따라 잘라 낸 둥지) ·
+  `deform`(target, axis X|Y|Z|기준축, twist(도), taper(끝 배율), start, end — **비틀기 · 테이퍼**:
+  축을 따라 단면을 돌리고 줄인다. 축 위 start → end 에서 0 → twist 만큼 돌고 1 → taper 배로
+  줄며, 그 앞은 그대로 · 그 뒤는 끝의 변형 그대로(비우면 대상 전체). 비틀린 띠 · 날개 · 가는 보.
+  곡면은 NURBS 로 근사한다(오차 1 µm 안팎, 비틀기는 부피가 그대로)) ·
   `frame`(profile, paths [[[x,y,z]…]…], corner miter|butt|none, meet butt|overlap, roll,
   separate — **구조
   프레임**: 단면을 경로의 부재마다 세운다. profile 은 `{"type":"t_slot","size":20|30|40|45}`
@@ -192,16 +226,27 @@
 2. `doe_preview` 로 **개수를 먼저 센다** — 격자는 곱으로 늘어난다(인자 넷에 5단계면 625개,
    한 번에 만드는 상한은 관리자가 서버 설정 화면에서 정한다, 기본 200 — `doe_preview` 의
    `max`). 값은 인자의 `resolution`(가공 단위, 기본 0.1 mm)으로 맞춰진다.
-3. `doe_create` — 점마다 형상을 만들어 **서버 보관 폴더**에 `points/p0001.step` 과
-   `manifest.csv`(번호 · 바꾼 변수 값 · 파일 · 상태)를 쓴다. 질량 · 크기는 계산하지 않는다 —
-   결과는 해석이 낸다. 다 만들어지면 `doe_export` 로 **공유 폴더**에 보낸다 — 해석(ANSYS)은
-   그때부터 그 폴더를 읽는다(만드는 중에 보내지 않는다).
+   - **말이 안 되는 조합은 `constraints` 로 거른다** — `["구멍_간격 > 2 * 구멍_지름"]`. 범위만
+     주면 벽이 구멍보다 얇은 판도 만들어진다. 답의 `rejected` · `hits` 로 몇 개가 걸렸는지 본다.
+   - 방식(`method`): `factorial` · `lhs` · `sobol`(이어 뽑기 좋다) · `oat`(중요한 변수 고르기) ·
+     `ccd` · `bbd`(응답면) · `table`(해석 쪽 최적화기가 고른 점을 **값 그대로** — `table=[{…}]`).
+3. **`doe_probe` 로 끝 점을 먼저 만들어 본다** — 가운데 · 모두 최소 · 모두 최대 · 변수마다
+   최소 · 최대만. 깨지는 점 · 못 찾은 선택 그룹(`unresolved`) · 딴 면을 집었을 그룹(`drift`) ·
+   얇은 벽(`quality.warnings`) · 한 점의 시간(`mean_ms`)을 200점을 다 돌리기 전에 안다.
+4. `doe_create` — 점마다 형상을 만들어 **서버 보관 폴더**에 `points/p0001.step` 과
+   `manifest.csv`(번호 · 바꾼 변수 값 · 파일 · 상태 · `warnings`)를 쓴다. 형상 점검(최소 벽 두께
+   · 짧은 모서리 · 좁은 면 · 바디 수)은 늘 하고, 기준은 `checks`(mm). 해석 쪽이 목표 · 제약으로
+   쓸 **형상 값**은 `measures` 로 열을 더한다(부피 · 크기 · 그룹 넓이 · 거리 · 식 — 질량은
+   `부피 * 밀도` 식으로). 해석 결과는 계산하지 않는다. 다 만들어지면 `doe_export` 로
+   **공유 폴더**에 보낸다 — 해석(ANSYS)은 그때부터 그 폴더를 읽는다(만드는 중에 보내지 않는다).
 4. **결과는 이 플랫폼에 돌아오지 않는다.** 해석 플랫폼이 폴더를 읽어 풀고, 결과를 보고
    설계점을 고르는 일도 거기서 한다 — 여기서 「어느 점이 좋은가」 를 묻지 마라. 점마다
    `points/pNNNN.topology.json` 에 **영역 지문과 그 점의 변수 값**이 함께 있어, 해석 쪽이
    파일만 보고 「이 결과가 두께 8 짜리」 를 안다.
 5. `doe_points` 로 표를 읽고 다음 범위를 좁힌다. 실패한 점은 사유가 적혀 있다 — 그 범위를 뺀다.
-   LHS 는 `seed` 를 적어 두면 **같은 표**를 다시 만든다.
+   LHS 는 `seed` 를 적어 두면 **같은 표**를 다시 만든다. 더 뽑을 때는 새 DOE 가 아니라
+   **`doe_extend`** — 번호를 이어 같은 폴더에 더한다(범위만 바꿀 수 있고, Sobol 은 이어
+   뽑는다). 끝나면 `doe_export` 를 다시 불러야 해석이 새 점을 본다.
 6. 변수끼리는 싸우지 않는다(칸 하나에 식 하나 — 과구속이 없다). 대신 값 조합이 형상을 깨면
    **그 점만** 실패로 남는다(사유가 적힌다) — 범위를 좁히거나 값을 바꾸라는 뜻이다.
 
@@ -228,6 +273,16 @@
   맞춘다. 손으로 좌표를 계산해 `translate` 를 적지 않는다. 손으로 그린 지그는 어림(`guessed`)
   이니 사용자에게 자리를 확인받는다. 조립을 저장하기 전에 `recipe_interference` 로 구성품끼리
   겹치지 않는지 본다 — 서버는 겹친 채로도 저장한다.
+  **구속(`mates`)으로 놓으면 치수가 바뀌어도 따라 앉는다** — 손으로 적은 `translate` 는 지그
+  높이가 DOE 로 바뀌면 부품이 허공에 뜬다. component 에 `"mates": [...]`(6 개까지, 차례대로):
+  `{"type":"touch","this":{"what":"faces","role":"bottom"},"to":"지그","select":{"what":"faces","role":"top"}}`
+  (맞대기 — `offset` 은 틈), `flush`(면 맞춤 — 같은 쪽), `concentric`(동심 — 원통면 · 원 엣지,
+  `flip` 은 축 방향 뒤집기), `parallel` · `perpendicular` · `angle`(`angle` 도). **`this` 는
+  가져온 도면의 좌표**로 쓴다(그 부품 레시피에 `recipe_find` 를 물어 만든다), `to` 는 **앞에
+  놓인** 피처 id + `select`, 또는 기준(`XY` · `Z` · 기준 피처 id — `select` 없이). 구속이 정하지
+  않은 쪽은 `translate` · `rotate` 가 정한다(처음 자리). `recipe_check` 의 `summary.nodes[]
+  .placement` 에 자리와 남은 움직임(`free_rotation` · `free_translation`)이 온다 — 0 · 0 이면 다
+  정해졌다. 맞지 않는 구속은 「구속 2(맞대기) — 앞의 구속과 맞지 않습니다, 3 mm 어긋남」.
 
 **지그 작업은 두 길로 시작한다** — 어느 쪽이든 결과는 `kind="jig"` 작업이고 그 뒤는 같다:
 - **부품에서 생성**: `run_jig(source, options)` — 부품(`work:<id>` · `part:<id>`)의 형상에서
@@ -281,7 +336,8 @@
 ## workflow
 
 1. `get_work(work_id)` 로 지금 레시피와 평가 요약(크기 · 부피 · 면 수)을 받는다. 새로 만들 때는
-   `recipe_schema` 의 템플릿에서. 치수만 바꿔 되풀이해 쓸 모양이면 `save_template` 로 남긴다
+   **먼저 `find_by_shape` 로 비슷한 것이 이미 있는지 본다**(크기 · 구멍 · 나사 · 판금 여부) —
+   있으면 `duplicate_work` · `copy_part_to_work` 로 시작한다. 없으면 `recipe_schema` 의 템플릿에서. 치수만 바꿔 되풀이해 쓸 모양이면 `save_template` 로 남긴다
    (`shared: true` 면 공용 자리).
 2. 레시피를 고친다 — **바꾸는 피처만** 손대고 나머지는 그대로 둔다. 새 피처는 끝에 붙이고 앞 피처를
    가리킨다.
@@ -323,8 +379,8 @@
    - 규칙의 숫자 칸에도 도면 변수 식을 쓴다 — `{"kind": "cylinder", "radius": "=지름 / 2"}` 는
      DOE 가 구멍 지름을 훑어도 그 구멍을 잡는다. `near` 를 식으로 적으면 그 식대로 옮겨 가고(자동
      따라가기는 하지 않는다), 숫자로 적으면 치수를 따라 저절로 옮긴다.
-   - 점 그룹(`entity: vertex`)의 지문은 자리 `{"point": [x, y, z]}` 하나다. 점 그룹에 붙인
-     좌표계는 원점만 그 점, 방향은 전역.
+   - 점 그룹(`entity: vertex`)의 지문은 자리 `{"point": [x, y, z]}` 다(조립이면 `body` 도 —
+     맞닿은 두 바디의 점은 자리가 같다). 점 그룹에 붙인 좌표계는 원점만 그 점, 방향은 전역.
    - **조립(바디 여럿)은 `body` 로 고른다** — `{"what": "faces", "body": "블록", "normal":
      [0, 0, -1]}` 은 블록의 아랫면 하나다. 「+Z 평면」 만 쓰면 판 윗면과 블록 윗면을 함께 집는다.
      좌표(`near`)가 없어 치수를 훑어도 헛집지 않는다.

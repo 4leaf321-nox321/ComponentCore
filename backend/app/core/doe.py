@@ -13,6 +13,11 @@
   걸러져 실패한 점이 「무게 5 kg 이하」 에 들어가는 일이 실제로 있었다.
 - 값은 인자의 **가공 단위**(`resolution`, 기본 0.1 mm)로 맞춘다. 구간을 셋으로 나누면
   0.333… 이 나오는데 그런 치수는 가공할 수 없다 — 0.3 으로 맞추고, 겹치는 값은 하나로.
+- **제약식**(`constraints`) — `구멍_간격 > 2 * 구멍_지름` 처럼 변수끼리의 조건. 범위만으로는
+  말이 안 되는 조합(벽이 구멍보다 얇은 판)이 만들어져, CAD 에서 깨지거나 **멀쩡해 보이는
+  이상한 형상**이 해석으로 나간다. 만들기 **전에** 거른다: 격자는 어긋난 줄을 빼고, LHS 는
+  표본 수가 찰 때까지 더 큰 표에서 뽑는다(`plan`). 식을 푸는 것(도면의 다른 치수까지)은
+  위층이 준다.
 - **치수가 아닌 인자** 셋 — 값이 레시피 `params` 로 가지 않는다(형상은 그대로다). 실제로
   조건에 적용하는 것은 위층이 한다(`NON_SHAPE`).
   - 재료(`material`): 바디(`bodies`)에 붙일 재료를 후보(`values`, 조건에 담아 둔 재료의
@@ -25,9 +30,10 @@
 
 from __future__ import annotations
 
+import itertools
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 #: 한 번에 만들 수 있는 설계점 수의 **기본값** — 점마다 형상을 만들고 STEP 을 쓰므로 무한정
@@ -37,8 +43,29 @@ MAX_POINTS = 200
 MAX_FACTORS = 8
 #: 값을 맞추는 가공 단위의 기본값(mm). 0.1 이면 6.333 은 6.3 이 된다.
 DEFAULT_RESOLUTION = 0.1
+#: 제약식 수의 상한 — 사람이 읽을 수 있는 만큼.
+MAX_CONSTRAINTS = 20
+#: 제약으로 거를 때 **훑어볼** 격자 줄 수의 상한. 거르려면 다 세어 봐야 해서 끝이 있어야
+#: 한다.
+GRID_CAP = 100_000
+#: LHS 가 표본 수를 채우려고 키워 보는 후보 표의 상한.
+LHS_CAP = 20_000
+#: 화면이 흩뿌림에 그릴 걸러진 후보의 수 — 다 보내면 무겁다.
+REJECTED_SHOWN = 300
 
-Method = Literal["factorial", "lhs"]
+Method = Literal["factorial", "lhs", "table", "oat", "ccd", "bbd", "sobol"]
+"""- `table` — 설계점을 **직접 준 표**(CSV · 해석 쪽 최적화기가 고른 점)로. 가공 단위로 맞추지
+  않는다 — 표의 값이 곧 원하는 값이다.
+- `oat` — 하나씩 바꾸기: 가운데 한 점에서 변수마다 제 값들을 하나씩(나머지는 가운데). 어느
+  변수가 중요한지 먼저 고를 때.
+- `ccd` — 중심 합성(면 중심, CCF): 모서리 2^k + 축 2k + 가운데. 범위 밖으로 안 나간다. 해석
+  쪽이 2차 응답면을 만들 때의 표준.
+- `bbd` — Box-Behnken: 변수 둘씩 ±1(나머지 가운데) + 가운데. 모서리(모두 끝)를 안 만든다 —
+  끝끼리 겹치면 깨지는 형상에 맞다. 변수 셋 이상.
+- `sobol` — Sobol 수열(시드로 디지털 이동). 나중에 점을 더해도 **이어서** 뽑아 공간이 고르게
+  찬다(LHS 는 다시 뽑아야 한다)."""
+#: 수 인자만 받는 방식 — 끝 · 가운데의 뜻이 있어야 한다.
+CODED = ("ccd", "bbd")
 
 
 class DoeError(ValueError):
@@ -95,8 +122,9 @@ def _resolution(one: dict[str, Any], name: str) -> float:
     return got
 
 
-def parse_factors(raw: list[dict[str, Any]]) -> list[Factor]:
-    """화면 · AI 가 준 인자 정의를 읽는다. 틀린 곳은 이름을 짚어 말한다."""
+def parse_factors(raw: list[dict[str, Any]], *, allow_fixed: bool = False) -> list[Factor]:
+    """화면 · AI 가 준 인자 정의를 읽는다. 틀린 곳은 이름을 짚어 말한다. `allow_fixed` 는
+    「모두 고정」 을 받는다(점을 더할 때 — 범위는 새 묶음이 준다)."""
     if not raw:
         raise DoeError("인자가 없습니다 — 바꿔 볼 치수를 적어도 하나 고르세요")
     out: list[Factor] = []
@@ -158,7 +186,7 @@ def parse_factors(raw: list[dict[str, Any]]) -> list[Factor]:
                 "scale 중 하나"
             )
     varying = [f for f in out if f.varying]
-    if not varying:
+    if not varying and not allow_fixed:
         raise DoeError("모두 고정입니다 — 바꿔 볼 치수를 하나는 두세요")
     if len(varying) > MAX_FACTORS:
         raise DoeError(f"바꿀 인자는 {MAX_FACTORS} 개까지입니다 (지금 {len(varying)} 개)")
@@ -250,8 +278,10 @@ def levels(factor: Factor) -> list[float | str]:
 
 def count(factors: list[Factor], method: Method, samples: int) -> int:
     """실행 **전에** 몇 개인지. 격자는 곱으로 늘어나므로 먼저 보여 주고 시작한다."""
-    if method == "lhs":
+    if method in ("lhs", "sobol"):
         return max(1, int(samples))
+    if method in ("oat", *CODED):
+        return len(designed_points(factors, method))
     total = 1
     for factor in factors:
         total *= len(levels(factor))
@@ -314,6 +344,461 @@ def build_points(
     for factor in varying:
         rows = [{**row, factor.name: value} for row in rows for value in levels(factor)]
     return rows
+
+
+#: 설계점 한 줄 → **어긴 제약의 번호들**(0 부터). 빈 목록이면 통과다.
+Check = Callable[[dict[str, float | str]], list[int]]
+
+
+@dataclass
+class Plan:
+    """제약을 거친 설계점 표와 **얼마나 걸렀나.**"""
+
+    rows: list[dict[str, float | str]]
+    requested: int
+    """방식이 낸 수 — 격자면 칸 수, LHS 면 표본 수."""
+    kept: int = 0
+    """제약을 지난 수 — 상한을 넘어 표를 비웠어도(`too_many`) 이것은 센다."""
+    candidates: int = 0
+    """실제로 훑어본 후보 수(LHS 는 표본을 채우려고 더 크게 뽑는다)."""
+    next_index: int = 0
+    """Sobol — 다음에 이어 뽑을 수열 번호(점을 더할 때 여기서 잇는다)."""
+    rejected: int = 0
+    """제약에 걸린 후보 수."""
+    hits: list[int] = field(default_factory=list)
+    """제약마다 걸린 후보 수 — 한 줄이 여럿에 걸릴 수 있어 합이 `rejected` 보다 클 수 있다."""
+    shortfall: int = 0
+    """LHS 가 끝내 못 채운 수. 0 이 아니면 제약이 너무 좁다."""
+    too_many: bool = False
+    """만들 수 있는 상한을 넘는다 — 표는 비어 있다(격자를 다 펼치지 않는다)."""
+    rejected_rows: list[dict[str, float | str]] = field(default_factory=list)
+    """걸러진 후보 몇 줄 — 화면이 흩뿌림에 옅게 그린다(`REJECTED_SHOWN` 까지)."""
+
+
+def parse_constraints(raw: list[Any] | None) -> list[str]:
+    """제약식 목록을 다듬는다 — 빈 줄은 버리고, 글자가 아니면 말한다. 이름이 맞는지는 위층이
+    (도면의 치수를 알므로) 본다."""
+    out: list[str] = []
+    for one in raw or []:
+        if not isinstance(one, str):
+            raise DoeError("제약식은 글자입니다 — 예: 간격 > 2 * 지름")
+        text = one.strip()
+        if text:
+            out.append(text)
+    if len(out) > MAX_CONSTRAINTS:
+        raise DoeError(f"제약식은 {MAX_CONSTRAINTS} 개까지입니다 (지금 {len(out)} 개)")
+    return out
+
+
+def table_points(
+    factors: list[Factor], table: list[dict[str, Any]]
+) -> list[dict[str, float | str]]:
+    """**직접 준 표**를 설계점으로 — 줄마다 바꿀 변수(고정이 아닌 인자)의 값이 다 있어야 한다.
+
+    엑셀로 짠 표나 해석 쪽 최적화기가 「다음엔 이 점들」 이라고 고른 것을 그대로 만든다. 그래서
+    **가공 단위로 맞추지 않고**(표의 값이 곧 원하는 값이다) 겹친 줄도 그대로 둔다(번호가 표의
+    줄과 같아야 결과를 되짚는다). 재료 · 고르기 · 배율 인자는 후보 중 하나여야 한다."""
+    if not table:
+        raise DoeError("표가 비었습니다 — 설계점을 한 줄 이상 주세요")
+    by_name = {f.name: f for f in factors}
+    fixed: dict[str, float | str] = {f.name: levels(f)[0] for f in factors if not f.varying}
+    varying = [f for f in factors if f.varying]
+    rows: list[dict[str, float | str]] = []
+    for number, raw in enumerate(table, start=1):
+        if not isinstance(raw, dict):
+            raise DoeError(f"표 {number} 줄: 이름과 값의 짝이어야 합니다")
+        unknown = sorted(str(k) for k in raw if k not in by_name)
+        if unknown:
+            raise DoeError(f"표 {number} 줄: 모르는 변수 {', '.join(unknown)}")
+        stuck = sorted(str(k) for k in raw if not by_name[k].varying)
+        if stuck:
+            raise DoeError(
+                f"표 {number} 줄: {', '.join(stuck)} 은 고정입니다 — 표의 값으로 바꾸려면 "
+                "고정을 푸세요"
+            )
+        row = dict(fixed)
+        for factor in varying:
+            value = raw.get(factor.name)
+            if value is None or value == "":
+                raise DoeError(f"표 {number} 줄: '{factor.name}' 값이 없습니다")
+            if factor.mode in NON_SHAPE:
+                match = [one for one in factor.choices if _same(one, value)]
+                if not match:
+                    shown = ", ".join(str(one) for one in factor.choices)
+                    raise DoeError(
+                        f"표 {number} 줄: '{factor.name}' 은 {shown} 중 하나입니다 ({value!r})"
+                    )
+                row[factor.name] = match[0]
+                continue
+            try:
+                number_value = float(value)
+            except (TypeError, ValueError) as failure:
+                raise DoeError(
+                    f"표 {number} 줄: '{factor.name}' 이 숫자가 아닙니다 ({value!r})"
+                ) from failure
+            if not math.isfinite(number_value):
+                raise DoeError(f"표 {number} 줄: '{factor.name}' 이 유한한 수가 아닙니다")
+            row[factor.name] = number_value
+        rows.append(row)
+    return rows
+
+
+def _same(choice: Any, value: Any) -> bool:
+    """후보와 표의 값이 같은가 — 표(CSV)는 글자로 오므로 수 후보는 수로 견준다."""
+    if isinstance(choice, bool) or choice is None:
+        return str(value).strip().lower() == str(choice).lower() or value == choice
+    if isinstance(choice, int | float):
+        try:
+            return float(value) == float(choice)
+        except (TypeError, ValueError):
+            return False
+    return str(value).strip() == str(choice)
+
+
+def plan(
+    factors: list[Factor],
+    *,
+    method: Method = "factorial",
+    samples: int = 20,
+    seed: int = 1,
+    limit: int = MAX_POINTS,
+    check: Check | None = None,
+    constraints: int = 0,
+    table: list[dict[str, Any]] | None = None,
+    offset: int = 0,
+) -> Plan:
+    """설계점 표를 **제약을 거쳐** 만든다. 제약이 없으면 `build_points` 와 꼭 같은 표다 —
+    시드로 다시 만든 표가 예전 것과 같아야 해석 결과와 형상이 이어진다.
+
+    - 격자: 칸을 다 펼쳐 어긋난 줄을 뺀다(`GRID_CAP` 까지).
+    - LHS: 표본 수만큼 뽑아 거르고, 모자라면 같은 시드로 **두 배 큰 표**를 뽑아 앞에서부터
+      통과한 줄을 채운다(`LHS_CAP` 까지). 큰 표도 라틴 하이퍼큐브라 통과한 영역 안에서 고르게
+      흩어진다. 끝내 못 채우면 `shortfall` 로 말한다."""
+    hits = [0] * constraints
+    rejected_rows: list[dict[str, float | str]] = []
+
+    def keep(rows: list[dict[str, float | str]]) -> tuple[list[dict[str, float | str]], int]:
+        if check is None:
+            return rows, 0
+        kept = []
+        dropped = 0
+        for row in rows:
+            failed = check(row)
+            if failed:
+                dropped += 1
+                for index in failed:
+                    if 0 <= index < len(hits):
+                        hits[index] += 1
+                if len(rejected_rows) < REJECTED_SHOWN:
+                    rejected_rows.append(row)
+            else:
+                kept.append(row)
+        return kept, dropped
+
+    if method == "sobol":
+        return _sobol_plan(
+            factors, samples, seed, limit, check, constraints, offset, hits, keep
+        )
+    if method in ("oat", *CODED):
+        made = designed_points(factors, method)
+        kept, dropped = keep(made)
+        return Plan(
+            rows=kept if len(kept) <= limit else [],
+            requested=len(made),
+            kept=len(kept),
+            candidates=len(made),
+            rejected=dropped,
+            hits=list(hits),
+            too_many=len(kept) > limit,
+            rejected_rows=list(rejected_rows),
+        )
+    if method == "table":
+        given = table_points(factors, table or [])
+        kept, dropped = keep(given)
+        return Plan(
+            rows=kept if len(kept) <= limit else [],
+            requested=len(given),
+            kept=len(kept),
+            candidates=len(given),
+            rejected=dropped,
+            hits=list(hits),
+            too_many=len(kept) > limit,
+            rejected_rows=list(rejected_rows),
+        )
+    if method == "lhs":
+        wanted = max(1, int(samples))
+        size = wanted
+        while True:
+            hits[:] = [0] * constraints
+            rejected_rows.clear()
+            kept, dropped = keep(
+                build_points(
+                    factors, method="lhs", samples=size, seed=seed, limit=max(limit, size)
+                )
+            )
+            if len(kept) >= wanted or size >= LHS_CAP or check is None:
+                return Plan(
+                    rows=kept[:wanted],
+                    requested=wanted,
+                    kept=min(wanted, len(kept)),
+                    candidates=size,
+                    rejected=dropped,
+                    hits=list(hits),
+                    shortfall=max(0, wanted - len(kept)),
+                    too_many=wanted > limit,
+                    rejected_rows=list(rejected_rows),
+                )
+            size = min(LHS_CAP, size * 2)
+    total = count(factors, method, samples)
+    if check is None:
+        if total > limit:
+            return Plan(rows=[], requested=total, kept=total, candidates=total, too_many=True)
+        return Plan(
+            rows=build_points(factors, method=method, samples=samples, seed=seed, limit=limit),
+            requested=total,
+            kept=total,
+            candidates=total,
+        )
+    if total > GRID_CAP:
+        raise DoeError(
+            f"격자가 {total} 칸입니다 — 제약으로 거르려면 {GRID_CAP} 칸까지만 훑습니다. "
+            "단계를 줄이거나 LHS 로 표본 수를 정하세요."
+        )
+    kept, dropped = keep(_grid(factors))
+    return Plan(
+        rows=kept if len(kept) <= limit else [],
+        requested=total,
+        kept=len(kept),
+        candidates=total,
+        rejected=dropped,
+        hits=list(hits),
+        too_many=len(kept) > limit,
+        rejected_rows=list(rejected_rows),
+    )
+
+
+#: 미리 만들어 볼 점의 상한 — 인자 8개면 가운데 1 + 모두 최소 · 최대 2 + 인자마다 2 = 19.
+PROBE_MAX = 2 * MAX_FACTORS + 3
+
+
+def probe_points(factors: list[Factor]) -> list[tuple[str, dict[str, float | str]]]:
+    """**만들기 전에 먼저 만들어 볼 점들** — 깨질 만한 곳은 범위의 끝이다.
+
+    가운데 하나, 형상 인자를 모두 최소 · 모두 최대로 둘, 그리고 인자마다 혼자 최소 · 최대
+    (나머지는 가운데). 격자의 모서리(2^k)를 다 만들면 인자 여덟에 256 개라 끝만 고른다.
+    재료 · 고르기 · 배율 인자는 형상을 안 바꾸므로 첫 값에 둔다. 같은 줄이 겹치면 이름을
+    합쳐 하나로."""
+    shape = [f for f in factors if f.varying and f.mode not in NON_SHAPE]
+
+    def low(factor: Factor) -> float:
+        return min(float(v) for v in levels(factor))
+
+    def high(factor: Factor) -> float:
+        return max(float(v) for v in levels(factor))
+
+    base: dict[str, float | str] = {f.name: levels(f)[0] for f in factors}
+    center = {**base, **{f.name: _center(f) for f in shape}}
+    wanted: list[tuple[str, dict[str, float | str]]] = [("가운데", center)]
+    if shape:
+        wanted.append(("모두 최소", {**center, **{f.name: low(f) for f in shape}}))
+        wanted.append(("모두 최대", {**center, **{f.name: high(f) for f in shape}}))
+    for factor in shape:
+        wanted.append((f"{factor.name} 최소", {**center, factor.name: low(factor)}))
+        wanted.append((f"{factor.name} 최대", {**center, factor.name: high(factor)}))
+    out: list[tuple[str, dict[str, float | str]]] = []
+    for label, row in wanted:
+        same = next((i for i, (_, seen) in enumerate(out) if seen == row), None)
+        if same is None:
+            out.append((label, row))
+        else:
+            out[same] = (f"{out[same][0]} · {label}", row)
+    return out
+
+
+def _center(factor: Factor) -> float | str:
+    """인자의 가운데 — 구간이면 가운데를 가공 단위로, 값 목록이면 가운데에 가장 가까운
+    값(같으면 작은 쪽), 재료 · 고르기 · 배율이면 첫 후보."""
+    if factor.mode in NON_SHAPE:
+        return levels(factor)[0]
+    if factor.mode == "range":
+        assert factor.start is not None and factor.end is not None
+        return snap((factor.start + factor.end) / 2, factor.resolution)
+    values = sorted(float(v) for v in levels(factor))
+    middle = (values[0] + values[-1]) / 2
+    return min(values, key=lambda v: (abs(v - middle), v))
+
+
+def _coded(factor: Factor) -> tuple[float, float | str, float]:
+    """중심 합성 · Box-Behnken 의 -1 · 0 · +1. 수 인자여야 하고 끝이 둘이어야 한다."""
+    if factor.mode in NON_SHAPE:
+        raise DoeError(
+            f"'{factor.name}': 중심 합성 · Box-Behnken 은 수 변수만 받습니다 — 재료 · "
+            "고르기 · 배율 인자는 고정하거나 격자 · LHS 로"
+        )
+    values = [float(v) for v in levels(factor)]
+    if min(values) == max(values):
+        raise DoeError(f"'{factor.name}': 끝이 하나뿐입니다 — 범위를 주세요")
+    return min(values), _center(factor), max(values)
+
+
+def designed_points(factors: list[Factor], method: str) -> list[dict[str, float | str]]:
+    """정해진 꼴의 설계 — 하나씩 바꾸기 · 중심 합성(면 중심) · Box-Behnken. 겹친 줄은
+    하나로."""
+    fixed: dict[str, float | str] = {f.name: levels(f)[0] for f in factors if not f.varying}
+    varying = [f for f in factors if f.varying]
+    rows: list[dict[str, float | str]] = []
+    if method == "oat":
+        base = {f.name: _center(f) for f in varying}
+        rows.append({**fixed, **base})
+        for factor in varying:
+            for value in levels(factor):
+                if value != base[factor.name]:
+                    rows.append({**fixed, **base, factor.name: value})
+        return rows
+    coded = {f.name: _coded(f) for f in varying}
+    center = {name: three[1] for name, three in coded.items()}
+
+    def at(signs: dict[str, int]) -> dict[str, float | str]:
+        return {
+            **fixed,
+            **center,
+            **{n: coded[n][0 if s < 0 else 2] for n, s in signs.items()},
+        }
+
+    names = [f.name for f in varying]
+    if method == "ccd":
+        for signs in itertools.product((-1, 1), repeat=len(names)):
+            rows.append(at(dict(zip(names, signs, strict=True))))
+        for name in names:
+            rows.extend([at({name: -1}), at({name: 1})])
+    elif method == "bbd":
+        if len(names) < 3:
+            raise DoeError(
+                "Box-Behnken 은 바꿀 변수가 셋 이상이어야 합니다 — 둘이면 중심 합성으로"
+            )
+        for first, second in itertools.combinations(names, 2):
+            for a, b in itertools.product((-1, 1), repeat=2):
+                rows.append(at({first: a, second: b}))
+    rows.append({**fixed, **center})
+    out: list[dict[str, float | str]] = []
+    for row in rows:
+        if row not in out:
+            out.append(row)
+    return out
+
+
+#: Sobol 수열의 비트 수.
+_BITS = 32
+#: Joe & Kuo(new-joe-kuo-6.21201)의 2~8 차원 (s, a, m_i). 1 차원은 반 데르 코르풋(m 이 모두 1).
+#: scipy.stats.qmc.Sobol(scramble=False) 와 같은 수를 낸다(시험이 견준다).
+_JOE_KUO = (
+    (1, 0, (1,)),
+    (2, 1, (1, 3)),
+    (3, 1, (1, 3, 1)),
+    (3, 2, (1, 1, 1)),
+    (4, 1, (1, 1, 3, 3)),
+    (4, 4, (1, 3, 5, 13)),
+    (5, 2, (1, 1, 5, 5, 17)),
+)
+
+
+def _directions(dimension: int) -> list[int]:
+    if dimension == 0:
+        return [1 << (_BITS - 1 - k) for k in range(_BITS)]
+    s, a, m = _JOE_KUO[dimension - 1]
+    v = [0] * _BITS
+    for k in range(s):
+        v[k] = m[k] << (_BITS - 1 - k)
+    for k in range(s, _BITS):
+        value = v[k - s] ^ (v[k - s] >> s)
+        for i in range(1, s):
+            if (a >> (s - 1 - i)) & 1:
+                value ^= v[k - i]
+        v[k] = value
+    return v
+
+
+def sobol(dimensions: int, count: int, seed: int = 0, start: int = 0) -> list[list[float]]:
+    """Sobol 수열의 `start` 번째부터 `count` 개 — [0,1)^d. `seed` 가 0 이 아니면 **디지털
+    이동**(차원마다 시드로 정한 수를 XOR)으로 섞는다 — 고른 분포는 그대로이고, 같은 시드면 같은
+    수열이다. 이어 뽑으면(`start`) 앞의 점들과 함께 공간을 고르게 채운다."""
+    if dimensions > len(_JOE_KUO) + 1:
+        raise DoeError(f"Sobol 은 변수 {len(_JOE_KUO) + 1} 개까지입니다")
+    v = [_directions(d) for d in range(dimensions)]
+    rng = seeded_random(seed)
+    shift = (
+        [int(rng() * (1 << _BITS)) for _ in range(dimensions)] if seed else [0] * dimensions
+    )
+    x = [0] * dimensions
+    out: list[list[float]] = []
+    for i in range(start + count):
+        if i > 0:
+            # 그레이 부호 — 앞 번호의 가장 낮은 0 비트 자리의 방향수를 XOR.
+            c, j = 0, i - 1
+            while j & 1:
+                j >>= 1
+                c += 1
+            x = [x[d] ^ v[d][c] for d in range(dimensions)]
+        if i >= start:
+            out.append([(x[d] ^ shift[d]) / (1 << _BITS) for d in range(dimensions)])
+    return out
+
+
+def _sobol_plan(
+    factors: list[Factor],
+    samples: int,
+    seed: int,
+    limit: int,
+    check: Check | None,
+    constraints: int,
+    offset: int,
+    hits: list[int],
+    keep: Callable[[list[dict[str, float | str]]], tuple[list[dict[str, float | str]], int]],
+) -> Plan:
+    """Sobol — `offset` 번째부터 차례로 뽑고, 제약에 걸리면 **수열을 이어** 더 뽑는다(다시 뽑지
+    않는다 — 그래야 다음에 더할 때도 이어진다). 다음 번호를 `next_index` 로 돌려준다."""
+    fixed: dict[str, float | str] = {f.name: levels(f)[0] for f in factors if not f.varying}
+    varying = [f for f in factors if f.varying]
+    wanted = max(1, int(samples))
+    kept: list[dict[str, float | str]] = []
+    rejected = 0
+    rejected_rows: list[dict[str, float | str]] = []
+    index = offset
+    while len(kept) < wanted and index - offset < max(wanted, LHS_CAP if check else wanted):
+        step = wanted - len(kept)
+        batch = [
+            {**fixed, **{f.name: _map_unit(f, u) for f, u in zip(varying, unit, strict=True)}}
+            for unit in sobol(len(varying), step, seed, index)
+        ]
+        index += step
+        good, dropped = keep(batch)
+        rejected += dropped
+        rejected_rows.extend(row for row in batch if row not in good)
+        kept.extend(good)
+        if check is None:
+            break
+    return Plan(
+        rows=kept if wanted <= limit else [],
+        requested=wanted,
+        kept=len(kept),
+        candidates=index - offset,
+        rejected=rejected,
+        hits=list(hits),
+        shortfall=max(0, wanted - len(kept)),
+        too_many=wanted > limit,
+        rejected_rows=rejected_rows[:REJECTED_SHOWN],
+        next_index=index,
+    )
+
+
+def _grid(factors: list[Factor]) -> list[dict[str, float | str]]:
+    """전체 조합 — `build_points` 의 격자와 같은 순서(앞 인자가 바깥 고리)."""
+    fixed: dict[str, float | str] = {f.name: levels(f)[0] for f in factors if not f.varying}
+    varying = [f for f in factors if f.varying]
+    return [
+        {**fixed, **dict(zip([f.name for f in varying], combo, strict=True))}
+        for combo in itertools.product(*(levels(f) for f in varying))
+    ]
 
 
 def _map_unit(factor: Factor, unit: float) -> float | str:

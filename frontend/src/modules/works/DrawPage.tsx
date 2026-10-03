@@ -11,6 +11,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import type { Recipe } from '@/modules/cad/api'
 import { saveRecipeAs } from '@/modules/cad/download'
+import type { DownloadFormat } from '@/modules/cad/download'
 import { templatesApi } from '@/modules/templates/api'
 import { RecipeEditor } from '@/modules/cad/RecipeEditor'
 import { SaveTemplateDialog } from '@/modules/templates/SaveTemplateDialog'
@@ -76,7 +77,7 @@ export default function DrawPage() {
     }
   }, [wanted, setParams])
 
-  async function download(format: 'step' | 'stl' | 'dxf' | 'svg') {
+  async function download(format: DownloadFormat) {
     if (!recipe) return
     setError(null)
     try {
@@ -141,6 +142,7 @@ export default function DrawPage() {
             saveTemplate: () => setSavingTemplate(true),
             download: (format) => void download(format),
             importStep: { label: 'STEP 열기', run: (picked) => void startFromStep(picked), busy },
+            drawingTitle: name,
             onLoaded: (label, source, work) => {
               setNoteOf(source === 'copy' ? { source, label: `${label} 에서 복사` } : { source, label: `${label} 템플릿에서` })
               // 기존 작업은 **사본**으로 시작한다 — 이름을 미리 「사본」 으로 두어 원본이 남는다는 걸 보인다.

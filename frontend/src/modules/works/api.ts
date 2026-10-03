@@ -4,6 +4,8 @@ import type { MeshData } from '@/shared/viewer/PickViewer'
 import { api } from '@/shared/api/client'
 import type { Page } from '@/shared/api/types'
 import type { FolderRow } from '@/shared/folders/paths'
+import { addShapeParams } from '@/shared/components/ShapeFilter'
+import type { ShapeIndex, ShapeQuery } from '@/shared/components/ShapeFilter'
 
 export interface WorkVersion {
   id: string
@@ -78,6 +80,8 @@ export interface WorkFilter {
   year?: number | null
   /** 만든 순(연도별로 묶어 볼 때) · 고친 순(기본). */
   order?: 'updated' | 'created'
+  /** 형상 조건 — 최신 버전의 형상 색인으로. */
+  shape?: ShapeQuery
 }
 
 export interface WorkSummary {
@@ -98,6 +102,8 @@ export interface WorkSummary {
   created_at: string
   updated_at: string
   deleted_at: string | null
+  /** 최신 버전의 형상 색인 — 이 기능 전의 버전이면 없다. */
+  shape?: ShapeIndex | null
 }
 
 export interface JigPreview {
@@ -131,6 +137,7 @@ export const worksApi = {
     if (filter.subfolders === false) query.set('subfolders', 'false')
     if (filter.year != null) query.set('year', String(filter.year))
     if (filter.order === 'created') query.set('order', 'created')
+    addShapeParams(query, filter.shape)
     return api.get<Page<WorkSummary>>(`/works?${query}`)
   },
   /** 내 작업이 놓인 폴더들 — 화면이 나무로 그린다. */
@@ -146,7 +153,14 @@ export const worksApi = {
   /** 휴지통에서 되살린다. */
   restoreWork: (id: string) => api.post<Work>(`/works/${id}/restore`, {}),
   /** 현재 도면으로 새 작업 — 종류 · 꼬리표가 따라간다. */
-  duplicate: (id: string, name?: string) => api.post<Work>(`/works/${id}/duplicate${name ? `?name=${encodeURIComponent(name)}` : ''}`, {}),
+  /** 현재 도면으로 새 작업. `conditions` 면 해석 조건도 복사한다(기본은 도면만). */
+  duplicate: (id: string, name?: string, conditions = false) => {
+    const query = new URLSearchParams()
+    if (name) query.set('name', name)
+    if (conditions) query.set('conditions', 'true')
+    const suffix = query.toString() ? `?${query}` : ''
+    return api.post<Work>(`/works/${id}/duplicate${suffix}`, {})
+  },
   get: (id: string) => api.get<Work>(`/works/${id}`),
   create: (body: {
     name: string

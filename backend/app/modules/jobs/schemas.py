@@ -45,3 +45,5 @@ class JobOut(BaseModel):
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+    cancel_requested_at: datetime | None = None
+    """도는 중에 취소를 요청했다 — 워커가 다음 단계에서 멈춘다(화면은 「멈추는 중」)."""

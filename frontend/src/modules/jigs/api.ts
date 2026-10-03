@@ -2,6 +2,8 @@ import type { Job } from '@/modules/jobs/api'
 import { api } from '@/shared/api/client'
 import type { Page } from '@/shared/api/types'
 import type { FolderRow } from '@/shared/folders/paths'
+import { addShapeParams } from '@/shared/components/ShapeFilter'
+import type { ShapeIndex, ShapeQuery } from '@/shared/components/ShapeFilter'
 
 export interface InterferenceItem {
   a: string
@@ -82,10 +84,12 @@ export interface JigCatalogSummary {
   /** 놓인 폴더 — `고객A/2026`, 빈 것이 맨 위. 승격할 때 작업의 폴더를 한 번 물려받는다. */
   folder: string
   updated_at: string
+  /** 최신 버전의 형상 색인 — 이 기능 전의 버전이면 없다. */
+  shape?: ShapeIndex | null
 }
 
 export const jigsApi = {
-  list: (params: { part_id?: string; offset?: number; limit?: number; q?: string; tag?: string; folder?: string | null } = {}) => {
+  list: (params: { part_id?: string; offset?: number; limit?: number; q?: string; tag?: string; folder?: string | null; shape?: ShapeQuery } = {}) => {
     const query = new URLSearchParams()
     if (params.part_id) query.set('part_id', params.part_id)
     if (params.q) query.set('q', params.q)
@@ -95,6 +99,7 @@ export const jigsApi = {
     if (params.folder === '') query.set('subfolders', 'false')
     query.set('offset', String(params.offset ?? 0))
     query.set('limit', String(params.limit ?? 50))
+    addShapeParams(query, params.shape)
     return api.get<Page<JigCatalogSummary>>(`/jigs?${query.toString()}`)
   },
   /**

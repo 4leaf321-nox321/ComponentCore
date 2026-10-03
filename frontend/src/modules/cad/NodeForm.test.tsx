@@ -21,6 +21,22 @@ test('판 굽히기 — 굽힘을 줄마다 더하고 칸마다 고친다', () =
   expect((node.bends as { at: unknown }[])[0].at).toBe(0)
 })
 
+test('판 굽히기 — 다른 방향 날개를 더하고(상자), 날개마다 방향 · 굽힘을 고친다', () => {
+  const plate: RecipeNode = { id: '판', op: 'box' }
+  let node: RecipeNode = { ...makeNode('bend', [plate]), target: '판' }
+  const view = () => <NodeForm node={node} nodes={[plate, node]} onChange={(next) => (node = next)} />
+  const { rerender } = render(view())
+  fireEvent.click(screen.getByRole('button', { name: '+ 다른 방향 날개' }))
+  expect(node.also).toEqual([{ along: [0, 1, 0], bends: [{ at: 0, radius: 5, toward: 'up', until: 'angle', angle: 90 }] }])
+  rerender(view())
+  // 첫 날개와 둘째 날개에 같은 칸이 있다 — 둘째 것을 고친다.
+  fireEvent.change(screen.getAllByLabelText('굽힘 1 시작 자리')[1], { target: { value: '30' } })
+  expect((node.also as { bends: { at: unknown }[] }[])[0].bends[0].at).toBe(30)
+  rerender(view())
+  fireEvent.click(screen.getByLabelText('날개가 모서리에서 겹치면 따내기'))
+  expect(node.corner_relief).toBe(true)
+})
+
 test('끝까지 감으면 각도 칸이 없다 — 남은 길이가 각도를 정한다', () => {
   const node: RecipeNode = {
     ...makeNode('bend', []),
@@ -84,4 +100,25 @@ test('구조 프레임 — 절단 목록을 서버에서 받아 표로 보인다
   expect(screen.getAllByText('45°')).toHaveLength(2)
   expect(screen.getAllByText('직각')).toHaveLength(2)
   expect(spy).toHaveBeenCalledWith({ params: { 폭: 600 }, nodes: [node] }, node.id)
+})
+
+test('곡면 — 점 격자는 JSON 으로 적고, 읽히면 바로 반영하고 아니면 붉힌다', () => {
+  let node: RecipeNode = makeNode('surface', [])
+  const view = () => <NodeForm node={node} nodes={[node]} onChange={(next) => (node = next)} />
+  const { rerender } = render(view())
+  const field = screen.getByLabelText(/점 격자/)
+  fireEvent.change(field, { target: { value: '[[[0,0,0],[10,0,0]],[[0,10,0],[10,10,2]]]' } })
+  expect(node.grid).toEqual([
+    [
+      [0, 0, 0],
+      [10, 0, 0],
+    ],
+    [
+      [0, 10, 0],
+      [10, 10, 2],
+    ],
+  ])
+  rerender(view())
+  fireEvent.change(screen.getByLabelText(/점 격자/), { target: { value: '[[[0,0' } })
+  expect(screen.getByLabelText(/점 격자/).className).toContain('border-destructive')
 })

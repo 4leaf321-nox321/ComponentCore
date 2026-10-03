@@ -19,17 +19,21 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.modules.accounts.models import User
 from app.modules.jobs import registry
-from app.modules.jobs.models import Artifact, Job
+from app.modules.jobs.models import FINISHED, Artifact, Job, WorkerBeat
 from app.modules.jobs.schemas import ArtifactOut, JobOut, StageOut
 from app.modules.works.models import Work
 from app.shared import filestore
-from app.shared.errors import Forbidden, NotFound, code
+from app.shared.errors import AppError, Forbidden, NotFound, code
 
 logger = logging.getLogger(__name__)
 
-#: 이보다 오래 `running` 인 작업은 워커가 죽은 것으로 보고 다시 건다.
+#: 이보다 오래 `running` 인 작업은 워커가 죽은 것으로 보고 다시 건다(신호를 안 적는 옛 워커).
 STALE_AFTER = timedelta(minutes=30)
 MAX_ATTEMPTS = 2
+#: 워커가 신호를 적는 간격 · 이만큼 끊기면 그 워커는 죽은 것으로 본다. 작업 하나가 몇 분
+#: 걸려도 신호는 따로 도는 줄이 적으므로 짧게 잡아도 된다.
+BEAT_EVERY = 15.0
+WORKER_LOST_AFTER = timedelta(minutes=2)
 
 
 def _now() -> datetime:
@@ -64,6 +68,7 @@ def job_out(db: Session, job: Job) -> JobOut:
         created_at=job.created_at,
         started_at=job.started_at,
         finished_at=job.finished_at,
+        cancel_requested_at=job.cancel_requested_at,
     )
 
 
@@ -176,13 +181,35 @@ def claim_next(db: Session, worker_id: str) -> Job | None:
 
 
 def requeue_stale(db: Session) -> int:
-    """워커가 죽어 `running` 에 갇힌 작업을 되살린다. 시도 횟수를 넘긴 것은 실패로 적는다."""
-    cutoff = _now() - STALE_AFTER
-    stale = list(
-        db.scalars(select(Job).where(Job.status == "running", Job.started_at < cutoff))
-    )
+    """워커가 죽어 `running` 에 갇힌 작업을 되살린다. 시도 횟수를 넘긴 것은 실패로 적는다.
+
+    죽은 것을 아는 길은 둘이다 — 그 워커의 **신호가 끊겼거나**(`workers.last_seen_at`, 2분),
+    신호를 안 적는 워커(옛 워커 · 인라인)면 **너무 오래 돌았거나**(30분). 취소를 요청받은 채
+    죽었으면 되살리지 않고 취소로 끝낸다."""
+    now = _now()
+    lost = {
+        one.id
+        for one in db.scalars(
+            select(WorkerBeat).where(WorkerBeat.last_seen_at < now - WORKER_LOST_AFTER)
+        )
+    }
+    seen = set(db.scalars(select(WorkerBeat.id)))
+    stale = [
+        job
+        for job in db.scalars(select(Job).where(Job.status == "running"))
+        if job.worker_id in lost
+        or (
+            job.worker_id not in seen
+            and job.started_at is not None
+            and job.started_at < now - STALE_AFTER
+        )
+    ]
     for job in stale:
-        if job.attempts >= MAX_ATTEMPTS:
+        if job.cancel_requested_at is not None:
+            job.status = "cancelled"
+            job.error = "취소를 요청받은 채 워커가 멈췄습니다."
+            job.finished_at = now
+        elif job.attempts >= MAX_ATTEMPTS:
             job.status = "failed"
             job.error = "워커가 응답하지 않아 중단됐습니다(재시도 한도)."
             job.finished_at = _now()
@@ -192,6 +219,160 @@ def requeue_stale(db: Session) -> int:
             job.started_at = None
     db.commit()
     return len(stale)
+
+
+# --- 취소 ---------------------------------------------------------------------
+
+
+def require_cancel(db: Session, job: Job, user: User) -> None:
+    """**건 사람 · 그 작업(work)의 주인 · 관리자**가 멈춘다. 보는 것(카탈로그에 실린 것은
+    누구나 본다)과 멈추는 것은 다르다."""
+    if user.is_system_admin or job.requested_by_id == user.id:
+        return
+    if _work_owner(db, job.work_id) == user.id:
+        return
+    raise Forbidden(code("JOBS", 6), "이 작업을 멈출 권한이 없습니다.")
+
+
+def cancel(db: Session, job: Job) -> Job:
+    """작업을 멈춘다 — **대기 중이면 바로 취소**, 도는 중이면 **취소를 요청**한다(워커가 다음
+    단계에서 멈춘다). 이미 끝났으면 말한다.
+
+    대기 → 취소는 **조건부로** 바꾼다(`status='queued'` 일 때만). 그 사이 워커가 집었으면 한
+    줄도 안 바뀌고, 그때는 도는 작업으로 다룬다 — 안 그러면 워커가 도는 작업이 「취소됨」
+    으로 적힌다."""
+    if job.status in FINISHED:
+        raise AppError(code("JOBS", 7), f"이미 끝난 작업입니다({job.status}).")
+    now = _now()
+    took = db.execute(
+        update(Job)
+        .where(Job.id == job.id, Job.status == "queued")
+        .values(
+            status="cancelled", finished_at=now, cancel_requested_at=now, error="취소했습니다."
+        )
+        .returning(Job.id)
+    ).scalar()
+    if not took:
+        db.execute(
+            update(Job)
+            .where(
+                Job.id == job.id, Job.status == "running", Job.cancel_requested_at.is_(None)
+            )
+            .values(cancel_requested_at=now)
+        )
+    db.commit()
+    db.refresh(job)
+    return job
+
+
+def _cancel_requested(db: Session, job_id: uuid.UUID) -> bool:
+    """다른 요청(사람)이 적은 취소를 본다 — 이 세션의 객체가 아니라 DB 를 읽는다."""
+    return db.scalar(select(Job.cancel_requested_at).where(Job.id == job_id)) is not None
+
+
+# --- 워커 신호 ------------------------------------------------------------------
+
+
+def beat(
+    db: Session,
+    worker_id: str,
+    *,
+    state: str,
+    current_job_id: uuid.UUID | None = None,
+    hostname: str = "",
+    pid: int = 0,
+    version: str = "",
+) -> None:
+    """워커가 살아 있다고 적는다 — 없으면 줄을 만든다."""
+    row = db.get(WorkerBeat, worker_id)
+    if row is None:
+        row = WorkerBeat(id=worker_id, hostname=hostname, pid=pid, version=version)
+        db.add(row)
+    row.state = state
+    row.current_job_id = current_job_id
+    row.last_seen_at = _now()
+    db.commit()
+
+
+#: 서버 화면에 보이는 워커 — 이보다 오래 소식이 없고 멈춘 워커는 목록에서 뺀다.
+SHOWN_FOR = timedelta(days=1)
+
+
+def workers_overview(db: Session) -> dict[str, Any]:
+    """서버 화면의 「워커」 — 워커마다 상태 · 마지막 신호 · 하는 일, 그리고 **줄**(대기 수 ·
+    가장 오래 기다린 것 · 도는 것 · 멈추는 중)."""
+    now = _now()
+    rows = list(
+        db.scalars(
+            select(WorkerBeat)
+            .where(
+                (WorkerBeat.last_seen_at > now - SHOWN_FOR) | (WorkerBeat.state != "stopped")
+            )
+            .order_by(WorkerBeat.started_at.desc())
+        )
+    )
+    workers = []
+    for row in rows:
+        silent = (now - row.last_seen_at).total_seconds()
+        job = db.get(Job, row.current_job_id) if row.current_job_id else None
+        state = row.state
+        if state != "stopped" and silent > WORKER_LOST_AFTER.total_seconds():
+            state = "lost"
+        workers.append(
+            {
+                "id": row.id,
+                "hostname": row.hostname,
+                "pid": row.pid,
+                "version": row.version,
+                "state": state,
+                "started_at": row.started_at,
+                "last_seen_at": row.last_seen_at,
+                "silent_seconds": round(silent, 1),
+                "job": (
+                    {
+                        "id": str(job.id),
+                        "kind": job.kind,
+                        "status": job.status,
+                        "started_at": job.started_at,
+                        "step": (job.progress or [{}])[-1].get("detail")
+                        if job.progress
+                        else "",
+                        "cancelling": job.cancel_requested_at is not None,
+                    }
+                    if job is not None and state in ("busy", "stopping")
+                    else None
+                ),
+            }
+        )
+    oldest = db.scalar(select(func.min(Job.created_at)).where(Job.status == "queued"))
+    counted: dict[str, int] = {
+        str(status): int(many)
+        for status, many in db.execute(
+            select(Job.status, func.count())
+            .where(Job.status.in_(("queued", "running")))
+            .group_by(Job.status)
+        ).all()
+    }
+    cancelling = int(
+        db.scalar(
+            select(func.count()).where(
+                Job.status == "running", Job.cancel_requested_at.is_not(None)
+            )
+        )
+        or 0
+    )
+    return {
+        "workers": workers,
+        "queue": {
+            "queued": int(counted.get("queued", 0)),
+            "running": int(counted.get("running", 0)),
+            "cancelling": cancelling,
+            "oldest_queued_seconds": round((now - oldest).total_seconds(), 1)
+            if oldest
+            else None,
+        },
+        "alive": sum(1 for one in workers if one["state"] in ("idle", "busy", "stopping")),
+    }
 
 
 # --- 돌리기 -------------------------------------------------------------------
@@ -215,9 +396,19 @@ def execute(db: Session, job: Job, *, worker_id: str) -> Job:
         # 새 리스트로 갈아 끼운다 — JSONB 는 제자리 변경을 못 알아챈다.
         job.progress = [*job.progress, {"name": name, "millis": millis, "detail": detail}]
         db.commit()
+        # **단계마다 취소를 본다** — 사람이 멈추라고 했으면 여기서 멈춘다(돌던 계산을 자르지
+        # 않고 단계 사이에서).
+        if _cancel_requested(db, job.id):
+            raise registry.Cancelled(detail or name)
 
     try:
+        if _cancel_requested(db, job.id):
+            raise registry.Cancelled("시작 전")
         outcome = registry.resolve(job.kind)(job.input, job.options, out_dir, progress)
+    except registry.Cancelled as stop:
+        job.status = "cancelled"
+        job.error = f"취소했습니다 — {stop} 에서 멈췄습니다." if str(stop) else "취소했습니다."
+        logger.info("작업 취소 (%s %s): %s", job.kind, job.id, stop)
     except registry.UserFacingError as failure:
         job.status = "failed"
         job.error = str(failure)

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
-import { doeApi } from '@/modules/doe/api'
+import { doeApi, methodBadge } from '@/modules/doe/api'
 import { EmptyState } from '@/shared/components/EmptyState'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { PageHeader } from '@/shared/components/PageHeader'
@@ -73,7 +73,7 @@ export default function DoeStudiesPage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline">{row.method === 'factorial' ? '전체 조합' : `LHS · 시드 ${row.seed}`}</Badge>
+                    <Badge variant="outline">{methodBadge(row)}</Badge>
                   </TableCell>
                   <TableCell>{row.point_count}</TableCell>
                   <TableCell>{shownDateTime(row.created_at)}</TableCell>

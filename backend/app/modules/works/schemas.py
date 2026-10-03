@@ -134,6 +134,9 @@ class WorkSummaryOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None = None
+    shape: dict[str, Any] | None = None
+    """최신 버전의 형상 색인(`core/shape_index.py`) — 크기 · 세 변 · 부피 · 구멍 · 쓴 연산 ·
+    나사 · 변수. 색인이 없으면(이 기능 전의 버전) 비어 있다."""
 
 
 class JigFromPartRequest(BaseModel):
