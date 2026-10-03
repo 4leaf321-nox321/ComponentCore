@@ -1,4 +1,4 @@
-<!-- version: 2026-10-03.15 -->
+<!-- version: 2026-10-03.16 -->
 # CompCore MCP 가이드
 
 ## overview
@@ -21,6 +21,7 @@
 | **조립에서 면끼리 맞대기 · 구멍 동심** | component 의 `mates` — 아래 「작업은 셋 중 하나다」 의 조립 |
 | **셸 해석용 중간면** | `recipe_midsurface(recipe)` — 판마다 두께 · 넓이. DOE 는 `doe_create(..., outputs=["midsurface"])` 로 점마다 `_mid.step` |
 | **판금 전개도** | `recipe_unfold(recipe)` — 펼친 크기 · 굽힘(선 · 각 · R · 위아래). 레시피 안에서는 `unfold` 노드. DXF 는 화면의 「파일 › 전개도」 |
+| **닮은 것 · 다시 쓸 지그 찾기** | `find_similar(source="part:<id>")` 또는 `find_similar(recipe=…)` — 점수 · 「왜」 · 비슷한 부품의 지그(`jigs`) |
 | **이미 있는 것부터 찾기** | `find_by_shape(has, thread, fits, hole, holes …)` — 내 작업 · 부품 · 지그의 최신 버전을 형상으로. **새로 그리기 전에** |
 | 레시피가 맞나, 만들어지나 | `recipe_check` — **저장 전에 반드시** |
 | 새 부품 시작 | `create_work(name, recipe)` |
@@ -336,7 +337,7 @@
 ## workflow
 
 1. `get_work(work_id)` 로 지금 레시피와 평가 요약(크기 · 부피 · 면 수)을 받는다. 새로 만들 때는
-   **먼저 `find_by_shape` 로 비슷한 것이 이미 있는지 본다**(크기 · 구멍 · 나사 · 판금 여부) —
+   **먼저 `find_similar(recipe=…)` · `find_by_shape` 로 비슷한 것이 이미 있는지 본다**(크기 · 구멍 · 나사 · 판금 여부) —
    있으면 `duplicate_work` · `copy_part_to_work` 로 시작한다. 없으면 `recipe_schema` 의 템플릿에서. 치수만 바꿔 되풀이해 쓸 모양이면 `save_template` 로 남긴다
    (`shared: true` 면 공용 자리).
 2. 레시피를 고친다 — **바꾸는 피처만** 손대고 나머지는 그대로 둔다. 새 피처는 끝에 붙이고 앞 피처를

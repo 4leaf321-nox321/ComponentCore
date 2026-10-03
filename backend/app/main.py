@@ -28,6 +28,7 @@ from app.modules.jigs import routes as jigs_routes
 from app.modules.jobs import routes as jobs_routes
 from app.modules.materials import routes as materials_routes
 from app.modules.parts import routes as parts_routes
+from app.modules.search import routes as search_routes
 from app.modules.server import routes as server_routes
 from app.modules.templates import routes as templates_routes
 from app.modules.works import routes as works_routes
@@ -64,6 +65,7 @@ def _api_router(settings: Settings) -> APIRouter:
     router.include_router(templates_routes.router)
     router.include_router(doe_routes.router)
     router.include_router(materials_routes.router)
+    router.include_router(search_routes.router)
     router.include_router(server_routes.router)
     return router
 

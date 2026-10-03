@@ -46,6 +46,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/components/ui
 import { FolderDialog } from '@/shared/folders/FolderDialog'
 import { DuplicateDialog } from '@/modules/works/DuplicateDialog'
 import { TagEditor } from '@/modules/works/TagEditor'
+import { SimilarCard } from '@/modules/search/SimilarCard'
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
@@ -529,6 +530,8 @@ export default function WorkPage() {
               </CardContent>
             </Card>
           )}
+          {/* 형상이 닮은 것 — 내 작업 · 부품 · 지그. 비슷한 부품의 지그를 다시 쓸 길이기도 하다. */}
+          {w.current_version > 0 && <SimilarCard source={`work:${id}`} />}
         </TabsContent>
 
         {/* ---------------- 해석 조건 ---------------- */}

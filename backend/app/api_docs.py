@@ -58,6 +58,13 @@ TAGS: list[dict[str, Any]] = [
     {"name": "jigs", "description": "공용 **지그** 카탈로그(불변 버전)."},
     {"name": "templates", "description": "레시피 **템플릿** — 변수만 채워 쓰는 밑그림."},
     {
+        "name": "search",
+        "description": (
+            "여러 목록을 가로지르는 찾기 — **닮은 형상**(최신 버전의 형상 색인끼리 견준다). "
+            "이름 · 꼬리표 찾기는 각 목록의 `q` 가 한다."
+        ),
+    },
+    {
         "name": "jobs",
         "description": (
             "**작업 큐** — 형상 평가 · 지그 생성 · DOE 가 여기서 돈다. 걸면 즉시 돌아오고, "

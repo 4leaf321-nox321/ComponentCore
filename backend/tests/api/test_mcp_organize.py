@@ -306,3 +306,19 @@ def test_구속_윤곽_풀어_보기(bot: Bot) -> None:  # noqa: F811
     }
     got = bot.call(server.sketch_solve, shape, {"밑변": 12})
     assert got["points"]["b"] == [12, 0] and got["points"]["c"] == [0, 5] and got["free"] == 0
+
+
+def test_닮은_형상(bot: Bot) -> None:  # noqa: F811
+    def plate(length: float) -> dict[str, Any]:
+        return {
+            "nodes": [{"id": "p", "op": "box", "length": length, "width": 50, "height": 8}]
+        }
+
+    base = bot.call(server.create_work, "닮음 기준판", plate(90))
+    bot.call(server.create_work, "닮음 비교판", plate(95))
+    got = bot.call(server.find_similar, source=f"work:{base['work_id']}", where=["works"])
+    names = [one["name"] for one in got["items"]]
+    assert "닮음 비교판" in names and "닮음 기준판" not in names
+    first = next(one for one in got["items"] if one["name"] == "닮음 비교판")
+    assert first["score"] > 0.9 and "크기 비슷" in first["why"]
+    assert "error" in bot.call(server.find_similar)

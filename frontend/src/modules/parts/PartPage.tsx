@@ -7,6 +7,7 @@ import { GeometryJobView } from '@/modules/cad/GeometryJobView'
 import { jigsApi } from '@/modules/jigs/api'
 import { partsApi } from '@/modules/parts/api'
 import type { PartVersion } from '@/modules/parts/api'
+import { SimilarCard } from '@/modules/search/SimilarCard'
 import { ApiError } from '@/shared/api/client'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { canEditProject } from '@/shared/auth/roles'
@@ -136,6 +137,7 @@ export default function PartPage() {
               )}
             </CardContent>
           </Card>
+          {p.current_version > 0 && <SimilarCard source={`part:${id}`} />}
         </div>
         <div className="lg:col-span-3">
           {selected && (

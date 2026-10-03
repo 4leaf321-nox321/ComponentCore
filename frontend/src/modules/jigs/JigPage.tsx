@@ -6,6 +6,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { jigsApi } from '@/modules/jigs/api'
 import type { JigVersion } from '@/modules/jigs/api'
 import { JigResultView } from '@/modules/jigs/JigResultView'
+import { SimilarCard } from '@/modules/search/SimilarCard'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { canEditProject } from '@/shared/auth/roles'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
@@ -85,36 +86,39 @@ export default function JigPage() {
       />
 
       <div className="grid gap-4 lg:grid-cols-4">
-        <Card className="lg:col-span-1">
-          <CardHeader>
-            <CardTitle>버전</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="space-y-1">
-              {(versions.data ?? []).map((one) => (
-                <li key={one.id}>
-                  <button
-                    type="button"
-                    onClick={() => setSelected(one)}
-                    className={`w-full rounded-md px-2 py-1.5 text-left text-sm ${selected?.id === one.id ? 'bg-accent' : 'hover:bg-accent/60'}`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">
-                        v{one.number}
-                        {one.number === j.current_version && <span className="text-muted-foreground ml-1 text-xs">현재</span>}
-                      </span>
-                      {one.part_version != null && <span className="text-muted-foreground text-xs">부품 v{one.part_version}</span>}
-                    </div>
-                    <p className="text-muted-foreground truncate text-xs">{one.note || '—'}</p>
-                    <p className="text-muted-foreground text-xs">
-                      {one.promoted_by_name} · {shownDateTime(one.created_at)}
-                    </p>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
+        <div className="space-y-4 lg:col-span-1">
+          <Card>
+            <CardHeader>
+              <CardTitle>버전</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-1">
+                {(versions.data ?? []).map((one) => (
+                  <li key={one.id}>
+                    <button
+                      type="button"
+                      onClick={() => setSelected(one)}
+                      className={`w-full rounded-md px-2 py-1.5 text-left text-sm ${selected?.id === one.id ? 'bg-accent' : 'hover:bg-accent/60'}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">
+                          v{one.number}
+                          {one.number === j.current_version && <span className="text-muted-foreground ml-1 text-xs">현재</span>}
+                        </span>
+                        {one.part_version != null && <span className="text-muted-foreground text-xs">부품 v{one.part_version}</span>}
+                      </div>
+                      <p className="text-muted-foreground truncate text-xs">{one.note || '—'}</p>
+                      <p className="text-muted-foreground text-xs">
+                        {one.promoted_by_name} · {shownDateTime(one.created_at)}
+                      </p>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+          {j.current_version > 0 && <SimilarCard source={`jig:${id}`} />}
+        </div>
         <div className="lg:col-span-3">
           {selected?.job ? (
             <JigResultView key={selected.id} job={selected.job} />

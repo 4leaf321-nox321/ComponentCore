@@ -101,6 +101,7 @@ def test_사람이_손으로_하는_일이_도구로_다_있다() -> None:
         "recipe_unfold",  # 판금 전개도
         "recipe_drawing",  # 2D 도면 — 세 뷰 · 치수 · 구멍표
         "find_by_shape",  # 형상으로 찾기 — 새로 그리기 전에
+        "find_similar",  # 닮은 형상 — 비슷한 부품의 지그까지
         "recipe_midsurface",  # 셸 해석용 중간면
         "sketch_solve",  # 구속 윤곽 풀어 보기
     }

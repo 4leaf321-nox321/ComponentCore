@@ -6757,6 +6757,50 @@
         }
       }
     },
+    "/api/search/similar": {
+      "post": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Similar",
+        "description": "**닮은 형상** — 내 작업 · 부품 · 지그의 최신 버전 중 `source`(또는 저장 전 `recipe`)와\n닮은 것을 점수 순으로. 줄마다 성분별 닮음(`parts` — 크기 · 비율 · 꽉 찬 정도 · 구멍 ·\n연산 · 덩어리 수)과 「왜」(`why`). 부품이면 **그 부품의 지그**(`jigs`)도 — 지그를 새로\n만들기 전에 다시 쓸 길이다. 작업은 내 것만, 부품 · 지그는 누구나 보는 카탈로그에서.\n\n색인이 없는 버전(이 기능 전)은 견주지 못한다 — 관리자가 서버 화면에서 채운다.",
+        "operationId": "similar_api_search_similar_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimilarRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Similar Api Search Similar Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/server/status": {
       "get": {
         "tags": [
@@ -10048,6 +10092,56 @@
         "title": "SettingUpdateRequest",
         "description": "`value` 가 None 이면 덮어쓴 것을 지워 .env 기본값으로."
       },
+      "SimilarRequest": {
+        "properties": {
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "recipe": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipe"
+          },
+          "where": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "works",
+                "parts",
+                "jigs"
+              ]
+            },
+            "type": "array",
+            "title": "Where"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 10
+          }
+        },
+        "type": "object",
+        "title": "SimilarRequest",
+        "description": "무엇과 닮은 것을 찾나 — 이미 있는 것(`source`) 또는 아직 저장 안 한 레시피(`recipe`)."
+      },
       "SketchSolveRequest": {
         "properties": {
           "shape": {
@@ -11799,6 +11893,10 @@
     {
       "name": "templates",
       "description": "레시피 **템플릿** — 변수만 채워 쓰는 밑그림."
+    },
+    {
+      "name": "search",
+      "description": "여러 목록을 가로지르는 찾기 — **닮은 형상**(최신 버전의 형상 색인끼리 견준다). 이름 · 꼬리표 찾기는 각 목록의 `q` 가 한다."
     },
     {
       "name": "jobs",

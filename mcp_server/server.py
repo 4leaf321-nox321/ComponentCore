@@ -1735,6 +1735,33 @@ async def promote_jig_recipe(
     )
 
 
+@mcp.tool()
+async def find_similar(
+    ctx: Context,
+    source: str | None = None,
+    recipe: dict[str, Any] | None = None,
+    where: list[str] | None = None,
+    limit: int = 10,
+) -> Any:
+    """**닮은 형상** — 이것과 비슷한 것이 이미 있나. `source`(`work:<id>` · `part:<id>` ·
+    `jig:<id>` — 그 최신 버전) 또는 저장 전 `recipe` 하나를 준다. `where` 는 works · parts ·
+    jigs 중(기본 셋 다), 작업은 네 것만.
+
+    답의 줄마다 `score`(0 ~ 1), 성분별 닮음 `parts`(size · proportion · fill · holes · ops ·
+    solids), 사람 말 `why`(「크기 비슷」 · 「구멍 같음」 · 「모양 비율 같음(크기는 다름)」).
+    **부품 줄에는 그 부품의 지그(`jigs`)가 붙는다** — 「이 제품에 맞는 지그가 있나」 는
+    `source="part:<id>"`(또는 그 제품의 레시피)로 물어 비슷한 부품의 지그부터 본다. 새로 그리기
+    전에 먼저 물어라. 치수 조건으로 거르려면 `find_by_shape`."""
+    body: dict[str, Any] = {"limit": limit}
+    if source:
+        body["source"] = source
+    if recipe is not None:
+        body["recipe"] = recipe
+    if where:
+        body["where"] = where
+    return await _post(ctx, "/api/search/similar", body)
+
+
 #: 형상으로 찾을 곳 — 목록 주소와 `component` 의 source 접두.
 _SHAPE_LISTS = {
     "works": ("/api/works", "work"),
