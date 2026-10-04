@@ -579,6 +579,7 @@ def test_좌표계는_설계점마다_치수를_따라_점_파일에_나간다(
         assert topo["length_units"] == {
             "geometry": "mm",
             "regions": "mm",
+            "midsurface": "mm",
             "coordinate_systems": "mm",
         }
 
@@ -1403,7 +1404,8 @@ def test_설계점마다_중간면도_내보낸다(
         "points/p0002_mid.step",
         "",
     ]
-    assert "중간면: 판이 아닙니다" in rows[2]["warnings"]
+    # 실패는 파트마다 — 단품은 그 파트(「전체」)의 까닭이 남는다.
+    assert "중간면: 전체: 판이 아닙니다" in rows[2]["warnings"]
     assert (folder / "points" / "p0001_mid.step").read_bytes().startswith(b"ISO-10303-21")
     topo = json.loads((folder / "points" / "p0002.json").read_text(encoding="utf-8"))
     assert topo["midsurface"]["step_file"] == "points/p0002_mid.step"

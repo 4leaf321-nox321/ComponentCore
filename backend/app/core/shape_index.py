@@ -135,22 +135,32 @@ def _fill(shape: dict[str, Any], dims: list[float]) -> float | None:
 def _holes_alike(first: list[dict[str, Any]], second: list[dict[str, Any]]) -> float:
     """구멍 짝 맞추기 — 지름이 틈 안이면 같은 구멍으로 보고 개수의 겹침 / 합(가중 자카드).
     둘 다 구멍이 없으면 1, 한쪽만 있으면 0."""
-    left = sorted((float(one["d"]), int(one["n"])) for one in first or [])
-    right = [[float(one["d"]), int(one["n"])] for one in second or []]
-    total_left = sum(n for _, n in left)
-    total_right = sum(n for _, n in right)
+    left = sorted([float(one["d"]), int(one["n"])] for one in first or [])
+    right = sorted([float(one["d"]), int(one["n"])] for one in second or [])
+    total_left = sum(int(n) for _, n in left)
+    total_right = sum(int(n) for _, n in right)
     if total_left == 0 and total_right == 0:
         return 1.0
+    # **작은 지름부터 두 목록을 함께 걷는다** — 틈 안이면 짝짓고, 아니면 작은 쪽을 버린다.
+    # 예전에는 왼쪽마다 가장 가까운 오른쪽을 탐욕으로 집어 어느 쪽에서 찾느냐에 따라 점수가
+    # 달랐다(6.0 · 6.4 대 5.6 · 6.3 이 0.33 과 1.0, 2026-10-04 점검).
     shared = 0
-    for diameter, count in left:
-        # 가장 가까운 지름부터 — 남은 개수만큼만 짝짓는다.
-        for slot in sorted(right, key=lambda one: abs(one[0] - diameter)):
-            if count == 0 or abs(slot[0] - diameter) > _HOLE_TOLERANCE:
-                break
-            taken = min(count, int(slot[1]))
-            slot[1] -= taken
-            count -= taken
+    i = j = 0
+    while i < len(left) and j < len(right):
+        gap = left[i][0] - right[j][0]
+        if abs(gap) <= _HOLE_TOLERANCE:
+            taken = min(int(left[i][1]), int(right[j][1]))
             shared += taken
+            left[i][1] -= taken
+            right[j][1] -= taken
+            if left[i][1] == 0:
+                i += 1
+            if right[j][1] == 0:
+                j += 1
+        elif gap < 0:
+            i += 1
+        else:
+            j += 1
     union = total_left + total_right - shared
     return shared / union if union else 1.0
 

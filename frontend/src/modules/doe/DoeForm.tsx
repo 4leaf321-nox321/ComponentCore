@@ -185,7 +185,9 @@ export function DoeForm({
   // **조건 인자** — 고르는 칸(종류 · 선택 그룹 · 켬끔 …)과 물성 배율. 칸 목록은 서버 사양표에서.
   const hasConditions = !!conditions && Object.keys(conditions).length > 0
   /** 쉘로 푸는 파트가 있으면 서버가 중간면을 늘 함께 낸다(`conditions.has_shell`) — 칸을 잠가 보인다. */
-  const shellParts = ((conditions?.body_settings ?? []) as BodySetting[]).some((one) => one.representation === 'shell')
+  const shellParts = ((conditions?.body_settings ?? []) as BodySetting[]).some(
+    (one) => one.representation === 'shell' && !one.suppressed,
+  )
   const schema = useResource(() => (hasConditions ? conditionsApi.schema() : Promise.resolve(null)), [hasConditions])
   const targets = choiceTargets(conditions, schema.data)
   /** 칸 열쇠 → 고른 후보 값들. 열쇠가 있으면 그 칸을 훑는 중(값이 비면 아직 고르는 중). */

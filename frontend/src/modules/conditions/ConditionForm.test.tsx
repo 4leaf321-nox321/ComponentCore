@@ -373,3 +373,23 @@ test('종류가 없는 국부 메시는 `*` 규칙으로 받는 것을 보인다
   render(<ConditionForm group={MESH} item={{ on: '전체' }} names={[]} onChange={() => {}} />)
   expect(screen.getByText('적용 가능 대상: 면, 엣지 선택 그룹')).toBeInTheDocument()
 })
+
+test('국부 메시의 대상을 면 그룹으로 바꾸면 「전체」 에만 쓰는 칸은 기본값으로 돌아간다', () => {
+  const MESH: GroupSchema = {
+    label: '국부 메시',
+    types: [],
+    fields: {
+      on: { title: '적용 대상', whole: '전체', default: '전체' },
+      method: { title: '요소 형상', enum: ['automatic', 'sweep'], default: 'automatic', whole_only: true },
+    },
+    required: [],
+    accepts: { '*': [{ entity: 'face' }] },
+  }
+  const onChange = vi.fn()
+  render(
+    <ConditionForm group={MESH} item={{ on: '전체', method: 'sweep' }} names={[{ name: '구멍면', entity: 'face', select: {} }]} onChange={onChange} />,
+  )
+  fireEvent.click(screen.getByLabelText('적용 대상'))
+  fireEvent.click(screen.getByRole('option', { name: '구멍면' }))
+  expect(onChange).toHaveBeenLastCalledWith({ on: '구멍면', method: 'automatic' })
+})

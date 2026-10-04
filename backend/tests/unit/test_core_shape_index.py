@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.core import shape_index
 from app.core.recipe import evaluate, parse
 
@@ -85,3 +87,16 @@ def test_레시피가_없으면_연산은_빼고_남은_무게로() -> None:
     score, parts = shape_index.similarity(plate, big)
     assert parts["proportion"] == 1.0 and parts["size"] < 0.3
     assert "형상 비율 동일(크기 다름)" in shape_index.reasons(parts, plate, big)
+
+
+def test_구멍_짝은_어느_쪽에서_찾아도_같다() -> None:
+    """예전에는 왼쪽마다 가장 가까운 오른쪽을 탐욕으로 집어 6.0 · 6.4 대 5.6 · 6.3 이 한쪽
+    에서는 0.33, 반대쪽에서는 1.0 이었다(2026-10-04 점검)."""
+    from app.core.shape_index import _holes_alike
+
+    a = [{"d": 6.0, "n": 1}, {"d": 6.4, "n": 1}]
+    b = [{"d": 5.6, "n": 1}, {"d": 6.3, "n": 1}]
+    assert _holes_alike(a, b) == _holes_alike(b, a) == 1.0
+    c = [{"d": 6.6, "n": 4}, {"d": 9.0, "n": 2}]
+    d = [{"d": 6.4, "n": 2}, {"d": 12.0, "n": 1}]
+    assert _holes_alike(c, d) == _holes_alike(d, c) == pytest.approx(2 / 7)

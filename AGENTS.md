@@ -56,6 +56,10 @@
 - **OCC 의 면 삭제(`BRepAlgoAPI_Defeaturing`)는 실패를 말하지 않을 때가 있다** — 모든
   모서리를 둥글린 ㄴ자의 필렛을 한꺼번에 지우면 **경계상자로 메운** 상자를 돌려준다(6424 →
   24000 mm³). 결과의 부피 변화가 지운 면들의 경계상자 안에 드는지 본다(`recipe/defeature.py`).
+- **`make_brake_formed` 는 꺾은선을 그대로 둥글린다** — 두께가 굽힘 안쪽으로 붙으면(꺾은선이 바깥
+  면) 안쪽 반지름이 r - t 가 되어 r = t 에서 실패하고, r < t 면 두께가 틀린 판이 나왔다. 두께가 어느
+  쪽으로 붙는지는 평면 · 도는 방향에 따라 바뀌므로 띄워 보고 재서 굽힘마다 r 또는 r + t 로 돌린다
+  (`recipe/evaluate._bend_radii`).
 - **`BoundBox.add` 는 새 상자를 돌려준다** — 제자리에서 키우지 않는다. `box.add(…)` 만 쓰면
   첫 상자 그대로라, 볼트 넷의 와셔 자리 중 하나만 잡혔다(`recipe/imprint.py`).
 - OCP 는 mypy 에 타입이 없다. `pyproject.toml` 이 `app.core.*` 만 느슨하게 본다 — 그 경계
@@ -127,6 +131,10 @@
 - 부분 수정은 `model_dump(exclude_unset=True)` 로 "안 보낸 것" 과 "비운 것" 을 구별한다.
 - 목록은 서버가 상한을 강제한다(`shared/pagination.py`).
 - 폴링 경로를 만들면 `shared/access_log.py` 의 `_SKIP` 에 더한다.
+- **레시피가 가리키는 것은 들어오는 자리에서 본다** — `component` 의 `work:<id>` 와 `import_step` 의
+  작업물 id(`cad.services.require_references`). `/cad` 라우터는 의존성으로 걸려 있고, 그 밖에서
+  레시피를 받는 끝점(작업 저장 · DOE · 닮은 형상)은 직접 부른다. 새 끝점이 레시피를 받으면 같이 부른다 —
+  안 그러면 남의 비공개 작업 id 하나로 그 작업의 STEP 을 받아 갈 수 있다(2026-10-04 점검).
 - 스키마를 바꿨으면 `python scripts/export_openapi.py` 와 `npm run api:types` 를 함께 돌린다.
 - **만드는 일은 전부 작업(Job)이다.** 지그 생성은 `POST /works/{id}/jig-runs` 가 `Job(kind="jig")`
   을 걸고 202 로 돌아온다. 워커(`python -m app.worker`)가 DB 큐에서 집어 돌리고, 화면은 `GET /api/jobs/{id}`

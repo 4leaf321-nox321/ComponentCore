@@ -1018,6 +1018,58 @@ def test_말로_받은_치수_그대로_호_장공_삼각형() -> None:
         )
 
 
+@pytest.mark.parametrize("origin", [[0, 0, 0], [10, 20, 30]])
+@pytest.mark.parametrize("plane", ["XY", "XZ", "YZ"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        [[0, 0], [40, 0], [40, 40]],  # 왼쪽으로 한 번
+        [[0, 0], [40, 0], [40, -40]],  # 오른쪽으로 한 번
+        [[0, 0], [40, 0], [40, 40], [80, 40]],  # Z — 왼쪽 · 오른쪽
+    ],
+)
+@pytest.mark.parametrize("side", ["left", "right"])
+@pytest.mark.parametrize("radius", [4.0, 3.0, 2.0])
+def test_판금의_굽힘_반지름은_어느_쪽이든_안쪽_반지름이다(
+    origin: list[float], plane: str, path: list[list[float]], side: str, radius: float
+) -> None:
+    """두께가 굽힘 안쪽으로 붙으면(꺾은선이 바깥 면) 예전에는 안쪽 반지름이 r - t 였다 — r = t
+    면 굽힘이 실패하고, r < t 면 두께가 틀린 판이 나왔다(2026-10-04). 이제 굽힘마다 안쪽 r ·
+    바깥 r + t 다. 두께 3 이라 r 3 · 2 가 그 자리다. 평면의 원점이 달라도 같아야 한다 —
+    make_brake_formed 는 원점에 따라 두께를 반대쪽에 붙이기도 했다."""
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.GeomAbs import GeomAbs_Cylinder
+
+    from app.core.recipe.midsurface import midsurface
+
+    shape = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "m",
+                        "op": "sheet_metal",
+                        "thickness": 3,
+                        "width": 30,
+                        "path": path,
+                        "bend_radius": radius,
+                        "side": side,
+                        "plane": {"name": plane, "origin": origin},
+                    }
+                ]
+            }
+        )
+    ).shape
+    radii = sorted(
+        round(BRepAdaptor_Surface(face.wrapped).Cylinder().Radius(), 3)
+        for face in shape.faces()
+        if BRepAdaptor_Surface(face.wrapped).GetType() == GeomAbs_Cylinder
+    )
+    bends = len(path) - 2
+    assert radii == sorted([radius] * bends + [radius + 3] * bends)
+    assert midsurface(shape).bodies[0].thickness == pytest.approx(3)
+
+
 def test_판금_절곡() -> None:
     bracket = evaluate(
         parse(

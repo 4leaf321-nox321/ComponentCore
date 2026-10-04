@@ -10,9 +10,9 @@
 
 import { ALL_BODIES, assignBody, materialsOn, settingOf, withSetting } from '@/modules/conditions/api'
 import type { Body, BodySetting, ConditionsSchema, FieldSchema, MaterialItem } from '@/modules/conditions/api'
+import { NumberText } from '@/modules/conditions/NumberText'
 import { Button } from '@/shared/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog'
-import { Input } from '@/shared/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/components/ui/table'
 
 /** 값이 파트마다 다를 때 「모든 파트」 줄이 보이는 자리. */
@@ -128,6 +128,11 @@ export function PartSettingsDialog({
   }
 
   const single = names.length === 1 && names[0] === ALL_BODIES
+  /**
+   * 형상에 없는 파트의 줄 — 파트 이름이 바뀌었거나 MCP 가 적은 것. 표에 안 보이면 지울 길이 없고,
+   * 그 줄 때문에 저장이 막힌다. 따로 보여 주고 지우게 한다.
+   */
+  const orphans = settings.filter((one) => !names.includes(one.name))
   const anyShell = rows.some((one) => one.representation === 'shell' && !one.suppressed)
   const anyOff = rows.some((one) => one.suppressed)
   const title = (field: FieldSchema | undefined, fallback: string) => field?.title ?? fallback
@@ -184,13 +189,13 @@ export function PartSettingsDialog({
           />
         </TableCell>
         <TableCell>
-          <Input
+          <NumberText
             aria-label={`${label} ${title(meshFields.element_size, '요소 크기')}`}
             className="h-8 w-24 text-xs"
             value={size === MIXED ? '' : size}
             placeholder={size === MIXED ? '혼합' : '자동'}
             disabled={off}
-            onChange={(e) => change(targets, { mesh: { element_size: sizeOf(e.target.value) } })}
+            onText={(text) => change(targets, { mesh: { element_size: sizeOf(text) } })}
           />
         </TableCell>
         <TableCell>
@@ -261,6 +266,26 @@ export function PartSettingsDialog({
             </TableBody>
           </Table>
         </div>
+        {orphans.length > 0 && (
+          <div role="note" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+            <p>형상에 없는 파트의 설정이 있습니다. 이 설정이 있으면 저장할 수 없습니다.</p>
+            <ul className="mt-1 space-y-0.5">
+              {orphans.map((one) => (
+                <li key={one.name} className="flex items-center gap-2">
+                  <span className="font-medium">‘{one.name}’</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-xs"
+                    onClick={() => onSettingsChange(settings.filter((other) => other.name !== one.name))}
+                  >
+                    삭제
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <ul className="text-muted-foreground space-y-0.5 text-xs">
           {materials.length === 0 && (
             <li>

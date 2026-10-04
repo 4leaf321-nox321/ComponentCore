@@ -466,6 +466,9 @@ RIGID_SHELL: dict[str, Any] = {
             _face("블록 윗면", {"body": "지그블록", "normal": [0, 0, 1]}),
             _face("브래킷 바닥", {"body": "브래킷", "normal": [0, 0, -1]}),
             _face("하중면", {"body": "브래킷", "normal": [1, 0, 0]}),
+            # 두께 쪽 면(눕힌 다리 앞끝 x 10) — 중간면에서는 모서리가 된다(`mid` 의 edge).
+            _face("브래킷 앞끝",
+                  {"body": "브래킷", "normal": [-1, 0, 0], "near": [10, 0, 21]}),
         ],
         "materials": [
             _material("M-000138", ["지그블록", "브래킷"]),
@@ -473,7 +476,7 @@ RIGID_SHELL: dict[str, Any] = {
             _material("M-000158", ["명판"]),
         ],
         "constraints": [
-            # 강체는 면에 고정 지지를 못 건다(Mechanical) — 원격 변위로 여섯 성분을 묶는다.
+            # 강체 면에는 고정 지지 · 원격 변위만 건다(받는 쪽 규칙) — 원격 변위로 여섯 성분.
             {"name": "블록 고정", "type": "remote_displacement", "on": "블록 바닥",
              "x": 0, "y": 0, "z": 0, "rx": 0, "ry": 0, "rz": 0, "behavior": "rigid"},
         ],
@@ -518,18 +521,34 @@ def test_강체_지그_쉘_브래킷_픽스처_파트별_설정이_실린다(
         assert settings["브래킷"]["mesh"]["element_size"] == pytest.approx(thick)
         assert settings["브래킷"]["mesh"]["order"] == "quadratic"
         assert settings["명판"]["suppressed"] is True
-        # 쉘의 재료 — 브래킷의 중간면과 두께.
+        # 쉘의 재료 — **쉘 파트만**(지그블록 · 명판은 안 만든다), 셸과 짝지을 무게중심 ·
+        # 경계상자.
         mid = point["midsurface"]
-        bracket = next(one for one in mid["bodies"] if one["name"] == "브래킷")
+        assert [one["name"] for one in mid["bodies"]] == ["브래킷"]
+        bracket = mid["bodies"][0]
         assert bracket["thickness"] == pytest.approx(thick)
+        assert len(bracket["centroid"]) == 3 and len(bracket["bbox"]) == 2
+        assert "failed" not in mid
         assert (folder / mid["step_file"]).exists()
+        assert point["length_units"]["midsurface"] == "mm"
         regions = point["regions"]
         load = _only(regions, "하중면")
         assert load["body"] == "브래킷" and load["normal"] == [1.0, 0.0, 0.0]
-        # 바깥면의 곧은 자리 — 꺾은선(x 50)이 R4 로 돌아 z 24 부터 70 까지, 폭 30.
-        assert load["area"] == pytest.approx(30 * (70 - 24))
+        # 바깥면의 곧은 자리 — 꺾은선(x 50)이 바깥 면이라 안쪽 R4 + t 로 돌아 z 24+t 부터 70
+        # 까지, 폭 30.
+        assert load["area"] == pytest.approx(30 * (70 - 24 - thick))
         assert _only(regions, "브래킷 바닥")["body"] == "브래킷"
         assert _only(regions, "블록 바닥")["area"] == pytest.approx(3200)
+        # 쉘 파트의 영역은 **중간면 기준으로도** — 겉면은 중간면의 면(원래 겉면의 바깥 법선),
+        # 두께 쪽 면은 중간면의 모서리. 쉘이 아닌 파트에는 붙지 않는다.
+        (face,) = load["mid"]
+        assert face["face"]["area"] == pytest.approx(load["area"])
+        assert face["face"]["normal"] == [1.0, 0.0, 0.0]
+        assert face["face"]["centroid"][0] == pytest.approx(50 - thick / 2)
+        (edge,) = _only(regions, "브래킷 앞끝")["mid"]
+        assert edge["edge"]["length"] == pytest.approx(30)
+        assert edge["edge"]["midpoint"] == pytest.approx([10.0, 0.0, 20 + thick / 2])
+        assert "mid" not in _only(regions, "블록 바닥")
 
     out = os.environ.get("COMPCORE_FIXTURE_OUT")
     if out:

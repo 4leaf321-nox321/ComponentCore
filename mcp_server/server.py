@@ -875,7 +875,7 @@ async def doe_probe(
     table: list[dict[str, Any]] | None = None,
     measures: list[dict[str, Any]] | None = None,
 ) -> Any:
-    """**만들기 전에 끝 점 몇 개만 먼저 만들어 본다** — 가운데, 모두 최소 · 모두 최대, 변수마다
+    """**만들기 전에 끝 점 몇 개만 먼저 만들어 본다** — 중심, 전체 최소 · 전체 최대, 변수마다
     혼자 최소 · 최대. 파일은 안 쓴다.
 
     `doe_create` 로 200점을 다 돌린 뒤에 「절반이 깨졌다」 를 알지 말고, 범위를 정했으면 이것을

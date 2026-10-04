@@ -116,7 +116,7 @@ def preview(
 def probe(
     payload: ProbeRequest, user: User = Depends(current_user), db: Session = Depends(get_db)
 ) -> dict[str, Any]:
-    """**만들기 전에 끝 점 몇 개를 먼저 만들어 본다** — 가운데, 모두 최소 · 최대, 인자마다 혼자
+    """**만들기 전에 끝 점 몇 개를 먼저 만들어 본다** — 중심, 전체 최소 · 최대, 인자마다 혼자
     최소 · 최대. 점마다 실패 사유 · 못 푼 영역 · 어긋남 · 겹침 · 걸린 시간. 파일은 안 쓴다.
 
     설계점 200개를 다 돌린 뒤에 절반이 깨진 것을 아는 일을 막는다. 요청 하나가 서버를 오래
@@ -171,7 +171,9 @@ def _acting_for(db: Session, caller: User, request: Request, asked: str) -> User
     """
     if not asked:
         return None
-    if "act_for_others" not in granted_scopes(request):
+    # 범위가 있어도 **지금 관리자가 아니면** 안 된다 — 이 규칙 전에 만든 토큰, 관리자에서
+    # 내려온 계정의 토큰도 막는다.
+    if "act_for_others" not in granted_scopes(request) or not caller.is_system_admin:
         raise Forbidden(
             code("DOE", 20),
             "이 토큰에는 대행(act_for_others) 권한이 없습니다. 다른 사용자의 이름으로 "

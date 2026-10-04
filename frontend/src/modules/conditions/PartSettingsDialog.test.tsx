@@ -59,10 +59,7 @@ test('파트마다 한 줄 — 거동 · 표현 · 해석 제외 · 메시를 �
 
   // 모든 파트 줄 — 요소 크기를 한꺼번에. 값이 갈리는 열은 「혼합」.
   fireEvent.change(screen.getByLabelText('모든 파트 요소 크기'), { target: { value: '2' } })
-  expect(seen.settings.map((one) => [one.name, one.mesh?.element_size])).toEqual([
-    ['지그판', 2],
-    ['부품', 2],
-  ])
+  expect(Object.fromEntries(seen.settings.map((one) => [one.name, one.mesh?.element_size]))).toEqual({ 지그판: 2, 부품: 2 })
   expect(screen.getByLabelText('모든 파트 거동')).toHaveValue('__mixed__')
   fireEvent.change(screen.getByLabelText('모든 파트 요소 차수'), { target: { value: 'quadratic' } })
   expect(seen.settings.every((one) => one.mesh?.order === 'quadratic')).toBe(true)
@@ -82,4 +79,10 @@ test('기본값으로 돌아온 파트는 저장 목록에서 빠진다', () => 
   // 강체로 바꾸면 쉘은 솔리드로 다듬는다.
   settings = withSetting(withSetting([], '판', { representation: 'shell' }), '판', { behavior: 'rigid' })
   expect(settings[0]).toMatchObject({ behavior: 'rigid', representation: 'solid' })
+})
+
+test('고쳤다 되돌리면 저장 목록이 처음과 같다 — 줄의 자리를 지킨다', () => {
+  const before = withSetting(withSetting([], '판', { behavior: 'rigid' }), '블록', { suppressed: true })
+  const changed = withSetting(before, '판', { mesh: { element_size: 3 } })
+  expect(withSetting(changed, '판', { mesh: { element_size: null } })).toEqual(before)
 })

@@ -10,14 +10,16 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response
+from sqlalchemy.orm import Session
 
 from app.core import export, vibration
 from app.core.recipe import describe
 from app.core.recipe import templates as recipe_templates
 from app.core.recipe.digest import digest
 from app.core.recipe.mesh import mesh
+from app.database import get_db
 from app.modules.accounts.models import User
 from app.modules.cad import services
 from app.modules.cad.schemas import (
@@ -47,7 +49,23 @@ from app.modules.cad.schemas import (
 from app.shared.auth import current_user
 from app.shared.errors import AppError, code
 
-router = APIRouter(prefix="/cad", tags=["cad"])
+
+async def _references(
+    request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> None:
+    """요청 본문의 `recipe` 가 가리키는 작업 · 작업물을 **이 사람이 볼 수 있나** — 레시피를
+    받는 끝점이 스물이 넘어 하나씩 붙이지 않고 라우터에 건다(`services.require_references`)."""
+    if request.method != "POST":
+        return
+    try:
+        body = await request.json()
+    except Exception:
+        return  # 파일 올리기 같은 JSON 이 아닌 본문
+    if isinstance(body, dict):
+        services.require_references(db, body.get("recipe"), user)
+
+
+router = APIRouter(prefix="/cad", tags=["cad"], dependencies=[Depends(_references)])
 
 
 # --- 레시피 -------------------------------------------------------------------

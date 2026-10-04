@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react'
 
 import { acceptsLabel } from '@/modules/conditions/api'
+import { NumberText } from '@/modules/conditions/NumberText'
 import type { ConditionItem, FieldSchema, GroupSchema, NamedSelection } from '@/modules/conditions/api'
 import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
@@ -134,14 +135,13 @@ function AmountField({
       amountLabel={unit ? `변위량 (${unit})` : undefined}
     >
       {hold === 'amount' && (
-        <Input
+        <NumberText
           id={`cond-${name}`}
           aria-label={`${label} 변위량`}
           className="col-start-2"
-          value={value === null || value === undefined ? '' : String(value)}
+          value={value}
           placeholder={unit ? `수 또는 =식 (${unit})` : '수 또는 =식'}
-          onChange={(e) => {
-            const text = e.target.value
+          onText={(text) => {
             // 비우면 0 — 자유로 바꾸려면 「자유」 를 누른다(빈칸이 자유를 뜻하지 않게).
             if (text === '') return onChange(0)
             if (text.startsWith('=')) return onChange(text)
@@ -248,14 +248,14 @@ function DirectionField({
         <>
           <div className="grid grid-cols-3 gap-1">
             {(['X', 'Y', 'Z'] as const).map((axisName, index) => (
-              <Input
+              <NumberText
                 key={axisName}
                 aria-label={`방향 ${axisName}`}
                 placeholder={axisName}
-                value={String(vector[index] ?? '')}
-                onChange={(e) => {
+                value={vector[index]}
+                onText={(text) => {
                   const next = [0, 1, 2].map((i) => (typeof vector[i] === 'string' && vector[i] === '' ? 0 : vector[i]))
-                  next[index] = numberOrExpr(e.target.value)
+                  next[index] = numberOrExpr(text)
                   onChange(next)
                 }}
               />
@@ -311,11 +311,11 @@ function BoltField({
           </button>
         ))}
       </div>
-      <Input
+      <NumberText
         aria-label={byLength ? '조임량' : '예압'}
-        value={value === null || value === undefined ? '' : String(value)}
+        value={value}
         placeholder="수 또는 =식"
-        onChange={(e) => onChange(e.target.value === '' ? null : numberOrExpr(e.target.value), byLength ? length : force)}
+        onText={(text) => onChange(text === '' ? null : numberOrExpr(text), byLength ? length : force)}
       />
       <p className="text-muted-foreground text-xs">
         {byLength ? '볼트를 이 길이만큼 단축하여 체결합니다.' : '볼트 축 방향으로 이 힘만큼 인장하여 체결합니다.'} 볼트 축은 원통면으로부터 결정됩니다.
@@ -429,7 +429,19 @@ export function ConditionForm({
         return (
         <div key={key} className="space-y-1">
           <Label>{label}</Label>
-          <Select value={String(item[key] ?? field.whole ?? '')} onValueChange={(v) => set(key, v)}>
+          <Select
+            value={String(item[key] ?? field.whole ?? '')}
+            onValueChange={(v) => {
+              // 「전체」 가 아닌 대상으로 바꾸면 「전체」 에만 뜻이 있는 칸(요소 형상 · 차수)은 기본값으로 —
+              // 감춘 값이 남아 실려 가지 않게(종류를 바꿀 때와 같은 규칙).
+              if (key === 'on' && whole !== undefined && v !== whole) {
+                const next: ConditionItem = { ...item, on: v }
+                for (const [name, one] of Object.entries(group.fields)) if (one.whole_only) next[name] = one.default ?? null
+                return onChange(next)
+              }
+              set(key, v)
+            }}
+          >
             <SelectTrigger aria-label={label}>
               <SelectValue placeholder="선택" />
             </SelectTrigger>
@@ -567,9 +579,9 @@ export function ConditionForm({
             <div key={key} className="space-y-1">
               <Label>{title}</Label>
               <div className="flex items-center gap-1">
-                <Input aria-label={`${field.title ?? key} 최소`} placeholder="최소" value={span ? String(span[0] ?? '') : ''} onChange={(e) => put(0, e.target.value)} />
+                <NumberText aria-label={`${field.title ?? key} 최소`} placeholder="최소" value={span ? span[0] : ''} onText={(text) => put(0, text)} />
                 <span className="text-muted-foreground text-xs">~</span>
-                <Input aria-label={`${field.title ?? key} 최대`} placeholder="최대" value={span ? String(span[1] ?? '') : ''} onChange={(e) => put(1, e.target.value)} />
+                <NumberText aria-label={`${field.title ?? key} 최대`} placeholder="최대" value={span ? span[1] : ''} onText={(text) => put(1, text)} />
               </div>
               {field.description && <p className="text-muted-foreground text-xs">{field.description}</p>}
             </div>
@@ -583,14 +595,14 @@ export function ConditionForm({
               <Label>{title}</Label>
               <div className="grid grid-cols-3 gap-1">
                 {(['X', 'Y', 'Z'] as const).map((axisName, index) => (
-                  <Input
+                  <NumberText
                     key={axisName}
                     aria-label={`${field.title ?? key} ${axisName}`}
                     placeholder={axisName}
-                    value={String(vector[index] ?? '')}
-                    onChange={(e) => {
+                    value={vector[index]}
+                    onText={(text) => {
                       const next = [0, 1, 2].map((i) => (vector[i] === '' || vector[i] === undefined ? 0 : vector[i]))
-                      next[index] = numberOrExpr(e.target.value)
+                      next[index] = numberOrExpr(text)
                       set(key, next)
                     }}
                   />
@@ -637,9 +649,9 @@ export function ConditionForm({
         return (
           <div key={key} className="space-y-1">
             <Label htmlFor={`cond-${key}`}>{title}</Label>
-            <Input
+            <NumberText
               id={`cond-${key}`}
-              value={value === null || value === undefined ? '' : String(value)}
+              value={value}
               placeholder={
                 // 비우면 서버가 기본값을 쓴다 — 그것을 보여 준다(빈칸이 「안 보낸다」 로 읽히지 않게).
                 field.default !== undefined && field.default !== null && field.default !== ''
@@ -650,8 +662,7 @@ export function ConditionForm({
                       ? '수 또는 =식'
                       : ''
               }
-              onChange={(e) => {
-                const text = e.target.value
+              onText={(text) => {
                 if (text === '') return set(key, null)
                 // **식을 그대로 둔다.** `"=압력"` 은 설계점마다 풀린다 — 여기서 숫자로 바꾸면
                 // 그 뜻이 사라진다.

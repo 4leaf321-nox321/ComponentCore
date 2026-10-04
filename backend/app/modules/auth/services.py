@@ -226,6 +226,13 @@ def create_pat(
             status=400,
             details={"known": list(SCOPES)},
         )
+    # **대행은 남의 이름을 빌리는 일이다** — 아무나 제 토큰에 주면 남의 이름으로 DOE 를 만들고
+    # 그 사람의 비공개 조건을 받아 갈 수 있었다(2026-10-04 점검).
+    if "act_for_others" in granted and not user.is_system_admin:
+        raise Forbidden(
+            code("AUTH", 108),
+            "대행(act_for_others) 범위는 시스템 관리자만 토큰에 부여할 수 있습니다.",
+        )
     raw, prefix, token_hash = security.new_pat()
     pat = PersonalAccessToken(
         user_id=user.id,

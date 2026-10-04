@@ -26,11 +26,11 @@
     {
       "name": "브래킷",
       "step_product": "body_2",
-      "volume": 7733.429,
+      "volume": 7617.544,
       "centroid": [
-        39.879,
+        39.727,
         0.0,
-        35.184
+        35.412
       ],
       "bbox": [
         [
@@ -104,17 +104,34 @@
     "브래킷 바닥": [
       {
         "centroid": [
-          28.0,
+          26.5,
           0.0,
           20.0
         ],
-        "area": 1080.0,
+        "area": 990.0,
         "normal": [
           0.0,
           -0.0,
           -1.0
         ],
-        "body": "브래킷"
+        "body": "브래킷",
+        "mid": [
+          {
+            "face": {
+              "area": 990.0,
+              "centroid": [
+                26.5,
+                0.0,
+                21.5
+              ],
+              "normal": [
+                0.0,
+                0.0,
+                -1.0
+              ]
+            }
+          }
+        ]
       }
     ],
     "하중면": [
@@ -122,15 +139,60 @@
         "centroid": [
           50.0,
           0.0,
-          47.0
+          48.5
         ],
-        "area": 1380.0,
+        "area": 1290.0,
         "normal": [
           1.0,
           -0.0,
           -0.0
         ],
-        "body": "브래킷"
+        "body": "브래킷",
+        "mid": [
+          {
+            "face": {
+              "area": 1290.0,
+              "centroid": [
+                48.5,
+                0.0,
+                48.5
+              ],
+              "normal": [
+                1.0,
+                0.0,
+                0.0
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "브래킷 앞끝": [
+      {
+        "centroid": [
+          10.0,
+          0.0,
+          21.5
+        ],
+        "area": 90.0,
+        "normal": [
+          -1.0,
+          -0.0,
+          -0.0
+        ],
+        "body": "브래킷",
+        "mid": [
+          {
+            "edge": {
+              "midpoint": [
+                10.0,
+                0.0,
+                21.5
+              ],
+              "length": 30.0
+            }
+          }
+        ]
       }
     ]
   },
@@ -139,25 +201,30 @@
     "step_file": "points/p0002_mid.step",
     "bodies": [
       {
-        "name": "지그블록",
-        "thickness": 20.0,
-        "area": 3200.0,
-        "faces": 1
-      },
-      {
         "name": "브래킷",
         "thickness": 3.0,
-        "area": 2577.81,
-        "faces": 3
-      },
-      {
-        "name": "명판",
-        "thickness": 1.0,
-        "area": 300.0,
-        "faces": 1
+        "area": 2539.18,
+        "faces": 3,
+        "centroid": [
+          39.718,
+          0.0,
+          35.421
+        ],
+        "bbox": [
+          [
+            10.0,
+            -15.0,
+            21.5
+          ],
+          [
+            48.5,
+            15.0,
+            70.0
+          ]
+        ]
       }
     ],
-    "area": 6077.81,
+    "area": 2539.18,
     "notes": []
   },
   "quality": {
@@ -181,7 +248,7 @@
   "point": {
     "number": 2,
     "study": {
-      "id": "39ebcf85-8ccf-4195-9971-5ca2d83d3cd4",
+      "id": "dc210132-28df-4403-a348-0b18f6df56f2",
       "name": "조건_강체지그_쉘브래킷",
       "method": "factorial",
       "seed": 1
@@ -265,6 +332,24 @@
           "what": "faces",
           "normal": [
             1,
+            0,
+            0
+          ]
+        }
+      },
+      {
+        "name": "브래킷 앞끝",
+        "entity": "face",
+        "select": {
+          "body": "브래킷",
+          "near": [
+            10,
+            0,
+            21
+          ],
+          "what": "faces",
+          "normal": [
+            -1,
             0,
             0
           ]
@@ -821,6 +906,7 @@
   "length_units": {
     "geometry": "mm",
     "regions": "mm",
+    "midsurface": "mm",
     "coordinate_systems": "mm"
   }
 }

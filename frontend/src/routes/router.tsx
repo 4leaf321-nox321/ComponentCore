@@ -7,6 +7,7 @@ import { lazy } from 'react'
 import { Navigate, createBrowserRouter } from 'react-router-dom'
 
 import ForcePasswordChangePage from '@/modules/auth/ForcePasswordChangePage'
+import { ById } from '@/routes/ById'
 import LoginPage from '@/modules/auth/LoginPage'
 import { ROUTER_BASENAME } from '@/shared/base'
 import { ProtectedRoute } from '@/shared/auth/ProtectedRoute'
@@ -47,15 +48,15 @@ export const router = createBrowserRouter(
             { path: 'draw', element: <DrawPage /> },
             { path: 'draw/jig-from-part', element: <JigFromPartPage /> },
             { path: 'works', element: <WorksPage /> },
-            { path: 'works/:id', element: <WorkPage /> },
+            { path: 'works/:id', element: <ById><WorkPage /></ById> },
             { path: 'templates', element: <TemplatesPage /> },
             { path: 'doe', element: <DoeStudiesPage /> },
             { path: 'doe/new', element: <NewDoePage /> },
-            { path: 'doe/:id', element: <DoeStudyPage /> },
+            { path: 'doe/:id', element: <ById><DoeStudyPage /></ById> },
             { path: 'parts', element: <PartsPage /> },
-            { path: 'parts/:id', element: <PartPage /> },
+            { path: 'parts/:id', element: <ById><PartPage /></ById> },
             { path: 'jigs', element: <JigsPage /> },
-            { path: 'jigs/:id', element: <JigPage /> },
+            { path: 'jigs/:id', element: <ById><JigPage /></ById> },
             { path: 'jobs', element: <JobsPage /> },
             { path: 'me', element: <ProfilePage /> },
             { path: 'admin/works', element: <AllWorksPage /> },

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core import export, shape_index
 from app.core.recipe import Evaluation, RecipeError, evaluate, parse
@@ -22,10 +23,11 @@ from app.core.recipe.digest import digest
 from app.core.recipe.schema import RecipeValidationError
 from app.core.recipe.unfold import Unfolded, UnfoldError
 from app.core.recipe.unfold import unfold as unfold_shape
+from app.modules.accounts.models import User
 from app.modules.jobs import registry
 from app.modules.jobs.models import Artifact
 from app.shared import filestore
-from app.shared.errors import AppError, code
+from app.shared.errors import AppError, Forbidden, code
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +115,47 @@ def resolve_component(key: str) -> dict[str, Any]:
         return dict(version.recipe)
     finally:
         db.close()
+
+
+def require_references(db: Session, recipe: Any, user: User) -> None:
+    """**사람이 보낸 레시피가 가리키는 것을 그 사람이 볼 수 있나** — `component` 의
+    `work:<id>` 와 `import_step` 의 작업물 id.
+
+    `resolve_component` · `resolve_import` 는 누가 부르는지 모른다(워커 · 다른 프로세스에서도
+    돈다). 그래서 레시피가 **들어오는 자리**에서 본다 — 그러지 않으면 남의 비공개 작업 id
+    하나로 그 작업의 모든 버전을 STEP 으로 받아 갈 수 있었다(2026-10-04 점검). 부품 · 지그는
+    공용 카탈로그라 누구나 가져온다. 가리킨 도면 안의 참조는 보지 않는다 — 그것은 이미 그
+    주인이 저장하거나 공개한 것이다."""
+    from app.modules.jobs import services as jobs
+    from app.modules.works.models import Work
+
+    nodes = recipe.get("nodes") if isinstance(recipe, dict) else None
+    for node in nodes or []:
+        if not isinstance(node, dict):
+            continue
+        op = node.get("op")
+        if op == "component":
+            kind, _, rest = str(node.get("source") or "").partition(":")
+            if kind != "work":
+                continue
+            try:
+                work = db.get(Work, uuid.UUID(rest.partition("@")[0]))
+            except ValueError:
+                continue  # 모양이 틀린 열쇠는 평가가 말한다.
+            if work is None or (work.owner_id != user.id and not user.is_system_admin):
+                raise Forbidden(
+                    code("CAD", 22),
+                    f"‘{node.get('id', '')}’이(가) 가리키는 작업에 접근할 권한이 없습니다. "
+                    "다른 사용자의 작업은 부품 또는 지그로 등록된 것만 가져올 수 있습니다.",
+                )
+        elif op == "import_step" and node.get("file"):
+            try:
+                artifact = db.get(Artifact, uuid.UUID(str(node["file"])))
+            except ValueError:
+                continue
+            if artifact is None:
+                continue  # 없는 것은 평가가 말한다.
+            jobs.require_artifact_visible(db, artifact, user)
 
 
 def check(raw: dict[str, Any]) -> list[str]:

@@ -718,6 +718,14 @@ def create_study(
     화면도 MCP 도 조건을 따로 실어 보내지 않았고, 그래서 DOE 폴더에 조건이 빠진 채 나가고
     있었다(2026-09-29 에 잡았다). 조건 없이 형상만 훑으려면 빈 한 벌(`{}`)을 준다.
     """
+    # **대상 작업과 레시피가 가리키는 것은 소유자의 것이어야 한다** — 조건을 함께 주면 작업을
+    # 안 열어 봐서, 남의 작업 id 로 그 이름 · 꼬리표를 보고 DOE 를 그 작업에 붙일 수 있었다
+    # (2026-10-04 점검).
+    if work_id is not None:
+        from app.modules.works import services as works
+
+        works.require_owner(works.get_work(db, work_id), owner)
+    cad.require_references(db, recipe, owner)
     if conditions is None:
         conditions = _work_conditions(db, work_id, owner) if work_id else {}
     # **쉘로 푸는 파트가 있으면 중간면은 고르지 않아도 나간다** — 쉘 요소는 중간면과 두께로
@@ -1968,12 +1976,36 @@ def _build_shape(task: dict[str, Any]) -> dict[str, Any]:
         if task.get("midsurface"):
             # 셸 해석용 중간면 — 판이 아니면 실패가 아니라 그 점의 알림이다.
             from app.core.recipe.midsurface import MidSurfaceError, midsurface
+            from app.core.recipe.midsurface import attach as attach_mid
 
             try:
-                surface = midsurface(made.evaluation.shape)
-                mid_path = path.with_name(f"{path.stem}_mid.step")
-                shapes.write_step(surface.shape, mid_path)
-                mid = {"name": mid_path.name, "summary": surface.summary()}
+                # 파트마다 따로 — 판이 아닌 파트(강체 지그 블록)는 그 파트만 `failed` 에
+                # 남는다.
+                surface = midsurface(
+                    made.evaluation.shape,
+                    task.get("mid_only"),
+                    strict=False,
+                    single_name=condition_model.ALL_BODIES,
+                )
+                summary = surface.summary()
+                if surface.bodies:
+                    mid_path = path.with_name(f"{path.stem}_mid.step")
+                    shapes.write_step(surface.shape, mid_path)
+                    mid = {"name": mid_path.name, "summary": summary}
+                    # 쉘 파트에 걸린 영역을 중간면 기준으로도(지문마다 `mid`) — 쉘 요소에
+                    # 하중 · 구속을 거는 자리다.
+                    attach_mid(
+                        made.topology["regions"],
+                        made.evaluation.shape,
+                        surface,
+                        made.moved,
+                        made.evaluation.tags,
+                    )
+                else:
+                    reasons = "; ".join(
+                        f"{one['name']}: {one['error']}" for one in summary["failed"]
+                    )
+                    mid = {"error": reasons[:300], "failed": summary["failed"]}
             except MidSurfaceError as failure:
                 mid = {"error": str(failure)[:300]}
         geometric = (
@@ -2184,6 +2216,8 @@ def run_job(
                         "reference": reference,
                         "measures": measure_list,
                         "midsurface": "midsurface" in (study.outputs or []),
+                        # 쉘로 푸는 파트만 — 없으면(중간면만 고른 스터디) 판 모양 파트 전부.
+                        "mid_only": condition_model.shell_parts(study.conditions) or None,
                         "step_path": str(folder / relative),
                     },
                 )
@@ -2224,7 +2258,10 @@ def run_job(
                             topo["midsurface"] = {"step_file": mid_file, **mid["summary"]}
                         elif mid:
                             mid_error = str(mid.get("error") or "")
-                            topo["midsurface"] = {"error": mid_error}
+                            topo["midsurface"] = {
+                                "error": mid_error,
+                                **({"failed": mid["failed"]} if mid.get("failed") else {}),
+                            }
                         if found is not None:
                             # 메시가 막힐 자리(얇은 벽 · 짧은 모서리 · 좁은 면 · 쪼개진 바디) —
                             # 해석이 200점 중에서 하나씩 찾게 두지 않는다.
@@ -2288,6 +2325,9 @@ def run_job(
                         topo["length_units"] = {
                             "geometry": "mm",
                             "regions": "mm",
+                            # 중간면의 두께 · 넓이 · 무게중심 · 경계상자도 도면의 mm 다 — 쉘
+                            # 두께를 해석 계로 읽으면 SI 에서 1000 배 틀린다.
+                            "midsurface": "mm",
                             "coordinate_systems": frame_length,
                         }
                         if placed:

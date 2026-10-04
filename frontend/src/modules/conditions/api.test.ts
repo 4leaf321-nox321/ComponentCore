@@ -81,3 +81,15 @@ test('바디 그룹에 건 옛 국부 메시는 파트별 설정의 파트 메�
   const plain = { ...emptyConditions(), mesh_hints: [{ on: '전체', element_size: 3 }] }
   expect(moveBodyMeshHints(plain).conditions).toBe(plain)
 })
+
+test('옛 힌트를 옮길 때 파트별 설정에 이미 적힌 칸이 이긴다', () => {
+  const before = {
+    ...emptyConditions(),
+    named_selections: [{ name: '판 몸통', entity: 'body', select: { body: '판' } }],
+    mesh_hints: [{ on: '판 몸통', element_size: 4, order: 'quadratic' }],
+    body_settings: [{ name: '판', mesh: { element_size: 2 } }],
+  }
+  const { conditions } = moveBodyMeshHints(before)
+  // 크기는 이미 적혀 있어 그대로(2), 차수는 비어 있어 힌트로(2차).
+  expect(conditions.body_settings?.[0].mesh).toMatchObject({ element_size: 2, order: 'quadratic' })
+})

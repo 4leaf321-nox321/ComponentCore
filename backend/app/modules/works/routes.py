@@ -13,6 +13,7 @@ from app.core import conditions
 from app.core.frames import recipe_frame_names
 from app.database import get_db
 from app.modules.accounts.models import User
+from app.modules.cad import services as cad
 from app.modules.jobs import services as jobs
 from app.modules.jobs.schemas import JobOut
 from app.modules.parts import services as parts
@@ -145,6 +146,7 @@ def create_work(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> WorkOut:
+    cad.require_references(db, payload.recipe, user)
     work = services.create_work(
         db,
         owner=user,
@@ -306,6 +308,7 @@ def create_version(
 ) -> VersionOut:
     """새 버전 — 저장하고 평가 작업을 건다. 202: STEP · glTF 는 작업이 끝나야 있다."""
     work = _mine(db, work_id, user)
+    cad.require_references(db, payload.recipe, user)
     version = services.add_version(
         db, work, recipe=payload.recipe, source=payload.source, note=payload.note, by=user
     )

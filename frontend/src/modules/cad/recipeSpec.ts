@@ -227,7 +227,7 @@ export const OP_SPECS: OpSpec[] = [
       { key: 'width', label: '폭 (mm, 돌출 길이)', kind: 'number' },
       { key: 'path', label: '꺾은선 (평면 위 X, Y)', kind: 'points' },
       { key: 'plane', label: '꺾은선 평면', kind: 'plane' },
-      { key: 'bend_radius', label: '굽힘 반지름 (mm, 0: 각진 모서리)', kind: 'number', step: 0.5 },
+      { key: 'bend_radius', label: '굽힘 안쪽 반지름 (mm, 0: 각진 모서리)', kind: 'number', step: 0.5 },
       {
         key: 'side',
         label: '두께 방향',

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.modules.accounts.models import User
+from app.modules.cad import services as cad
 from app.modules.search import services
 from app.modules.search.schemas import SimilarRequest
 from app.shared.auth import current_user
@@ -28,6 +29,7 @@ def similar(
     만들기 전에 다시 쓸 길이다. 작업은 내 것만, 부품 · 지그는 누구나 보는 카탈로그에서.
 
     색인이 없는 버전(이 기능 전)은 견주지 못한다 — 관리자가 서버 화면에서 채운다."""
+    cad.require_references(db, payload.recipe, user)
     return services.similar(
         db,
         user,

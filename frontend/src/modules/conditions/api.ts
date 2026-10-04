@@ -315,8 +315,11 @@ export function withSetting(
   const now = settingOf(settings, name)
   const next: FullBodySetting = { ...now, ...patch, name, mesh: { ...now.mesh, ...patch.mesh } }
   if (next.behavior === 'rigid') next.representation = 'solid'
-  const rest = (settings ?? []).filter((one) => one.name !== name)
-  return isDefault(next) ? rest : [...rest, next]
+  const list = settings ?? []
+  const at = list.findIndex((one) => one.name === name)
+  // **자리를 지킨다** — 끝으로 옮기면 바꿨다 되돌려도 저장한 것과 순서가 달라 「바뀜」 으로 남았다.
+  if (isDefault(next)) return list.filter((one) => one.name !== name)
+  return at < 0 ? [...list, next] : list.map((one, i) => (i === at ? next : one))
 }
 
 /** 서버가 준 것을 화면이 쓰는 모양으로 — 빈 칸을 채워 두면 화면에 `?.` 가 줄어든다. */
@@ -438,8 +441,8 @@ export const conditionsApi = {
  * **바디 선택 그룹에 건 국부 메시를 파트별 설정으로 옮긴다**(옛 「메시 힌트」).
  *
  * 2026-10-04 부터 파트 하나 전체의 메시는 파트별 설정이 들고, 국부 메시는 면 · 엣지(와 「전체」)만
- * 받는다. 그 전에 바디 그룹에 건 것은 같은 뜻 그대로 그 파트의 메시로 옮긴다 — 겹치면 힌트가
- * 이겼으므로(좁은 것이 이긴다) 힌트의 값으로 덮는다. 무시할 형상 크기 · 경계층이 있는 힌트는
+ * 받는다. 그 전에 바디 그룹에 건 것은 그 파트의 메시로 옮긴다 — 파트별 설정에 이미 적힌 칸은
+ * 그대로 두고 빈 칸만 채운다(받는 쪽이 옛 파일을 그렇게 읽는다). 무시할 형상 크기 · 경계층이 있는 힌트는
  * 표에 자리가 없어 옮기지 않고 `kept` 로 알린다. 선택 그룹은 남긴다(다른 조건이 쓸 수 있다).
  */
 export function moveBodyMeshHints(conditions: Conditions): { conditions: Conditions; moved: string[]; kept: string[] } {
@@ -462,11 +465,17 @@ export function moveBodyMeshHints(conditions: Conditions): { conditions: Conditi
       kept.push(group.name)
       continue
     }
-    const mesh: Partial<BodyMesh> = {}
-    if (filled(hint.element_size)) mesh.element_size = hint.element_size as number | string
-    if (filled(hint.method)) mesh.method = String(hint.method)
-    if (filled(hint.order)) mesh.order = String(hint.order)
-    for (const body of bodies) settings = withSetting(settings, body, { mesh })
+    for (const body of bodies) {
+      // **파트별 설정에 이미 적힌 값이 이긴다** — 받는 쪽(SimEngBay)이 옛 파일을 그렇게 읽는다.
+      // 비어 있는 칸만 힌트로 채운다.
+      const now = settingOf(settings, body).mesh
+      const base = defaultSetting(body).mesh
+      const mesh: Partial<BodyMesh> = {}
+      if (filled(hint.element_size) && now.element_size === base.element_size) mesh.element_size = hint.element_size as number | string
+      if (filled(hint.method) && now.method === base.method) mesh.method = String(hint.method)
+      if (filled(hint.order) && now.order === base.order) mesh.order = String(hint.order)
+      settings = withSetting(settings, body, { mesh })
+    }
     moved.push(group.name)
   }
   if (moved.length === 0) return { conditions, moved, kept }

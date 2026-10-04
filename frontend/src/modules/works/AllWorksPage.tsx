@@ -49,6 +49,18 @@ export default function AllWorksPage() {
   )
   const tags = useResource(() => worksApi.tags(owner), [owner])
   const rows = page.data?.items ?? []
+  /**
+   * 사람이 **주소로** 바뀌면(사이드바의 「모든 작업」 · 계정 화면의 「작업」) 첫 페이지부터, 꼬리표는
+   * 비운다 — 꼬리표는 사람마다 다르고, 앞 사람의 3 페이지에 머물러 있으면 빈 목록이 보였다.
+   */
+  const [seenOwner, setSeenOwner] = useState(owner)
+  if (seenOwner !== owner) {
+    setSeenOwner(owner)
+    setOffset(0)
+    setTag('')
+  }
+  /** 고르개에 없는 사람(삭제된 계정 · 100명 밖) — 줄의 이름으로라도 보인다. */
+  const ownerMissing = owner !== 'all' && !(accounts.data ?? []).some((one) => one.id === owner)
 
   function refilter(apply: () => void) {
     apply()
@@ -76,6 +88,7 @@ export default function AllWorksPage() {
           onChange={(event) => pickOwner(event.target.value)}
         >
           <option value="all">전체 사용자</option>
+          {ownerMissing && <option value={owner}>{rows.find((row) => row.owner_id === owner)?.owner_name ?? owner}</option>}
           {(accounts.data ?? []).map((one) => (
             <option key={one.id} value={one.id}>
               {one.display_name} ({one.email})

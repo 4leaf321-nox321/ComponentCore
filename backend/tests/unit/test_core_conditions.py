@@ -1035,3 +1035,40 @@ def test_국부_메시는_면_엣지와_전체만_받고_옛_바디_대상도_�
                 "mesh_hints": [{"on": "꼭짓점", "element_size": 1}],
             }
         )
+
+
+def test_강체_파트에는_고정_지지와_원격_변위만_강체끼리는_접촉하지_않는다() -> None:
+    """받는 쪽(Ansys · CalculiX)은 강체에 하중 · 다른 구속 · 강체끼리의 접촉이 오면 멈춘다
+    (SimEngBay, 2026-10-04) — 저장에서 미리 말한다."""
+    raw: dict[str, Any] = {
+        "named_selections": [
+            {"name": "판 바닥", "entity": "face",
+             "select": {"what": "faces", "body": "지그판", "normal": [0, 0, -1]}},
+            {"name": "판 윗면", "entity": "face",
+             "select": {"what": "faces", "body": "지그판", "normal": [0, 0, 1]}},
+            {"name": "부품 바닥", "entity": "face",
+             "select": {"what": "faces", "body": "부품", "normal": [0, 0, -1]}},
+        ],
+        "constraints": [
+            {"name": "고정", "type": "remote_displacement", "on": "판 바닥",
+             "x": 0, "y": 0, "z": 0}
+        ],
+        "contacts": [
+            {"name": "닿음", "type": "bonded", "source": "부품 바닥", "target": "판 윗면"}
+        ],
+        "body_settings": [{"name": "지그판", "behavior": "rigid"}],
+    }  # fmt: skip
+    parse(raw, PARTS)  # 원격 변위 · 변형체와의 접촉은 된다
+    for extra, words in (
+        ({"constraints": [{"name": "변위", "type": "displacement", "on": "판 바닥", "x": 0}]},
+         "고정 지지와 원격 변위만"),
+        ({"loads": [{"name": "누름", "type": "pressure", "on": "판 윗면", "magnitude": 1}]},
+         "하중을 지정할 수 없습니다"),
+        ({"body_settings": [{"name": "지그판", "behavior": "rigid"},
+                            {"name": "부품", "behavior": "rigid"}]},
+         "강체 파트끼리의 접촉"),
+    ):  # fmt: skip
+        with pytest.raises(ConditionError, match=words):
+            parse({**raw, **extra}, PARTS)
+    # 모양이 틀린 파트별 설정은 쉘 파트가 없는 것으로(500 이 아니라 검증이 말한다).
+    assert conditions.shell_parts({"body_settings": 5}) == []

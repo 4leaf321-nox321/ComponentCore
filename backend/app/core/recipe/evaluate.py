@@ -82,6 +82,8 @@ from build123d import (
     split,
     sweep,
 )
+from OCP.BRepAdaptor import BRepAdaptor_Surface
+from OCP.GeomAbs import GeomAbs_Cylinder
 
 from app.core.recipe import blend, datums, defeature, deform, hardware, mates, surfaces
 from app.core.recipe import schema as S
@@ -157,6 +159,62 @@ class Evaluation:
             "nodes": [vars(one) for one in self.nodes],
             "warnings": list(self.warnings),
         }
+
+
+def _turns(path: list[tuple[float, float]]) -> tuple[list[float], float]:
+    """꺾이는 곳마다 도는 방향(외적, + 는 왼쪽)과 꺾은선 전체가 도는 방향(단위 방향의 외적 합 —
+    `_sharp_sheet` 와 같은 식)."""
+    directions = []
+    for (x0, y0), (x1, y1) in itertools.pairwise(path):
+        length = math.hypot(x1 - x0, y1 - y0) or 1.0
+        directions.append(((x1 - x0) / length, (y1 - y0) / length))
+    corners = [a[0] * b[1] - a[1] * b[0] for a, b in itertools.pairwise(directions)]
+    return corners, sum(corners)
+
+
+def _cylinder_radii(shape: Any) -> list[float]:
+    radii = []
+    for face in shape.faces():
+        surface = BRepAdaptor_Surface(face.wrapped)
+        if surface.GetType() == GeomAbs_Cylinder:
+            radii.append(round(float(surface.Cylinder().Radius()), 3))
+    return sorted(radii)
+
+
+def _rounded_sheet(node: S.SheetMetalNode, plane: Plane, points: list[Vector]) -> Shape:
+    """둥근 굽힘의 판 — `bend_radius` 는 어느 쪽이든 **안쪽** 반지름이다.
+
+    두께가 붙는 쪽은 `_sharp_sheet` 와 같다: `left` 면 꺾은선이 도는 쪽의 바깥(꺾은선이 안쪽
+    면), `right` 면 안쪽(꺾은선이 바깥 면). 두께가 굽힘 안쪽에 붙는 곳은 꺾은선을 r + t 로,
+    바깥에 붙는 곳은 r 로 둥글린다 — 그래야 안쪽이 r 이다. 예전에는 늘 r 로 둥글려 안쪽이
+    r - t 가 되었고, r = t 면 굽힘이 실패하고 r < t 면 두께가 틀린 판이 나왔다(2026-10-04).
+
+    make_brake_formed(`offset_2d`)가 두께를 어느 쪽으로 붙일지는 **믿지 않는다** — 평면의
+    원점 · 반지름에 따라 뒤집힌다(실측: YZ 원점 (10, 0, 0)). 그래서 양쪽을 다 지어 보고
+    **굽힘 반지름이 바로 나온 쪽**(굽힘마다 안쪽 r · 바깥 r + t)을 고른다 — 반대쪽이면 반지름이
+    r ± t 로 어긋나 갈린다."""
+    path = [(float(one.X), float(one.Y)) for one in points]
+    corners, net = _turns(path)
+    radius, thickness = float(node.bend_radius), float(node.thickness)
+    # 두께가 진행 방향의 **왼쪽**인가 — `right`(안쪽)면 전체가 도는 쪽, `left` 면 그 반대.
+    on_left = (net > 0) == (node.side == "right")
+    radii = [radius + thickness if (turn > 0) == on_left else radius for turn in corners]
+    line = Wire((plane * FilletPolyline(*points, radius=radii)).edges())
+    expected = sorted([radius] * len(corners) + [radius + thickness] * len(corners))
+    for side in (Side.LEFT, Side.RIGHT):
+        try:
+            formed = make_brake_formed(
+                thickness=thickness, station_widths=node.width, line=line, side=side
+            )
+        except Exception:
+            continue
+        if _cylinder_radii(formed) == [round(one, 3) for one in expected]:
+            return formed
+    raise RecipeError(
+        node.id,
+        "판을 굽히지 못했습니다. 굽힘 반지름을 줄이거나 꺾은선의 짧은 구간을 늘리십시오"
+        "(굽힘 안쪽에 두께가 붙는 곳은 꺾은선이 반지름 + 두께로 돕니다).",
+    )
 
 
 def _sharp_sheet(node: S.SheetMetalNode, plane: Plane) -> Shape:
@@ -996,20 +1054,7 @@ def _evaluate_node(
         points = [Vector(x, y, 0) for x, y in node.path]
         plane = _plane(node.plane)
         if node.bend_radius > 0 and len(points) > 2:
-            line = Wire((plane * FilletPolyline(*points, radius=node.bend_radius)).edges())
-            try:
-                formed = make_brake_formed(
-                    thickness=node.thickness,
-                    station_widths=node.width,
-                    line=line,
-                    side=Side.LEFT if node.side == "left" else Side.RIGHT,
-                )
-            except Exception as failure:
-                raise RecipeError(
-                    node.id,
-                    "판을 굽히지 못했습니다. 굽힘 반지름을 줄이거나 꺾은선의 짧은 구간을 "
-                    "늘리십시오.",
-                ) from failure
+            formed = _rounded_sheet(node, plane, points)
         else:
             # **각진 굽힘은 우리가 세운다** — make_brake_formed 는 모서리를 비스듬히 잘라
             # 두께가 한결같지 않은 판을 낸다(실측: t=2 ㄱ자의 부피가 5760 이 아니라 4080).

@@ -1385,12 +1385,61 @@ def parse(
     return conditions
 
 
+def shell_parts(raw: dict[str, Any] | None) -> list[str]:
+    """쉘로 푸는 파트들(해석에서 뺀 것 제외) — 이 파트들만 중간면을 만든다."""
+    settings = raw.get("body_settings") if isinstance(raw, dict) else None
+    if not isinstance(settings, list):
+        return []  # 모양이 틀렸으면 검증(`parse`)이 말한다
+    return [
+        str(one.get("name"))
+        for one in settings
+        if isinstance(one, dict)
+        and one.get("representation") == "shell"
+        and not one.get("suppressed")
+    ]
+
+
 def has_shell(raw: dict[str, Any] | None) -> bool:
     """쉘로 푸는 파트가 있나 — 있으면 설계점마다 중간면이 필요하다(옛 조건은 칸이 없다)."""
-    return any(
-        isinstance(one, dict) and one.get("representation") == "shell"
-        for one in (raw or {}).get("body_settings") or []
-    )
+    return bool(shell_parts(raw))
+
+
+#: 강체 면에 걸 수 있는 구속 — 받는 쪽(Ansys · CalculiX)은 강체에 하중 · 다른 구속을 걸지
+#: 못하고 멈춘다(SimEngBay, 2026-10-04). 저장할 때 미리 말한다.
+RIGID_CONSTRAINTS = ("fixed_support", "remote_displacement")
+
+
+def _check_rigid(conditions: Conditions, rigid: set[str]) -> None:
+    """강체 파트에는 고정 지지 · 원격 변위만, 강체끼리는 접촉하지 않는다. 어느 파트의 것인지
+    아는 선택 그룹(바디 그룹 · 파트로 거른 그룹)만 본다."""
+    selections = {one.name: one for one in conditions.named_selections}
+
+    def on_rigid(name: str) -> set[str] | None:
+        selection = selections.get(name)
+        bodies = _bodies_of(selection) if selection else None
+        return bodies if bodies and bodies <= rigid else None
+
+    for index, item in enumerate(conditions.constraints):
+        bodies = on_rigid(item.on)
+        if bodies and item.type not in RIGID_CONSTRAINTS:
+            raise ConditionError(
+                f"constraints[{index}]: 강체 파트({', '.join(sorted(bodies))})에는 고정 "
+                f"지지와 원격 변위만 지정할 수 있습니다(‘{item.name}’은(는) "
+                f"{CONSTRAINT_LABELS[item.type]}). 파트를 변형체로 바꾸거나 구속을 바꾸십시오."
+            )
+    for index, load in enumerate(conditions.loads):
+        bodies = on_rigid(load.on) if load.on else None
+        if bodies:
+            raise ConditionError(
+                f"loads[{index}]: 강체 파트({', '.join(sorted(bodies))})에는 하중을 지정할 수 "
+                f"없습니다(‘{load.name}’). 파트를 변형체로 바꾸거나 원격 변위로 거십시오."
+            )
+    for index, contact in enumerate(conditions.contacts):
+        if on_rigid(contact.source) and on_rigid(contact.target):
+            raise ConditionError(
+                f"contacts[{index}]: ‘{contact.name}’은(는) 강체 파트끼리의 접촉입니다. "
+                "한쪽을 변형체로 바꾸십시오."
+            )
 
 
 def _bodies_of(selection: NamedSelection) -> set[str] | None:
@@ -1427,6 +1476,9 @@ def _check_body_settings(conditions: Conditions, known: set[str] | None) -> None
             f"파트별 설정에 ‘{ALL_BODIES}’와(과) 개별 파트가 함께 있습니다. ‘{ALL_BODIES}’는 "
             "단일 파트일 때만 사용하십시오."
         )
+    rigid = {one.name for one in settings if one.behavior == "rigid" and not one.suppressed}
+    if rigid:
+        _check_rigid(conditions, rigid)
     off = {one.name for one in settings if one.suppressed}
     everything = ALL_BODIES in off or (known is not None and bool(known) and known <= off)
     if everything:

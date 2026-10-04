@@ -1,5 +1,5 @@
 {
-  "id": "39ebcf85-8ccf-4195-9971-5ca2d83d3cd4",
+  "id": "dc210132-28df-4403-a348-0b18f6df56f2",
   "name": "조건_강체지그_쉘브래킷",
   "description": "",
   "method": "factorial",
@@ -511,12 +511,30 @@
             0
           ]
         }
+      },
+      {
+        "name": "브래킷 앞끝",
+        "entity": "face",
+        "select": {
+          "body": "브래킷",
+          "near": [
+            10,
+            0,
+            21
+          ],
+          "what": "faces",
+          "normal": [
+            -1,
+            0,
+            0
+          ]
+        }
       }
     ]
   },
   "owner": {
     "name": "member",
-    "email": "member-28ec2cfd@example.local"
+    "email": "member-b2317bfd@example.local"
   },
   "requested_by": null
 }

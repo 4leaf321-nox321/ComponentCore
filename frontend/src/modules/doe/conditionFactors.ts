@@ -83,6 +83,9 @@ function fieldsOf(
   for (const [key, field] of Object.entries(spec.fields)) {
     if (key === 'name' || key === 'type' || field.hidden) continue
     if (field.only_for && !field.only_for.includes(type)) continue
+    // 「전체」 에만 뜻이 있는 칸(국부 메시의 요소 형상 · 차수)은 면 · 엣지 대상이면 훑지 않는다.
+    const whole = spec.fields.on?.whole
+    if (field.whole_only && whole !== undefined && String(item.on ?? spec.fields.on?.default ?? whole) !== whole) continue
     const options = optionsOf(key, field, type, group, names)
     if (options.length >= 2) out.push([key, field.title ?? key, options])
   }
