@@ -593,19 +593,51 @@ async def patch_work(
     `set_field{id,field,value}`(value null 이면 칸 지움) ·
     `remove_node{id}`(가리키는 것이 있으면 거절) · `move_node{id,before?}` ·
     `rename_node{id,new_id}`(가리키는 곳도 따라감).
-    고친 도면이 틀리면 저장하지 않고 문제와 고친 레시피를 돌려준다. 끝나면 평가 요약."""
+    고친 도면이 틀리면 저장하지 않고 문제와 고친 레시피를 돌려준다. 끝나면 평가 요약.
+
+    **지그 작업이면 제품과의 간섭(`jig_interference`)도 붙는다** — 받침을 옮기거나 높이를
+    바꾼 뒤 따로 `jig_check` 를 부르지 않아도 된다. `ok` 가 거짓이면 `hits` 의 요소를 다시
+    옮긴다."""
     version = await _post(
         ctx, f"/api/works/{work_id}/patch", {"ops": ops, "note": note or "AI 가 부분 수정"}
     )
     if not isinstance(version, dict) or "error" in version:
         return version
     evaluation = await _wait_job(ctx, version.get("job"))
-    return {
+    out: dict[str, Any] = {
         "work_id": work_id,
         "version": version.get("number"),
         "recipe": version.get("recipe"),
         "evaluation": _slim_job(evaluation),
     }
+    checked = _slim_jig_check(await _post(ctx, f"/api/works/{work_id}/jig-check", {}))
+    if checked is not None:
+        out["jig_interference"] = checked
+    return out
+
+
+def _slim_jig_check(report: Any) -> dict[str, Any] | None:
+    """지그 간섭 검사의 요지 — 걸린 쌍만. 지그가 아니거나 제품 자리를 모르면 None."""
+    if not isinstance(report, dict) or "error" in report or not report.get("available"):
+        return None
+    hits = [
+        {"a": one["a"], "b": one["b"], "volume": one["volume"]}
+        for one in report.get("items", [])
+        if not one.get("ok")
+    ]
+    return {"ok": bool(report.get("ok")), "hits": hits, "parts": report.get("parts", [])}
+
+
+@mcp.tool()
+async def jig_check(ctx: Context, work_id: str, recipe: dict[str, Any] | None = None) -> Any:
+    """지그의 요소(받침_1 · 위치_핀_1 · 클램프_1 …)마다 **제품 · 서로와 겹치는가.** 제품은
+    지그를 만들 때의 것을 생성기 좌표계로 놓는다(높이는 레시피의 `받침_높이`). `recipe` 를
+    주면 저장하지 않고 그것을 본다 — 고치기 전에 미리 확인할 때. 아무것도 저장하지 않는다.
+    제품 자리를 모르면(손으로 그린 지그 · 낙하 지그) `available: false` 와 까닭."""
+    report = await _post(ctx, f"/api/works/{work_id}/jig-check", {"recipe": recipe})
+    if not isinstance(report, dict) or "error" in report or not report.get("available"):
+        return report
+    return _slim_jig_check(report)
 
 
 @mcp.tool()
@@ -1705,8 +1737,10 @@ async def run_jig(
     - `clamped`(기본) 판 · 받침 · 위치 핀 · 클램프 — 3-2-1 원칙의 고정구
     - `bolted` 부품의 수직 관통 구멍으로 볼트를 넣어 판에 조인다 — 진동 · 충격 시험
       (`bolt_max_count` · `bolt_head` hex|socket · `bolt_washer` · `bolt_spacer_height`)
-    - `bending` 3점 굽힘 — 긴 변으로 스팬(`bending_span_ratio` 또는 `bending_span`), 롤러 둘 +
-      로딩 노즈
+    - `bending` 굽힘 — 긴 변으로 스팬(`bending_span_ratio` 또는 `bending_span`), 롤러 둘 +
+      로딩 노즈(`bending_points` 4 면 노즈 둘, `bending_load_span`). **시험 규격을 고르면**
+      (`bending_preset` — `list_test_presets` 의 id) 스팬 = 간격비 x 부품 두께, 롤러 · 노즈
+      지름이 그 규격의 규칙을 따른다
     - `drop` 낙하 · 충격 자세 — `drop_orientation`(bottom|top|+x|-x|+y|-y|edge|corner) 이
       아래를 보게 놓고 바닥 · `drop_impactor`(none|ball|pen)
     먼저 `jig_preview` 로 계획 · 간섭을 보고 부른다.
@@ -1827,16 +1861,18 @@ async def promote_jig_recipe(
     name: str | None = None,
     note: str = "",
     part_id: str | None = None,
+    with_conditions: bool = True,
 ) -> Any:
     """지그 작업의 현재 버전을 **지그 카탈로그**로. **사용자가 시킬 때만.**
 
     지그 작업은 두 길로 생긴다: (1) `run_jig` 가 부품에서 만들어 주는 것, (2) 사람 · AI 가 빈
     화면에서 **그리는** 것. 어느 쪽이든 등록하는 길은 이것 하나다. `part_id` 를 주면 어느
-    부품의 지그인지 이어진다(생성한 것은 이미 이어져 있다)."""
+    부품의 지그인지 이어진다(생성한 것은 이미 이어져 있다). 해석 조건도 함께 올린다
+    (`with_conditions`, 기본) — 사용자가 형상만 공개하라고 하면 끈다."""
     made = await _post(
         ctx,
         f"/api/works/{work_id}/promote/jig-recipe",
-        {"name": name, "note": note, "part_id": part_id},
+        {"name": name, "note": note, "part_id": part_id, "conditions": with_conditions},
     )
     return await _linked(made, "jigs", made.get("jig_id") if isinstance(made, dict) else None)
 
@@ -1951,13 +1987,21 @@ async def find_by_shape(
 
 @mcp.tool()
 async def list_parts(
-    ctx: Context, limit: int = 50, folder: str | None = None, query: str = "", tag: str = ""
+    ctx: Context,
+    limit: int = 50,
+    folder: str | None = None,
+    query: str = "",
+    tag: str = "",
+    standard: str = "",
 ) -> Any:
     """부품 카탈로그(누구나 보는 것). 고치려면 `copy_part_to_work` 로 내 작업 공간에 복사한다.
     `folder`(`고객A/2026` 같은 경로 — 그 아래까지) · `query`(이름 · 설명) · `tag` 로 거른다.
-    각 부품의 `folder` 가 놓인 곳, `owner_id` 가 등록한 사용자(옮기기 · 고치기는 그 사용자 ·
-    관리자)."""
+    `standard` 면 **규격 부품**만 — `any` 또는 종류(`support` 받침 · `pin` 위치 핀 · `clamp`
+    토글 클램프). 각 부품의 `standard` 가 규격 사양(품번 · 쓰는 버전 · 치수), `folder` 가 놓인
+    곳, `owner_id` 가 등록한 사용자(옮기기 · 고치기는 그 사용자 · 관리자)."""
     params: dict[str, Any] = {"limit": limit}
+    if standard:
+        params["standard"] = standard
     if folder is not None:
         params["folder"] = folder
     if query:
@@ -1984,6 +2028,7 @@ async def get_part(ctx: Context, part_id: str) -> Any:
             "description": part["description"],
             "current_version": part["current_version"],
             "jig_count": part.get("jig_count"),
+            "standard": part.get("standard"),
             "recipe": current.get("recipe"),
             "conditions": current.get("conditions") or {},
             "evaluation": _slim_job(current.get("job")),
@@ -1991,6 +2036,114 @@ async def get_part(ctx: Context, part_id: str) -> Any:
         "parts",
         part["id"],
     )
+
+
+@mcp.tool()
+async def set_standard_part(
+    ctx: Context, part_id: str, spec: dict[str, Any] | None = None
+) -> Any:
+    """**규격 사양**을 공용 부품에 붙이거나(`spec`) 뗀다(`spec` 없이) — **시스템 관리자만**,
+    사용자가 시킬 때만. 지그 생성기가 요구에 맞는 규격품을 골라 놓고 부품표에 품번 · 수량을
+    남긴다.
+
+    `spec`: `kind`(`support` 받침 · `pin` 위치 핀 · `clamp` 토글 클램프) · `part_no`(품번) ·
+    `version`(쓰는 버전 — 사내에서 그린 것) · `maker` · `preference`(작을수록 먼저), 그리고
+    종류마다 —
+    - 받침: `top_diameter` · `height`, 높이를 변수로 쓰면 `height_param` · `height_min` ·
+      `height_max`
+    - 핀: `diameter` · `length`, 길이를 변수로 쓰면 `length_param` · `length_min` ·
+      `length_max`
+    - 클램프: `reach` · `pad_height` · `pad_diameter` · `base_length` · `base_width`
+
+    형상의 기준: 받침 · 핀은 바닥 중심이 원점이고 위가 +Z, 클램프는 베이스 바닥 중심이 원점이고
+    팔이 +X 로 뻗어 누른 상태의 패드 중심이 (reach, 0, pad_height). 레시피로만 그린다(STEP
+    가져오기 · 다른 도면 가져오기 없이). 어기면 `details.problems` 가 무엇을 고칠지 말한다."""
+    if spec is None:
+        return await _delete(ctx, f"/api/parts/{part_id}/standard")
+    return await _put(ctx, f"/api/parts/{part_id}/standard", spec)
+
+
+@mcp.tool()
+async def export_standard_parts(ctx: Context, part_ids: list[str] | None = None) -> Any:
+    """**규격 부품 묶음**을 만든다 — **시스템 관리자만**, 사용자가 시킬 때만. 고른 규격
+    부품(`part_ids`, 비우면 전부)의 사양과 쓰는 버전의 레시피를 묶음 하나로 돌려준다. 다른
+    서버(운영)에서 `import_standard_parts` 로 들인다. 사용자에게 파일로 건넬 때는 화면의
+    「규격 부품 내보내기」 가 낫다(부품 목록에서 골라 JSON 파일로 받는다)."""
+    return await _post(ctx, "/api/parts/standard/export", {"ids": part_ids or []})
+
+
+@mcp.tool()
+async def import_standard_parts(
+    ctx: Context, bundle: dict[str, Any], dry_run: bool = True
+) -> Any:
+    """**규격 부품 묶음**을 이 서버의 카탈로그로 — **시스템 관리자만**. 품번으로 짝짓는다:
+    없으면 새 부품(`create`), 형상이 다르면 새 버전(`version`), 사양만 다르면 사양만(`spec`),
+    같으면 그대로(`same`), 사양 · 형상 기준을 어기면 건너뛴다(`skip`, `problems`).
+
+    **기본은 미리 보기**(`dry_run=True`) — 아무것도 바꾸지 않고 항목마다 할 일만 돌려준다.
+    사용자에게 보여 주고 확인받은 뒤 `dry_run=False` 로 다시 부른다."""
+    flag = "true" if dry_run else "false"
+    return await _post(ctx, f"/api/parts/standard/import?dry_run={flag}", bundle)
+
+
+@mcp.tool()
+async def list_test_presets(ctx: Context, test: str = "") -> Any:
+    """**시험 규격** — 공개 규격(ASTM · ISO, `origin=builtin`)과 사내 규격(`internal`)의
+    프리셋. `test` 로 시험 종류(`bending` 굽힘)를 거른다. 프리셋마다 시편 치수(`specimen`),
+    배치 규칙(`setup` — 3점 · 4점, 지지 간격 = 간격비 x 두께 또는 고정, 롤러 · 노즈 반지름),
+    해석 기본값(`analysis` — 노즈를 내리는 변형률 · 마찰계수), 출처(`source`).
+    `verified=false` 면 규격서와 아직 대조하지 않은 값이다 — 사용자에게 그렇다고 말한다."""
+    found = await _get(ctx, "/api/specimens/presets", {"test": test} if test else None)
+    return {"presets": found} if isinstance(found, list) else found
+
+
+@mcp.tool()
+async def create_specimen_work(
+    ctx: Context,
+    preset_id: str,
+    length: float | None = None,
+    width: float | None = None,
+    thickness: float | None = None,
+    fixture: bool = True,
+    conditions: bool = True,
+    name: str | None = None,
+    folder: str = "",
+) -> Any:
+    """시험 규격으로 **내 작업**을 만든다 — 시편(치수는 비우면 프리셋 값), `fixture` 면 시험
+    지그(굽힘: 지지 롤러 둘 + 로딩 노즈), `conditions` 면 해석 조건(롤러 고정 · 노즈 원격
+    변위 · 마찰 접촉 · 대칭점 구속 · 정적 대변형)까지. 치수 · 지지 간격 · 처짐이 레시피
+    변수라 바로 `doe_create` 로 두께 등을 훑고, 조건이 설계점마다 따라간다. 시편의 **물성은
+    비어 있다** — `material_search` 로 골라 `set_conditions` 로 붙인다."""
+    body = {
+        "preset_id": preset_id,
+        "length": length,
+        "width": width,
+        "thickness": thickness,
+        "fixture": fixture,
+        "conditions": conditions,
+        "name": name,
+        "folder": folder,
+    }
+    return await _post(ctx, "/api/specimens/works", body)
+
+
+@mcp.tool()
+async def save_test_preset(
+    ctx: Context, preset: dict[str, Any], preset_id: str | None = None
+) -> Any:
+    """**사내 시험 규격**을 더하거나(`preset_id` 없이) 고친다 — **시스템 관리자만**, 사용자가
+    시킬 때만. 모양은 `list_test_presets` 의 `preset` 그대로(공개 규격 하나를 받아 고쳐 쓰면
+    된다 — `id` 는 서버가 정한다). 공개 규격은 고칠 수 없다. 값이 틀리면
+    `details.problems` 가 어느 칸이 왜인지 말한다."""
+    if preset_id:
+        return await _put(ctx, f"/api/specimens/presets/{preset_id}", {"preset": preset})
+    return await _post(ctx, "/api/specimens/presets", {"preset": preset})
+
+
+@mcp.tool()
+async def delete_test_preset(ctx: Context, preset_id: str) -> Any:
+    """사내 시험 규격을 지운다 — **시스템 관리자만**. 이미 만든 작업 · 지그는 그대로다."""
+    return await _delete(ctx, f"/api/specimens/presets/{preset_id}")
 
 
 @mcp.tool()
@@ -2050,7 +2203,9 @@ async def list_jigs(
 
 @mcp.tool()
 async def get_jig(ctx: Context, jig_id: str) -> Any:
-    """지그 하나 — 어느 부품 버전의 지그인지, 계획과 간섭 요약."""
+    """지그 하나 — 어느 부품 버전의 지그인지, 계획과 간섭 요약, **해석 조건**(등록할 때 함께
+    올렸으면). 고치거나 그 지그로 DOE 를 돌리려면 `copy_jig_to_work` 로 내 작업에 복사한다
+    (`has_recipe` 가 거짓이면 생성기로 만든 이전 버전이라 복사할 수 없다)."""
     jig = await _get(ctx, f"/api/jigs/{jig_id}")
     if not isinstance(jig, dict) or "error" in jig:
         return jig
@@ -2065,9 +2220,39 @@ async def get_jig(ctx: Context, jig_id: str) -> Any:
             "current_version": jig["current_version"],
             "options": current.get("options"),
             "summary": current.get("summary"),
+            "conditions": current.get("conditions") or {},
+            "has_recipe": bool(current.get("recipe")),
         },
         "jigs",
         jig["id"],
+    )
+
+
+@mcp.tool()
+async def copy_jig_to_work(
+    ctx: Context, jig_id: str, name: str | None = None, with_conditions: bool = True
+) -> Any:
+    """지그의 레시피로 내 작업(종류 지그)을 새로 만든다 — 다른 사용자의 지그를 고치거나 그
+    지그로 DOE 를 돌리는 길(부품의 `copy_part_to_work` 와 같다). 잡는 부품이 이어지고, 해석
+    조건이 실려 있으면 **함께 옮긴다**(`with_conditions`, 기본). 복사한 작업으로 바로
+    `doe_run(work_id=…)`."""
+    work = await _post(
+        ctx,
+        f"/api/jigs/{jig_id}/copy-to-work",
+        {"name": name, "conditions": with_conditions},
+    )
+    if not isinstance(work, dict) or "error" in work:
+        return work
+    current = work.get("current") or {}
+    return await _linked(
+        {
+            "work_id": work["id"],
+            "name": work["name"],
+            "version": work["current_version"],
+            "has_conditions": bool(current.get("conditions")),
+        },
+        "works",
+        work["id"],
     )
 
 

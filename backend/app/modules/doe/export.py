@@ -18,7 +18,11 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 import re
+import shutil
+import time
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -37,6 +41,76 @@ def safe_name(name: str) -> str:
 def study_dir(root: Path, name: str, study_id: str) -> Path:
     """DOE 마다 제 폴더. 이름이 겹쳐도 id 앞 8자로 갈린다 — 덮어쓰지 않는다."""
     return root / f"{safe_name(name)}-{study_id[:8]}"
+
+
+#: 쓰는 중인 것의 표시 — 점으로 시작하는 이름은 해석 쪽 탐색기가 보지 않는다(SimEngBay 의
+#: `core/doe/browse.py`). 다 쓴 뒤 제 이름으로 바꾼다.
+PARTIAL = ".partial-"
+
+
+def _partial(path: Path) -> Path:
+    return path.with_name(f".{path.name}{PARTIAL}{uuid.uuid4().hex[:8]}")
+
+
+def publish(source: Path, target: Path) -> None:
+    """서버 보관 폴더를 공유 폴더로 — **읽는 쪽이 반쪽을 보지 않게.**
+
+    처음 보낼 때는 숨긴 이름에 다 쓴 뒤 이름을 바꾼다 — 폴더가 보이는 순간 다 있다. 복사하는
+    동안 해석 쪽이 폴더를 열면 STEP 이 덜 온 점을 「짝이 없다」 고 읽었다.
+
+    다시 보낼 때(점을 더한 뒤)는 폴더를 갈아 끼우지 않는다 — 해석 쪽이 그 폴더에 덧붙인 것을
+    지우지 않게, 그리고 열려 있는 폴더의 이름을 바꾸다 실패하지 않게. 대신 점 파일 · 형상을
+    먼저 쓰고 위의 파일(표 · `study.json` …)은 파일마다 숨긴 이름에 쓴 뒤 바꿔 끼우며, 표
+    (`manifest.csv`)를 **맨 나중에** 둔다 — 표가 가리키는 파일은 늘 이미 있다."""
+    if not target.exists():
+        staging = _partial(target)
+        try:
+            shutil.copytree(source, staging)
+            try:
+                staging.rename(target)
+                return
+            except OSError:
+                if not target.exists():
+                    raise
+                # 그사이 다른 요청이 같은 폴더를 냈다 — 아래처럼 덮어 쓴다.
+                source = staging
+            _overlay(source, target)
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+        return
+    _overlay(source, target)
+
+
+def _overlay(source: Path, target: Path) -> None:
+    for child in sorted(source.iterdir()):
+        if child.is_dir():
+            shutil.copytree(child, target / child.name, dirs_exist_ok=True)
+    tops = [one for one in source.iterdir() if one.is_file()]
+    for one in sorted(tops, key=lambda path: (path.name == "manifest.csv", path.name)):
+        temp = _partial(target / one.name)
+        shutil.copy2(one, temp)
+        os.replace(temp, target / one.name)
+
+
+def sweep_partials(root: Path, *, older_than_s: float = 86400) -> list[str]:
+    """쓰다 만 것(서버가 복사 도중 멈췄다)을 치운다 — 하루가 지난 숨긴 `…partial-…` 만.
+    지금 쓰는 중인 것은 건드리지 않는다."""
+    if not root.is_dir():
+        return []
+    cutoff = time.time() - older_than_s
+    removed: list[str] = []
+    for path in [*root.glob(f".*{PARTIAL}*"), *root.glob(f"*/.*{PARTIAL}*")]:
+        try:
+            if path.stat().st_mtime > cutoff:
+                continue
+            if path.is_dir():
+                shutil.rmtree(path, ignore_errors=True)
+            else:
+                path.unlink(missing_ok=True)
+            removed.append(str(path))
+        except OSError:
+            continue
+    return removed
 
 
 def windows_path(path: Path) -> str:
@@ -176,11 +250,20 @@ def write_readme(folder: Path, study: dict[str, Any], point_count: int) -> Path:
         if "midsurface" in (study.get("outputs") or [])
         else ""
     )
+    # 복제한 DOE — 원본과 점끼리 견줄 수 있다는 것을 폴더만 보고 알게.
+    origin = study.get("cloned_from")
+    cloned = ""
+    if isinstance(origin, dict):
+        owner = (origin.get("owner") or {}).get("name", "")
+        cloned = (
+            f"\n복제 원본: ‘{origin.get('name', '')}’({owner}) — "
+            "설계점 번호와 값이 원본과 같습니다.\n"
+        )
     text = f"""{study.get("name", "DOE")}
 {"=" * 60}
 
 {study.get("description", "") or "(설명 없음)"}
-
+{cloned}
 생성일: {datetime.now(UTC).astimezone().strftime("%Y-%m-%d %H:%M")}
 방법: {_method_text(str(study.get("method") or ""))}
 설계점: {point_count}개

@@ -13,6 +13,8 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import type { DownloadFormat } from '@/modules/cad/download'
 import type { Recipe } from '@/modules/cad/api'
 import type { WorkKind } from '@/modules/works/api'
+import { elementOf, movable, moveElement, withProduct } from '@/modules/works/jigEdit'
+import type { JigProduct } from '@/modules/works/jigEdit'
 import { LoadRecipeDialog, LoadWorkDialog } from '@/modules/cad/LoadDialogs'
 import type { Placing } from '@/modules/cad/FrameForm'
 import { frameFields, framePlacement, methodOf, numericFrame } from '@/modules/cad/frameMath'
@@ -35,6 +37,7 @@ import type { SketchShape } from '@/modules/cad/SketchCanvas'
 import { ApiError } from '@/shared/api/client'
 import { useFillHeight } from '@/shared/hooks/useFillHeight'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
+import { StatusBadge } from '@/shared/components/StatusBadge'
 import { Axis3d, Boxes, Braces, BookmarkPlus, Download, FileAxis3d, FileUp, GripVertical, Image, FilePlus, FolderOpen, Files, Maximize2, Minimize2, Pencil, Redo2, Ruler, Save, SquareDashedMousePointer, Trash2, Undo2, UnfoldHorizontal, FileText, Layers } from 'lucide-react'
 
 import { useFullscreen } from '@/shared/viewer/FullscreenFrame'
@@ -72,7 +75,24 @@ export interface FileActions {
   drawingTitle?: string
 }
 
-export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChange: (recipe: Recipe) => void; file?: FileActions }) {
+export function RecipeEditor({
+  value,
+  onChange,
+  file,
+  jigProduct,
+  conditions,
+}: {
+  value: Recipe
+  onChange: (recipe: Recipe) => void
+  file?: FileActions
+  /** 이 작업의 해석 조건 — 변수 패널이 조건에서 쓰는 변수(`마찰계수` · `처짐`)를 「쓰임」 으로 센다. */
+  conditions?: unknown
+  /**
+   * 생성된 지그 — 지그를 만들 때의 제품(서버가 생성기 좌표계로 놓은 노드). 주면 미리보기에만
+   * 덧붙여 요소(받침_1 · 위치_핀_1 …)마다 간섭을 보고, 고른 요소를 3D 에서 끌어 옮긴다.
+   */
+  jigProduct?: JigProduct | null
+}) {
   const nodes = useMemo(() => nodesOf(value), [value])
   const [selectedId, setSelectedId] = useState<string | null>(nodes[nodes.length - 1]?.id ?? null)
   const [editing, setEditing] = useState(false)
@@ -95,12 +115,24 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
   const [loading, setLoading] = useState<'recipe' | 'work' | null>(null)
   /** 끌고 있는 피처의 자리 · 놓을 수 있는 칸들 · 지금 가리키는 칸 · 막힌 이유. */
   const [drag, setDrag] = useState<{ from: number; allowed: Set<number>; at: number | null; refused: string | null } | null>(null)
-  const { problems, summary, mesh, frames, datums, drawing, error } = useRecipeMesh(value)
   /** 좌표계 창 — 도면의 이름 붙인 원점 · 축(해석 조건의 「좌표계」 칸이 가리킨다). */
   const [framing, setFraming] = useState(false)
   /** 고치는 좌표계와, 화면에서 지정하는 중인 것(점 · 선 · 면을 누르거나 손잡이로 돌리기). */
   const [framePicked, setFramePicked] = useState(0)
   const [placing, setPlacing] = useState<Placing>(null)
+  /** 생성된 지그 — 제품을 옆에 놓고(저장하지 않는다) 요소마다 간섭을 본다. 끌 수 있다. */
+  const [checkProduct, setCheckProduct] = useState(true)
+  const productNode = jigProduct?.available ? (jigProduct.node ?? null) : null
+  // 면 · 엣지 · 좌표계를 고르는 동안은 뺀다 — 제품의 면을 도면의 면으로 집으면 안 된다.
+  const composeOn = productNode !== null && checkProduct && pickMode === 'none' && !placing && !framing
+  const preview = useMemo(() => (composeOn && productNode ? withProduct(value, productNode) : value), [composeOn, productNode, value])
+  const { problems, summary, mesh, frames, datums, drawing, error, interference } = useRecipeMesh(preview, { interference: composeOn })
+  /** 겹친 요소 — 빨갛게. 제품은 늘 같은 색(무엇이 제품인지 보이게). */
+  const colliding = useMemo(
+    () => new Set((interference?.items ?? []).filter((one) => !one.ok).flatMap((one) => [one.a, one.b]).filter((one) => one !== productNode?.id)),
+    [interference, productNode],
+  )
+  const jigColors = composeOn && productNode ? { [productNode.id]: 0x60a5fa, ...Object.fromEntries([...colliding].map((one) => [one, 0xef4444])) } : undefined
   const recipeFrames = value.coordinate_systems ?? []
   const placingFrame = framing ? recipeFrames[framePicked] : undefined
   /** 고르기 · 손잡이가 시작할 숫자 — 식이면 서버가 지금 치수로 푼 축에서 되돌린다. */
@@ -115,6 +147,9 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
   const stepInput = useRef<HTMLInputElement | null>(null)
 
   const selected = nodes.find((n) => n.id === selectedId) ?? null
+  /** 고른 피처가 속한 지그 요소 — 화살표로 XY 를 끈다(판 · 제품은 아니다). */
+  const selectedElement = jigProduct && selectedId ? elementOf(value, selectedId) : null
+  const dragElement = jigProduct && pickMode === 'none' && movable(selectedElement, productNode?.id) ? selectedElement : null
 
   // --- 실행 취소 ------------------------------------------------------------------
   // value 는 호출부 것이라 여기서는 지나간 값을 쌓아 두기만 한다. 1초 안에 잇단 변화(칸에
@@ -627,7 +662,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
         <div className={`grid gap-3 lg:grid-cols-12 ${fullscreen ? 'min-h-0 flex-1' : ''}`}>
           {/* 피처 트리 — 누르면 모달에서 고친다 */}
           <div className={`lg:col-span-3 ${fullscreen ? 'max-h-[calc(100vh-10rem)] overflow-y-auto' : ''}`}>
-            {nodes.length > 0 && <ParamsPanel value={value} onChange={onChange} />}
+            {nodes.length > 0 && <ParamsPanel value={value} onChange={onChange} conditions={conditions} />}
             {nodes.length === 0 ? (
               <div className="text-muted-foreground rounded-md border border-dashed p-3 text-xs">
                 빈 도면입니다. ‘스케치’ 탭의 스케치 버튼을 먼저 누르십시오. ‘파일’ 탭에서 템플릿이나 기존 작업을 불러올 수도 있습니다. 스케치를 작성한 뒤 ‘돌출’을 추가하면
@@ -780,7 +815,17 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                   ? `엣지를 선택하십시오(${(selected?.edges as { near?: number[][] })?.near?.length ?? 0} 개 선택됨). 다시 선택하면 해제됩니다.`
                   : pickMode === 'measure'
                     ? '측정 중입니다. 파란 점(꼭짓점, 중점, 원 중심), 모서리, 면을 선택하십시오. 측정값은 오른쪽 창에 표시됩니다.'
-                    : '끌어서 회전하고 휠로 확대·축소합니다. 왼쪽 목록의 피처를 누르면 수정할 수 있습니다.'}
+                    : dragElement
+                      ? `‘${dragElement}’의 화살표를 끌면 XY로 옮깁니다(높이는 그대로). 옮기면 제품과의 간섭을 다시 검사합니다.`
+                      : '끌어서 회전하고 휠로 확대·축소합니다. 왼쪽 목록의 피처를 누르면 수정할 수 있습니다.'}
+              {jigProduct &&
+                (jigProduct.available ? (
+                  <button type="button" className="ml-2 underline" aria-pressed={checkProduct} onClick={() => setCheckProduct(!checkProduct)}>
+                    {checkProduct ? '제품 숨기기' : '제품과 간섭 보기'}
+                  </button>
+                ) : (
+                  <span className="ml-2">{jigProduct.reason}</span>
+                ))}
               {edgePicking && pickMode === 'edge' && (
                 <button type="button" className="ml-2 underline" onClick={() => setEditing(true)}>
                   피처 열기
@@ -825,6 +870,10 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                   measureMarks={pickMode === 'measure' || kept.length > 0 ? measureMarks(measures, kept) : undefined}
                   frames={frames}
                   datums={datums}
+                  partColors={jigColors}
+                  dragPart={dragElement}
+                  dragMode="translate"
+                  onMoved={(part, delta) => emit((current) => moveElement(current, part, delta.translate[0], delta.translate[1]))}
                   className="h-full w-full rounded-md border"
                 />
               </Suspense>
@@ -850,7 +899,28 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
               <p className="text-muted-foreground mt-1 text-xs">
                 {summary.bbox.size.map((v) => v.toFixed(1)).join(' × ')} mm
                 {!summary.is_sketch && ` · 부피 ${summary.volume.toLocaleString()} mm³`} · 면 {summary.face_count} · 피처 {summary.nodes.length}
+                {composeOn && ' (검사용 제품 포함)'}
               </p>
+            )}
+            {/* 생성된 지그 — 요소마다 제품 · 서로와 겹치는가. 저장은 겹친 채로도 되니 여기서 말한다. */}
+            {composeOn && interference && (
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs" role="status">
+                <StatusBadge kind="interference" value={interference.ok ? 'ok' : 'bad'} />
+                {interference.ok ? (
+                  <span className="text-muted-foreground">
+                    제품(‘{jigProduct?.label}’)과 요소 {Math.max(interference.parts.length - 1, 0)}개를 검사했습니다. 간섭이 없습니다.
+                  </span>
+                ) : (
+                  <span className="text-destructive">
+                    간섭:{' '}
+                    {interference.items
+                      .filter((one) => !one.ok)
+                      .map((one) => `${one.a} × ${one.b} ${one.volume.toLocaleString()} mm³`)
+                      .join(', ')}
+                    . 요소를 옮기거나 높이를 조정하십시오.
+                  </span>
+                )}
+              </div>
             )}
             {/* 실패는 아니지만 알려야 할 것 — 면 지우기가 메우지 못하고 남긴 면 같은 것. 스케치
                 안내는 위의 띠가 따로 말한다. */}

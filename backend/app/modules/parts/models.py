@@ -68,6 +68,14 @@ class Part(Base):
     )
     """어느 작업에서 승격됐나. 그 작업이 지워져도 부품은 남는다."""
     current_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    standard: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
+    """**규격 사양** — 관리자가 붙인다(종류 · 품번 · 쓰는 버전 · 치수, `schemas.StandardSpec`).
+    지그 생성기가 요구에 맞는 것을 골라 그 버전을 놓는다(`core.standard`). 비면 일반 부품.
+
+    `none_as_null` — 없으면 `None` 이 JSON `null` 로 들어가 `IS NOT NULL` 에 걸린다. 사양을 뗀
+    부품이 「규격 부품」 필터에 남고 내보내기가 빈 사양에서 넘어졌다(실측 2026-10-04)."""
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

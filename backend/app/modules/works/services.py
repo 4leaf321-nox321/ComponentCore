@@ -20,17 +20,20 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.core import pipeline, shape_index
 from app.core.geometry import GeometryError
+from app.core.model import count_features
 from app.core.options import JigOptions
 from app.core.planning import PlanningError
 from app.core.recipe import RecipeError, evaluate, parse
 from app.core.recipe.mesh import mesh
 from app.core.recipe.schema import RecipeValidationError
+from app.core.standard import LibraryPart
 from app.modules.accounts.models import User
 from app.modules.cad import services as cad
 from app.modules.jigs.models import Jig, JigVersion
 from app.modules.jobs import registry
 from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Artifact, Job
+from app.modules.parts import services as parts_services
 from app.modules.parts.models import Part, PartVersion
 from app.modules.works.models import VERSION_SOURCES, WORK_KINDS, Work, WorkVersion
 from app.modules.works.schemas import PromoteJigOut, VersionOut, WorkOut, WorkSummaryOut
@@ -660,9 +663,12 @@ def jig_preview(
 
     생성기는 규칙이라 결과가 옵션마다 다르다. 서른 개 옵션을 글로 읽고 상상하게 하지 않는다."""
     recipe, _label, _part_id, _origin = _product_source(db, source, by)
-    opts = JigOptions.from_dict(options)
+    opts = _jig_options(db, options)
+    library = [LibraryPart.from_dict(one) for one in _library(opts, db)]
     try:
-        made = pipeline.analyze(_product_from_input({"product_recipe": recipe}), opts)
+        made = pipeline.analyze(
+            _product_from_input({"product_recipe": recipe}), opts, library=library
+        )
     except (GeometryError, PlanningError) as failure:
         raise AppError(code("WORKS", 29), str(failure)) from failure
     except registry.UserFacingError as failure:
@@ -671,8 +677,31 @@ def jig_preview(
         "plan": made.plan.summary(),
         "interference": made.interference.summary(),
         "geometry": made.geometry.summary(),
+        # 무엇을 알아봤나(경사면 · 옆 구멍 · 포켓 …) — 계획 메모와 함께 읽는다.
+        "feature_counts": count_features(made.features),
         "mesh": mesh(made.preview_shape()),
     }
+
+
+def _jig_options(db: Session, options: dict[str, Any]) -> JigOptions:
+    """옵션을 읽고, 굽힘 시험 규격을 골랐으면 그 규칙(`bending_setup`)을 채운다 — 코어는 DB
+    를 모르므로 사내 규격까지 **값으로** 넘긴다. 생성 작업의 입력에 이대로 남아, 나중에 규격을
+    고쳐도 그 작업은 그때 규칙으로 돈다. 규격을 비웠으면 남은 규칙도 지운다."""
+    opts = JigOptions.from_dict(options)
+    if opts.kind == "bending" and opts.bending_preset:
+        from app.modules.specimens import services as specimens  # 서로 부른다 — 늦게 읽는다
+
+        opts.bending_setup = specimens.bending_setup(db, opts.bending_preset)
+    else:
+        opts.bending_setup = {}
+    return opts
+
+
+def _library(opts: JigOptions, db: Session) -> list[dict[str, Any]]:
+    """규격 부품 목록 — 판 · 클램프 고정이고 「규격 부품 사용」 일 때만."""
+    if opts.kind != "clamped" or not opts.standard_parts:
+        return []
+    return parts_services.standard_library(db)
 
 
 def jig_from_part(
@@ -683,7 +712,7 @@ def jig_from_part(
     생성기는 규칙(3-2-1)으로 출발점을 만들어 줄 뿐이다. 결과는 `adopt_jig_run` 으로 그 지그
     작업의 첫 버전(`import_step`)이 되고, 그때부터는 그냥 그린다 — 변수 · DOE · 편집."""
     recipe, label, part_id, origin = _product_source(db, source, by)
-    opts = JigOptions.from_dict(options)
+    opts = _jig_options(db, options)
     made = Work(
         name=(name or f"{label} 지그").strip(),
         description=f"{label}에서 규칙으로 생성",
@@ -699,7 +728,13 @@ def jig_from_part(
         kind=JIG_JOB_KIND,
         requested_by=by,
         work_id=made.id,
-        input={"product_recipe": recipe, "product_label": label, **origin},
+        # 규격 부품 목록도 그때 것으로 담는다 — 나중에 사양이 바뀌어도 이 작업은 같게 돈다.
+        input={
+            "product_recipe": recipe,
+            "product_label": label,
+            **origin,
+            "library": _library(opts, db),
+        },
         options=opts.to_dict(),
     )
     db.commit()
@@ -710,6 +745,163 @@ def jig_from_part(
 def _bbox_of(recipe: dict[str, Any]) -> tuple[list[float], list[float]]:
     box = cad.build(recipe).summary()["bbox"]
     return list(box["min"]), list(box["max"])
+
+
+#: 생성된 지그의 받침 높이 변수 — 제품이 이만큼 뜬다(`core.jig_recipe`). 앞의 것이 먼저다.
+_LIFT_PARAMS = ("받침_높이", "스페이서_높이")
+#: 편집기 · MCP 가 지그 레시피 옆에 놓는 검사용 제품의 id — 생성기의 이름표와 같다
+#: (`core.assembly.PRODUCT`). 지그 레시피에 이미 그 id 가 있으면 뒤의 것을 쓴다.
+JIG_PRODUCT_IDS = ("제품", "제품_검사")
+
+
+def _pinned_source(db: Session, origin: dict[str, Any]) -> str | None:
+    """지그를 만들 때 쓴 제품을 **그 버전으로** — `part:<id>@n` · `work:<id>@n`."""
+    if origin.get("product_part_id"):
+        version = db.get(PartVersion, uuid.UUID(str(origin.get("product_part_version_id"))))
+        suffix = f"@{version.number}" if version else ""
+        return f"part:{origin['product_part_id']}{suffix}"
+    if origin.get("product_work_id"):
+        made = db.get(WorkVersion, uuid.UUID(str(origin.get("product_work_version_id"))))
+        suffix = f"@{made.number}" if made else ""
+        return f"work:{origin['product_work_id']}{suffix}"
+    return None
+
+
+def jig_product(
+    db: Session, work: Work, *, recipe: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """지그 작업의 **검사용 제품** — 편집기 · MCP 가 지그 레시피 옆에 놓고 요소마다 간섭을
+    본다.
+
+    생성기의 좌표계 규칙 그대로다: 제품의 XY 중심이 원점이고 바닥이 받침 높이만큼 뜬다
+    (`assemble_jig_on_part` 와 같은 계산). 높이는 **레시피 변수**(`받침_높이` …)에 걸어, 받침을
+    높이면 제품도 따라 오른다. 제품은 지그를 만들 때의 버전에 고정한다 — 그 뒤 부품이 바뀌어도
+    지그는 그때 것에 맞췄다. 생성 기록이 없으면(복사해 온 지그) 잇는 부품의 현재 버전이다.
+    낙하 지그는 제품을 돌려 놓으므로 아직 하지 않는다 — 그렇다고 말한다."""
+    if work.kind != "jig":
+        return {"available": False, "reason": "지그 작업이 아닙니다."}
+    if recipe is None:
+        version = current_version(db, work)
+        recipe = version.recipe if version else {}
+    params = (recipe or {}).get("params") or {}
+    lift_param = next((one for one in _LIFT_PARAMS if one in params), None)
+    run = next(
+        (
+            job
+            for job in list_jig_runs(db, work)
+            if job.status == "done" and (job.summary or {}).get("plan")
+        ),
+        None,
+    )
+    plan = (run.summary or {}).get("plan", {}) if run is not None else {}
+    if plan.get("kind") == "drop":
+        return {
+            "available": False,
+            "reason": "낙하 지그는 제품을 돌려 놓으므로 편집 중 간섭 검사를 아직 지원하지 "
+            "않습니다. 생성 결과의 간섭 보고를 확인하십시오.",
+        }
+    source: str | None
+    if run is not None and (run.input or {}).get("product_recipe"):
+        product_recipe = run.input["product_recipe"]
+        source = _pinned_source(db, run.input)
+        label = str(run.input.get("product_label") or "제품")
+        fixed_lift = float(plan.get("product_lift", 0.0))
+    elif work.jig_for_part_id is not None and lift_param is not None:
+        part = db.get(Part, work.jig_for_part_id)
+        catalog = (
+            db.scalar(
+                select(PartVersion).where(
+                    PartVersion.part_id == part.id,
+                    PartVersion.number == part.current_version,
+                )
+            )
+            if part is not None and part.deleted_at is None
+            else None
+        )
+        if part is None or catalog is None:
+            return {"available": False, "reason": "잇는 부품을 찾을 수 없습니다."}
+        product_recipe, label = catalog.recipe, part.name
+        source = f"part:{part.id}@{catalog.number}"
+        fixed_lift = 0.0
+    else:
+        return {
+            "available": False,
+            "reason": "제품의 자리를 모릅니다. 부품에서 생성했거나, 받침 높이 변수가 있고 "
+            "부품을 이은 지그만 제품과의 간섭을 확인할 수 있습니다.",
+        }
+    if source is None:
+        return {"available": False, "reason": "지그를 만들 때의 제품을 찾을 수 없습니다."}
+    pmin, pmax = _bbox_of(product_recipe)
+    cx, cy = (pmin[0] + pmax[0]) / 2, (pmin[1] + pmax[1]) / 2
+    lift: float | str = (
+        f"={lift_param} + {round(-pmin[2], 3)}"
+        if lift_param is not None
+        else round(-pmin[2] + fixed_lift, 3)
+    )
+    taken = {str(one.get("id")) for one in (recipe or {}).get("nodes") or []}
+    node_id = next((one for one in JIG_PRODUCT_IDS if one not in taken), JIG_PRODUCT_IDS[-1])
+    return {
+        "available": True,
+        "label": label,
+        "source": source,
+        "lift_param": lift_param,
+        "node": {
+            "id": node_id,
+            "op": "component",
+            "source": source,
+            "label": label,
+            "params": {},
+            "translate": [round(-cx, 3), round(-cy, 3), lift],
+            "rotate": [0, 0, 0],
+        },
+    }
+
+
+def with_product(recipe: dict[str, Any], node: dict[str, Any]) -> dict[str, Any]:
+    """지그 레시피에 검사용 제품을 덧붙인 **사본** — 결과 묶음의 자식으로 넣어 요소마다 간섭을
+    본다(저장하는 레시피에는 넣지 않는다). 결과가 묶음이 아니면 둘을 새 묶음으로."""
+    out = deepcopy(recipe)
+    nodes: list[dict[str, Any]] = list(out.get("nodes") or [])
+    if not nodes:
+        return out
+    result = str(out.get("result") or nodes[-1]["id"])
+    index = next((i for i, one in enumerate(nodes) if one.get("id") == result), len(nodes) - 1)
+    product = dict(node)
+    if nodes[index].get("op") == "group":
+        nodes.insert(index, product)
+        group = dict(nodes[index + 1])
+        group["targets"] = [*group.get("targets", []), product["id"]]
+        nodes[index + 1] = group
+    else:
+        nodes += [
+            product,
+            {"id": "간섭_검사", "op": "group", "targets": [result, product["id"]]},
+        ]
+        out["result"] = "간섭_검사"
+    out["nodes"] = nodes
+    return out
+
+
+def jig_check(
+    db: Session, work: Work, *, by: User, recipe: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """지그의 요소마다 **제품 · 서로와 겹치는가** — 편집 중인 레시피(주면) 또는 현재 버전.
+    `jig_product` 가 못 놓으면 그 까닭만 돌려준다."""
+    if recipe is None:
+        version = current_version(db, work)
+        recipe = version.recipe if version else {}
+    found = jig_product(db, work, recipe=recipe)
+    if not found["available"]:
+        return found
+    composed = with_product(recipe, found["node"])
+    cad.require_references(db, composed, by)
+    report = cad.interference(composed)
+    return {
+        "available": True,
+        "product": found["node"]["id"],
+        "label": found["label"],
+        **report,
+    }
 
 
 def assemble_jig_on_part(
@@ -886,8 +1078,11 @@ def run_jig_job(
 ) -> registry.Outcome:
     """Job kind="jig" 의 실행 함수. **웹 · DB 를 모른다** — 입력과 폴더만 받는다."""
     opts = JigOptions.from_dict(options)
+    library = [LibraryPart.from_dict(one) for one in input.get("library") or []]
     try:
-        result = pipeline.run(_product_from_input(input), opts, out_dir, on_stage=progress)
+        result = pipeline.run(
+            _product_from_input(input), opts, out_dir, on_stage=progress, library=library
+        )
     except (GeometryError, PlanningError) as failure:
         raise registry.UserFacingError(str(failure)) from failure
     artifacts = [
@@ -985,6 +1180,7 @@ def promote_jig_recipe(
     name: str | None,
     note: str,
     part_id: uuid.UUID | None,
+    conditions: bool = True,
 ) -> PromoteJigOut:
     """**손으로 그린 지그**(레시피 버전)를 지그 카탈로그로.
 
@@ -993,7 +1189,8 @@ def promote_jig_recipe(
     **변수를 심을 수 있다**(그래야 DOE 로 훑는다). 그 레시피 버전을 그대로 지그로 올린다.
 
     생성 작업이 없으므로 `options` 는 비고, 형상 · STEP 은 그 버전의 **평가 작업**에서 온다.
-    어느 부품의 지그인지는 골라서 잇는다(안 고르면 홀로 선 지그다)."""
+    어느 부품의 지그인지는 골라서 잇는다(안 고르면 홀로 선 지그다). 레시피와 해석 조건은
+    **스냅샷**으로 싣는다 — 남이 「내 작업 공간으로 복사」 해 이어서 고친다(부품과 같다)."""
     version = current_version(db, work) if number is None else get_version(db, work, number)
     if version is None:
         raise AppError(code("WORKS", 20), "등록할 버전이 없습니다.")
@@ -1023,6 +1220,8 @@ def promote_jig_recipe(
         job_id=job.id,
         part_version_id=part_version.id if part_version else None,
         options={},
+        recipe=deepcopy(version.recipe),
+        conditions=deepcopy(version.conditions or {}) if conditions else {},
         summary=job.summary,
         note=note.strip() or f"v{version.number} 레시피에서",
         promoted_by_id=by.id,

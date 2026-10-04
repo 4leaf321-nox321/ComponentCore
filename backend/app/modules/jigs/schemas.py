@@ -19,12 +19,26 @@ class JigVersionOut(BaseModel):
     """지그 생성 작업 — STEP · glTF 작업물."""
     options: dict[str, Any]
     summary: dict[str, Any] | None
+    recipe: dict[str, Any] | None = None
+    """등록 시점의 레시피 — 「내 작업 공간으로 복사」 가 연다. 생성기로 만든 옛 버전은 없다."""
+    conditions: dict[str, Any] = Field(default_factory=dict)
+    """해석 조건 — 등록할 때 작업에서 함께 올렸으면 있다. 복사가 옮긴다."""
     part_id: uuid.UUID | None
     part_name: str | None
     part_version: int | None
     note: str
     promoted_by_name: str | None
     created_at: datetime
+
+
+class JigCopyRequest(BaseModel):
+    """지그(버전)의 레시피로 내 작업을 새로 만든다 — 「내 작업 공간으로 복사」."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    number: int | None = None
+    """비우면 현재 버전."""
+    conditions: bool = True
+    """그 버전의 해석 조건도 옮긴다(기본). 같은 형상이라 선택 그룹이 그대로 맞는다."""
 
 
 class JigOut(BaseModel):

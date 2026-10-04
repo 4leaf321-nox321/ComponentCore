@@ -16,6 +16,7 @@ from app.modules.jobs.models import Artifact, Job, WorkerBeat
 from app.modules.materials.models import CatalogMaterial
 from app.modules.parts.models import Part, PartVersion
 from app.modules.server.models import ServerSetting
+from app.modules.specimens.models import SpecimenPreset
 from app.modules.templates.models import RecipeTemplate
 from app.modules.works.models import Work, WorkVersion
 
@@ -35,6 +36,7 @@ __all__ = [
     "RecipeTemplate",
     "RefreshToken",
     "ServerSetting",
+    "SpecimenPreset",
     "SsoUsedJti",
     "User",
     "Work",

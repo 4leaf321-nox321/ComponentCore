@@ -20,6 +20,7 @@ const JigFromPartPage = lazy(() => import('@/modules/works/JigFromPartPage'))
 const WorksPage = lazy(() => import('@/modules/works/WorksPage'))
 const WorkPage = lazy(() => import('@/modules/works/WorkPage'))
 const TemplatesPage = lazy(() => import('@/modules/templates/TemplatesPage'))
+const SpecimensPage = lazy(() => import('@/modules/specimens/SpecimensPage'))
 const DoeStudiesPage = lazy(() => import('@/modules/doe/DoeStudiesPage'))
 const DoeStudyPage = lazy(() => import('@/modules/doe/DoeStudyPage'))
 const NewDoePage = lazy(() => import('@/modules/doe/NewDoePage'))
@@ -50,6 +51,7 @@ export const router = createBrowserRouter(
             { path: 'works', element: <WorksPage /> },
             { path: 'works/:id', element: <ById><WorkPage /></ById> },
             { path: 'templates', element: <TemplatesPage /> },
+            { path: 'specimens', element: <SpecimensPage /> },
             { path: 'doe', element: <DoeStudiesPage /> },
             { path: 'doe/new', element: <NewDoePage /> },
             { path: 'doe/:id', element: <ById><DoeStudyPage /></ById> },

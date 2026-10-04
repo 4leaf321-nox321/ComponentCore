@@ -24,8 +24,9 @@ const part = (id: string, name: string, owner: string, folder: string) => ({
   updated_at: '2026-09-20T00:00:00Z',
 })
 
-/** 부품 · 지그 카탈로그가 같은 모양으로 답한다. */
-function mockCatalog(base: 'parts' | 'jigs') {
+/** 부품 · 지그 카탈로그가 같은 모양으로 답한다. `admin` 이면 시스템 관리자이고 남의 블록이 규격 부품이다. */
+function mockCatalog(base: 'parts' | 'jigs', admin = false) {
+  const me = { ...ME, is_system_admin: admin }
   const calls: { method: string; url: string; body?: unknown }[] = []
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input)
@@ -33,7 +34,7 @@ function mockCatalog(base: 'parts' | 'jigs') {
     calls.push({ method: init?.method ?? 'GET', url, body })
     const u = new URL(url, 'http://x')
     let out: unknown
-    if (u.pathname.endsWith('/auth/refresh')) out = { access_token: 't', expires_in: 900, user: ME }
+    if (u.pathname.endsWith('/auth/refresh')) out = { access_token: 't', expires_in: 900, user: me }
     else if (u.pathname.endsWith(`/${base}/tags`)) out = []
     else if (u.pathname.endsWith(`/${base}/folders`))
       out = [
@@ -43,7 +44,7 @@ function mockCatalog(base: 'parts' | 'jigs') {
       ]
     else if (u.pathname.endsWith(`/${base}/move`)) out = { moved: 1 }
     else if (u.pathname.endsWith(`/${base}`)) {
-      const all = [part('p1', '내 브래킷', 'u1', '공정/선반'), part('p2', '남의 블록', 'u2', '공정')]
+      const all = [part('p1', '내 브래킷', 'u1', '공정/선반'), { ...part('p2', '남의 블록', 'u2', '공정'), standard: admin ? { kind: 'support', part_no: 'SUP-16', version: 1 } : null }]
       const folder = u.searchParams.get('folder')
       const items = folder === null ? all : all.filter((one) => one.folder === folder || one.folder.startsWith(`${folder}/`))
       out = { items, total: items.length, limit: 20, offset: 0 }
@@ -111,4 +112,55 @@ test('이름 뒤 조사는 받침을 본다', () => {
   expect(josa('지그', '을', '를')).toBe('지그를')
   expect(josa('템플릿', '이', '가')).toBe('템플릿이')
   expect(josa('작업', '은', '는')).toBe('작업은')
+})
+
+test('부품 카탈로그 — 「규격 부품」 을 누르면 규격 사양이 붙은 것만 묻는다', async () => {
+  const calls = mockCatalog('parts')
+  render(
+    <AuthProvider>
+      <MemoryRouter>
+        <PartsPage />
+      </MemoryRouter>
+    </AuthProvider>,
+  )
+  expect(await screen.findByText('남의 블록')).toBeInTheDocument()
+  const button = screen.getByRole('button', { name: '규격 부품' })
+  expect(button).toHaveAttribute('aria-pressed', 'false')
+  fireEvent.click(button)
+  await waitFor(() => expect(calls.some((one) => one.url.includes('standard=any'))).toBe(true))
+  expect(button).toHaveAttribute('aria-pressed', 'true')
+})
+
+test('부품 카탈로그 — 관리자는 고른 규격 부품을 내보내고 묶음을 가져온다', async () => {
+  mockCatalog('parts', true)
+  render(
+    <AuthProvider>
+      <MemoryRouter>
+        <PartsPage />
+      </MemoryRouter>
+    </AuthProvider>,
+  )
+  expect(await screen.findByText('남의 블록')).toBeInTheDocument()
+  fireEvent.click(screen.getByLabelText('내 브래킷 선택'))
+  // 고른 것 중 규격 부품만 센다.
+  expect(screen.getByRole('button', { name: '규격 부품 내보내기 (0)' })).toBeDisabled()
+  fireEvent.click(screen.getByLabelText('남의 블록 선택'))
+  expect(screen.getByRole('button', { name: '규격 부품 내보내기 (1)' })).toBeEnabled()
+  fireEvent.click(screen.getByRole('button', { name: '규격 부품 가져오기' }))
+  expect(await screen.findByLabelText('묶음 파일')).toBeInTheDocument()
+})
+
+test('부품 카탈로그 — 관리자가 아니면 규격 부품 내보내기 · 가져오기가 없다', async () => {
+  mockCatalog('parts')
+  render(
+    <AuthProvider>
+      <MemoryRouter>
+        <PartsPage />
+      </MemoryRouter>
+    </AuthProvider>,
+  )
+  expect(await screen.findByText('남의 블록')).toBeInTheDocument()
+  fireEvent.click(screen.getByLabelText('내 브래킷 선택'))
+  expect(screen.queryByRole('button', { name: '규격 부품 가져오기' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /규격 부품 내보내기/ })).not.toBeInTheDocument()
 })

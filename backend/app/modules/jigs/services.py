@@ -59,6 +59,8 @@ def version_out(db: Session, version: JigVersion) -> JigVersionOut:
         job=jobs.job_out(db, job) if job else None,
         options=version.options,
         summary=version.summary,
+        recipe=version.recipe,
+        conditions=version.conditions or {},
         part_id=part.id if part else None,
         part_name=part.name if part else None,
         part_version=part_version.number if part_version else None,

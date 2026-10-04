@@ -10,6 +10,7 @@ import { Boxes, Layers } from 'lucide-react'
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { bomLine, featureLine, locatorLine } from '@/modules/jigs/featureLabels'
 import { JigResultView } from '@/modules/jigs/JigResultView'
 import type { Job } from '@/modules/jobs/api'
 import { partsApi } from '@/modules/parts/api'
@@ -34,19 +35,20 @@ const PickViewer = lazy(() => import('@/shared/viewer/PickViewer'))
 
 type Source = { key: string; label: string; hint: string }
 
-/** 미리보기 색 — 요소 종류마다. 이름표(「받침 2」)의 앞말로 고른다. */
+/** 미리보기 색 — 요소 종류마다. 이름표(「받침_2」 — 레시피의 노드 id 와 같다)의 앞말로 고른다. */
 const ELEMENT_COLORS: { prefix: string; label: string; color: number; note: string }[] = [
   { prefix: '제품', label: '제품', color: 0x3b82f6, note: '선택한 부품입니다.' },
   { prefix: '바닥판', label: '바닥판', color: 0x9ca3af, note: '부품 바닥 크기에 판 여유를 더한 크기입니다.' },
   { prefix: '바닥', label: '바닥', color: 0x9ca3af, note: '낙하 바닥입니다. 부품 투영 면적에 여유를 더한 크기입니다.' },
   { prefix: '받침대', label: '받침대', color: 0xf97316, note: '바닥에 구멍이 없으면 옆면을 받침대로 지지합니다.' },
   { prefix: '받침', label: '받침', color: 0x10b981, note: '부품 바닥면에서 구멍을 피해 배치합니다(3개 또는 4개).' },
-  { prefix: '위치 핀', label: '위치 핀', color: 0xf97316, note: '부품 바닥의 구멍 두 개(가장 멀리 떨어진 쌍)에 삽입합니다.' },
+  { prefix: '측면_핀', label: '측면 핀', color: 0xf97316, note: '바닥 구멍이 모자라면 옆 구멍에 가로 핀을 삽입합니다(판에 세운 블록).' },
+  { prefix: '위치_핀', label: '위치 핀', color: 0xf97316, note: '부품 바닥의 구멍 두 개(가장 멀리 떨어진 쌍)에 삽입합니다.' },
   { prefix: '클램프', label: '클램프', color: 0xa855f7, note: '부품 윗면 가장자리를 위에서 가압합니다.' },
   { prefix: '볼트', label: '볼트', color: 0xa855f7, note: '부품의 관통 구멍(서로 멀리 떨어진 것부터)을 지나 판의 탭 구멍에 체결합니다.' },
   { prefix: '스페이서', label: '스페이서', color: 0x10b981, note: '볼트 위치마다 부품을 띄우는 원통입니다.' },
   { prefix: '롤러', label: '롤러', color: 0x10b981, note: '긴 변 방향 ±스팬/2 위치의 받침대 위에 눕힌 원기둥입니다.' },
-  { prefix: '로딩 노즈', label: '로딩 노즈', color: 0xa855f7, note: '스팬 중앙에서 부품 윗면을 가압합니다.' },
+  { prefix: '로딩_노즈', label: '로딩 노즈', color: 0xa855f7, note: '부품 윗면을 가압합니다(3점은 스팬 중앙, 4점은 하중 간격의 양 끝).' },
   { prefix: '임팩터', label: '낙하물', color: 0xef4444, note: '부품 윗면 중앙 위에 간극만큼 띄워 배치합니다.' },
 ]
 const colorOfLabel = (label: string) => ELEMENT_COLORS.find((one) => label.startsWith(one.prefix))?.color ?? 0x3b82f6
@@ -258,6 +260,12 @@ export default function JigFromPartPage() {
                         <span>{planLine(preview)}</span>
                         <StatusBadge kind="interference" value={preview.interference.ok ? 'ok' : 'bad'} />
                       </div>
+                      {(preview.plan.bom?.length ?? 0) > 0 && (
+                        <p className="text-xs">규격 부품: {bomLine(preview.plan.bom ?? [])}</p>
+                      )}
+                      {preview.feature_counts && Object.keys(preview.feature_counts).length > 0 && (
+                        <p className="text-muted-foreground text-xs">인식한 특징: {featureLine(preview.feature_counts)}</p>
+                      )}
                       <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
                         {legend.map((one) => (
                           <li key={one.prefix}>
@@ -324,8 +332,8 @@ function planLine(preview: JigPreview): string {
   if (p.kind === 'bolted') return `볼트 ${p.bolts.length}${p.product_lift > 0 ? ` · 스페이서 ${p.bolts.length}` : ''}`
   if (p.kind === 'bending') return `롤러 ${p.rollers.length} · 로딩 노즈 1`
   if (p.kind === 'drop') return p.impactor ? `바닥 · 낙하물(${p.impactor.kind === 'ball' ? '강구' : '펜'})` : '바닥(부품 자유 낙하)'
-  const locator = p.locators.some((one) => one.kind === 'pin') ? '위치 핀' : '받침대'
-  return `받침 ${p.supports.length} · ${locator} ${p.locators.length} · 클램프 ${p.clamps.length}`
+  const locators = locatorLine(p.locators)
+  return `받침 ${p.supports.length}${locators ? ` · ${locators}` : ''} · 클램프 ${p.clamps.length}`
 }
 
 function SourceList({

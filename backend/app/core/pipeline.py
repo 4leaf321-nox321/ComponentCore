@@ -33,6 +33,7 @@ from app.core import (
     jig_recipe,
     planning,
     primitives,
+    standard,
 )
 from app.core.model import (
     Feature,
@@ -105,18 +106,9 @@ class JigBuild:
             child.label = label
             children.append(child)
 
-        add(self.product, "제품")
-        add(self.elements.base_plate, "바닥" if self.plan.kind == "drop" else "바닥판")
-        for i, one in enumerate(self.elements.supports, start=1):
-            add(one, f"받침 {i}")
-        counts = {"pin": 0, "rest": 0}
-        for spec, one in zip(self.plan.locators, self.elements.locators, strict=True):
-            key = "pin" if spec.kind == "pin" else "rest"
-            counts[key] += 1
-            add(one, f"{'위치 핀' if key == 'pin' else '받침대'} {counts[key]}")
-        for i, one in enumerate(self.elements.clamps, start=1):
-            add(one, f"클램프 {i}")
-        for one in self.elements.others:  # 볼트 · 롤러 · 로딩 노즈 · 임팩터 — 이름표가 한국말
+        add(self.product, assembly.PRODUCT)
+        # 요소의 이름표는 레시피의 노드 id 와 같다(`assembly` 머리말).
+        for one in self.elements.all_parts():
             add(one, one.label)
         return Compound(children=children)
 
@@ -126,9 +118,10 @@ def analyze(
     options: JigOptions,
     *,
     on_stage: OnStage | None = None,
+    library: list[standard.LibraryPart] | None = None,
 ) -> JigBuild:
     """읽기 → 특징 → 계획 → 요소 → 조립 → 간섭. **파일은 안 쓴다** — 미리보기와 실행이
-    같이 쓴다."""
+    같이 쓴다. `library` 는 규격 부품 목록(서버가 값으로 넘긴다 — 코어는 DB 를 모른다)."""
     clock = _Clock(on_stage)
 
     raw = clock.run(
@@ -150,14 +143,14 @@ def analyze(
     )
     fixture = clock.run(
         "planning",
-        lambda: planning.plan(geom, found, options),
+        lambda: planning.plan(geom, found, options, library),
         lambda p: (
             f"받침 {len(p.supports)}개, 로케이터 {len(p.locators)}개, 클램프 {len(p.clamps)}개"
         ),
     )
     built = clock.run(
         "elements",
-        lambda: assembly.build_elements(fixture, options),
+        lambda: assembly.build_elements(fixture, options, library),
         lambda e: f"부품 {len(e.all_parts())}개",
     )
     jig = clock.run(
@@ -190,8 +183,9 @@ def run(
     *,
     basename: str = "jig",
     on_stage: OnStage | None = None,
+    library: list[standard.LibraryPart] | None = None,
 ) -> JigResult:
-    made = analyze(source, options, on_stage=on_stage)
+    made = analyze(source, options, on_stage=on_stage, library=library)
     clock = _Clock(on_stage)
     clock.stages = made.stages
     jig, product = made.jig, made.product

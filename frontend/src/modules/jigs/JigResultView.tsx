@@ -6,6 +6,7 @@
 
 import { lazy, Suspense, useEffect, useState } from 'react'
 
+import { bomLine, featureLine, locatorLine } from '@/modules/jigs/featureLabels'
 import type { JigSummary } from '@/modules/jigs/api'
 import { isFinished, jobsApi, runState } from '@/modules/jobs/api'
 import { CancelJobButton } from '@/modules/jobs/CancelJobButton'
@@ -275,17 +276,15 @@ export function JigResultView({
               {s.geometry.volume.toLocaleString()} mm³ · 면 {s.geometry.face_count}
             </p>
             <p className="text-muted-foreground text-xs">
-              피처:{' '}
-              {Object.entries(s.feature_counts)
-                .map(([key, count]) => `${key} ${count}`)
-                .join(', ')}
+              인식한 특징: {featureLine(s.feature_counts)}
             </p>
             <p>
               베이스 플레이트 {s.plan.base_plate.length} × {s.plan.base_plate.width} ×{' '}
               {s.plan.base_plate.thickness} mm · 받침 {s.plan.supports.length} · 로케이터{' '}
-              {s.plan.locators.length} ({s.plan.locators.map((l) => l.kind).join(', ') || '없음'}) ·
+              {s.plan.locators.length} ({locatorLine(s.plan.locators) || '없음'}) ·
               클램프 {s.plan.clamps.length}
             </p>
+            {(s.plan.bom?.length ?? 0) > 0 && <p>규격 부품: {bomLine(s.plan.bom ?? [])}</p>}
             {s.plan.notes.length > 0 && (
               <ul className="text-muted-foreground list-inside list-disc text-xs">
                 {s.plan.notes.map((note) => (

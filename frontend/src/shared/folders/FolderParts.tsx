@@ -99,8 +99,11 @@ export function FolderCrumbs({ space, allLabel, extra }: { space: FolderSpace; a
   )
 }
 
-/** 골라 둔 것이 있을 때 — 몇 개인지, 폴더로 옮기기. */
-export function ChosenBar({ space }: { space: FolderSpace }) {
+/**
+ * 골라 둔 것이 있을 때 — 몇 개인지, 폴더로 옮기기. `children` 은 그 공간만의 동작(부품의
+ * 「규격 부품 내보내기」 등)을 「폴더로 이동」 옆에 둔다.
+ */
+export function ChosenBar({ space, children }: { space: FolderSpace; children?: ReactNode }) {
   if (space.chosen.size === 0) return null
   return (
     <div className="bg-accent/50 mb-2 flex items-center gap-2 rounded-md px-3 py-1.5 text-sm">
@@ -108,6 +111,7 @@ export function ChosenBar({ space }: { space: FolderSpace }) {
       <Button size="sm" variant="outline" className="h-7" onClick={() => space.setDialog({ kind: 'move' })}>
         폴더로 이동
       </Button>
+      {children}
       <button type="button" className="text-muted-foreground text-xs hover:underline" onClick={() => space.setChosen(new Set())}>
         선택 해제
       </button>

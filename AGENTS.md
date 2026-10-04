@@ -69,11 +69,16 @@
 
 - **내 작업(Work)이 곧 공간이다.** 작업 · 그 버전 · 그 작업이 건 job · 작업물은 소유자와 관리자만
   본다(`works.require_owner` · `jobs.require_visible`). 목록도 내 것만 나온다.
-- 남에게 공개하는 유일한 길은 **등록**(`works.promote_part` · `promote_jig`)이다. 카탈로그 버전은
-  레시피 · 요약을 **복사**해 들고, 작업물은 job 을 그대로 가리킨다 — 그래서 등록된 job 의 작업물은
-  누구나 받는다. 작업이 지워져도 카탈로그는 남는다.
+- 남에게 공개하는 유일한 길은 **등록**(`works.promote_part` · `promote_jig_recipe`)이다. 카탈로그
+  버전은 레시피 · 해석 조건 · 요약을 **복사**해 들고, 작업물은 job 을 그대로 가리킨다 — 그래서 등록된
+  job 의 작업물은 누구나 받는다. 작업이 지워져도 카탈로그는 남는다. 남이 이어서 고치는 길은
+  **복사**뿐이다(`POST /parts/{id}/copy-to-work` · `POST /jigs/{id}/copy-to-work` · DOE 는
+  `POST /doe/{id}/clone`) — 원본은 건드리지 않고 내 것을 새로 만든다.
 - 카탈로그 버전은 고치지 않는다. 고치려면 「내 작업 공간으로 복사」(`parts.copy_to_work`) → 고침 →
   다시 등록(v2).
+- **예외 하나 — 규격 부품 가져오기**(`parts.import_standard`, 시스템 관리자만). 다른 서버에서 내보낸
+  묶음의 레시피로 카탈로그 버전을 **작업 없이** 바로 만든다(품번으로 짝짓는다, ADR 0005). 들어오는
+  레시피는 STEP · 다른 도면을 가리킬 수 없다 — 규격 사양의 형상 기준이 거절한다.
 - 지그 등록은 **어느 부품 버전의 지그인가**를 고정한다. 제품(그때의 형상 버전)이 부품에 없으면
   함께 등록한다(`promote_product`). 지그의 제품이 현재 버전이 아니면 거절한다 — 옛 버전을 등록하려면
   복원한 뒤.
@@ -100,6 +105,16 @@
 - 3D 에서 고른 엣지는 **위치(중점)**로 적는다(`EdgeNear`). 인덱스는 형상을 조금만 고쳐도 바뀐다.
   면을 고르면 그 면의 중심 · 법선이 `PlaneSpec.origin/normal` 이 된다. 미리보기는 `/cad/recipe/mesh`
   (면 · 엣지 단위)이고 결과 화면은 glTF — 편집기만 선택이 필요하다.
+
+## 시험 규격
+
+- 시편 · 시험 지그 · 해석 조건의 **프리셋**은 한 모양(`core/specimens/presets.py`)이고 두 곳에 있다
+  (ADR 0006): 공개 규격(ASTM · ISO)은 `core/specimens/data/<시험>.json`, 사내 규격은 DB
+  (`specimen_presets`, 관리자). **회사 · 고객 규격을 저장소에 넣지 않는다** — 저장소가 공개다.
+- 공개 규격의 값을 고치면 `source` 도 고치고, 규격서와 대조했으면 `verified: true`. 데이터 파일의
+  프리셋은 전부 `tests/unit/test_core_specimens.py` 가 그려 보고 조건까지 검증한다.
+- 지그 생성기는 시편 템플릿과 **같은 규칙 함수**(`specimens.bending`)를 쓴다. 코어는 DB 를 모르므로
+  서버가 고른 규격의 규칙을 `JigOptions.bending_setup` 에 값으로 채운다(`works._jig_options`).
 
 ## 이름과 식별자
 
@@ -136,8 +151,8 @@
   레시피를 받는 끝점(작업 저장 · DOE · 닮은 형상)은 직접 부른다. 새 끝점이 레시피를 받으면 같이 부른다 —
   안 그러면 남의 비공개 작업 id 하나로 그 작업의 STEP 을 받아 갈 수 있다(2026-10-04 점검).
 - 스키마를 바꿨으면 `python scripts/export_openapi.py` 와 `npm run api:types` 를 함께 돌린다.
-- **만드는 일은 전부 작업(Job)이다.** 지그 생성은 `POST /works/{id}/jig-runs` 가 `Job(kind="jig")`
-  을 걸고 202 로 돌아온다. 워커(`python -m app.worker`)가 DB 큐에서 집어 돌리고, 화면은 `GET /api/jobs/{id}`
+- **만드는 일은 전부 작업(Job)이다.** 지그 생성은 `POST /works/jig-from-part` 가 지그 작업을 만들고
+  `Job(kind="jig")` 을 걸어 202 로 돌아온다(끝나면 `…/jig-runs/{job}/adopt` 가 첫 버전으로). 워커(`python -m app.worker`)가 DB 큐에서 집어 돌리고, 화면은 `GET /api/jobs/{id}`
   를 폴링한다([ADR 0003](docs/adr/0003-DB-를-큐로-쓴다.md)).
   - 새 종류는 `app/handlers.py` 에서 등록한다 — 서버와 워커가 같은 함수를 부른다. 실행 함수는
     `(input, options, out_dir, progress) → Outcome` 이고 **웹 · DB 를 모른다.**

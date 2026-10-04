@@ -1,4 +1,5 @@
 import type { Recipe } from '@/modules/cad/api'
+import type { JigProduct } from '@/modules/works/jigEdit'
 import type { Job } from '@/modules/jobs/api'
 import type { MeshData } from '@/shared/viewer/PickViewer'
 import { api } from '@/shared/api/client'
@@ -108,6 +109,13 @@ export interface WorkSummary {
   shape?: ShapeIndex | null
 }
 
+export interface BomRow {
+  part_no: string
+  name: string
+  kind: string
+  count: number
+}
+
 export interface JigPreview {
   plan: {
     kind: 'clamped' | 'bolted' | 'bending' | 'drop'
@@ -121,9 +129,13 @@ export interface JigPreview {
     impactor: { kind: string } | null
     product_lift: number
     notes: string[]
+    /** 규격 부품표 — 품번마다 수량(즉석 도형은 들지 않는다). */
+    bom?: BomRow[]
   }
   interference: { ok: boolean; items: { a: string; b: string; ok: boolean; volume: number }[] }
   geometry: Record<string, unknown>
+  /** 알아본 특징 `kind:role` → 개수(경사면 · 옆 구멍 · 포켓 …). */
+  feature_counts?: Record<string, number>
   mesh: MeshData
 }
 
@@ -218,10 +230,12 @@ export const worksApi = {
     api.post<{ work: Work; placement: { mode: 'generated' | 'guessed'; translate: number[]; product_lift: number; height_param: string } }>('/works/assemble', body),
   /** 끝난 생성 결과를 그 지그 작업의 버전으로 — 두 번 불러도 같은 버전. */
   adoptJigRun: (id: string, jobId: string) => api.post<WorkVersion>(`/works/${id}/jig-runs/${jobId}/adopt`, {}),
+  /** 생성된 지그의 검사용 제품 — 편집기가 옆에 놓고 요소마다 간섭을 본다(저장하지 않는다). */
+  jigProduct: (id: string) => api.get<JigProduct>(`/works/${id}/jig-product`),
   promotePart: (id: string, body: { name?: string; note?: string; conditions?: boolean }) =>
     api.post<{ part_id: string; number: number }>(`/works/${id}/promote/part`, body),
   /** 손으로 그린 지그(레시피 버전)를 지그 카탈로그로 — 생성기를 거치지 않는 길. */
   /** 생성기가 만든 지그를 **지그 작업으로** — 그 다음부터는 그냥 그린다. */
-  promoteJigRecipe: (id: string, body: { number?: number; name?: string; note?: string; part_id?: string | null }) =>
+  promoteJigRecipe: (id: string, body: { number?: number; name?: string; note?: string; part_id?: string | null; conditions?: boolean }) =>
     api.post<{ jig_id: string; jig_version: number }>(`/works/${id}/promote/jig-recipe`, body),
 }

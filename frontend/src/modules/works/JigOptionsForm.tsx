@@ -4,9 +4,11 @@
  * 형식과 칸 이름은 서버 `core/options.py` 의 정본을 따른다 — 여기서 새 칸을 지어내지 않는다.
  */
 
+import { specimensApi } from '@/modules/specimens/api'
 import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select'
+import { useResource } from '@/shared/hooks/useResource'
 
 export type JigKind = 'clamped' | 'bolted' | 'bending' | 'drop'
 
@@ -14,14 +16,19 @@ export type JigKind = 'clamped' | 'bolted' | 'bending' | 'drop'
 export const JIG_KINDS: { value: JigKind; label: string; hint: string }[] = [
   { value: 'clamped', label: '판·클램프 고정', hint: '바닥판 위에 받침, 위치 핀, 클램프를 배치합니다(3-2-1 원칙).' },
   { value: 'bolted', label: '볼트 고정', hint: '부품의 관통 구멍에 볼트를 삽입하여 판에 체결합니다(진동·충격 시험용).' },
-  { value: 'bending', label: '3점 굽힘 픽스처', hint: '긴 변 방향으로 스팬을 정하고 롤러 두 개로 지지한 후 중앙을 가압합니다.' },
+  {
+    value: 'bending',
+    label: '굽힘 픽스처(3점·4점)',
+    hint: '긴 변 방향으로 스팬을 정하고 롤러 두 개로 지지한 후 노즈로 가압합니다. 시험 규격을 선택하면 스팬과 롤러·노즈 지름이 규격을 따릅니다.',
+  },
   { value: 'drop', label: '낙하·충격 자세', hint: '선택한 면이 아래를 향하도록 배치하고 바닥판과 낙하물을 둡니다.' },
 ]
 
 type Field =
   | { key: string; label: string; kind: 'number'; step?: number }
-  | { key: string; label: string; kind: 'select'; choices: { value: string; label: string }[] }
+  | { key: string; label: string; kind: 'select'; choices: { value: string; label: string }[]; numeric?: boolean }
   | { key: string; label: string; kind: 'bool' }
+  | { key: string; label: string; kind: 'preset' }
 
 const COMMON: Field[] = [
   { key: 'plate_margin', label: '판 여유 (mm)', kind: 'number' },
@@ -32,6 +39,7 @@ const COMMON: Field[] = [
 const FIELDS: Record<JigKind, Field[]> = {
   clamped: [
     ...COMMON,
+    { key: 'standard_parts', label: '규격 부품 사용(받침 · 위치 핀 · 토글 클램프)', kind: 'bool' },
     { key: 'support_count', label: '받침 수 (3 또는 4)', kind: 'number', step: 1 },
     { key: 'support_diameter', label: '받침 지름 (mm)', kind: 'number' },
     { key: 'support_height', label: '받침 높이 (mm)', kind: 'number' },
@@ -57,6 +65,18 @@ const FIELDS: Record<JigKind, Field[]> = {
   ],
   bending: [
     ...COMMON,
+    { key: 'bending_preset', label: '시험 규격', kind: 'preset' },
+    {
+      key: 'bending_points',
+      label: '방식',
+      kind: 'select',
+      numeric: true,
+      choices: [
+        { value: '3', label: '3점 굽힘' },
+        { value: '4', label: '4점 굽힘' },
+      ],
+    },
+    { key: 'bending_load_span', label: '하중 간격 (mm, 4점, 0 = 스팬의 1/3)', kind: 'number' },
     { key: 'bending_span_ratio', label: '스팬 비율 (긴 변 대비)', kind: 'number', step: 0.05 },
     { key: 'bending_span', label: '스팬 (mm, 0 = 비율 적용)', kind: 'number' },
     { key: 'bending_roller_diameter', label: '롤러 지름 (mm)', kind: 'number' },
@@ -123,7 +143,7 @@ export function JigOptionsForm({
             />
           )}
           {field.kind === 'select' && (
-            <Select value={String(values[field.key] ?? field.choices[0].value)} onValueChange={(next) => onChange({ ...values, [field.key]: next })}>
+            <Select value={String(values[field.key] ?? field.choices[0].value)} onValueChange={(next) => onChange({ ...values, [field.key]: field.numeric ? Number(next) : next })}>
               <SelectTrigger id={`opt-${field.key}`} aria-label={field.label}>
                 <SelectValue />
               </SelectTrigger>
@@ -136,6 +156,9 @@ export function JigOptionsForm({
               </SelectContent>
             </Select>
           )}
+          {field.kind === 'preset' && (
+            <BendingPresetSelect id={`opt-${field.key}`} value={String(values[field.key] ?? '')} onChange={(next) => onChange({ ...values, [field.key]: next })} />
+          )}
           {field.kind === 'bool' && (
             <label className="flex h-9 items-center gap-2 text-sm">
               <input id={`opt-${field.key}`} type="checkbox" checked={Boolean(values[field.key])} onChange={(event) => onChange({ ...values, [field.key]: event.target.checked })} />
@@ -144,6 +167,25 @@ export function JigOptionsForm({
           )}
         </div>
       ))}
+      {kind === 'bending' && Boolean(values.bending_preset) && (
+        <p className="text-muted-foreground col-span-full text-xs">시험 규격의 규칙이 스팬, 롤러·노즈 지름, 방식보다 우선합니다. 두께는 부품의 높이(Z)입니다.</p>
+      )}
     </div>
+  )
+}
+
+/** 굽힘 시험 규격 — 공개 · 사내 규격(`/specimens/presets`). 비우면 아래 칸의 값 그대로. */
+function BendingPresetSelect({ id, value, onChange }: { id: string; value: string; onChange: (next: string) => void }) {
+  const presets = useResource(() => specimensApi.list('bending'), [])
+  return (
+    <select id={id} aria-label="시험 규격" className="bg-background h-9 w-full rounded-md border px-2 text-sm" value={value} onChange={(event) => onChange(event.target.value)}>
+      <option value="">사용 안 함</option>
+      {(presets.data ?? []).map((one) => (
+        <option key={one.id} value={one.id}>
+          {one.name}
+          {one.origin === 'internal' ? ' (사내)' : ''}
+        </option>
+      ))}
+    </select>
   )
 }

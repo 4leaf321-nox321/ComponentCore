@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -16,11 +17,15 @@ from app.modules.parts.schemas import (
     PartSummaryOut,
     PartUpdateRequest,
     PartVersionOut,
+    StandardBundle,
+    StandardExportRequest,
+    StandardImportOut,
+    StandardSpec,
 )
 from app.modules.works import services as works
 from app.modules.works.schemas import WorkOut
 from app.shared import folders
-from app.shared.auth import current_user
+from app.shared.auth import current_user, require_system_admin
 from app.shared.errors import NotFound, code
 from app.shared.pagination import Page, clamp_limit
 from app.shared.shape_search import ShapeFilter, shape_query
@@ -79,12 +84,13 @@ def list_parts(
     folder: str | None = Query(default=None, max_length=255),
     subfolders: bool = Query(default=True),
     shape: ShapeFilter = Depends(shape_query),
+    standard: Literal["", "any", "support", "pin", "clamp"] = Query(default=""),
     _: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> Page[PartSummaryOut]:
     """부품 카탈로그 — `q` · `tag` 로 찾고, `folder` 면 그 폴더(`subfolders` 면 하위까지).
     **형상으로**: `has` · `thread` · `param` · `fits` · `volume_min` · `volume_max` · `hole` ·
-    `holes` — 최신 버전의 형상 색인으로 거른다."""
+    `holes` — 최신 버전의 형상 색인으로 거른다. `standard` 면 규격 부품만(`any` 또는 종류)."""
     size = clamp_limit(limit)
     rows, total = services.list_parts(
         db,
@@ -95,6 +101,7 @@ def list_parts(
         folder=folder,
         subfolders=subfolders,
         shape=shape,
+        standard=standard,
     )
     return Page(
         items=[services.part_summary(db, one) for one in rows],
@@ -102,6 +109,55 @@ def list_parts(
         limit=size,
         offset=offset,
     )
+
+
+@router.post("/standard/export", response_model=StandardBundle)
+def export_standard(
+    payload: StandardExportRequest,
+    _: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> StandardBundle:
+    """**규격 부품 묶음**을 만든다 — 시스템 관리자만. 고른 것(`ids`, 비우면 전부)의 사양과 쓰는
+    버전의 레시피를 JSON 하나로. 개발 PC 에서 그린 규격품을 운영 서버로 옮길 때 쓴다."""
+    return services.export_standard(db, payload.ids)
+
+
+@router.post("/standard/import", response_model=StandardImportOut)
+def import_standard(
+    payload: StandardBundle,
+    dry_run: bool = Query(default=False),
+    user: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> StandardImportOut:
+    """**규격 부품 묶음**을 가져온다 — 시스템 관리자만. 품번으로 짝지어 없으면 새 부품, 있으면
+    형상이 다를 때 새 버전 · 사양만 다르면 사양만. 형상 기준을 어긴 항목은 건너뛰고 까닭을
+    말한다. `dry_run` 이면 아무것도 바꾸지 않고 할 일만 돌려준다."""
+    return services.import_standard(db, payload, by=user, dry_run=dry_run)
+
+
+@router.put("/{part_id}/standard", response_model=PartOut)
+def set_standard(
+    part_id: uuid.UUID,
+    payload: StandardSpec,
+    _: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> PartOut:
+    """**규격 사양**을 붙이거나 고친다 — 시스템 관리자만. 종류(받침 · 위치 핀 · 토글 클램프) ·
+    품번 · 쓰는 버전 · 치수. 그 버전의 형상이 기준(바닥 중심 원점 · 패드 자리)을 지키는지 본
+    뒤에 저장한다. 지그 생성기가 요구에 맞는 것을 골라 놓고 부품표에 품번 · 수량을 남긴다."""
+    part = services.get_part(db, part_id)
+    return services.part_out(db, services.set_standard(db, part, payload))
+
+
+@router.delete("/{part_id}/standard", response_model=PartOut)
+def clear_standard(
+    part_id: uuid.UUID,
+    _: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> PartOut:
+    """규격 사양을 뗀다 — 일반 부품으로 돌아간다. 이미 만든 지그는 그대로다."""
+    part = services.get_part(db, part_id)
+    return services.part_out(db, services.clear_standard(db, part))
 
 
 @router.get("/{part_id}", response_model=PartOut)

@@ -29,9 +29,10 @@ const JOB = {
 }
 
 const PREVIEW = {
-  plan: { kind: 'clamped', base_plate: {}, supports: [{}, {}, {}], locators: [{ kind: 'pin' }, { kind: 'pin' }], clamps: [{}, {}], bolts: [], rollers: [], nose: null, impactor: null, product_lift: 25, notes: ['받침은 구멍을 피해 놓았다'] },
+  plan: { kind: 'clamped', base_plate: {}, supports: [{}, {}, {}], locators: [{ kind: 'pin' }, { kind: 'side_pin' }], clamps: [{}, {}], bolts: [], rollers: [], nose: null, impactor: null, product_lift: 25, notes: ['받침은 구멍을 피해 놓았다'], bom: [{ part_no: 'SUP-16', name: '받침 Ø16', kind: 'support', count: 3 }] },
   interference: { ok: true, items: [] },
   geometry: {},
+  feature_counts: { 'plane:bottom': 1, 'hole:side_through': 1, 'pocket:top': 1 },
   mesh: { bbox: { min: [0, 0, 0], max: [1, 1, 1] }, faces: [{ index: 0, kind: 'plane', center: [0, 0, 0], normal: [0, 0, 1], area: 1, vertices: [], triangles: [], part: '받침 1' }], edges: [] },
 }
 
@@ -75,7 +76,11 @@ test('부품을 고르고 만들면 지그 작업이 생기고, 끝난 결과가
   await waitFor(() => expect(calls.some((c) => c.url.endsWith('/jig-from-part/preview'))).toBe(true), { timeout: 3000 })
   expect(await screen.findByText('받침은 구멍을 피해 놓았다')).toBeInTheDocument()
   expect(calls.find((c) => c.url.endsWith('/jig-from-part/preview'))!.body).toMatchObject({ source: 'work:w1', options: { support_count: 4, kind: 'clamped' } })
-  expect(screen.getByText(/받침 3 · 위치 핀 2 · 클램프 2/)).toBeInTheDocument()
+  expect(screen.getByText(/받침 3 · 위치 핀 1 · 측면 핀 1 · 클램프 2/)).toBeInTheDocument()
+  // 무엇을 알아봤나 — 열쇠(plane:bottom)가 아니라 사람이 읽는 말로.
+  expect(screen.getByText('인식한 특징: 바닥면 1 · 옆 관통 구멍 1 · 포켓(위) 1')).toBeInTheDocument()
+  // 규격 부품표 — 품번과 수량.
+  expect(screen.getByText('규격 부품: SUP-16 받침 Ø16 × 3')).toBeInTheDocument()
 
   // 형식을 바꾸면 옵션에 kind 가 실려 미리보기가 다시 돈다 — 그 형식의 칸만 편다.
   fireEvent.click(screen.getByRole('button', { name: /볼트 고정/ }))

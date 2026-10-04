@@ -2056,6 +2056,108 @@
         }
       }
     },
+    "/api/works/{work_id}/jig-product": {
+      "get": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Jig Product",
+        "description": "지그 작업의 **검사용 제품** 노드 — 편집기가 지그 레시피 옆에 놓고 요소마다 간섭을 본다\n(저장하는 레시피에는 넣지 않는다). 제품은 지그를 만들 때의 버전, 높이는 레시피의 받침\n높이 변수를 따른다. 못 놓으면 `available: false` 와 까닭.",
+        "operationId": "jig_product_api_works__work_id__jig_product_get",
+        "parameters": [
+          {
+            "name": "work_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Work Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Jig Product Api Works  Work Id  Jig Product Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/works/{work_id}/jig-check": {
+      "post": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Jig Check",
+        "description": "지그의 요소(받침 · 핀 · 클램프 …)마다 **제품 · 서로와 겹치는가** — 편집 중인 레시피를\n주면 그것을, 안 주면 현재 버전을 본다. 아무것도 저장하지 않는다.",
+        "operationId": "jig_check_api_works__work_id__jig_check_post",
+        "parameters": [
+          {
+            "name": "work_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Work Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JigCheckRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Jig Check Api Works  Work Id  Jig Check Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/works/jig-from-part/preview": {
       "post": {
         "tags": [
@@ -2446,7 +2548,7 @@
           "parts"
         ],
         "summary": "List Parts",
-        "description": "부품 카탈로그 — `q` · `tag` 로 찾고, `folder` 면 그 폴더(`subfolders` 면 하위까지).\n**형상으로**: `has` · `thread` · `param` · `fits` · `volume_min` · `volume_max` · `hole` ·\n`holes` — 최신 버전의 형상 색인으로 거른다.",
+        "description": "부품 카탈로그 — `q` · `tag` 로 찾고, `folder` 면 그 폴더(`subfolders` 면 하위까지).\n**형상으로**: `has` · `thread` · `param` · `fits` · `volume_min` · `volume_max` · `hole` ·\n`holes` — 최신 버전의 형상 색인으로 거른다. `standard` 면 규격 부품만(`any` 또는 종류).",
         "operationId": "list_parts_api_parts_get",
         "parameters": [
           {
@@ -2524,6 +2626,23 @@
               "type": "boolean",
               "default": true,
               "title": "Subfolders"
+            }
+          },
+          {
+            "name": "standard",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "",
+                "any",
+                "support",
+                "pin",
+                "clamp"
+              ],
+              "type": "string",
+              "default": "",
+              "title": "Standard"
             }
           },
           {
@@ -2663,6 +2782,198 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Page_PartSummaryOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/parts/standard/export": {
+      "post": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "Export Standard",
+        "description": "**규격 부품 묶음**을 만든다 — 시스템 관리자만. 고른 것(`ids`, 비우면 전부)의 사양과 쓰는\n버전의 레시피를 JSON 하나로. 개발 PC 에서 그린 규격품을 운영 서버로 옮길 때 쓴다.",
+        "operationId": "export_standard_api_parts_standard_export_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StandardExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardBundle"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/parts/standard/import": {
+      "post": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "Import Standard",
+        "description": "**규격 부품 묶음**을 가져온다 — 시스템 관리자만. 품번으로 짝지어 없으면 새 부품, 있으면\n형상이 다를 때 새 버전 · 사양만 다르면 사양만. 형상 기준을 어긴 항목은 건너뛰고 까닭을\n말한다. `dry_run` 이면 아무것도 바꾸지 않고 할 일만 돌려준다.",
+        "operationId": "import_standard_api_parts_standard_import_post",
+        "parameters": [
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Dry Run"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StandardBundle"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardImportOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/parts/{part_id}/standard": {
+      "put": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "Set Standard",
+        "description": "**규격 사양**을 붙이거나 고친다 — 시스템 관리자만. 종류(받침 · 위치 핀 · 토글 클램프) ·\n품번 · 쓰는 버전 · 치수. 그 버전의 형상이 기준(바닥 중심 원점 · 패드 자리)을 지키는지 본\n뒤에 저장한다. 지그 생성기가 요구에 맞는 것을 골라 놓고 부품표에 품번 · 수량을 남긴다.",
+        "operationId": "set_standard_api_parts__part_id__standard_put",
+        "parameters": [
+          {
+            "name": "part_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Part Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StandardSpec"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "Clear Standard",
+        "description": "규격 사양을 뗀다 — 일반 부품으로 돌아간다. 이미 만든 지그는 그대로다.",
+        "operationId": "clear_standard_api_parts__part_id__standard_delete",
+        "parameters": [
+          {
+            "name": "part_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Part Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartOut"
                 }
               }
             }
@@ -3416,6 +3727,60 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jigs/{jig_id}/copy-to-work": {
+      "post": {
+        "tags": [
+          "jigs"
+        ],
+        "summary": "Copy To Work",
+        "description": "지그의 레시피로 **내 작업**(종류 지그)을 새로 만든다 — 남의 지그를 고치거나 그 지그로\nDOE 를 돌리는 길. 잡는 부품 · 해석 조건이 따라간다(부품의 복사와 같다).",
+        "operationId": "copy_to_work_api_jigs__jig_id__copy_to_work_post",
+        "parameters": [
+          {
+            "name": "jig_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Jig Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JigCopyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkOut"
+                }
+              }
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -7202,6 +7567,306 @@
           }
         }
       }
+    },
+    "/api/specimens/presets": {
+      "get": {
+        "tags": [
+          "specimens"
+        ],
+        "summary": "List Presets",
+        "description": "시험 규격 — 공개 규격(ASTM · ISO, 코드)과 사내 규격(DB)을 한 목록으로. `test` 로 시험\n종류(`bending` …)를 거른다. 규격서와 대조하기 전의 값은 `preset.verified=false`.",
+        "operationId": "list_presets_api_specimens_presets_get",
+        "parameters": [
+          {
+            "name": "test",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 20,
+              "default": "",
+              "title": "Test"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PresetOut"
+                  },
+                  "title": "Response List Presets Api Specimens Presets Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "specimens"
+        ],
+        "summary": "Create Preset",
+        "description": "**사내 규격**을 더한다 — 시스템 관리자만. 공개 규격과 같은 모양이고, 저장 전에 값 검사와\n실제로 그려 보기를 지난다(틀리면 400 과 `details.problems`).",
+        "operationId": "create_preset_api_specimens_presets_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PresetIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresetOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/specimens/presets/{preset_id}": {
+      "get": {
+        "tags": [
+          "specimens"
+        ],
+        "summary": "Get Preset",
+        "operationId": "get_preset_api_specimens_presets__preset_id__get",
+        "parameters": [
+          {
+            "name": "preset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Preset Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresetOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "specimens"
+        ],
+        "summary": "Update Preset",
+        "description": "사내 규격을 고친다 — 시스템 관리자만. 공개 규격은 고칠 수 없다(복사해 사내 규격으로).",
+        "operationId": "update_preset_api_specimens_presets__preset_id__put",
+        "parameters": [
+          {
+            "name": "preset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Preset Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PresetIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresetOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "specimens"
+        ],
+        "summary": "Delete Preset",
+        "description": "사내 규격을 지운다 — 이 규격으로 이미 만든 작업 · 지그는 그때의 값 그대로다.",
+        "operationId": "delete_preset_api_specimens_presets__preset_id__delete",
+        "parameters": [
+          {
+            "name": "preset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Preset Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/specimens/build": {
+      "post": {
+        "tags": [
+          "specimens"
+        ],
+        "summary": "Build",
+        "description": "시편(과 시험 지그 · 해석 조건)을 그려 본다 — 저장하지 않는다. 화면은 이 레시피를\n`/cad/recipe/mesh` 로 미리 보인다.",
+        "operationId": "build_api_specimens_build_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpecimenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpecimenBuildOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/specimens/works": {
+      "post": {
+        "tags": [
+          "specimens"
+        ],
+        "summary": "Create Work",
+        "description": "시험 규격으로 **내 작업**을 만든다 — 시편 치수가 레시피 변수라 바로 DOE 로 훑고, 해석\n조건이 함께 붙어 그대로 내보낸다.",
+        "operationId": "create_work_api_specimens_works_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpecimenWorkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -8109,6 +8774,61 @@
         ],
         "title": "InterferenceRequest"
       },
+      "JigCheckRequest": {
+        "properties": {
+          "recipe": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipe"
+          }
+        },
+        "type": "object",
+        "title": "JigCheckRequest",
+        "description": "지그 간섭 검사 — 편집 중인 레시피를 주면 그것을, 비우면 현재 버전을 본다."
+      },
+      "JigCopyRequest": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number"
+          },
+          "conditions": {
+            "type": "boolean",
+            "title": "Conditions",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "JigCopyRequest",
+        "description": "지그(버전)의 레시피로 내 작업을 새로 만든다 — 「내 작업 공간으로 복사」."
+      },
       "JigFromPartOut": {
         "properties": {
           "work": {
@@ -8471,6 +9191,23 @@
               }
             ],
             "title": "Summary"
+          },
+          "recipe": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipe"
+          },
+          "conditions": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Conditions"
           },
           "part_id": {
             "anyOf": [
@@ -9149,6 +9886,18 @@
             "title": "Folder",
             "default": ""
           },
+          "standard": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -9220,6 +9969,18 @@
             "type": "string",
             "title": "Folder",
             "default": ""
+          },
+          "standard": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard"
           },
           "shape": {
             "anyOf": [
@@ -9686,6 +10447,88 @@
         ],
         "title": "PortalExchangeRequest"
       },
+      "PresetIn": {
+        "properties": {
+          "preset": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Preset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "preset"
+        ],
+        "title": "PresetIn",
+        "description": "사내 규격 저장 — 프리셋 모양 그대로(`id` 는 서버가 정한다). 칸 검사는 코어가 한다."
+      },
+      "PresetOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "builtin",
+              "internal"
+            ],
+            "title": "Origin"
+          },
+          "test": {
+            "type": "string",
+            "title": "Test"
+          },
+          "standard": {
+            "type": "string",
+            "title": "Standard"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "preset": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Preset"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "origin",
+          "test",
+          "standard",
+          "name",
+          "preset"
+        ],
+        "title": "PresetOut",
+        "description": "시험 규격 프리셋 하나 — 공개 규격(`builtin`, 코드)과 사내 규격(`internal`, DB)이 같은\n모양이다. `preset` 은 `core.specimens.presets.Preset` 그대로(시편 치수 · 배치 규칙 · 해석\n기본값 · 출처 · 검토 여부)."
+      },
       "PreviewRequest": {
         "properties": {
           "factors": {
@@ -9996,6 +10839,11 @@
               }
             ],
             "title": "Part Id"
+          },
+          "conditions": {
+            "type": "boolean",
+            "title": "Conditions",
+            "default": true
           }
         },
         "type": "object",
@@ -10392,6 +11240,188 @@
         ],
         "title": "SketchSolveRequest"
       },
+      "SpecimenBuildOut": {
+        "properties": {
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "conditions": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conditions"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notes"
+          },
+          "values": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Values"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipe",
+          "conditions",
+          "notes"
+        ],
+        "title": "SpecimenBuildOut"
+      },
+      "SpecimenRequest": {
+        "properties": {
+          "preset_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Preset Id"
+          },
+          "length": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Length"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width"
+          },
+          "thickness": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thickness"
+          },
+          "fixture": {
+            "type": "boolean",
+            "title": "Fixture",
+            "default": true
+          },
+          "conditions": {
+            "type": "boolean",
+            "title": "Conditions",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "preset_id"
+        ],
+        "title": "SpecimenRequest"
+      },
+      "SpecimenWorkRequest": {
+        "properties": {
+          "preset_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Preset Id"
+          },
+          "length": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Length"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width"
+          },
+          "thickness": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thickness"
+          },
+          "fixture": {
+            "type": "boolean",
+            "title": "Fixture",
+            "default": true
+          },
+          "conditions": {
+            "type": "boolean",
+            "title": "Conditions",
+            "default": true
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "folder": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Folder",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "preset_id"
+        ],
+        "title": "SpecimenWorkRequest"
+      },
       "StageOut": {
         "properties": {
           "name": {
@@ -10414,6 +11444,427 @@
           "detail"
         ],
         "title": "StageOut"
+      },
+      "StandardBundle": {
+        "properties": {
+          "format": {
+            "type": "string",
+            "const": "compcore.standard-parts",
+            "title": "Format"
+          },
+          "format_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Format Version"
+          },
+          "exported_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Exported At"
+          },
+          "exported_from": {
+            "type": "string",
+            "maxLength": 300,
+            "title": "Exported From",
+            "default": ""
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StandardBundleItem"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "format",
+          "format_version",
+          "exported_at",
+          "items"
+        ],
+        "title": "StandardBundle",
+        "description": "규격 부품 묶음 — JSON 파일 하나. 형상이 레시피뿐이라(STEP · 다른 도면을 가리키지\n않는다) 따라가야 할 파일이 없다."
+      },
+      "StandardBundleItem": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Description",
+            "default": ""
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Tags"
+          },
+          "folder": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Folder",
+            "default": ""
+          },
+          "standard": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Standard"
+          },
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "origin": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Origin"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "standard",
+          "recipe"
+        ],
+        "title": "StandardBundleItem",
+        "description": "묶음의 규격 부품 하나 — 카탈로그 정보 · 사양 · 쓰는 버전의 레시피."
+      },
+      "StandardExportRequest": {
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Ids"
+          }
+        },
+        "type": "object",
+        "title": "StandardExportRequest"
+      },
+      "StandardImportItemOut": {
+        "properties": {
+          "part_no": {
+            "type": "string",
+            "title": "Part No"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "create",
+              "version",
+              "spec",
+              "same",
+              "skip"
+            ],
+            "title": "Action"
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Id"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Problems"
+          }
+        },
+        "type": "object",
+        "required": [
+          "part_no",
+          "name",
+          "kind",
+          "action"
+        ],
+        "title": "StandardImportItemOut"
+      },
+      "StandardImportOut": {
+        "properties": {
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StandardImportItemOut"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dry_run",
+          "items"
+        ],
+        "title": "StandardImportOut"
+      },
+      "StandardSpec": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "support",
+              "pin",
+              "clamp"
+            ],
+            "title": "Kind"
+          },
+          "part_no": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Part No"
+          },
+          "maker": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "Maker",
+            "default": ""
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version"
+          },
+          "preference": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Preference",
+            "default": 100
+          },
+          "top_diameter": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Diameter"
+          },
+          "height": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height"
+          },
+          "height_param": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 60
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height Param"
+          },
+          "height_min": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height Min"
+          },
+          "height_max": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height Max"
+          },
+          "diameter": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diameter"
+          },
+          "length": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Length"
+          },
+          "length_param": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 60
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Length Param"
+          },
+          "length_min": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Length Min"
+          },
+          "length_max": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Length Max"
+          },
+          "reach": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reach"
+          },
+          "pad_height": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pad Height"
+          },
+          "pad_diameter": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pad Diameter"
+          },
+          "base_length": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Length"
+          },
+          "base_width": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Width"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "part_no",
+          "version"
+        ],
+        "title": "StandardSpec",
+        "description": "**규격 사양** — 관리자가 공용 부품에 붙인다. 종류마다 쓰는 칸이 다르다.\n\n형상의 기준: 받침 · 핀은 바닥 중심이 원점이고 위가 +Z, 토글 클램프는 베이스 바닥 중심이\n원점이고 팔이 +X 로 뻗어 누른 상태의 패드 중심이 (reach, 0, pad_height). 형상은 레시피로만\n그린다(공급사 STEP 은 받아서 다시 그린다)."
       },
       "StudyCreateRequest": {
         "properties": {
@@ -12165,6 +13616,10 @@
     {
       "name": "templates",
       "description": "레시피 **템플릿** — 변수만 채워 쓰는 밑그림."
+    },
+    {
+      "name": "specimens",
+      "description": "**시험 규격** — 공개 규격(ASTM · ISO, 코드)과 사내 규격(DB, 관리자)의 프리셋. 규격으로 시편 · 시험 지그 · 해석 조건이 붙은 내 작업을 만든다."
     },
     {
       "name": "search",

@@ -66,6 +66,11 @@ export default function WorkPage() {
   const { id = '' } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const work = useResource(() => worksApi.get(id), [id])
+  /** 생성된 지그 — 편집기가 옆에 놓고 간섭을 볼 제품. 지그가 아니면 묻지 않는다. */
+  const jigProduct = useResource(
+    () => (work.data?.kind === 'jig' ? worksApi.jigProduct(id) : Promise.resolve(null)),
+    [id, work.data?.kind, work.data?.current_version],
+  )
   const versions = useResource(() => worksApi.versions(id), [id])
   /** 지그 작업이 부품에서 생성됐으면 그 생성 기록 — 계획 · 간섭 검사를 되짚어 본다. */
   const runs = useResource(() => worksApi.jigRuns(id), [id])
@@ -189,6 +194,7 @@ export default function WorkPage() {
         const made = await worksApi.promoteJigRecipe(id, {
           name: promoteName || undefined,
           note: promoteNote,
+          conditions: hasConditions(w?.current?.conditions) && promoteConditions,
         })
         setPromoting(null)
         reloadAll()
@@ -376,7 +382,7 @@ export default function WorkPage() {
               </CardHeader>
               <CardContent>
                 {isAssembly ? (
-                  <AssemblyEditor value={draft} onChange={setDraft} />
+                  <AssemblyEditor value={draft} onChange={setDraft} conditions={w.current?.conditions} />
                 ) : (
                 <RecipeEditor
                   value={draft}
@@ -406,6 +412,8 @@ export default function WorkPage() {
                     currentWorkId: id,
                     drawingTitle: w.name,
                   }}
+                  jigProduct={isJig ? jigProduct.data : null}
+                  conditions={w.current?.conditions}
                 />
                 )}
                 {isAssembly && (
@@ -647,13 +655,13 @@ export default function WorkPage() {
               <Label htmlFor="promote-note">메모</Label>
               <Input id="promote-note" value={promoteNote} onChange={(e) => setPromoteNote(e.target.value)} placeholder="변경 내용" />
             </div>
-            {promoting === 'part' && hasConditions(w.current?.conditions) && (
+            {promoting !== null && hasConditions(w.current?.conditions) && (
               <label className="flex items-start gap-2 text-sm">
                 <input type="checkbox" className="mt-1" checked={promoteConditions} onChange={(e) => setPromoteConditions(e.target.checked)} />
                 <span>
                   해석 조건도 함께 등록
                   <span className="text-muted-foreground block text-xs">
-                    이 부품을 복사한 사용자가 같은 해석 조건(구속, 하중, 접촉, 물성 등)으로 바로 해석하거나 DOE를 실행할 수 있습니다. 형상만 공개하려면 해제하십시오.
+                    이 {promoting === 'part' ? '부품을' : '지그를'} 복사한 사용자가 같은 해석 조건(구속, 하중, 접촉, 물성 등)으로 바로 해석하거나 DOE를 실행할 수 있습니다. 형상만 공개하려면 해제하십시오.
                   </span>
                 </span>
               </label>

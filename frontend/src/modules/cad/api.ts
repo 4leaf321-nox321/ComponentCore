@@ -4,8 +4,11 @@ import type { DatumRow, FrameRow, MeshData } from '@/shared/viewer/PickViewer'
 /** 레시피 — 서버 `core/recipe/schema.py` 가 정본. 화면은 JSON 으로만 다룬다. */
 export type Recipe = {
   version?: number
-  /** 이름 붙인 치수 — 칸에 `"=이름 * 2"` 로 쓰면 하나를 고칠 때 다 따라온다. */
-  params?: Record<string, number>
+  /**
+   * 이름 붙인 치수 — 칸에 `"=이름 * 2"` 로 쓰면 하나를 고칠 때 다 따라온다. 값은 숫자 또는 다른
+   * 변수로 쓴 식(`"=간격비 * 두께"`)이다.
+   */
+  params?: Record<string, number | string>
   nodes: Record<string, unknown>[]
   result?: string | null
   /** 이름 붙인 좌표계 — 형상과 무관하고 해석 조건의 `cs` 가 가리킨다. 식(`"=길이/2"`)을 쓴다. */

@@ -193,8 +193,10 @@ def test_부품에서_지그를_생성하면_지그_작업이_되고_거기서_�
     assert version["number"] == 1 and version["source"] == "generated"
     # 결과는 STEP 덩어리가 아니라 **변수 있는 레시피** — 판 두께 · 받침 높이를 조립 → DOE 로
     # 훑는다.
+    # 판에 구멍이 있으면 몸통은 따로, 마지막 구멍이 「바닥판」 — 묶음의 자식 이름이 요소 이름.
+    assert any(n["id"] == "바닥판" and n["op"] == "hole" for n in version["recipe"]["nodes"])
     assert version["recipe"]["nodes"][0] == {
-        "id": "바닥판",
+        "id": "바닥판_몸통",
         "op": "box",
         "length": "=판_길이",
         "width": "=판_너비",
@@ -466,8 +468,9 @@ def test_지그_생성_미리보기는_부품에_따라_달라진다(client: Tes
     assert body["interference"]["ok"] is True
     labels = {face["part"] for face in body["mesh"]["faces"]}
     assert "제품" in labels and "바닥판" in labels
-    assert {one for one in labels if one.startswith("받침 ")} == {"받침 1", "받침 2", "받침 3"}
-    assert any(one.startswith("위치 핀") for one in labels)
+    # 이름표는 레시피의 노드 id 와 같다 — 편집기 · 간섭 보고가 같은 이름을 쓴다.
+    assert {one for one in labels if one.startswith("받침_")} == {"받침_1", "받침_2", "받침_3"}
+    assert any(one.startswith("위치_핀") for one in labels)
     assert any(one.startswith("클램프") for one in labels)
 
     # 옵션을 바꾸면 계획이 따라 바뀐다 — 미리보기가 규칙을 보여 주는 이유.

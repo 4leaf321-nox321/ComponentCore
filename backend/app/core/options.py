@@ -5,14 +5,14 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any
 
 #: 지그 형식 — 어떤 규칙으로 놓나. 화면의 「형식」 과 같은 이름.
 JIG_KINDS: dict[str, str] = {
     "clamped": "판·클램프 고정",
     "bolted": "볼트 고정(진동·충격 시험)",
-    "bending": "3점 굽힘 픽스처",
+    "bending": "굽힘 픽스처(3점·4점)",
     "drop": "낙하·충격 자세",
 }
 
@@ -48,6 +48,10 @@ class JigOptions:
     clamp_clearance_above: float = 12.0
     """클램프 팔의 아래면이 제품 윗면에서 얼마나 떠 있나(패드가 그 사이를 메운다)."""
 
+    standard_parts: bool = True
+    """규격 부품(공용 부품에 규격 사양을 붙인 받침 · 위치 핀 · 토글 클램프)을 쓴다 — 맞는 것이
+    있으면. 없거나 끄면 즉석 도형(원기둥 · 상자)."""
+
     # --- 볼트 고정 --------------------------------------------------------------
     bolt_max_count: int = 4
     """부품의 수직 관통 구멍 중 몇 개에 볼트를 넣나. 서로 가장 멀리 떨어진 것부터."""
@@ -59,15 +63,26 @@ class JigOptions:
     bolt_plate_engagement: float = 1.5
     """볼트가 판에 박히는 깊이 = 호칭 지름 x 이 값."""
 
-    # --- 3점 굽힘 ---------------------------------------------------------------
+    # --- 굽힘(3점 · 4점) ---------------------------------------------------------
+    bending_points: int = 3
+    """3 | 4 — 4점이면 노즈가 둘이다(하중 간격의 양 끝)."""
     bending_span_ratio: float = 0.8
     """지지 간격 = 부품의 긴 변 x 이 값. `bending_span` 을 주면 그것이 우선."""
     bending_span: float = 0.0
+    bending_load_span: float = 0.0
+    """4점의 하중 간격(노즈 둘 사이). 0 이면 지지 간격의 1/3."""
     bending_roller_diameter: float = 10.0
     bending_nose_diameter: float = 10.0
     bending_roller_margin: float = 5.0
     """롤러가 부품 폭보다 양쪽으로 얼마나 더 긴가."""
     bending_nose_stem_height: float = 30.0
+    bending_preset: str = ""
+    """시험 규격 프리셋 id(`astm-d790-16` · 사내 규격의 id). 서버가 그 규칙을
+    `bending_setup` 에 채운다 — 코어는 DB 를 모르므로 규칙을 값으로 받는다."""
+    bending_setup: dict[str, Any] = field(default_factory=dict)
+    """시험 규격의 규칙(`specimens.presets.BendingSetup`) — 주면 위의 스팬 · 지름 · 점 수보다
+    우선한다. 지지 간격 = 간격비 x **부품 두께**(Z 높이), 반지름은 두께에 따라. 생성 작업의
+    입력에 이대로 남아, 나중에 프리셋을 고쳐도 그 작업은 그때 규칙으로 돈다."""
 
     # --- 낙하 · 충격 -----------------------------------------------------------
     drop_orientation: str = "bottom"

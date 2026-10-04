@@ -53,6 +53,14 @@ def test_사람이_손으로_하는_일이_도구로_다_있다() -> None:
         "work_geometry",
         "part_geometry",  # 제품을 기준으로 지그 그리기
         "copy_part_to_work",
+        "copy_jig_to_work",  # 남의 지그를 내 것으로 — 조건까지
+        "set_standard_part",  # 규격 사양 — 관리자
+        "export_standard_parts",  # 규격 부품 묶음 — 개발 PC 에서
+        "import_standard_parts",  # 운영 서버로 — 미리 보기 먼저
+        "list_test_presets",  # 시험 규격 — 공개 · 사내
+        "create_specimen_work",  # 규격으로 시편 · 시험 지그 · 해석 조건
+        "save_test_preset",  # 사내 규격 — 관리자
+        "delete_test_preset",
         "jig_options",
         "run_jig",
         "promote_part",
@@ -74,6 +82,7 @@ def test_사람이_손으로_하는_일이_도구로_다_있다() -> None:
         "doe_keep",  # 영구보관
         "recipe_measure",  # 재기
         "patch_work",  # 부분 수정
+        "jig_check",  # 지그 요소마다 제품과의 간섭
         "place_on",  # 면에 얹기
         "search",  # 이름으로 찾기
         "promote_jig_recipe",  # 손으로 그린 지그
@@ -344,3 +353,59 @@ def test_공용_부품의_해석_조건은_복사와_등록에_따라간다(monk
     asyncio.run(server.promote_part(None, "w1"))
     asyncio.run(server.promote_part(None, "w1", with_conditions=False))
     assert [body["conditions"] for _, body in sent] == [True, False, True, False]
+
+
+def test_공용_지그도_복사와_등록에_해석_조건이_따라간다(monkeypatch) -> None:
+    sent: list[tuple[str, dict]] = []
+
+    async def fake_post(ctx, path, json_body=None, **kw):
+        sent.append((path, json_body))
+        if path.endswith("/copy-to-work"):
+            return {
+                "id": "w3",
+                "name": "받침 지그 (복사)",
+                "current_version": 1,
+                "current": {},
+            }
+        return {"jig_id": "j1", "jig_version": 1}
+
+    monkeypatch.setattr(server, "_post", fake_post)
+    copied = asyncio.run(server.copy_jig_to_work(None, "j1"))
+    assert copied["has_conditions"] is False and sent[0][0] == "/api/jigs/j1/copy-to-work"
+    asyncio.run(server.promote_jig_recipe(None, "w1", with_conditions=False))
+    assert [body["conditions"] for _, body in sent] == [True, False]
+
+
+def test_지그를_고치면_제품과의_간섭을_함께_돌려준다(monkeypatch) -> None:
+    async def fake_post(ctx, path, json_body=None, **kw):
+        if path.endswith("/patch"):
+            return {"number": 2, "recipe": {}, "job": None}
+        return {
+            "available": True,
+            "ok": False,
+            "parts": ["바닥판", "받침_1", "제품"],
+            "items": [
+                {"a": "받침_1", "b": "제품", "volume": 12.5, "ok": False},
+                {"a": "바닥판", "b": "받침_1", "volume": 0.0, "ok": True},
+            ],
+        }
+
+    async def no_wait(ctx, job):
+        return job
+
+    monkeypatch.setattr(server, "_post", fake_post)
+    monkeypatch.setattr(server, "_wait_job", no_wait)
+    got = asyncio.run(server.patch_work(None, "w1", [{"op": "set_param"}]))
+    assert got["jig_interference"] == {
+        "ok": False,
+        "hits": [{"a": "받침_1", "b": "제품", "volume": 12.5}],
+        "parts": ["바닥판", "받침_1", "제품"],
+    }
+
+    async def not_jig(ctx, path, json_body=None, **kw):
+        if path.endswith("/patch"):
+            return {"number": 2, "recipe": {}, "job": None}
+        return {"available": False, "reason": "지그 작업이 아닙니다."}
+
+    monkeypatch.setattr(server, "_post", not_jig)
+    assert "jig_interference" not in asyncio.run(server.patch_work(None, "w1", []))

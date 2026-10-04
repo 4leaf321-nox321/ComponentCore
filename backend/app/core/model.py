@@ -12,6 +12,8 @@ from typing import Any
 
 from build123d import Compound, Part, Shape
 
+from app.core.standard import StandardRef
+
 XYZ = tuple[float, float, float]
 
 
@@ -65,8 +67,13 @@ class ProductGeometry:
 class Feature:
     """인식한 특징 하나.
 
-    kind   plane | hole | boss
-    role   plane 이면 bottom | top | side, hole 이면 through | blind
+    kind   plane | hole | boss | pocket
+    role   plane  bottom | underside | top | step | side | slope_up | slope_down(기운 면)
+           hole   through | blind(세로 축) · side_through | side_blind(축이 X · Y) ·
+                  side_angled(비스듬한 수평 축)
+           boss   vertical | side
+           pocket top(위로 열림 — 바닥) | bottom(아래로 열림 — 천장), `depth` 는 열린 쪽까지
+    `axis` 는 원통의 축 방향(옆 구멍은 X · Y 단위 벡터).
     """
 
     index: int
@@ -103,21 +110,28 @@ class SupportSpec:
     """받침 윗면의 중심 — 제품 바닥과 닿는 점(정규화 좌표계, z=0)."""
     diameter: float
     height: float
+    standard: StandardRef | None = None
+    """규격 부품을 골랐으면 그것(`core.standard`) — 없으면 즉석 원기둥."""
 
 
 @dataclass
 class LocatorSpec:
     label: str
     kind: str
-    """pin | rest. pin 은 구멍에 들어가고, rest 는 옆면에 기댄다."""
+    """pin | rest | side_pin. pin 은 바닥 구멍에 들어가고, rest 는 옆면에 기대고, side_pin 은
+    판에 세운 블록에서 **옆 구멍**으로 가로 핀이 들어간다."""
     position: XYZ
+    """pin · rest 는 그 중심, side_pin 은 옆 구멍의 **입구**(제품 옆면 위, 구멍 축 높이)."""
     direction: XYZ
-    """pin 은 축 방향(+Z), rest 는 옆면을 **누르는** 방향(제품 안쪽)."""
+    """pin 은 축 방향(+Z), rest 는 옆면을 **누르는** 방향(제품 안쪽), side_pin 은 핀이 들어가는
+    방향(±X · ±Y)."""
     diameter: float | None = None
     engagement: float | None = None
     """pin 이 구멍에 들어가는 깊이."""
     size: XYZ | None = None
     """rest 의 가로·세로·높이."""
+    standard: StandardRef | None = None
+    """규격 위치 핀을 골랐으면 그것 — 없으면 즉석 원기둥."""
 
 
 @dataclass
@@ -130,6 +144,13 @@ class ClampSpec:
     pad_diameter: float
     arm_width: float
     arm_thickness: float
+    standard: StandardRef | None = None
+    """규격 토글 클램프를 골랐으면 그것 — `post_position` 이 베이스 중심, `angle` 이 팔의
+    방향(도, +X 에서), `riser` 가 베이스를 올린 받침 블록 높이(최종 좌표계 mm), `base_size` 가
+    그 블록의 한 변."""
+    angle: float = 0.0
+    riser: float = 0.0
+    base_size: float = 0.0
 
 
 @dataclass
@@ -165,7 +186,8 @@ class RollerSpec:
 
 @dataclass
 class NoseSpec:
-    """로딩 노즈 — 스팬 가운데 위에서 누르는 원기둥 + 위로 뻗는 줄기."""
+    """로딩 노즈 — 위에서 누르는 원기둥 + 위로 뻗는 줄기. 3점 굽힘은 스팬 가운데 하나
+    (`로딩_노즈`), 4점은 하중 간격의 양 끝에 둘(`로딩_노즈_1` · `로딩_노즈_2`)."""
 
     position: XYZ
     """노즈 축의 중심(제품 윗면 + 반지름)."""
@@ -173,6 +195,7 @@ class NoseSpec:
     length: float
     along: str
     stem_height: float
+    label: str = "로딩_노즈"
 
 
 @dataclass
@@ -197,7 +220,7 @@ class FixturePlan:
     kind: str = "clamped"
     bolts: list[BoltSpec] = field(default_factory=list)
     rollers: list[RollerSpec] = field(default_factory=list)
-    nose: NoseSpec | None = None
+    noses: list[NoseSpec] = field(default_factory=list)
     impactor: ImpactorSpec | None = None
 
     def summary(self) -> dict[str, Any]:
@@ -209,11 +232,30 @@ class FixturePlan:
             "clamps": [asdict(one) for one in self.clamps],
             "bolts": [asdict(one) for one in self.bolts],
             "rollers": [asdict(one) for one in self.rollers],
-            "nose": asdict(self.nose) if self.nose else None,
+            "noses": [asdict(one) for one in self.noses],
             "impactor": asdict(self.impactor) if self.impactor else None,
             "product_lift": self.product_lift,
             "notes": list(self.notes),
+            "bom": self.bom(),
         }
+
+    def bom(self) -> list[dict[str, Any]]:
+        """**규격 부품표** — 품번마다 수량. 즉석 도형(제작품)은 들지 않는다."""
+        rows: dict[str, dict[str, Any]] = {}
+        picked = [
+            *(one.standard for one in self.supports),
+            *(one.standard for one in self.locators),
+            *(one.standard for one in self.clamps),
+        ]
+        for ref in picked:
+            if ref is None:
+                continue
+            row = rows.setdefault(
+                ref.source,
+                {"part_no": ref.part_no, "name": ref.name, "kind": ref.kind, "count": 0},
+            )
+            row["count"] += 1
+        return list(rows.values())
 
 
 # --- 4. Elements / Assembly ----------------------------------------------------
@@ -299,7 +341,7 @@ class JigResult:
         return {
             "geometry": self.geometry.summary(),
             "features": [one.summary() for one in self.features],
-            "feature_counts": _count_by(self.features),
+            "feature_counts": count_features(self.features),
             "plan": self.plan.summary(),
             "interference": self.interference.summary(),
             "files": {key: path.name for key, path in self.files.items()},
@@ -308,7 +350,8 @@ class JigResult:
         }
 
 
-def _count_by(features: list[Feature]) -> dict[str, int]:
+def count_features(features: list[Feature]) -> dict[str, int]:
+    """`kind:role` 마다 몇 개 — 화면 · MCP 가 「무엇을 알아봤나」 를 한 줄로 보인다."""
     counts: dict[str, int] = {}
     for one in features:
         key = f"{one.kind}:{one.role}"

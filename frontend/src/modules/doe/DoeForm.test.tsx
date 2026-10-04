@@ -387,3 +387,20 @@ test('「중간면 STEP 도」 를 켜면 점마다 중간면을 내라고 보�
   await waitFor(() => expect(calls.some((c) => c.url.endsWith('/doe'))).toBe(true))
   expect(calls.find((c) => c.url.endsWith('/doe'))!.body).toMatchObject({ outputs: ['midsurface'] })
 })
+
+test('식으로 정의된 변수는 인자가 아니다 — 따라가는 식으로 보이고 서버에 보내지 않는다', async () => {
+  const calls = mockApi(2)
+  const derived: Recipe = { ...RECIPE, params: { ...RECIPE.params, 간격: '=길이 / 2' } }
+  render(<DoeForm recipe={derived} onCreated={() => {}} />)
+  expect(screen.getByLabelText('식으로 정의된 변수')).toHaveTextContent('간격 =길이 / 2')
+  expect(screen.queryByLabelText('간격 고정값')).not.toBeInTheDocument()
+  fireEvent.click(screen.getAllByRole('combobox')[0])
+  fireEvent.click(await screen.findByRole('option', { name: '값 목록' }))
+  fireEvent.change(screen.getByLabelText('두께 값 목록'), { target: { value: '4, 8' } })
+  fireEvent.change(screen.getByLabelText('이름'), { target: { value: '식 변수' } })
+  await waitFor(() => expect(screen.getByRole('button', { name: '생성' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: '생성' }))
+  await waitFor(() => expect(calls.some((c) => c.url.endsWith('/doe'))).toBe(true))
+  const made = calls.find((c) => c.url.endsWith('/doe'))!.body as { factors: { name: string }[] }
+  expect(made.factors.map((one) => one.name).sort()).toEqual(['길이', '두께'])
+})

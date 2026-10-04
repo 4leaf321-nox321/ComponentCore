@@ -259,7 +259,7 @@ function ShapeIndexCard() {
 }
 
 interface BendRow {
-  kind: 'work' | 'part' | 'template' | 'doe'
+  kind: 'work' | 'part' | 'jig' | 'template' | 'doe'
   id: string
   name: string
   owner: string
@@ -270,11 +270,12 @@ interface BendRow {
   error: string
 }
 
-const BEND_KINDS: Record<BendRow['kind'], string> = { work: '작업', part: '부품', template: '템플릿', doe: 'DOE' }
+const BEND_KINDS: Record<BendRow['kind'], string> = { work: '작업', part: '부품', jig: '지그', template: '템플릿', doe: 'DOE' }
 
 function bendLink(row: BendRow): string | null {
   if (row.kind === 'work') return `/works/${row.id}`
   if (row.kind === 'part') return `/parts/${row.id}`
+  if (row.kind === 'jig') return `/jigs/${row.id}`
   if (row.kind === 'doe') return `/doe/${row.id}`
   return null
 }

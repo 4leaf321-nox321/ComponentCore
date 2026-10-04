@@ -67,7 +67,10 @@ def check(built: JigElements, product: Shape, tolerance: float) -> InterferenceR
         volume = _overlap(part, product) if _boxes_touch(part, product) else 0.0
         items.append(
             InterferenceItem(
-                a=_label(part), b="product", volume=round(volume, 3), ok=volume <= tolerance
+                a=_label(part),
+                b=product.label or "제품",
+                volume=round(volume, 3),
+                ok=volume <= tolerance,
             )
         )
 

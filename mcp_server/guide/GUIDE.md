@@ -1,4 +1,4 @@
-<!-- version: 2026-10-04.9 -->
+<!-- version: 2026-10-04.16 -->
 # CompCore MCP 가이드
 
 ## overview
@@ -16,6 +16,7 @@
 | **제품을 기준으로 지그 그리기** | `part_geometry(part_id)` · `work_geometry(work_id)` — 치수표 + STEP id |
 | **해석 조건 붙이기** | `conditions_schema` → `recipe_find` · `recipe_selectors` → `set_conditions` — `get_guide("conditions")` |
 | **물성 붙이기** | `material_search` → `material_get`(→ `condition_item`) · `recipe_bodies` → `set_conditions` |
+| **규격 시험(굽힘) 해석 모델** | `list_test_presets(test="bending")` → `create_specimen_work(preset_id, thickness …)` — 시편 · 시험 지그 · 해석 조건이 붙은 내 작업. 물성만 붙이면 `doe_create` 로 훑는다. 아래 「jig」 의 시험 규격 |
 | **형상 여러 벌 만들기(DOE)** | `doe_preview` → `doe_probe`(끝 점 미리) → `doe_create` → `doe_points` → `doe_export` — 공유 폴더에 STEP 이 쌓인다. 더 뽑을 때 `doe_extend` |
 | **다른 사람의 DOE 이어서 하기** | `doe_studies(scope="all")` → `doe_clone(study_id)` — 같은 설계점 · 조건으로 내 DOE 가 생긴다(원본은 그대로). 남의 것은 보내기 · 점 더하기가 안 된다 |
 | **2D 도면(가공 맡길 때)** | `recipe_drawing(recipe, title, material)` — 3각법 세 뷰 · 전체 치수 · 구멍표 · 표제란. 답은 요약 + 그림. PDF · DXF 는 화면의 「파일 › 도면」 |
@@ -29,8 +30,10 @@
 | 있는 부품 고치기 | `get_work` 로 레시피를 받아 고쳐 `save_version` |
 | 버전 복원 | `list_versions` → `restore_version` |
 | 부품에서 지그 생성 | `jig_preview(source, options)` 로 계획을 보고 → `run_jig` → 지그 작업이 생긴다 |
+| **생성된 지그 고치기** | 받침 · 핀 · 클램프는 노드 id(`받침_1` · `위치_핀_1` · `클램프_1` …)로 `patch_work` — 답의 `jig_interference` 가 제품과의 간섭을 말한다(`ok` 거짓이면 `hits` 의 요소를 다시 옮긴다). 고치기 전에 보려면 `jig_check(work_id, recipe)`. 받침 높이(`받침_높이`)를 바꾸면 제품도 따라 오른다 |
 | 공용 부품 · 지그로 등록(다른 사용자에게 공개) | `promote_part` · `promote_jig_recipe` — **사용자가 시킬 때만**. 부품은 해석 조건도 함께 올린다(`with_conditions=False` 면 형상만) |
 | 다른 사용자의 부품 가져오기 | `list_parts` → `copy_part_to_work` — 부품에 실린 **해석 조건도 옮긴다**(`get_part` 의 `conditions`). 복사한 작업으로 바로 `doe_run(work_id=…)` |
+| 다른 사용자의 지그 가져오기 | `list_jigs` → `copy_jig_to_work` — 부품과 같다(레시피 · 잡는 부품 · 해석 조건). `get_jig` 의 `has_recipe` 가 거짓이면 생성기로 만든 이전 버전이라 복사할 수 없다 |
 | 폴더로 나눠 보기 | `list_folders(space)` 로 나무를 보고 `list_works` · `list_parts` · `list_jigs` · `list_templates` 의 `folder`(그 아래까지)로 거른다. 만들 때 `create_work(folder)` · `save_template(folder)` |
 | **정리하기** | `move_to_folder(space, ids, folder)` · `rename_folder(space, path, to)`(삭제 = 위 폴더로 합치기) · `update_work`(이름 · 설명 · 태그 · 폴더 · 종류) · `list_tags` — 공용 공간은 등록한 사용자 · 관리자만 옮긴다 |
 | 복제 · 휴지통 | `duplicate_work`(`with_conditions` — 해석 조건까지; 사용자가 안 정했으면 묻는다) · `delete_work`(휴지통 — **사용자가 지우라고 할 때만**) · `restore_work`(`list_works(trashed=True)` 로 본다) |
@@ -355,18 +358,48 @@
 
 ## jig
 
+**시험 규격**(`list_test_presets`): 공개 규격(ASTM D790 · ISO 178 · D6272 · D7264 · C1161 …)은
+코드에, 사내 규격은 관리자가 DB 에(`save_test_preset`) 둔다 — 같은 모양이다. 프리셋은 시편 치수 ·
+배치 규칙(3점 · 4점, 지지 간격 = 간격비 x 두께, 두께에 따른 반지름, 4점의 하중 간격) · 해석
+기본값(노즈를 내리는 변형률 · 마찰계수) · 출처 · `verified`. 쓰는 길이 둘이다:
+- **규격 시편으로 해석 모델** — `create_specimen_work`. 바디 `시편` · `롤러_1` · `롤러_2` ·
+  `로딩_노즈`(4점이면 `로딩_노즈_1` · `_2`), 조건은 롤러 · 노즈 강체, 롤러 고정 지지, 노즈 원격
+  변위(`=-처짐`), 시편과 마찰 접촉(`=마찰계수`), 아랫면 한가운데 대칭점 구속, 정적 대변형. 변수
+  `두께` 를 훑으면 `지지_간격` · `처짐` 이 따라간다. `마찰계수` · `변형률` 도 인자로 훑는다(조건만
+  바뀐다). 식 변수(`지지_간격` · `처짐`)는 인자로 주지 않는다 — 주면 규칙을 숫자로 덮는다. 시편
+  물성은 비어 있다.
+- **사용자의 부품으로 굽힘 지그** — `run_jig(options={"kind": "bending", "bending_preset": id})`.
+  두께 = 부품의 Z 높이.
+`verified=false` 인 값은 규격서와 대조하기 전이다 — 사용자에게 그렇다고 말한다.
+
 `run_jig` 옵션(`jig_options` 로 기본값): `plate_margin`(제품 둘레 판 여유) · `plate_thickness` ·
 `support_count`(3 또는 4) · `support_diameter` · `support_height` · `clamp_count` ·
 `clamp_pad_diameter` · `locator_pin_clearance`.
 
-결과 `summary`:
-- `plan.supports` 받침 위치, `plan.locators` 핀(구멍이 있을 때) 또는 레스트(옆면), `plan.clamps`
-  패드 · 기둥 위치, `plan.notes` 계획이 스스로 남긴 말(「구멍이 없어 옆면 레스트(2-1)로 위치를 결정합니다.」 등)
-- `interference.ok` 와 `items` — 겹친 부품 쌍과 부피(mm³). 0 이어야 정상.
+결과 `summary`(미리보기 `jig_preview` 도 같은 칸):
+- `plan.supports` 받침 위치, `plan.locators` 핀(`pin` — 바닥 구멍) · 측면 핀(`side_pin` — 옆
+  구멍에 가로로, 판에 세운 블록) · 레스트(`rest` — 옆면), `plan.clamps` 패드 · 기둥 위치,
+  `plan.notes` 계획이 스스로 남긴 말(「구멍이 없어 옆면 레스트(2-1)로 위치를 결정합니다.」 ·
+  「포켓 바닥 1곳은 클램프 위치에서 제외했습니다.」 · 「경사면 2곳은 …제외했습니다」 등)
+- `feature_counts` — 알아본 특징 `kind:role` 개수: `plane:slope_up` · `plane:slope_down`(경사면) ·
+  `hole:side_through` · `hole:side_blind`(옆 구멍, 축 X · Y) · `pocket:top` · `pocket:bottom`(사방이
+  벽인 바닥 · 천장) 등. 사용자에게는 이름으로 말한다(경사면 · 옆 관통 구멍 · 포켓).
+- `interference.ok` 와 `items` — 겹친 부품 쌍과 부피(mm³). 0 이어야 정상. 이름은 레시피의 노드
+  id 와 같다(`받침_1` · `측면_핀_1` · `클램프_1` …, 제품은 `제품`).
 - `stages` 단계별 시간.
 
+**규격 부품**: 관리자가 공용 부품에 규격 사양을 붙여 두면(`set_standard_part` — 받침 · 위치 핀 ·
+토글 클램프, 품번 · 쓰는 버전 · 치수) 판 · 클램프 고정이 요구에 맞는 것을 골라 놓는다. 결과
+`plan.bom` 이 **부품표**(품번 · 이름 · 종류 · 수량) — 사용자에게 그대로 건넨다. 맞는 것이 없으면
+즉석 도형(제작품)으로 두고 `plan.notes` 가 까닭을 말한다(고정 높이 받침이면 받침 높이가 그 높이로
+바뀐다). 끄려면 옵션 `standard_parts=False`. 규격품이 무엇이 있는지는
+`list_parts(standard="any")`. 다른 서버로 옮기려면(관리자) `export_standard_parts` 로 묶음을 받아
+그 서버에서 `import_standard_parts` — 품번으로 짝지으며, 먼저 `dry_run` 결과를 사용자에게 보여 준다.
+
 지그가 잘 잡히는 부품: 평평한 바닥, 바닥으로 열린 수직 구멍 둘(핀 로케이터), 평평한 윗면(클램프
-패드). 바닥이 곡면이면 계획이 실패한다.
+패드). 바닥 구멍이 모자라면 바깥 옆면에서 열린 옆 구멍(축 X · Y)에 측면 핀을 꽂는다. 받침 ·
+클램프는 평면에만 놓으므로 경사면 · 포켓 바닥은 피한다. 바닥이 곡면이면 계획이 실패한다.
+생성한 지그를 고칠 때는 위 표의 「생성된 지그 고치기」(`patch_work` 의 `jig_interference`).
 
 ## conditions
 

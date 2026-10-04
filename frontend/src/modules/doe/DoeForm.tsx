@@ -135,7 +135,11 @@ export function DoeForm({
   /** 「치수가 없다」 일 때 편집기로 보내 준다 — 글로만 알려 주면 못 찾는다. */
   onEditRecipe?: () => void
 }) {
-  const params = Object.entries((recipe.params ?? {}) as Record<string, number>)
+  // **식으로 정의된 변수**(`지지_간격 = 간격비 * 두께`)는 인자가 아니다 — 다른 변수를 따라간다.
+  // 인자로 두면 「고정」 값이 식 글자로 서버에 가서 거절되고, 숫자로 덮으면 규칙이 깨진다.
+  const allParams = Object.entries(recipe.params ?? {})
+  const params = allParams.filter((entry): entry is [string, number] => typeof entry[1] === 'number')
+  const derived = allParams.filter((entry): entry is [string, string] => typeof entry[1] === 'string')
   const [name, setName] = useState(initial?.name ?? defaultName ?? '')
   const [description, setDescription] = useState(initial?.description ?? '')
   const [method, setMethod] = useState<DoeMethod>(initial?.method ?? 'factorial')
@@ -493,6 +497,12 @@ export function DoeForm({
             </div>
           )
         })}
+        {derived.length > 0 && (
+          <div className="text-muted-foreground px-3 py-2 text-xs" aria-label="식으로 정의된 변수">
+            <p>식으로 정의된 변수는 설계점마다 다른 변수를 따라 계산됩니다.</p>
+            <p className="font-mono text-[11px]">{derived.map(([key, value]) => `${key} ${value}`).join(' · ')}</p>
+          </div>
+        )}
       </div>
 
       {/* 제약식 — 범위만으로는 말이 안 되는 조합(벽이 구멍보다 얇은 판)을 만들기 전에 거른다. */}

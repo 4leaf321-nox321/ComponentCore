@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.modules.jobs.schemas import JobOut
 
@@ -43,6 +43,8 @@ class PartOut(BaseModel):
     jig_count: int
     """이 부품을 잡는 지그(카탈로그) 수."""
     folder: str = ""
+    standard: dict[str, Any] | None = None
+    """규격 사양 — 관리자가 붙였으면(`StandardSpec`). 비면 일반 부품."""
     created_at: datetime
     updated_at: datetime
 
@@ -62,10 +64,148 @@ class PartSummaryOut(BaseModel):
     jig_count: int
     folder: str = ""
     """놓인 폴더 — `고객A/2026`, 빈 것이 맨 위."""
+    standard: dict[str, Any] | None = None
+    """규격 사양 — 관리자가 붙였으면(`StandardSpec`). 비면 일반 부품."""
     shape: dict[str, Any] | None = None
     """최신 버전의 형상 색인(`core/shape_index.py`) — 크기 · 세 변 · 부피 · 구멍 · 쓴 연산 ·
     나사 · 변수. 색인이 없으면(이 기능 전의 버전) 비어 있다."""
     updated_at: datetime
+
+
+#: 종류마다 꼭 있어야 하는 칸 — 생성기가 고르고 놓는 데 쓴다(`core.standard`).
+STANDARD_FIELDS: dict[str, tuple[str, ...]] = {
+    "support": ("top_diameter", "height"),
+    "pin": ("diameter", "length"),
+    "clamp": ("reach", "pad_height", "pad_diameter", "base_length", "base_width"),
+}
+#: 변수로 움직이는 치수 — (변수 이름 칸, 최소, 최대).
+STANDARD_RANGES: dict[str, tuple[str, str, str]] = {
+    "support": ("height_param", "height_min", "height_max"),
+    "pin": ("length_param", "length_min", "length_max"),
+}
+
+
+class StandardSpec(BaseModel):
+    """**규격 사양** — 관리자가 공용 부품에 붙인다. 종류마다 쓰는 칸이 다르다.
+
+    형상의 기준: 받침 · 핀은 바닥 중심이 원점이고 위가 +Z, 토글 클램프는 베이스 바닥 중심이
+    원점이고 팔이 +X 로 뻗어 누른 상태의 패드 중심이 (reach, 0, pad_height). 형상은 레시피로만
+    그린다(공급사 STEP 은 받아서 다시 그린다)."""
+
+    kind: Literal["support", "pin", "clamp"]
+    part_no: str = Field(min_length=1, max_length=80)
+    """품번 — 부품표에 이대로 나간다."""
+    maker: str = Field(default="", max_length=80)
+    version: int = Field(ge=1)
+    """쓰는 버전(사내에서 그린 것). 새 버전을 올려도 이것을 바꾸기 전까지는 그대로다."""
+    preference: int = Field(default=100, ge=0, le=1000)
+    """작을수록 먼저 — 같은 요구를 만족하면 앞의 것을 고른다."""
+    top_diameter: float | None = Field(default=None, gt=0)
+    """받침: 제품 바닥에 닿는 윗면 지름."""
+    height: float | None = Field(default=None, gt=0)
+    """받침: 그린 그대로의 높이."""
+    height_param: str | None = Field(default=None, max_length=60)
+    height_min: float | None = Field(default=None, gt=0)
+    height_max: float | None = Field(default=None, gt=0)
+    diameter: float | None = Field(default=None, gt=0)
+    """핀: 구멍에 들어가는 지름."""
+    length: float | None = Field(default=None, gt=0)
+    """핀: 그린 그대로 판 위로 선 길이."""
+    length_param: str | None = Field(default=None, max_length=60)
+    length_min: float | None = Field(default=None, gt=0)
+    length_max: float | None = Field(default=None, gt=0)
+    reach: float | None = Field(default=None, gt=0)
+    """클램프: 베이스 중심에서 패드 중심까지 수평 거리."""
+    pad_height: float | None = Field(default=None, gt=0)
+    """클램프: 누른 상태에서 패드가 닿는 높이(베이스 바닥에서)."""
+    pad_diameter: float | None = Field(default=None, gt=0)
+    base_length: float | None = Field(default=None, gt=0)
+    base_width: float | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def _filled(self) -> StandardSpec:
+        missing = [name for name in STANDARD_FIELDS[self.kind] if getattr(self, name) is None]
+        if missing:
+            raise ValueError(f"{self.kind}에 필요한 칸이 비었습니다: {', '.join(missing)}")
+        span = STANDARD_RANGES.get(self.kind)
+        if span is not None and getattr(self, span[0]):
+            low, high = getattr(self, span[1]), getattr(self, span[2])
+            if low is None or high is None or low >= high:
+                raise ValueError(f"{span[0]}를 주면 {span[1]} < {span[2]} 범위가 필요합니다.")
+        return self
+
+    def stored(self) -> dict[str, Any]:
+        """저장할 모양 — 이 종류가 쓰는 칸만."""
+        keep = {
+            "kind",
+            "part_no",
+            "maker",
+            "version",
+            "preference",
+            *STANDARD_FIELDS[self.kind],
+        }
+        span = STANDARD_RANGES.get(self.kind)
+        if span is not None and getattr(self, span[0]):
+            keep.update(span)
+        return {key: value for key, value in self.model_dump().items() if key in keep}
+
+
+#: 규격 부품 **묶음 파일**의 형식 — 개발 PC 에서 그린 규격품을 운영 서버로 옮긴다.
+BUNDLE_FORMAT: Final = "compcore.standard-parts"
+#: 이 서버가 읽는 가장 높은 판. 판을 올리면 가져오기가 옛 판을 읽는 길을 남긴다.
+BUNDLE_VERSION = 1
+
+
+class StandardExportRequest(BaseModel):
+    ids: list[uuid.UUID] = Field(default_factory=list, max_length=500)
+    """내보낼 규격 부품 — 비우면 규격 부품 전부."""
+
+
+class StandardBundleItem(BaseModel):
+    """묶음의 규격 부품 하나 — 카탈로그 정보 · 사양 · 쓰는 버전의 레시피."""
+
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=2000)
+    tags: list[str] = Field(default_factory=list, max_length=50)
+    folder: str = Field(default="", max_length=255)
+    standard: dict[str, Any]
+    """`StandardSpec` 에서 `version` 을 뺀 것 — 버전은 가져오는 서버에서 정해진다. 칸은 가져올
+    때 항목마다 본다(하나가 틀려도 나머지는 가져온다)."""
+    recipe: dict[str, Any]
+    origin: dict[str, Any] = Field(default_factory=dict)
+    """내보낸 서버의 부품 id · 버전 — 가져온 버전의 메모에 남는다."""
+
+
+class StandardBundle(BaseModel):
+    """규격 부품 묶음 — JSON 파일 하나. 형상이 레시피뿐이라(STEP · 다른 도면을 가리키지
+    않는다) 따라가야 할 파일이 없다."""
+
+    format: Literal["compcore.standard-parts"]
+    format_version: int = Field(ge=1)
+    exported_at: datetime
+    exported_from: str = Field(default="", max_length=300)
+    """내보낸 서버 — 앱 이름 · 버전 · 주소."""
+    items: list[StandardBundleItem] = Field(max_length=500)
+
+
+class StandardImportItemOut(BaseModel):
+    part_no: str
+    name: str
+    kind: str
+    action: Literal["create", "version", "spec", "same", "skip"]
+    """`create` 새 부품 · `version` 형상이 달라 새 버전 · `spec` 사양만 고침 · `same` 같아서
+    그대로 · `skip` 문제가 있어 건너뜀(`problems`)."""
+    part_id: uuid.UUID | None = None
+    """이 서버의 부품 — 새로 만들 것이면 미리 보기에서는 비어 있다."""
+    version: int | None = None
+    """가져온 뒤 사양이 쓰는 버전."""
+    problems: list[str] = Field(default_factory=list)
+
+
+class StandardImportOut(BaseModel):
+    dry_run: bool
+    """미리 보기였나 — 그러면 아무것도 바꾸지 않았다."""
+    items: list[StandardImportItemOut]
 
 
 class PartUpdateRequest(BaseModel):

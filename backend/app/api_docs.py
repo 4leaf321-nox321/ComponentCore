@@ -59,6 +59,13 @@ TAGS: list[dict[str, Any]] = [
     {"name": "jigs", "description": "공용 **지그** 카탈로그(불변 버전)."},
     {"name": "templates", "description": "레시피 **템플릿** — 변수만 채워 쓰는 밑그림."},
     {
+        "name": "specimens",
+        "description": (
+            "**시험 규격** — 공개 규격(ASTM · ISO, 코드)과 사내 규격(DB, 관리자)의 프리셋. "
+            "규격으로 시편 · 시험 지그 · 해석 조건이 붙은 내 작업을 만든다."
+        ),
+    },
+    {
         "name": "search",
         "description": (
             "여러 목록을 가로지르는 찾기 — **닮은 형상**(최신 버전의 형상 색인끼리 견준다). "

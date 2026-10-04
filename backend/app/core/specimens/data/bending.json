@@ -1,0 +1,218 @@
+[
+  {
+    "id": "astm-d790-16",
+    "standard": "ASTM D790",
+    "name": "ASTM D790 3점 굽힘 (16:1)",
+    "specimen": {"length": 127, "width": 12.7, "thickness": 3.2},
+    "setup": {
+      "points": 3,
+      "span": {"to_thickness": 16},
+      "support_radius": 5.0,
+      "nose_radius": 5.0,
+      "overhang": {"to_span": 0.1, "min": 6.4}
+    },
+    "analysis": {"strain": 0.05, "friction": 0.1},
+    "source": "ASTM D790: 성형 시편 127 x 12.7 x 3.2, 간격비 16:1(±1), 지지·노즈 반지름 5.0 mm, 돌출은 지지 간격의 10 % 이상(최소 6.4 mm), 시험 종료 변형률 5 %",
+    "verified": false
+  },
+  {
+    "id": "astm-d790-32",
+    "standard": "ASTM D790",
+    "name": "ASTM D790 3점 굽힘 (32:1)",
+    "specimen": {"length": 127, "width": 12.7, "thickness": 3.2},
+    "setup": {
+      "points": 3,
+      "span": {"to_thickness": 32},
+      "support_radius": 5.0,
+      "nose_radius": 5.0,
+      "overhang": {"to_span": 0.1, "min": 6.4}
+    },
+    "analysis": {"strain": 0.05, "friction": 0.1},
+    "source": "ASTM D790: 고강도 복합재용 간격비 32:1(16:1 외 32·40·60:1 허용), 반지름·돌출은 16:1과 같음",
+    "verified": false
+  },
+  {
+    "id": "iso-178",
+    "standard": "ISO 178",
+    "name": "ISO 178 3점 굽힘",
+    "specimen": {"length": 80, "width": 10, "thickness": 4},
+    "setup": {
+      "points": 3,
+      "span": {"to_thickness": 16},
+      "support_radius": [
+        {"max_thickness": 3, "radius": 2.0},
+        {"radius": 5.0}
+      ],
+      "nose_radius": 5.0
+    },
+    "analysis": {"strain": 0.035, "friction": 0.1},
+    "source": "ISO 178: 권장 시편 80 x 10 x 4, 지지 간격 (16 ± 1)h, 하중 끝 반지름 R1 = 5.0 mm, 지지 반지름 R2 = 2.0 mm(h ≤ 3) 또는 5.0 mm(h > 3), 규약 처짐 변형률 3.5 %",
+    "verified": false
+  },
+  {
+    "id": "astm-d7264-a",
+    "standard": "ASTM D7264",
+    "name": "ASTM D7264 절차 A (3점, 32:1)",
+    "specimen": {"length": 154, "width": 13, "thickness": 4},
+    "setup": {
+      "points": 3,
+      "span": {"to_thickness": 32},
+      "support_radius": 3.0,
+      "nose_radius": 3.0,
+      "overhang": {"to_span": 0.1}
+    },
+    "analysis": {"strain": 0.02, "friction": 0.1},
+    "source": "ASTM D7264: 표준 시편 두께 4, 폭 13, 간격비 32:1, 길이는 지지 간격보다 약 20 % 길게, 지지·노즈 지름 6 mm",
+    "verified": false,
+    "note": "해석 기본 변형률 2 %는 임의 값입니다(규격은 파단까지 시험)."
+  },
+  {
+    "id": "astm-c1161-a-3pt",
+    "standard": "ASTM C1161",
+    "name": "ASTM C1161 구성 A (3점)",
+    "specimen": {"length": 25, "width": 2.0, "thickness": 1.5},
+    "setup": {
+      "points": 3,
+      "span": {"value": 20},
+      "support_radius": 1.125,
+      "nose_radius": 1.125
+    },
+    "analysis": {"strain": 0.002, "friction": 0.1},
+    "source": "ASTM C1161: 구성 A 시편 2.0 x 1.5 x 25(최소), 지지 간격 20 mm, 롤러 지름은 시편 두께의 약 1.5배(Ø2.0~2.5)",
+    "verified": false,
+    "note": "C1161은 4점 굽힘을 권장합니다. 세라믹이라 해석 기본 변형률을 0.2 %로 둡니다."
+  },
+  {
+    "id": "astm-c1161-b-3pt",
+    "standard": "ASTM C1161",
+    "name": "ASTM C1161 구성 B (3점)",
+    "specimen": {"length": 45, "width": 4.0, "thickness": 3.0},
+    "setup": {
+      "points": 3,
+      "span": {"value": 40},
+      "support_radius": 2.25,
+      "nose_radius": 2.25
+    },
+    "analysis": {"strain": 0.002, "friction": 0.1},
+    "source": "ASTM C1161: 구성 B 시편 4.0 x 3.0 x 45(최소), 지지 간격 40 mm, 롤러 지름 약 4.5 mm",
+    "verified": false,
+    "note": "C1161은 4점 굽힘을 권장합니다."
+  },
+  {
+    "id": "dma-3pt-example",
+    "standard": "DMA",
+    "name": "DMA 3점 굽힘 (장비 예시)",
+    "specimen": {"length": 80, "width": 10, "thickness": 4},
+    "setup": {
+      "points": 3,
+      "span": {"value": 64},
+      "support_radius": 4.0,
+      "nose_radius": 4.0
+    },
+    "analysis": {"strain": 0.001, "friction": 0.1},
+    "source": "규격이 아닌 장비 예시(SpaceClaim 애드인 기본값): 80 x 10 x 4, 지지 간격 64, 롤러 Ø8",
+    "verified": false,
+    "note": "DMA 치구는 장비마다 다릅니다. 사용하는 장비의 값으로 사내 규격을 만드십시오."
+  },
+  {
+    "id": "astm-d6272-16",
+    "standard": "ASTM D6272",
+    "name": "ASTM D6272 4점 굽힘 (16:1, 하중 간격 1/3)",
+    "specimen": {"length": 127, "width": 12.7, "thickness": 3.2},
+    "setup": {
+      "points": 4,
+      "span": {"to_thickness": 16},
+      "load_span": {"to_span": 0.3333},
+      "support_radius": 5.0,
+      "nose_radius": 5.0,
+      "overhang": {"to_span": 0.1, "min": 6.4}
+    },
+    "analysis": {"strain": 0.05, "friction": 0.1},
+    "source": "ASTM D6272: 간격비 16:1, 하중 간격은 지지 간격의 1/3, 지지·노즈 반지름 5.0 mm, 시험 종료 변형률 5 %",
+    "verified": false
+  },
+  {
+    "id": "astm-d6272-32",
+    "standard": "ASTM D6272",
+    "name": "ASTM D6272 4점 굽힘 (32:1, 하중 간격 1/3)",
+    "specimen": {"length": 127, "width": 12.7, "thickness": 3.2},
+    "setup": {
+      "points": 4,
+      "span": {"to_thickness": 32},
+      "load_span": {"to_span": 0.3333},
+      "support_radius": 5.0,
+      "nose_radius": 5.0,
+      "overhang": {"to_span": 0.1, "min": 6.4}
+    },
+    "analysis": {"strain": 0.05, "friction": 0.1},
+    "source": "ASTM D6272: 간격비 32:1, 하중 간격은 지지 간격의 1/3",
+    "verified": false
+  },
+  {
+    "id": "astm-d7264-b",
+    "standard": "ASTM D7264",
+    "name": "ASTM D7264 절차 B (4점, 32:1, 하중 간격 1/2)",
+    "specimen": {"length": 154, "width": 13, "thickness": 4},
+    "setup": {
+      "points": 4,
+      "span": {"to_thickness": 32},
+      "load_span": {"to_span": 0.5},
+      "support_radius": 3.0,
+      "nose_radius": 3.0,
+      "overhang": {"to_span": 0.1}
+    },
+    "analysis": {"strain": 0.02, "friction": 0.1},
+    "source": "ASTM D7264: 절차 B 하중 간격은 지지 간격의 1/2, 간격비 32:1, 지지·노즈 지름 6 mm",
+    "verified": false,
+    "note": "해석 기본 변형률 2 %는 임의 값입니다(규격은 파단까지 시험)."
+  },
+  {
+    "id": "astm-c1161-b-4pt",
+    "standard": "ASTM C1161",
+    "name": "ASTM C1161 구성 B (4점)",
+    "specimen": {"length": 45, "width": 4.0, "thickness": 3.0},
+    "setup": {
+      "points": 4,
+      "span": {"value": 40},
+      "load_span": {"value": 20},
+      "support_radius": 2.25,
+      "nose_radius": 2.25
+    },
+    "analysis": {"strain": 0.002, "friction": 0.1},
+    "source": "ASTM C1161: 구성 B 지지 간격 40 mm, 하중 간격 20 mm(1/4점), 롤러 지름 약 4.5 mm",
+    "verified": false
+  },
+  {
+    "id": "astm-c1161-c-4pt",
+    "standard": "ASTM C1161",
+    "name": "ASTM C1161 구성 C (4점)",
+    "specimen": {"length": 90, "width": 8.0, "thickness": 6.0},
+    "setup": {
+      "points": 4,
+      "span": {"value": 80},
+      "load_span": {"value": 40},
+      "support_radius": 4.5,
+      "nose_radius": 4.5
+    },
+    "analysis": {"strain": 0.002, "friction": 0.1},
+    "source": "ASTM C1161: 구성 C 시편 8.0 x 6.0 x 90(최소), 지지 간격 80 mm, 하중 간격 40 mm, 롤러 지름 약 9 mm",
+    "verified": false
+  },
+  {
+    "id": "dma-4pt-example",
+    "standard": "DMA",
+    "name": "DMA 4점 굽힘 (장비 예시)",
+    "specimen": {"length": 100, "width": 10, "thickness": 4},
+    "setup": {
+      "points": 4,
+      "span": {"value": 80},
+      "load_span": {"value": 40},
+      "support_radius": 4.0,
+      "nose_radius": 4.0
+    },
+    "analysis": {"strain": 0.001, "friction": 0.1},
+    "source": "규격이 아닌 장비 예시(SpaceClaim 애드인 기본값): 100 x 10 x 4, 지지 간격 80, 하중 간격 40",
+    "verified": false,
+    "note": "DMA 치구는 장비마다 다릅니다. 사용하는 장비의 값으로 사내 규격을 만드십시오."
+  }
+]

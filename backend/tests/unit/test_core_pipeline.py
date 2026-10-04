@@ -147,14 +147,14 @@ def test_볼트_고정은_관통_구멍으로_조이고_판에_탭_구멍을_낸
     assert len(made.plan.base_plate.holes) == 4
     assert made.plan.product_lift == 0  # 스페이서 없이 판에 바로 앉는다
     assert made.interference.ok, made.interference.summary()
-    assert {"볼트 1", "볼트 4", "바닥판", "제품"} <= _labels(made)
+    assert {"볼트_1", "볼트_4", "바닥판", "제품"} <= _labels(made)
 
     # 스페이서를 주면 볼트마다 하나씩 서고 부품이 그만큼 뜬다.
     lifted = pipeline.analyze(
         PLATE, JigOptions(kind="bolted", bolt_spacer_height=8, bolt_head="socket")
     )
     assert lifted.plan.product_lift == 8
-    assert {"스페이서 1", "스페이서 4"} <= _labels(lifted)
+    assert {"스페이서_1", "스페이서_4"} <= _labels(lifted)
     assert lifted.interference.ok, lifted.interference.summary()
 
     # 구멍 없는 상자는 볼트 고정을 못 한다 — 이유를 말한다.
@@ -166,14 +166,14 @@ def test_3점_굽힘은_긴_변으로_스팬을_잡는다() -> None:
     made = pipeline.analyze(BOX, JigOptions(kind="bending"))
     assert made.plan.kind == "bending"
     rollers = made.plan.rollers
-    assert len(rollers) == 2 and made.plan.nose is not None
+    assert len(rollers) == 2 and len(made.plan.noses) == 1
     # 긴 변이 X 라 롤러는 X 로 ±스팬/2, 축은 Y 를 따라 눕는다. 스팬 = 80 x 0.8.
     assert sorted(r.position[0] for r in rollers) == [-32.0, 32.0]
     assert {r.along for r in rollers} == {"y"}
     assert rollers[0].length == 50 + 2 * 5  # 폭 + 여유
-    assert made.plan.nose.position[2] == 20 + 5  # 윗면 + 반지름
+    assert made.plan.noses[0].position[2] == 20 + 5  # 윗면 + 반지름
     assert made.interference.ok, made.interference.summary()
-    assert {"롤러 1", "롤러 2", "로딩 노즈"} <= _labels(made)
+    assert {"롤러_1", "롤러_2", "로딩_노즈"} <= _labels(made)
     # 스팬이 길이를 넘으면 거절.
     with pytest.raises(planning.PlanningError, match="스팬"):
         pipeline.analyze(BOX, JigOptions(kind="bending", bending_span=90))
@@ -241,3 +241,31 @@ def test_생성기의_레시피는_같은_지그를_그린다(
         evaluate(thicker, resolve_file=None).summary()["bbox"]["min"][2]
         == -opts.plate_thickness * 2
     )
+
+
+@pytest.mark.parametrize(
+    ("kind", "source", "extra"),
+    [
+        ("clamped", PLATE, {}),
+        ("clamped", BOX, {}),
+        ("bolted", PLATE, {"bolt_spacer_height": 8}),
+        ("bending", BOX, {}),
+        ("drop", BOX, {"drop_impactor": "ball"}),
+    ],
+)
+def test_미리보기_간섭_보고_레시피가_같은_이름을_쓴다(
+    kind: str, source: dict[str, Any], extra: dict[str, Any]
+) -> None:
+    """요소의 이름이 계획 · 미리보기 · 레시피에서 갈려 있으면(`support-1` · `받침 1` ·
+    `받침_1`) 편집기에서 옮긴 받침을 간섭 보고와 짝지을 수 없다 — 하나여야 한다."""
+    from app.core.jig_recipe import recipe_of
+
+    opts = JigOptions(kind=kind, **extra)
+    made = pipeline.analyze(source, opts)
+    recipe = recipe_of(made.plan, opts)
+    group = next(one for one in recipe["nodes"] if one["id"] == recipe["result"])
+    shown = _labels(made) - {"제품"}
+    assert shown == set(group["targets"])
+    reported = {name for item in made.interference.items for name in (item.a, item.b)}
+    assert reported <= shown | {"제품"}
+    assert "제품" in reported

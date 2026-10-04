@@ -6,9 +6,10 @@
 굽힘 안쪽이 커진다 — 바깥 치수(꺾은선)는 그대로. 짧은 구간 사이의 굽힘은 반지름 + 두께가
 들어가지 않아 **이제 실패**할 수도 있다.
 
-훑는 것: 내 작업(지운 것 제외)의 현재 버전, 공용 부품의 현재 버전, 템플릿, DOE 스냅샷
-(재생성하면 처음 내보낸 것과 다른 형상이 된다). 지그 카탈로그는 레시피를 들지 않는다(원본
-작업이 든다).
+훑는 것: 내 작업(지운 것 제외)의 현재 버전, 공용 부품 · 지그의 현재 버전, 템플릿, DOE
+스냅샷(재생성하면 처음 내보낸 것과 다른 형상이 된다). 지그 버전은 2026-10-04 부터 레시피를
+든다(「내 작업 공간으로 복사」 가 그것을 다시 평가한다). 생성기로 만든 이전 버전은 레시피가
+없어 건너뛴다.
 형상은 바뀐 판금 노드 하나만 지어 본다 — 도면 전체를 다시 만들지 않는다.
 """
 
@@ -27,6 +28,7 @@ from app.core.recipe.params import resolve
 from app.core.recipe.schema import RecipeValidationError
 from app.modules.accounts.models import User
 from app.modules.doe.models import DoeStudy
+from app.modules.jigs.models import Jig, JigVersion
 from app.modules.parts.models import Part, PartVersion
 from app.modules.templates.models import RecipeTemplate
 from app.modules.works.models import Work, WorkVersion
@@ -61,6 +63,16 @@ def _rows(db: Session) -> Iterator[tuple[str, Any, str, Any, int | None, dict[st
     )
     for one in parts:
         yield "part", one.id, one.name, one.owner_id, one.number, one.recipe
+    jigs = db.execute(
+        select(Jig.id, Jig.name, Jig.owner_id, JigVersion.number, JigVersion.recipe)
+        .join(
+            JigVersion,
+            and_(JigVersion.jig_id == Jig.id, JigVersion.number == Jig.current_version),
+        )
+        .where(Jig.deleted_at.is_(None), _has_sheet(JigVersion.recipe))
+    )
+    for one in jigs:
+        yield "jig", one.id, one.name, one.owner_id, one.number, one.recipe
     for template in db.scalars(
         select(RecipeTemplate).where(_has_sheet(RecipeTemplate.recipe))
     ):

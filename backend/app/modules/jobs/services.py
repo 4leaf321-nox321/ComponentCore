@@ -21,7 +21,7 @@ from app.modules.accounts.models import User
 from app.modules.jobs import registry
 from app.modules.jobs.models import FINISHED, Artifact, Job, WorkerBeat
 from app.modules.jobs.schemas import ArtifactOut, JobOut, StageOut
-from app.modules.works.models import Work, WorkVersion
+from app.modules.works.models import Work
 from app.shared import filestore
 from app.shared.errors import AppError, Forbidden, NotFound, code
 
@@ -475,13 +475,7 @@ def _in_published_recipe(db: Session, artifact: Artifact) -> bool:
     )
     if in_parts is not None:
         return True
-    # 지그 버전은 레시피를 들지 않는다 — 그 버전을 평가한 작업 버전의 레시피를 본다.
-    in_jigs = db.scalar(
-        select(WorkVersion.id)
-        .join(JigVersion, JigVersion.job_id == WorkVersion.job_id)
-        .where(WorkVersion.recipe.contains(key))
-        .limit(1)
-    )
+    in_jigs = db.scalar(select(JigVersion.id).where(JigVersion.recipe.contains(key)).limit(1))
     if in_jigs is not None:
         return True
     in_studies = db.scalar(

@@ -5,8 +5,10 @@
 훑을 수 있다. 자리(받침 · 핀 · 클램프 위치)는 부품에서 나온 수라 그대로 적고, 사람이 바꿀 만한
 치수만 변수로 뺀다.
 
-노드 id 는 화면 · 미리보기의 이름표와 같은 말(바닥판 · 받침_1 · 위치_핀_1 · 클램프_1 … — id
-에는 띄어쓰기를 못 써 밑줄)이라 간섭 보고와 도면 목록이 같은 이름을 쓴다.
+노드 id 는 생성기의 이름표와 **같다**(바닥판 · 받침_1 · 위치_핀_1 · 클램프_1 … — `assembly`).
+묶음 「지그」 의 자식 하나가 요소 하나이고 그 이름이 노드 id 라, 생성 결과의 간섭 보고 ·
+미리보기 · 편집기의 3D 이름표 · 간섭 검사가 한 이름을 쓴다. 구멍을 뚫은 바닥판도 마지막
+노드가 `바닥판` 이다.
 """
 
 from __future__ import annotations
@@ -14,10 +16,29 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from app.core.elements.locator import side_pin_layout
 from app.core.model import FixturePlan
 from app.core.options import JigOptions
+from app.core.standard import StandardRef
 
 Node = dict[str, Any]
+
+
+def _component(node_id: str, ref: StandardRef, at: list[Any], angle: float = 0.0) -> Node:
+    """규격 부품 — 카탈로그의 그 버전을 가져와 놓는다. 받침 높이를 따라가는 변수는 식으로 적어
+    `받침_높이` 를 바꾸면 따라온다."""
+    params: dict[str, Any] = {**ref.params}
+    for name, offset in ref.lift_params.items():
+        params[name] = f"=받침_높이 + {_r(offset)}" if offset else "=받침_높이"
+    return {
+        "id": node_id,
+        "op": "component",
+        "source": ref.source,
+        "label": f"{ref.name} ({ref.part_no})",
+        "params": params,
+        "translate": at,
+        "rotate": [0, 0, _r(angle)],
+    }
 
 
 def _r(value: float) -> float:
@@ -30,9 +51,12 @@ def _plate_nodes(plan: FixturePlan, params: dict[str, float], kind: str) -> list
     params["판_너비"] = _r(plate.width)
     params["판_두께"] = _r(plate.thickness)
     label = "바닥" if kind == "drop" else "바닥판"
+    holes = _plate_holes(plan)
+    # 묶음의 자식 이름이 요소 이름이 되게 — 구멍이 있으면 몸통은 따로, 마지막 구멍이 `바닥판`.
+    body = f"{label}_몸통" if holes else label
     nodes: list[Node] = [
         {
-            "id": label,
+            "id": body,
             "op": "box",
             "length": "=판_길이",
             "width": "=판_너비",
@@ -41,6 +65,26 @@ def _plate_nodes(plan: FixturePlan, params: dict[str, float], kind: str) -> list
             "align": ["center", "center", "max"],
         }
     ]
+    last = body
+    for index, (diameter, points) in enumerate(holes, start=1):
+        hole_id = label if index == len(holes) else f"{label}_구멍_{index}"
+        nodes.append(
+            {
+                "id": hole_id,
+                "op": "hole",
+                "target": last,
+                "diameter": _r(diameter),
+                "at": points,
+            }
+        )
+        last = hole_id
+    return nodes
+
+
+def _plate_holes(plan: FixturePlan) -> list[tuple[float, list[list[float]]]]:
+    """바닥판의 구멍 — 고정용 네 귀퉁이 구멍과 계획이 뚫은 구멍(볼트 탭 등), 지름마다 한
+    노드."""
+    plate = plan.base_plate
     holes: list[tuple[float, list[list[float]]]] = []
     if plate.mount_hole_diameter > 0:
         margin = max(plate.mount_hole_diameter, 8.0)
@@ -56,20 +100,7 @@ def _plate_nodes(plan: FixturePlan, params: dict[str, float], kind: str) -> list
     for x, y, diameter in plate.holes:
         by_diameter.setdefault(_r(diameter), []).append([_r(x), _r(y)])
     holes += list(by_diameter.items())
-    last = label
-    for index, (diameter, points) in enumerate(holes, start=1):
-        hole_id = f"{label}_구멍_{index}" if len(holes) > 1 else f"{label}_구멍"
-        nodes.append(
-            {
-                "id": hole_id,
-                "op": "hole",
-                "target": last,
-                "diameter": _r(diameter),
-                "at": points,
-            }
-        )
-        last = hole_id
-    return nodes
+    return holes
 
 
 def _clamped(plan: FixturePlan, opts: JigOptions, params: dict[str, float]) -> list[Node]:
@@ -79,6 +110,9 @@ def _clamped(plan: FixturePlan, opts: JigOptions, params: dict[str, float]) -> l
         params["받침_지름"] = _r(plan.supports[0].diameter)
     for i, support in enumerate(plan.supports, start=1):
         x, y, _ = support.position
+        if support.standard is not None:
+            nodes.append(_component(f"받침_{i}", support.standard, [_r(x), _r(y), 0]))
+            continue
         nodes.append(
             {
                 "id": f"받침_{i}",
@@ -89,10 +123,41 @@ def _clamped(plan: FixturePlan, opts: JigOptions, params: dict[str, float]) -> l
                 "align": ["center", "center", "min"],
             }
         )
-    pins = rests = 0
+    pins = rests = sides = 0
     for locator in plan.locators:
         x, y, z = locator.position
-        if locator.kind == "pin":
+        if locator.kind == "side_pin":
+            sides += 1
+            one = side_pin_layout(locator)
+            block, pin = f"측면_핀_{sides}_블록", f"측면_핀_{sides}_핀"
+            nodes += [
+                {
+                    "id": block,
+                    "op": "box",
+                    "length": _r(one["block_sx"]),
+                    "width": _r(one["block_sy"]),
+                    "height": f"=받침_높이 + {_r(one['block_top'])}",
+                    "at": [_r(one["block_x"]), _r(one["block_y"]), 0],
+                    "align": ["center", "center", "min"],
+                },
+                {
+                    "id": pin,
+                    "op": "cylinder",
+                    "radius": _r(one["pin_radius"]),
+                    "height": _r(one["pin_length"]),
+                    "axis": "X" if one["along_x"] else "Y",
+                    "at": [
+                        _r(one["pin_x"]),
+                        _r(one["pin_y"]),
+                        f"=받침_높이 + {_r(one['pin_z'])}",
+                    ],
+                },
+                {"id": f"측면_핀_{sides}", "op": "union", "targets": [block, pin]},
+            ]
+        elif locator.kind == "pin" and locator.standard is not None:
+            pins += 1
+            nodes.append(_component(f"위치_핀_{pins}", locator.standard, [_r(x), _r(y), 0]))
+        elif locator.kind == "pin":
             pins += 1
             assert locator.diameter is not None and locator.engagement is not None
             nodes.append(
@@ -126,6 +191,29 @@ def _clamped(plan: FixturePlan, opts: JigOptions, params: dict[str, float]) -> l
     for i, clamp in enumerate(plan.clamps, start=1):
         px, py, _ = clamp.post_position
         x, y, z = clamp.pad_position
+        if clamp.standard is not None:
+            # 받침 블록 높이 = 받침 높이 + (패드 자리 - 누르는 높이) — 받침을 따라 오른다.
+            rise = f"=받침_높이 + {_r(clamp.riser - plan.product_lift)}"
+            if clamp.riser > 0.5:
+                block, body = f"클램프_{i}_받침블록", f"클램프_{i}_본체"
+                nodes += [
+                    {
+                        "id": block,
+                        "op": "box",
+                        "length": _r(clamp.base_size),
+                        "width": _r(clamp.base_size),
+                        "height": rise,
+                        "at": [_r(px), _r(py), 0],
+                        "align": ["center", "center", "min"],
+                    },
+                    _component(body, clamp.standard, [_r(px), _r(py), rise], clamp.angle),
+                    {"id": f"클램프_{i}", "op": "union", "targets": [block, body]},
+                ]
+            else:
+                nodes.append(
+                    _component(f"클램프_{i}", clamp.standard, [_r(px), _r(py), 0], clamp.angle)
+                )
+            continue
         clearance = opts.clamp_clearance_above
         arm_bottom = f"받침_높이 + {_r(z + clearance)}"
         dx, dy = x - px, y - py
@@ -257,34 +345,44 @@ def _bending(plan: FixturePlan, params: dict[str, float]) -> list[Node]:
                 "targets": [f"롤러_{i}_받침대", f"롤러_{i}_원통"],
             },
         ]
-    nose = plan.nose
-    if nose is not None:
-        params["노즈_지름"] = _r(nose.diameter)
+    noses = plan.noses
+    if not noses:
+        return nodes
+    params["노즈_지름"] = _r(noses[0].diameter)
+    span_axis = "x" if noses[0].along == "y" else "y"
+    if len(noses) > 1:
+        x0, y0, _ = noses[0].position
+        params["하중_간격"] = _r(2 * abs(x0 if span_axis == "x" else y0))
+    for nose in noses:
         x, y, z = nose.position
         top_of_part = _r(z - nose.diameter / 2)
+        if len(noses) > 1:
+            # 4점 — 하중 간격의 양 끝. 변수 하나로 둘이 함께 벌어진다.
+            sign = 1 if (x if span_axis == "x" else y) >= 0 else -1
+            offset = "=하중_간격/2" if sign > 0 else "=-하중_간격/2"
+            spot: list[Any] = [offset, _r(y)] if span_axis == "x" else [_r(x), offset]
+        else:
+            spot = [_r(x), _r(y)]
+        label = nose.label
         nodes += [
             {
-                "id": "로딩_노즈_원통",
+                "id": f"{label}_원통",
                 "op": "cylinder",
                 "radius": "=노즈_지름/2",
                 "height": _r(nose.length),
                 "axis": nose.along.upper(),
-                "at": [_r(x), _r(y), f"=받침_높이 + {top_of_part} + 노즈_지름/2"],
+                "at": [*spot, f"=받침_높이 + {top_of_part} + 노즈_지름/2"],
             },
             {
-                "id": "로딩_노즈_줄기",
+                "id": f"{label}_줄기",
                 "op": "box",
                 "length": "=노즈_지름",
                 "width": "=노즈_지름",
                 "height": _r(nose.stem_height),
-                "at": [_r(x), _r(y), f"=받침_높이 + {top_of_part} + 노즈_지름/2"],
+                "at": [*spot, f"=받침_높이 + {top_of_part} + 노즈_지름/2"],
                 "align": ["center", "center", "min"],
             },
-            {
-                "id": "로딩_노즈",
-                "op": "union",
-                "targets": ["로딩_노즈_원통", "로딩_노즈_줄기"],
-            },
+            {"id": label, "op": "union", "targets": [f"{label}_원통", f"{label}_줄기"]},
         ]
     return nodes
 

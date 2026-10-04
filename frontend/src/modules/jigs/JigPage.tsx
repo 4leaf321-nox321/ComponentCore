@@ -1,14 +1,16 @@
-/** 지그 하나 — 버전 이력 · 결과(3D · 계획 · 간섭 · STEP) · 어느 부품 버전의 지그인가. */
+/** 지그 하나 — 버전 이력 · 결과(3D · 계획 · 간섭 · STEP) · 해석 조건 · 어느 부품 버전의 지그인가 · 내 공간으로 복사. */
 
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
+import { ConditionsCard } from '@/modules/conditions/ConditionsCard'
 import { jigsApi } from '@/modules/jigs/api'
 import type { JigVersion } from '@/modules/jigs/api'
 import { JigResultView } from '@/modules/jigs/JigResultView'
 import { SimilarCard } from '@/modules/search/SimilarCard'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { canEditProject } from '@/shared/auth/roles'
+import { ApiError } from '@/shared/api/client'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { EmptyState } from '@/shared/components/EmptyState'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
@@ -27,6 +29,8 @@ export default function JigPage() {
   const versions = useResource(() => jigsApi.versions(id), [id])
   const [selected, setSelected] = useState<JigVersion | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState<ApiError | Error | null>(null)
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     if (!selected && jig.data?.current) setSelected(jig.data.current)
@@ -36,6 +40,20 @@ export default function JigPage() {
   if (jig.error) return <ErrorNotice error={jig.error} />
   if (!j) return null
   const editable = canEditProject(user, j.owner_id)
+
+  /** 남의 지그를 고치거나 그 지그로 DOE 를 돌리는 길 — 레시피 · 잡는 부품 · 해석 조건이 따라간다. */
+  async function copy(number?: number) {
+    setBusy(true)
+    setError(null)
+    try {
+      const made = await jigsApi.copyToWork(id, { number })
+      navigate(`/works/${made.id}`)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -66,6 +84,14 @@ export default function JigPage() {
                 원본 작업 열기
               </Button>
             )}
+            <Button
+              variant="outline"
+              onClick={() => void copy(selected?.number)}
+              disabled={busy || !selected?.recipe}
+              title={selected && !selected.recipe ? '생성기로 만든 이전 버전이라 레시피가 없어 복사할 수 없습니다.' : undefined}
+            >
+              내 작업 공간으로 복사{selected && selected.number !== j.current_version ? ` (v${selected.number})` : ''}
+            </Button>
             {editable && (
               <Button variant="ghost" onClick={() => setDeleting(true)}>
                 등록 해제
@@ -75,6 +101,7 @@ export default function JigPage() {
         }
       />
 
+      <ErrorNotice error={error} />
       <FolderLine
         folder={j.folder}
         editable={editable}
@@ -117,6 +144,7 @@ export default function JigPage() {
               </ul>
             </CardContent>
           </Card>
+          {selected && <ConditionsCard conditions={selected.conditions} />}
           {j.current_version > 0 && <SimilarCard source={`jig:${id}`} />}
         </div>
         <div className="lg:col-span-3">

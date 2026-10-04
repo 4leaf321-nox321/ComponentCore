@@ -134,7 +134,7 @@ curl -X POST -H "Authorization: Bearer <PAT>" "http://<호스트>/api/doe/<id>/r
 브래킷_압력_훑기-98e481ec/
   README.txt       사람이 열어 볼 한 장
   manifest.csv     설계점마다 바꾼 변수 값 · 파일 이름 · 상태
-  study.json       레시피 스냅샷 · 인자 · 시드 · **작성자와 돌린 쪽**
+  study.json       레시피 스냅샷 · 인자 · 시드 · **작성자와 돌린 쪽** · 복제했으면 원본(`cloned_from`)
   conditions.json  조건 한 벌 — 식이 있는 그대로(사람이 읽는 정본)
   points/p0001.json   이 점의 모든 것 — 변수 값 · 영역과 바디의 좌표 지문 ·
                       그 값으로 **풀린** 조건 · 이 점이 쓰는 `step_file`
@@ -157,10 +157,11 @@ curl -X POST -H "Authorization: Bearer <PAT>" "http://<호스트>/api/doe/<id>/r
 | --- | --- |
 | `auth` | 로그인 · PAT 발급 · 범위 목록(`GET /auth/token-scopes`) |
 | `works` | **내 작업** — 비공개로 그리는 자리. 버전마다 레시피와 해석 조건. 시스템 관리자는 목록 · 태그 · 폴더에 `owner=all` · `owner=<사람 id>` 로 남의 것을 찾는다 |
-| `parts` · `jigs` · `templates` | 등록된 공용 카탈로그(불변 버전) |
+| `parts` · `jigs` · `templates` | 등록된 공용 카탈로그(불변 버전). 부품 · 지그 버전에는 해석 조건이 실려 있고, `POST /parts/{id}/copy-to-work` · `POST /jigs/{id}/copy-to-work` 가 레시피와 조건을 내 작업으로 옮긴다. 부품의 **규격 사양**(`standard` — 받침 · 위치 핀 · 토글 클램프)은 시스템 관리자가 `PUT /parts/{id}/standard` 로 붙이고, 지그 생성이 요구에 맞는 것을 골라 부품표(`plan.bom`)를 남긴다. `GET /parts?standard=any` 로 거른다. 다른 서버로 옮길 때는 `POST /parts/standard/export` 의 묶음(JSON)을 `POST /parts/standard/import`(`dry_run` 먼저, 품번으로 짝짓는다)로 — 둘 다 시스템 관리자 |
 | `cad` | 레시피 검증 · 평가 · 질의 · 셀렉터 후보 · 조건 사양표. **대부분 아무것도 저장하지 않는다** |
-| `doe` | 위 3장 |
+| `doe` | 위 3장. 남의 공개 DOE 를 이어서 하려면 `POST /doe/{id}/clone` — 같은 설계점 · 조건으로 내 DOE 를 새로 만든다(원본은 그대로) |
 | `materials` | 물성 — MatNexus 중계, 못 닿으면 올려 둔 카탈로그(`fallback`) |
+| `specimens` | 시험 규격 — 공개(코드) · 사내(DB, 관리자) 프리셋 목록, `POST /specimens/works` 가 시편 · 시험 지그 · 해석 조건이 붙은 내 작업을 만든다(`시험-규격-설계.md`) |
 | `jobs` | 작업 큐 |
 | `accounts` · `server` | 관리자용 |
 | `system` | `GET /health` — 살아 있나 · 버전 |

@@ -30,6 +30,8 @@ export interface JigSummary {
     clamps: { label: string; pad_position: number[]; post_position: number[] }[]
     product_lift: number
     notes: string[]
+    /** 규격 부품표 — 품번마다 수량. 이 기능 전의 결과에는 없다. */
+    bom?: { part_no: string; name: string; kind: string; count: number }[]
   }
   interference: { ok: boolean; tolerance: number; total_volume: number; items: InterferenceItem[] }
   files: Record<string, string>
@@ -43,6 +45,10 @@ export interface JigVersion {
   job: Job | null
   options: Record<string, unknown>
   summary: JigSummary | null
+  /** 등록 시점의 레시피 — 「내 작업 공간으로 복사」 가 연다. 생성기로 만든 이전 버전은 없다. */
+  recipe?: Record<string, unknown> | null
+  /** 해석 조건 — 등록할 때 함께 올렸으면 있다. 복사가 옮긴다. */
+  conditions?: Record<string, unknown>
   part_id: string | null
   part_name: string | null
   part_version: number | null
@@ -109,6 +115,9 @@ export const jigsApi = {
   tags: () => api.get<string[]>('/jigs/tags'),
   get: (id: string) => api.get<Jig>(`/jigs/${id}`),
   versions: (id: string) => api.get<JigVersion[]>(`/jigs/${id}/versions`),
+  /** 지그(버전)의 레시피로 내 작업(종류 지그)을 새로 — 잡는 부품 · 해석 조건이 따라간다. */
+  copyToWork: (id: string, body: { name?: string; number?: number; conditions?: boolean }) =>
+    api.post<{ id: string }>(`/jigs/${id}/copy-to-work`, body),
   update: (id: string, body: { name?: string; description?: string; folder?: string }) => api.patch<Jig>(`/jigs/${id}`, body),
   /** 카탈로그의 폴더들 — 경로와 바로 그 폴더의 지그 수. */
   folders: () => api.get<FolderRow[]>('/jigs/folders'),

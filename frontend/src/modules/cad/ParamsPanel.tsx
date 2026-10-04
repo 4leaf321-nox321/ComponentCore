@@ -4,41 +4,57 @@
  * 여기 「판_길이 80」 을 두고 칸의 `fx` 를 눌러 `=판_길이` 라고 쓰면, 이 값 하나로 그것을 쓰는
  * 모든 칸이 움직인다. 스케치 구속 솔버는 없지만, 변수 + 기준 자리(`align`)로 지그가 필요로 하는
  * 「한쪽 고정, 반대쪽 늘리기」 는 된다. JSON 키는 `params` 그대로다.
+ *
+ * 값이 `=식` 인 변수(`지지_간격 = 간격비 * 두께`)는 식 그대로 보이고 고친다 — 숫자 칸에 넣으면
+ * 빈칸으로 보이고, 숫자를 치는 순간 식이 지워졌다. 쓰인 곳은 입력란 · 다른 변수 · 해석 조건을 다
+ * 센다(`paramUsage.ts`) — 조건이나 다른 변수가 쓰는 변수는 지우지 못하고, 조건이 쓰는 변수는 이름도
+ * 못 바꾼다(조건은 이 화면이 고치지 않는다).
  */
 
 import { Plus, Ruler, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 
 import type { Recipe } from '@/modules/cad/api'
+import { namePattern, paramUses, useLabel, useTitle } from '@/modules/cad/paramUsage'
 import { Button } from '@/shared/components/ui/button'
 import { Input } from '@/shared/components/ui/input'
 
-export function ParamsPanel({ value, onChange }: { value: Recipe; onChange: (next: Recipe) => void }) {
-  const params = (value.params ?? {}) as Record<string, number>
+export function ParamsPanel({
+  value,
+  onChange,
+  conditions,
+}: {
+  value: Recipe
+  onChange: (next: Recipe) => void
+  /** 이 도면의 해석 조건 — 주면 조건이 쓰는 변수도 「쓰임」 으로 센다. */
+  conditions?: unknown
+}) {
+  const params = (value.params ?? {}) as Record<string, number | string>
   const names = Object.keys(params)
   // **어디에 쓰였는지 세어 보여 준다.** 「변수를 만들었는데 아무 데도 안 쓴」 상태가 제일 헷갈린다 —
   // 그러면 DOE 를 돌려도 형상이 하나도 안 바뀐다.
-  const recipeText = JSON.stringify(value.nodes)
-  const usage = (name: string) =>
-    (recipeText.match(new RegExp(`"=[^"]*(?<![\\w])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w])[^"]*"`, 'g')) ?? []).length
+  const uses = paramUses(value, conditions)
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
   const [draft, setDraft] = useState('10')
 
-  function put(next: Record<string, number>) {
+  function put(next: Record<string, number | string>) {
     onChange({ ...value, params: next })
   }
 
   function rename(from: string, to: string) {
     const trimmed = to.trim()
     if (!trimmed || trimmed === from || trimmed in params) return
-    // 이름을 바꾸면 그것을 쓰던 식도 따라 바꾼다 — 안 그러면 레시피가 통째로 깨진다.
-    const pattern = new RegExp(`(?<![\\w])${from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w])`, 'g')
-    const swapped = JSON.parse(
-      JSON.stringify(value.nodes).replaceAll(/"=[^"]*"/g, (found) => found.replaceAll(pattern, trimmed)),
-    ) as Recipe['nodes']
-    const next: Record<string, number> = {}
-    for (const key of names) next[key === from ? trimmed : key] = params[key]
+    // 이름을 바꾸면 그것을 쓰던 식도 따라 바꾼다 — 입력란과 다른 변수의 식. 안 그러면 레시피가 통째로
+    // 깨진다.
+    const pattern = namePattern(from)
+    const swap = (text: string) => text.replaceAll(/"=[^"]*"/g, (found) => found.replaceAll(pattern, trimmed))
+    const swapped = JSON.parse(swap(JSON.stringify(value.nodes))) as Recipe['nodes']
+    const next: Record<string, number | string> = {}
+    for (const key of names) {
+      const old = params[key]
+      next[key === from ? trimmed : key] = typeof old === 'string' ? old.replaceAll(pattern, trimmed) : old
+    }
     onChange({ ...value, params: next, nodes: swapped })
   }
 
@@ -62,28 +78,46 @@ export function ParamsPanel({ value, onChange }: { value: Recipe; onChange: (nex
           <li key={key} className="flex items-center gap-1">
             <Input
               defaultValue={key}
+              readOnly={uses[key].conditions > 0}
+              title={uses[key].conditions > 0 ? '해석 조건에서 사용 중이므로 이름을 바꿀 수 없습니다.' : undefined}
               onBlur={(event) => rename(key, event.target.value)}
               className="h-7 flex-1 font-mono text-xs"
               aria-label={`변수 이름 ${key}`}
             />
-            <Input
-              type="number"
-              step={0.5}
-              value={String(params[key])}
-              onChange={(event) => put({ ...params, [key]: Number(event.target.value) })}
-              className="h-7 w-24"
-              aria-label={`변수 ${key}`}
-            />
+            {typeof params[key] === 'string' ? (
+              <Input
+                value={String(params[key])}
+                onChange={(event) => {
+                  const text = event.target.value
+                  const number = Number(text)
+                  put({ ...params, [key]: !text.startsWith('=') && text.trim() !== '' && Number.isFinite(number) ? number : text })
+                }}
+                className="h-7 w-36 font-mono text-xs"
+                title="다른 변수로 정의된 식입니다. 숫자를 입력하면 고정 값이 됩니다."
+                aria-label={`변수 ${key}`}
+              />
+            ) : (
+              <Input
+                type="number"
+                step={0.5}
+                value={String(params[key])}
+                onChange={(event) => put({ ...params, [key]: Number(event.target.value) })}
+                className="h-7 w-24"
+                aria-label={`변수 ${key}`}
+              />
+            )}
             <span
-              className={`w-14 shrink-0 text-right text-[10px] ${usage(key) === 0 ? 'text-destructive' : 'text-muted-foreground'}`}
-              title={usage(key) === 0 ? '어느 입력란에서도 사용하지 않습니다. 입력란의 fx를 눌러 =이름을 입력하십시오.' : `${usage(key)} 개 입력란에서 사용합니다.`}
+              className={`w-20 shrink-0 text-right text-[10px] ${useLabel(uses[key]) === '미사용' ? 'text-destructive' : 'text-muted-foreground'}`}
+              title={useTitle(uses[key])}
             >
-              {usage(key) === 0 ? '미사용' : `${usage(key)} 개 입력란`}
+              {useLabel(uses[key])}
             </span>
             <button
               type="button"
-              className="text-muted-foreground hover:text-destructive rounded p-1"
+              className="text-muted-foreground hover:text-destructive rounded p-1 disabled:opacity-40"
               aria-label={`변수 ${key} 삭제`}
+              disabled={uses[key].params.length > 0 || uses[key].conditions > 0}
+              title={uses[key].params.length > 0 || uses[key].conditions > 0 ? '다른 변수의 식이나 해석 조건에서 사용 중이므로 삭제할 수 없습니다.' : undefined}
               onClick={() => {
                 const next = { ...params }
                 delete next[key]

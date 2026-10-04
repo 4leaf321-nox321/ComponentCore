@@ -352,6 +352,32 @@ sync_env_identity() {
     done
 }
 
+# **`.env` 의 경로는 유닛이 거는 자리와 같아야 한다** — 공유 폴더 · 백업 폴더를 설치 뒤에 정해도
+# 맞춘다. 이 값들은 `.env` 를 처음 만들 때만 채워졌다. 그래서 나중에 `DOE_HOST_DIR=… update` 를
+# 하면 유닛은 폴더를 거는데 앱은 기본 경로를 봐서 「보내기」 가 실패했다(2026-10-04). 비밀키 ·
+# DB 같은 다른 줄은 건드리지 않는다.
+set_env_key() {  # $1=key $2=value — 있으면 바꾸고, 주석으로만 있으면 풀고, 없으면 덧붙인다
+    local key="$1" value="$2" current
+    current="$(sed -n "s|^$key=||p" "$ENV_FILE" | tail -n1)"
+    [[ "$current" == "$value" ]] && return 0
+    if grep -q "^$key=" "$ENV_FILE"; then
+        warn ".env 의 $key 를 바꿉니다: ${current:-(빈 값)} → $value (유닛이 거는 자리와 같아야 합니다)"
+        sed -i "s|^$key=.*|$key=$(sed_escape "$value")|" "$ENV_FILE"
+    elif grep -q "^# *$key=" "$ENV_FILE"; then
+        sed -i "0,/^# *$key=/{s|^# *$key=.*|$key=$(sed_escape "$value")|}" "$ENV_FILE"
+    else
+        printf '%s=%s\n' "$key" "$value" >> "$ENV_FILE"
+    fi
+    info ".env: $key=$value"
+}
+
+sync_env_paths() {
+    [[ -f "$ENV_FILE" ]] || return 0
+    if [[ -n "$DOE_HOST_DIR" ]]; then set_env_key DOE_EXPORT_ROOT /data/doe-export; fi
+    if [[ -n "$BACKUP_HOST_DIR" ]]; then set_env_key BACKUP_DIR /data/backup; fi
+    return 0
+}
+
 place_sif() {
     [[ -f "$HERE/app.sif" ]] || err "app.sif 가 $HERE 에 없습니다 (릴리스 번들에서 실행하세요)"
     info "app.sif 배치 → $INSTALL_DIR/app.sif"
@@ -688,6 +714,7 @@ cmd_install() {
     ensure_dirs
     generate_env_if_missing
     sync_env_identity
+    sync_env_paths
     place_sif
     run_migrations
     run_seed
@@ -726,6 +753,7 @@ cmd_update() {
     info "$APP_NAME ($APP_SLUG) $VERSION — 포트 $APP_PORT · 확장 ${EXTENSIONS:-없음}"
     ensure_dirs
     sync_env_identity
+    sync_env_paths
 
     info "$SERVICE_NAME 중지"
     systemctl stop "$SERVICE_NAME" || true
@@ -753,6 +781,7 @@ cmd_update() {
     setup_backup_timer || warn "백업 타이머 건너뜀(비치명적)"
     setup_cleanup_timer || warn "청소 타이머 건너뜀(비치명적)"
     setup_lb
+    check_doe_dir
 
     cat <<MSG
 

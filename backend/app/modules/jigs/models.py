@@ -107,6 +107,14 @@ class JigVersion(Base):
         index=True,
     )
     options: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
+    recipe: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    """등록 시점의 레시피 복사본 — 「내 작업 공간으로 복사」 가 이것으로 새 작업을 연다.
+    생성기로 만든 옛 버전은 비어 있다(짝이 되는 작업 버전이 없다)."""
+    conditions: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default="{}"
+    )
+    """등록 시점의 해석 조건 복사본 — 부품(`PartVersion.conditions`)과 같은 규칙. 등록할 때
+    빼면 비어 있다."""
     summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     """작업 요약의 복사본 — 작업이 지워져도 계획은 남는다."""
     note: Mapped[str] = mapped_column(Text, default="", server_default="")

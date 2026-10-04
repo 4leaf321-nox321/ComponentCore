@@ -22,6 +22,80 @@ export interface PartVersion {
   created_at: string
 }
 
+/** 규격 부품의 종류 — 지그 생성기가 놓을 줄 아는 것만. */
+export type StandardKind = 'support' | 'pin' | 'clamp'
+
+export const STANDARD_KINDS: { value: StandardKind; label: string; hint: string }[] = [
+  { value: 'support', label: '받침', hint: '바닥 중심이 원점, 위가 +Z. 제품 바닥에 닿는 윗면 지름과 높이.' },
+  { value: 'pin', label: '위치 핀', hint: '바닥 중심이 원점, 위가 +Z. 구멍에 들어가는 지름과 판 위 길이.' },
+  { value: 'clamp', label: '토글 클램프', hint: '베이스 바닥 중심이 원점, 팔이 +X. 누른 상태의 패드 중심이 (도달 거리, 0, 누르는 높이).' },
+]
+
+/**
+ * **규격 부품 묶음** — 개발 PC 에서 내보내 운영 서버에서 가져오는 JSON 파일 하나(서버
+ * `parts.schemas.StandardBundle`). 형상이 레시피뿐이라 따라가야 할 파일이 없다.
+ */
+export interface StandardBundle {
+  format: 'compcore.standard-parts'
+  format_version: number
+  exported_at: string
+  exported_from: string
+  items: {
+    name: string
+    description: string
+    tags: string[]
+    folder: string
+    standard: Record<string, unknown>
+    recipe: Recipe
+    origin: Record<string, unknown>
+  }[]
+}
+
+/** 가져오기의 항목마다 할 일 — 새 부품 · 새 버전(형상이 다름) · 사양 수정 · 변경 없음 · 건너뜀. */
+export type StandardImportAction = 'create' | 'version' | 'spec' | 'same' | 'skip'
+
+export interface StandardImportItem {
+  part_no: string
+  name: string
+  kind: string
+  action: StandardImportAction
+  part_id: string | null
+  version: number | null
+  problems: string[]
+}
+
+export interface StandardImportResult {
+  dry_run: boolean
+  items: StandardImportItem[]
+}
+
+/**
+ * **규격 사양** — 관리자가 공용 부품에 붙인다(서버 `parts.schemas.StandardSpec`). 지그 생성기가
+ * 요구에 맞는 것을 골라 놓고 부품표에 품번 · 수량을 남긴다.
+ */
+export interface StandardSpec {
+  kind: StandardKind
+  part_no: string
+  maker?: string
+  version: number
+  preference?: number
+  top_diameter?: number | null
+  height?: number | null
+  height_param?: string | null
+  height_min?: number | null
+  height_max?: number | null
+  diameter?: number | null
+  length?: number | null
+  length_param?: string | null
+  length_min?: number | null
+  length_max?: number | null
+  reach?: number | null
+  pad_height?: number | null
+  pad_diameter?: number | null
+  base_length?: number | null
+  base_width?: number | null
+}
+
 export interface Part {
   id: string
   name: string
@@ -35,6 +109,8 @@ export interface Part {
   jig_count: number
   /** 놓인 폴더 — `고객A/2026`, 빈 것이 맨 위. */
   folder: string
+  /** 규격 사양 — 관리자가 붙였으면. */
+  standard?: StandardSpec | null
   created_at: string
   updated_at: string
 }
@@ -51,6 +127,7 @@ export interface PartSummary {
   jig_count: number
   /** 놓인 폴더 — `고객A/2026`, 빈 것이 맨 위. 승격할 때 작업의 폴더를 한 번 물려받는다. */
   folder: string
+  standard?: StandardSpec | null
   updated_at: string
   /** 최신 버전의 형상 색인 — 이 기능 전의 버전이면 없다. */
   shape?: ShapeIndex | null
@@ -58,6 +135,8 @@ export interface PartSummary {
 
 /** 목록을 거르는 폴더 — null 이면 전부, '' 이면 폴더 없는 것만(그때는 하위를 안 본다). */
 export interface FolderFilter {
+  /** 규격 부품만 — `any` 또는 종류. */
+  standard?: '' | 'any' | StandardKind
   folder?: string | null
   /** 형상 조건 — 최신 버전의 형상 색인으로. */
   shape?: ShapeQuery
@@ -71,8 +150,17 @@ export const partsApi = {
     if (filter.folder != null) query.set('folder', filter.folder)
     if (filter.folder === '') query.set('subfolders', 'false')
     addShapeParams(query, filter.shape)
+    if (filter.standard) query.set('standard', filter.standard)
     return api.get<Page<PartSummary>>(`/parts?${query}`)
   },
+  /** 규격 사양을 붙이거나 고친다 — 시스템 관리자만. 형상이 기준을 어기면 400 과 `details.problems`. */
+  setStandard: (id: string, spec: StandardSpec) => api.put<Part>(`/parts/${id}/standard`, spec),
+  clearStandard: (id: string) => api.delete<Part>(`/parts/${id}/standard`),
+  /** 규격 부품 묶음을 만든다 — 시스템 관리자만. `ids` 가 비면 규격 부품 전부. */
+  exportStandard: (ids: string[]) => api.post<StandardBundle>('/parts/standard/export', { ids }),
+  /** 묶음을 가져온다 — 시스템 관리자만. `dryRun` 이면 아무것도 바꾸지 않고 할 일만 돌려준다. */
+  importStandard: (bundle: StandardBundle, dryRun: boolean) =>
+    api.post<StandardImportResult>(`/parts/standard/import?dry_run=${dryRun}`, bundle),
   /** 카탈로그의 폴더들 — 경로와 바로 그 폴더의 부품 수. */
   folders: () => api.get<FolderRow[]>('/parts/folders'),
   /** 폴더째 옮기기 · 이름 바꾸기(하위까지). 남의 부품이 든 폴더는 관리자만. */

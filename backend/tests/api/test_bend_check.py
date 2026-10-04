@@ -52,3 +52,25 @@ def test_안쪽에_두께가_붙은_굽힘을_찾고_이제_실패하는_것을_
     assert "판을 굽히지 못했습니다" in mine[1]["error"]
     assert mine[0]["kind"] == "work" and mine[0]["id"] == made[f"안쪽{t}"]
     assert mine[0]["owner"] == "member" and mine[0]["node"] == "판"
+
+
+def test_공용_지그의_판금도_훑는다(client: TestClient, member: Signed, admin: Signed) -> None:
+    """지그 버전도 레시피를 든다(2026-10-04) — 「내 작업 공간으로 복사」 가 그것을 다시
+    평가한다."""
+    t = uuid.uuid4().hex[:6]
+    work = client.post(
+        "/api/works",
+        json={"name": f"판금지그{t}", "kind": "jig",
+              "recipe": _sheet("right", [[0, 0], [40, 0], [40, 40]])},
+        headers=member.headers,
+    )  # fmt: skip
+    assert work.status_code == 201, work.text
+    jig = client.post(
+        f"/api/works/{work.json()['id']}/promote/jig-recipe", json={}, headers=member.headers
+    )
+    assert jig.status_code == 201, jig.text
+    report = client.get("/api/server/bend-check", headers=admin.headers).json()
+    kinds = sorted(one["kind"] for one in report["items"] if t in one["name"])
+    assert kinds == ["jig", "work"]
+    (row,) = [one for one in report["items"] if one["kind"] == "jig" and t in one["name"]]
+    assert row["id"] == jig.json()["jig_id"] and row["version"] == 1

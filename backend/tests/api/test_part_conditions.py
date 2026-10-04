@@ -1,4 +1,5 @@
-"""공용 부품으로 남이 이어서 일한다 — 해석 조건이 따라가고, STEP 으로 시작한 부품도 고친다.
+"""공용 부품 · 지그로 남이 이어서 일한다 — 해석 조건이 따라가고, STEP 으로 시작한 부품도
+고친다.
 
 - 부품으로 올릴 때 작업 버전의 해석 조건을 스냅샷으로 싣고(끌 수 있다), 「내 작업으로
   복사」 가 그것을 새 작업으로 옮긴다. 복사한 작업으로 DOE 를 만들면 그 조건이 박힌다.
@@ -166,3 +167,81 @@ def test_STEP_으로_시작한_공용_부품도_복사한_사람이_고치고_DO
         )
     )
     assert study["point_count"] == 2
+
+
+def _published_jig(client: TestClient, who: Signed, **promote: Any) -> str:
+    work = _ok(
+        client.post(
+            "/api/works",
+            json={"name": "받침", "recipe": RECIPE, "kind": "jig"},
+            headers=who.headers,
+        )
+    )
+    _ok(
+        client.put(
+            f"/api/works/{work['id']}/versions/1/conditions",
+            json={"conditions": CONDITIONS},
+            headers=who.headers,
+        )
+    )
+    made = _ok(
+        client.post(
+            f"/api/works/{work['id']}/promote/jig-recipe", json=promote, headers=who.headers
+        )
+    )
+    return str(made["jig_id"])
+
+
+def test_공용_지그도_내_작업으로_복사하면_레시피와_해석_조건이_따라온다(
+    client: TestClient, member: Signed, db: Session
+) -> None:
+    jig = _published_jig(client, member)
+    shown = _ok(client.get(f"/api/jigs/{jig}", headers=member.headers))["current"]
+    assert shown["recipe"]["params"] == {"두께": 10}
+    assert shown["conditions"]["constraints"][0]["on"] == "바닥"
+
+    colleague = _other(client, db)
+    copied = _ok(client.post(f"/api/jigs/{jig}/copy-to-work", json={}, headers=colleague))
+    assert copied["kind"] == "jig" and copied["name"] == "받침 지그 (복사)"
+    assert copied["current"]["recipe"]["params"] == {"두께": 10}
+    assert copied["current"]["conditions"]["constraints"][0]["name"] == "고정"
+    study = _ok(
+        client.post(
+            "/api/doe",
+            json={
+                "name": "지그 두께",
+                "recipe": copied["current"]["recipe"],
+                "factors": [{"name": "두께", "mode": "list", "values": [8, 12]}],
+                "work_id": copied["id"],
+            },
+            headers=colleague,
+        )
+    )
+    assert study["conditions"]["constraints"][0]["on"] == "바닥"
+
+    bare = _ok(
+        client.post(
+            f"/api/jigs/{jig}/copy-to-work", json={"conditions": False}, headers=colleague
+        )
+    )
+    assert bare["current"]["conditions"] == {}
+
+
+def test_지그를_형상만_올리거나_레시피가_없는_옛_버전은_복사하지_못한다(
+    client: TestClient, member: Signed, db: Session
+) -> None:
+    from app.modules.jigs.models import JigVersion
+
+    jig = _published_jig(client, member, conditions=False)
+    assert (
+        _ok(client.get(f"/api/jigs/{jig}", headers=member.headers))["current"]["conditions"]
+        == {}
+    )
+
+    # 생성기로 만든 옛 버전 — 짝이 되는 작업 버전이 없어 레시피가 비어 있다.
+    version = db.query(JigVersion).filter(JigVersion.jig_id == jig).one()
+    version.recipe = None
+    db.commit()
+    refused = client.post(f"/api/jigs/{jig}/copy-to-work", json={}, headers=member.headers)
+    assert refused.status_code == 409
+    assert refused.json()["error"]["code"].endswith("JIGS-0006")

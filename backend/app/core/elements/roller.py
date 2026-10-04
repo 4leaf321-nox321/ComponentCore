@@ -1,4 +1,4 @@
-"""3점 굽힘 — 지지 롤러(받침대 위에 눕힌 원기둥)와 로딩 노즈(위에서 누르는 원기둥 + 줄기)."""
+"""굽힘 — 지지 롤러(받침대 위에 눕힌 원기둥)와 로딩 노즈(위에서 누르는 원기둥 + 줄기)."""
 
 from __future__ import annotations
 
@@ -38,5 +38,5 @@ def build_nose(spec: NoseSpec, lift: float) -> Part:
         spec.diameter, spec.diameter, spec.stem_height
     )
     nose = nose + stem
-    nose.label = "로딩 노즈"
+    nose.label = spec.label
     return nose

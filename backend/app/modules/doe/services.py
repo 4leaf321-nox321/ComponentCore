@@ -1485,7 +1485,7 @@ def export_study(db: Session, study: DoeStudy) -> DoeStudy:
     root = check_root()
     target = files.study_dir(root, study.name, str(study.id))
     try:
-        shutil.copytree(source, target, dirs_exist_ok=True)
+        files.publish(source, target)
     except OSError as failure:
         raise AppError(
             code("DOE", 11),
@@ -1565,7 +1565,14 @@ def cleanup_exports(db: Session, *, dry_run: bool = False) -> dict[str, Any]:
         removed.append({"id": str(study.id), "name": study.name, "folder": str(folder)})
     if removed and not dry_run:
         db.commit()
-    return {"removed": removed, "count": len(removed), "dry_run": dry_run}
+    # 보내다 멈춘 것 — 숨긴 이름이라 해석 쪽에는 안 보이지만 자리를 차지한다.
+    partials = [] if dry_run else files.sweep_partials(_settings_root())
+    return {
+        "removed": removed,
+        "count": len(removed),
+        "partials": partials,
+        "dry_run": dry_run,
+    }
 
 
 def expired_locals(db: Session, *, now: datetime | None = None) -> list[DoeStudy]:
@@ -1633,6 +1640,15 @@ def _person(db: Session, user_id: uuid.UUID | None) -> dict[str, str]:
 def _owner_of(db: Session, study: DoeStudy) -> dict[str, str]:
     """이 DOE 가 **누구 것인가.** 대행이면 대행 대상인 사람이다."""
     return _person(db, study.owner_id)
+
+
+def _origin_of(db: Session, study: DoeStudy) -> dict[str, Any] | None:
+    """「내 것으로 복제」 의 원본 — id · 이름 · 주인. 복제가 아니거나 원본이 지워졌으면
+    None."""
+    origin = db.get(DoeStudy, study.cloned_from_id) if study.cloned_from_id else None
+    if origin is None:
+        return None
+    return {"id": str(origin.id), "name": origin.name, "owner": _owner_of(db, origin)}
 
 
 def _shape_params(study: DoeStudy, row: dict[str, Any]) -> dict[str, Any]:
@@ -2523,6 +2539,9 @@ def run_job(
                 "requested_by": (
                     _person(db, study.requested_by_id) if study.requested_by_id else None
                 ),
+                # **복제한 DOE 면 원본** — 두 폴더의 점은 번호 · 값이 같아 결과를 점끼리
+                # 견줄 수 있다. 복제가 아니면(또는 원본이 지워졌으면) null.
+                "cloned_from": _origin_of(db, study),
             },
         )
         files.write_conditions(folder, study.conditions)
@@ -2536,6 +2555,7 @@ def run_job(
                 "factors": study.factors,
                 "constraints": study.constraints or [],
                 "outputs": list(study.outputs or []),
+                "cloned_from": _origin_of(db, study),
             },
             study.point_count,
         )

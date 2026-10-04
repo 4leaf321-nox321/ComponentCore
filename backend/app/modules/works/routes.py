@@ -26,6 +26,7 @@ from app.modules.works.schemas import (
     ConditionsRequest,
     FolderOut,
     FolderRenameRequest,
+    JigCheckRequest,
     JigFromPartOut,
     JigFromPartRequest,
     MovedOut,
@@ -457,6 +458,28 @@ def assemble(
     return AssembleOut(work=services.work_out(db, made), placement=placement)
 
 
+@router.get("/{work_id}/jig-product")
+def jig_product(
+    work_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> dict[str, Any]:
+    """지그 작업의 **검사용 제품** 노드 — 편집기가 지그 레시피 옆에 놓고 요소마다 간섭을 본다
+    (저장하는 레시피에는 넣지 않는다). 제품은 지그를 만들 때의 버전, 높이는 레시피의 받침
+    높이 변수를 따른다. 못 놓으면 `available: false` 와 까닭."""
+    return services.jig_product(db, _mine(db, work_id, user))
+
+
+@router.post("/{work_id}/jig-check")
+def jig_check(
+    work_id: uuid.UUID,
+    payload: JigCheckRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """지그의 요소(받침 · 핀 · 클램프 …)마다 **제품 · 서로와 겹치는가** — 편집 중인 레시피를
+    주면 그것을, 안 주면 현재 버전을 본다. 아무것도 저장하지 않는다."""
+    return services.jig_check(db, _mine(db, work_id, user), by=user, recipe=payload.recipe)
+
+
 @router.post("/jig-from-part/preview")
 def jig_preview(
     payload: JigFromPartRequest,
@@ -541,4 +564,5 @@ def promote_jig_recipe(
         name=payload.name,
         note=payload.note,
         part_id=payload.part_id,
+        conditions=payload.conditions,
     )

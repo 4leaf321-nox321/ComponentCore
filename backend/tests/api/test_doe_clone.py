@@ -182,3 +182,43 @@ def test_STEP_으로_만든_공개_DOE_도_복제한다(
         client.post(f"/api/doe/{source['id']}/clone", json={}, headers=_colleague(client, db))
     )
     assert clone["point_count"] == 1 and clone["recipe"] == recipe
+
+
+def test_복제한_DOE_의_폴더는_원본을_가리킨다(
+    client: TestClient, member: Signed, db: Session, export_root: Path
+) -> None:
+    import json
+
+    source = _study(client, member)
+    clone = _ok(
+        client.post(f"/api/doe/{source['id']}/clone", json={}, headers=_colleague(client, db))
+    )
+    _ok(client.post(f"/api/doe/{source['id']}/export", headers=member.headers))
+    owner = {"Authorization": f"Bearer {_login(client, _email_of(db, clone['owner_id']))}"}
+    _ok(client.post(f"/api/doe/{clone['id']}/export", headers=owner))
+
+    def spec(study: dict[str, Any]) -> dict[str, Any]:
+        folder = next(
+            one for one in export_root.iterdir() if one.name.endswith(study["id"][:8])
+        )
+        readme = (folder / "README.txt").read_text(encoding="utf-8")
+        return {
+            **json.loads((folder / "study.json").read_text(encoding="utf-8")),
+            "_readme": readme,
+        }
+
+    copied = spec(clone)
+    assert copied["cloned_from"]["id"] == source["id"]
+    assert copied["cloned_from"]["name"] == "두께 훑기"
+    assert copied["cloned_from"]["owner"]["email"] == member.email
+    assert "복제 원본: ‘두께 훑기’" in copied["_readme"]
+    original = spec(source)
+    assert original["cloned_from"] is None and "복제 원본" not in original["_readme"]
+
+
+def _email_of(db: Session, user_id: str) -> str:
+    from app.modules.accounts.models import User
+
+    user = db.get(User, user_id)
+    assert user is not None
+    return user.email

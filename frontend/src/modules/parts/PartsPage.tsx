@@ -4,8 +4,9 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { partsApi } from '@/modules/parts/api'
+import { StandardExportButton, StandardImportDialog } from '@/modules/parts/StandardTransfer'
 import { useAuth } from '@/shared/auth/AuthContext'
-import { canEditProject } from '@/shared/auth/roles'
+import { canEditProject, isSystemAdmin } from '@/shared/auth/roles'
 import { ChosenBar, FolderCrumbs, FolderDialogs, FolderSelect, PickAll, PickBox, RowFolder } from '@/shared/folders/FolderParts'
 import { FolderTree } from '@/shared/folders/FolderTree'
 import { useFolderSpace } from '@/shared/folders/useFolderSpace'
@@ -14,6 +15,7 @@ import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { SearchBox } from '@/shared/components/SearchBox'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { Pagination } from '@/shared/components/Pagination'
+import { Button } from '@/shared/components/ui/button'
 import {
   Table,
   TableBody,
@@ -37,18 +39,25 @@ export default function PartsPage() {
   const [tag, setTag] = useState('')
   /** 형상 조건 — 「M6 구멍이 있는 판」 · 「이 상자 안에 드는 것」. */
   const [shape, setShape] = useState<ShapeQuery>({})
+  /** 규격 부품만 — 지그 생성기가 고르는 받침 · 위치 핀 · 토글 클램프. */
+  const [standardOnly, setStandardOnly] = useState(false)
+  /** 규격 부품 묶음 가져오기 창 — 시스템 관리자만. */
+  const [importing, setImporting] = useState(false)
   const PAGE = useDisplay().list_page_size
   const space = useFolderSpace('parts', partsApi, { onRefilter: () => setOffset(0) })
   const page = useResource(
-    () => partsApi.list(offset, PAGE, q, tag, { folder: space.folder, shape }),
-    [offset, q, tag, shape, PAGE, space.folder, space.version],
+    () => partsApi.list(offset, PAGE, q, tag, { folder: space.folder, shape, standard: standardOnly ? 'any' : '' }),
+    [offset, q, tag, shape, PAGE, space.folder, space.version, standardOnly],
   )
   const tags = useResource(() => partsApi.tags(), [page.data])
   const rows = page.data?.items ?? []
   /** 옮길 수 있는 줄 — 올린 사람 · 관리자. 판정은 서버가 다시 한다. */
   const { user } = useAuth()
   const movable = (ownerId: string) => canEditProject(user, ownerId)
-  const filtered = Boolean(q || tag || space.folder !== null || shapeConditionCount(shape) > 0)
+  /** 규격 부품 내보내기 · 가져오기 — 표시일 뿐이다(판정은 서버). */
+  const admin = isSystemAdmin(user)
+  const chosenStandard = rows.filter((row) => space.chosen.has(row.id) && row.standard).map((row) => row.id)
+  const filtered = Boolean(q || tag || standardOnly || space.folder !== null || shapeConditionCount(shape) > 0)
 
   return (
     <div>
@@ -64,9 +73,25 @@ export default function PartsPage() {
         <SearchBox value={q} onChange={(next) => { setQ(next); setOffset(0) }} />
         <TagFilter tags={tags.data ?? []} value={tag} onChange={(next) => { setTag(next); setOffset(0) }} />
         <ShapeFilter value={shape} onChange={(next) => { setShape(next); setOffset(0) }} />
+        <Button
+          size="sm"
+          variant={standardOnly ? 'default' : 'outline'}
+          aria-pressed={standardOnly}
+          onClick={() => {
+            setStandardOnly(!standardOnly)
+            setOffset(0)
+          }}
+        >
+          규격 부품
+        </Button>
+        {admin && (
+          <Button size="sm" variant="outline" onClick={() => setImporting(true)}>
+            규격 부품 가져오기
+          </Button>
+        )}
       </div>
       <FolderCrumbs space={space} allLabel="전체 부품" />
-      <ChosenBar space={space} />
+      <ChosenBar space={space}>{admin && <StandardExportButton ids={chosenStandard} />}</ChosenBar>
       <ErrorNotice error={page.error} className="mb-4" />
       {rows.length === 0 && !page.loading ? (
         filtered ? (
@@ -104,6 +129,7 @@ export default function PartsPage() {
                     <Link to={`/parts/${row.id}`} className="font-medium hover:underline">
                       {row.name}
                     </Link>
+                    {row.standard && <span className="ml-1 rounded border px-1 text-[10px]" title="규격 부품 — 지그 생성기가 고를 수 있습니다.">규격 {row.standard.part_no}</span>}
                     <RowFolder space={space} folder={row.folder} />
                     {row.description && <p className="text-muted-foreground max-w-md truncate text-xs">{row.description}</p>}
                     {row.shape && <p className="text-muted-foreground font-mono text-[11px]">{describeShape(row.shape)}</p>}
@@ -124,6 +150,15 @@ export default function PartsPage() {
         </div>
       </div>
       <FolderDialogs space={space} noun="부품" shared />
+      {importing && (
+        <StandardImportDialog
+          onClose={() => setImporting(false)}
+          onDone={() => {
+            space.refresh()
+            page.reload()
+          }}
+        />
+      )}
     </div>
   )
 }

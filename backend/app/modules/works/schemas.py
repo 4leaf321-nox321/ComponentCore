@@ -163,6 +163,12 @@ class WorkPatchRequest(BaseModel):
     note: str = Field(default="", max_length=2000)
 
 
+class JigCheckRequest(BaseModel):
+    """지그 간섭 검사 — 편집 중인 레시피를 주면 그것을, 비우면 현재 버전을 본다."""
+
+    recipe: dict[str, Any] | None = None
+
+
 class AssembleRequest(BaseModel):
     """부품 + 지그를 맞는 자리에 놓은 조립 작업."""
 
@@ -207,6 +213,8 @@ class PromoteJigRecipeRequest(BaseModel):
     note: str = Field(default="", max_length=2000)
     part_id: uuid.UUID | None = None
     """이 지그가 잡는 부품(카탈로그). 안 고르면 홀로 선 지그로 올라간다."""
+    conditions: bool = True
+    """그 버전의 해석 조건도 함께 올린다(기본) — 부품 등록과 같은 규칙. 끄면 형상만."""
 
 
 class PromoteJigOut(BaseModel):

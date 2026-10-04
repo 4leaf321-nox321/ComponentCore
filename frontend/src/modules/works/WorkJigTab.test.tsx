@@ -32,6 +32,8 @@ function serve(work: Record<string, unknown>) {
       ? { access_token: 't', expires_in: 900, user: ME }
       : url.endsWith('/promote/part')
         ? { part_id: 'p1', number: 1 }
+      : url.endsWith('/promote/jig-recipe')
+        ? { jig_id: 'j1', jig_version: 1 }
       : url.endsWith('/api/doe')
         ? { id: 'd1', name: '튜닝 지그 해석' }
       : url.includes('/works/w1/versions')
@@ -121,4 +123,18 @@ test('조건이 없는 작업은 묻지 않는다', async () => {
   show()
   fireEvent.click(await screen.findByRole('button', { name: '공용 부품으로 등록' }))
   expect(screen.queryByRole('checkbox', { name: /해석 조건도 함께 등록/ })).toBeNull()
+})
+
+test('지그로 등록할 때도 해석 조건을 함께 올린다', async () => {
+  const conditions = { loads: [{ name: '누름', type: 'pressure', on: '윗면', magnitude: 1 }] }
+  serve({ ...WORK, current: { ...WORK.current, conditions } })
+  show()
+  fireEvent.click(await screen.findByRole('button', { name: '공용 지그로 등록' }))
+  expect(screen.getByRole('checkbox', { name: /해석 조건도 함께 등록/ })).toBeChecked()
+  expect(screen.getByText(/이 지그를 복사한 사용자가/)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '등록' }))
+  const calls = vi.mocked(globalThis.fetch).mock.calls
+  await waitFor(() => expect(calls.some(([url]) => String(url).endsWith('/promote/jig-recipe'))).toBe(true))
+  const [, init] = calls.find(([url]) => String(url).endsWith('/promote/jig-recipe'))!
+  expect(JSON.parse(String(init?.body))).toMatchObject({ conditions: true })
 })

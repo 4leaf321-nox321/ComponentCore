@@ -84,7 +84,7 @@ function uniqueId(base: string, taken: Set<string>): string {
   for (let n = 2; ; n += 1) if (!taken.has(`${clean}-${n}`)) return `${clean}-${n}`
 }
 
-export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (next: Recipe) => void }) {
+export function AssemblyEditor({ value, onChange, conditions }: { value: Recipe; onChange: (next: Recipe) => void; conditions?: unknown }) {
   const placed = useMemo(() => nodesOf(value).filter((one) => one.op === 'component') as Placed[], [value])
   /** 목록에서 고른 것 — 3D 에서 그것만 또렷하다. */
   const [selected, setSelected] = useState<string | null>(null)
@@ -353,7 +353,7 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
           </div>
         </div>
 
-        <ParamsPanel value={value} onChange={(next) => emit(() => next)} />
+        <ParamsPanel value={value} onChange={(next) => emit(() => next)} conditions={conditions} />
       </div>
 
       {/* 가운데 — 3D. 가져오면 여기 나타나고, 편집 창에서 고치는 대로 따라온다. */}
