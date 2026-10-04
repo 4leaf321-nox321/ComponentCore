@@ -350,6 +350,45 @@ def test_측면_가진_픽스처_공진이_창_안에서_움직인다(
         shutil.copytree(folder, target)
 
 
+#: ⑤-1 **설계 하나** — 「측면 가진」 과 같은 형상 · 조건에서 인자만 비웠다(`factors: []`,
+#: 화면의 「해석용으로 내보내기」). 지금 도면 그대로(기둥 높이 100) 설계점 하나 — 폴더 계약은
+#: DOE 와 같다. 받는 쪽이 `[]` 를 「인자가 없다는 선언」 으로 읽고 manifest 의 다른 열을 변수로
+#: 짐작하지 않는지 보는 자리(SimEngBay 의 부탁, 2026-10-04).
+SINGLE: dict[str, Any] = {**LATERAL, "name": "설계하나_측면가진", "factors": []}
+
+
+def test_설계_하나_픽스처_인자가_없어도_같은_폴더다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    folder = _export(client, member, export_root, SINGLE)
+    spec = json.loads((folder / "study.json").read_text(encoding="utf-8"))
+    assert spec["factors"] == []
+    assert (spec["method"], spec["samples"]) == ("factorial", 1)
+    (point,) = _points(folder)
+    assert point["point"]["number"] == 1 and point["point"]["params"] == {}
+    assert point["point"]["step_file"] == "points/p0001.step"
+    assert (folder / "points" / "p0001.step").exists()
+    assert point["unresolved"] == []
+    # 도면의 값 그대로 — 기둥 높이 100.
+    assert point["regions"]["측정점"] == [{"point": [5.0, 5.0, 110.0], "body": "기둥"}]
+    bodies = {one["name"]: one for one in point["bodies"]}
+    assert bodies["기둥"]["volume"] == pytest.approx(10000)
+    assert point["conditions"]["analysis"]["type"] == "harmonic"
+    # 표에는 변수 열이 없다 — 되짚는 열쇠 · 파일 · 사유뿐.
+    header, row = (folder / "manifest.csv").read_text(encoding="utf-8-sig").splitlines()
+    assert header.split(",") == [
+        "point", "status", "step_file", "point_file",
+        "unresolved", "interference", "warnings", "error",
+    ]  # fmt: skip
+    assert row.startswith("1,ok,points/p0001.step,points/p0001.json")
+
+    out = os.environ.get("COMPCORE_FIXTURE_OUT")
+    if out:
+        target = Path(out) / folder.name.rsplit("-", 1)[0]
+        shutil.rmtree(target, ignore_errors=True)
+        shutil.copytree(folder, target)
+
+
 #: ⑥ **전단을 받는 이음 — 마찰이 할 일이 있는 자리.** 강판(SECC) 위에 알루미늄 판(Al5052)을
 #: 40 mm 겹쳐 놓고(겹침 이음), 겹친 자리를 위에서 누른 채(클램프 압력 P, 40 x 20 자리) 위판
 #: 끝을 X 로 당긴다(변위 제어 — 미끄러져도 강체 운동이 아니다). 지금까지의 픽스처는 이음이
