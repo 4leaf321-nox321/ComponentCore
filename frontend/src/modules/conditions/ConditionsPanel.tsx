@@ -38,6 +38,7 @@ import {
   Save,
   Scale,
   Settings2,
+  TableProperties,
   Thermometer,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -64,6 +65,7 @@ import type { TreeSelection } from '@/modules/conditions/ModelTree'
 import { materialsApi } from '@/modules/materials/api'
 import type { MaterialRow } from '@/modules/materials/api'
 import { MaterialPicker } from '@/modules/materials/MaterialPicker'
+import { PartSettingsDialog } from '@/modules/conditions/PartSettingsDialog'
 import {
   acceptsLabel,
   asConditions,
@@ -72,6 +74,7 @@ import {
   defaultRule,
   GROUP_KEYS,
   materialsOn,
+  moveBodyMeshHints,
 } from '@/modules/conditions/api'
 import type {
   ConditionItem,
@@ -161,7 +164,12 @@ export function ConditionsPanel({
   /** 작업의 기본 단위계 — 아직 조건이 없으면 이 계로 시작한다. */
   defaultSystem?: string
 }) {
-  const [draft, setDraft] = useState<Conditions>(() => asConditions(value, defaultSystem))
+  /**
+   * 저장된 조건 — **바디 그룹에 건 옛 국부 메시는 파트별 설정으로 옮겨 읽는다**(`moveBodyMeshHints`).
+   * 옮긴 것은 초안에만 있고 「조건 저장」 을 눌러야 남는다(그래서 저장 단추가 켜진다).
+   */
+  const loaded = useMemo(() => moveBodyMeshHints(asConditions(value, defaultSystem)), [value, defaultSystem])
+  const [draft, setDraft] = useState<Conditions>(() => loaded.conditions)
   /** 트리에서 펼친 것 — 파트 · 물성 · 선택 그룹. */
   const [tree, setTree] = useState<TreeSelection>(null)
   const [editing, setEditing] = useState<Editing>(null)
@@ -171,6 +179,8 @@ export function ConditionsPanel({
   const [grouping, setGrouping] = useState(false)
   const [groupName, setGroupName] = useState('')
   const [picking, setPicking] = useState(false)
+  /** 파트별 설정 표 — 물성 · 거동 · 표현 · 해석 제외 · 메시를 파트마다 한 줄로. */
+  const [partsOpen, setPartsOpen] = useState(false)
   /** 좌표계 창 — 새로(`index` 가 null) 또는 고치는 것. 확인을 눌러야 한 벌에 들어간다. */
   const [frameEditing, setFrameEditing] = useState<{ index: number | null; item: FrameDraft } | null>(null)
   /** 좌표계를 화면에서 지정하는 중인 것 — 점 · 선 · 면을 누르거나 손잡이로 돌리기. */
@@ -193,7 +203,7 @@ export function ConditionsPanel({
    * 부르면 요청이 쏟아지므로 잠깐 멈췄을 때 한 번.
    */
   const [notes, setNotes] = useState<ExpressionNote[]>([])
-  const notesKey = JSON.stringify([...GROUP_KEYS.map((key) => draft[key]), recipe.params])
+  const notesKey = JSON.stringify([...GROUP_KEYS.map((key) => draft[key]), draft.body_settings, recipe.params])
   useEffect(() => {
     let alive = true
     const timer = setTimeout(() => {
@@ -214,7 +224,7 @@ export function ConditionsPanel({
 
   // 저장된 것이 바뀔 때만 다시 읽는다 — 작업의 기본 단위계를 바꿨다고 고치던 것을 지우지 않는다.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => setDraft(asConditions(value, defaultSystem)), [value])
+  useEffect(() => setDraft(loaded.conditions), [value])
 
   const names = draft.named_selections
   /** 저장한 것과 다른가 — 리본의 「조건 저장」 이 눈에 띄게 한다. */
@@ -834,12 +844,19 @@ export function ConditionsPanel({
             }}
           />
         </RibbonGroup>
-        <RibbonGroup title="물성">
+        <RibbonGroup title="파트">
           <RibbonButton
             icon={FlaskConical}
             label="물성"
             title="물성 추가: MatNexus에서 여러 물성을 함께 선택합니다."
             onClick={() => setPicking(true)}
+          />
+          <RibbonButton
+            icon={TableProperties}
+            label="파트별 설정"
+            title="파트마다 물성, 거동(변형체·강체), 표현(솔리드·쉘), 해석 제외, 메시를 한 표에서 지정합니다."
+            disabled={!bodies.data}
+            onClick={() => setPartsOpen(true)}
           />
         </RibbonGroup>
         <RibbonGroup title="조건">
@@ -938,6 +955,23 @@ export function ConditionsPanel({
       )}
 
       {error && <ErrorNotice error={error} />}
+      {(loaded.moved.length > 0 || loaded.kept.length > 0) && (
+        <div role="note" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+          {loaded.moved.length > 0 && (
+            <p>
+              바디 선택 그룹({loaded.moved.map((one) => `‘${one}’`).join(', ')})에 지정된 국부 메시를 ‘파트별 설정’의 파트
+              메시로 옮겼습니다. ‘조건 저장’을 클릭하면 반영됩니다.
+            </p>
+          )}
+          {loaded.kept.length > 0 && (
+            <p>
+              바디 선택 그룹({loaded.kept.map((one) => `‘${one}’`).join(', ')})의 국부 메시에는 무시할 형상 크기 또는
+              경계층이 있어 옮기지 않았습니다. 파트 단위 값은 ‘파트별 설정’에서, 나머지는 ‘전체’ 또는 면·엣지 그룹의
+              국부 메시로 지정하십시오.
+            </p>
+          )}
+        </div>
+      )}
       {problems.length > 0 && (
         <p className="text-muted-foreground text-xs">
           도면에 문제가 있어 3D가 표시되지 않습니다. ‘도면’ 탭에서 수정하십시오.
@@ -986,6 +1020,8 @@ export function ConditionsPanel({
                 setTree(null)
               }}
               onPickMaterials={() => setPicking(true)}
+              settings={draft.body_settings ?? []}
+              onOpenSettings={() => setPartsOpen(true)}
               onRemoveSelection={removeSelection}
               onOpenItem={openItem}
               onOpenAnalysis={() =>
@@ -1264,6 +1300,19 @@ export function ConditionsPanel({
         system={system}
         added={draft.materials.map((one) => String((one.ref ?? {}).material_id ?? '')).filter(Boolean)}
         onAdd={addMaterials}
+      />
+
+      <PartSettingsDialog
+        open={partsOpen}
+        onClose={() => setPartsOpen(false)}
+        bodies={bodies.data?.items ?? []}
+        materials={draft.materials}
+        settings={draft.body_settings ?? []}
+        schema={spec.body_settings}
+        lengthUnit={inputOf?.length ?? 'mm'}
+        onMaterialsChange={(materials) => setDraft({ ...draft, materials })}
+        onSettingsChange={(body_settings) => setDraft({ ...draft, body_settings })}
+        onPickMaterials={() => setPicking(true)}
       />
     </div>
   )

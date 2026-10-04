@@ -276,17 +276,28 @@ test('초기 속도는 X · Y · Z 성분을 mm/s 로, 환경 온도는 °C 하�
   expect(screen.queryByText('바디 선택 그룹')).toBeNull()
 })
 
-test('메시 힌트는 **「전체」** 를 고를 수 있다', () => {
+test('국부 메시는 **「전체」** 를 고를 수 있다 — 요소 형상 · 차수는 「전체」 에만', () => {
   const MESH: GroupSchema = {
-    label: '메시 힌트',
+    label: '국부 메시',
     types: [],
-    fields: { on: { title: '적용 대상', whole: '전체' }, element_size: { title: '요소 크기', anyOf: [{ type: 'number' }, { type: 'null' }], unit: 'mm' } },
+    fields: {
+      on: { title: '적용 대상', whole: '전체', default: '전체' },
+      element_size: { title: '요소 크기', anyOf: [{ type: 'number' }, { type: 'null' }], unit: 'mm' },
+      method: { title: '요소 형상', enum: ['automatic', 'tetrahedrons'], default: 'automatic', whole_only: true },
+    },
     required: [],
+    accepts: { '*': [{ entity: 'face' }, { entity: 'edge' }] },
   }
-  render(<ConditionForm group={MESH} item={{ on: '전체' }} names={[]} onChange={() => {}} />)
+  const holes = [{ name: '구멍면', entity: 'face', select: {} }]
+  const { rerender } = render(<ConditionForm group={MESH} item={{ on: '전체' }} names={holes} onChange={() => {}} />)
   expect(screen.getByLabelText('적용 대상')).toHaveTextContent('전체 (모든 바디)')
   expect(screen.getByLabelText('요소 크기 (mm)')).toBeInTheDocument()
+  expect(screen.getByText('요소 형상')).toBeInTheDocument()
   expect(screen.queryByText(/선택 그룹이 없습니다/)).toBeNull()
+  // 면 그룹을 촘촘하게 — 요소 형상은 면에 뜻이 없어 감춘다.
+  rerender(<ConditionForm group={MESH} item={{ on: '구멍면' }} names={holes} onChange={() => {}} />)
+  expect(screen.getByLabelText('요소 크기 (mm)')).toBeInTheDocument()
+  expect(screen.queryByText('요소 형상')).toBeNull()
 })
 
 const ANALYSIS: GroupSchema = {
@@ -351,14 +362,14 @@ test('조건은 **받는 종류의 선택 그룹만** 고르게 하고, 받는 �
   expect(screen.getByText('적용 가능 대상: 원통면, 바디 선택 그룹')).toBeInTheDocument()
 })
 
-test('종류가 없는 메시 힌트는 `*` 규칙으로 받는 것을 보인다', () => {
+test('종류가 없는 국부 메시는 `*` 규칙으로 받는 것을 보인다 — 바디는 파트별 설정으로', () => {
   const MESH: GroupSchema = {
-    label: '메시 힌트',
+    label: '국부 메시',
     types: [],
     fields: { on: { title: '적용 대상', whole: '전체' } },
     required: [],
-    accepts: { '*': [{ entity: 'face' }, { entity: 'edge' }, { entity: 'body' }] },
+    accepts: { '*': [{ entity: 'face' }, { entity: 'edge' }] },
   }
   render(<ConditionForm group={MESH} item={{ on: '전체' }} names={[]} onChange={() => {}} />)
-  expect(screen.getByText('적용 가능 대상: 면, 엣지, 바디 선택 그룹')).toBeInTheDocument()
+  expect(screen.getByText('적용 가능 대상: 면, 엣지 선택 그룹')).toBeInTheDocument()
 })

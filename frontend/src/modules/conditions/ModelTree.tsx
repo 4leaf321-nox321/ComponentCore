@@ -16,8 +16,8 @@
 import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react'
 import { useState } from 'react'
 
-import { ALL_BODIES, appliedTo, hasCoordinateOnlyRule, materialsOn } from '@/modules/conditions/api'
-import type { Body, ConditionItem, MaterialItem, NamedSelection } from '@/modules/conditions/api'
+import { ALL_BODIES, appliedTo, hasCoordinateOnlyRule, materialsOn, settingOf } from '@/modules/conditions/api'
+import type { Body, BodySetting, ConditionItem, MaterialItem, NamedSelection } from '@/modules/conditions/api'
 import { Button } from '@/shared/components/ui/button'
 import { Label } from '@/shared/components/ui/label'
 import { Skeleton } from '@/shared/components/ui/skeleton'
@@ -47,6 +47,17 @@ function targetOf(item: ConditionItem): string {
 
 const nameOf = (material: MaterialItem | undefined) =>
   String(((material?.ref ?? {}) as Record<string, unknown>).name ?? '이름 없음')
+
+/** 파트 줄의 짧은 요약 — 기본값과 다른 것만(「강체 · 2 mm」). 모두 기본이면 빈 글자. */
+function settingSummary(one: ReturnType<typeof settingOf>): string {
+  if (one.suppressed) return '해석 제외'
+  const parts = [
+    one.behavior === 'rigid' ? '강체' : '',
+    one.representation === 'shell' ? '쉘' : '',
+    one.mesh.element_size !== null && one.mesh.element_size !== '' ? `요소 ${one.mesh.element_size}` : '',
+  ]
+  return parts.filter(Boolean).join(' · ')
+}
 
 function Swatch({ color }: { color: number }) {
   return <span aria-hidden className="size-2.5 shrink-0 rounded-sm" style={{ background: css(color) }} />
@@ -88,6 +99,8 @@ export function ModelTree({
   onMaterialChange,
   onRemoveMaterial,
   onPickMaterials,
+  settings = [],
+  onOpenSettings,
   onRemoveSelection,
   onOpenItem,
   onOpenAnalysis,
@@ -108,8 +121,12 @@ export function ModelTree({
   onRemoveMaterial: (index: number) => void
   /** 물성 탐색기를 연다. */
   onPickMaterials: () => void
+  /** 파트별 설정(거동 · 표현 · 해석 제외 · 메시) — 파트 줄에 요약이 붙는다. */
+  settings?: BodySetting[]
+  /** 파트별 설정 표를 연다. */
+  onOpenSettings?: () => void
   names: NamedSelection[]
-  /** 조건 묶음들 — 구속 · 하중 · 접촉 · 초기조건 · 메시 힌트. */
+  /** 조건 묶음들 — 구속 · 하중 · 접촉 · 초기조건 · 국부 메시. */
   groups: { key: string; label: string; items: ConditionItem[] }[]
   /** 해석 설정 한 줄 요약(종류 · 단위계). */
   analysis: string
@@ -152,6 +169,11 @@ export function ModelTree({
                   <Swatch color={on.length ? materialColor(on[0]) : UNASSIGNED_COLOR} />
                   <span className="truncate">{body.name}</span>
                   {single && <span className="text-muted-foreground text-xs">단일 파트</span>}
+                  {settingSummary(settingOf(settings, body.name)) && (
+                    <span className="text-muted-foreground shrink-0 rounded border px-1 text-[10px]">
+                      {settingSummary(settingOf(settings, body.name))}
+                    </span>
+                  )}
                   <span
                     className={`ml-auto truncate text-xs ${on.length === 1 ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'}`}
                   >
@@ -199,6 +221,11 @@ export function ModelTree({
                       <p className="text-muted-foreground text-xs">
                         부피 {Math.round(body.volume).toLocaleString()} mm³
                       </p>
+                    )}
+                    {onOpenSettings && (
+                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onOpenSettings}>
+                        파트별 설정 (거동, 표현, 메시)
+                      </Button>
                     )}
                   </div>
                 )}

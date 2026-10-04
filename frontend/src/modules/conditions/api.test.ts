@@ -1,4 +1,4 @@
-import { appliedTo, assignBody, defaultRule, hasCoordinateOnlyRule, materialsOn } from '@/modules/conditions/api'
+import { appliedTo, assignBody, defaultRule, emptyConditions, hasCoordinateOnlyRule, materialsOn, moveBodyMeshHints } from '@/modules/conditions/api'
 
 const 판 = ['바닥판', '기둥', '상판']
 
@@ -47,4 +47,37 @@ test('좌표만 쓰는 규칙을 가려낸다 — 거르개(종류 · 방향 …
   expect(hasCoordinateOnlyRule({ what: 'faces', role: 'bottom' })).toBe(false)
   // 여럿을 묶은 그룹은 하나라도 좌표만 쓰면.
   expect(hasCoordinateOnlyRule({ any: [{ what: 'faces', role: 'top' }, { what: 'faces', near: [1, 2, 3], limit: 1 }] })).toBe(true)
+})
+
+test('바디 그룹에 건 옛 국부 메시는 파트별 설정의 파트 메시로 옮긴다 — 면 그룹은 그대로', () => {
+  const before = {
+    ...emptyConditions(),
+    named_selections: [
+      { name: '지그판 몸통', entity: 'body', select: { body: '지그판' } },
+      { name: '두 판', entity: 'body', select: { any: [{ body: '위판' }, { body: '아래판' }] } },
+      { name: '부품 몸통', entity: 'body', select: { body: '부품' } },
+      { name: '구멍면', entity: 'face', select: { what: 'faces', kind: 'cylinder' } },
+    ],
+    mesh_hints: [
+      { on: '지그판 몸통', element_size: 4, method: 'automatic', order: 'quadratic' },
+      { on: '두 판', element_size: 2 },
+      { on: '부품 몸통', element_size: 1, defeature_size: 0.2 },
+      { on: '구멍면', element_size: 0.5 },
+    ],
+  }
+  const { conditions, moved, kept } = moveBodyMeshHints(before)
+  expect(moved).toEqual(['지그판 몸통', '두 판'])
+  // 무시할 형상 크기는 표에 자리가 없다 — 옮기지 않고 알린다.
+  expect(kept).toEqual(['부품 몸통'])
+  expect(conditions.mesh_hints.map((one) => one.on)).toEqual(['부품 몸통', '구멍면'])
+  expect(conditions.body_settings?.map((one) => [one.name, one.mesh?.element_size, one.mesh?.order])).toEqual([
+    ['지그판', 4, 'quadratic'],
+    ['위판', 2, 'program_controlled'],
+    ['아래판', 2, 'program_controlled'],
+  ])
+  // 선택 그룹은 남긴다 — 다른 조건이 쓸 수 있다.
+  expect(conditions.named_selections).toHaveLength(4)
+  // 옮길 것이 없으면 같은 것을 돌려준다(초안이 괜히 「바뀜」 이 되지 않게).
+  const plain = { ...emptyConditions(), mesh_hints: [{ on: '전체', element_size: 3 }] }
+  expect(moveBodyMeshHints(plain).conditions).toBe(plain)
 })

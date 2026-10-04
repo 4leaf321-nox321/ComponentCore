@@ -816,10 +816,11 @@ def test_모멘트_원격_변위는_면_엣지_메시_힌트는_면_엣지_바�
     remote = {"name": "원격", "type": "remote_displacement", "x": 0}
     with pytest.raises(ConditionError, match="면, 엣지 선택 그룹만"):
         parse({**SPOTS, "constraints": [{**remote, "on": "꼭짓점"}]})
+    # 바디 그룹(「몸」)에 건 국부 메시는 옛 조건이라 읽기만 한다 — 새로는 파트별 설정으로.
     parse({**SPOTS, "mesh_hints": [{"on": "몸", "element_size": 3}, {"on": "전체"}]})
-    with pytest.raises(ConditionError, match="면, 엣지, 바디 선택 그룹만"):
+    with pytest.raises(ConditionError, match="면, 엣지 선택 그룹만"):
         parse({**SPOTS, "mesh_hints": [{"on": "꼭짓점", "element_size": 1}]})
-    assert spec()["groups"]["mesh_hints"]["accepts"]["*"][2] == {"entity": "body"}
+    assert {"entity": "body"} not in spec()["groups"]["mesh_hints"]["accepts"]["*"]
 
 
 def test_재료를_바꿔_끼우면_그_바디만_옮기고_원본은_그대로다() -> None:
@@ -917,3 +918,120 @@ def test_배율은_없는_물성이나_전체에_붙은_재료에는_걸지_않�
     # 단품(「전체」)에 「전체」 로 걸면 된다.
     single = conditions.with_scale(whole, ["전체"], "밀도", 2.0)
     assert single["materials"][0]["converted"]["density"] == 2.0
+
+
+# ── 파트별 설정 ───────────────────────────────────────────────────────────────
+
+PARTS = ["지그판", "부품"]
+
+
+def test_파트별_설정은_있는_파트에_한_번씩_뜻이_맞게() -> None:
+    ok = parse(
+        {
+            "body_settings": [
+                {"name": "지그판", "behavior": "rigid", "mesh": {"element_size": 4}},
+                {"name": "부품", "representation": "shell"},
+            ]
+        },
+        PARTS,
+    )
+    assert [one.behavior for one in ok.body_settings] == ["rigid", "deformable"]
+    assert ok.body_settings[1].mesh.method == "automatic"
+
+    def refused(settings: list[dict[str, Any]], words: str) -> None:
+        with pytest.raises(ConditionError, match=words):
+            parse({"body_settings": settings}, PARTS)
+
+    refused([{"name": "없는 파트"}], "파트 ‘없는 파트’이\\(가\\) 없습니다")
+    refused([{"name": "부품"}, {"name": "부품", "suppressed": True}], "설정이 2개")
+    refused(
+        [{"name": "지그판", "behavior": "rigid", "representation": "shell"}],
+        "쉘로 표현할 수 없",
+    )
+    refused(
+        [{"name": "지그판", "suppressed": True}, {"name": "부품", "suppressed": True}],
+        "모든 파트",
+    )
+    refused([{"name": "전체"}, {"name": "부품"}], "단일 파트일 때만")
+
+
+def test_해석에서_뺀_파트에는_조건을_걸_수_없다() -> None:
+    raw: dict[str, Any] = {
+        "named_selections": [
+            # 파트로 거른 면 그룹 — 어느 파트의 것인지 안다.
+            {
+                "name": "판 아랫면",
+                "entity": "face",
+                "select": {"what": "faces", "role": "bottom", "body": "지그판"},
+            },
+            {
+                "name": "부품 윗면",
+                "entity": "face",
+                "select": {"what": "faces", "role": "top", "body": "부품"},
+            },
+        ],
+        "constraints": [{"name": "고정", "type": "fixed_support", "on": "판 아랫면"}],
+        "loads": [
+            {
+                "name": "누름",
+                "type": "pressure",
+                "on": "부품 윗면",
+                "magnitude": 1,
+                "unit": "MPa",
+            }
+        ],
+        "body_settings": [{"name": "지그판", "suppressed": True}],
+    }
+    with pytest.raises(
+        ConditionError,
+        match="constraints\\[0\\]: 선택 그룹 ‘판 아랫면’은\\(는\\) 해석에서 제외한",
+    ):
+        parse(raw, PARTS)
+    # 제외를 풀면 된다 — 하중은 처음부터 남은 파트에 걸려 있었다.
+    raw["body_settings"] = [{"name": "지그판", "behavior": "rigid"}]
+    parse(raw, PARTS)
+
+
+def test_파트_요소_크기도_식이_풀리고_내보내기_단위로_간다() -> None:
+    raw = {
+        "units": {"system": "si"},
+        "body_settings": [{"name": "부품", "mesh": {"element_size": "=두께 / 2"}}],
+    }
+    out = resolve(raw, {"두께": 6})
+    assert out["body_settings"][0]["mesh"]["element_size"] == pytest.approx(0.003)  # 3 mm → m
+    assert conditions.has_shell(
+        {"body_settings": [{"name": "부품", "representation": "shell"}]}
+    )
+    assert not conditions.has_shell(raw) and not conditions.has_shell(None)
+    # 화면이 표의 열 이름 · 선택지를 사양표에서 읽는다.
+    table = spec()["body_settings"]
+    assert table["fields"]["behavior"]["labels"] == {"deformable": "변형체", "rigid": "강체"}
+    assert table["mesh_fields"]["element_size"]["unit"] == "mm"
+
+
+def test_국부_메시는_면_엣지와_전체만_받고_옛_바디_대상도_읽는다() -> None:
+    groups = spec()["groups"]["mesh_hints"]
+    assert groups["label"] == "국부 메시"
+    assert [one["entity"] for one in groups["accepts"]["*"]] == ["face", "edge"]
+    # 요소 형상 · 차수는 「전체」 에만 — 화면이 면 · 엣지 대상일 때 감춘다.
+    assert groups["fields"]["method"]["whole_only"] and groups["fields"]["order"]["whole_only"]
+    # 2026-10-04 전에 바디 그룹에 건 힌트 — 저장된 조건 · DOE 스냅샷이 다시 읽혀야 한다.
+    legacy = parse(
+        {
+            "named_selections": [
+                {"name": "판 몸통", "entity": "body", "select": {"body": "지그판"}}
+            ],
+            "mesh_hints": [{"on": "판 몸통", "element_size": 4}],
+        },
+        PARTS,
+    )
+    assert legacy.mesh_hints[0].on == "판 몸통"
+    with pytest.raises(ConditionError, match="면, 엣지 선택 그룹만"):
+        parse(
+            {
+                "named_selections": [
+                    {"name": "꼭짓점", "entity": "vertex", "select": {"what": "vertices"}}
+                ],
+                "mesh_hints": [{"on": "꼭짓점", "element_size": 1}],
+            }
+        )

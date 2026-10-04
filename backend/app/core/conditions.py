@@ -909,13 +909,18 @@ class Analysis(Base):
 
 
 class MeshHint(Base):
-    """메시는 받는 쪽이 만든다 — 여기 적는 것은 **바람**이다. 비운 칸은 받는 쪽이 정한다."""
+    """**국부 메시** — 면 · 엣지 선택 그룹을 촘촘하게(국부 세분화), 또는 「전체」 에 모델
+    전체의 값(기본 요소 크기 · 요소 형상 · 차수 · 무시할 형상 크기 · 경계층). 파트 하나
+    전체의 메시는 파트별 설정(`body_settings[].mesh`)이 든다 — 2026-10-04 에 바디 대상을
+    그리로 옮겼다.
+
+    메시는 받는 쪽이 만든다 — 여기 적는 것은 **바람**이다. 비운 칸은 받는 쪽이 정한다."""
 
     on: str = Field(
         "전체",
         title="적용 대상",
-        description="‘전체’ 또는 선택 그룹입니다. 선택 그룹을 지정하면 해당 영역에만 "
-        "적용합니다.",
+        description="‘전체’ 또는 면·엣지 선택 그룹입니다. 파트 하나 전체의 메시는 "
+        "‘파트별 설정’ 표에서 지정하십시오.",
         json_schema_extra=_extra({"whole": "전체"}),
     )
     element_size: Number | None = Field(
@@ -929,16 +934,17 @@ class MeshHint(Base):
         "automatic",
         title="요소 형상",
         description="확실하지 않으면 ‘자동’을 선택하십시오. 스윕과 멀티존은 스윕 "
-        "형상(판, 축)을 육면체 요소로 채웁니다.",
+        "형상(판, 축)을 육면체 요소로 채웁니다. ‘전체’에만 지정합니다.",
         json_schema_extra=_extra(
             {
+                "whole_only": True,
                 "labels": {
                     "automatic": "자동",
                     "tetrahedrons": "사면체",
                     "hex_dominant": "육면체 우세",
                     "sweep": "스윕(육면체)",
                     "multizone": "멀티존(육면체)",
-                }
+                },
             }
         ),
     )
@@ -946,14 +952,15 @@ class MeshHint(Base):
         "program_controlled",
         title="요소 차수",
         description="2차 요소가 응력과 굽힘 계산에 정확합니다(권장). 1차 요소는 "
-        "빠르지만 사면체에서는 강성이 과대평가됩니다.",
+        "빠르지만 사면체에서는 강성이 과대평가됩니다. ‘전체’에만 지정합니다.",
         json_schema_extra=_extra(
             {
+                "whole_only": True,
                 "labels": {
                     "program_controlled": "프로그램 제어",
                     "linear": "1차(빠름)",
                     "quadratic": "2차(정확)",
-                }
+                },
             }
         ),
     )
@@ -983,6 +990,85 @@ class MeshHint(Base):
     @classmethod
     def _integer(cls, value: Any) -> Any:
         return _integer_or_expr(value)
+
+
+# ── 파트별 설정 ───────────────────────────────────────────────────────────────
+
+
+class BodyMesh(Base):
+    """파트 하나의 메시 — 그 파트 전체의 기본값. 국부 메시와 같은 칸이고 같은 「바람」이다.
+
+    겹치면 **좁은 것이 이긴다**: 국부 메시 「전체」 < 파트 메시 < 면 · 엣지 국부 메시."""
+
+    element_size: Number | None = Field(
+        default=None,
+        title="요소 크기",
+        description="이 파트의 요소 한 변의 평균 길이입니다. 비워 두면 국부 메시 ‘전체’ "
+        "또는 해석 플랫폼의 기본값을 따릅니다.",
+        json_schema_extra=_extra({"unit": "mm"}),
+    )
+    method: Literal["automatic", "tetrahedrons", "hex_dominant", "sweep", "multizone"] = Field(
+        default="automatic",
+        title="요소 형상",
+        json_schema_extra=_extra(
+            {
+                "labels": {
+                    "automatic": "자동",
+                    "tetrahedrons": "사면체",
+                    "hex_dominant": "육면체 우세",
+                    "sweep": "스윕(육면체)",
+                    "multizone": "멀티존(육면체)",
+                }
+            }
+        ),
+    )
+    order: Literal["program_controlled", "linear", "quadratic"] = Field(
+        default="program_controlled",
+        title="요소 차수",
+        json_schema_extra=_extra(
+            {
+                "labels": {
+                    "program_controlled": "프로그램 제어",
+                    "linear": "1차(빠름)",
+                    "quadratic": "2차(정확)",
+                }
+            }
+        ),
+    )
+
+
+class BodySetting(Base):
+    """파트(바디) 하나를 **해석에서 어떻게 다루나** — 거동 · 표현 · 해석 포함 · 메시.
+
+    적지 않은 파트는 기본값(변형체 · 솔리드 · 포함 · 국부 메시 「전체」 를 따름)이다. 화면은
+    파트마다 한 줄인 표로 고치고, 기본값으로 돌아온 줄은 빼고 저장한다."""
+
+    name: str = Field(
+        min_length=1,
+        max_length=60,
+        title="파트",
+        description="파트(바디) 이름입니다. 단일 파트이면 ‘전체’입니다.",
+    )
+    behavior: Literal["deformable", "rigid"] = Field(
+        "deformable",
+        title="거동",
+        description="강체로 지정하면 이 파트는 변형하지 않는 것으로 계산합니다. 요소 수가 "
+        "크게 줄지만 이 파트의 응력은 계산되지 않습니다.",
+        json_schema_extra=_extra({"labels": {"deformable": "변형체", "rigid": "강체"}}),
+    )
+    representation: Literal["solid", "shell"] = Field(
+        "solid",
+        title="표현",
+        description="쉘은 두께가 일정한 판을 중간면과 두께로 계산합니다. 쉘 파트가 있으면 "
+        "설계점마다 중간면 STEP이 함께 생성됩니다.",
+        json_schema_extra=_extra({"labels": {"solid": "솔리드", "shell": "쉘"}}),
+    )
+    suppressed: bool = Field(
+        False,
+        title="해석 제외",
+        description="형상에는 남기고 해석에서만 제외합니다.",
+    )
+    mesh: BodyMesh = Field(default_factory=BodyMesh, title="메시")
 
 
 class Units(Base):
@@ -1034,6 +1120,7 @@ class Conditions(Base):
     initial: list[Initial] = Field(default_factory=list)
     analysis: Analysis = Field(default_factory=Analysis)
     mesh_hints: list[MeshHint] = Field(default_factory=list)
+    body_settings: list[BodySetting] = Field(default_factory=list)
     coordinate_systems: list[Frame] = Field(default_factory=list)
     """해석 조건에서 정한 좌표계. 도면(레시피)의 좌표계와 **이름이 겹치면 안 된다** — 둘 다
     `cs` 가 이름으로 가리킨다."""
@@ -1077,8 +1164,11 @@ LOAD_ACCEPTS: dict[str, list[dict[str, str]]] = {
     "bolt_pretension": [_CYLINDER_FACE, _BODY],
 }
 CONTACT_ACCEPTS: dict[str, list[dict[str, str]]] = {kind: [_FACE] for kind in CONTACT_LABELS}
-#: 메시 힌트는 종류가 없다 — `*` 가 모든 경우. 「전체」 는 그룹이 아니라 늘 된다.
-MESH_ACCEPTS: dict[str, list[dict[str, str]]] = {"*": [_FACE, _EDGE, _BODY]}
+#: 국부 메시는 종류가 없다 — `*` 가 모든 경우. 「전체」 는 그룹이 아니라 늘 된다. **바디는
+#: 받지 않는다** — 파트 하나 전체의 메시는 파트별 설정이 든다(2026-10-04). 그 전에 바디 그룹에
+#: 건 힌트는 저장된 조건 · DOE 스냅샷에 남아 있어 **읽기는 한다**(`_check_targets`) — 화면은
+#: 열 때 파트별 설정으로 옮긴다.
+MESH_ACCEPTS: dict[str, list[dict[str, str]]] = {"*": [_FACE, _EDGE]}
 INITIAL_ACCEPTS: dict[str, list[dict[str, str]]] = {
     "temperature": [_BODY],
     "velocity": [_BODY],
@@ -1145,7 +1235,9 @@ def _check_targets(conditions: Conditions) -> None:
         label = INITIAL_LABELS[initial.type]
         check(f"initial[{index}]", label, INITIAL_ACCEPTS.get(initial.type), initial.on)
     for index, hint in enumerate(conditions.mesh_hints):
-        check(f"mesh_hints[{index}]", f"메시 힌트 ‘{hint.on}’", MESH_ACCEPTS["*"], hint.on)
+        legacy = hint.on in selections and selections[hint.on].entity == "body"
+        if not legacy:
+            check(f"mesh_hints[{index}]", f"국부 메시 ‘{hint.on}’", MESH_ACCEPTS["*"], hint.on)
 
 
 def _known_names(conditions: Conditions) -> set[str]:
@@ -1289,7 +1381,81 @@ def parse(
             f"materials[{owner[other]}]이(가) ‘{other}’에도 지정되었습니다. "
             f"‘{other}’에 물성이 2개 지정됩니다."
         )
+    _check_body_settings(conditions, known)
     return conditions
+
+
+def has_shell(raw: dict[str, Any] | None) -> bool:
+    """쉘로 푸는 파트가 있나 — 있으면 설계점마다 중간면이 필요하다(옛 조건은 칸이 없다)."""
+    return any(
+        isinstance(one, dict) and one.get("representation") == "shell"
+        for one in (raw or {}).get("body_settings") or []
+    )
+
+
+def _bodies_of(selection: NamedSelection) -> set[str] | None:
+    """선택 그룹이 **어느 파트의 것인가** — 규칙마다 `body` 가 적혀 있을 때만 안다(바디 그룹,
+    「블록의 아랫면」 같은 파트로 거른 그룹). 좌표만 적힌 규칙이면 모른다(None)."""
+    members = selection.select.get("any") or [selection.select]
+    names = {str(one.get("body", "")) for one in members}
+    return None if "" in names else names
+
+
+def _check_body_settings(conditions: Conditions, known: set[str] | None) -> None:
+    """파트별 설정 — 파트가 있고 한 번씩만 적혔나, 뜻이 서로 맞나, 해석할 것이 남나."""
+    settings = conditions.body_settings
+    names = [one.name for one in settings]
+    for index, one in enumerate(settings):
+        where = f"body_settings[{index}]"
+        if names.count(one.name) > 1:
+            raise ConditionError(
+                f"{where}: 파트 ‘{one.name}’의 설정이 2개입니다. 파트마다 하나만 지정할 수 "
+                "있습니다."
+            )
+        if known is not None and one.name != ALL_BODIES and one.name not in known:
+            raise ConditionError(
+                f"{where}: 파트 ‘{one.name}’이(가) 없습니다"
+                f"(존재하는 파트: {', '.join(sorted(known)) or '없음'})."
+            )
+        if one.behavior == "rigid" and one.representation == "shell":
+            raise ConditionError(
+                f"{where}: 강체 파트 ‘{one.name}’은(는) 쉘로 표현할 수 없습니다. 거동을 "
+                "변형체로 바꾸거나 표현을 솔리드로 두십시오."
+            )
+    if ALL_BODIES in names and len(names) > 1:
+        raise ConditionError(
+            f"파트별 설정에 ‘{ALL_BODIES}’와(과) 개별 파트가 함께 있습니다. ‘{ALL_BODIES}’는 "
+            "단일 파트일 때만 사용하십시오."
+        )
+    off = {one.name for one in settings if one.suppressed}
+    everything = ALL_BODIES in off or (known is not None and bool(known) and known <= off)
+    if everything:
+        raise ConditionError(
+            "모든 파트가 해석에서 제외되었습니다. 하나 이상의 파트를 해석에 포함하십시오."
+        )
+    if not off:
+        return
+    # **제외한 파트에 조건을 걸면** 받는 쪽은 없는 형상에 하중을 얹으려다 멈추거나 조용히
+    # 버린다. 어느 파트의 것인지 아는 선택 그룹(바디 그룹 · 파트로 거른 그룹)만 본다.
+    selections = {one.name: one for one in conditions.named_selections}
+    used: list[tuple[str, str]] = []
+    for group in ("constraints", "loads", "initial"):
+        for index, item in enumerate(getattr(conditions, group)):
+            used.append((f"{group}[{index}]", str(getattr(item, "on", ""))))
+    for index, contact in enumerate(conditions.contacts):
+        used += [
+            (f"contacts[{index}]", contact.source),
+            (f"contacts[{index}]", contact.target),
+        ]
+    for where, name in used:
+        selection = selections.get(name)
+        bodies = _bodies_of(selection) if selection else None
+        if bodies and bodies <= off:
+            raise ConditionError(
+                f"{where}: 선택 그룹 ‘{name}’은(는) 해석에서 제외한 파트"
+                f"({', '.join(sorted(bodies))})에 있습니다. 조건을 지우거나 파트를 해석에 "
+                "포함하십시오."
+            )
 
 
 def _points_of(one: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1969,9 +2135,14 @@ def _value_fields(
         if one.get("type") == "velocity":
             out.append((one, "vector", _VELOCITY, f"초기조건 {index + 1} 속도"))
     for one in conditions.get("mesh_hints") or []:
-        name = f"메시 힌트 ‘{one.get('on', '')}’"
+        name = f"국부 메시 ‘{one.get('on', '')}’"
         out.append((one, "element_size", _LENGTH, f"{name} 요소 크기"))
         out.append((one, "defeature_size", _LENGTH, f"{name} 무시할 형상 크기"))
+    for one in conditions.get("body_settings") or []:
+        mesh = one.get("mesh")
+        if isinstance(mesh, dict):
+            name = f"파트 ‘{one.get('name', '')}’"
+            out.append((mesh, "element_size", _LENGTH, f"{name} 요소 크기"))
     return out
 
 
@@ -2041,11 +2212,13 @@ def spec() -> dict[str, Any]:
             "선행 해석의 응력을 지정할 수 있습니다.",
         },
         "mesh_hints": {
-            "label": "메시 힌트",
+            "label": "국부 메시",
             "model": MeshHint,
             "accepts": MESH_ACCEPTS,
-            "intro": "메시는 해석 플랫폼(SimEngBay)에서 생성합니다. 여기에 입력하는 값은 "
-            "권장 사항이며, 비워 둔 항목은 해석 플랫폼이 결정합니다.",
+            "intro": "면·엣지 선택 그룹의 요소를 더 작게 지정합니다(국부 세분화). ‘전체’에는 "
+            "모델 전체의 값(기본 요소 크기, 요소 형상, 차수, 무시할 형상 크기, 경계층)을 "
+            "지정합니다. 파트 하나 전체의 메시는 ‘파트별 설정’ 표에서 지정하십시오. 메시는 "
+            "해석 플랫폼(SimEngBay)에서 생성하며, 여기에 입력하는 값은 권장 사항입니다.",
         },
     }
     out: dict[str, Any] = {
@@ -2068,6 +2241,16 @@ def spec() -> dict[str, Any]:
             "intro": _ANALYSIS_INTRO,
         },
         "groups": {},
+        # 파트별 설정 — 묶음처럼 「+ 추가」 하는 것이 아니라 파트마다 한 줄인 표다. 열 이름 ·
+        # 선택지 · 설명을 여기서 준다(메시 열은 `mesh_fields`).
+        "body_settings": {
+            "label": "파트별 설정",
+            "intro": "파트마다 물성, 거동, 표현, 해석 포함 여부와 메시를 한 표에서 "
+            "지정합니다. 파트 메시는 국부 메시 ‘전체’보다 우선하고, 면·엣지 국부 메시가 "
+            "파트 메시보다 우선합니다.",
+            "fields": BodySetting.model_json_schema().get("properties", {}),
+            "mesh_fields": BodyMesh.model_json_schema().get("properties", {}),
+        },
     }
     for key, one in groups.items():
         model = one["model"]

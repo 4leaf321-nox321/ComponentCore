@@ -437,6 +437,107 @@ SHEAR_JOINT: dict[str, Any] = {
 }  # fmt: skip
 
 
+#: ⑦ **강체 지그 · 쉘 브래킷 · 해석 제외** — 파트별 설정(`body_settings`, 2026-10-04)을 받는
+#: 쪽이 읽는지 보는 자리. 강체 지그블록 위에 판금 ㄱ자 브래킷(쉘)을 본딩하고, 브래킷의 세운
+#: 다리 바깥면을 누른다. 지그블록 옆의 명판은 형상에만 있고 해석에서 뺀다. 두께를 훑으면 끝
+#: 처짐이 1/t³ 로 줄어야 한다(2 → 3 mm 에 3.375 배) — 손셈이 쉬운 외팔 판이다.
+RIGID_SHELL: dict[str, Any] = {
+    "name": "조건_강체지그_쉘브래킷",
+    "recipe": {
+        "params": {"두께": 2.0, "압력": 0.05},
+        "nodes": [
+            {"id": "지그블록", "op": "box", "length": 80, "width": 40, "height": 20,
+             "align": ["min", "center", "min"]},
+            # 옆에서 본 꺾은선 — 지그블록 윗면(z 20)에 눕힌 다리 x 10 ~ 50, x 50 에서 위로
+            # 70 까지. 두께는 꺾은선 안쪽(`right`): 눕힌 다리는 z 20 ~ 20+t, 세운 다리는
+            # x 50-t ~ 50.
+            {"id": "브래킷", "op": "sheet_metal", "thickness": "=두께", "width": 30,
+             "path": [[10, 20], [50, 20], [50, 70]], "bend_radius": 4, "side": "right"},
+            {"id": "명판", "op": "box", "length": 30, "width": 1, "height": 10,
+             "at": [60, -20, 5], "align": ["min", "max", "min"]},
+            {"id": "조립", "op": "group", "targets": ["지그블록", "브래킷", "명판"]},
+        ],
+    },
+    "factors": [{"name": "두께", "mode": "list", "values": [2, 3]}],
+    "conditions": {
+        "units": {"system": "mm_n_tonne"},
+        "named_selections": [
+            _face("블록 바닥", {"body": "지그블록", "normal": [0, 0, -1]}),
+            _face("블록 윗면", {"body": "지그블록", "normal": [0, 0, 1]}),
+            _face("브래킷 바닥", {"body": "브래킷", "normal": [0, 0, -1]}),
+            _face("하중면", {"body": "브래킷", "normal": [1, 0, 0]}),
+        ],
+        "materials": [
+            _material("M-000138", ["지그블록", "브래킷"]),
+            # 해석에서 뺀 파트에도 물성은 붙어 있을 수 있다 — 받는 쪽은 그냥 버린다.
+            _material("M-000158", ["명판"]),
+        ],
+        "constraints": [
+            # 강체는 면에 고정 지지를 못 건다(Mechanical) — 원격 변위로 여섯 성분을 묶는다.
+            {"name": "블록 고정", "type": "remote_displacement", "on": "블록 바닥",
+             "x": 0, "y": 0, "z": 0, "rx": 0, "ry": 0, "rz": 0, "behavior": "rigid"},
+        ],
+        "loads": [
+            {"name": "누름", "type": "pressure", "on": "하중면", "magnitude": "=압력",
+             "direction": "normal"}
+        ],
+        "contacts": [
+            {"name": "브래킷 접합", "type": "bonded", "source": "브래킷 바닥",
+             "target": "블록 윗면"}
+        ],
+        "body_settings": [
+            {"name": "지그블록", "behavior": "rigid", "mesh": {"element_size": 10}},
+            {"name": "브래킷", "representation": "shell",
+             "mesh": {"element_size": "=두께", "order": "quadratic"}},
+            {"name": "명판", "suppressed": True},
+        ],
+        "mesh_hints": [{"on": "전체", "element_size": 5, "defeature_size": 0.2}],
+        "analysis": {"type": "static"},
+    },
+}  # fmt: skip
+
+
+def test_강체_지그_쉘_브래킷_픽스처_파트별_설정이_실린다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    folder = _export(client, member, export_root, RIGID_SHELL)
+    # 쉘 파트가 있으니 중간면은 고르지 않았어도 나간다 — 표에 `mid_file` 열이 선다.
+    header = (folder / "manifest.csv").read_text(encoding="utf-8-sig").splitlines()[0]
+    assert "mid_file" in header.split(",")
+    points = _points(folder)
+    assert [p["point"]["params"]["두께"] for p in points] == [2.0, 3.0]
+    for point in points:
+        thick = point["point"]["params"]["두께"]
+        assert point["unresolved"] == []
+        # 명판은 형상(STEP · bodies)에는 있다 — 해석에서만 뺀다.
+        assert [one["name"] for one in point["bodies"]] == ["지그블록", "브래킷", "명판"]
+        settings = {one["name"]: one for one in point["conditions"]["body_settings"]}
+        assert settings["지그블록"]["behavior"] == "rigid"
+        assert settings["지그블록"]["mesh"]["element_size"] == 10
+        assert settings["브래킷"]["representation"] == "shell"
+        assert settings["브래킷"]["mesh"]["element_size"] == pytest.approx(thick)
+        assert settings["브래킷"]["mesh"]["order"] == "quadratic"
+        assert settings["명판"]["suppressed"] is True
+        # 쉘의 재료 — 브래킷의 중간면과 두께.
+        mid = point["midsurface"]
+        bracket = next(one for one in mid["bodies"] if one["name"] == "브래킷")
+        assert bracket["thickness"] == pytest.approx(thick)
+        assert (folder / mid["step_file"]).exists()
+        regions = point["regions"]
+        load = _only(regions, "하중면")
+        assert load["body"] == "브래킷" and load["normal"] == [1.0, 0.0, 0.0]
+        # 바깥면의 곧은 자리 — 꺾은선(x 50)이 R4 로 돌아 z 24 부터 70 까지, 폭 30.
+        assert load["area"] == pytest.approx(30 * (70 - 24))
+        assert _only(regions, "브래킷 바닥")["body"] == "브래킷"
+        assert _only(regions, "블록 바닥")["area"] == pytest.approx(3200)
+
+    out = os.environ.get("COMPCORE_FIXTURE_OUT")
+    if out:
+        target = Path(out) / folder.name.rsplit("-", 1)[0]
+        shutil.rmtree(target, ignore_errors=True)
+        shutil.copytree(folder, target)
+
+
 def _only(regions: dict[str, Any], name: str) -> dict[str, Any]:
     """그 그룹에 든 **하나** — 둘이면 짝이 어긋난 것이다."""
     (one,) = regions[name]

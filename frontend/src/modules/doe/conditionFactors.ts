@@ -31,9 +31,9 @@ const GROUPS: [string, string][] = [
   ['loads', '하중'],
   ['contacts', '접촉'],
   ['initial', '초기조건'],
-  ['mesh_hints', '메시 힌트'],
+  ['mesh_hints', '국부 메시'],
 ]
-/** 이름으로 가리키는 묶음 — 나머지(초기조건 · 메시 힌트)는 번호로. */
+/** 이름으로 가리키는 묶음 — 나머지(초기조건 · 국부 메시)는 번호로. */
 const NAMED = new Set(['constraints', 'loads', 'contacts'])
 /** 선택 그룹을 가리키는 칸. */
 const TARGET_FIELDS = new Set(['on', 'source', 'target'])

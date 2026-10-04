@@ -38,7 +38,7 @@ export interface FieldSchema {
   dimension?: string
   /** 칸의 단위(`도` · `mm` · `°C`) — 조건은 늘 mm · N · t 로 적으므로 고정된 이름이다. */
   unit?: string
-  /** 「전체」 처럼 선택 그룹 대신 고를 수 있는 값(메시 힌트). */
+  /** 「전체」 처럼 선택 그룹 대신 고를 수 있는 값(국부 메시). */
   whole?: string
   /** 세 성분(X · Y · Z) 칸 — 속도처럼 방향이 아닌 벡터. */
   components?: boolean
@@ -46,6 +46,8 @@ export interface FieldSchema {
   integer?: boolean
   /** 최소 · 최대 두 값(주파수 범위). */
   range?: boolean
+  /** 대상(`on`)이 「전체」 일 때만 보인다 — 국부 메시의 요소 형상 · 차수(면 · 엣지에는 뜻이 없다). */
+  whole_only?: boolean
   /** 종류 안에서 다른 칸의 값에 따라 보인다 — `{종류: {칸: 값}}`(열 과도의 시간 칸). */
   when?: Record<string, Record<string, unknown>>
 }
@@ -118,6 +120,13 @@ export interface ConditionsSchema {
   analysis: { properties?: Record<string, FieldSchema>; notes?: Record<string, string>; intro?: string }
   groups: Record<string, GroupSchema>
   entities: string[]
+  /** 파트별 설정 표의 열 — 옛 서버면 없다. */
+  body_settings?: {
+    label: string
+    intro?: string
+    fields: Record<string, FieldSchema>
+    mesh_fields: Record<string, FieldSchema>
+  }
 }
 
 /**
@@ -212,6 +221,8 @@ export interface Conditions {
   initial: ConditionItem[]
   analysis: Record<string, unknown>
   mesh_hints: ConditionItem[]
+  /** 파트별 설정 — 기본값과 다른 파트만 한 줄씩. */
+  body_settings?: BodySetting[]
   /**
    * 해석 조건에서 정한 좌표계 — 원점 · 회전(수 또는 식)이거나 선택 그룹의 면에 붙인 것(`on`).
    * 도면의 좌표계와 이름이 겹치면 안 된다. 조건의 「좌표계」(`cs`) 칸이 이름으로 가리킨다.
@@ -241,8 +252,71 @@ export function emptyConditions(system = 'mm_n_tonne'): Conditions {
     initial: [],
     analysis: { type: 'modal', modes: 6 },
     mesh_hints: [],
+    body_settings: [],
     coordinate_systems: [],
   }
+}
+
+/** 파트 하나의 메시 — 그 파트 전체의 기본값(국부 메시 ‘전체’보다 좁고, 면 · 엣지 국부 메시보다 넓다). */
+export interface BodyMesh {
+  element_size?: number | string | null
+  method?: string
+  order?: string
+}
+
+/**
+ * 파트(바디) 하나를 **해석에서 어떻게 다루나** — 서버의 `BodySetting` 과 같은 모양.
+ * 적지 않은 파트는 기본값(변형체 · 솔리드 · 포함 · 국부 메시 「전체」 를 따름)이다.
+ */
+export interface BodySetting {
+  name: string
+  behavior?: 'deformable' | 'rigid'
+  representation?: 'solid' | 'shell'
+  suppressed?: boolean
+  mesh?: BodyMesh
+}
+
+/** 칸마다 빈 값을 채운 파트 설정 — 표가 그대로 그린다. */
+export type FullBodySetting = Required<Omit<BodySetting, 'mesh'>> & { mesh: Required<BodyMesh> }
+
+export function defaultSetting(name: string): FullBodySetting {
+  return {
+    name,
+    behavior: 'deformable',
+    representation: 'solid',
+    suppressed: false,
+    mesh: { element_size: null, method: 'automatic', order: 'program_controlled' },
+  }
+}
+
+/** 이 파트의 설정 — 적힌 것이 없으면 기본값. */
+export function settingOf(settings: BodySetting[] | undefined, name: string): FullBodySetting {
+  const base = defaultSetting(name)
+  const found = (settings ?? []).find((one) => one.name === name)
+  if (!found) return base
+  return { ...base, ...found, mesh: { ...base.mesh, ...found.mesh } }
+}
+
+function isDefault(one: FullBodySetting): boolean {
+  const base = defaultSetting(one.name)
+  return JSON.stringify(one) === JSON.stringify(base)
+}
+
+/**
+ * 파트 하나의 설정을 바꾼 **새 목록** — 기본값으로 돌아온 줄은 뺀다(저장되는 것은 다른 것만).
+ *
+ * 뜻이 맞게 다듬는다: 강체는 쉘로 풀지 않는다(서버도 막는다) — 강체로 바꾸면 표현은 솔리드로.
+ */
+export function withSetting(
+  settings: BodySetting[] | undefined,
+  name: string,
+  patch: Partial<Omit<FullBodySetting, 'mesh'>> & { mesh?: Partial<BodyMesh> },
+): BodySetting[] {
+  const now = settingOf(settings, name)
+  const next: FullBodySetting = { ...now, ...patch, name, mesh: { ...now.mesh, ...patch.mesh } }
+  if (next.behavior === 'rigid') next.representation = 'solid'
+  const rest = (settings ?? []).filter((one) => one.name !== name)
+  return isDefault(next) ? rest : [...rest, next]
 }
 
 /** 서버가 준 것을 화면이 쓰는 모양으로 — 빈 칸을 채워 두면 화면에 `?.` 가 줄어든다. */
@@ -358,4 +432,43 @@ export const conditionsApi = {
     api.put<{ conditions: Conditions }>(`/works/${workId}/versions/${number}/conditions`, {
       conditions,
     }),
+}
+
+/**
+ * **바디 선택 그룹에 건 국부 메시를 파트별 설정으로 옮긴다**(옛 「메시 힌트」).
+ *
+ * 2026-10-04 부터 파트 하나 전체의 메시는 파트별 설정이 들고, 국부 메시는 면 · 엣지(와 「전체」)만
+ * 받는다. 그 전에 바디 그룹에 건 것은 같은 뜻 그대로 그 파트의 메시로 옮긴다 — 겹치면 힌트가
+ * 이겼으므로(좁은 것이 이긴다) 힌트의 값으로 덮는다. 무시할 형상 크기 · 경계층이 있는 힌트는
+ * 표에 자리가 없어 옮기지 않고 `kept` 로 알린다. 선택 그룹은 남긴다(다른 조건이 쓸 수 있다).
+ */
+export function moveBodyMeshHints(conditions: Conditions): { conditions: Conditions; moved: string[]; kept: string[] } {
+  const groups = new Map(conditions.named_selections.map((one) => [one.name, one]))
+  const filled = (value: unknown) => value !== undefined && value !== null && value !== ''
+  let settings = conditions.body_settings ?? []
+  const hints: ConditionItem[] = []
+  const moved: string[] = []
+  const kept: string[] = []
+  for (const hint of conditions.mesh_hints ?? []) {
+    const group = groups.get(String(hint.on ?? ''))
+    if (!group || group.entity !== 'body') {
+      hints.push(hint)
+      continue
+    }
+    const rules = Array.isArray(group.select.any) ? (group.select.any as Record<string, unknown>[]) : [group.select]
+    const bodies = rules.map((rule) => String(rule.body ?? '')).filter(Boolean)
+    if (bodies.length === 0 || filled(hint.defeature_size) || filled(hint.inflation_layers)) {
+      hints.push(hint)
+      kept.push(group.name)
+      continue
+    }
+    const mesh: Partial<BodyMesh> = {}
+    if (filled(hint.element_size)) mesh.element_size = hint.element_size as number | string
+    if (filled(hint.method)) mesh.method = String(hint.method)
+    if (filled(hint.order)) mesh.order = String(hint.order)
+    for (const body of bodies) settings = withSetting(settings, body, { mesh })
+    moved.push(group.name)
+  }
+  if (moved.length === 0) return { conditions, moved, kept }
+  return { conditions: { ...conditions, mesh_hints: hints, body_settings: settings }, moved, kept }
 }

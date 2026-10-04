@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react'
 
 import type { Recipe } from '@/modules/cad/api'
 import { appliedTo, conditionsApi } from '@/modules/conditions/api'
-import type { MaterialItem } from '@/modules/conditions/api'
+import type { BodySetting, MaterialItem } from '@/modules/conditions/api'
 import { choiceFactor, choiceTargets, factorName, propertyNames } from '@/modules/doe/conditionFactors'
 import { doeApi } from '@/modules/doe/api'
 import { CHECK_DEFAULTS, SAMPLED } from '@/modules/doe/api'
@@ -184,6 +184,8 @@ export function DoeForm({
 
   // **조건 인자** — 고르는 칸(종류 · 선택 그룹 · 켬끔 …)과 물성 배율. 칸 목록은 서버 사양표에서.
   const hasConditions = !!conditions && Object.keys(conditions).length > 0
+  /** 쉘로 푸는 파트가 있으면 서버가 중간면을 늘 함께 낸다(`conditions.has_shell`) — 칸을 잠가 보인다. */
+  const shellParts = ((conditions?.body_settings ?? []) as BodySetting[]).some((one) => one.representation === 'shell')
   const schema = useResource(() => (hasConditions ? conditionsApi.schema() : Promise.resolve(null)), [hasConditions])
   const targets = choiceTargets(conditions, schema.data)
   /** 칸 열쇠 → 고른 후보 값들. 열쇠가 있으면 그 칸을 훑는 중(값이 비면 아직 고르는 중). */
@@ -536,9 +538,13 @@ export function DoeForm({
       <MeasuresInput value={measures} onChange={setMeasures} regions={regions} />
 
       <label className="flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs" title="두께가 일정한 판(판금, 절곡 판, 쉘)이면 설계점마다 두께 중간면을 STEP으로 출력합니다(표의 mid_file 열). 판이 아닌 설계점은 warnings 열에 사유를 기록합니다.">
-        <input type="checkbox" checked={midsurface} onChange={(e) => setMidsurface(e.target.checked)} />
+        <input type="checkbox" checked={midsurface || shellParts} disabled={shellParts} onChange={(e) => setMidsurface(e.target.checked)} />
         <span className="font-medium">중간면 STEP 출력</span>
-        <span className="text-muted-foreground">(얇은 판을 셸 요소로 해석할 때 사용, 설계점마다 &lt;형상&gt;_mid.step)</span>
+        <span className="text-muted-foreground">
+          {shellParts
+            ? '(파트별 설정에 쉘 파트가 있어 자동으로 출력합니다)'
+            : '(얇은 판을 셸 요소로 해석할 때 사용, 설계점마다 <형상>_mid.step)'}
+        </span>
       </label>
 
       {/* 형상 점검 — 해석이 메시를 못 만들 점(얇은 벽 · 짧은 모서리 · 좁은 면 · 쪼개진 바디)을 표에 적는다. */}

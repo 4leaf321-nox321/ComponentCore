@@ -683,9 +683,10 @@ async def beam_frequency(
 
 @mcp.tool()
 async def conditions_schema(ctx: Context) -> Any:
-    """해석 조건에 **어떤 칸이 있는가** — 구속 · 하중 · 접촉 · 초기조건 · 메시 힌트 · 해석
-    설정의 종류와 칸 목록. 조건을 쓰기 전에 이것을 읽어라(레시피 전에 `recipe_schema` 를 읽는
-    것과 같다).
+    """해석 조건에 **어떤 칸이 있는가** — 구속 · 하중 · 접촉 · 초기조건 · 국부 메시 · 해석
+    설정의 종류와 칸 목록, 그리고 파트별 설정(`body_settings` — 거동 · 표현 · 해석 제외 ·
+    메시)의 칸. 조건을 쓰기 전에 이것을 읽어라(레시피 전에 `recipe_schema` 를 읽는 것과
+    같다).
 
     읽을 곳: 종류의 한글 이름(`fields.type.labels`) · 한 줄 설명(`notes`) · 칸의 제목 · 단위
     · 설명 · 쓰는 종류(`only_for`), **종류마다 받는 선택 그룹**(`accepts` — 면 · 원통면 ·
@@ -698,7 +699,9 @@ async def conditions_schema(ctx: Context) -> Any:
 async def set_conditions(
     ctx: Context, work_id: str, conditions: dict[str, Any], number: int | None = None
 ) -> Any:
-    """작업 버전에 **해석 조건**을 붙인다 — 경계 · 하중 · 접촉 · 초기조건 · 해석 설정 · 물성.
+    """작업 버전에 **해석 조건**을 붙인다 — 경계 · 하중 · 접촉 · 초기조건 · 해석 설정 · 물성 ·
+    파트별 설정(`body_settings`: 파트마다 강체 · 쉘 · 해석 제외 · 요소 크기 — 기본값인 파트는
+    적지 않는다).
 
     **값은 늘 mm · N · MPa · tonne 으로 적는다** — `units.system` 은 내보내기 단위계다(SI 를
     골라도 적는 값은 mm · MPa). **종류마다 받는 선택 그룹이 정해져 있다** — 사양표의

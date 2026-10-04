@@ -720,6 +720,10 @@ def create_study(
     """
     if conditions is None:
         conditions = _work_conditions(db, work_id, owner) if work_id else {}
+    # **쉘로 푸는 파트가 있으면 중간면은 고르지 않아도 나간다** — 쉘 요소는 중간면과 두께로
+    # 짓는다. 멱등 지문보다 먼저 채워 재시도도 같은 지문을 낸다.
+    if condition_model.has_shell(conditions):
+        outputs = sorted({*(outputs or []), "midsurface"})
     try:
         constraints = engine.parse_constraints(constraints)
     except engine.DoeError as failure:

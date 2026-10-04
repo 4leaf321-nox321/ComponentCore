@@ -405,6 +405,50 @@ def test_해석_조건을_붙여_훑으면_점마다_풀려_나간다(
     assert sorted(풀린.values()) == [(6.0, 2.0), (6.0, 3.0), (10.0, 2.0), (10.0, 3.0)]
 
 
+def test_쉘_파트가_있으면_중간면을_고르지_않아도_함께_낸다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    """쉘 요소는 중간면과 두께로 짓는다 — 파트를 쉘로 두면 DOE 가 설계점마다 중간면을 낸다.
+    파트 요소 크기의 식도 점마다 풀린다."""
+    plate = {
+        "params": {"두께": 4.0},
+        "nodes": [{"id": "판", "op": "box", "length": 80, "width": 40, "height": "=두께"}],
+    }
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "쉘 판",
+            "recipe": plate,
+            "conditions": {
+                "body_settings": [
+                    {
+                        "name": "전체",
+                        "representation": "shell",
+                        "mesh": {"element_size": "=두께 / 2"},
+                    }
+                ]
+            },
+            "factors": [{"name": "두께", "mode": "list", "values": [4, 6]}],
+        },
+        headers=member.headers,
+    )
+    assert made.status_code == 201, made.text
+    study = made.json()
+    assert study["outputs"] == ["midsurface"], "고르지 않았어도 쉘 파트가 중간면을 부른다"
+
+    sent = client.post(f"/api/doe/{study['id']}/export", headers=member.headers)
+    assert sent.status_code == 200, sent.text
+    folder = next(export_root.iterdir())
+    sizes = {}
+    for number in (1, 2):
+        topo = json.loads((folder / "points" / f"p{number:04d}.json").read_text("utf-8"))
+        thick = topo["point"]["params"]["두께"]
+        sizes[thick] = topo["conditions"]["body_settings"][0]["mesh"]["element_size"]
+        assert topo["midsurface"]["bodies"][0]["thickness"] == pytest.approx(thick)
+        assert (folder / topo["midsurface"]["step_file"]).exists()
+    assert sizes == {4.0: 2.0, 6.0: 3.0}
+
+
 def test_좌표가_든_선택_그룹은_설계점마다_치수를_따라간다(
     client: TestClient, member: Signed, export_root: Path
 ) -> None:
