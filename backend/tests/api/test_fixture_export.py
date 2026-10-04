@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
@@ -531,6 +532,22 @@ def test_강체_지그_쉘_브래킷_픽스처_파트별_설정이_실린다(
         assert "failed" not in mid
         assert (folder / mid["step_file"]).exists()
         assert point["length_units"]["midsurface"] == "mm"
+        # STEP 의 이름 — 한글은 깨지므로 `step_product`(ASCII)를 싣는다. 중간면 셸도 그 이름.
+        products = re.findall(
+            r"PRODUCT\('([^']*)'",
+            (folder / point["point"]["step_file"]).read_text(errors="replace"),
+        )
+        assert [one["step_product"] for one in point["bodies"]] == [
+            "body_1",
+            "body_2",
+            "body_3",
+        ]
+        assert set(products) >= {"body_1", "body_2", "body_3"}
+        assert bracket["step_product"] == "body_2"
+        mid_products = re.findall(
+            r"PRODUCT\('([^']*)'", (folder / mid["step_file"]).read_text(errors="replace")
+        )
+        assert "body_2" in mid_products
         regions = point["regions"]
         load = _only(regions, "하중면")
         assert load["body"] == "브래킷" and load["normal"] == [1.0, 0.0, 0.0]

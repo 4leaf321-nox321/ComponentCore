@@ -615,9 +615,11 @@ def probe_points(factors: list[Factor]) -> list[tuple[str, dict[str, float | str
     if shape:
         wanted.append(("전체 최소", {**center, **{f.name: low(f) for f in shape}}))
         wanted.append(("전체 최대", {**center, **{f.name: high(f) for f in shape}}))
+    # 인자 이름은 ‘’ 로 묶는다 — 인자 이름이 「전체」 면 「전체 최소」 와 겹쳐 화면의 키가
+    # 같아졌다.
     for factor in shape:
-        wanted.append((f"{factor.name} 최소", {**center, factor.name: low(factor)}))
-        wanted.append((f"{factor.name} 최대", {**center, factor.name: high(factor)}))
+        wanted.append((f"‘{factor.name}’ 최소", {**center, factor.name: low(factor)}))
+        wanted.append((f"‘{factor.name}’ 최대", {**center, factor.name: high(factor)}))
     out: list[tuple[str, dict[str, float | str]]] = []
     for label, row in wanted:
         same = next((i for i, (_, seen) in enumerate(out) if seen == row), None)

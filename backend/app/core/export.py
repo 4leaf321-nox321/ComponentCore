@@ -21,9 +21,31 @@ from build123d import (
 )
 
 
+def ascii_names(shape: Shape) -> Shape:
+    """조립이면 구성품 이름을 **ASCII 로 바꾼 사본** — `topology.bodies[].step_product` 와 같은
+    글자.
+
+    한글 이름은 STEP 에서 깨져(`ì¡°ë¦½`) 되살릴 수 없다. 받는 쪽이 이름으로 짝지을 수 있게
+    문서(해석 조건 설계 5장)가 약속한 대로 `slug` 를 붙인다 — 2026-10-04 점검 전에는 약속만
+    있고 실제로는 한글 그대로 나갔다. 원본의 이름표는 건드리지 않는다(사본의 이름만 바꾼다)."""
+    from app.core.recipe.topology import _labeled_children, slug
+
+    children = _labeled_children(shape)
+    if not children:
+        return shape
+    renamed = []
+    for index, child in enumerate(children, start=1):
+        one = copy.copy(child)
+        one.label = slug(str(child.label), fallback=f"body_{index}")
+        renamed.append(one)
+    whole = Compound(children=renamed)
+    whole.label = slug(str(shape.label or ""), fallback="assembly")
+    return whole
+
+
 def write_step(shape: Shape, path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    if not export_step(shape, path):
+    if not export_step(ascii_names(shape), path):
         raise RuntimeError(f"STEP 파일을 저장하지 못했습니다: {path.name}")
     return path
 

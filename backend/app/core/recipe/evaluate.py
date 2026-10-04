@@ -181,6 +181,43 @@ def _cylinder_radii(shape: Any) -> list[float]:
     return sorted(radii)
 
 
+def _bends_only(node: S.SheetMetalNode, points: list[Vector]) -> list[Vector]:
+    """꺾이지 않는 점(한 줄 위의 가운데 점)을 뺀 꺾은선 — 굽힘이 아니다. 그대로 두면
+    둥글리는 자리에서 터졌다(FilletPolyline 의 IndexError, 2026-10-04 점검). 제자리로
+    되돌아가는 점(180°)은 판을 접어 겹치는 것이라 말한다."""
+    kept = [points[0]]
+    for before, here, after in zip(points, points[1:], points[2:], strict=False):
+        ax, ay = here.X - before.X, here.Y - before.Y
+        bx, by = after.X - here.X, after.Y - here.Y
+        size = math.hypot(ax, ay) * math.hypot(bx, by)
+        if size == 0:
+            raise RecipeError(node.id, "꺾은선에 길이가 0인 구간이 있습니다.")
+        if abs(ax * by - ay * bx) / size < 1e-9:
+            if ax * bx + ay * by < 0:
+                raise RecipeError(
+                    node.id, "꺾은선이 제자리로 되돌아갑니다. 판이 겹쳐 접힐 수 없습니다."
+                )
+            continue
+        kept.append(here)
+    kept.append(points[-1])
+    return kept
+
+
+def inside_bends(node: S.SheetMetalNode) -> int:
+    """두께가 **굽힘 안쪽**에 붙는 굽힘의 수 — 2026-10-04 고침 전에는 이 굽힘의 안쪽 반지름이
+    r - t 였고 이제 r 이다(모양이 바뀐 자리). 반지름 0(각진 굽힘)은 바뀌지 않았다. 형상을 짓지
+    않고 꺾은선만 본다 — 서버 화면의 「판금 굽힘 점검」 이 저장된 도면을 훑는다."""
+    if node.bend_radius <= 0 or len(node.path) < 3:
+        return 0
+    try:
+        points = _bends_only(node, [Vector(x, y, 0) for x, y in node.path])
+    except RecipeError:
+        return 0  # 짓지도 못하는 꺾은선 — 점검이 평가해서 실패로 말한다
+    corners, net = _turns([(float(one.X), float(one.Y)) for one in points])
+    on_left = (net > 0) == (node.side == "right")
+    return sum(1 for turn in corners if (turn > 0) == on_left)
+
+
 def _rounded_sheet(node: S.SheetMetalNode, plane: Plane, points: list[Vector]) -> Shape:
     """둥근 굽힘의 판 — `bend_radius` 는 어느 쪽이든 **안쪽** 반지름이다.
 
@@ -1053,6 +1090,8 @@ def _evaluate_node(
     if isinstance(node, S.SheetMetalNode):
         points = [Vector(x, y, 0) for x, y in node.path]
         plane = _plane(node.plane)
+        if node.bend_radius > 0 and len(points) > 2:
+            points = _bends_only(node, points)
         if node.bend_radius > 0 and len(points) > 2:
             formed = _rounded_sheet(node, plane, points)
         else:

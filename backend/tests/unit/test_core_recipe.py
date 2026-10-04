@@ -1177,3 +1177,31 @@ def test_group_의_메시는_면마다_어느_구성품인지_말한다() -> Non
     box = {"id": "a", "op": "box", "length": 10, "width": 10, "height": 10}
     alone = parse({"version": 1, "nodes": [box]})
     assert "part" not in mesh(evaluate(alone, resolve_file=None).shape)["faces"][0]
+
+
+def test_판금_꺾은선의_한_줄_위_점은_굽힘이_아니다() -> None:
+    """가운데 점이 한 줄 위에 있으면 둥글리는 자리에서 터졌다(2026-10-04 점검). 제자리로
+    되돌아가는 꺾은선은 판이 겹쳐 접히는 것이라 말한다."""
+    from app.core.recipe import schema as S
+    from app.core.recipe.evaluate import inside_bends
+
+    def sheet(path: list[list[float]], side: str = "left") -> dict[str, Any]:
+        return {
+            "nodes": [
+                {"id": "s", "op": "sheet_metal", "thickness": 2, "width": 20, "path": path,
+                 "bend_radius": 3, "side": side}
+            ]
+        }  # fmt: skip
+
+    straight = evaluate(parse(sheet([[0, 0], [20, 0], [40, 0], [40, 30]]))).shape
+    plain = evaluate(parse(sheet([[0, 0], [40, 0], [40, 30]]))).shape
+    assert straight.volume == pytest.approx(plain.volume)
+    with pytest.raises(RecipeError, match="되돌아갑니다"):
+        evaluate(parse(sheet([[0, 0], [40, 0], [20, 0]])))
+    # 두께가 굽힘 안쪽에 붙는 굽힘 — 고침으로 모양이 바뀐 자리(서버의 판금 굽힘 점검).
+    node = S.SheetMetalNode.model_validate(
+        sheet([[0, 0], [40, 0], [40, 30]], "right")["nodes"][0]
+    )
+    assert inside_bends(node) == 1
+    outside = sheet([[0, 0], [40, 0], [40, 30]], "left")["nodes"][0]
+    assert inside_bends(S.SheetMetalNode.model_validate(outside)) == 0

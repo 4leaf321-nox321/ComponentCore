@@ -22,7 +22,7 @@ from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any
 
-from build123d import Compound, Face, GeomType, Shape, Vector
+from build123d import Compound, Face, GeomType, Shape, Shell, Vector
 from OCP.Bnd import Bnd_Box
 from OCP.BRep import BRep_Builder
 from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
@@ -36,7 +36,7 @@ from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeOffsetShape
 from OCP.GeomAbs import GeomAbs_Circle, GeomAbs_Cylinder, GeomAbs_Intersection, GeomAbs_Plane
 from OCP.gp import gp_Pnt
 from OCP.GProp import GProp_GProps
-from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE
+from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_SHELL
 from OCP.TopExp import TopExp
 from OCP.TopoDS import TopoDS, TopoDS_Compound
 from OCP.TopTools import TopTools_IndexedDataMapOfShapeListOfShape, TopTools_IndexedMapOfShape
@@ -62,6 +62,9 @@ class MidBody:
     faces: int
     centroid: list[float] = field(default_factory=list)
     bbox: list[list[float]] = field(default_factory=list)
+    step_product: str = ""
+    """`_mid.step` 의 셸 이름 — 그 파트의 `topology.bodies[].step_product` 와 같은 ASCII
+    글자."""
 
 
 @dataclass
@@ -87,6 +90,7 @@ class MidSurface:
                     "faces": one.faces,
                     "centroid": one.centroid,
                     "bbox": one.bbox,
+                    "step_product": one.step_product,
                 }
                 for one in self.bodies
             ],
@@ -102,6 +106,26 @@ def _area(shape: Any) -> float:
     props = GProp_GProps()
     BRepGProp.SurfaceProperties_s(shape, props)
     return float(props.Mass())
+
+
+def labeled(surface: MidSurface) -> Compound:
+    """`_mid.step` 로 쓸 모양 — 셸마다 그 파트의 ASCII 이름(`step_product`)을 붙인 조립.
+    이름 없이 셸만 담으면 받는 쪽이 순서 · 무게중심으로만 짝지어야 했다."""
+    shells: list[Shape] = []
+    for body, shell in zip(surface.bodies, surface.shells, strict=True):
+        kind = shell.ShapeType()
+        one: Shape
+        if kind == TopAbs_SHELL:
+            one = Shell(TopoDS.Shell_s(shell))
+        elif kind == TopAbs_FACE:
+            one = Face(TopoDS.Face_s(shell))
+        else:
+            one = Compound(TopoDS.Compound_s(shell))
+        one.label = body.step_product or body.name
+        shells.append(one)
+    whole = Compound(children=shells)
+    whole.label = "midsurface"
+    return whole
 
 
 def _box(shape: Any) -> tuple[list[float], list[list[float]]]:
@@ -134,6 +158,7 @@ def midsurface(
     브래킷의 중간면도 나오지 않았다(SimEngBay, 2026-10-04). 단품의 이름은 `single_name`(DOE 는
     토폴로지와 같게 「전체」)."""
     from app.core.recipe.evaluate import _labeled_children
+    from app.core.recipe.topology import slug
 
     children = _labeled_children(shape)
     named = (
@@ -141,6 +166,11 @@ def midsurface(
         if children
         else [(f"판 {index}", solid) for index, solid in enumerate(shape.solids(), start=1)]
     )
+    # 셸 이름 — 토폴로지와 같은 규칙(조립이면 구성품의 순번 · 이름, 단품은 body_1).
+    products = {
+        str(child.label): slug(str(child.label), fallback=f"body_{index}")
+        for index, child in enumerate(children, start=1)
+    }
     if not named:
         raise MidSurfaceError(
             "솔리드가 없습니다. 중간면은 판(두께가 균일한 솔리드)에서만 추출할 수 있습니다."
@@ -182,6 +212,7 @@ def midsurface(
                 faces=count,
                 centroid=centroid,
                 bbox=bbox,
+                step_product=products.get(name, "body_1" if not children else name),
             )
         )
         covered = area * thickness

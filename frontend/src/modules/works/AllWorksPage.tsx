@@ -42,7 +42,7 @@ export default function AllWorksPage() {
   const [kind, setKind] = useState<KindChoice>('all')
   const [trashed, setTrashed] = useState(false)
   const PAGE = useDisplay().list_page_size
-  const accounts = useResource(() => accountsApi.list(), [])
+  const accounts = useResource(() => accountsApi.all(), [])
   const page = useResource(
     () => worksApi.list(offset, PAGE, { owner, q, tag, kind: kind === 'all' ? '' : kind, trashed }),
     [offset, PAGE, owner, q, tag, kind, trashed],

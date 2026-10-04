@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import { api, ApiError } from '@/shared/api/client'
 import { refreshDisplay } from '@/shared/api/display'
@@ -13,6 +14,7 @@ import { PageHeader } from '@/shared/components/PageHeader'
 import { Button } from '@/shared/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card'
 import { Input } from '@/shared/components/ui/input'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/components/ui/table'
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
@@ -256,6 +258,122 @@ function ShapeIndexCard() {
   )
 }
 
+interface BendRow {
+  kind: 'work' | 'part' | 'template' | 'doe'
+  id: string
+  name: string
+  owner: string
+  version: number | null
+  node: string
+  bends: number
+  status: 'changed' | 'failing'
+  error: string
+}
+
+const BEND_KINDS: Record<BendRow['kind'], string> = { work: '작업', part: '부품', template: '템플릿', doe: 'DOE' }
+
+function bendLink(row: BendRow): string | null {
+  if (row.kind === 'work') return `/works/${row.id}`
+  if (row.kind === 'part') return `/parts/${row.id}`
+  if (row.kind === 'doe') return `/doe/${row.id}`
+  return null
+}
+
+/**
+ * 판금 굽힘 점검 — 2026-10-04 의 고침(굽힘 반지름은 늘 **안쪽** 반지름)으로 모양이 바뀌거나 이제
+ * 만들어지지 않는 판금을 찾는다. 두께를 굽힘 안쪽에 붙인 판은 예전에 안쪽이 r - t 로 지어졌다 —
+ * 다시 평가하면 굽힘 안쪽만 커진다(바깥 치수는 그대로). 주인에게 알릴 목록이다.
+ */
+function BendCheckCard() {
+  const [report, setReport] = useState<{ scanned: number; items: BendRow[]; failing: number; truncated: boolean } | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [error, setError] = useState<Error | null>(null)
+
+  async function run() {
+    setChecking(true)
+    setError(null)
+    try {
+      setReport(await api.get('/server/bend-check'))
+    } catch (caught) {
+      setError(caught instanceof Error ? caught : new Error('판금 굽힘을 점검하지 못했습니다.'))
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  return (
+    <Card className="mb-4">
+      <CardHeader>
+        <CardTitle>판금 굽힘 점검</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2 text-sm">
+        <p className="text-muted-foreground text-xs">
+          v0.8.1부터 판금의 굽힘 반지름은 두께 방향과 상관없이 안쪽 반지름입니다. 두께를 굽힘 안쪽에 붙인 판금은 다시
+          평가하면 굽힘 안쪽이 커지고, 짧은 구간 사이의 굽힘은 생성되지 않을 수 있습니다. 해당하는 작업, 부품, 템플릿,
+          DOE를 찾습니다.
+        </p>
+        <ErrorNotice error={error} />
+        <Button size="sm" disabled={checking} onClick={() => void run()}>
+          {checking ? '점검 중…' : '점검'}
+        </Button>
+        {report && (
+          <p role="status">
+            판금이 포함된 항목 {report.scanned}개 중 모양이 바뀌는 판금 노드 <b>{report.items.length}</b>개(이 중 생성 실패{' '}
+            <b>{report.failing}</b>개)
+            {report.truncated ? '. 상한에 도달하여 일부만 점검했습니다' : ''}.
+          </p>
+        )}
+        {report && report.items.length > 0 && (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>종류</TableHead>
+                <TableHead>이름</TableHead>
+                <TableHead>작성자</TableHead>
+                <TableHead>노드</TableHead>
+                <TableHead>바뀐 굽힘</TableHead>
+                <TableHead>상태</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {report.items.map((row) => {
+                const to = bendLink(row)
+                return (
+                  <TableRow key={`${row.kind}-${row.id}-${row.node}`}>
+                    <TableCell>{BEND_KINDS[row.kind]}</TableCell>
+                    <TableCell>
+                      {to ? (
+                        <Link to={to} className="hover:underline">
+                          {row.name}
+                        </Link>
+                      ) : (
+                        row.name
+                      )}
+                      {row.version !== null && <span className="text-muted-foreground ml-1 text-xs">v{row.version}</span>}
+                    </TableCell>
+                    <TableCell>{row.owner || '—'}</TableCell>
+                    <TableCell className="font-mono text-xs">{row.node}</TableCell>
+                    <TableCell>{row.bends}</TableCell>
+                    <TableCell>
+                      {row.status === 'failing' ? (
+                        <span className="text-destructive text-xs" title={row.error}>
+                          생성 실패: {row.error}
+                        </span>
+                      ) : (
+                        <span className="text-xs">모양 변경</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function ServerPage() {
   const status = useResource(() => api.get<ServerStatus>('/server/status'), [])
   const settings = useResource(() => api.get<ServerSetting[]>('/server/settings'), [])
@@ -269,6 +387,7 @@ export default function ServerPage() {
       <ErrorNotice error={status.error ?? settings.error} className="mb-4" />
       <WorkersCard />
       <ShapeIndexCard />
+      <BendCheckCard />
       {rows.length > 0 && (
         <Card className="mb-4">
           <CardHeader>

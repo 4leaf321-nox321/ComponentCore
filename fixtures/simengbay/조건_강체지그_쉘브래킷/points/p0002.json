@@ -221,7 +221,8 @@
             15.0,
             70.0
           ]
-        ]
+        ],
+        "step_product": "body_2"
       }
     ],
     "area": 2539.18,
@@ -248,7 +249,7 @@
   "point": {
     "number": 2,
     "study": {
-      "id": "dc210132-28df-4403-a348-0b18f6df56f2",
+      "id": "a9482c00-9b1a-468e-85aa-15e489e21c1b",
       "name": "조건_강체지그_쉘브래킷",
       "method": "factorial",
       "seed": 1

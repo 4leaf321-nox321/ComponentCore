@@ -6979,6 +6979,30 @@
         }
       }
     },
+    "/api/server/bend-check": {
+      "get": {
+        "tags": [
+          "server"
+        ],
+        "summary": "Bend Check Report",
+        "description": "판금 굽힘 점검 — 2026-10-04 의 고침(굽힘 반지름은 늘 안쪽 반지름)으로 **모양이 바뀌거나\n이제 만들어지지 않는** 판금 노드. 작업 · 부품의 현재 버전, 템플릿, DOE 스냅샷을 훑는다.",
+        "operationId": "bend_check_report_api_server_bend_check_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Bend Check Report Api Server Bend Check Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/server/display": {
       "get": {
         "tags": [

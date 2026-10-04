@@ -113,11 +113,11 @@ def test_미리_만들어_보기는_끝_점을_만들고_어긴_점과_깨진_�
     assert rows["중심"]["ms"] >= 0 and rows["중심"]["solids"] == 1
     # 두께 12 · 길이 90 은 제약(길이 >= 9 * 두께)을 어긴다 — 만들지 않고 까닭을 말한다.
     assert (
-        rows["두께 최대"]["status"] == "skipped"
-        and "제약 위반(1)" in rows["두께 최대"]["error"]
+        rows["‘두께’ 최대"]["status"] == "skipped"
+        and "제약 위반(1)" in rows["‘두께’ 최대"]["error"]
     )
     # 두께 0 은 형상이 깨진다 — 미리 안다.
-    assert rows["두께 최소"]["status"] == "failed" and rows["두께 최소"]["error"]
+    assert rows["‘두께’ 최소"]["status"] == "failed" and rows["‘두께’ 최소"]["error"]
     assert got.json()["mean_ms"] is not None
 
 

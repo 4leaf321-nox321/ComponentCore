@@ -18,7 +18,7 @@ from app.modules.jigs.models import Jig
 from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Artifact, Job
 from app.modules.parts.models import Part
-from app.modules.server import settings_store, shape_fill
+from app.modules.server import bend_check, settings_store, shape_fill
 from app.modules.server.schemas import (
     DiskOut,
     DisplayOut,
@@ -128,6 +128,15 @@ def fill_shape_index(
     """형상 색인을 `limit` 개까지 채운다 — 그 버전이 남긴 STEP 에서. 남은 것(`remaining`)이
     0 이 될 때까지 다시 부른다."""
     return shape_fill.fill(db, limit=limit)
+
+
+@router.get("/bend-check")
+def bend_check_report(
+    _: User = Depends(require_system_admin), db: Session = Depends(get_db)
+) -> dict[str, Any]:
+    """판금 굽힘 점검 — 2026-10-04 의 고침(굽힘 반지름은 늘 안쪽 반지름)으로 **모양이 바뀌거나
+    이제 만들어지지 않는** 판금 노드. 작업 · 부품의 현재 버전, 템플릿, DOE 스냅샷을 훑는다."""
+    return bend_check.check(db)
 
 
 @router.get("/display", response_model=DisplayOut)

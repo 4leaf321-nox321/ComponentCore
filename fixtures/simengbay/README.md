@@ -177,6 +177,11 @@ R4)과 눕힌 다리가 조금 더 휘므로 실제는 범위의 위쪽에 가�
 
 ## 읽을 때 알아 둘 것
 
+- **2026-10-04 — STEP 의 이름이 `step_product` 와 같아졌다.** 전에는 구성품의 한글 이름이 STEP 에
+  그대로 나가 깨졌다(`ì§\x80ê·¸…`). 이제 STEP 의 PRODUCT 이름이 점 파일 `bodies[].step_product`
+  (`body_1` …, ASCII 이름이면 그 이름)이고, `_mid.step` 의 셸도 그 파트의 `step_product` 다
+  (`midsurface.bodies[].step_product`). 모든 픽스처를 다시 뽑았다 — 그 밖에 바뀐 것은 점 파일의
+  `body_settings: []`(빈 목록) · `length_units.midsurface` 가 는 것과 스터디 id 뿐이다.
 - **2026-10-04 — 파트별 설정 · 국부 메시.** `conditions.body_settings`(파트마다 `behavior` ·
   `representation` · `suppressed` · `mesh`)가 늘었다 — 적히지 않은 파트는 기본값(변형체 · 솔리드 ·
   포함). 「메시 힌트」 는 화면 이름이 **「국부 메시」** 가 되었고 열쇠는 그대로 `mesh_hints` 다: `on` 은

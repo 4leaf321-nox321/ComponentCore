@@ -1977,6 +1977,7 @@ def _build_shape(task: dict[str, Any]) -> dict[str, Any]:
             # 셸 해석용 중간면 — 판이 아니면 실패가 아니라 그 점의 알림이다.
             from app.core.recipe.midsurface import MidSurfaceError, midsurface
             from app.core.recipe.midsurface import attach as attach_mid
+            from app.core.recipe.midsurface import labeled as labeled_mid
 
             try:
                 # 파트마다 따로 — 판이 아닌 파트(강체 지그 블록)는 그 파트만 `failed` 에
@@ -1990,7 +1991,7 @@ def _build_shape(task: dict[str, Any]) -> dict[str, Any]:
                 summary = surface.summary()
                 if surface.bodies:
                     mid_path = path.with_name(f"{path.stem}_mid.step")
-                    shapes.write_step(surface.shape, mid_path)
+                    shapes.write_step(labeled_mid(surface), mid_path)
                     mid = {"name": mid_path.name, "summary": summary}
                     # 쉘 파트에 걸린 영역을 중간면 기준으로도(지문마다 `mid`) — 쉘 요소에
                     # 하중 · 구속을 거는 자리다.

@@ -56,7 +56,7 @@ function TemporaryPasswordNotice({ value, onClose }: { value: string; onClose: (
 
 export default function AccountsAdminPage() {
   const { user: me } = useAuth()
-  const accounts = useResource(() => accountsApi.list(), [])
+  const accounts = useResource(() => accountsApi.all(), [])
   const [creating, setCreating] = useState(false)
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')

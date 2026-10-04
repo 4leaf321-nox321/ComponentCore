@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 
 import ServerPage from '@/modules/server/ServerPage'
 
@@ -64,4 +65,41 @@ test('형상 색인 — 없는 것을 세고, 다 될 때까지 이어서 채운
   await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('완료 30 · 잔여 0'))
   expect(posts).toHaveLength(2)
   expect(await screen.findByText(/모든 최신 버전에 색인이 있습니다/)).toBeInTheDocument()
+})
+
+test('판금 굽힘 점검 — 모양이 바뀌는 판금과 이제 생성되지 않는 판금을 나눠 보여 준다', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = String(input)
+    const body = url.endsWith('/server/bend-check')
+      ? {
+          scanned: 3,
+          failing: 1,
+          truncated: false,
+          items: [
+            { kind: 'work', id: 'w1', name: '브래킷', owner: '김', version: 2, node: '판', bends: 1, status: 'changed', error: '' },
+            { kind: 'doe', id: 'd1', name: '두께 탐색', owner: '이', version: null, node: '판', bends: 1, status: 'failing', error: '판: 판을 굽히지 못했습니다.' },
+          ],
+        }
+      : url.endsWith('/server/settings')
+        ? []
+        : url.endsWith('/server/shape-index')
+          ? { missing: 0 }
+          : url.endsWith('/server/workers')
+            ? { alive: 1, queue: { queued: 0, running: 0, cancelling: 0, oldest_queued_seconds: null }, workers: [] }
+            : null
+    if (body === null) {
+      return new Response(JSON.stringify({ error: { code: 'X', message: '없음' } }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+    }
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  })
+  render(
+    <MemoryRouter>
+      <ServerPage />
+    </MemoryRouter>,
+  )
+  fireEvent.click(await screen.findByRole('button', { name: '점검' }))
+  expect(await screen.findByRole('link', { name: '브래킷' })).toHaveAttribute('href', '/works/w1')
+  expect(screen.getByText('모양 변경')).toBeInTheDocument()
+  expect(screen.getByText(/생성 실패: 판: 판을 굽히지 못했습니다/)).toBeInTheDocument()
+  expect(screen.getByRole('status')).toHaveTextContent('모양이 바뀌는 판금 노드 2개(이 중 생성 실패 1개)')
 })

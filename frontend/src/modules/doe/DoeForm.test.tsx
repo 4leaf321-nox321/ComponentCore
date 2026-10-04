@@ -258,8 +258,8 @@ test('끝 점을 미리 만들어 보면 실패 · 건너뜀 · 그룹 어긋남
             regions: ['고정면'],
             points: [
               { label: '가운데', params: { 두께: 8 }, status: 'ok', error: '', ms: 2000, unresolved: [], drift: [], interference: null, solids: 1, faces: 10, warnings: [] },
-              { label: '두께 최소', params: { 두께: 0 }, status: 'failed', error: '높이가 0 입니다', ms: 5 },
-              { label: '두께 최대', params: { 두께: 12 }, status: 'ok', error: '', ms: 2000, unresolved: ['고정면'], drift: [{ name: '하중면', distance: 3.5 }], interference: null, solids: 2, faces: 12, warnings: [] },
+              { label: '‘두께’ 최소', params: { 두께: 0 }, status: 'failed', error: '높이가 0 입니다', ms: 5 },
+              { label: '‘두께’ 최대', params: { 두께: 12 }, status: 'ok', error: '', ms: 2000, unresolved: ['고정면'], drift: [{ name: '하중면', distance: 3.5 }], interference: null, solids: 2, faces: 12, warnings: [] },
             ],
           }
         : {}

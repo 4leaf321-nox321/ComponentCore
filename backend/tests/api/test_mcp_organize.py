@@ -169,7 +169,7 @@ def test_DOE_계획_도구가_제약_미리보기_표_측정값을_나른다(bot
     by_label = {one["label"]: one for one in probe["points"]}
     assert (
         by_label["중심"]["status"] == "ok"
-        and by_label["전체 최소, 두께 최소"]["status"] == "failed"
+        and by_label["전체 최소, ‘두께’ 최소"]["status"] == "failed"
     )
 
     made = bot.call(
