@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from fastapi import Depends, Request
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.database import get_db
 from app.modules.accounts.models import User
@@ -17,6 +18,10 @@ from app.shared.access_log import USER_ID_SCOPE_KEY
 from app.shared.errors import AppError, Forbidden, code
 
 _UNAUTHENTICATED = "로그인이 필요합니다."
+
+#: 포털 게이트웨이가 그 사람 대신 들고 온 토큰의 표시(`auth.sso`). 그 사람의 권한으로 일하되
+#: **관리자 권한은 내려놓는다** — AI 가 채팅으로 계정 · 서버 설정 · 남의 작업에 손대지 않게.
+PORTAL_SCOPE = "portal"
 
 
 def _bearer(request: Request) -> str | None:
@@ -55,6 +60,8 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
                 "이 토큰에는 write 범위가 없습니다.",
                 details={"granted": list(pat.scopes or [])},
             )
+        if PORTAL_SCOPE in (pat.scopes or []):
+            _portal_limits(request, user)
         request.state.token_name = pat.name
         request.state.token_scopes = list(pat.scopes or [])
         request.scope[USER_ID_SCOPE_KEY] = user.id
@@ -73,6 +80,22 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     return signed_in
 
 
+def _portal_limits(request: Request, user: User) -> None:
+    """포털 위임 토큰 — 계정 설정(토큰 · 비밀번호 · 프로필)을 바꾸지 못하고, 관리자도 이
+    요청에서는 일반 사용자로 본다. 토큰을 새로 만들 수 있으면 `portal` 없는 토큰으로 울타리를
+    넘는다.
+
+    관리자 표시는 **이 요청의 세션에서만** 내린다 — `set_committed_value` 는 바뀐 것으로 치지
+    않아 커밋해도 DB 에 쓰이지 않는다. 관리자 검사가 여러 모듈에 흩어져 있어도 한 곳에서
+    끝난다."""
+    if request.url.path.startswith("/api/auth/") and _is_write(request):
+        raise Forbidden(
+            code("AUTH", 109), "포털 위임 토큰으로는 계정 설정을 변경할 수 없습니다."
+        )
+    if user.is_system_admin:
+        set_committed_value(user, "is_system_admin", False)
+
+
 def granted_scopes(request: Request) -> list[str]:
     """이 요청이 들고 온 **토큰의 범위.** 사람 세션이면 빈 목록이다.
 
@@ -81,7 +104,11 @@ def granted_scopes(request: Request) -> list[str]:
     return list(getattr(request.state, "token_scopes", []) or [])
 
 
-def require_system_admin(user: User = Depends(current_user)) -> User:
+def require_system_admin(request: Request, user: User = Depends(current_user)) -> User:
+    if PORTAL_SCOPE in granted_scopes(request):
+        raise Forbidden(
+            code("AUTH", 104), "포털 위임 토큰으로는 관리자 기능을 사용할 수 없습니다."
+        )
     if not user.is_system_admin:
         raise Forbidden(code("AUTH", 103), "권한이 없습니다.")
     return user

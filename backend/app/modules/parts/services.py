@@ -52,6 +52,7 @@ def version_out(db: Session, version: PartVersion) -> PartVersionOut:
         part_id=version.part_id,
         number=version.number,
         recipe=version.recipe,
+        conditions=version.conditions or {},
         job=jobs.job_out(db, job) if job else None,
         note=version.note,
         promoted_by_id=version.promoted_by_id,

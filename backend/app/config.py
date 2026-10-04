@@ -172,6 +172,35 @@ class Settings(BaseSettings):
     )
     """개발 서버(Vite)용. 배포에서는 동일 출처라 필요 없다."""
 
+    # ── HWAX 포털 연계 — **비어 있으면 꺼진다**(단독 설치는 아무것도 열지 않는다) ──────
+    forwarded_allow_ips: str = ""
+    """`X-Forwarded-*` 를 믿을 프록시 IP(쉼표로). 비우면 `trust_proxy` 일 때 모두를 믿는다(예전
+    동작). 포털 뒤에서는 **포털 박스 IP** 를 준다 — 그래야 아무나 `X-Forwarded-For` 를 꾸며
+    위임 창구의 IP 제한을 넘지 못한다."""
+    app_public_url: str = ""
+    """사람이 여는 이 플랫폼의 주소(예: https://hwax.sec.samsung.net/compcore). MCP 도구가 답에
+    화면 링크를 붙일 때 쓴다. 비우면 링크를 안 붙인다."""
+    portal_jwks_url: str = ""
+    """포털 SSO(jwt-handoff)의 공개키 주소(예: http://<포털>:8088/.well-known/jwks.json).
+    **비우면 포털 로그인이 꺼진다**(`/api/auth/portal-*` 가 404)."""
+    portal_audience: str = ""
+    """포털 타일의 audience — 비우면 `app_slug`."""
+    portal_issuer: str = ""
+    """포털 토큰의 발급자(예: https://hwax.sec.samsung.net). 비우면 발급자를 보지 않는다."""
+    portal_system_id: str = ""
+    """포털의 타일 id — 화면이 포털 세션으로 launch 토큰을 받는 주소(`/systems/{id}/launch`).
+    비우면 `app_slug`."""
+    portal_jit_create: bool = True
+    """포털 SSO 로 처음 온 사람의 계정을 만든다(2026-10-04 결정 — ReportArchive 와 같다). 끄면
+    관리자가 미리 만든 사람만 들어온다."""
+    heax_sso_secret: str = ""
+    """포털 MCP 게이트웨이의 **사용자 위임 창구**(`/api/auth/sso`) 공유 비밀 — 포털 표준(ste
+    방식). **비우면 창구가 없다**(404). `openssl rand -hex 32`."""
+    heax_sso_allowed_ips: str = ""
+    """위임 창구를 부를 수 있는 IP(쉼표로) — 포털 박스. 비우면 IP 를 보지 않는다(비밀만)."""
+    heax_sso_jit_create: bool = True
+    """위임 창구에서도 모르는 이메일이면 계정을 만든다(포털 SSO 와 같은 규칙)."""
+
     @model_validator(mode="after")
     def _derive_from_slug(self) -> Settings:
         if not re.fullmatch(r"[a-z][a-z0-9]{0,31}", self.app_slug):
@@ -185,6 +214,10 @@ class Settings(BaseSettings):
             )
         if not self.refresh_cookie_name:
             self.refresh_cookie_name = f"{self.app_slug}_refresh"
+        if not self.portal_audience:
+            self.portal_audience = self.app_slug
+        if not self.portal_system_id:
+            self.portal_system_id = self.app_slug
         return self
 
 

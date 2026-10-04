@@ -405,6 +405,60 @@ def test_해석_조건을_붙여_훑으면_점마다_풀려_나간다(
     assert sorted(풀린.values()) == [(6.0, 2.0), (6.0, 3.0), (10.0, 2.0), (10.0, 3.0)]
 
 
+def test_인자_없이_설계_하나를_같은_폴더_계약으로_내보낸다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    """「이 설계 하나만 풀고 싶다」 — 예전에는 변수 하나에 값 하나인 DOE 로 우회했다(SimEngBay,
+    2026-10-04). 인자가 없으면 지금 도면 그대로 설계점 하나다. 폴더 모양은 DOE 와 같다."""
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "설계 하나",
+            "recipe": JIG,
+            "method": "lhs",  # 뜻이 없다 — 설계 하나는 격자 한 칸
+            "samples": 20,
+            "conditions": {
+                "named_selections": [
+                    {
+                        "name": "바닥",
+                        "entity": "face",
+                        "select": {"what": "faces", "role": "bottom"},
+                    }
+                ],
+                "constraints": [{"name": "고정", "type": "fixed_support", "on": "바닥"}],
+                "analysis": {"type": "modal", "modes": 6},
+            },
+            "factors": [],
+        },
+        headers=member.headers,
+    )
+    assert made.status_code == 201, made.text
+    study = made.json()
+    assert study["point_count"] == 1 and study["factors"] == []
+    sent = client.post(f"/api/doe/{study['id']}/export", headers=member.headers)
+    assert sent.status_code == 200, sent.text
+    folder = next(export_root.iterdir())
+    spec = json.loads((folder / "study.json").read_text(encoding="utf-8"))
+    assert spec["factors"] == []
+    (point,) = [
+        json.loads(one.read_text(encoding="utf-8"))
+        for one in sorted((folder / "points").glob("p*.json"))
+    ]
+    assert point["point"]["number"] == 1 and point["point"]["params"] == {}
+    assert point["conditions"]["constraints"][0]["name"] == "고정"
+    assert point["regions"]["바닥"]
+    assert (folder / "points" / "p0001.step").exists()
+    rows = (folder / "manifest.csv").read_text(encoding="utf-8-sig").splitlines()
+    assert len(rows) == 2  # 머리 + 한 줄
+    # 설계 하나에는 점을 더할 수 없다 — 그건 변수가 있는 새 DOE 다.
+    more = client.post(
+        f"/api/doe/{study['id']}/extend",
+        json={"method": "lhs", "samples": 3},
+        headers=member.headers,
+    )
+    assert more.status_code == 400 and more.json()["error"]["code"].endswith("DOE-0030")
+
+
 def test_쉘_파트가_있으면_중간면을_고르지_않아도_함께_낸다(
     client: TestClient, member: Signed, export_root: Path
 ) -> None:

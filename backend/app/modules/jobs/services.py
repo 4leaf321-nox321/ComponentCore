@@ -21,7 +21,7 @@ from app.modules.accounts.models import User
 from app.modules.jobs import registry
 from app.modules.jobs.models import FINISHED, Artifact, Job, WorkerBeat
 from app.modules.jobs.schemas import ArtifactOut, JobOut, StageOut
-from app.modules.works.models import Work
+from app.modules.works.models import Work, WorkVersion
 from app.shared import filestore
 from app.shared.errors import AppError, Forbidden, NotFound, code
 
@@ -454,6 +454,44 @@ def _is_promoted(db: Session, job_id: uuid.UUID) -> bool:
     return in_jigs is not None
 
 
+def _in_published_recipe(db: Session, artifact: Artifact) -> bool:
+    """**올린 STEP**(`import_step`)을 가리키는 레시피가 공개되어 있나 — 카탈로그(부품 · 지그
+    버전)나 **공개 DOE**(`visibility="read"`)에.
+
+    올린 원본은 평가 작업의 결과물이 아니라 `_is_promoted` 로는 못 잡는다. 그래서 STEP 으로
+    시작한 부품을 공용으로 올려도, 복사한 사람은 미리보기 · 저장 · DOE 에서 「남의 작업물」 로
+    막혔다(2026-10-04). 공개한 형상의 원본이라 보여도 새는 것이 없다 — 평가된 STEP · DOE 의
+    설계점 형상은 이미 누구나 본다. 공개 DOE 를 「내 것으로 복제」 하는 길도 이것으로
+    열린다."""
+    if artifact.kind != "import_step":
+        return False
+    from app.modules.doe.models import DoeStudy
+    from app.modules.jigs.models import JigVersion
+    from app.modules.parts.models import PartVersion
+
+    key = {"nodes": [{"op": "import_step", "file": str(artifact.id)}]}
+    in_parts = db.scalar(
+        select(PartVersion.id).where(PartVersion.recipe.contains(key)).limit(1)
+    )
+    if in_parts is not None:
+        return True
+    # 지그 버전은 레시피를 들지 않는다 — 그 버전을 평가한 작업 버전의 레시피를 본다.
+    in_jigs = db.scalar(
+        select(WorkVersion.id)
+        .join(JigVersion, JigVersion.job_id == WorkVersion.job_id)
+        .where(WorkVersion.recipe.contains(key))
+        .limit(1)
+    )
+    if in_jigs is not None:
+        return True
+    in_studies = db.scalar(
+        select(DoeStudy.id)
+        .where(DoeStudy.visibility == "read", DoeStudy.recipe.contains(key))
+        .limit(1)
+    )
+    return in_studies is not None
+
+
 def _work_owner(db: Session, work_id: uuid.UUID | None) -> uuid.UUID | None:
     if work_id is None:
         return None
@@ -479,5 +517,7 @@ def require_artifact_visible(db: Session, artifact: Artifact, user: User) -> Non
     if _work_owner(db, artifact.work_id) == user.id:
         return
     if artifact.job_id is not None and _is_promoted(db, artifact.job_id):
+        return
+    if _in_published_recipe(db, artifact):
         return
     raise Forbidden(code("JOBS", 5), "이 작업물을 조회할 권한이 없습니다.")

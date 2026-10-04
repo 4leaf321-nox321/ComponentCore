@@ -29,6 +29,7 @@ import type { DownloadFormat } from '@/modules/cad/download'
 import { SaveTemplateDialog } from '@/modules/templates/SaveTemplateDialog'
 import { JigResultView } from '@/modules/jigs/JigResultView'
 import { jobsApi } from '@/modules/jobs/api'
+import { doeApi } from '@/modules/doe/api'
 import { worksApi } from '@/modules/works/api'
 import type { WorkVersion } from '@/modules/works/api'
 import { ApiError, downloadFile } from '@/shared/api/client'
@@ -45,7 +46,7 @@ import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/components/ui/tabs'
 import { FolderDialog } from '@/shared/folders/FolderDialog'
-import { DuplicateDialog } from '@/modules/works/DuplicateDialog'
+import { DuplicateDialog, hasConditions } from '@/modules/works/DuplicateDialog'
 import { TagEditor } from '@/modules/works/TagEditor'
 import { SimilarCard } from '@/modules/search/SimilarCard'
 import { useResource } from '@/shared/hooks/useResource'
@@ -87,10 +88,14 @@ export default function WorkPage() {
   const [promoting, setPromoting] = useState<'part' | 'jig-recipe' | null>(null)
   const [promoteName, setPromoteName] = useState('')
   const [promoteNote, setPromoteNote] = useState('')
+  /** 부품으로 올릴 때 해석 조건도 함께 — 복사한 사람이 같은 조건으로 바로 해석한다. */
+  const [promoteConditions, setPromoteConditions] = useState(true)
   const [deleting, setDeleting] = useState(false)
   /** 복제 창 — 해석 조건도 옮길지 고른다. */
   const [duplicating, setDuplicating] = useState(false)
   const [savingTemplate, setSavingTemplate] = useState(false)
+  /** 해석용으로 내보내기 — 지금 설계 그대로 설계점 하나인 DOE(인자 없음). 이름을 받는다. */
+  const [single, setSingle] = useState<string | null>(null)
   /** 저장 갈림길 — 이 작업에 새 버전으로, 또는 새 작업으로 따로. */
   const [saveChoice, setSaveChoice] = useState(false)
   const [saveAsName, setSaveAsName] = useState('')
@@ -175,6 +180,7 @@ export default function WorkPage() {
         const made = await worksApi.promotePart(id, {
           name: promoteName || undefined,
           note: promoteNote,
+          conditions: hasConditions(w?.current?.conditions) && promoteConditions,
         })
         setPromoting(null)
         reloadAll()
@@ -221,6 +227,14 @@ export default function WorkPage() {
             <Button variant="outline" onClick={() => navigate(`/doe/new?work=${id}`)} disabled={w.current_version === 0}>
               DOE 생성
             </Button>
+            <Button
+              variant="outline"
+              onClick={() => setSingle(`${w.name} 해석`)}
+              disabled={w.current_version === 0}
+              title="변수 없이 현재 설계 하나를 DOE와 같은 폴더 형식으로 해석 플랫폼에 보냅니다."
+            >
+              해석용으로 내보내기
+            </Button>
             {!isAssembly && (
               <Button
                 variant="outline"
@@ -228,6 +242,7 @@ export default function WorkPage() {
                 onClick={() => {
                   setPromoteName(w.name)
                   setPromoteNote('')
+                  setPromoteConditions(true)
                   setPromoting(isJig ? 'jig-recipe' : 'part')
                 }}
                 title={isJig ? '이 지그 도면을 공용 지그로 등록합니다.' : currentPromoted ? '현재 버전은 이미 공용 부품으로 등록되어 있습니다.' : undefined}
@@ -632,6 +647,17 @@ export default function WorkPage() {
               <Label htmlFor="promote-note">메모</Label>
               <Input id="promote-note" value={promoteNote} onChange={(e) => setPromoteNote(e.target.value)} placeholder="변경 내용" />
             </div>
+            {promoting === 'part' && hasConditions(w.current?.conditions) && (
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-1" checked={promoteConditions} onChange={(e) => setPromoteConditions(e.target.checked)} />
+                <span>
+                  해석 조건도 함께 등록
+                  <span className="text-muted-foreground block text-xs">
+                    이 부품을 복사한 사용자가 같은 해석 조건(구속, 하중, 접촉, 물성 등)으로 바로 해석하거나 DOE를 실행할 수 있습니다. 형상만 공개하려면 해제하십시오.
+                  </span>
+                </span>
+              </label>
+            )}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setPromoting(null)} disabled={busy}>
                 취소
@@ -679,6 +705,43 @@ export default function WorkPage() {
         }}
         onClose={() => setDeleting(false)}
       />
+      <Dialog open={single !== null} onOpenChange={(open) => !open && setSingle(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>해석용으로 내보내기</DialogTitle>
+            <DialogDescription>
+              현재 버전(v{w.current_version})의 형상과 시뮬레이션 조건을 DOE와 같은 폴더 형식(설계점 1개)으로 생성합니다. 생성이
+              완료되면 DOE 화면에서 ‘공유 폴더로 내보내기’를 클릭하십시오.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1">
+            <Label htmlFor="single-name">이름</Label>
+            <Input id="single-name" value={single ?? ''} onChange={(e) => setSingle(e.target.value)} />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSingle(null)}>
+              취소
+            </Button>
+            <Button
+              disabled={busy || !single?.trim() || !w.current}
+              onClick={() =>
+                void act(async () => {
+                  const made = await doeApi.create({
+                    name: (single ?? '').trim(),
+                    recipe: w.current!.recipe,
+                    factors: [],
+                    work_id: id,
+                  })
+                  setSingle(null)
+                  navigate(`/doe/${made.id}`)
+                })
+              }
+            >
+              생성
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

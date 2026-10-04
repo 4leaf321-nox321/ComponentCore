@@ -124,6 +124,7 @@ export interface DoeStudySummary {
   point_count: number
   created_at: string
   /** 누구 것인가. 기계가 대행으로 만들었으면 **대행 대상인 사람**이다. */
+  owner_id?: string | null
   owner_name: string
   /**
    * `read`(기본) · `private`. **읽기는 모두에게**가 기본이다 — DOE 는 조직의 설계 이력이고,
@@ -133,6 +134,9 @@ export interface DoeStudySummary {
 }
 
 export interface DoeStudy extends DoeStudySummary {
+  /** 「내 것으로 복제」 의 원본 — 같은 설계점 · 조건이다. 지워졌으면 null. */
+  cloned_from_id?: string | null
+  cloned_from_name?: string
   recipe: Recipe
   factors: Factor[]
   /** 만들기 전에 거른 제약식(`간격 > 2 * 지름`). 점을 더할 때도 같은 것이 걸린다. */
@@ -336,5 +340,8 @@ export const doeApi = {
   /** 누가 보나 — `read`(모두) · `private`(나와 관리자만). 소유자만 바꾼다. */
   setVisibility: (id: string, value: 'read' | 'private') => api.post<DoeStudy>(`/doe/${id}/visibility?value=${value}`),
   remove: (id: string) => api.delete<void>(`/doe/${id}`),
-  manifestUrl: (id: string) => `/api/doe/${id}/manifest.csv`,
+  /** **내 것으로 복제** — 같은 설계점 · 해석 조건으로 내 소유의 새 DOE(원본은 그대로). */
+  clone: (id: string, name?: string) => api.post<DoeStudy>(`/doe/${id}/clone`, { name }),
+  /** `downloadFile` 에 넘긴다 — 평범한 링크로는 토큰이 실리지 않는다. */
+  manifestPath: (id: string) => `/doe/${id}/manifest.csv`,
 }

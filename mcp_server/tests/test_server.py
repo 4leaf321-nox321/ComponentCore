@@ -83,6 +83,7 @@ def test_사람이_손으로_하는_일이_도구로_다_있다() -> None:
         "doe_run",  # 조건까지 실어 폴더로
         "doe_probe",  # 끝 점 미리 만들어 보기
         "doe_extend",  # 점 더하기
+        "doe_clone",  # 남의 DOE 를 내 것으로 — 이어서 하기
         "list_folders",  # 폴더 나무
         "move_to_folder",  # 골라 옮기기
         "rename_folder",  # 폴더 이름 바꾸기 · 지우기
@@ -279,3 +280,67 @@ def test_오래_기다리는_DOE_는_서버가_기다리는_것보다_길게_연
     asyncio.run(server.doe_run(None, "a", {}, [], "k", wait_seconds=900))
     asyncio.run(server.doe_wait(None, "s", seconds=600))
     assert seen[0] > 900 and seen[1] > 600
+
+
+def test_결과에_화면에서_열기_링크를_붙인다(monkeypatch) -> None:
+    work = {
+        "id": "w1",
+        "name": "판",
+        "description": "",
+        "current_version": 2,
+        "current": None,
+    }
+
+    async def fake_get(ctx, path, params=None):
+        return work if path == "/api/works/w1" else {"error": "[CCR-WORKS-0001] 없음"}
+
+    monkeypatch.setattr(server, "_get", fake_get)
+    # 주소를 모르면 붙이지 않는다(단독 설치의 기본).
+    assert "url" not in asyncio.run(server.get_work(None, "w1"))
+
+    monkeypatch.setattr(server, "_PUBLIC_URL", "https://portal.test/compcore")
+    assert asyncio.run(server.get_work(None, "w1"))["url"] == (
+        "https://portal.test/compcore/works/w1"
+    )
+    # 오류는 그대로 — 링크를 붙여 성공처럼 보이게 하지 않는다.
+    assert "url" not in asyncio.run(server.get_work(None, "nope"))
+
+
+def test_화면_주소는_백엔드에서_배우고_실패는_기억하지_않는다(monkeypatch) -> None:
+    calls = []
+
+    def health(request):
+        calls.append(request.url.path)
+        if len(calls) == 1:
+            raise httpx.ConnectError("아직 안 뜸", request=request)
+        return httpx.Response(200, json={"status": "ok", "public_url": "https://p.test/cc/"})
+
+    monkeypatch.setattr(server, "_TRANSPORT", httpx.MockTransport(health))
+    monkeypatch.setattr(server, "_public_seen", None)
+    assert asyncio.run(server._public_url()) == ""
+    assert asyncio.run(server._public_url()) == "https://p.test/cc"
+    assert asyncio.run(server._public_url()) == "https://p.test/cc"
+    assert calls == ["/api/health", "/api/health"]
+
+
+def test_공용_부품의_해석_조건은_복사와_등록에_따라간다(monkeypatch) -> None:
+    sent: list[tuple[str, dict]] = []
+
+    async def fake_post(ctx, path, json_body=None):
+        sent.append((path, json_body))
+        if path.endswith("/copy-to-work"):
+            return {
+                "id": "w2",
+                "name": "판 (복사)",
+                "current_version": 1,
+                "current": {"conditions": {"constraints": [{"name": "고정"}]}},
+            }
+        return {"part_id": "p1", "number": 1}
+
+    monkeypatch.setattr(server, "_post", fake_post)
+    copied = asyncio.run(server.copy_part_to_work(None, "p1"))
+    assert copied["has_conditions"] is True
+    asyncio.run(server.copy_part_to_work(None, "p1", with_conditions=False))
+    asyncio.run(server.promote_part(None, "w1"))
+    asyncio.run(server.promote_part(None, "w1", with_conditions=False))
+    assert [body["conditions"] for _, body in sent] == [True, False, True, False]

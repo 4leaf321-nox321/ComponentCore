@@ -9,7 +9,7 @@ from __future__ import annotations
 from app.database import Base
 from app.modules.accounts.models import User
 from app.modules.audit.models import AccessLog
-from app.modules.auth.models import PersonalAccessToken, RefreshToken
+from app.modules.auth.models import PersonalAccessToken, RefreshToken, SsoUsedJti
 from app.modules.doe.models import DoePoint, DoeStudy
 from app.modules.jigs.models import Jig, JigVersion
 from app.modules.jobs.models import Artifact, Job, WorkerBeat
@@ -35,6 +35,7 @@ __all__ = [
     "RecipeTemplate",
     "RefreshToken",
     "ServerSetting",
+    "SsoUsedJti",
     "User",
     "Work",
     "WorkVersion",

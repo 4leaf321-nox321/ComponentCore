@@ -1,7 +1,8 @@
 """인증 라우터.
 
 **refresh 토큰은 httpOnly 쿠키로만 오간다.** access 토큰은 응답 본문으로만 주고 프론트는
-메모리에 둔다. 쿠키 path 를 /api/auth 로 제한해 일반 API 호출에는 실려 나가지 않는다.
+메모리에 둔다. 쿠키 path 를 /api/auth 로 제한해 일반 API 호출에는 실려 나가지 않는다(포털 뒤면
+접두어를 붙인 경로 — `cookies`).
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.modules.accounts.models import User
 from app.modules.auth import services
+from app.modules.auth.cookies import clear_refresh_cookie, set_refresh_cookie
 from app.modules.auth.schemas import (
     ChangePasswordRequest,
     LoginRequest,
@@ -32,25 +34,6 @@ from app.shared.errors import AppError, code
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-_COOKIE_PATH = "/api/auth"
-
-
-def _set_refresh_cookie(response: Response, raw: str) -> None:
-    settings = get_settings()
-    response.set_cookie(
-        settings.refresh_cookie_name,
-        raw,
-        max_age=settings.refresh_token_days * 24 * 3600,
-        httponly=True,
-        samesite="lax",
-        secure=settings.refresh_cookie_secure,
-        path=_COOKIE_PATH,
-    )
-
-
-def _clear_refresh_cookie(response: Response) -> None:
-    response.delete_cookie(get_settings().refresh_cookie_name, path=_COOKIE_PATH)
-
 
 @router.post("/login", response_model=LoginResponse)
 def login(
@@ -63,7 +46,7 @@ def login(
     access, expires_in, refresh_raw = services.issue_session(
         db, user, request.headers.get("user-agent")
     )
-    _set_refresh_cookie(response, refresh_raw)
+    set_refresh_cookie(request, response, refresh_raw)
     return LoginResponse(
         access_token=access, expires_in=expires_in, user=services.user_out(user)
     )
@@ -80,7 +63,7 @@ def refresh(
     user, access, expires_in, new_raw = services.rotate_refresh(
         db, raw, request.headers.get("user-agent")
     )
-    _set_refresh_cookie(response, new_raw)
+    set_refresh_cookie(request, response, new_raw)
     return LoginResponse(
         access_token=access, expires_in=expires_in, user=services.user_out(user)
     )
@@ -91,7 +74,7 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)) 
     raw = request.cookies.get(get_settings().refresh_cookie_name)
     if raw:
         services.revoke_refresh(db, raw)
-    _clear_refresh_cookie(response)
+    clear_refresh_cookie(request, response)
 
 
 @router.get("/me", response_model=UserOut)
@@ -114,12 +97,13 @@ def update_me(
 @router.post("/change-password", status_code=204)
 def change_password(
     payload: ChangePasswordRequest,
+    request: Request,
     response: Response,
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> None:
     services.change_password(db, user, payload.current_password, payload.new_password)
-    _clear_refresh_cookie(response)
+    clear_refresh_cookie(request, response)
 
 
 # --- 개인 토큰(PAT) — 스크립트 · MCP(AI) 용 자격 증명 -----------------------------

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
 import WorkPage from '@/modules/works/WorkPage'
@@ -30,6 +30,10 @@ function serve(work: Record<string, unknown>) {
     const url = String(input)
     const body = url.endsWith('/auth/refresh')
       ? { access_token: 't', expires_in: 900, user: ME }
+      : url.endsWith('/promote/part')
+        ? { part_id: 'p1', number: 1 }
+      : url.endsWith('/api/doe')
+        ? { id: 'd1', name: '튜닝 지그 해석' }
       : url.includes('/works/w1/versions')
       ? [WORK.current]
       : url.includes('/works/w1/jig-runs')
@@ -81,4 +85,40 @@ test('내 작업이면 알림이 없다', async () => {
   show()
   expect(await screen.findByRole('button', { name: '공용 지그로 등록' })).toBeInTheDocument()
   expect(screen.queryByRole('note')).toBeNull()
+})
+
+test('해석용으로 내보내기 — 변수 없이 지금 설계 하나인 DOE 를 만든다', async () => {
+  serve(WORK)
+  show()
+  fireEvent.click(await screen.findByRole('button', { name: '해석용으로 내보내기' }))
+  expect(screen.getByLabelText('이름')).toHaveValue('튜닝 지그 해석')
+  fireEvent.click(screen.getByRole('button', { name: '생성' }))
+  const calls = vi.mocked(globalThis.fetch).mock.calls
+  await waitFor(() => expect(calls.some(([url, init]) => String(url).endsWith('/api/doe') && init?.method === 'POST')).toBe(true))
+  const [, init] = calls.find(([url, one]) => String(url).endsWith('/api/doe') && one?.method === 'POST')!
+  const body = JSON.parse(String(init?.body))
+  expect(body).toMatchObject({ name: '튜닝 지그 해석', factors: [], work_id: 'w1' })
+  expect(body.recipe).toEqual(WORK.current.recipe)
+})
+
+test('부품으로 등록할 때 해석 조건을 함께 올리고, 해제하면 형상만 올린다', async () => {
+  const conditions = { constraints: [{ name: '고정', type: 'fixed_support', on: '바닥' }] }
+  serve({ ...WORK, kind: 'part', current: { ...WORK.current, conditions } })
+  show()
+  fireEvent.click(await screen.findByRole('button', { name: '공용 부품으로 등록' }))
+  const box = screen.getByRole('checkbox', { name: /해석 조건도 함께 등록/ })
+  expect(box).toBeChecked()
+  fireEvent.click(box)
+  fireEvent.click(screen.getByRole('button', { name: '등록' }))
+  const calls = vi.mocked(globalThis.fetch).mock.calls
+  await waitFor(() => expect(calls.some(([url]) => String(url).endsWith('/promote/part'))).toBe(true))
+  const [, init] = calls.find(([url]) => String(url).endsWith('/promote/part'))!
+  expect(JSON.parse(String(init?.body))).toMatchObject({ conditions: false })
+})
+
+test('조건이 없는 작업은 묻지 않는다', async () => {
+  serve({ ...WORK, kind: 'part' })
+  show()
+  fireEvent.click(await screen.findByRole('button', { name: '공용 부품으로 등록' }))
+  expect(screen.queryByRole('checkbox', { name: /해석 조건도 함께 등록/ })).toBeNull()
 })

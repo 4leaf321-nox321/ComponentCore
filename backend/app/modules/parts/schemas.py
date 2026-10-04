@@ -16,6 +16,8 @@ class PartVersionOut(BaseModel):
     part_id: uuid.UUID
     number: int
     recipe: dict[str, Any]
+    conditions: dict[str, Any] = Field(default_factory=dict)
+    """해석 조건 — 등록할 때 작업에서 함께 올렸으면 있다. 「내 작업으로 복사」 가 옮긴다."""
     job: JobOut | None
     note: str
     promoted_by_id: uuid.UUID | None
@@ -79,3 +81,6 @@ class CopyToWorkRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     number: int | None = None
     """비우면 현재 버전."""
+    conditions: bool = True
+    """그 버전의 해석 조건도 새 작업에 옮긴다(기본). 같은 형상이라 선택 그룹이 그대로
+    맞는다."""

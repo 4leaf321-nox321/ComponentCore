@@ -98,6 +98,12 @@ class PartVersion(Base):
     )
     recipe: Mapped[dict[str, Any]] = mapped_column(JSONB)
     """승격 시점의 레시피 복사본 — 작업이 지워져도 남는다."""
+    conditions: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default="{}"
+    )
+    """승격 시점의 해석 조건 복사본(경계 · 하중 · 접촉 · 물성 …). 레시피와 같은 형상이라 선택
+    그룹이 그대로 맞는다 — 「내 작업으로 복사」 가 옮긴다. 작업의 조건은 제자리에서 바뀌므로
+    가리키지 않고 복사한다. 등록할 때 빼면 비어 있다."""
     job_id: Mapped[uuid.UUID | None] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
     )

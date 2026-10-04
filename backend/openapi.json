@@ -344,6 +344,48 @@
         }
       }
     },
+    "/api/auth/portal-exchange": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Portal Exchange",
+        "description": "주소로 **바로** 들어온 사람 — 화면이 포털의 표준 launch(`POST /systems/{id}/launch`)를\n포털 세션으로 불러 받은 토큰을 바꾼다. 비밀번호 로그인과 같은 모양으로 답한다.",
+        "operationId": "portal_exchange_api_auth_portal_exchange_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PortalExchangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/accounts": {
       "get": {
         "tags": [
@@ -5850,6 +5892,60 @@
         }
       }
     },
+    "/api/doe/{study_id}/clone": {
+      "post": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Clone Study",
+        "description": "**내 것으로 복제** — 볼 수 있는 DOE(공개 · 내 것)를 같은 설계점 · 해석 조건으로 내\n소유의 새 DOE 로 만들고 형상을 다시 짓는다. 원본은 그대로다.\n\n남의 DOE 는 보기만 된다 — 보내기 · 점 더하기 · 다시 만들기는 소유자만 한다. 이어서 하려는\n사람은 복제해 자기 것으로 한다. 대상 작업은 내 것일 때만 잇는다(남의 것이면 스냅샷만).",
+        "operationId": "clone_study_api_doe__study_id__clone_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloneRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/doe/{study_id}/export": {
       "post": {
         "tags": [
@@ -7429,6 +7525,26 @@
         ],
         "title": "ChangePasswordRequest"
       },
+      "CloneRequest": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "title": "CloneRequest",
+        "description": "**내 것으로 복제** — 원본은 그대로, 같은 설계점 · 조건으로 내 소유의 새 DOE."
+      },
       "ConditionNotesRequest": {
         "properties": {
           "recipe": {
@@ -7488,6 +7604,11 @@
               }
             ],
             "title": "Number"
+          },
+          "conditions": {
+            "type": "boolean",
+            "title": "Conditions",
+            "default": true
           }
         },
         "type": "object",
@@ -9195,6 +9316,11 @@
             "type": "object",
             "title": "Recipe"
           },
+          "conditions": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Conditions"
+          },
           "job": {
             "anyOf": [
               {
@@ -9547,6 +9673,19 @@
         ],
         "title": "PointOut"
       },
+      "PortalExchangeRequest": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "title": "PortalExchangeRequest"
+      },
       "PreviewRequest": {
         "properties": {
           "factors": {
@@ -9883,6 +10022,11 @@
             "maxLength": 2000,
             "title": "Note",
             "default": ""
+          },
+          "conditions": {
+            "type": "boolean",
+            "title": "Conditions",
+            "default": true
           }
         },
         "type": "object",
@@ -10485,6 +10629,18 @@
             "format": "date-time",
             "title": "Created At"
           },
+          "owner_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
+          },
           "owner_name": {
             "type": "string",
             "title": "Owner Name",
@@ -10494,6 +10650,23 @@
             "type": "string",
             "title": "Visibility",
             "default": "read"
+          },
+          "cloned_from_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cloned From Id"
+          },
+          "cloned_from_name": {
+            "type": "string",
+            "title": "Cloned From Name",
+            "default": ""
           },
           "recipe": {
             "additionalProperties": true,
@@ -10715,6 +10888,18 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
           },
           "owner_name": {
             "type": "string",

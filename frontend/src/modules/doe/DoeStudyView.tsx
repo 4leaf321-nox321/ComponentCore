@@ -19,7 +19,7 @@ import { PointsGallery, PointsNav, pointRowProps } from '@/modules/doe/PointsGal
 import type { GalleryMode } from '@/modules/doe/PointsGallery'
 import { isFinished, runState } from '@/modules/jobs/api'
 import { CancelJobButton } from '@/modules/jobs/CancelJobButton'
-import { ApiError } from '@/shared/api/client'
+import { ApiError, downloadFile } from '@/shared/api/client'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { StatusBadge } from '@/shared/components/StatusBadge'
 import { shownDateTime } from '@/shared/lib/datetime'
@@ -36,7 +36,19 @@ function show(value: number | string | boolean | null | undefined, digits = 2): 
   return value.toLocaleString(undefined, { maximumFractionDigits: digits })
 }
 
-export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: () => void }) {
+export function DoeStudyView({
+  study,
+  onReload,
+  editable = true,
+}: {
+  study: DoeStudy
+  onReload: () => void
+  /**
+   * 고칠 수 있나(소유자 · 관리자). 아니면 보내기 · 재생성 · 점 추가 · 멈추기 · 공개 바꾸기를
+   * 숨긴다 — 눌러도 서버가 막으므로, 보이면 「왜 안 되지」 만 남는다. 이어 하려면 복제한다.
+   */
+  editable?: boolean
+}) {
   const [copied, setCopied] = useState(false)
   /** 형상 보기 — 하나씩 볼 점과 겹쳐 · 나란히 볼 점들. 표가 고르고 갤러리가 그린다. */
   const [focus, setFocus] = useState<number | null>(null)
@@ -130,7 +142,7 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
         표와 3D 는 스냅샷으로 그대로 뜨지만(3D 는 레시피로 다시 만든다) STEP 은 없으므로
         「보내기」 가 막힌다. 그 사실과 할 일을 한자리에서 말한다.
       */}
-      {finished && study.done > 0 && !study.local_ready && (
+      {editable && finished && study.done > 0 && !study.local_ready && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950/40">
           <RefreshCw className="size-4 shrink-0 text-amber-700 dark:text-amber-400" />
           <div className="min-w-0">
@@ -156,7 +168,15 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
           ) : (
             <>
               <p className="text-xs font-medium">아직 서버에만 저장되어 있습니다.</p>
-              <p className="text-muted-foreground text-xs">{!finished ? '생성이 완료되면 공유 폴더로 내보낼 수 있습니다.' : study.local_ready ? '‘공유 폴더로 내보내기’를 클릭하면 해석용 폴더로 복사됩니다.' : '내보낼 파일이 없습니다. 먼저 ‘재생성’을 클릭하십시오.'}</p>
+              <p className="text-muted-foreground text-xs">
+                {!editable
+                  ? '소유자가 공유 폴더로 내보내면 해석에 사용할 수 있습니다.'
+                  : !finished
+                    ? '생성이 완료되면 공유 폴더로 내보낼 수 있습니다.'
+                    : study.local_ready
+                      ? '‘공유 폴더로 내보내기’를 클릭하면 해석용 폴더로 복사됩니다.'
+                      : '내보낼 파일이 없습니다. 먼저 ‘재생성’을 클릭하십시오.'}
+              </p>
             </>
           )}
         </div>
@@ -164,10 +184,12 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
           <p className="w-full text-xs text-amber-700 dark:text-amber-400">내보낸 뒤 설계점이 추가되었습니다. 해석에 새 설계점을 반영하려면 다시 내보내십시오.</p>
         )}
         <ErrorNotice error={exportError} />
-        <Button size="sm" className="ml-auto" disabled={!finished || study.done === 0 || !study.local_ready || exporting} onClick={() => void send()}>
-          <Send className="size-3.5" />
-          {exporting ? '내보내는 중…' : study.exported_at ? '다시 내보내기' : '공유 폴더로 내보내기'}
-        </Button>
+        {editable && (
+          <Button size="sm" className="ml-auto" disabled={!finished || study.done === 0 || !study.local_ready || exporting} onClick={() => void send()}>
+            <Send className="size-3.5" />
+            {exporting ? '내보내는 중…' : study.exported_at ? '다시 내보내기' : '공유 폴더로 내보내기'}
+          </Button>
+        )}
         {study.exported_at && (
           <Button
             size="sm"
@@ -182,10 +204,8 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
             경로 복사
           </Button>
         )}
-        <Button size="sm" variant="outline" asChild>
-          <a href={doeApi.manifestUrl(study.id)} download>
-            <Download className="size-3.5" /> CSV
-          </a>
+        <Button size="sm" variant="outline" onClick={() => void downloadFile(doeApi.manifestPath(study.id), `${study.name}-manifest.csv`)}>
+          <Download className="size-3.5" /> CSV
         </Button>
       </div>
 
@@ -202,30 +222,36 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
             {study.requested_by_name && ` (${study.requested_by_name} 대행)`}
           </Badge>
         )}
-        <Button size="sm" variant="ghost" disabled={hiding} onClick={() => void setSeen(study.visibility === 'read' ? 'private' : 'read')}>
-          {study.visibility === 'read' ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
-          {study.visibility === 'read' ? '전체 공개' : '비공개'}
-        </Button>
+        {editable ? (
+          <Button size="sm" variant="ghost" disabled={hiding} onClick={() => void setSeen(study.visibility === 'read' ? 'private' : 'read')}>
+            {study.visibility === 'read' ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+            {study.visibility === 'read' ? '전체 공개' : '비공개'}
+          </Button>
+        ) : (
+          <Badge variant="outline" className="font-normal">
+            {study.visibility === 'read' ? '전체 공개' : '비공개'}
+          </Badge>
+        )}
         <span>
           설계점 {study.point_count}개: 생성 <b>{study.done}</b>
           {study.failed > 0 && <span className="text-destructive">, 실패 {study.failed}</span>}
           {warned > 0 && <span className="text-amber-700 dark:text-amber-400">, 점검 경고 {warned}</span>}
         </span>
         {/* 멈춘 DOE — 만든 점은 남아 있고, 남은 점은 같은 값으로 이어 만든다. */}
-        {finished && job?.status === 'cancelled' && pending > 0 && (
+        {editable && finished && job?.status === 'cancelled' && pending > 0 && (
           <Button size="sm" disabled={rerunning} onClick={() => void again('failed')}>
             <RefreshCw className="size-3.5" />
             남은 설계점 {pending}개 이어서 생성
           </Button>
         )}
         {/* 실패한 점만 한 번 더. 범위를 고쳐 다시 돌리는 것이 아니라 **같은 값으로** 다시 해 보는 것이다. */}
-        {finished && study.failed > 0 && (
+        {editable && finished && study.failed > 0 && (
           <Button size="sm" variant="outline" disabled={rerunning || running} onClick={() => void again('failed')}>
             <RefreshCw className="size-3.5" />
             실패한 설계점 {study.failed}개 재생성
           </Button>
         )}
-        {finished && (
+        {editable && finished && (
           <Button size="sm" variant="outline" disabled={rerunning || running} onClick={() => setExtending(!extending)} aria-expanded={extending}>
             <Plus className="size-3.5" />
             설계점 추가
@@ -234,12 +260,14 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
         {running && job && (
           <>
             <StatusBadge kind="run" value={runState(job)} />
-            <CancelJobButton
-              job={job}
-              what="DOE 생성"
-              keeps="그때까지 생성된 설계점과 표는 보존되며, 남은 설계점은 ‘이어서 생성’으로 계속 생성할 수 있습니다."
-              cancel={() => doeApi.cancel(study.id)}
-            />
+            {editable && (
+              <CancelJobButton
+                job={job}
+                what="DOE 생성"
+                keeps="그때까지 생성된 설계점과 표는 보존되며, 남은 설계점은 ‘이어서 생성’으로 계속 생성할 수 있습니다."
+                cancel={() => doeApi.cancel(study.id)}
+              />
+            )}
           </>
         )}
         {running && (

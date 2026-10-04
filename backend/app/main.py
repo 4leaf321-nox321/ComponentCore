@@ -11,7 +11,7 @@ import re
 from html import escape as html_escape
 from typing import Any
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -22,6 +22,8 @@ from app.database import SessionLocal, engine
 from app.logging_setup import setup_logging
 from app.modules.accounts import routes as accounts_routes
 from app.modules.auth import routes as auth_routes
+from app.modules.auth import sso as sso_routes
+from app.modules.auth.cookies import url_prefix
 from app.modules.cad import routes as cad_routes
 from app.modules.doe import routes as doe_routes
 from app.modules.jigs import routes as jigs_routes
@@ -52,10 +54,14 @@ def _api_router(settings: Settings) -> APIRouter:
             "version": version.current(),
             "app": settings.app_name,
             "slug": settings.app_slug,
+            # 사람에게 보여 줄 화면 주소(포털 뒤면 `https://portal/compcore`). MCP 가 결과에
+            # 「화면에서 열기」 링크를 붙일 때 읽는다. 비면 링크를 붙이지 않는다.
+            "public_url": settings.app_public_url.rstrip("/"),
         }
 
     # 모듈 라우터는 **여기서만** 모은다.
     router.include_router(auth_routes.router)
+    router.include_router(sso_routes.router)
     router.include_router(accounts_routes.router)
     router.include_router(works_routes.router)
     router.include_router(parts_routes.router)
@@ -96,15 +102,29 @@ def _mount_spa(app: FastAPI, settings: Settings) -> None:
         count=1,
     )
 
+    portal = settings.portal_system_id if settings.portal_jwks_url.strip() else ""
+
     @app.get("/{full_path:path}", include_in_schema=False, response_model=None)
-    def spa(full_path: str) -> HTMLResponse:
+    def spa(full_path: str, request: Request) -> HTMLResponse:
         if full_path.startswith("api/"):
             raise NotFound(
                 code("COMMON", 404),
                 "존재하지 않는 엔드포인트입니다.",
                 details={"path": f"/{full_path}"},
             )
-        return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+        # **요청마다** 접두어를 심는다 — 같은 설치를 루트로도, 포털 뒤(`/compcore/`)로도 연다.
+        # `<base>` 가 없으면 빌드의 상대 경로(`./assets/…`)가 깊은 주소(`/works/…`)에서
+        # `/works/assets/…` 로 풀려 새로 고침 · 화면 링크가 빈 화면이 된다.
+        prefix = url_prefix(request)
+        head = [
+            f'<base href="{html_escape(prefix)}/" />',
+            f'<meta name="app-base" content="{html_escape(prefix)}" />',
+        ]
+        if portal:
+            # 화면이 포털 세션으로 launch 토큰을 받을 타일 id — 비면 포털 로그인 단추가 없다.
+            head.append(f'<meta name="portal-system" content="{html_escape(portal)}" />')
+        page = html.replace("<head>", "<head>\n    " + "\n    ".join(head), 1)
+        return HTMLResponse(page, headers={"Cache-Control": "no-store"})
 
     logger.info("SPA 서빙: %s", dist)
 

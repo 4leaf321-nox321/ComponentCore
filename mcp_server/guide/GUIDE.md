@@ -1,4 +1,4 @@
-<!-- version: 2026-10-04.5 -->
+<!-- version: 2026-10-04.9 -->
 # CompCore MCP 가이드
 
 ## overview
@@ -17,6 +17,7 @@
 | **해석 조건 붙이기** | `conditions_schema` → `recipe_find` · `recipe_selectors` → `set_conditions` — `get_guide("conditions")` |
 | **물성 붙이기** | `material_search` → `material_get`(→ `condition_item`) · `recipe_bodies` → `set_conditions` |
 | **형상 여러 벌 만들기(DOE)** | `doe_preview` → `doe_probe`(끝 점 미리) → `doe_create` → `doe_points` → `doe_export` — 공유 폴더에 STEP 이 쌓인다. 더 뽑을 때 `doe_extend` |
+| **다른 사람의 DOE 이어서 하기** | `doe_studies(scope="all")` → `doe_clone(study_id)` — 같은 설계점 · 조건으로 내 DOE 가 생긴다(원본은 그대로). 남의 것은 보내기 · 점 더하기가 안 된다 |
 | **2D 도면(가공 맡길 때)** | `recipe_drawing(recipe, title, material)` — 3각법 세 뷰 · 전체 치수 · 구멍표 · 표제란. 답은 요약 + 그림. PDF · DXF 는 화면의 「파일 › 도면」 |
 | **조립에서 면끼리 접촉 · 구멍 동심** | component 의 `mates` — 아래 「작업은 셋 중 하나다」 의 조립 |
 | **셸 해석용 중간면** | `recipe_midsurface(recipe)` — 판마다 두께 · 넓이. DOE 는 `doe_create(..., outputs=["midsurface"])` 로 점마다 `_mid.step` |
@@ -28,8 +29,8 @@
 | 있는 부품 고치기 | `get_work` 로 레시피를 받아 고쳐 `save_version` |
 | 버전 복원 | `list_versions` → `restore_version` |
 | 부품에서 지그 생성 | `jig_preview(source, options)` 로 계획을 보고 → `run_jig` → 지그 작업이 생긴다 |
-| 공용 부품 · 지그로 등록(다른 사용자에게 공개) | `promote_part` · `promote_jig_recipe` — **사용자가 시킬 때만** |
-| 다른 사용자의 부품 가져오기 | `list_parts` → `copy_part_to_work` |
+| 공용 부품 · 지그로 등록(다른 사용자에게 공개) | `promote_part` · `promote_jig_recipe` — **사용자가 시킬 때만**. 부품은 해석 조건도 함께 올린다(`with_conditions=False` 면 형상만) |
+| 다른 사용자의 부품 가져오기 | `list_parts` → `copy_part_to_work` — 부품에 실린 **해석 조건도 옮긴다**(`get_part` 의 `conditions`). 복사한 작업으로 바로 `doe_run(work_id=…)` |
 | 폴더로 나눠 보기 | `list_folders(space)` 로 나무를 보고 `list_works` · `list_parts` · `list_jigs` · `list_templates` 의 `folder`(그 아래까지)로 거른다. 만들 때 `create_work(folder)` · `save_template(folder)` |
 | **정리하기** | `move_to_folder(space, ids, folder)` · `rename_folder(space, path, to)`(삭제 = 위 폴더로 합치기) · `update_work`(이름 · 설명 · 태그 · 폴더 · 종류) · `list_tags` — 공용 공간은 등록한 사용자 · 관리자만 옮긴다 |
 | 복제 · 휴지통 | `duplicate_work`(`with_conditions` — 해석 조건까지; 사용자가 안 정했으면 묻는다) · `delete_work`(휴지통 — **사용자가 지우라고 할 때만**) · `restore_work`(`list_works(trashed=True)` 로 본다) |
@@ -53,6 +54,8 @@
    쓴다), 거리 · 두께 · 각도는 `recipe_measure` 로 잰다.
 7. **고칠 때는 `patch_work`** — 레시피 전체를 되보내지 말고 연산 몇 개(set_param · set_field ·
    add_node …)로. 크고 실수가 적다. 조립에서 놓는 것은 `place_on` / `assemble_jig_on_part`.
+8. **답에 `url` 이 있으면 사용자에게 링크로 건넨다** — 그 작업 · DOE · 부품 · 지그를 화면에서
+   여는 주소다. 사람은 거기서 3D 로 보고 이어서 고친다. 주소를 지어내지 않는다(없으면 안 붙인다).
 
 ## recipe
 
@@ -422,7 +425,8 @@
 2. 조건: `set_conditions`(선택 그룹 · 구속 · 하중 · 접촉 · 해석 설정 · 물성).
 3. DOE: `doe_run(work_id=…, recipe=그 버전의 레시피, factors=…, idempotency_key=…)` —
    **`conditions` 를 안 주면 그 작업의 현재 조건이 실린다.** 점 파일마다 그 점의 치수로 풀린
-   조건 · 영역이 들어간다.
+   조건 · 영역이 들어간다. **설계 하나만 해석에 보내려면 `factors=[]`** — 지금 도면 그대로 설계점
+   하나인 같은 폴더가 나간다(화면의 「해석용으로 내보내기」). 그런 DOE 에는 점을 더할 수 없다.
 4. **재료도 훑을 수 있다**: 후보 재료를 조건의 `materials` 에 `apply_to: []` 로 담아 두고
    인자에 `{"name": "블록 재료", "mode": "material", "bodies": ["블록"], "values": [이름 · 번호…]}`.
    치수 인자와 섞어 격자 · LHS 로 조합한다. 형상은 그대로라 한 벌을 나눠 쓴다.

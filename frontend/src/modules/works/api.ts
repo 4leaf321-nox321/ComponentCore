@@ -218,7 +218,7 @@ export const worksApi = {
     api.post<{ work: Work; placement: { mode: 'generated' | 'guessed'; translate: number[]; product_lift: number; height_param: string } }>('/works/assemble', body),
   /** 끝난 생성 결과를 그 지그 작업의 버전으로 — 두 번 불러도 같은 버전. */
   adoptJigRun: (id: string, jobId: string) => api.post<WorkVersion>(`/works/${id}/jig-runs/${jobId}/adopt`, {}),
-  promotePart: (id: string, body: { name?: string; note?: string }) =>
+  promotePart: (id: string, body: { name?: string; note?: string; conditions?: boolean }) =>
     api.post<{ part_id: string; number: number }>(`/works/${id}/promote/part`, body),
   /** 손으로 그린 지그(레시피 버전)를 지그 카탈로그로 — 생성기를 거치지 않는 길. */
   /** 생성기가 만든 지그를 **지그 작업으로** — 그 다음부터는 그냥 그린다. */

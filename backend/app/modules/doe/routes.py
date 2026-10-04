@@ -19,6 +19,7 @@ from app.modules.doe import export as files
 from app.modules.doe import services
 from app.modules.doe.models import DoeStudy
 from app.modules.doe.schemas import (
+    CloneRequest,
     ExtendRequest,
     PointOut,
     PreviewRequest,
@@ -56,6 +57,7 @@ def _summary(db: Session, study: DoeStudy) -> StudySummaryOut:
         },
         work_name=work.name if work else None,
         work_kind=work.kind if work else None,
+        owner_id=study.owner_id,
         owner_name=_name_of(db, study.owner_id),
         visibility=study.visibility,
     )
@@ -78,8 +80,11 @@ def _point_out(point: Any) -> PointOut:
 def _out(db: Session, study: DoeStudy) -> StudyOut:
     rows = services.points(db, study)
     job = db.get(Job, study.job_id) if study.job_id else None
+    origin = db.get(DoeStudy, study.cloned_from_id) if study.cloned_from_id else None
     return StudyOut(
         **_summary(db, study).model_dump(),
+        cloned_from_id=origin.id if origin else None,
+        cloned_from_name=origin.name if origin else "",
         recipe=study.recipe,
         conditions=study.conditions,
         requested_by_name=_name_of(db, study.requested_by_id),
@@ -249,6 +254,22 @@ def get_study(
     return _out(db, services.get_study(db, study_id, user))
 
 
+@router.post("/{study_id}/clone", response_model=StudyOut, status_code=201)
+def clone_study(
+    study_id: uuid.UUID,
+    payload: CloneRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> StudyOut:
+    """**내 것으로 복제** — 볼 수 있는 DOE(공개 · 내 것)를 같은 설계점 · 해석 조건으로 내
+    소유의 새 DOE 로 만들고 형상을 다시 짓는다. 원본은 그대로다.
+
+    남의 DOE 는 보기만 된다 — 보내기 · 점 더하기 · 다시 만들기는 소유자만 한다. 이어서 하려는
+    사람은 복제해 자기 것으로 한다. 대상 작업은 내 것일 때만 잇는다(남의 것이면 스냅샷만)."""
+    source = services.get_study(db, study_id, user)
+    return _out(db, services.clone_study(db, source, owner=user, name=payload.name))
+
+
 @router.post("/{study_id}/export", response_model=StudyOut)
 def export_study(
     study_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)
@@ -328,7 +349,9 @@ async def run_study(
 
     def make() -> tuple[uuid.UUID, bool]:
         with SessionLocal() as fresh:
-            caller = fresh.merge(user)
+            # load=False — 이 요청에서 본 모양 그대로 옮긴다(포털 위임 토큰이 내려놓은 관리자
+            # 표시까지. 다시 읽으면 되살아난다 — `shared.auth`).
+            caller = fresh.merge(user, load=False)
             study, reused = _create(fresh, caller, payload, request)
             return study.id, reused
 

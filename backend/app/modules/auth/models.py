@@ -75,3 +75,14 @@ class PersonalAccessToken(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class SsoUsedJti(Base):
+    """포털 launch 토큰의 `jti` — **한 번만 쓴다.** 워커가 여럿이라 메모리 집합으로 막으면
+    같은 토큰을 다른 워커로 다시 보내는 재생이 통과한다(ReportArchive 와 같은 까닭). 만료가
+    지난 줄은 다음 로그인 때 지운다."""
+
+    __tablename__ = "sso_used_jti"
+
+    jti: Mapped[str] = mapped_column(String(128), primary_key=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

@@ -444,7 +444,9 @@ def create_work(
     jig_for_part_id: uuid.UUID | None = None,
     unit_system: str | None = None,
     folder: str = "",
+    conditions: dict[str, Any] | None = None,
 ) -> Work:
+    """`conditions` 는 첫 버전에 싣는 해석 조건 — 같은 형상에서 온 것만(공용 부품 복사)."""
     if recipe is not None:
         _validated(recipe)
     path = normalize_folder(folder)
@@ -467,7 +469,11 @@ def create_work(
     db.add(work)
     db.flush()
     if recipe is not None:
-        add_version(db, work, recipe=recipe, source=source, note=note or "첫 버전", by=owner)
+        first = add_version(
+            db, work, recipe=recipe, source=source, note=note or "첫 버전", by=owner
+        )
+        if conditions:
+            first.conditions = deepcopy(conditions)
     # 도면 없는 작업(빈 조립)은 add_version 이 안 돌아 여기서 확정해야 남는다.
     db.commit()
     db.refresh(work)
@@ -908,9 +914,18 @@ def _done_job(db: Session, job_id: uuid.UUID | None, what: str) -> Job:
 
 
 def promote_part(
-    db: Session, work: Work, *, by: User, name: str | None, note: str
+    db: Session,
+    work: Work,
+    *,
+    by: User,
+    name: str | None,
+    note: str,
+    conditions: bool = True,
 ) -> PartVersion:
-    """현재 형상 버전을 부품으로. 이 작업에서 이미 승격한 부품이 있으면 거기에 다음 버전."""
+    """현재 형상 버전을 부품으로. 이 작업에서 이미 승격한 부품이 있으면 거기에 다음 버전.
+
+    `conditions` 면 그 버전의 해석 조건도 **스냅샷으로** 싣는다 — 복사한 사람이 같은 조건으로
+    바로 해석 · DOE 를 돌린다. 작업의 조건은 제자리에서 바뀌므로 가리키지 않고 복사한다."""
     version = current_version(db, work)
     if version is None:
         raise AppError(code("WORKS", 8), "형상이 없습니다.")
@@ -949,6 +964,7 @@ def promote_part(
         number=part.current_version + 1,
         work_version_id=version.id,
         recipe=version.recipe,
+        conditions=deepcopy(version.conditions or {}) if conditions else {},
         job_id=version.job_id,
         note=note.strip() or f"작업 v{version.number}에서",
         promoted_by_id=by.id,

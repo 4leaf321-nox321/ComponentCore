@@ -508,7 +508,14 @@ def promote_part(
 ) -> PartVersionOut:
     """현재 형상 버전을 부품 카탈로그에 올린다."""
     work = _mine(db, work_id, user)
-    promoted = services.promote_part(db, work, by=user, name=payload.name, note=payload.note)
+    promoted = services.promote_part(
+        db,
+        work,
+        by=user,
+        name=payload.name,
+        note=payload.note,
+        conditions=payload.conditions,
+    )
     return parts.version_out(db, promoted)
 
 

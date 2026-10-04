@@ -124,9 +124,13 @@ def _resolution(one: dict[str, Any], name: str) -> float:
 
 def parse_factors(raw: list[dict[str, Any]], *, allow_fixed: bool = False) -> list[Factor]:
     """화면 · AI 가 준 인자 정의를 읽는다. 틀린 곳은 이름을 짚어 말한다. `allow_fixed` 는
-    「모두 고정」 을 받는다(점을 더할 때 — 범위는 새 묶음이 준다)."""
+    「모두 고정」 을 받는다(점을 더할 때 — 범위는 새 묶음이 준다).
+
+    **인자가 없으면 설계 하나다** — 지금 도면 그대로 설계점 하나(빈 곱은 한 줄). 해석에 설계
+    하나만 보내려고 「변수 하나에 값 하나」 인 DOE 를 만드는 우회가 필요했다(SimEngBay,
+    2026-10-04). 폴더 계약은 같다."""
     if not raw:
-        raise DoeError("인자가 없습니다. 변경할 치수를 하나 이상 선택하십시오.")
+        return []
     out: list[Factor] = []
     seen: set[str] = set()
     for one in raw:

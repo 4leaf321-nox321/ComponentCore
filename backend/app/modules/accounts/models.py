@@ -29,6 +29,12 @@ class User(Base):
     """로그인 아이디. **이메일 형식을 강제하지 않는다** — `admin` 같은 짧은 아이디를 쓴다."""
     password_hash: Mapped[str] = mapped_column(String(120))
     display_name: Mapped[str] = mapped_column(String(100))
+    sso_login_id: Mapped[str | None] = mapped_column(
+        String(128), nullable=True, unique=True, index=True
+    )
+    """사내 SSO 의 바뀌지 않는 키(LoginId). 포털 SSO 로 찾을 때 **이메일보다 먼저** 본다 —
+    이메일은 바뀔 수 있고, 바뀐 뒤 이메일로만 찾으면 같은 사람이 계정 둘이 된다. 이메일로 찾은
+    계정에 처음 들어올 때 새긴다(ReportArchive 와 같은 규칙)."""
 
     status: Mapped[str] = mapped_column(String(20), default="active", server_default="active")
     is_system_admin: Mapped[bool] = mapped_column(

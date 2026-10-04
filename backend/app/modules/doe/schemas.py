@@ -95,6 +95,13 @@ class ExtendRequest(BaseModel):
     """같은 열쇠의 묶음이 이미 있으면 더하지 않고 그것을 돌려준다(기계의 재시도)."""
 
 
+class CloneRequest(BaseModel):
+    """**내 것으로 복제** — 원본은 그대로, 같은 설계점 · 조건으로 내 소유의 새 DOE."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    """비우면 「원본 이름 (복제)」."""
+
+
 class StudyCreateRequest(PreviewRequest):
     name: str = Field(min_length=1, max_length=120)
     outputs: list[Literal["midsurface"]] = Field(default_factory=list)
@@ -157,6 +164,8 @@ class StudySummaryOut(BaseModel):
     seed: int
     point_count: int
     created_at: datetime
+    owner_id: uuid.UUID | None = None
+    """소유자 — 화면이 고치는 단추(보내기 · 점 더하기 …)를 소유자에게만 보이는 데 쓴다."""
     owner_name: str = ""
     """이 DOE 가 **누구 것인가.** 대행이면 대행 대상인 사람이다 — `scope=all` 로 찾으면 남의
     것이 섞이므로 목록에도 있어야 한다."""
@@ -166,6 +175,9 @@ class StudySummaryOut(BaseModel):
 
 
 class StudyOut(StudySummaryOut):
+    cloned_from_id: uuid.UUID | None = None
+    """「내 것으로 복제」 의 원본 DOE. 지워졌으면 None."""
+    cloned_from_name: str = ""
     recipe: dict[str, Any]
     conditions: dict[str, Any] = Field(default_factory=dict)
     """이 스터디가 돌던 때의 해석 조건 — 작업이 나중에 바뀌어도 여기 남는다."""

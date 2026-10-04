@@ -192,6 +192,9 @@ class PromotePartRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     """새 부품일 때 이름. 비우면 작업 이름."""
     note: str = Field(default="", max_length=2000)
+    conditions: bool = True
+    """현재 버전의 해석 조건도 함께 올린다(기본) — 복사한 사람이 같은 조건으로 바로 DOE 를
+    돌린다. 끄면 형상만 공개한다."""
 
 
 class PromoteJigRecipeRequest(BaseModel):

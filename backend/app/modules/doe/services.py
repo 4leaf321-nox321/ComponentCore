@@ -732,6 +732,10 @@ def create_study(
     # 짓는다. 멱등 지문보다 먼저 채워 재시도도 같은 지문을 낸다.
     if condition_model.has_shell(conditions):
         outputs = sorted({*(outputs or []), "midsurface"})
+    if not factors and method != "table":
+        # **설계 하나**(해석용으로 내보내기) — 인자가 없으면 지금 도면 그대로 설계점 하나.
+        # 방식 · 표본 · 표 · 제약은 뜻이 없다. 표 방식은 인자를 표의 열에서 짓는다(아래).
+        method, samples, table, constraints = "factorial", 1, None, []
     try:
         constraints = engine.parse_constraints(constraints)
     except engine.DoeError as failure:
@@ -853,6 +857,72 @@ def create_study(
     db.commit()
     db.refresh(study)
     return study, False
+
+
+def clone_study(
+    db: Session, source: DoeStudy, *, owner: User, name: str | None = None
+) -> DoeStudy:
+    """**내 것으로 복제** — 볼 수 있는 DOE 를 같은 설계점 · 조건으로 내 소유의 새 DOE 로.
+
+    공개된 DOE 를 다른 사람이 이어서 할 길이다. 원본의 보내기 · 점 더하기 · 다시 만들기는
+    소유자만 하므로(`owned_study`), 이어 하려는 사람은 자기 것을 갖는다 — 공용 부품의 「내
+    작업 공간으로 복사」 와 같은 규칙이다. 원본은 건드리지 않는다.
+
+    **설계점을 다시 뽑지 않고 값을 그대로 옮긴다.** 표로 만든 것 · 나중에 더한 묶음까지 번호와
+    값이 원본과 같아야 두 결과를 점끼리 견줄 수 있다. 묶음 이력(`batches`)도 그대로 — 「이
+    점은 어디서 왔나」 가 복제본에서도 맞는다. 형상은 새로 만든다(파일은 소유자의 폴더에 쓴다).
+
+    대상 작업은 **내 것일 때만** 잇는다 — 남의 작업에 내 DOE 를 붙일 수 없다. 그래서 남의 것을
+    복제하면 대상 없는 스냅샷이 되고, 「설정 변경 후 새 DOE」 도 그 스냅샷으로 연다. 레시피가
+    가리키는 것(조립의 `work:` · 올린 STEP)은 복제하는 사람이 볼 수 있어야 한다."""
+    cad.require_references(db, source.recipe, owner)
+    work = db.get(Work, source.work_id) if source.work_id else None
+    mine = work is not None and work.deleted_at is None and work.owner_id == owner.id
+    rows = points(db, source)
+    study = DoeStudy(
+        name=(name or f"{source.name} (복제)").strip()[:120],
+        description=source.description,
+        owner_id=owner.id,
+        work_id=work.id if mine and work is not None else None,
+        cloned_from_id=source.id,
+        recipe=deepcopy(source.recipe),
+        conditions=deepcopy(source.conditions or {}),
+        factors=deepcopy(source.factors),
+        constraints=list(source.constraints or []),
+        checks=dict(source.checks or {}),
+        measures=deepcopy(source.measures or []),
+        batches=deepcopy(source.batches or []),
+        outputs=list(source.outputs or []),
+        method=source.method,
+        samples=source.samples,
+        seed=source.seed,
+        point_count=len(rows),
+    )
+    db.add(study)
+    db.flush()
+    study.local_dir = str(files.study_dir(filestore.root() / "doe", study.name, str(study.id)))
+    for one in rows:
+        db.add(
+            DoePoint(
+                study_id=study.id,
+                number=one.number,
+                params=deepcopy(one.params),
+                status="pending",
+            )
+        )
+    db.flush()
+    job = jobs.enqueue(
+        db,
+        kind=JOB_KIND,
+        requested_by=owner,
+        work_id=study.work_id,
+        input={"study_id": str(study.id)},
+        options={},
+    )
+    study.job_id = job.id
+    db.commit()
+    db.refresh(study)
+    return study
 
 
 def get_study(db: Session, study_id: uuid.UUID, viewer: User) -> DoeStudy:
@@ -1197,6 +1267,12 @@ def extend_study(
         for batch in study.batches or []:
             if batch.get("idempotency_key") == key:
                 return study, {**batch, "reused": True}
+    if not study.factors:
+        raise AppError(
+            code("DOE", 30),
+            "설계 하나를 보내는 DOE(인자 없음)에는 설계점을 추가할 수 없습니다. 변수를 지정한 "
+            "새 DOE를 생성하십시오.",
+        )
     method = str(raw.get("method") or "lhs")
     factors = _batch_factors(study, raw.get("factors"))
     table = raw.get("table") if method == "table" else None

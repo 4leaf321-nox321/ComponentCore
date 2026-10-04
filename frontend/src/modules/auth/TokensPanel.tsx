@@ -40,7 +40,8 @@ interface McpInfo {
   server_name: string
 }
 
-const SCOPE_LABELS: Record<string, string> = { read: '읽기', write: '쓰기' }
+/** `portal` — HWAX 포털 게이트웨이가 대신 받아 간 토큰(관리자 기능 · 계정 설정은 막힌다). 여기서 만들 수는 없다. */
+const SCOPE_LABELS: Record<string, string> = { read: '읽기', write: '쓰기', portal: '포털 위임' }
 /** 이름 빠른 선택 — 어느 도구에 준 토큰인지 목록에서 바로 읽히게. */
 const NAME_PRESETS = ['Claude Code', 'Claude Desktop', 'Gemini CLI', 'Codex CLI', '스크립트']
 /** 만료 빠른 선택 — 날짜 칸에 채운다(오늘 기준). */

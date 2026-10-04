@@ -12,6 +12,8 @@ export interface PartVersion {
   part_id: string
   number: number
   recipe: Recipe
+  /** 해석 조건 — 등록할 때 작업에서 함께 올렸으면 있다. 「내 작업 공간으로 복사」 가 옮긴다. */
+  conditions?: Record<string, unknown>
   job: Job | null
   note: string
   promoted_by_id: string | null
@@ -86,6 +88,6 @@ export const partsApi = {
   versions: (id: string) => api.get<PartVersion[]>(`/parts/${id}/versions`),
   update: (id: string, body: { name?: string; description?: string; folder?: string }) => api.patch<Part>(`/parts/${id}`, body),
   remove: (id: string) => api.delete<void>(`/parts/${id}`),
-  copyToWork: (id: string, body: { name?: string; number?: number }) =>
+  copyToWork: (id: string, body: { name?: string; number?: number; conditions?: boolean }) =>
     api.post<Work>(`/parts/${id}/copy-to-work`, body),
 }

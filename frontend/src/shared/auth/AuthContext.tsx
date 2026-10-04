@@ -4,12 +4,16 @@
  * 새로고침하면 메모리의 access 토큰이 사라지므로, 앱이 뜰 때 refresh 쿠키로 한 번
  * 갱신을 시도한다. 성공하면 로그인 상태가 유지되고 실패하면 익명이다 — 사용자
  * 눈에는 "로그인이 유지되는" 것으로 보인다.
+ *
+ * 쿠키가 없어도 **HWAX 포털 안이면** 포털 세션으로 한 번 들어와 본다(`portal.ts`) — 채팅의
+ * 화면 링크를 눌러 처음 온 사람이 로그인 화면을 보지 않게.
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { api, refreshSession, session } from '@/shared/api/client'
+import { markPortalOptOut, portalLogin, shouldAutoHandoff } from '@/shared/auth/portal'
 import type { CurrentUser, LoginResponse } from '@/shared/auth/types'
 
 type Status = 'loading' | 'authenticated' | 'anonymous'
@@ -18,6 +22,8 @@ interface AuthContextValue {
   status: Status
   user: CurrentUser | null
   login: (email: string, password: string) => Promise<CurrentUser>
+  /** HWAX 포털 세션으로 들어온다. 포털에서 토큰을 못 받으면 null. */
+  loginWithPortal: () => Promise<CurrentUser | null>
   logout: () => Promise<void>
   /** 비밀번호 변경 등으로 사용자 정보가 바뀐 뒤 다시 읽는다. */
   reload: () => Promise<void>
@@ -35,6 +41,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus('anonymous')
   }, [])
 
+  const accept = useCallback((body: LoginResponse) => {
+    session.setToken(body.access_token)
+    setUser(body.user)
+    setStatus('authenticated')
+    return body.user
+  }, [])
+
   // 앱 기동 시 1회 — 쿠키가 살아 있으면 세션을 되살린다.
   //
   // **api.post 가 아니라 refreshSession 이다.** StrictMode 가 이 effect 를 두 번
@@ -46,33 +59,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     refreshSession<LoginResponse>()
       .then((body) => {
-        if (cancelled) return
-        session.setToken(body.access_token)
-        setUser(body.user)
-        setStatus('authenticated')
+        if (!cancelled) accept(body)
       })
-      .catch(() => {
-        if (!cancelled) clear()
+      .catch(async () => {
+        if (cancelled) return
+        // 취소 확인 뒤에 부른다 — StrictMode 의 첫 effect 는 취소되므로 launch 가 한 번만 나간다.
+        const viaPortal = shouldAutoHandoff() ? await portalLogin({ auto: true }).catch(() => null) : null
+        if (cancelled) return
+        if (viaPortal) accept(viaPortal)
+        else clear()
       })
 
     return () => {
       cancelled = true
       session.onLost(null)
     }
-  }, [clear])
+  }, [clear, accept])
 
-  const login = useCallback(async (email: string, password: string) => {
-    const body = await api.post<LoginResponse>('/auth/login', { email, password })
-    session.setToken(body.access_token)
-    setUser(body.user)
-    setStatus('authenticated')
-    return body.user
-  }, [])
+  const login = useCallback(
+    async (email: string, password: string) => accept(await api.post<LoginResponse>('/auth/login', { email, password })),
+    [accept],
+  )
+
+  const loginWithPortal = useCallback(async () => {
+    const body = await portalLogin()
+    return body ? accept(body) : null
+  }, [accept])
 
   const logout = useCallback(async () => {
     try {
       await api.post('/auth/logout')
     } finally {
+      markPortalOptOut()
       clear()
     }
   }, [clear])
@@ -83,8 +101,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo(
-    () => ({ status, user, login, logout, reload }),
-    [status, user, login, logout, reload],
+    () => ({ status, user, login, loginWithPortal, logout, reload }),
+    [status, user, login, loginWithPortal, logout, reload],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

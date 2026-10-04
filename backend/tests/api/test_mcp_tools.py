@@ -263,3 +263,40 @@ def test_읽기_토큰은_저장을_못_한다(reader: Bot) -> None:
     assert reader.call(server.recipe_check, box)["ok"] is True
     denied = reader.call(server.create_work, "x", box)
     assert "error" in denied and "CCR-AUTH-0106" in denied["error"]
+
+
+def test_포털_게이트웨이가_받은_토큰으로_그린_작업에는_화면_링크가_붙는다(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """HWAX 채팅의 길 — 게이트웨이가 그 사람의 토큰을 받아(`/api/auth/sso`) MCP 를 부른다.
+    작업은 그 사람의 것이고, 답에는 포털 뒤 화면 주소가 붙는다."""
+    import uuid
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "heax_sso_secret", "gateway-secret")
+    monkeypatch.setattr(settings, "heax_sso_allowed_ips", "")
+    monkeypatch.setattr(settings, "app_public_url", "https://portal.test/compcore/")
+    monkeypatch.setattr(server, "_PUBLIC_URL", "")
+    monkeypatch.setattr(server, "_public_seen", None)
+    email = f"chat-{uuid.uuid4().hex[:8]}@example.local"
+    issued = client.post(
+        "/api/auth/sso",
+        headers={
+            "X-Heax-Gateway-Secret": "gateway-secret",
+            "X-Heax-User-Email": email,
+            "X-Heax-Client": "mcp",
+        },
+    )
+    assert issued.status_code == 200, issued.text
+    token = issued.json()["data"]["access_token"]
+    bot = Bot(token)
+    box = bot.call(server.recipe_schema)["templates"]["box"]
+    made = bot.call(server.create_work, "채팅 상자", box)
+    assert made["url"] == f"https://portal.test/compcore/works/{made['work_id']}"
+    me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"}).json()
+    work = client.get(
+        f"/api/works/{made['work_id']}", headers={"Authorization": f"Bearer {token}"}
+    ).json()
+    assert me["email"] == email and work["owner_id"] == me["id"]

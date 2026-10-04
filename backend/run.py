@@ -128,7 +128,10 @@ def main() -> None:
             port=port,
             workers=settings.uvicorn_workers,
             proxy_headers=settings.trust_proxy,
-            forwarded_allow_ips="*" if settings.trust_proxy else None,
+            # 믿을 프록시를 좁힐 수 있다(포털 박스 IP) — 비우면 예전처럼 모두.
+            forwarded_allow_ips=(settings.forwarded_allow_ips or "*")
+            if settings.trust_proxy
+            else None,
         )
 
 

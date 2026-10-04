@@ -74,6 +74,13 @@ class DoeStudy(Base):
 
     소유자(`owner_id`)는 그때 **대행 대상인 사람**이 된다. 만든 책임은 사람에게 두고 실행은
     기계가 한다 — 한 칸에 욱여넣으면 「내 DOE 목록」 과 「누가 돌렸나」 중 하나를 잃는다."""
+    cloned_from_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("doe_studies.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    """「내 것으로 복제」 의 원본 — 같은 설계점 · 조건이다. 결과를 견줄 때 되짚는다. 원본이
+    지워지면 비지만 복제본은 스냅샷이라 혼자 선다."""
     visibility: Mapped[str] = mapped_column(String(20), default="read", server_default="read")
     """`read`(기본) · `private`. **읽기는 모두에게**가 기본이다.
 

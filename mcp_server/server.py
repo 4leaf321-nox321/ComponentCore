@@ -32,6 +32,7 @@ import asyncio
 import base64
 import os
 import re
+import time
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlencode
@@ -52,7 +53,8 @@ mcp = FastMCP(
         "**`get_guide` 를 먼저 부른다** — 레시피의 규칙과 작업 순서가 거기 있다. "
         "레시피는 `recipe_check` 로 만들어 본 뒤에만 `save_version` 으로 저장한다. "
         "저장은 사용자의 내 작업에 새 버전으로 들어가고, 등록(부품 · 지그 카탈로그)은 "
-        "사람이 판단할 일이니 `promote_*` 는 사용자가 시킬 때만."
+        "사람이 판단할 일이니 `promote_*` 는 사용자가 시킬 때만. "
+        "결과에 `url` 이 있으면 사용자에게 「화면에서 열기」 링크로 함께 보여 준다."
     ),
 )
 
@@ -61,6 +63,11 @@ _TRANSPORT: httpx.AsyncBaseTransport | None = None
 
 #: 작업(평가 · 지그 생성)이 끝나기를 기다리는 최대 시간(초).
 _WAIT_SECONDS = float(os.environ.get("MCP_JOB_WAIT", "90"))
+
+#: 사람이 여는 화면 주소(예: 포털 뒤 `https://<포털>/compcore`). 비우면 백엔드 `/api/health` 의
+#: `public_url`(서버의 `APP_PUBLIC_URL`)을 쓴다 — 둘 다 비면 결과에 링크를 붙이지 않는다.
+_PUBLIC_URL = os.environ.get("PLATFORM_PUBLIC_URL", "").rstrip("/")
+_public_seen: tuple[float, str] | None = None
 
 
 def _forward_headers(ctx: Context) -> dict[str, str]:
@@ -116,6 +123,36 @@ def _unreachable(path: str, failure: httpx.HTTPError) -> dict[str, Any]:
         ),
         "retryable": True,
     }
+
+
+async def _public_url() -> str:
+    """화면 주소 — 환경변수가 먼저, 없으면 백엔드에 묻는다(5분 기억, 실패는 기억 안 함)."""
+    global _public_seen
+    if _PUBLIC_URL:
+        return _PUBLIC_URL
+    now = time.monotonic()
+    if _public_seen is not None and now - _public_seen[0] < 300:
+        return _public_seen[1]
+    try:
+        async with _client(5) as client:
+            body = (await client.get("/api/health")).json()
+        value = str(body.get("public_url") or "").rstrip("/")
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return ""
+    _public_seen = (now, value)
+    return value
+
+
+async def _linked(body: Any, page: str, ident: Any = None) -> Any:
+    """결과에 **「화면에서 열기」 링크**(`url`)를 붙인다 — 채팅에서 사람에게 그대로 건넨다.
+    포털 안이면 그 링크로 바로 로그인돼 열린다(포털 SSO). 오류이거나 주소를 모르면 그대로."""
+    if not isinstance(body, dict) or "error" in body:
+        return body
+    ident = ident or body.get("id")
+    base = await _public_url()
+    if not base or not ident:
+        return body
+    return {**body, "url": f"{base}/{page}/{ident}"}
 
 
 async def _get(ctx: Context, path: str, params: dict[str, Any] | None = None) -> Any:
@@ -980,7 +1017,7 @@ async def doe_create(
     **더 내보낼 것** `outputs` — `["midsurface"]` 면 점마다 중간면 STEP(`<형상>_mid.step`,
     셸 요소 해석용)도. 표의 `mid_file` · 점 파일의 `midsurface`(판마다 두께)가 가리킨다. 판이
     아닌 점은 실패가 아니라 `warnings` 에 까닭."""
-    return await _post(
+    made = await _post(
         ctx,
         "/api/doe",
         {
@@ -1003,6 +1040,7 @@ async def doe_create(
             **({"conditions": conditions} if conditions is not None else {}),
         },
     )
+    return await _linked(made, "doe")
 
 
 @mcp.tool()
@@ -1086,17 +1124,21 @@ async def doe_run(
     )
     if not isinstance(got, dict) or "error" in got:
         return got
-    return {
-        "study_id": got["id"],
-        "name": got["name"],
-        "owner": got.get("owner_name"),
-        "folder": got["export_dir_windows"] or None,
-        "files_ready": got.get("local_ready", True),
-        "points": got["point_count"],
-        "done": got["done"],
-        "failed": got["failed"],
-        "job": _slim_job(got.get("job")),
-    }
+    return await _linked(
+        {
+            "study_id": got["id"],
+            "name": got["name"],
+            "owner": got.get("owner_name"),
+            "folder": got["export_dir_windows"] or None,
+            "files_ready": got.get("local_ready", True),
+            "points": got["point_count"],
+            "done": got["done"],
+            "failed": got["failed"],
+            "job": _slim_job(got.get("job")),
+        },
+        "doe",
+        got["id"],
+    )
 
 
 @mcp.tool()
@@ -1110,7 +1152,7 @@ async def doe_status(ctx: Context, study_id: str) -> Any:
     복원한다). `export_stale` 이 참이면 내보낸 뒤에 점을 더한 것이다(`doe_extend`) — 다
     만들어지면 `doe_export` 를 다시 불러야 해석이 새 점을 본다.
     """
-    return await _get(ctx, f"/api/doe/{study_id}/status")
+    return await _linked(await _get(ctx, f"/api/doe/{study_id}/status"), "doe", study_id)
 
 
 @mcp.tool()
@@ -1120,9 +1162,10 @@ async def doe_wait(ctx: Context, study_id: str, seconds: int = 30) -> Any:
     `doe_run` 을 썼는데 시간 안에 안 끝났을 때 이어서 기다리는 자리다. `waited_out` 이 참이면
     아직 도는 중이니 다시 부르면 된다 — 1초마다 `doe_status` 를 두드리지 마라.
     """
-    return await _post(
+    waited = await _post(
         ctx, f"/api/doe/{study_id}/wait?seconds={seconds}", None, timeout=seconds + 60
     )
+    return await _linked(waited, "doe", study_id)
 
 
 @mcp.tool()
@@ -1277,6 +1320,31 @@ async def doe_release(ctx: Context, study_id: str) -> Any:
     치워지는 것은 **공유 폴더의 사본뿐**이다. 레시피 · 설계점 · 조건은 남아서 `doe_export` 를
     다시 부르면 같은 폴더가 다시 선다."""
     return await _post(ctx, f"/api/doe/{study_id}/release", None)
+
+
+@mcp.tool()
+async def doe_clone(ctx: Context, study_id: str, name: str | None = None) -> Any:
+    """**다른 사람의 DOE 를 이어서 할 때** — 같은 설계점 · 해석 조건으로 **내 소유의 새 DOE**
+    를 만든다(원본은 그대로). 형상은 다시 짓고, 끝나면 `doe_export` 로 내 이름으로 보낸다.
+
+    남의 DOE 는 보기만 된다 — `doe_export` · `doe_extend` · `doe_rerun` 은 소유자만 한다.
+    공개된 것은 `doe_studies(scope="all")` 로 찾는다. 점은 다시 뽑지 않고 값을 옮기므로, 나중에
+    더한 묶음까지 번호와 값이 원본과 같다 — 두 결과를 점끼리 견줄 수 있다. 원본의 대상 작업이
+    남의 것이면 잇지 않는다(스냅샷만)."""
+    made = await _post(ctx, f"/api/doe/{study_id}/clone", {"name": name})
+    if not isinstance(made, dict) or "error" in made:
+        return made
+    return await _linked(
+        {
+            "study_id": made["id"],
+            "name": made["name"],
+            "cloned_from": made.get("cloned_from_id"),
+            "points": made["point_count"],
+            "job": _slim_job(made.get("job")),
+        },
+        "doe",
+        made["id"],
+    )
 
 
 @mcp.tool()
@@ -1466,20 +1534,24 @@ async def get_work(ctx: Context, work_id: str) -> Any:
     work = await _get(ctx, f"/api/works/{work_id}")
     if not isinstance(work, dict) or "error" in work:
         return work
-    return {
-        "work_id": work["id"],
-        "name": work["name"],
-        "kind": work.get("kind"),
-        "folder": work.get("folder", ""),
-        "tags": work.get("tags", []),
-        "description": work["description"],
-        "current_version": work["current_version"],
-        "current": _slim_version(work.get("current")),
-        "jig_options": work.get("jig_options"),
-        "jig_runs": work.get("jig_run_count"),
-        "promoted_part_id": work.get("promoted_part_id"),
-        "promoted_jig_id": work.get("promoted_jig_id"),
-    }
+    return await _linked(
+        {
+            "work_id": work["id"],
+            "name": work["name"],
+            "kind": work.get("kind"),
+            "folder": work.get("folder", ""),
+            "tags": work.get("tags", []),
+            "description": work["description"],
+            "current_version": work["current_version"],
+            "current": _slim_version(work.get("current")),
+            "jig_options": work.get("jig_options"),
+            "jig_runs": work.get("jig_run_count"),
+            "promoted_part_id": work.get("promoted_part_id"),
+            "promoted_jig_id": work.get("promoted_jig_id"),
+        },
+        "works",
+        work["id"],
+    )
 
 
 @mcp.tool()
@@ -1547,12 +1619,16 @@ async def create_work(
         return work
     current = work.get("current") or {}
     evaluation = await _wait_job(ctx, current.get("job"))
-    return {
-        "work_id": work["id"],
-        "name": work["name"],
-        "version": current.get("number"),
-        "evaluation": _slim_job(evaluation),
-    }
+    return await _linked(
+        {
+            "work_id": work["id"],
+            "name": work["name"],
+            "version": current.get("number"),
+            "evaluation": _slim_job(evaluation),
+        },
+        "works",
+        work["id"],
+    )
 
 
 @mcp.tool()
@@ -1570,11 +1646,15 @@ async def save_version(
     if not isinstance(version, dict) or "error" in version:
         return version
     evaluation = await _wait_job(ctx, version.get("job"))
-    return {
-        "work_id": work_id,
-        "version": version.get("number"),
-        "evaluation": _slim_job(evaluation),
-    }
+    return await _linked(
+        {
+            "work_id": work_id,
+            "version": version.get("number"),
+            "evaluation": _slim_job(evaluation),
+        },
+        "works",
+        work_id,
+    )
 
 
 @mcp.tool()
@@ -1583,7 +1663,11 @@ async def restore_version(ctx: Context, work_id: str, number: int) -> Any:
     version = await _post(ctx, f"/api/works/{work_id}/versions/{number}/restore")
     if not isinstance(version, dict) or "error" in version:
         return version
-    return {"work_id": work_id, "version": version.get("number"), "restored_from": number}
+    return await _linked(
+        {"work_id": work_id, "version": version.get("number"), "restored_from": number},
+        "works",
+        work_id,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -1717,11 +1801,23 @@ async def get_job(ctx: Context, job_id: str) -> Any:
 # --------------------------------------------------------------------------- #
 @mcp.tool()
 async def promote_part(
-    ctx: Context, work_id: str, name: str | None = None, note: str = ""
+    ctx: Context,
+    work_id: str,
+    name: str | None = None,
+    note: str = "",
+    with_conditions: bool = True,
 ) -> Any:
     """현재 부품 버전을 **부품 카탈로그**에 등록한다(누구나 본다, 불변). **사용자가 시킬
-    때만.**"""
-    return await _post(ctx, f"/api/works/{work_id}/promote/part", {"name": name, "note": note})
+    때만.** 해석 조건도 함께 올린다(`with_conditions`, 기본) — 사용자가 형상만 공개하라고 하면
+    끈다."""
+    made = await _post(
+        ctx,
+        f"/api/works/{work_id}/promote/part",
+        {"name": name, "note": note, "conditions": with_conditions},
+    )
+    return await _linked(
+        made, "parts", made.get("part_id") if isinstance(made, dict) else None
+    )
 
 
 @mcp.tool()
@@ -1737,11 +1833,12 @@ async def promote_jig_recipe(
     지그 작업은 두 길로 생긴다: (1) `run_jig` 가 부품에서 만들어 주는 것, (2) 사람 · AI 가 빈
     화면에서 **그리는** 것. 어느 쪽이든 등록하는 길은 이것 하나다. `part_id` 를 주면 어느
     부품의 지그인지 이어진다(생성한 것은 이미 이어져 있다)."""
-    return await _post(
+    made = await _post(
         ctx,
         f"/api/works/{work_id}/promote/jig-recipe",
         {"name": name, "note": note, "part_id": part_id},
     )
+    return await _linked(made, "jigs", made.get("jig_id") if isinstance(made, dict) else None)
 
 
 @mcp.tool()
@@ -1875,29 +1972,54 @@ async def list_parts(
 
 @mcp.tool()
 async def get_part(ctx: Context, part_id: str) -> Any:
-    """부품 하나 — 현재 버전의 레시피와 요약."""
+    """부품 하나 — 현재 버전의 레시피 · **해석 조건**(등록할 때 함께 올렸으면) · 요약."""
     part = await _get(ctx, f"/api/parts/{part_id}")
     if not isinstance(part, dict) or "error" in part:
         return part
     current = part.get("current") or {}
-    return {
-        "part_id": part["id"],
-        "name": part["name"],
-        "description": part["description"],
-        "current_version": part["current_version"],
-        "jig_count": part.get("jig_count"),
-        "recipe": current.get("recipe"),
-        "evaluation": _slim_job(current.get("job")),
-    }
+    return await _linked(
+        {
+            "part_id": part["id"],
+            "name": part["name"],
+            "description": part["description"],
+            "current_version": part["current_version"],
+            "jig_count": part.get("jig_count"),
+            "recipe": current.get("recipe"),
+            "conditions": current.get("conditions") or {},
+            "evaluation": _slim_job(current.get("job")),
+        },
+        "parts",
+        part["id"],
+    )
 
 
 @mcp.tool()
-async def copy_part_to_work(ctx: Context, part_id: str, name: str | None = None) -> Any:
-    """부품의 레시피로 내 작업을 새로 만든다 — 다른 사용자의 부품을 고치는 유일한 길."""
-    work = await _post(ctx, f"/api/parts/{part_id}/copy-to-work", {"name": name})
+async def copy_part_to_work(
+    ctx: Context, part_id: str, name: str | None = None, with_conditions: bool = True
+) -> Any:
+    """부품의 레시피로 내 작업을 새로 만든다 — 다른 사용자의 부품을 고치는 유일한 길.
+
+    부품에 해석 조건이 실려 있으면 **함께 옮긴다**(`with_conditions`, 기본). 같은 형상이라 선택
+    그룹이 그대로 맞으므로, 복사한 작업으로 바로 `doe_run(work_id=…)` 을 부르면 그 조건으로
+    내보낸다."""
+    work = await _post(
+        ctx,
+        f"/api/parts/{part_id}/copy-to-work",
+        {"name": name, "conditions": with_conditions},
+    )
     if not isinstance(work, dict) or "error" in work:
         return work
-    return {"work_id": work["id"], "name": work["name"], "version": work["current_version"]}
+    current = work.get("current") or {}
+    return await _linked(
+        {
+            "work_id": work["id"],
+            "name": work["name"],
+            "version": work["current_version"],
+            "has_conditions": bool(current.get("conditions")),
+        },
+        "works",
+        work["id"],
+    )
 
 
 @mcp.tool()
@@ -1933,16 +2055,20 @@ async def get_jig(ctx: Context, jig_id: str) -> Any:
     if not isinstance(jig, dict) or "error" in jig:
         return jig
     current = jig.get("current") or {}
-    return {
-        "jig_id": jig["id"],
-        "name": jig["name"],
-        "part_id": jig.get("part_id"),
-        "part_name": jig.get("part_name"),
-        "part_version": current.get("part_version"),
-        "current_version": jig["current_version"],
-        "options": current.get("options"),
-        "summary": current.get("summary"),
-    }
+    return await _linked(
+        {
+            "jig_id": jig["id"],
+            "name": jig["name"],
+            "part_id": jig.get("part_id"),
+            "part_name": jig.get("part_name"),
+            "part_version": current.get("part_version"),
+            "current_version": jig["current_version"],
+            "options": current.get("options"),
+            "summary": current.get("summary"),
+        },
+        "jigs",
+        jig["id"],
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -2118,12 +2244,16 @@ async def duplicate_work(
     work = await _post(ctx, f"/api/works/{work_id}/duplicate{suffix}")
     if not isinstance(work, dict) or "error" in work:
         return work
-    return {
-        "work_id": work["id"],
-        "name": work["name"],
-        "folder": work.get("folder", ""),
-        "with_conditions": with_conditions,
-    }
+    return await _linked(
+        {
+            "work_id": work["id"],
+            "name": work["name"],
+            "folder": work.get("folder", ""),
+            "with_conditions": with_conditions,
+        },
+        "works",
+        work["id"],
+    )
 
 
 @mcp.tool()
