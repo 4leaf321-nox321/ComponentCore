@@ -271,6 +271,9 @@ cd backend && .venv/bin/python scripts/generate_jig.py            # 시연 제�
   **Windows 에서는 못 만든다** — Apptainer 가 리눅스 전용이라 CI 가 그 일을 한다.
 - 번들에 무엇이 들어가야 하는지는 `release.yml` 의 「번들이 온전한가」 가 지킨다. 새 파일을
   `build_bundle.sh` 에 더했으면 그 목록에도 더한다 — 빠진 파일은 **서버에서** 드러난다.
+- **문서 · 안내 문구에서 env 는 `sudo` 뒤에 쓴다** — `sudo X=… ./deploy.sh`. `X=… sudo ./deploy.sh` 는
+  우분투 기본 sudo(`env_reset`)가 값을 **조용히 버려** 그 명령이 아무 일도 안 한 것이 된다(24.04 운영
+  서버에서 확인, 2026-10-05).
 - 서버 쪽 명령(`deploy.sh setup · update · status · backup · db-*`)의 정본은
   `deploy/README_OPERATOR.md` 다. 쉬운 순서는 `deploy/쉬운-설치.md`.
 - `.gitattributes` 가 `*.sh · *.def · *.template` 을 LF 로 고정한다. Windows 에서 클론해

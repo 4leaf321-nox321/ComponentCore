@@ -17,7 +17,7 @@
 #
 # **번들 하나로 여러 플랫폼(인스턴스)을 설치한다.** 어느 플랫폼인지는 `APP_SLUG` 가 정한다 —
 # 처음 한 번 env 로 주면(`APP_SLUG=compcore APP_NAME="CompCore" APP_PORT=8060`)
-# /etc/platform-instances/<slug>.conf 에 남아 다음부터는 `APP_SLUG=compcore ./deploy.sh update` 로
+# /etc/platform-instances/<slug>.conf 에 남아 다음부터는 `sudo APP_SLUG=compcore ./deploy.sh update` 로
 # 충분하고, 이 서버에 인스턴스가 하나뿐이면 그것마저 생략된다. 안 주면 번들의 기본값
 # (BUILD_INFO — 틀의 이름)으로 뜬다. slug 하나에서 DB · 유닛 · 경로 · 주소가 전부 나온다.
 #
@@ -333,7 +333,7 @@ EOF
     warn "$ENV_FILE 를 만들었습니다 — 공개 전에 CORS·백업 경로를 확인하세요."
 }
 
-# 이름 · 설명 · 확장은 배포로 바꿀 수 있다 — `EXTENSIONS=hub,bom sudo ./deploy.sh update`.
+# 이름 · 설명 · 확장은 배포로 바꿀 수 있다 — `sudo EXTENSIONS=hub,bom ./deploy.sh update`.
 # **slug 만은 못 바꾼다** — DB · 쿠키 · 토큰 · 유닛 이름이 전부 거기서 나왔다.
 sync_env_identity() {
     [[ -f "$ENV_FILE" ]] || return 0
@@ -592,7 +592,7 @@ setup_cleanup_timer() {
 check_doe_dir() {
     [[ -n "$DOE_HOST_DIR" ]] || {
         warn "실험계획 공유 폴더를 안 정했습니다 — DOE 는 만들어지지만 해석으로 「보내기」 가 막힙니다.
-      정하려면: DOE_HOST_DIR=/mnt/share/CompCore sudo ./deploy.sh update (이미 만든 것도 그 뒤 보낼 수 있습니다)"
+      정하려면: sudo DOE_HOST_DIR=/mnt/share/CompCore ./deploy.sh update (이미 만든 것도 그 뒤 보낼 수 있습니다)"
         return 0
     }
     local probe="$DOE_HOST_DIR/.deploy-write-test"
@@ -739,7 +739,7 @@ cmd_install() {
   워커   : sudo systemctl status $WORKER_SERVICE_NAME   (부품 평가 · 지그 생성 · 실험계획이 여기서 돈다)
   접속   : $( [[ -n "$HA_ROLE" ]] && echo "https://$PUBLIC_HOST/$APP_SLUG/  (직접: http://$SELF_IP:$APP_PORT/)" || echo "http://<서버주소>:$APP_PORT/" )
   자료   : 작업물 $FILESTORE_HOST_DIR · 설정 $ENV_FILE · 로그 $LOG_HOST_DIR$( [[ -n "$BACKUP_HOST_DIR" ]] && echo " · 백업 $BACKUP_HOST_DIR" )
-  실험계획: ${DOE_HOST_DIR:-(안 정함 — 만들기는 되고 「보내기」 만 막힙니다. DOE_HOST_DIR=<경로> sudo ./deploy.sh update)}
+  실험계획: ${DOE_HOST_DIR:-(안 정함 — 만들기는 되고 「보내기」 만 막힙니다. sudo DOE_HOST_DIR=<경로> ./deploy.sh update)}
   MCP    : sudo systemctl status $MCP_SERVICE_NAME   (Claude · Gemini 연동, 선택)
 
   위에 찍힌 관리자 임시 비밀번호는 **다시 표시되지 않습니다.**
@@ -858,7 +858,7 @@ cmd_status() {
             echo "  쓰기: **안 된다** — 「보내기」 가 거절됩니다(만들기는 됩니다)"
         fi
     else
-        echo "  안 정함 — 만들기는 되고 「보내기」 만 막힙니다 (DOE_HOST_DIR=<경로> sudo ./deploy.sh update)"
+        echo "  안 정함 — 만들기는 되고 「보내기」 만 막힙니다 (sudo DOE_HOST_DIR=<경로> ./deploy.sh update)"
     fi
     echo
     echo "== 물성(MatNexus) =="
