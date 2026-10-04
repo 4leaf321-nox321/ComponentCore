@@ -55,33 +55,34 @@ def parse(
     견주지 않는다."""
     items = list(raw or [])
     if len(items) > MAX_MEASURES:
-        raise MeasureError(f"측정값은 {MAX_MEASURES} 개까지입니다")
+        raise MeasureError(f"측정값은 최대 {MAX_MEASURES}개까지 지정할 수 있습니다.")
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
     for index, one in enumerate(items, start=1):
         if not isinstance(one, dict):
-            raise MeasureError(f"측정값 {index}: 이름과 종류의 짝이어야 합니다")
+            raise MeasureError(f"측정값 {index}: 이름과 종류를 함께 지정해야 합니다.")
         name = str(one.get("name") or "").strip()
         kind = str(one.get("kind") or "")
-        where = f"측정값 「{name or index}」"
+        where = f"측정값 ‘{name or index}’"
         if not name or len(name) > 40:
-            raise MeasureError(f"측정값 {index}: 이름은 1~40 자입니다")
+            raise MeasureError(f"측정값 {index}: 이름은 1~40자여야 합니다.")
         if name in seen or name in taken or name in RESERVED:
-            raise MeasureError(f"{where}: 이름이 다른 열과 겹칩니다")
+            raise MeasureError(f"{where}: 이름이 다른 열과 중복됩니다.")
         if kind not in KINDS:
-            raise MeasureError(f"{where}: 종류는 {' · '.join(KINDS)} 중 하나입니다")
+            raise MeasureError(f"{where}: 종류는 {', '.join(KINDS)} 중 하나여야 합니다.")
         item: dict[str, Any] = {"name": name, "kind": kind}
         if kind in ("volume", "area", "size") and one.get("body"):
             body = str(one["body"])
             if bodies is not None and body not in bodies:
                 raise MeasureError(
-                    f"{where}: 도면에 없는 바디 {body} (있는 바디: {', '.join(bodies)})"
+                    f"{where}: 도면에 바디 ‘{body}’이(가) 없습니다"
+                    f"(존재하는 바디: {', '.join(bodies)})."
                 )
             item["body"] = body
         if kind == "size":
             axis = str(one.get("axis") or "").lower()
             if axis not in ("x", "y", "z"):
-                raise MeasureError(f"{where}: 크기의 축(axis)은 x · y · z 중 하나입니다")
+                raise MeasureError(f"{where}: 크기의 축(axis)은 x, y, z 중 하나여야 합니다.")
             item["axis"] = axis
         if kind == "region_area":
             item["region"] = _region(one.get("region"), regions, where)
@@ -91,12 +92,12 @@ def parse(
         if kind == "expr":
             text = str(one.get("expr") or "").strip()
             if not text:
-                raise MeasureError(f"{where}: 식이 없습니다")
+                raise MeasureError(f"{where}: 식이 없습니다.")
             unknown = sorted(params.names_in(text) - variables - seen)
             if unknown:
                 raise MeasureError(
-                    f"{where}: 모르는 이름 {', '.join(unknown)} — 도면 변수와 앞의 측정값만 "
-                    "부릅니다"
+                    f"{where}: 알 수 없는 이름이 있습니다({', '.join(unknown)}). 식에는 도면 "
+                    "변수와 앞선 측정값만 사용할 수 있습니다."
                 )
             try:
                 params.evaluate_expression(text, dict.fromkeys(variables | seen, 1.0))
@@ -113,10 +114,13 @@ def parse(
 def _region(value: Any, regions: set[str] | None, where: str) -> str:
     name = str(value or "").strip()
     if not name:
-        raise MeasureError(f"{where}: 선택 그룹 이름이 없습니다")
+        raise MeasureError(f"{where}: 선택 그룹 이름이 없습니다.")
     if regions is not None and name not in regions:
         known = ", ".join(sorted(regions)) or "(없음)"
-        raise MeasureError(f"{where}: 해석 조건에 없는 선택 그룹 {name} (있는 것: {known})")
+        raise MeasureError(
+            f"{where}: 해석 조건에 선택 그룹 ‘{name}’이(가) 없습니다"
+            f"(정의된 선택 그룹: {known})."
+        )
     return name
 
 

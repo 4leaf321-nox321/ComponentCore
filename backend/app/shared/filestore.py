@@ -58,7 +58,7 @@ def save_stream(stream: BinaryIO, target: Path, *, limit_bytes: int) -> int:
             if written > limit_bytes:
                 out.close()
                 target.unlink(missing_ok=True)
-                raise ValueError("파일이 상한을 넘습니다")
+                raise ValueError("파일 크기가 상한을 초과합니다.")
             out.write(chunk)
     return written
 

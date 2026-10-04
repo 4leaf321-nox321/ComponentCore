@@ -11,7 +11,7 @@ export function TagFilter({
   tags,
   value,
   onChange,
-  label = '꼬리표',
+  label = '태그',
 }: {
   tags: string[]
   /** 지금 고른 것. 빈 문자열이면 안 거른다. */

@@ -227,7 +227,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
 
   function removeNode(id: string) {
     const dependents = nodes.filter((n) => referencesOf(n).includes(id))
-    if (dependents.length > 0 && !window.confirm(`${dependents.map((d) => d.id).join(', ')} 이(가) 이 피처를 씁니다. 함께 지웁니까?`)) return
+    if (dependents.length > 0 && !window.confirm(`${dependents.map((d) => d.id).join(', ')}이(가) 이 피처를 참조합니다. 함께 삭제하시겠습니까?`)) return
     const doomed = new Set([id, ...closure(id, nodes)])
     const list = nodes.filter((n) => !doomed.has(n.id))
     replaceNodes(list, value.result && doomed.has(value.result) ? null : undefined)
@@ -239,7 +239,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
   function moveRefusal(id: string, dir: -1 | 1): string | null {
     const i = nodes.findIndex((n) => n.id === id)
     const j = i + dir
-    if (i < 0 || j < 0 || j >= nodes.length) return dir === -1 ? '맨 앞입니다' : '맨 뒤입니다'
+    if (i < 0 || j < 0 || j >= nodes.length) return dir === -1 ? '처음 위치입니다.' : '마지막 위치입니다.'
     // 끌어 옮기기와 같은 규칙 — 쓰는 피처가 쓰이는 피처보다 앞설 수 없다.
     return dropProblem(nodes, i, dir === 1 ? i + 2 : i - 1)
   }
@@ -345,7 +345,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
       setMode('form')
       setSelectedId(nodesOf(parsed)[nodesOf(parsed).length - 1]?.id ?? null)
     } catch (caught) {
-      setJsonError(caught instanceof Error ? caught.message : 'JSON 이 아닙니다')
+      setJsonError(caught instanceof Error ? caught.message : '올바른 JSON이 아닙니다.')
     }
   }
 
@@ -387,10 +387,10 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                 {group}
               </TabsTrigger>
             ))}
-            <TabsTrigger value="view">보기 · 측정</TabsTrigger>
+            <TabsTrigger value="view">보기·측정</TabsTrigger>
           </TabsList>
           <span className="text-muted-foreground text-xs">
-            {drawing ? '그리는 중…' : nodes.length === 0 ? '' : valid ? '미리보기가 자동으로 따라옵니다.' : '고칠 것이 있습니다.'}
+            {drawing ? '계산 중…' : nodes.length === 0 ? '' : valid ? '미리보기가 자동으로 갱신됩니다.' : '수정이 필요한 항목이 있습니다.'}
           </span>
           <div className="ml-auto flex gap-1">
             <Button size="sm" variant="outline" onClick={undo} disabled={history.current.past.length === 0} title="실행 취소 (Ctrl+Z)" aria-label="실행 취소">
@@ -400,9 +400,9 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
               <Redo2 className="size-4" />
             </Button>
             {/* 전체 화면은 탭이 아니라 **늘 오른쪽 위**에 — 어느 탭에 있든 한 번에 키우고 끈다. */}
-            <Button size="sm" variant={fullscreen ? 'default' : 'outline'} onClick={() => void toggleFullscreen()} title={fullscreen ? '전체 화면 끝내기 (Esc)' : '전체 화면'}>
+            <Button size="sm" variant={fullscreen ? 'default' : 'outline'} onClick={() => void toggleFullscreen()} title={fullscreen ? '전체 화면 종료 (Esc)' : '전체 화면'}>
               {fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
-              <span className="ml-1 hidden sm:inline">{fullscreen ? '끝내기' : '전체 화면'}</span>
+              <span className="ml-1 hidden sm:inline">{fullscreen ? '종료' : '전체 화면'}</span>
             </Button>
           </div>
         </div>
@@ -412,15 +412,15 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
               <RibbonGroup title="시작">
                 <RibbonButton
                   icon={FilePlus}
-                  label="새로"
+                  label="새로 만들기"
                   onClick={() => {
-                    if (nodes.length > 0 && !window.confirm('지금 그린 것을 지우고 빈 도면에서 시작합니까?')) return
+                    if (nodes.length > 0 && !window.confirm('현재 작성한 내용을 삭제하고 빈 도면에서 시작하시겠습니까?')) return
                     emit(() => ({ version: 1, nodes: [] }))
                     setSelectedId(null)
                     setTab('스케치')
                   }}
                 />
-                <RibbonButton icon={FolderOpen} label="템플릿" title="템플릿 불러오기 — 내장 · 템플릿 라이브러리" onClick={() => setLoading('recipe')} />
+                <RibbonButton icon={FolderOpen} label="템플릿" title="템플릿 불러오기 (내장 템플릿, 템플릿 라이브러리)" onClick={() => setLoading('recipe')} />
                 <RibbonButton icon={Files} label="기존 작업" title="기존 작업 불러오기" onClick={() => setLoading('work')} />
                 {file?.importStep && (
                   <>
@@ -437,8 +437,8 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                     />
                     <RibbonButton
                       icon={FileUp}
-                      label={file.importStep.busy ? '올리는 중…' : file.importStep.label}
-                      title={file.importStep.title ?? "STEP 파일에서 시작 — 올린 형상이 도면의 첫 피처가 됩니다"}
+                      label={file.importStep.busy ? '업로드 중…' : file.importStep.label}
+                      title={file.importStep.title ?? "STEP 파일에서 시작합니다. 업로드한 형상이 도면의 첫 피처가 됩니다."}
                       disabled={file.importStep.busy}
                       onClick={() => stepInput.current?.click()}
                     />
@@ -453,49 +453,49 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                     <RibbonButton
                       icon={Download}
                       label="STEP"
-                      title="STEP 받기 — 다른 CAD 로"
+                      title="STEP 다운로드. 다른 CAD에서 열 수 있습니다."
                       onClick={() => file.download?.('step')}
                       disabled={nodes.length === 0 || !!summary?.is_sketch}
                     />
                     <RibbonButton
                       icon={Boxes}
                       label="STL"
-                      title="STL 받기 — 3D 프린터로 뽑을 때"
+                      title="STL 다운로드. 3D 프린팅에 사용합니다."
                       onClick={() => file.download?.('stl')}
                       disabled={nodes.length === 0 || !!summary?.is_sketch}
                     />
                     <RibbonButton
                       icon={FileAxis3d}
                       label="DXF"
-                      title="DXF 받기 — 2D 도면(레이저 · 가공). 입체면 높이 절반의 단면을 낸다"
+                      title="DXF 다운로드. 2D 도면(레이저, 가공)에 사용합니다. 입체는 높이 절반 위치의 단면을 출력합니다."
                       onClick={() => file.download?.('dxf')}
                       disabled={nodes.length === 0}
                     />
                     <RibbonButton
                       icon={FileText}
                       label="도면"
-                      title="도면 — 3각법 세 뷰 · 전체 치수 · 구멍표 · 표제란(PDF · DXF)"
+                      title="3각법 3면도, 전체 치수, 구멍표, 표제란으로 구성된 도면을 생성합니다(PDF, DXF)."
                       onClick={() => setSheetOpen(true)}
                       disabled={nodes.length === 0 || !!summary?.is_sketch}
                     />
                     <RibbonButton
                       icon={UnfoldHorizontal}
                       label="전개도"
-                      title="전개도 DXF — 굽힌 판을 펼친 모양(레이저). 외곽 · 굽힘선(위 · 아래) · 각을 층으로 나눠 적는다. 두께가 한결같은 판금만"
+                      title="전개도 DXF. 굽힌 판을 펼친 형상(레이저 가공용)입니다. 외곽, 굽힘선(위, 아래), 각도를 레이어별로 구분하여 기록합니다. 두께가 균일한 판금에만 사용할 수 있습니다."
                       onClick={() => file.download?.('flat')}
                       disabled={nodes.length === 0 || !!summary?.is_sketch}
                     />
                     <RibbonButton
                       icon={Layers}
                       label="중간면"
-                      title="중간면 STEP — 얇은 판의 두께 가운데 면(셸 요소 해석용). 두께가 한결같은 판만"
+                      title="중간면 STEP. 얇은 판의 두께 중앙 면입니다(셸 요소 해석용). 두께가 균일한 판에만 사용할 수 있습니다."
                       onClick={() => file.download?.('mid')}
                       disabled={nodes.length === 0 || !!summary?.is_sketch}
                     />
                     <RibbonButton
                       icon={Image}
                       label="SVG"
-                      title="SVG 받기 — 문서에 붙이는 2D 그림"
+                      title="SVG 다운로드. 문서에 삽입할 2D 그림입니다."
                       onClick={() => file.download?.('svg')}
                       disabled={nodes.length === 0}
                     />
@@ -521,10 +521,10 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
           ))}
           {tab === 'view' && (
             <>
-              <RibbonGroup title="3D 에서">
+              <RibbonGroup title="3D에서">
                 <RibbonButton
                   icon={SquareDashedMousePointer}
-                  label="면에 스케치"
+                  label="면 위 스케치"
                   active={pickMode === 'face' && faceTarget === 'sketch'}
                   disabled={!mesh}
                   onClick={() => {
@@ -535,14 +535,14 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                 <RibbonButton
                   icon={Axis3d}
                   label="좌표계"
-                  title="좌표계 — 시뮬레이션 조건이 방향을 말할 때 가리킬 원점 · 축(치수 식으로 DOE 를 따라간다)"
+                  title="시뮬레이션 조건에서 방향을 지정할 때 참조하는 원점과 축입니다(치수 식을 사용하면 DOE에 따라 이동합니다)."
                   active={framing}
                   onClick={() => setFraming(true)}
                 />
                 <RibbonButton
                   icon={Ruler}
                   label="측정"
-                  title="거리 · 각도 · 지름 — 창이 뜬 채로 3D 를 계속 누릅니다"
+                  title="거리, 각도, 지름을 측정합니다. 측정 창을 띄운 상태로 3D에서 계속 선택할 수 있습니다."
                   active={pickMode === 'measure'}
                   disabled={!mesh}
                   onClick={() => setPickMode(pickMode === 'measure' ? 'none' : 'measure')}
@@ -588,7 +588,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
         open={loading === 'recipe'}
         onClose={() => setLoading(null)}
         onLoad={(loaded) => {
-          if (nodes.length > 0 && !window.confirm('지금 그린 것을 지우고 불러옵니까?')) return
+          if (nodes.length > 0 && !window.confirm('현재 작성한 내용을 삭제하고 불러오시겠습니까?')) return
           emit(() => loaded.recipe)
           setSelectedId(nodesOf(loaded.recipe)[nodesOf(loaded.recipe).length - 1]?.id ?? null)
           setLoading(null)
@@ -601,7 +601,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
         currentWorkId={file?.currentWorkId}
         onClose={() => setLoading(null)}
         onLoad={(loaded) => {
-          if (nodes.length > 0 && !window.confirm('지금 그린 것을 지우고 불러옵니까?')) return
+          if (nodes.length > 0 && !window.confirm('현재 작성한 내용을 삭제하고 불러오시겠습니까?')) return
           emit(() => loaded.recipe)
           setSelectedId(nodesOf(loaded.recipe)[nodesOf(loaded.recipe).length - 1]?.id ?? null)
           setLoading(null)
@@ -630,8 +630,8 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
             {nodes.length > 0 && <ParamsPanel value={value} onChange={onChange} />}
             {nodes.length === 0 ? (
               <div className="text-muted-foreground rounded-md border border-dashed p-3 text-xs">
-                빈 도면입니다. 「스케치」 탭의 스케치 단추부터 누르세요. 「파일」 탭에서 템플릿이나 기존 작업을 불러올 수도 있습니다. 스케치를 그리고 「돌출」 을 더하면 입체가
-                됩니다.
+                빈 도면입니다. ‘스케치’ 탭의 스케치 버튼을 먼저 누르십시오. ‘파일’ 탭에서 템플릿이나 기존 작업을 불러올 수도 있습니다. 스케치를 작성한 뒤 ‘돌출’을 추가하면
+                입체가 됩니다.
               </div>
             ) : (
               <ol className="space-y-0.5" onDragLeave={(event) => event.currentTarget === event.target && setDrag((d) => (d ? { ...d, at: null } : d))}>
@@ -685,7 +685,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                             setEditing(true)
                           }}
                           className="flex min-w-0 flex-1 items-center gap-1 text-left"
-                          title={`${spec?.label ?? node.op} — 눌러서 고칩니다`}
+                          title={`${spec?.label ?? node.op}: 눌러서 수정합니다.`}
                         >
                           <span className="text-muted-foreground w-4 shrink-0 text-[10px]">{i + 1}</span>
                           {Icon && <Icon className="text-muted-foreground size-3.5 shrink-0" aria-hidden />}
@@ -697,8 +697,8 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                           <button
                             type="button"
                             className="hover:bg-background rounded p-1"
-                            aria-label={`${node.id} 고치기`}
-                            title="고치기"
+                            aria-label={`${node.id} 수정`}
+                            title="수정"
                             onClick={() => {
                               setSelectedId(node.id)
                               setEditing(true)
@@ -709,8 +709,8 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                           <button
                             type="button"
                             className="hover:bg-destructive/10 text-destructive rounded p-1"
-                            aria-label={`${node.id} 지우기`}
-                            title="지우기"
+                            aria-label={`${node.id} 삭제`}
+                            title="삭제"
                             onClick={() => removeNode(node.id)}
                           >
                             <Trash2 className="size-3.5" />
@@ -746,7 +746,7 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
             {drag?.refused ? (
               <p className="text-destructive mt-1 text-xs">{drag.refused}</p>
             ) : (
-              nodes.length > 1 && <p className="text-muted-foreground mt-1 text-xs">끌어서 순서를 바꿉니다. 쓰는 피처는 쓰이는 피처보다 앞설 수 없습니다.</p>
+              nodes.length > 1 && <p className="text-muted-foreground mt-1 text-xs">끌어서 순서를 변경합니다. 다른 피처를 참조하는 피처는 참조 대상보다 앞에 둘 수 없습니다.</p>
             )}
             {value.result && value.result !== nodes[nodes.length - 1]?.id && <p className="text-muted-foreground mt-2 text-xs">결과 피처: {value.result}</p>}
             {problems.length > 0 && (
@@ -764,23 +764,23 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
             <p className="text-muted-foreground mb-1 text-xs">
               {pickMode === 'face'
                 ? faceTarget === 'sketch'
-                  ? '3D 에서 면을 누르면 그 면 위에 스케치가 생깁니다.'
+                  ? '3D에서 면을 선택하면 해당 면 위에 스케치가 생성됩니다.'
                   : faceTarget === 'datum'
                     ? selected?.op === 'datum_axis'
-                      ? '원통면(구멍 · 축)을 누르면 그 축이 기준축이 됩니다.'
-                      : '평면을 누르면 그 면이 기준면이 됩니다.'
+                      ? '원통면(구멍, 축)을 선택하면 해당 축이 기준축이 됩니다.'
+                      : '평면을 선택하면 해당 면이 기준면이 됩니다.'
                   : faceTarget === 'hole-plane'
-                    ? '면을 누르면 그 면이 이 피처의 평면이 됩니다.'
+                    ? '면을 선택하면 해당 면이 이 피처의 평면이 됩니다.'
                     : selected?.op === 'defeature'
-                      ? '지울 면을 누르세요. 다시 누르면 뺍니다. 끝나면 피처를 다시 열어 확인하세요.'
+                      ? '삭제할 면을 선택하십시오. 다시 선택하면 해제됩니다. 완료되면 피처를 다시 열어 확인하십시오.'
                       : selected?.op === 'chamfer'
-                        ? '길이를 잴 기준면을 누르세요. 다시 누르면 뺍니다. 끝나면 피처를 다시 열어 확인하세요.'
-                        : '뚫을 면을 누르세요. 다시 누르면 뺍니다. 끝나면 피처를 다시 열어 확인하세요.'
+                        ? '길이를 측정할 기준면을 선택하십시오. 다시 선택하면 해제됩니다. 완료되면 피처를 다시 열어 확인하십시오.'
+                        : '개방할 면을 선택하십시오. 다시 선택하면 해제됩니다. 완료되면 피처를 다시 열어 확인하십시오.'
                 : pickMode === 'edge'
-                  ? `엣지를 눌러 고릅니다 (${(selected?.edges as { near?: number[][] })?.near?.length ?? 0} 개). 다시 누르면 뺍니다.`
+                  ? `엣지를 선택하십시오(${(selected?.edges as { near?: number[][] })?.near?.length ?? 0} 개 선택됨). 다시 선택하면 해제됩니다.`
                   : pickMode === 'measure'
-                    ? '측정 중 — 파란 점(꼭짓점 · 중점 · 원 중심) · 모서리 · 면을 누르세요. 값은 오른쪽 창에 나옵니다.'
-                    : '끌어서 돌리고, 굴려서 확대합니다. 왼쪽 피처를 누르면 고칩니다.'}
+                    ? '측정 중입니다. 파란 점(꼭짓점, 중점, 원 중심), 모서리, 면을 선택하십시오. 측정값은 오른쪽 창에 표시됩니다.'
+                    : '끌어서 회전하고 휠로 확대·축소합니다. 왼쪽 목록의 피처를 누르면 수정할 수 있습니다.'}
               {edgePicking && pickMode === 'edge' && (
                 <button type="button" className="ml-2 underline" onClick={() => setEditing(true)}>
                   피처 열기
@@ -830,20 +830,20 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
               </Suspense>
             ) : (
               <div className="text-muted-foreground flex h-full items-center justify-center rounded-md border border-dashed text-sm">
-                {nodes.length === 0 ? '피처를 더하면 여기에 그려집니다.' : valid ? '그리는 중…' : '도면이 맞으면 여기에 그려집니다.'}
+                {nodes.length === 0 ? '피처를 추가하면 이곳에 형상이 표시됩니다.' : valid ? '계산 중…' : '도면 오류를 수정하면 이곳에 형상이 표시됩니다.'}
               </div>
             )}
             </div>
             {summary?.is_sketch && (
               <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs">
-                <span>아직 스케치(2D)입니다. 입체로 만들려면:</span>
+                <span>아직 스케치(2D) 상태입니다. 입체로 만들려면 다음 피처를 추가하십시오.</span>
                 <Button size="sm" variant="outline" className="h-7" onClick={() => addNode('extrude')}>
-                  돌출 더하기
+                  돌출 추가
                 </Button>
                 <Button size="sm" variant="outline" className="h-7" onClick={() => addNode('revolve')}>
-                  회전 더하기
+                  회전 추가
                 </Button>
-                <span className="text-muted-foreground">저장 · 지그는 입체여야 합니다.</span>
+                <span className="text-muted-foreground">저장과 지그 생성은 입체에서만 가능합니다.</span>
               </div>
             )}
             {summary && (
@@ -897,19 +897,19 @@ export function RecipeEditor({ value, onChange, file }: { value: Recipe; onChang
                   onChange={updateNode}
                   onPickFaces={pickFacesFor}
                 />
-                {edgePicking && <p className="text-muted-foreground text-xs">엣지는 3D 에서 고릅니다 — 이 창을 닫고 3D 의 엣지를 누르세요. 고른 것은 남습니다.</p>}
+                {edgePicking && <p className="text-muted-foreground text-xs">엣지는 3D에서 선택합니다. 이 창을 닫고 3D의 엣지를 선택하십시오. 선택한 엣지는 유지됩니다.</p>}
               </div>
               <DialogFooter className="sm:justify-between">
                 <div className="flex gap-1">
                   {/* 못 옮기는 방향은 아예 눌리지 않게 하고, 왜인지 말풍선에 적는다. */}
-                  <Button size="sm" variant="ghost" disabled={!!moveRefusal(selected.id, -1)} title={moveRefusal(selected.id, -1) ?? '앞으로'} onClick={() => moveNode(selected.id, -1)}>
-                    ↑ 앞으로
+                  <Button size="sm" variant="ghost" disabled={!!moveRefusal(selected.id, -1)} title={moveRefusal(selected.id, -1) ?? '앞으로 이동'} onClick={() => moveNode(selected.id, -1)}>
+                    ↑ 앞으로 이동
                   </Button>
-                  <Button size="sm" variant="ghost" disabled={!!moveRefusal(selected.id, 1)} title={moveRefusal(selected.id, 1) ?? '뒤로'} onClick={() => moveNode(selected.id, 1)}>
-                    ↓ 뒤로
+                  <Button size="sm" variant="ghost" disabled={!!moveRefusal(selected.id, 1)} title={moveRefusal(selected.id, 1) ?? '뒤로 이동'} onClick={() => moveNode(selected.id, 1)}>
+                    ↓ 뒤로 이동
                   </Button>
                   <Button size="sm" variant="ghost" className="text-destructive" onClick={() => removeNode(selected.id)}>
-                    지우기
+                    삭제
                   </Button>
                 </div>
                 <Button size="sm" onClick={() => setEditing(false)}>

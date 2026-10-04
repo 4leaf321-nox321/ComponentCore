@@ -64,7 +64,7 @@ export function FolderDialog({ open, title, description, initial = '', suggestio
           aria-label="폴더 경로"
           list="folder-suggestions"
           value={value}
-          placeholder={allowEmpty ? '비우면 맨 위 · 예: 고객A/2026' : '예: 고객A/2026'}
+          placeholder={allowEmpty ? '예: 고객A/2026 (비워 두면 최상위)' : '예: 고객A/2026'}
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') void submit()
@@ -77,7 +77,7 @@ export function FolderDialog({ open, title, description, initial = '', suggestio
           ))}
         </datalist>
         <p className="text-muted-foreground text-xs">
-          {path ? `→ ${path.split('/').join(' › ')}` : allowEmpty ? '→ 맨 위(폴더 없음)' : '폴더 이름을 적으세요.'}
+          {path ? `→ ${path.split('/').join(' › ')}` : allowEmpty ? '→ 최상위(폴더 없음)' : '폴더 이름을 입력하십시오.'}
         </p>
         <ErrorNotice error={error} />
         <DialogFooter>
@@ -85,7 +85,7 @@ export function FolderDialog({ open, title, description, initial = '', suggestio
             취소
           </Button>
           <Button onClick={() => void submit()} disabled={busy || !usable}>
-            {busy ? '하는 중…' : confirmLabel}
+            {busy ? '처리 중…' : confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -32,7 +32,7 @@ function show(value: number | string | boolean | null | undefined, digits = 2): 
   if (value === null || value === undefined || Number.isNaN(value)) return '—'
   // 재료 · 고르기 인자는 글자(재료 이름 · 칸의 값)나 켬 · 끔이다.
   if (typeof value === 'string') return value
-  if (typeof value === 'boolean') return value ? '켬' : '끔'
+  if (typeof value === 'boolean') return value ? '켜짐' : '꺼짐'
   return value.toLocaleString(undefined, { maximumFractionDigits: digits })
 }
 
@@ -61,7 +61,7 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
       await doeApi.export(study.id)
       onReload()
     } catch (caught) {
-      setExportError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setExportError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
       setExporting(false)
     }
@@ -79,7 +79,7 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
       await doeApi.rerun(study.id, only)
       onReload()
     } catch (caught) {
-      setExportError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setExportError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
       setRerunning(false)
     }
@@ -95,7 +95,7 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
       await doeApi.setVisibility(study.id, value)
       onReload()
     } catch (caught) {
-      setExportError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setExportError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
       setHiding(false)
     }
@@ -134,12 +134,12 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950/40">
           <RefreshCw className="size-4 shrink-0 text-amber-700 dark:text-amber-400" />
           <div className="min-w-0">
-            <p className="text-xs font-medium">설계점 파일이 보관 기한을 지나 정리되었습니다</p>
-            <p className="text-muted-foreground text-xs">설정(레시피 · 인자 · 시드 · 조건)은 그대로 남아 있습니다 — 「다시 만들기」 를 누르면 같은 것이 다시 납니다.</p>
+            <p className="text-xs font-medium">설계점 파일이 보관 기한 경과로 정리되었습니다.</p>
+            <p className="text-muted-foreground text-xs">설정(레시피, 인자, 시드, 조건)은 보존되어 있습니다. ‘재생성’을 클릭하면 동일한 설계점이 다시 생성됩니다.</p>
           </div>
           <Button size="sm" className="ml-auto" disabled={rerunning || running} onClick={() => void again('all')}>
             <RefreshCw className="size-3.5" />
-            {rerunning ? '거는 중…' : '다시 만들기'}
+            {rerunning ? '요청 중…' : '재생성'}
           </Button>
         </div>
       )}
@@ -150,23 +150,23 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
         <div className="min-w-0">
           {study.exported_at ? (
             <>
-              <p className="text-xs font-medium">공유 폴더에 보냈습니다 ({shownDateTime(study.exported_at)}) — 해석은 이 폴더를 읽습니다</p>
+              <p className="text-xs font-medium">공유 폴더로 내보냈습니다({shownDateTime(study.exported_at)}). 해석은 이 폴더를 사용합니다.</p>
               <p className="truncate font-mono text-xs">{study.export_dir_windows}</p>
             </>
           ) : (
             <>
-              <p className="text-xs font-medium">아직 서버 안에만 있습니다</p>
-              <p className="text-muted-foreground text-xs">{!finished ? '다 만들어지면 공유 폴더로 보낼 수 있습니다.' : study.local_ready ? '「공유 폴더로 보내기」 를 누르면 해석이 읽는 폴더에 복사됩니다.' : '보낼 파일이 없습니다 — 「다시 만들기」 를 먼저 누르세요.'}</p>
+              <p className="text-xs font-medium">아직 서버에만 저장되어 있습니다.</p>
+              <p className="text-muted-foreground text-xs">{!finished ? '생성이 완료되면 공유 폴더로 내보낼 수 있습니다.' : study.local_ready ? '‘공유 폴더로 내보내기’를 클릭하면 해석용 폴더로 복사됩니다.' : '내보낼 파일이 없습니다. 먼저 ‘재생성’을 클릭하십시오.'}</p>
             </>
           )}
         </div>
         {study.export_stale && (
-          <p className="w-full text-xs text-amber-700 dark:text-amber-400">보낸 뒤에 점을 더했습니다 — 다시 보내야 해석이 새 점을 봅니다.</p>
+          <p className="w-full text-xs text-amber-700 dark:text-amber-400">내보낸 뒤 설계점이 추가되었습니다. 해석에 새 설계점을 반영하려면 다시 내보내십시오.</p>
         )}
         <ErrorNotice error={exportError} />
         <Button size="sm" className="ml-auto" disabled={!finished || study.done === 0 || !study.local_ready || exporting} onClick={() => void send()}>
           <Send className="size-3.5" />
-          {exporting ? '보내는 중…' : study.exported_at ? '다시 보내기' : '공유 폴더로 보내기'}
+          {exporting ? '내보내는 중…' : study.exported_at ? '다시 내보내기' : '공유 폴더로 내보내기'}
         </Button>
         {study.exported_at && (
           <Button
@@ -204,31 +204,31 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
         )}
         <Button size="sm" variant="ghost" disabled={hiding} onClick={() => void setSeen(study.visibility === 'read' ? 'private' : 'read')}>
           {study.visibility === 'read' ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
-          {study.visibility === 'read' ? '모두 봅니다' : '나만 봅니다'}
+          {study.visibility === 'read' ? '전체 공개' : '비공개'}
         </Button>
         <span>
-          설계점 {study.point_count} 개 — 만든 것 <b>{study.done}</b>
-          {study.failed > 0 && <span className="text-destructive"> · 실패 {study.failed}</span>}
-          {warned > 0 && <span className="text-amber-700 dark:text-amber-400"> · 점검 경고 {warned}</span>}
+          설계점 {study.point_count}개: 생성 <b>{study.done}</b>
+          {study.failed > 0 && <span className="text-destructive">, 실패 {study.failed}</span>}
+          {warned > 0 && <span className="text-amber-700 dark:text-amber-400">, 점검 경고 {warned}</span>}
         </span>
         {/* 멈춘 DOE — 만든 점은 남아 있고, 남은 점은 같은 값으로 이어 만든다. */}
         {finished && job?.status === 'cancelled' && pending > 0 && (
           <Button size="sm" disabled={rerunning} onClick={() => void again('failed')}>
             <RefreshCw className="size-3.5" />
-            남은 {pending} 점 이어 만들기
+            남은 설계점 {pending}개 이어서 생성
           </Button>
         )}
         {/* 실패한 점만 한 번 더. 범위를 고쳐 다시 돌리는 것이 아니라 **같은 값으로** 다시 해 보는 것이다. */}
         {finished && study.failed > 0 && (
           <Button size="sm" variant="outline" disabled={rerunning || running} onClick={() => void again('failed')}>
             <RefreshCw className="size-3.5" />
-            실패한 {study.failed} 점만 다시
+            실패한 설계점 {study.failed}개 재생성
           </Button>
         )}
         {finished && (
           <Button size="sm" variant="outline" disabled={rerunning || running} onClick={() => setExtending(!extending)} aria-expanded={extending}>
             <Plus className="size-3.5" />
-            점 더하기
+            설계점 추가
           </Button>
         )}
         {running && job && (
@@ -236,17 +236,17 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
             <StatusBadge kind="run" value={runState(job)} />
             <CancelJobButton
               job={job}
-              what="DOE 만들기"
-              keeps="그때까지 만든 점과 표는 남고, 남은 점은 「이어 만들기」 로 잇습니다."
+              what="DOE 생성"
+              keeps="그때까지 생성된 설계점과 표는 보존되며, 남은 설계점은 ‘이어서 생성’으로 계속 생성할 수 있습니다."
               cancel={() => doeApi.cancel(study.id)}
             />
           </>
         )}
         {running && (
           <span className="text-muted-foreground">
-            만드는 중… {job?.progress?.at(-1)?.detail ?? ''}
+            생성 중… {job?.progress?.at(-1)?.detail ?? ''}
             <button type="button" className="ml-1 underline" onClick={onReload}>
-              새로 고침
+              새로고침
             </button>
           </span>
         )}
@@ -262,24 +262,24 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
         />
       )}
       {study.outputs?.includes('midsurface') && (
-        <p className="text-muted-foreground text-xs">점마다 중간면 STEP 도 냅니다(셸 요소용 — 표의 mid_file). 판이 아닌 점은 warnings 에 까닭이 있습니다.</p>
+        <p className="text-muted-foreground text-xs">설계점마다 중간면 STEP도 출력합니다(셸 요소용, 표의 mid_file 열). 판이 아닌 설계점은 warnings 열에 사유가 기록됩니다.</p>
       )}
       {/* 더한 묶음의 이력 — 「이 점은 어디서 왔나」. 첫 묶음은 위의 방식 배지가 말한다. */}
       {batches.length > 0 && (
-        <ul className="text-muted-foreground space-y-0.5 text-xs" aria-label="더한 묶음">
+        <ul className="text-muted-foreground space-y-0.5 text-xs" aria-label="추가 배치">
           {batches.map((one) => (
             <li key={one.number}>
-              묶음 {one.number} — {METHOD_LABELS[one.method] ?? one.method} {one.added} 점{one.method === 'lhs' ? ` · 시드 ${one.seed}` : ''} · p
+              배치 {one.number}: {METHOD_LABELS[one.method] ?? one.method} 설계점 {one.added}개{one.method === 'lhs' ? `, 시드 ${one.seed}` : ''}, p
               {String(one.from).padStart(4, '0')}–p{String(one.to).padStart(4, '0')}
-              {one.skipped > 0 && ` · 겹친 ${one.skipped} 개 뺌`}
-              {one.requested_by && ` · ${one.requested_by}`}
+              {one.skipped > 0 && `, 중복 ${one.skipped}개 제외`}
+              {one.requested_by && `, ${one.requested_by}`}
             </li>
           ))}
         </ul>
       )}
       {/* 설계점 분포 — 몰린 곳 · 빈 곳 · 실패가 모인 구석. 점을 누르면 그 점의 형상을 본다. */}
       {names.length > 0 && rows.length > 1 && (
-        <ScatterDetails summary="설계점 분포 — 몰린 곳 · 빈 곳 · 실패한 점이 모인 구석">
+        <ScatterDetails summary="설계점 분포 (밀집 영역, 빈 영역, 실패한 설계점의 위치 확인)">
           {() => (
             <PointsScatter
               names={names}
@@ -324,24 +324,24 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
               <TableHeader>
                 <TableRow>
                   {picking && (
-                    <TableHead className="w-8" title="겹쳐 · 나란히 볼 점">
-                      <span className="sr-only">고름</span>
+                    <TableHead className="w-8" title="중첩 보기·병렬 보기 대상 설계점">
+                      <span className="sr-only">선택</span>
                     </TableHead>
                   )}
-                  <TableHead className="w-14">점</TableHead>
-                  {batches.length > 0 && <TableHead title="몇째 묶음에서 더한 점인가">묶음</TableHead>}
+                  <TableHead className="w-14">설계점</TableHead>
+                  {batches.length > 0 && <TableHead title="설계점이 추가된 배치 번호">배치</TableHead>}
                   {names.map((name) => (
                     <TableHead key={name} className="font-mono text-xs">
                       {name}
                     </TableHead>
                   ))}
                   {measureNames.map((name) => (
-                    <TableHead key={`m-${name}`} className="font-mono text-xs text-sky-700 dark:text-sky-400" title="측정값 — 형상에서 잰 값">
+                    <TableHead key={`m-${name}`} className="font-mono text-xs text-sky-700 dark:text-sky-400" title="측정값: 형상에서 측정한 값">
                       {name}
                     </TableHead>
                   ))}
-                  {hasInterference && <TableHead title="구성품끼리 겹침 — 조립일 때">간섭</TableHead>}
-                  {hasQuality && <TableHead title="형상 점검 — 얇은 벽 · 짧은 모서리 · 좁은 면 · 쪼개진 바디">점검</TableHead>}
+                  {hasInterference && <TableHead title="구성품 간 간섭(조립인 경우)">간섭</TableHead>}
+                  {hasQuality && <TableHead title="형상 점검: 얇은 벽, 짧은 모서리, 좁은 면, 분리된 바디">점검</TableHead>}
                   <TableHead>상태</TableHead>
                 </TableRow>
               </TableHeader>
@@ -357,7 +357,7 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
                   >
                     {picking && (
                       <TableCell onClick={(event) => event.stopPropagation()}>
-                        {row.viewable && <input type="checkbox" checked={row.isPicked} onChange={row.toggle} aria-label={`p${String(point.number).padStart(4, '0')} 고르기`} />}
+                        {row.viewable && <input type="checkbox" checked={row.isPicked} onChange={row.toggle} aria-label={`p${String(point.number).padStart(4, '0')} 선택`} />}
                       </TableCell>
                     )}
                     <TableCell className="font-mono text-xs">p{String(point.number).padStart(4, '0')}</TableCell>
@@ -403,7 +403,7 @@ export function DoeStudyView({ study, onReload }: { study: DoeStudy; onReload: (
                       </TableCell>
                     )}
                     <TableCell className="text-xs">
-                      {point.status === 'ok' ? '만듦' : point.status === 'failed' ? <span title={point.error}>실패</span> : '기다리는 중'}
+                      {point.status === 'ok' ? '생성됨' : point.status === 'failed' ? <span title={point.error}>실패</span> : '대기 중'}
                     </TableCell>
                   </TableRow>
                   )

@@ -95,7 +95,7 @@ export function PointsGallery({
         const got = await doeApi.pointMesh(study.id, number)
         setMeshes((now) => ({ ...now, [number]: got }))
       } catch (caught) {
-        setFailed((now) => ({ ...now, [number]: caught instanceof Error ? caught.message : '못 받았습니다' }))
+        setFailed((now) => ({ ...now, [number]: caught instanceof Error ? caught.message : '형상을 불러오지 못했습니다.' }))
       } finally {
         inflight.current.delete(number)
         setLoading((now) => {
@@ -169,9 +169,9 @@ export function PointsGallery({
         <div className="flex gap-1">
           {(
             [
-              { value: 'single', label: '하나씩' },
-              { value: 'overlay', label: '겹쳐 보기' },
-              { value: 'grid', label: '나란히' },
+              { value: 'single', label: '개별 보기' },
+              { value: 'overlay', label: '중첩 보기' },
+              { value: 'grid', label: '병렬 보기' },
             ] as const
           ).map((one) => (
             <button
@@ -186,24 +186,24 @@ export function PointsGallery({
           ))}
         </div>
         {mode === 'single' ? (
-          <span className="text-muted-foreground text-xs">오른쪽 표에서 줄을 누르거나 ◀ ▶ 로 넘깁니다. 카메라는 그대로라 견주기 쉽습니다.</span>
+          <span className="text-muted-foreground text-xs">오른쪽 표에서 행을 클릭하거나 ◀ ▶ 버튼으로 이동합니다. 카메라 시점이 유지되므로 비교하기 쉽습니다.</span>
         ) : (
           <span className="text-muted-foreground flex flex-wrap items-center gap-1 text-xs">
-            오른쪽 표의 체크로 고릅니다 — 한 번에 <b>{limit}</b> 개씩 ({picked.length} 고름).{mode === 'grid' && ' 하나를 돌리면 모두 같이 돕니다.'}
+            오른쪽 표의 확인란으로 선택합니다. 한 번에 <b>{limit}</b>개씩 표시합니다({picked.length}개 선택됨).{mode === 'grid' && ' 한 뷰를 회전하면 모든 뷰가 함께 회전합니다.'}
             {picked.length > 0 && (
               <button type="button" className="underline" onClick={() => onPicked([])}>
-                모두 해제
+                전체 해제
               </button>
             )}
             {pages > 1 && (
               <span className="ml-2 flex items-center gap-1">
-                <Button size="sm" variant="outline" className="h-6 px-1.5" onClick={() => setPage(Math.max(0, at - 1))} disabled={at === 0} aria-label="이전 쪽">
+                <Button size="sm" variant="outline" className="h-6 px-1.5" onClick={() => setPage(Math.max(0, at - 1))} disabled={at === 0} aria-label="이전 페이지">
                   <ChevronLeft className="size-3.5" />
                 </Button>
                 <span className="font-mono">
                   {at * limit + 1}–{Math.min(picked.length, (at + 1) * limit)} / {picked.length}
                 </span>
-                <Button size="sm" variant="outline" className="h-6 px-1.5" onClick={() => setPage(Math.min(pages - 1, at + 1))} disabled={at >= pages - 1} aria-label="다음 쪽">
+                <Button size="sm" variant="outline" className="h-6 px-1.5" onClick={() => setPage(Math.min(pages - 1, at + 1))} disabled={at >= pages - 1} aria-label="다음 페이지">
                   <ChevronRight className="size-3.5" />
                 </Button>
               </span>
@@ -219,7 +219,7 @@ export function PointsGallery({
               <span className="size-2.5 rounded-full" style={{ background: cssColor(colorOf(n)) }} aria-hidden />
               <span className="font-mono">{pointLabel(n)}</span>
               <span className="text-muted-foreground">{paramsLine(n)}</span>
-              {loading.has(n) && <span className="text-muted-foreground">받는 중…</span>}
+              {loading.has(n) && <span className="text-muted-foreground">불러오는 중…</span>}
               {failed[n] && <span className="text-destructive">{failed[n]}</span>}
             </li>
           ))}
@@ -229,7 +229,7 @@ export function PointsGallery({
       <div ref={fill.ref} style={fill.style}>
       {mode === 'single' &&
         (focus === null ? (
-          <Empty height={viewerHeight} text={ready.length === 0 ? '만들어진 형상이 아직 없습니다.' : '표에서 점을 누르세요.'} />
+          <Empty height={viewerHeight} text={ready.length === 0 ? '생성된 형상이 아직 없습니다.' : '표에서 설계점을 클릭하십시오.'} />
         ) : failed[focus] ? (
           <Empty height={viewerHeight} text={failed[focus]} />
         ) : meshes[focus] ? (
@@ -242,7 +242,7 @@ export function PointsGallery({
 
       {mode === 'overlay' &&
         (shown.length === 0 ? (
-          <Empty height={viewerHeight} text="표에서 견줄 점을 체크하세요 — 같은 자리에 겹쳐 그려 차이가 보입니다." />
+          <Empty height={viewerHeight} text="표에서 비교할 설계점을 선택하십시오. 같은 위치에 겹쳐 표시하므로 차이를 확인할 수 있습니다." />
         ) : overlay ? (
           <Suspense fallback={<Skeleton className={`${viewerHeight} w-full`} />}>
             <PickViewer
@@ -259,7 +259,7 @@ export function PointsGallery({
 
       {mode === 'grid' &&
         (shown.length === 0 ? (
-          <Empty height={viewerHeight} text="오른쪽 표에서 나란히 볼 점을 체크하세요." />
+          <Empty height={viewerHeight} text="오른쪽 표에서 병렬로 표시할 설계점을 선택하십시오." />
         ) : gridItems.length === 0 ? (
           <Skeleton className={`${viewerHeight} w-full`} />
         ) : (
@@ -267,7 +267,7 @@ export function PointsGallery({
             <Suspense fallback={<Skeleton className={`${viewerHeight} w-full`} />}>
               <GridViewer items={gridItems} columns={gridColumns(shown.length)} cellClass={shown.length === 1 ? 'h-full' : undefined} className={shown.length === 1 ? 'h-full' : undefined} />
             </Suspense>
-            {gridItems.length < shown.length && <p className="text-muted-foreground mt-1 text-xs">{shown.length - gridItems.length} 개는 아직 받는 중이거나 실패했습니다.</p>}
+            {gridItems.length < shown.length && <p className="text-muted-foreground mt-1 text-xs">{shown.length - gridItems.length}개는 아직 불러오는 중이거나 불러오지 못했습니다.</p>}
           </div>
         ))}
       </div>
@@ -287,11 +287,11 @@ export function PointsNav({ study, focus, onFocus }: { study: DoeStudy; focus: n
   }
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => step(-1)} disabled={ready.length === 0} aria-label="이전 점">
+      <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => step(-1)} disabled={ready.length === 0} aria-label="이전 설계점">
         <ChevronLeft className="size-3.5" />
       </Button>
       <span className="font-mono text-xs">{focus === null ? '—' : pointLabel(focus)}</span>
-      <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => step(1)} disabled={ready.length === 0} aria-label="다음 점">
+      <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => step(1)} disabled={ready.length === 0} aria-label="다음 설계점">
         <ChevronRight className="size-3.5" />
       </Button>
       {ready.length > 0 && (

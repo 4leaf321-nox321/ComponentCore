@@ -24,7 +24,7 @@ export function orderProblem(nodes: RecipeNode[]): string | null {
     for (const ref of referencesOf(node)) {
       if (!seen.has(ref)) {
         const name = node.label || node.id
-        return `「${name}」 이(가) ${ref} 을(를) 씁니다 — 쓰는 피처가 먼저 올 수 없습니다.`
+        return `‘${name}’이(가) ‘${ref}’을(를) 참조합니다. 참조하는 피처는 참조 대상보다 먼저 올 수 없습니다.`
       }
     }
     seen.add(node.id)

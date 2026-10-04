@@ -16,12 +16,12 @@ import { NumberField } from '@/modules/cad/NumberField'
 import { Button } from '@/shared/components/ui/button'
 
 export const MATE_TYPES: { value: Mate['type']; label: string; help: string }[] = [
-  { value: 'touch', label: '맞대기', help: '두 평면이 마주 닿는다 — 틈을 줄 수 있다' },
-  { value: 'flush', label: '면 맞춤', help: '두 평면이 같은 쪽을 보며 한 면이 된다' },
-  { value: 'concentric', label: '동심', help: '구멍 · 축이 한 줄 — 원통면을 누른다' },
-  { value: 'parallel', label: '평행', help: '방향만 나란히' },
-  { value: 'perpendicular', label: '직각', help: '방향만 직각으로' },
-  { value: 'angle', label: '각도', help: '두 방향 사이를 이 각으로' },
+  { value: 'touch', label: '접촉', help: '두 평면을 마주 보게 접촉시킵니다. 간극을 지정할 수 있습니다.' },
+  { value: 'flush', label: '동일 평면', help: '두 평면이 같은 방향을 향하며 동일 평면에 놓입니다.' },
+  { value: 'concentric', label: '동심', help: '구멍과 축을 동축으로 맞춥니다. 원통면을 클릭하십시오.' },
+  { value: 'parallel', label: '평행', help: '방향만 평행하게 맞춥니다.' },
+  { value: 'perpendicular', label: '직각', help: '방향만 직각으로 맞춥니다.' },
+  { value: 'angle', label: '각도', help: '두 방향 사이의 각도를 지정합니다.' },
 ]
 const TYPE_LABEL = Object.fromEntries(MATE_TYPES.map((one) => [one.value, one.label])) as Record<Mate['type'], string>
 
@@ -30,9 +30,9 @@ const DATUMS = [
   { value: 'XY', label: 'XY 평면' },
   { value: 'XZ', label: 'XZ 평면' },
   { value: 'YZ', label: 'YZ 평면' },
-  { value: 'X', label: 'X 축' },
-  { value: 'Y', label: 'Y 축' },
-  { value: 'Z', label: 'Z 축' },
+  { value: 'X', label: 'X축' },
+  { value: 'Y', label: 'Y축' },
+  { value: 'Z', label: 'Z축' },
 ]
 const DATUM_NAMES = new Set(DATUMS.map((one) => one.value))
 
@@ -42,7 +42,7 @@ function directionLabel(vector: unknown): string {
   if (!Array.isArray(vector) || vector.length !== 3) return ''
   const values = vector.map(Number)
   const index = values.reduce((best, value, i) => (Math.abs(value) > Math.abs(values[best]) ? i : best), 0)
-  if (Math.abs(values[index]) < 0.999) return '기운'
+  if (Math.abs(values[index]) < 0.999) return '경사'
   return `${values[index] > 0 ? '+' : '-'}${'XYZ'[index]}`
 }
 
@@ -50,7 +50,7 @@ function directionLabel(vector: unknown): string {
 export function describeSelect(select: Record<string, unknown> | null | undefined): string {
   if (!select) return '—'
   const words: string[] = []
-  if (typeof select.body === 'string') words.push(`「${select.body}」`)
+  if (typeof select.body === 'string') words.push(`‘${select.body}’`)
   const kind = select.kind
   if (typeof select.role === 'string') words.push(ROLE_LABEL[select.role] ?? select.role)
   else if (kind === 'plane') words.push(`${directionLabel(select.normal)} 평면`.trim())
@@ -60,7 +60,7 @@ export function describeSelect(select: Record<string, unknown> | null | undefine
     words.push(`${radius}${axis}${kind === 'cylinder' ? '원통면' : '원뿔면'}`)
   } else if (select.what === 'edges') words.push(kind === 'circle' ? '원 엣지' : kind === 'line' ? '직선 엣지' : '엣지')
   else words.push('면')
-  if (select.near) words.push('(누른 자리)')
+  if (select.near) words.push('(클릭 위치)')
   return words.join(' ')
 }
 
@@ -121,12 +121,12 @@ export function MatesPanel({
 
   return (
     <div>
-      <p className="text-muted-foreground mb-1 text-xs">구속 — 숫자 대신 관계로 놓기</p>
+      <p className="text-muted-foreground mb-1 text-xs">구속: 좌표 대신 관계로 배치</p>
       {placement && (mates.length > 0 || placement.mates) ? (
         <p className="mb-1 text-[11px]" role="status">
           {placement.free_rotation === 0 && placement.free_translation === 0
-            ? '다 정해졌습니다 — 끌어도 움직이지 않습니다.'
-            : `남은 움직임: 회전 ${placement.free_rotation ?? 3} · 이동 ${placement.free_translation ?? 3} — 끌면 그쪽으로만 움직입니다.`}
+            ? '모든 자유도가 구속되었습니다. 드래그해도 움직이지 않습니다.'
+            : `남은 자유도: 회전 ${placement.free_rotation ?? 3}, 이동 ${placement.free_translation ?? 3}. 드래그하면 남은 자유도 방향으로만 움직입니다.`}
         </p>
       ) : null}
       {mates.length > 0 && (
@@ -141,26 +141,26 @@ export function MatesPanel({
                   {describeSelect(mate.this)} → {labelOf(mate.to)}
                   {mate.select ? ` ${describeSelect(mate.select)}` : ''}
                 </span>
-                <button type="button" className="text-muted-foreground hover:text-destructive rounded p-0.5" aria-label={`구속 ${index + 1} 빼기`} onClick={() => onChange(mates.filter((_, i) => i !== index))}>
+                <button type="button" className="text-muted-foreground hover:text-destructive rounded p-0.5" aria-label={`구속 ${index + 1} 제거`} onClick={() => onChange(mates.filter((_, i) => i !== index))}>
                   <Trash2 className="size-3.5" />
                 </button>
               </div>
               {(mate.type === 'touch' || mate.type === 'flush') && (
                 <div className="mt-1 flex items-center gap-1">
-                  <span className="text-muted-foreground w-14">{mate.type === 'touch' ? '틈' : '띄우기'} (mm)</span>
-                  <NumberField params={params} onCreateParam={onCreateParam} aria-label={`구속 ${index + 1} 틈`} value={mate.offset ?? 0} onChange={(next) => set(index, { offset: next ?? 0 })} />
+                  <span className="text-muted-foreground w-14">{mate.type === 'touch' ? '간극' : '오프셋'} (mm)</span>
+                  <NumberField params={params} onCreateParam={onCreateParam} aria-label={`구속 ${index + 1} 간극`} value={mate.offset ?? 0} onChange={(next) => set(index, { offset: next ?? 0 })} />
                 </div>
               )}
               {mate.type === 'angle' && (
                 <div className="mt-1 flex items-center gap-1">
-                  <span className="text-muted-foreground w-14">각 (°)</span>
-                  <NumberField params={params} onCreateParam={onCreateParam} aria-label={`구속 ${index + 1} 각`} value={mate.angle ?? 90} onChange={(next) => set(index, { angle: next ?? 90 })} />
+                  <span className="text-muted-foreground w-14">각도 (°)</span>
+                  <NumberField params={params} onCreateParam={onCreateParam} aria-label={`구속 ${index + 1} 각도`} value={mate.angle ?? 90} onChange={(next) => set(index, { angle: next ?? 90 })} />
                 </div>
               )}
               {(mate.type === 'concentric' || mate.type === 'parallel') && (
                 <label className="mt-1 flex items-center gap-1">
                   <input type="checkbox" checked={!!mate.flip} onChange={(e) => set(index, { flip: e.target.checked })} />
-                  <span className="text-muted-foreground">방향 뒤집기</span>
+                  <span className="text-muted-foreground">방향 반전</span>
                 </label>
               )}
             </li>
@@ -187,9 +187,9 @@ export function MatesPanel({
           </div>
           <div className="flex items-center gap-1">
             <Button size="sm" variant={picking === 'this' ? 'default' : 'outline'} className="h-7 px-2 text-xs" onClick={() => onPicking(picking === 'this' ? null : 'this')}>
-              <Crosshair className="size-3" /> 이것
+              <Crosshair className="size-3" /> 이 구성품
             </Button>
-            <span className="text-muted-foreground truncate">{draft.this ? describeSelect(draft.this) : picking === 'this' ? `3D 에서 「${name}」 의 면을 누르세요` : '고르지 않음'}</span>
+            <span className="text-muted-foreground truncate">{draft.this ? describeSelect(draft.this) : picking === 'this' ? `3D 화면에서 ‘${name}’의 면을 클릭하십시오.` : '선택되지 않음'}</span>
           </div>
           <div className="flex items-center gap-1">
             <Button size="sm" variant={picking === 'to' ? 'default' : 'outline'} className="h-7 px-2 text-xs" disabled={earlier.length === 0} onClick={() => onPicking(picking === 'to' ? null : 'to')}>
@@ -204,7 +204,7 @@ export function MatesPanel({
                 if (e.target.value) onPicking(null)
               }}
             >
-              <option value="">3D 에서</option>
+              <option value="">3D에서 선택</option>
               {DATUMS.map((one) => (
                 <option key={one.value} value={one.value}>
                   {one.label}
@@ -212,7 +212,7 @@ export function MatesPanel({
               ))}
             </select>
             <span className="text-muted-foreground min-w-0 truncate">
-              {draft.to && !DATUM_NAMES.has(draft.to) ? `${labelOf(draft.to)} ${describeSelect(draft.select)}` : picking === 'to' ? '앞에 놓인 구성품의 면을 누르세요' : ''}
+              {draft.to && !DATUM_NAMES.has(draft.to) ? `${labelOf(draft.to)} ${describeSelect(draft.select)}` : picking === 'to' ? '먼저 배치된 구성품의 면을 클릭하십시오.' : ''}
             </span>
           </div>
           {note && <p className="text-destructive">{note}</p>}
@@ -221,10 +221,10 @@ export function MatesPanel({
                 onDraft(null)
                 onPicking(null)
               }}>
-              그만두기
+              취소
             </Button>
             <Button size="sm" className="h-7 px-2 text-xs" disabled={!ready} onClick={add}>
-              구속 더하기
+              구속 추가
             </Button>
           </div>
         </div>
@@ -234,7 +234,7 @@ export function MatesPanel({
           variant="outline"
           className="h-7 px-2 text-xs"
           disabled={mates.length >= 6}
-          title={earlier.length === 0 ? '앞에 놓인 구성품이 없으면 기준면 · 기준축에만 겁니다' : undefined}
+          title={earlier.length === 0 ? '먼저 배치된 구성품이 없으면 기준면 또는 기준축에만 구속할 수 있습니다.' : undefined}
           onClick={() => {
             onDraft({ type: 'touch' })
             onPicking('this')

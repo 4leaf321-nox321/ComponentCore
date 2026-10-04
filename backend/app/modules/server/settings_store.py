@@ -32,8 +32,9 @@ KNOWN: dict[str, Known] = {
         key="doe_max_points",
         label="실험계획 설계점 상한",
         description=(
-            "한 번에 만드는 설계점 수. 점마다 형상을 평가하고 STEP 을 쓰므로(점당 수백 ms ~ "
-            "수 초) 너무 크면 한 요청이 서버를 오래 잡는다."
+            "한 번에 생성하는 설계점 수의 상한입니다. 설계점마다 형상을 평가하고 STEP 파일을 "
+            "기록하므로(설계점당 수백 ms~수 초) 값이 너무 크면 하나의 요청이 서버를 오래 "
+            "점유합니다."
         ),
         default=lambda: get_settings().doe_max_points,
         minimum=1,
@@ -41,11 +42,12 @@ KNOWN: dict[str, Known] = {
     ),
     "doe_gallery_max": Known(
         key="doe_gallery_max",
-        label="실험계획 형상 보기 — 한 번에 그리는 수",
+        label="실험계획 형상 보기: 한 번에 표시하는 형상 수",
         description=(
-            "겹쳐 보기 · 나란히에서 한 번에 화면에 올리는 형상 수. 넘게 고르면 쪽으로 나눠 "
-            "넘긴다. 브라우저가 그리는 양이라 크게 잡으면 느려지고, 겹쳐 보기는 열둘을 넘으면 "
-            "색이 돌아 서로 구별이 안 된다."
+            "겹쳐 보기와 나란히 보기에서 한 번에 화면에 표시하는 형상 수입니다. 이보다 많이 "
+            "선택하면 페이지로 나누어 표시합니다. 브라우저에서 렌더링하므로 값이 크면 "
+            "느려지며, 겹쳐 보기에서 12개를 넘으면 색상이 반복되어 형상을 구별하기 "
+            "어렵습니다."
         ),
         default=lambda: get_settings().doe_gallery_max,
         minimum=1,
@@ -53,10 +55,10 @@ KNOWN: dict[str, Known] = {
     ),
     "list_page_size": Known(
         key="list_page_size",
-        label="목록 한 쪽에 보이는 줄 수",
+        label="목록 페이지당 행 수",
         description=(
-            "실험계획 · 내 작업 · 부품 · 지그 · 템플릿 · 실행 기록 목록이 한 쪽에 보여 주는 "
-            "줄 수. 크게 잡으면 한 화면에 많이 보이지만 목록을 받는 데 오래 걸린다."
+            "실험계획, 내 작업, 부품, 지그, 템플릿, 실행 기록 목록의 페이지당 행 수입니다. "
+            "값이 크면 한 화면에 많은 항목이 표시되지만 목록을 불러오는 시간이 길어집니다."
         ),
         default=lambda: get_settings().list_page_size,
         minimum=5,
@@ -66,10 +68,10 @@ KNOWN: dict[str, Known] = {
         key="doe_export_ttl_days",
         label="실험계획 공유 폴더 보관 기한(일)",
         description=(
-            "해석이 읽는 공유 폴더에 스터디 폴더를 며칠 두는가. 지나면 "
-            "**공유 폴더의 사본만** 지운다 — 서버 보관 폴더와 설정은 남아서 「보내기」 를 "
-            "다시 누르면 같은 폴더가 다시 선다. 0 이면 자동 삭제를 안 한다. 스터디마다 "
-            "「영구보관」 을 켜면 기한과 무관하게 남는다."
+            "해석에서 읽는 공유 폴더에 스터디 폴더를 보관하는 기간입니다. 기한이 지나면 공유 "
+            "폴더의 사본만 삭제합니다. 서버 보관 폴더와 설정은 유지되므로 ‘내보내기’를 다시 "
+            "실행하면 같은 폴더가 다시 생성됩니다. 0이면 자동으로 삭제하지 않습니다. "
+            "스터디별로 ‘영구보관’을 설정하면 기한과 관계없이 보관됩니다."
         ),
         default=lambda: get_settings().doe_export_ttl_days,
         minimum=0,
@@ -79,11 +81,12 @@ KNOWN: dict[str, Known] = {
         key="doe_local_ttl_days",
         label="실험계획 서버 보관 폴더 보관 기한(일)",
         description=(
-            "서버가 설계점 파일(STEP · 점 파일)을 며칠 두는가. 지나면 **파일만** 지운다 — "
-            "스터디와 설계점 목록 · 레시피 스냅샷은 남으므로 화면은 그대로 뜨고, "
-            "「다시 만들기」 를 누르면 같은 파일이 다시 선다. 공유 폴더보다 길게 잡는다 "
-            "(여기가 「보내기」 의 복사원이다). 0 이면 자동 삭제를 안 한다. 스터디마다 "
-            "「영구보관」 을 켜면 두 폴더 모두 기한과 무관하게 남는다."
+            "서버에 설계점 파일(STEP, 점 파일)을 보관하는 기간입니다. 기한이 지나면 파일만 "
+            "삭제합니다. 스터디, 설계점 목록, 레시피 스냅샷은 유지되므로 화면은 그대로 "
+            "표시되며, ‘다시 생성’을 실행하면 같은 파일이 다시 생성됩니다. 공유 폴더보다 길게 "
+            "설정하십시오(서버 보관 폴더가 ‘내보내기’의 원본입니다). 0이면 자동으로 삭제하지 "
+            "않습니다. 스터디별로 ‘영구보관’을 설정하면 두 폴더 모두 기한과 관계없이 "
+            "보관됩니다."
         ),
         default=lambda: get_settings().doe_local_ttl_days,
         minimum=0,
@@ -93,8 +96,8 @@ KNOWN: dict[str, Known] = {
         key="doe_max_samples",
         label="DOE LHS 표본 수 상한",
         description=(
-            "라틴 하이퍼큐브로 뽑을 수 있는 표본 수. 설계점 상한이 먼저 걸리므로 보통 그와 "
-            "같거나 그보다 크게 둔다."
+            "라틴 하이퍼큐브로 추출할 수 있는 표본 수의 상한입니다. 설계점 상한이 먼저 "
+            "적용되므로 보통 설계점 상한과 같거나 더 크게 설정합니다."
         ),
         default=lambda: get_settings().doe_max_samples,
         minimum=1,
@@ -152,11 +155,11 @@ def set_int(db: Session, key: str, value: int | None, *, by: uuid.UUID) -> None:
     """값을 넣는다. None 이면 덮어쓴 것을 지워 .env 기본값으로 돌아간다."""
     known = KNOWN.get(key)
     if known is None:
-        raise AppError(code("SERVER", 1), f"모르는 설정입니다: {key}")
+        raise AppError(code("SERVER", 1), f"알 수 없는 설정({key})입니다.")
     if value is not None and not (known.minimum <= value <= known.maximum):
         raise AppError(
             code("SERVER", 2),
-            f"「{known.label}」 은 {known.minimum} ~ {known.maximum} 사이여야 합니다",
+            f"‘{known.label}’ 값은 {known.minimum}~{known.maximum} 사이여야 합니다.",
         )
     row = db.get(ServerSetting, key)
     if row is None:

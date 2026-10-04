@@ -20,7 +20,7 @@ export function ViewerToolbar({ rig, inline = false }: { rig: () => CameraRig | 
       <button
         type="button"
         className={`${button} ml-1`}
-        title={projection === 'perspective' ? '투시 — 멀수록 작게. 누르면 정사영(평행 투영)' : '정사영 — 치수를 견주기 좋다. 누르면 투시'}
+        title={projection === 'perspective' ? '투시 투영: 먼 곳일수록 작게 표시됩니다. 클릭하면 정사영(평행 투영)으로 전환합니다.' : '정사영: 치수 비교에 적합합니다. 클릭하면 투시 투영으로 전환합니다.'}
         aria-pressed={projection === 'orthographic'}
         onClick={() => {
           const next: Projection = projection === 'perspective' ? 'orthographic' : 'perspective'

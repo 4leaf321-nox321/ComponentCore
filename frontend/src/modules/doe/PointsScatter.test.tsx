@@ -17,8 +17,8 @@ test('변수가 넷까지면 모든 짝을 그리고, 실패 · 걸린 후보 ·
   expect(screen.getByRole('img', { name: '길이 대 재료' })).toBeInTheDocument()
   expect(container.querySelectorAll('[data-status="failed"]')).toHaveLength(3)
   expect(container.querySelectorAll('[data-status="rejected"]')).toHaveLength(3)
-  expect(screen.getByText(/묶음 2/)).toBeInTheDocument()
-  expect(screen.getByText(/제약에 걸린 후보/)).toBeInTheDocument()
+  expect(screen.getByText(/배치 2/)).toBeInTheDocument()
+  expect(screen.getByText(/제약 조건으로 제외된 후보/)).toBeInTheDocument()
 
   const first = screen.getByRole('img', { name: '두께 대 길이' })
   fireEvent.click(first.querySelector('circle title')!.parentElement!)
@@ -30,6 +30,6 @@ test('변수가 다섯 이상이면 두 변수를 골라 그린다', () => {
   const many = [{ number: 1, values: { a: 1, b: 2, c: 3, d: 4, e: 5 } }, { number: 2, values: { a: 2, b: 1, c: 0, d: 1, e: 2 } }]
   render(<PointsScatter names={names} points={many} />)
   expect(screen.getByRole('img', { name: 'a 대 b' })).toBeInTheDocument()
-  fireEvent.change(screen.getByLabelText('세로 변수'), { target: { value: 'e' } })
+  fireEvent.change(screen.getByLabelText('세로축 변수'), { target: { value: 'e' } })
   expect(screen.getByRole('img', { name: 'a 대 e' })).toBeInTheDocument()
 })

@@ -51,7 +51,7 @@ export function ConfirmDialog({
       onClose()
     } catch (caught) {
       // **창을 닫지 않는다.** 닫으면 오류가 어디에도 안 남고, 사람은 일이 된 줄 안다.
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
       setBusy(false)
     }

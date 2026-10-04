@@ -59,16 +59,16 @@ test('표의 줄을 누르면 그 점의 형상을 받아 보고, 체크한 점�
     </MemoryRouter>,
   )
   // 처음엔 아무것도 안 받는다 — 점이 수백이라 고른 것만. 하나씩 볼 때는 표에 체크가 없다.
-  expect(screen.getByText('표에서 점을 누르세요.')).toBeInTheDocument()
+  expect(screen.getByText('표에서 설계점을 클릭하십시오.')).toBeInTheDocument()
   expect(asked.filter((u) => u.includes('/mesh'))).toHaveLength(0)
-  expect(screen.queryByLabelText('p0001 고르기')).toBeNull()
+  expect(screen.queryByLabelText('p0001 선택')).toBeNull()
 
   fireEvent.click(screen.getByText('p0002'))
   await waitFor(() => expect(screen.getByTestId('viewer')).toBeInTheDocument())
   expect(asked.filter((u) => u.includes('/mesh'))).toEqual(['/api/doe/s1/points/2/mesh'])
   expect(screen.getByText('2 / 2')).toBeInTheDocument()
   // ▶ 는 만들어진 점만 돈다 — 실패한 p0003 을 건너 p0001 로.
-  fireEvent.click(screen.getByRole('button', { name: '다음 점' }))
+  fireEvent.click(screen.getByRole('button', { name: '다음 설계점' }))
   await waitFor(() => expect(asked.filter((u) => u.includes('/mesh'))).toEqual(['/api/doe/s1/points/2/mesh', '/api/doe/s1/points/1/mesh']))
   expect(screen.getByText('1 / 2')).toBeInTheDocument()
   // 실패한 점은 누를 수 없다.
@@ -76,9 +76,9 @@ test('표의 줄을 누르면 그 점의 형상을 받아 보고, 체크한 점�
   expect(asked.filter((u) => u.includes('/mesh'))).toHaveLength(2)
 
   // 겹쳐 보기 — 체크한 점들이 한 뷰어에 점 이름표로 들어간다. 받은 것은 다시 안 받는다.
-  fireEvent.click(screen.getByRole('button', { name: '겹쳐 보기' }))
-  fireEvent.click(screen.getByLabelText('p0001 고르기'))
-  fireEvent.click(screen.getByLabelText('p0002 고르기'))
+  fireEvent.click(screen.getByRole('button', { name: '중첩 보기' }))
+  fireEvent.click(screen.getByLabelText('p0001 선택'))
+  fireEvent.click(screen.getByLabelText('p0002 선택'))
   await waitFor(() => expect(screen.getByTestId('viewer').textContent).toBe('p0001,p0002'))
   expect(asked.filter((u) => u.includes('/mesh'))).toEqual(['/api/doe/s1/points/2/mesh', '/api/doe/s1/points/1/mesh'])
   // 줄을 누르면(체크 말고) 그 점만 또렷하다. 다시 누르면 푼다. (범례에도 이름이 있어 표의 칸을 짚는다.)
@@ -88,19 +88,19 @@ test('표의 줄을 누르면 그 점의 형상을 받아 보고, 체크한 점�
   fireEvent.click(rowOf('p0002'))
   expect(screen.getByTestId('viewer').getAttribute('data-emphasis')).toBe('')
   // 나란히 — 한 격자 뷰어에 칸마다. 둘이면 2열. 누른 줄의 칸이 도드라진다.
-  fireEvent.click(screen.getByRole('button', { name: '나란히' }))
+  fireEvent.click(screen.getByRole('button', { name: '병렬 보기' }))
   await waitFor(() => expect(screen.getByTestId('grid').textContent).toBe('p0001,p0002'))
   expect(screen.getByTestId('grid').getAttribute('data-columns')).toBe('2')
   fireEvent.click(rowOf('p0001'))
   expect(screen.getByTestId('grid').getAttribute('data-highlight')).toBe('p0001')
 
   // 전체 선택은 만들어진 점만 — 실패한 p0003 은 빠진다. 풀면 비운다.
-  fireEvent.click(screen.getByLabelText('p0001 고르기')) // 하나 풀고
+  fireEvent.click(screen.getByLabelText('p0001 선택')) // 하나 풀고
   fireEvent.click(screen.getByLabelText('전체 선택'))
-  expect((screen.getByLabelText('p0001 고르기') as HTMLInputElement).checked).toBe(true)
+  expect((screen.getByLabelText('p0001 선택') as HTMLInputElement).checked).toBe(true)
   expect(screen.getByText('전체 선택 (2)')).toBeInTheDocument()
   fireEvent.click(screen.getByLabelText('전체 선택'))
-  expect((screen.getByLabelText('p0002 고르기') as HTMLInputElement).checked).toBe(false)
+  expect((screen.getByLabelText('p0002 선택') as HTMLInputElement).checked).toBe(false)
 })
 
 test('격자 열 수는 정사각형에 가깝게 늘다가 넷에서 멈춘다', async () => {
@@ -141,16 +141,16 @@ test('고른 점이 상한을 넘으면 쪽으로 넘겨 가며 다 본다', asy
       <DoeStudyView study={many} onReload={() => {}} />
     </MemoryRouter>,
   )
-  fireEvent.click(screen.getByRole('button', { name: '나란히' }))
+  fireEvent.click(screen.getByRole('button', { name: '병렬 보기' }))
   fireEvent.click(screen.getByLabelText('전체 선택'))
   // 24씩 — 첫 쪽은 1–24, 4열.
   await waitFor(() => expect(screen.getByTestId('grid').textContent!.split(',')).toHaveLength(24))
   expect(screen.getByText('1–24 / 30')).toBeInTheDocument()
   expect(screen.getByTestId('grid').getAttribute('data-columns')).toBe('4')
-  fireEvent.click(screen.getByRole('button', { name: '다음 쪽' }))
+  fireEvent.click(screen.getByRole('button', { name: '다음 페이지' }))
   await waitFor(() => expect(screen.getByTestId('grid').textContent!.split(',')).toHaveLength(6))
   expect(screen.getByText('25–30 / 30')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '다음 쪽' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: '다음 페이지' })).toBeDisabled()
   // 목록에서 첫 쪽의 점을 짚으면 그 쪽으로 돌아간다.
   fireEvent.click(screen.getAllByText('p0003').find((el) => el.closest('tr'))!)
   await waitFor(() => expect(screen.getByText('1–24 / 30')).toBeInTheDocument())

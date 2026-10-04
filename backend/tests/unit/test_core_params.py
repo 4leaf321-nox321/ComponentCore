@@ -57,7 +57,7 @@ def test_치수끼리_서로_가리켜도_풀린다() -> None:
 
 
 def test_틀린_식은_어디가_왜인지_말한다() -> None:
-    with pytest.raises(RecipeValidationError, match="모르는 이름 'aa'"):
+    with pytest.raises(RecipeValidationError, match=r"알 수 없는 이름 .aa."):
         parse(
             {
                 "params": {"a": 10},
@@ -66,7 +66,7 @@ def test_틀린_식은_어디가_왜인지_말한다() -> None:
                 ],
             }
         )
-    with pytest.raises(RecipeValidationError, match="0 으로 나눕니다"):
+    with pytest.raises(RecipeValidationError, match="0으로 나눌 수 없습니다"):
         parse(
             {
                 "params": {"a": 0},
@@ -75,7 +75,7 @@ def test_틀린_식은_어디가_왜인지_말한다() -> None:
                 ],
             }
         )
-    with pytest.raises(ExpressionError, match=r"서로를 가리킵니다|모르는 이름"):
+    with pytest.raises(ExpressionError, match=r"순환 참조|알 수 없는 이름"):
         resolve_params({"params": {"a": "=b", "b": "=a"}})
 
 
@@ -140,7 +140,7 @@ def test_한글_이름을_쓴다() -> None:
     )
     assert got.nodes[0].id == "베이스"
     for bad in ["1핀", "핀 둘", "a/b"]:
-        with pytest.raises(RecipeValidationError, match="쓸 수 없는 문자"):
+        with pytest.raises(RecipeValidationError, match="사용할 수 없는 문자"):
             parse(
                 {"nodes": [{"id": bad, "op": "box", "length": 10, "width": 10, "height": 10}]}
             )

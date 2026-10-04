@@ -56,7 +56,7 @@ def create_account(
     """관리자가 만든다. 임시 비밀번호를 돌려주고 첫 로그인에서 변경을 강제한다."""
     normalized = email.strip().lower()
     if db.scalar(select(User).where(User.email == normalized)) is not None:
-        raise Conflict(code("ACCOUNTS", 2), "이미 있는 아이디입니다.")
+        raise Conflict(code("ACCOUNTS", 2), "이미 사용 중인 아이디입니다.")
 
     temporary = secrets.token_urlsafe(9)
     user = User(
@@ -78,7 +78,7 @@ def _guard_last_admin(db: Session, user: User) -> None:
     if user.is_system_admin and user.can_sign_in and active_system_admin_count(db) <= 1:
         raise AppError(
             code("ACCOUNTS", 3),
-            "마지막 시스템 관리자입니다. 다른 관리자를 먼저 지정하세요.",
+            "마지막 시스템 관리자입니다. 다른 관리자를 먼저 지정하십시오.",
         )
 
 
@@ -86,7 +86,7 @@ def set_status(db: Session, *, user_id: uuid.UUID, status: str, actor: User) -> 
     user = get_account(db, user_id)
     if status == "suspended":
         if user.id == actor.id:
-            raise AppError(code("ACCOUNTS", 4), "자기 계정은 정지할 수 없습니다.")
+            raise AppError(code("ACCOUNTS", 4), "본인 계정은 정지할 수 없습니다.")
         _guard_last_admin(db, user)
     user.status = status
     db.commit()
@@ -98,7 +98,7 @@ def set_system_admin(db: Session, *, user_id: uuid.UUID, grant: bool, actor: Use
     user = get_account(db, user_id)
     if not grant:
         if user.id == actor.id:
-            raise AppError(code("ACCOUNTS", 5), "자기 권한은 내릴 수 없습니다.")
+            raise AppError(code("ACCOUNTS", 5), "본인의 권한은 낮출 수 없습니다.")
         _guard_last_admin(db, user)
     user.is_system_admin = grant
     db.commit()
@@ -119,7 +119,7 @@ def delete_account(db: Session, *, user_id: uuid.UUID, actor: User) -> User:
     """행은 남고 접근만 끊긴다 — 프로젝트의 소유자 참조를 잃지 않기 위해서다."""
     user = get_account(db, user_id)
     if user.id == actor.id:
-        raise AppError(code("ACCOUNTS", 6), "자기 계정은 지울 수 없습니다.")
+        raise AppError(code("ACCOUNTS", 6), "본인 계정은 삭제할 수 없습니다.")
     _guard_last_admin(db, user)
     user.deleted_at = _now()
     db.commit()

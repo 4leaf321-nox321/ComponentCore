@@ -51,7 +51,7 @@ mcp = FastMCP(
         "부품을 레시피(연산 트리 JSON)로 그리고 지그를 만드는 플랫폼. "
         "**`get_guide` 를 먼저 부른다** — 레시피의 규칙과 작업 순서가 거기 있다. "
         "레시피는 `recipe_check` 로 만들어 본 뒤에만 `save_version` 으로 저장한다. "
-        "저장은 사용자의 내 작업에 새 버전으로 들어가고, 승격(부품 · 지그 카탈로그)은 "
+        "저장은 사용자의 내 작업에 새 버전으로 들어가고, 등록(부품 · 지그 카탈로그)은 "
         "사람이 판단할 일이니 `promote_*` 는 사용자가 시킬 때만."
     ),
 )
@@ -273,7 +273,7 @@ async def get_guide(ctx: Context, topic: str | None = None) -> dict[str, Any]:
 
     `topic` 없이 부르면 overview. 세부가 필요하면 그때 주제를 지정한다:
       - `recipe`   피처 종류 · 좌표계 · 자주 하는 실수
-      - `workflow` 그리기 → 검증 → 저장 → 지그 → 승격의 순서
+      - `workflow` 그리기 → 검증 → 저장 → 지그 → 등록의 순서
       - `jig`      지그 생성 옵션과 결과 읽는 법"""
     del ctx
     version, sections = _guide_sections()
@@ -339,7 +339,7 @@ async def save_template(
     folder: str = "",
 ) -> Any:
     """지금 레시피를 **템플릿으로 저장**한다 — 다음에 그릴 때의 출발점. `shared` 를 켜면 공용
-    자리에 놓여 누구나 고른다(고치는 것은 만든 사람뿐). `folder` 는 템플릿 공간의 폴더
+    자리에 놓여 누구나 고른다(고치는 것은 작성자뿐). `folder` 는 템플릿 공간의 폴더
     경로(`판금/브래킷` — 비우면 맨 위). 있는 폴더는 `recipe_schema` 의 `saved_templates` 에
     보인다.
 
@@ -434,7 +434,7 @@ async def recipe_find(ctx: Context, recipe: dict[str, Any], query: dict[str, Any
 @mcp.tool()
 async def recipe_cutlist(ctx: Context, recipe: dict[str, Any], node_id: str) -> Any:
     """구조 프레임(`frame`)의 **절단 목록** — 부재마다 자를 길이(가장 긴 데, mm) · 시작 · 끝의
-    자르는 각(도, 0 = 직각 · 45 = 45° 맞대기) · 부피(mm³), 그리고 합계. 질량은 재료 밀도 x
+    자르는 각(도, 0 = 직각 · 45 = 45° 마이터) · 부피(mm³), 그리고 합계. 질량은 재료 밀도 x
     부피(알루미늄 2.7 · 강 7.85 g/cm³). 지그를 실제로 만들 때 재단 · 주문 목록으로 쓴다."""
     return await _post(ctx, "/api/cad/recipe/cutlist", {"recipe": recipe, "node": node_id})
 
@@ -448,14 +448,14 @@ async def recipe_unfold(
     node_id: str | None = None,
 ) -> Any:
     """굽힌 판(판금)의 **전개도** 요약 — 펼친 크기 · 넓이 · 두께, 굽힘마다 선(전개도 좌표) ·
-    각 · 안쪽 반지름 · 방향(up/down — 기준면이 위를 보게 펼쳤을 때 날개가 올라오나) · 굽힘
+    각 · 안쪽 반지름 · 방향(up/down — 기준면이 위를 보게 펼쳤을 때 플랜지가 올라오나) · 굽힘
     여유.
 
     레시피로 굽힌 판(`bend` · `sheet_metal`)도, 가져온 판금 STEP(`import_step`)도 편다.
     `k_factor` 는 굽힐 때와 같게(기본 0.5 — 재질 · 공법마다 0.3~0.5). `flip` 은 반대쪽 겉면을
     기준으로. 레시피 안에서 펼친 판이 필요하면 노드 `{"op": "unfold", "target": …}`.
     레이저용 DXF(외곽 · 굽힘선 층 · 「UP 90° R3」 글씨)는 사람이 화면의 「파일」 탭
-    「전개도」 로 받는다. `notes` 에 「날개끼리 겹친다」 가 있으면 모서리 따내기(릴리프)가
+    「전개도」 로 받는다. `notes` 에 「전개하면 플랜지끼리 겹칩니다」 가 있으면 코너 릴리프가
     필요하다."""
     return await _post(
         ctx,
@@ -526,7 +526,7 @@ async def recipe_midsurface(
 
 @mcp.tool()
 async def recipe_selectors(ctx: Context, recipe: dict[str, Any], pick: dict[str, Any]) -> Any:
-    """찍은 자리를 **말로 되돌려 받는다** — 「아래쪽 면」 · 「반지름 4.25 원통면(4개)」.
+    """찍은 자리를 **말로 되돌려 받는다** — 「bottom 면」 · 「반지름 4.25 원통면」(4개).
 
     `pick` 은 `{"what": "faces"|"edges"|"vertices", "point": [x, y, z]}`. 답의 후보마다
     `select`(셀렉터)와 `matches`(지금 몇 개에 맞나)가 있다.
@@ -774,7 +774,7 @@ async def material_search(
     category: str = "",
     limit: int = 20,
 ) -> Any:
-    """물성(MatNexus) 찾기 — 이름 · 별칭 · 번호로.
+    """물성(MatNexus) 검색 — 이름 · 별칭 · 번호로.
 
     `source`: `registered`(기본 — 조직이 시험 · 등록한 재료) 또는 `literature`(문헌 카탈로그,
     수천 건. 목록에는 값이 없다 — 고른 뒤 `material_get` 으로 받는다). 줄마다 번호(`code`) ·
@@ -924,8 +924,8 @@ async def doe_create(
 ) -> Any:
     """치수를 훑어 **형상 여러 벌**을 만든다 — 점마다 STEP 을 서버 보관 폴더에 쓴다.
 
-    **걸고 바로 돌아온다.** 끝까지 기다렸다가 공유 폴더로 보내는 것까지 한 번에 하려면
-    `doe_run` 을 써라 — 네가 폴링 루프를 만들 이유가 없다.
+    **걸고 바로 돌아온다.** 끝까지 기다렸다가 공유 폴더로 내보내는 것까지 한 번에
+    하려면 `doe_run` 을 써라 — 네가 폴링 루프를 만들 이유가 없다.
 
     `idempotency_key` 를 주면 **두 번 불러도 한 벌**이다. 재시도할 생각이면 늘 줘라 — 망이
     끊겨 답을 못 받았을 뿐인데 다시 걸면 스터디 둘 · 폴더 둘이 생기고, 해석 쪽은 어느 것이
@@ -1024,7 +1024,7 @@ async def doe_run(
     measures: list[dict[str, Any]] | None = None,
     outputs: list[str] | None = None,
 ) -> Any:
-    """**한 번 부르면 폴더까지** — 만들고 · 기다리고 · 공유 폴더로 보낸다.
+    """**한 번 부르면 폴더까지** — 만들고 · 기다리고 · 공유 폴더로 내보낸다.
 
     지휘하는 쪽(오케스트레이터)이 쓸 자리다. 이것 하나로 다음 단계(해석 걸기)로 갈 수 있다 —
     `doe_create` 는 걸고 바로 돌아오므로 네가 폴링 루프를 만들어야 한다.
@@ -1033,9 +1033,9 @@ async def doe_run(
     다시 부르는 것이 정상이다. 열쇠가 같으면 이미 만든 것을 이어서 본다 — 없으면 끊길
     때마다 스터디가 하나씩 는다.
 
-    답: `folder`(해석이 여는 경로 — 아직 못 보냈으면 None) · `points` · `done` · `failed` ·
-    `job`. **안 끝나도 답은 온다**(`wait_seconds` 가 다 되면 그때 상태로). 그 경우 보내지
-    않으니 — 만들다 만 폴더를 해석이 읽으면 안 된다 — `doe_status` 로 끝을 보고
+    답: `folder`(해석이 여는 경로 — 아직 못 내보냈으면 None) · `points` · `done` ·
+    `failed` · `job`. **안 끝나도 답은 온다**(`wait_seconds` 가 다 되면 그때 상태로). 그
+    경우 내보내지 않으니 — 만들다 만 폴더를 해석이 읽으면 안 된다 — `doe_status` 로 끝을 보고
     `doe_export` 를 부른다.
 
     **`on_behalf_of` 를 꼭 줘라**(그 사람의 계정 · 이메일) — 안 주면 사람이 제 활동에서 이
@@ -1103,9 +1103,9 @@ async def doe_status(ctx: Context, study_id: str) -> Any:
     `doe_points` 는 설계점 200줄을 통째로 준다. 「끝났나」 만 보려고 그것을 되풀이해 받지
     마라 — 여기는 세는 것만 한다.
 
-    `files_ready` 가 거짓이면 보관 기한이 지나 파일이 치워진 것이다(`doe_rerun` 으로 되살린다).
-    `export_stale` 이 참이면 보낸 뒤에 점을 더한 것이다(`doe_extend`) — 다 만들어지면
-    `doe_export` 를 다시 불러야 해석이 새 점을 본다.
+    `files_ready` 가 거짓이면 보관 기한이 지나 파일이 치워진 것이다(`doe_rerun` — 재생성으로
+    복원한다). `export_stale` 이 참이면 내보낸 뒤에 점을 더한 것이다(`doe_extend`) — 다
+    만들어지면 `doe_export` 를 다시 불러야 해석이 새 점을 본다.
     """
     return await _get(ctx, f"/api/doe/{study_id}/status")
 
@@ -1125,7 +1125,7 @@ async def doe_wait(ctx: Context, study_id: str, seconds: int = 30) -> Any:
 @mcp.tool()
 async def doe_points(ctx: Context, study_id: str) -> Any:
     """만들어진 설계점 표 — 바꾼 변수 값 · STEP · **점 파일**(영역 · 풀린 조건) · 실패 사유,
-    **공유 폴더 경로**(`folder`, 아직 안 보냈으면 None — `doe_export` 로 보낸다).
+    **공유 폴더 경로**(`folder`, 아직 안 내보냈으면 None — `doe_export` 로 내보낸다).
 
     해석 **결과는 여기 없다** — 이 플랫폼은 형상 · 영역 · 조건 · 설계점을 만들어 넘기고,
     결과와 설계점 고르기는 해석 플랫폼이 한다."""
@@ -1174,12 +1174,12 @@ async def doe_points(ctx: Context, study_id: str) -> Any:
 
 @mcp.tool()
 async def doe_rerun(ctx: Context, study_id: str, only: str = "all") -> Any:
-    """**다시 만들기** — 스냅샷으로 설계점 파일(STEP · 점 파일)을 되살린다. 같은 스터디다.
+    """**재생성** — 스냅샷으로 설계점 파일(STEP · 점 파일)을 복원한다. 같은 스터디다.
 
     언제 부르나:
 
     - `doe_points` 의 `files_ready` 가 False 일 때. 보관 기한이 지나 파일이 치워진 것이고,
-      그 상태로는 `doe_export` 가 막힌다. 이것을 먼저 부르고 끝나면 보낸다.
+      그 상태로는 `doe_export` 가 막힌다. 이것을 먼저 부르고 끝나면 내보낸다.
     - 실패한 점을 한 번 더 해 볼 때 — `only="failed"`.
 
     **같은 재료로 같은 것이 나온다**(레시피 · 인자 · 시드 · 조건이 스냅샷으로 박혀 있다).
@@ -1222,8 +1222,8 @@ async def doe_extend(
 
     스터디의 제약식이 그대로 걸리고, 이미 있는 점과 값이 같은 줄은 뺀다(`skipped`). 재시도할
     생각이면 `idempotency_key` 를 줘라 — 같은 열쇠의 묶음이 있으면 더하지 않는다. `dry_run`
-    이면 세기만 한다. 공유 폴더에 이미 보냈으면 끝난 뒤 `doe_export` 를 다시 불러야 해석이 새
-    점을 본다."""
+    이면 세기만 한다. 공유 폴더로 이미 내보냈으면 끝난 뒤 `doe_export` 를 다시 불러야 해석이
+    새 점을 본다."""
     query = "?dry_run=true" if dry_run else ""
     got = await _post(
         ctx,
@@ -1249,9 +1249,10 @@ async def doe_extend(
 
 @mcp.tool()
 async def doe_export(ctx: Context, study_id: str) -> Any:
-    """만들어진 설계점(STEP · manifest.csv)을 **공유 폴더로 보낸다** — 해석은 그때부터 읽는다.
+    """만들어진 설계점(STEP · manifest.csv)을 **공유 폴더로 내보낸다** — 해석은 그때부터
+    읽는다.
 
-    만들기는 서버 보관 폴더에 먼저 하고, 다 끝난 뒤 보낸다(반쪽짜리 표를 해석이 읽지 않게).
+    만들기는 서버 보관 폴더에 먼저 하고, 다 끝난 뒤 내보낸다(반쪽짜리 표를 해석이 읽지 않게).
     다시 부르면 같은 폴더에 덮어쓴다. 답의 `folder` 가 해석 쪽이 여는 경로(F:\\…)다."""
     got = await _post(ctx, f"/api/doe/{study_id}/export", None)
     if not isinstance(got, dict) or "error" in got:
@@ -1283,7 +1284,7 @@ async def doe_keep(ctx: Context, study_id: str, keep: bool = True) -> Any:
     나머지가 조용히 사라지는 날이 온다. 기한은 기본값이고 이것이 예외다.
 
     「이건 남겨야 한다」 를 아는 사람(또는 너)이 켠다. 안 켜도 잃는 것은 파일뿐이고
-    `doe_rerun` 이 되살리지만, 수천 점이면 그 시간이 아깝다."""
+    `doe_rerun`(재생성)이 복원하지만, 수천 점이면 그 시간이 아깝다."""
     flag = "true" if keep else "false"
     return await _post(ctx, f"/api/doe/{study_id}/keep?keep={flag}", None)
 
@@ -1299,10 +1300,10 @@ async def doe_studies(
 ) -> Any:
     """실험계획 목록 — 무엇을 언제 훑었나.
 
-    `scope="mine"`(기본) 은 네 토큰의 계정 것, `"all"` 은 **공개된 것까지**. 남이 이미 같은
-    훑기를 돌았는지 보려면 `all` 로 찾아라 — 같은 것을 다시 도는 것이 가장 큰 낭비다.
-    `query` 는 이름 · 설명 · **대상 작업 이름** · 만든 사람(낱말마다 AND), `tag` 는 대상 작업의
-    꼬리표 — 「브래킷 EMC 에 건 DOE 가 있나」 를 목록을 넘기지 않고 묻는다."""
+    `scope="mine"`(기본) 은 네 토큰의 계정 것, `"all"` 은 **공개된 것까지**. 다른 사용자가 이미
+    같은 훑기를 돌았는지 보려면 `all` 로 찾아라 — 같은 것을 다시 도는 것이 가장 큰 낭비다.
+    `query` 는 이름 · 설명 · **대상 작업 이름** · 작성자(낱말마다 AND), `tag` 는 대상 작업의
+    태그 — 「브래킷 EMC 에 건 DOE 가 있나」 를 목록을 넘기지 않고 묻는다."""
     params: dict[str, Any] = {"limit": limit, "scope": scope}
     if work_id:
         params["work_id"] = work_id
@@ -1384,11 +1385,11 @@ async def list_works(
     trashed: bool = False,
     owner: str = "",
 ) -> Any:
-    """사용자의 내 작업 목록(이름 · 종류 · 폴더 · 꼬리표 · 현재 버전 · 지그 생성 횟수 ·
-    승격 여부). `folder`(`고객A/2026` 같은 경로 — 그 아래까지, `""` 이면 폴더 없는 것만) ·
-    `year`(만든 해) · `query`(이름 · 설명 · 만든 사람) · `tag` · `kind`(part · jig ·
+    """사용자의 내 작업 목록(이름 · 종류 · 폴더 · 태그 · 현재 버전 · 지그 생성 횟수 ·
+    등록 여부). `folder`(`고객A/2026` 같은 경로 — 그 아래까지, `""` 이면 폴더 없는 것만) ·
+    `year`(생성 연도) · `query`(이름 · 설명 · 작성자) · `tag` · `kind`(part · jig ·
     assembly)로 거른다. `trashed` 면 휴지통. **시스템 관리자만**: `owner="all"` 이면 모두의
-    작업, 사람 id 면 그 사람의 것(답에 `owner` 가 붙는다) — 아니면 거절된다."""
+    작업, 사용자 id 면 그 사용자의 것(답에 `owner` 가 붙는다) — 아니면 거절된다."""
     params: dict[str, Any] = {"limit": limit}
     if owner:
         params["owner"] = owner
@@ -1429,7 +1430,7 @@ async def list_works(
 
 @mcp.tool()
 async def search(ctx: Context, query: str, limit: int = 10) -> Any:
-    """이름 · 설명 · **꼬리표 · 만든 사람**으로 **한꺼번에 찾는다** — 내 작업(부품 · 지그 ·
+    """이름 · 설명 · **태그 · 작성자**로 **한꺼번에 검색한다** — 내 작업(부품 · 지그 ·
     조립) · 공용 부품 · 공용 지그 · 템플릿. 낱말마다 AND(「알루미늄 브래킷」 은 둘 다 든 것).
     사용자가 「센서 브래킷」 「진동」 처럼 말하면 목록을 다 훑지 말고 이것부터. 답의 id 를
     `work:<id>` · `part:<id>` · `jig:<id>` 로 다른 도구에 넘긴다. 형상으로 찾으려면
@@ -1522,9 +1523,9 @@ async def create_work(
     경로(`고객A/2026` — 비우면 맨 위). 사용자가 쓰는 폴더는 `list_works` 의 `folder` 로 본다.
 
     `kind` 는 **무엇을 그렸나**다: `part`(제품 · 부품) 또는 `jig`(지그). 그리는 방법은 같고,
-    종류가 **어느 카탈로그로 올라가는지**와 덤으로 쓰는 도구를 정한다(부품엔 지그 생성기,
+    종류가 **어느 카탈로그에 등록되는지**와 덤으로 쓰는 도구를 정한다(부품엔 지그 생성기,
     지그엔 잡는 부품). 지그를 그렸으면 `kind="jig"` 로 만들고 `jig_for_part_id` 로 어느 부품을
-    잡는지 이어 둔다 — 승격할 때 그대로 따라간다."""
+    잡는지 이어 둔다 — 등록할 때 그대로 따라간다."""
     work = await _post(
         ctx,
         "/api/works",
@@ -1555,7 +1556,7 @@ async def create_work(
 async def save_version(
     ctx: Context, work_id: str, recipe: dict[str, Any], note: str = ""
 ) -> Any:
-    """작업에 **새 버전**을 저장한다(출처 "ai"). 옛 버전은 그대로 남고 사람이 화면에서 되돌릴
+    """작업에 **새 버전**을 저장한다(출처 "ai"). 옛 버전은 그대로 남고 사람이 화면에서 복원할
     수 있다. 평가가 끝날 때까지 기다려 요약을 돌려준다. `note` 에 무엇을 바꿨는지 한 줄
     적는다."""
     version = await _post(
@@ -1575,7 +1576,7 @@ async def save_version(
 
 @mcp.tool()
 async def restore_version(ctx: Context, work_id: str, number: int) -> Any:
-    """옛 버전의 레시피로 새 버전을 만든다(되돌리기)."""
+    """옛 버전의 레시피로 새 버전을 만든다(복원)."""
     version = await _post(ctx, f"/api/works/{work_id}/versions/{number}/restore")
     if not isinstance(version, dict) or "error" in version:
         return version
@@ -1715,7 +1716,7 @@ async def get_job(ctx: Context, job_id: str) -> Any:
 async def promote_part(
     ctx: Context, work_id: str, name: str | None = None, note: str = ""
 ) -> Any:
-    """현재 부품 버전을 **부품 카탈로그**에 올린다(누구나 본다, 불변). **사용자가 시킬
+    """현재 부품 버전을 **부품 카탈로그**에 등록한다(누구나 본다, 불변). **사용자가 시킬
     때만.**"""
     return await _post(ctx, f"/api/works/{work_id}/promote/part", {"name": name, "note": note})
 
@@ -1731,8 +1732,8 @@ async def promote_jig_recipe(
     """지그 작업의 현재 버전을 **지그 카탈로그**로. **사용자가 시킬 때만.**
 
     지그 작업은 두 길로 생긴다: (1) `run_jig` 가 부품에서 만들어 주는 것, (2) 사람 · AI 가 빈
-    화면에서 **그리는** 것. 어느 쪽이든 올리는 길은 이것 하나다. `part_id` 를 주면 어느 부품의
-    지그인지 이어진다(생성한 것은 이미 이어져 있다)."""
+    화면에서 **그리는** 것. 어느 쪽이든 등록하는 길은 이것 하나다. `part_id` 를 주면 어느
+    부품의 지그인지 이어진다(생성한 것은 이미 이어져 있다)."""
     return await _post(
         ctx,
         f"/api/works/{work_id}/promote/jig-recipe",
@@ -1748,14 +1749,14 @@ async def find_similar(
     where: list[str] | None = None,
     limit: int = 10,
 ) -> Any:
-    """**닮은 형상** — 이것과 비슷한 것이 이미 있나. `source`(`work:<id>` · `part:<id>` ·
+    """**유사 형상** — 이것과 유사한 형상이 이미 있나. `source`(`work:<id>` · `part:<id>` ·
     `jig:<id>` — 그 최신 버전) 또는 저장 전 `recipe` 하나를 준다. `where` 는 works · parts ·
     jigs 중(기본 셋 다), 작업은 네 것만.
 
-    답의 줄마다 `score`(0 ~ 1), 성분별 닮음 `parts`(size · proportion · fill · holes · ops ·
-    solids), 사람 말 `why`(「크기 비슷」 · 「구멍 같음」 · 「모양 비율 같음(크기는 다름)」).
+    답의 줄마다 `score`(0 ~ 1), 성분별 유사도 `parts`(size · proportion · fill · holes · ops
+    · solids), 사람 말 `why`(「크기 유사」 · 「구멍 동일」 · 「형상 비율 동일(크기 다름)」).
     **부품 줄에는 그 부품의 지그(`jigs`)가 붙는다** — 「이 제품에 맞는 지그가 있나」 는
-    `source="part:<id>"`(또는 그 제품의 레시피)로 물어 비슷한 부품의 지그부터 본다. 새로 그리기
+    `source="part:<id>"`(또는 그 제품의 레시피)로 물어 유사 부품의 지그부터 본다. 새로 그리기
     전에 먼저 물어라. 치수 조건으로 거르려면 `find_by_shape`."""
     body: dict[str, Any] = {"limit": limit}
     if source:
@@ -1806,7 +1807,7 @@ async def find_by_shape(
 
     답의 줄마다 `source`(조립의 `component` 에 그대로) · 크기(`size` · `dims`) · 부피 · 구멍
     (`holes` — 지름 `d` · 개수 `n` · 그중 관통) · 쓴 연산 · 나사 · 변수. 이 기능 전에 만든
-    버전은 관리자가 서버 화면에서 색인을 채워야 잡힌다."""
+    버전은 관리자가 서버 화면에서 「형상 색인 생성」 을 해야 잡힌다."""
     places = list(_SHAPE_LISTS) if where == "all" else [where]
     if any(one not in _SHAPE_LISTS for one in places):
         return {"error": f"where 는 {' · '.join(_SHAPE_LISTS)} · all 중 하나입니다"}
@@ -1852,9 +1853,9 @@ async def find_by_shape(
 async def list_parts(
     ctx: Context, limit: int = 50, folder: str | None = None, query: str = "", tag: str = ""
 ) -> Any:
-    """부품 카탈로그(누구나 보는 것). 고치려면 `copy_part_to_work` 로 내 공간에 복사한다.
+    """부품 카탈로그(누구나 보는 것). 고치려면 `copy_part_to_work` 로 내 작업 공간에 복사한다.
     `folder`(`고객A/2026` 같은 경로 — 그 아래까지) · `query`(이름 · 설명) · `tag` 로 거른다.
-    각 부품의 `folder` 가 놓인 곳, `owner_id` 가 올린 사람(옮기기 · 고치기는 그 사람 ·
+    각 부품의 `folder` 가 놓인 곳, `owner_id` 가 등록한 사용자(옮기기 · 고치기는 그 사용자 ·
     관리자)."""
     params: dict[str, Any] = {"limit": limit}
     if folder is not None:
@@ -1889,7 +1890,7 @@ async def get_part(ctx: Context, part_id: str) -> Any:
 
 @mcp.tool()
 async def copy_part_to_work(ctx: Context, part_id: str, name: str | None = None) -> Any:
-    """부품의 레시피로 내 작업을 새로 만든다 — 남의 부품을 고치는 유일한 길."""
+    """부품의 레시피로 내 작업을 새로 만든다 — 다른 사용자의 부품을 고치는 유일한 길."""
     work = await _post(ctx, f"/api/parts/{part_id}/copy-to-work", {"name": name})
     if not isinstance(work, dict) or "error" in work:
         return work
@@ -1960,7 +1961,7 @@ async def cancel_job(ctx: Context, job_id: str) -> Any:
 
 @mcp.tool()
 async def doe_cancel(ctx: Context, study_id: str) -> Any:
-    """DOE 만들기를 **멈춘다** — 그때까지 만든 점과 표(`manifest.csv`)는 남고, 남은 점은
+    """DOE 생성을 **멈춘다** — 그때까지 만든 점과 표(`manifest.csv`)는 남고, 남은 점은
     pending 으로 둔다. 이어 만들려면 `doe_rerun(study_id, only="failed")`(안 만든 점 · 실패한
     점을 같은 값으로). 도는 중이면 지금 만드는 형상까지 마치고 멈추므로 `doe_status` 로 끝을
     본다. **사용자가 멈추라고 할 때만** 부른다."""
@@ -2000,7 +2001,7 @@ def _space(space: str) -> str | None:
 async def list_folders(ctx: Context, space: str = "works", scope: str = "all") -> Any:
     """폴더 나무 — 경로마다 **바로 그 폴더에** 있는 수(위 폴더도 빠짐없이, 맨 위는 `""`).
 
-    `space`: `works`(내 작업 — 만든 해별 수 `years` 도 준다) · `parts` · `jigs` · `templates`
+    `space`: `works`(내 작업 — 생성 연도별 수 `years` 도 준다) · `parts` · `jigs` · `templates`
     (`scope` = all · mine · shared). 폴더는 항목이 들고 있는 경로라, 비어 있는 폴더는 없다 —
     새 폴더는 항목을 그 경로로 옮기면 생긴다(`move_to_folder`)."""
     if problem := _space(space):
@@ -2022,8 +2023,8 @@ async def move_to_folder(ctx: Context, space: str, ids: list[str], folder: str =
     """항목 여럿을 한 폴더로 옮긴다 — `folder` 는 `고객A/2026` 같은 경로(없으면 생긴다, 비우면
     맨 위). `space` 는 `works` · `parts` · `jigs` · `templates`.
 
-    공용 공간(부품 · 지그 · 템플릿)은 **올린 사람 · 관리자만** 옮긴다 — 하나라도 남의 것이면
-    아무것도 옮기지 않는다(그때는 오류를 그대로 사용자에게 전한다)."""
+    공용 공간(부품 · 지그 · 템플릿)은 **등록한 사용자 · 관리자만** 옮긴다 — 하나라도 다른
+    사용자의 것이면 아무것도 옮기지 않는다(그때는 오류를 그대로 사용자에게 전한다)."""
     if problem := _space(space):
         return {"error": problem}
     return await _post(ctx, f"/api/{space}/move", {"ids": ids, "folder": folder})
@@ -2032,10 +2033,10 @@ async def move_to_folder(ctx: Context, space: str, ids: list[str], folder: str =
 @mcp.tool()
 async def rename_folder(ctx: Context, space: str, path: str, to: str = "") -> Any:
     """폴더 이름 바꾸기 · 옮기기 — 하위 폴더와 그 안의 항목이 함께 간다. 이미 있는 경로면
-    합쳐진다. **폴더 지우기는 위 폴더로 합치는 것이다**(`to` 를 위 폴더 경로로, 맨 위면 `""`)
+    합쳐진다. **폴더 삭제는 위 폴더로 합치는 것이다**(`to` 를 위 폴더 경로로, 맨 위면 `""`)
     — 항목은 지우지 않는다.
 
-    공용 공간에서 그 폴더(하위 포함)에 **남의 것이 섞여 있으면 관리자만** 된다."""
+    공용 공간에서 그 폴더(하위 포함)에 **다른 사용자의 것이 섞여 있으면 관리자만** 된다."""
     if problem := _space(space):
         return {"error": problem}
     return await _post(ctx, f"/api/{space}/folders/rename", {"path": path, "to": to})
@@ -2043,7 +2044,7 @@ async def rename_folder(ctx: Context, space: str, path: str, to: str = "") -> An
 
 @mcp.tool()
 async def list_tags(ctx: Context, space: str = "works") -> Any:
-    """꼬리표 전부(많이 쓴 것부터) — `works` · `parts` · `jigs` · `templates`. 목록 도구의
+    """태그 전부(많이 쓴 것부터) — `works` · `parts` · `jigs` · `templates`. 목록 도구의
     `tag` 로 거를 때 쓸 이름을 여기서 고른다."""
     if problem := _space(space):
         return {"error": problem}
@@ -2062,7 +2063,7 @@ async def update_work(
     kind: str | None = None,
     unit_system: str | None = None,
 ) -> Any:
-    """작업의 **이름 · 설명 · 꼬리표 · 폴더 · 종류 · 내보내기 단위계**를 고친다 — 준 것만.
+    """작업의 **이름 · 설명 · 태그 · 폴더 · 종류 · 내보내기 단위계**를 고친다 — 준 것만.
 
     도면(레시피)은 여기서 안 바뀐다 — `save_version` · `patch_work`. `tags` 는 **전체를
     바꾼다**(빈 목록이면 다 뗀다 — 하나 더하려면 `get_work` 의 `tags` 에 붙여서 준다).
@@ -2099,7 +2100,7 @@ async def update_work(
 async def duplicate_work(
     ctx: Context, work_id: str, name: str | None = None, with_conditions: bool = False
 ) -> Any:
-    """작업을 **현재 도면으로 복제**한다 — 종류 · 꼬리표 · 폴더 · 잡는 부품 · 지그 옵션이
+    """작업을 **현재 도면으로 복제**한다 — 종류 · 태그 · 폴더 · 잡는 부품 · 지그 옵션이
     따라가고 버전은 1 부터. 원본을 그대로 두고 변형을 그릴 때(「이 지그 복사해서 두께만」).
 
     `with_conditions` 면 **해석 조건도** 복사한다 — 같은 조건으로 변형을 훑을 때(DOE). 다른
@@ -2124,14 +2125,14 @@ async def duplicate_work(
 
 @mcp.tool()
 async def delete_work(ctx: Context, work_id: str) -> Any:
-    """작업을 **휴지통으로** 보낸다 — 지우지 않는다(`restore_work` 로 되살린다). 승격된
+    """작업을 **휴지통으로** 보낸다 — 지우지 않는다(`restore_work` 로 복원한다). 등록된
     부품 · 지그는 제 사본을 들고 있어 영향이 없다. **사용자가 지우라고 할 때만** 부른다."""
     return await _delete(ctx, f"/api/works/{work_id}")
 
 
 @mcp.tool()
 async def restore_work(ctx: Context, work_id: str) -> Any:
-    """휴지통의 작업을 되살린다. 휴지통은 `list_works(trashed=True)` 로 본다."""
+    """휴지통의 작업을 복원한다. 휴지통은 `list_works(trashed=True)` 로 본다."""
     work = await _post(ctx, f"/api/works/{work_id}/restore")
     if not isinstance(work, dict) or "error" in work:
         return work
@@ -2149,7 +2150,7 @@ async def list_templates(
 ) -> Any:
     """템플릿 목록 — `scope` = all(내 것 + 공용) · mine · shared. `folder` 면 그 폴더
     (아래까지), `query` · `tag` 로도 거른다. 본문은 `template_recipe(id)`. 내 것만
-    고치고(`update_template`), 남의 공용 것은 `copy_template` 로 복사해서 쓴다."""
+    고치고(`update_template`), 다른 사용자의 공용 것은 `copy_template` 로 복사해서 쓴다."""
     params: dict[str, Any] = {"scope": scope, "limit": limit}
     if folder is not None:
         params["folder"] = folder
@@ -2188,8 +2189,8 @@ async def update_template(
     shared: bool | None = None,
     folder: str | None = None,
 ) -> Any:
-    """내 템플릿의 이름 · 설명 · **공용 여부** · 폴더를 고친다 — 준 것만. 공용으로 내놓으면
-    로그인한 누구나 시작점으로 고른다(고치는 것은 만든 사람뿐). 레시피 본문을 바꾸려면 새로
+    """내 템플릿의 이름 · 설명 · **공용 여부** · 폴더를 고친다 — 준 것만. 공용으로 공개하면
+    로그인한 누구나 시작점으로 고른다(고치는 것은 작성자뿐). 레시피 본문을 바꾸려면 새로
     `save_template` 한다."""
     body = {
         key: value
@@ -2218,8 +2219,8 @@ async def update_template(
 
 @mcp.tool()
 async def copy_template(ctx: Context, template_id: str) -> Any:
-    """템플릿을 **내 것으로 복사**한다 — 남의 공용 템플릿은 고칠 수 없으니. 폴더 · 꼬리표가
-    따라온다."""
+    """템플릿을 **내 것으로 복사**한다 — 다른 사용자의 공용 템플릿은 고칠 수 없으니. 폴더 ·
+    태그가 따라온다."""
     got = await _post(ctx, f"/api/templates/{template_id}/copy", {})
     if not isinstance(got, dict) or "error" in got:
         return got
@@ -2236,8 +2237,8 @@ async def update_catalog_item(
     folder: str | None = None,
 ) -> Any:
     """공용 부품 · 지그(`space` = parts · jigs)의 이름 · 설명 · 폴더를 고친다 — 준 것만.
-    **올린 사람 · 관리자만** 된다. 형상(버전)은 여기서 안 바뀐다 — 내 작업에서 고쳐 다시
-    승격한다."""
+    **등록한 사용자 · 관리자만** 된다. 형상(버전)은 여기서 안 바뀐다 — 내 작업에서 고쳐 다시
+    등록한다."""
     if space not in ("parts", "jigs"):
         return {"error": "space 는 parts · jigs 중 하나입니다(템플릿은 update_template)."}
     body = {

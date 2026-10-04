@@ -33,7 +33,7 @@ test('못 푼 까닭을 나눠서 말한다 — 「아직 안 썼다」 는 틀�
   const { explain } = await import('@/modules/cad/expr')
   expect(explain('=판_길이', PARAMS)).toBeNull()
   expect(explain(40, PARAMS)).toBeNull()
-  expect(explain('=', PARAMS)).toEqual({ kind: 'empty', message: expect.stringContaining('식을 쓰세요') })
+  expect(explain('=', PARAMS)).toEqual({ kind: 'empty', message: expect.stringContaining('식을 입력하십시오') })
   expect(explain('=  ', PARAMS)?.kind).toBe('empty')
   expect(explain('=두께2', PARAMS)).toEqual({
     kind: 'unknown',

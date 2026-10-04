@@ -29,7 +29,7 @@ def get_jig(db: Session, jig_id: uuid.UUID) -> Jig:
 
 def require_owner(jig: Jig, user: User) -> None:
     if jig.owner_id != user.id and not user.is_system_admin:
-        raise Forbidden(code("JIGS", 2), "이 지그를 고칠 권한이 없습니다.")
+        raise Forbidden(code("JIGS", 2), "이 지그를 수정할 권한이 없습니다.")
 
 
 def get_version(db: Session, jig: Jig, number: int) -> JigVersion:
@@ -37,7 +37,7 @@ def get_version(db: Session, jig: Jig, number: int) -> JigVersion:
         select(JigVersion).where(JigVersion.jig_id == jig.id, JigVersion.number == number)
     )
     if version is None:
-        raise NotFound(code("JIGS", 3), f"버전 {number} 이 없습니다.")
+        raise NotFound(code("JIGS", 3), f"v{number} 버전을 찾을 수 없습니다.")
     return version
 
 

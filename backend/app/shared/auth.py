@@ -67,7 +67,7 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
 
     signed_in = db.get(User, payload["sub"])
     if signed_in is None:
-        raise Forbidden(code("AUTH", 2), "삭제된 계정입니다. 관리자에게 문의하세요.")
+        raise Forbidden(code("AUTH", 2), "삭제된 계정입니다. 관리자에게 문의하십시오.")
     services.ensure_can_sign_in(signed_in)
     request.scope[USER_ID_SCOPE_KEY] = signed_in.id
     return signed_in

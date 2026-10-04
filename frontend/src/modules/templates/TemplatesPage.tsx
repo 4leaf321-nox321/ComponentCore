@@ -42,9 +42,9 @@ import { shownDateTime } from '@/shared/lib/datetime'
 
 
 const SCOPES: { value: TemplateScope; label: string; hint: string }[] = [
-  { value: 'all', label: '전체', hint: '내 템플릿과 공용 템플릿을 함께 봅니다. 내 것이 먼저 옵니다.' },
-  { value: 'mine', label: '내 템플릿', hint: '내가 만든 것. 나만 보이고, 공용으로 내놓을 수 있습니다.' },
-  { value: 'shared', label: '공용', hint: '누구나 시작점으로 고를 수 있는 것. 남의 것은 복사해서 씁니다.' },
+  { value: 'all', label: '전체', hint: '내 템플릿과 공용 템플릿을 함께 표시합니다. 내 템플릿이 먼저 표시됩니다.' },
+  { value: 'mine', label: '내 템플릿', hint: '본인이 생성한 템플릿입니다. 본인만 조회할 수 있으며, 공용으로 공개할 수 있습니다.' },
+  { value: 'shared', label: '공용', hint: '모든 사용자가 시작점으로 선택할 수 있는 템플릿입니다. 다른 사용자의 템플릿은 복사하여 사용합니다.' },
 ]
 
 export default function TemplatesPage() {
@@ -82,7 +82,7 @@ export default function TemplatesPage() {
       page.reload()
       space.refresh()
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
       setBusy(null)
     }
@@ -92,10 +92,10 @@ export default function TemplatesPage() {
     <div>
       <PageHeader
         title="템플릿"
-        description="그리기의 출발점. 내 것으로 두거나 공용으로 내놓습니다. 고친 결과는 템플릿이 아니라 내 작업으로 갑니다."
+        description="모델링의 시작점입니다. 내 템플릿으로 두거나 공용으로 공개할 수 있으며, 수정한 결과는 템플릿이 아닌 내 작업에 저장됩니다."
         actions={
           <Button variant="outline" onClick={() => navigate('/draw')}>
-            그리기로 새로 만들기
+            새 작업 생성
           </Button>
         }
       />
@@ -129,9 +129,9 @@ export default function TemplatesPage() {
             setQuery(event.target.value)
             setOffset(0)
           }}
-          placeholder="이름 · 설명으로 찾기"
+          placeholder="이름, 설명으로 검색"
           className="h-9 w-64"
-          aria-label="템플릿 찾기"
+          aria-label="템플릿 검색"
         />
         <TagFilter tags={tags.data ?? []} value={tag} onChange={(next) => { setTag(next); setOffset(0) }} />
         <span className="text-muted-foreground text-xs">{SCOPES.find((one) => one.value === scope)?.hint}</span>
@@ -143,9 +143,9 @@ export default function TemplatesPage() {
 
       {rows.length === 0 && !page.loading ? (
         <EmptyState
-          title={query || tag ? '찾는 템플릿이 없습니다' : space.folder !== null ? '이 폴더에 템플릿이 없습니다' : scope === 'shared' ? '공용으로 내놓은 템플릿이 없습니다' : '아직 템플릿이 없습니다'}
-          hint={space.folder !== null ? '템플릿을 이 폴더로 끌어다 놓거나, 그리기에서 저장할 때 폴더를 적으세요.' : '그리기에서 「파일」 탭의 「템플릿」 단추로 저장하면 여기 뜹니다.'}
-          action={<Button onClick={() => navigate('/draw')}>그리기로 가기</Button>}
+          title={query || tag ? '검색 조건에 맞는 템플릿이 없습니다' : space.folder !== null ? '이 폴더에 템플릿이 없습니다' : scope === 'shared' ? '공용으로 공개된 템플릿이 없습니다' : '등록된 템플릿이 없습니다'}
+          hint={space.folder !== null ? '템플릿을 이 폴더로 끌어다 놓거나, 새 작업 화면에서 저장할 때 폴더를 지정하십시오.' : '새 작업 화면의 ‘파일’ 탭에서 ‘템플릿’ 버튼으로 저장하면 이 목록에 표시됩니다'}
+          action={<Button onClick={() => navigate('/draw')}>새 작업으로 이동</Button>}
         />
       ) : (
         <>
@@ -156,11 +156,11 @@ export default function TemplatesPage() {
                   <PickAll space={space} ids={rows.filter(movable).map((row) => row.id)} />
                 </TableHead>
                 <TableHead>이름</TableHead>
-                <TableHead>자리</TableHead>
+                <TableHead>공개 범위</TableHead>
                 <TableHead>피처</TableHead>
-                <TableHead>만든 사람</TableHead>
-                <TableHead>갱신</TableHead>
-                <TableHead className="text-right">할 일</TableHead>
+                <TableHead>작성자</TableHead>
+                <TableHead>수정일</TableHead>
+                <TableHead className="text-right">관리</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -182,10 +182,10 @@ export default function TemplatesPage() {
                     {row.description && <p className="text-muted-foreground truncate text-xs">{row.description}</p>}
                   </TableCell>
                   <TableCell>
-                    {row.is_shared ? <Badge variant="secondary">공용</Badge> : <Badge variant="outline">내 것</Badge>}
+                    {row.is_shared ? <Badge variant="secondary">공용</Badge> : <Badge variant="outline">내 템플릿</Badge>}
                   </TableCell>
                   <TableCell>{row.node_count}</TableCell>
-                  <TableCell>{row.mine ? '나' : row.owner_name}</TableCell>
+                  <TableCell>{row.mine ? '본인' : row.owner_name}</TableCell>
                   <TableCell>{shownDateTime(row.updated_at)}</TableCell>
                   <TableCell className="space-x-1 text-right">
                     <Button size="sm" onClick={() => navigate(`/draw?template=${row.id}`)}>
@@ -199,15 +199,15 @@ export default function TemplatesPage() {
                           disabled={busy === row.id}
                           onClick={() => void act(() => templatesApi.update(row.id, { is_shared: !row.is_shared }), row.id)}
                         >
-                          {row.is_shared ? '공용에서 거두기' : '공용으로 내놓기'}
+                          {row.is_shared ? '공용 해제' : '공용으로 공개'}
                         </Button>
                         <Button size="sm" variant="ghost" disabled={busy === row.id} onClick={() => setRemoving(row)}>
-                          지우기
+                          삭제
                         </Button>
                       </>
                     ) : (
                       <Button size="sm" variant="outline" disabled={busy === row.id} onClick={() => void act(() => templatesApi.copy(row.id), row.id)}>
-                        내 것으로 복사
+                        내 템플릿으로 복사
                       </Button>
                     )}
                   </TableCell>
@@ -226,9 +226,9 @@ export default function TemplatesPage() {
 
       <ConfirmDialog
         open={removing !== null}
-        title="템플릿을 지웁니다"
-        description={`「${removing?.name ?? ''}」 을 지웁니다. 이 템플릿에서 시작한 작업은 그대로 남습니다.`}
-        confirmLabel="지우기"
+        title="템플릿 삭제"
+        description={`‘${removing?.name ?? ''}’ 템플릿을 삭제하시겠습니까? 이 템플릿에서 시작한 작업은 그대로 유지됩니다.`}
+        confirmLabel="삭제"
         onConfirm={async () => {
           const target = removing
           setRemoving(null)

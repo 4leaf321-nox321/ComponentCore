@@ -53,7 +53,7 @@ def test_한_벌을_읽고_되돌려_준다() -> None:
 
 def test_없는_이름표를_가리키면_지금_말한다() -> None:
     """내보낸 뒤 해석 쪽에서 0 개를 집으면 **하중 없는 해석**이 끝까지 돈다."""
-    with pytest.raises(ConditionError, match="선택 그룹이 없습니다"):
+    with pytest.raises(ConditionError, match="선택 그룹 ‘옆면’이"):
         parse(
             {**FULL, "constraints": [{"name": "고정", "type": "fixed_support", "on": "옆면"}]}
         )
@@ -68,7 +68,7 @@ def test_없는_이름표를_가리키면_지금_말한다() -> None:
 
 def test_이름표가_겹치면_막는다() -> None:
     doubled = [FULL["named_selections"][0], FULL["named_selections"][0]]
-    with pytest.raises(ConditionError, match="겹칩니다"):
+    with pytest.raises(ConditionError, match="중복됩니다"):
         parse({**FULL, "named_selections": doubled, "constraints": [], "loads": []})
 
 
@@ -217,8 +217,8 @@ def test_없는_바디에_물성을_붙이면_막는다() -> None:
     parse(raw, ["바닥판", "기둥"])  # 있으면 통과
     with pytest.raises(ConditionError) as failure:
         parse(raw, ["바닥판"])
-    assert "「기둥」 라는 바디가 없습니다" in str(failure.value)
-    assert "있는 것: 바닥판" in str(failure.value), "무엇을 고를 수 있는지 말해 준다"
+    assert "바디 ‘기둥’이(가) 없습니다" in str(failure.value)
+    assert "존재하는 바디: 바닥판" in str(failure.value), "무엇을 고를 수 있는지 말해 준다"
 
     # 「전체」 는 언제나 된다 — 모든 바디라는 뜻이다.
     parse({"materials": [{"apply_to": ["전체"], "payload": {}}]}, ["바닥판"])
@@ -250,7 +250,7 @@ def test_바디_하나에_물성_둘은_막는다() -> None:
     }
     with pytest.raises(ConditionError) as failure:
         parse(둘)
-    assert "「기둥」 에 물성이 둘 붙었습니다" in str(failure.value)
+    assert "‘기둥’에 물성이 2개 지정되었습니다" in str(failure.value)
     assert "materials[0]" in str(failure.value), "어느 것과 겹치는지 말한다"
 
     # 「전체」 는 모든 바디라서, 다른 재료가 한 바디라도 가리키면 겹친다.
@@ -263,7 +263,7 @@ def test_바디_하나에_물성_둘은_막는다() -> None:
                 ]
             }
         )
-    assert "「기둥」 에 물성이 둘이 됩니다" in str(failure.value)
+    assert "‘기둥’에 물성이 2개 지정됩니다" in str(failure.value)
 
     # 담아만 둔 재료(빈 목록)는 몇 개든 겹치지 않는다.
     parse({"materials": [{"apply_to": [], "payload": {}}, {"apply_to": [], "payload": {}}]})
@@ -455,7 +455,7 @@ def test_원격_변위는_이동_회전을_방향마다_정하고_원격점은_�
     assert (held.location, held.behavior) == ("centroid", "deformable")
     # 원격점을 좌표계 원점으로 — 좌표계를 골라야 한다(전역 원점은 모델과 상관없다).
     parse({**base, "constraints": [{**one, "location": "cs_origin", "cs": "핀 중심"}]})
-    with pytest.raises(ConditionError, match="좌표계를 고르세요"):
+    with pytest.raises(ConditionError, match="좌표계를 선택하십시오"):
         parse({**base, "constraints": [{**one, "location": "cs_origin"}]})
 
 
@@ -487,7 +487,7 @@ def test_하중은_빠진_값과_쓸_수_없는_방향을_저장할_때_말한�
         (load(type="force", direction=[0, 0, 1]), "크기가 없습니다"),
         (load(type="force", magnitude=1), "방향이 없습니다"),
         (load(type="force", magnitude=1, direction=[0, 0, 0]), "0 벡터"),
-        (load(type="force", magnitude=1, direction="normal"), "압력만"),
+        (load(type="force", magnitude=1, direction="normal"), "압력에만"),
         (load(type="moment", magnitude=1, on="", direction=[0, 0, 1]), "선택 그룹이 없습니다"),
         (load(type="bolt_pretension"), "예압"),
     ]
@@ -572,7 +572,7 @@ def test_하중의_단위는_mm_N_t_이름만_받는다() -> None:
     one = {"name": "누름", "type": "pressure", "on": "윗면", "magnitude": 1}
     parse({**LOAD_BASE, "loads": [{**one, "unit": "MPa"}]})
     # 내보내기 계가 SI 여도 입력은 mm · N · t — Pa 로 적으면 막는다(10⁶ 배 틀린다).
-    with pytest.raises(ConditionError, match="mm · N · t 로 적습니다"):
+    with pytest.raises(ConditionError, match="mm·N·t 단위로 입력합니다"):
         parse({**LOAD_BASE, "units": {"system": "si"}, "loads": [{**one, "unit": "Pa"}]})
 
 
@@ -583,8 +583,8 @@ def test_풀리지_않는_식은_고치는_중에_알린다() -> None:
         "constraints": [{"name": "밀기", "type": "displacement", "on": "윗면", "x": "=두께"}],
     }
     notes = conditions.expression_notes(raw, {"두께": 5})
-    assert [(one["where"], one["level"]) for one in notes] == [("하중 「누름」 크기", "warn")]
-    assert "모르는 이름" in notes[0]["text"]
+    assert [(one["where"], one["level"]) for one in notes] == [("하중 ‘누름’ 크기", "warn")]
+    assert "알 수 없는 이름" in notes[0]["text"]
 
 
 def test_마이그레이션_0022_는_SI_로_적힌_값을_mm_N_t_로_옮긴다() -> None:
@@ -689,8 +689,8 @@ def test_메시_힌트는_고르는_칸이_정해져_있고_비운_것은_받는
     group = spec()["groups"]["mesh_hints"]
     assert group["fields"]["on"]["whole"] == "전체"
     assert group["fields"]["element_size"]["unit"] == "mm"
-    assert "바람" in group["intro"]
-    assert spec()["groups"]["contacts"]["fields"]["type"]["labels"]["bonded"] == "본딩(붙음)"
+    assert "권장 사항" in group["intro"]
+    assert spec()["groups"]["contacts"]["fields"]["type"]["labels"]["bonded"] == "본딩(접합)"
 
 
 def test_해석_설정은_종류마다_꼭_필요한_값을_저장할_때_말한다() -> None:
@@ -699,8 +699,8 @@ def test_해석_설정은_종류마다_꼭_필요한_값을_저장할_때_말한
         ({"type": "harmonic"}, "주파수 범위가 없습니다"),
         ({"type": "harmonic", "frequency_range": [0, 500], "modes": 0}, "모드 중첩"),
         ({"type": "harmonic", "frequency_range": [500, 100]}, "최소 < 최대"),
-        ({"type": "explicit"}, "끝 시간이 없습니다"),
-        ({"type": "thermal", "thermal_mode": "transient"}, "열 과도 해석 에 끝 시간"),
+        ({"type": "explicit"}, "종료 시간이 없습니다"),
+        ({"type": "thermal", "thermal_mode": "transient"}, "과도 열 해석에 종료 시간"),
         ({"type": "static", "steps": 0}, "1 이상"),
     ]
     for analysis, message in cases:
@@ -749,7 +749,7 @@ def test_내보낼_때는_그_종류의_칸만_기본값을_채워_싣는다() -
 def test_해석_설정의_사양표는_종류마다_설명과_칸을_싣는다() -> None:
     analysis = spec()["analysis"]
     assert set(analysis["notes"]) == set(analysis["properties"]["type"]["enum"])
-    assert analysis["properties"]["type"]["labels"]["explicit"] == "명시적 동해석(충돌 · 낙하)"
+    assert analysis["properties"]["type"]["labels"]["explicit"] == "명시적 동해석(충돌·낙하)"
     assert analysis["properties"]["end_time"]["only_for"] == ["explicit", "thermal"]
     assert analysis["properties"]["frequency_range"]["range"] is True
     assert analysis["intro"]
@@ -783,23 +783,23 @@ def test_조건마다_받는_선택_그룹의_종류와_모양이_정해져_있�
     # 힘은 면 · 엣지 · 점 어디든.
     for on in ("윗면", "모서리", "꼭짓점"):
         parse(load("force", on))
-    with pytest.raises(ConditionError, match="면 · 엣지 · 점 선택 그룹에만"):
+    with pytest.raises(ConditionError, match="면, 엣지, 점 선택 그룹만"):
         parse(load("force", "몸"))
     # 압력은 면만 — 무엇이 잘못인지 말한다.
-    with pytest.raises(ConditionError, match="「모서리」 은 엣지 선택 그룹입니다"):
+    with pytest.raises(ConditionError, match="‘모서리’의 종류는 엣지입니다"):
         parse(load("pressure", "모서리"))
     # 베어링은 원통면 — 규칙에 kind: cylinder 가 있어야 한다(가까운 면만으로는 안 된다).
     parse(load("bearing", "구멍"))
-    with pytest.raises(ConditionError, match="kind: cylinder 가 없어"):
+    with pytest.raises(ConditionError, match="kind: cylinder 조건이 없어"):
         parse(load("bearing", "가까운 면"))
     # 볼트는 원통면 또는 바디.
     parse(load("bolt_pretension", "몸", preload=1000, magnitude=None, direction=None))
 
     contact = {"name": "맞닿음", "type": "bonded", "source": "윗면", "target": "모서리"}
-    with pytest.raises(ConditionError, match="대상면 는 면 선택 그룹에만"):
+    with pytest.raises(ConditionError, match="대상면에는 면 선택 그룹만"):
         parse({**SPOTS, "contacts": [contact]})
     cylinder = {"name": "핀", "type": "cylindrical", "on": "윗면"}
-    with pytest.raises(ConditionError, match="원통면 에만"):
+    with pytest.raises(ConditionError, match="원통면만 지정"):
         parse({**SPOTS, "constraints": [cylinder]})
     # 사양표에 실린다 — 화면 · AI 가 같은 것을 본다.
     groups = spec()["groups"]
@@ -811,13 +811,13 @@ def test_모멘트_원격_변위는_면_엣지_메시_힌트는_면_엣지_바�
     """SimEngBay 가 Mechanical 스코핑 규칙으로 맞춘 표(2026-09-28)."""
     moment = {"name": "비틀기", "type": "moment", "magnitude": 1, "direction": [0, 0, 1]}
     parse({**SPOTS, "loads": [{**moment, "on": "모서리"}]})
-    with pytest.raises(ConditionError, match="면 · 엣지 선택 그룹에만"):
+    with pytest.raises(ConditionError, match="면, 엣지 선택 그룹만"):
         parse({**SPOTS, "loads": [{**moment, "on": "꼭짓점"}]})
     remote = {"name": "원격", "type": "remote_displacement", "x": 0}
-    with pytest.raises(ConditionError, match="면 · 엣지 선택 그룹에만"):
+    with pytest.raises(ConditionError, match="면, 엣지 선택 그룹만"):
         parse({**SPOTS, "constraints": [{**remote, "on": "꼭짓점"}]})
     parse({**SPOTS, "mesh_hints": [{"on": "몸", "element_size": 3}, {"on": "전체"}]})
-    with pytest.raises(ConditionError, match="면 · 엣지 · 바디 선택 그룹에만"):
+    with pytest.raises(ConditionError, match="면, 엣지, 바디 선택 그룹만"):
         parse({**SPOTS, "mesh_hints": [{"on": "꼭짓점", "element_size": 1}]})
     assert spec()["groups"]["mesh_hints"]["accepts"]["*"][2] == {"entity": "body"}
 
@@ -842,7 +842,7 @@ def test_재료를_바꿔_끼우면_그_바디만_옮기고_원본은_그대로�
     with pytest.raises(ConditionError, match="번호"):
         conditions.with_material(twin, ["블록"], "SECC")
     whole = {"materials": [{"apply_to": ["전체"], "ref": {"name": "A"}}, raw["materials"][2]]}
-    with pytest.raises(ConditionError, match="「전체」 에 붙어"):
+    with pytest.raises(ConditionError, match="‘전체’에 지정되어"):
         conditions.with_material(whole, ["블록"], "SUS304")
 
 
@@ -909,10 +909,10 @@ def test_정수_칸도_식을_쓰고_풀리면_정수여야_한다() -> None:
 def test_배율은_없는_물성이나_전체에_붙은_재료에는_걸지_않는다() -> None:
     """값은 그대로인데 `scaled` 만 붙으면 받는 쪽은 배율이 걸린 줄 안다."""
     lacks = {"materials": [{"apply_to": ["블록"], "converted": {"density": 1.0}}]}
-    with pytest.raises(ConditionError, match="「탄성계수」 가 없어"):
+    with pytest.raises(ConditionError, match="‘탄성계수’ 물성이 없어"):
         conditions.with_scale(lacks, ["블록"], "탄성계수", 1.1)
     whole = {"materials": [{"apply_to": ["전체"], "converted": {"density": 1.0}}]}
-    with pytest.raises(ConditionError, match="「전체」 에 붙어 있어"):
+    with pytest.raises(ConditionError, match="‘전체’에 지정되어 있어"):
         conditions.with_scale(whole, ["블록"], "밀도", 2.0)
     # 단품(「전체」)에 「전체」 로 걸면 된다.
     single = conditions.with_scale(whole, ["전체"], "밀도", 2.0)

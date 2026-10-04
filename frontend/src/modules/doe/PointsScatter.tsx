@@ -154,14 +154,14 @@ export function PointsScatter({
     <div className="space-y-2" aria-label="설계점 분포">
       {names.length > 4 && (
         <div className="flex items-center gap-2 text-xs">
-          <span className="text-muted-foreground">가로</span>
-          <select aria-label="가로 변수" className="bg-background rounded border px-1 py-0.5" value={x} onChange={(e) => setX(e.target.value)}>
+          <span className="text-muted-foreground">가로축</span>
+          <select aria-label="가로축 변수" className="bg-background rounded border px-1 py-0.5" value={x} onChange={(e) => setX(e.target.value)}>
             {names.map((one) => (
               <option key={one}>{one}</option>
             ))}
           </select>
-          <span className="text-muted-foreground">세로</span>
-          <select aria-label="세로 변수" className="bg-background rounded border px-1 py-0.5" value={y} onChange={(e) => setY(e.target.value)}>
+          <span className="text-muted-foreground">세로축</span>
+          <select aria-label="세로축 변수" className="bg-background rounded border px-1 py-0.5" value={y} onChange={(e) => setY(e.target.value)}>
             {names.map((one) => (
               <option key={one}>{one}</option>
             ))}
@@ -181,7 +181,7 @@ export function PointsScatter({
         {batches > 1 &&
           Array.from({ length: batches }, (_, i) => (
             <span key={i}>
-              <span style={{ color: BATCH_COLORS[i % BATCH_COLORS.length] }}>●</span> 묶음 {i + 1}
+              <span style={{ color: BATCH_COLORS[i % BATCH_COLORS.length] }}>●</span> 배치 {i + 1}
             </span>
           ))}
         {failed && (
@@ -189,7 +189,7 @@ export function PointsScatter({
             <span className="text-red-600">×</span> 실패
           </span>
         )}
-        {rejected && <span>× 제약에 걸린 후보</span>}
+        {rejected && <span>× 제약 조건으로 제외된 후보</span>}
       </p>
     </div>
   )

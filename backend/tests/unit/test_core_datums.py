@@ -203,7 +203,7 @@ def _made_raw_result() -> dict[str, Any]:
         (
             [{"id": "축", "op": "datum_axis", "through": [[0, 0, 0], [1, 0, 0]],
               "origin": [0, 0, 0], "direction": [1, 0, 0]}],
-            "중 하나로 정합니다",
+            "중 하나로 정의해야 합니다",
         ),
         ([{"id": "면", "op": "datum_plane", "plane": {"name": "XY"}, "angle": 30}], "hinge"),
         (
@@ -229,5 +229,5 @@ def test_형상에서_고른_것이_여럿이면_하나를_고르라고_한다()
             {"id": "면", "op": "datum_plane", "target": "b", "select": {"kind": "plane"}},
         ]
     }
-    with pytest.raises(RecipeError, match="6 개에 맞습니다"):
+    with pytest.raises(RecipeError, match="조건에 맞는 항목이 6개입니다"):
         _made(raw)

@@ -31,7 +31,7 @@ _REF_FIELDS = ("target", "targets", "tools", "sketch", "path", "profile", "sketc
 def _nodes(recipe: dict[str, Any]) -> list[dict[str, Any]]:
     nodes = recipe.setdefault("nodes", [])
     if not isinstance(nodes, list):
-        raise PatchError("nodes 가 목록이 아닙니다")
+        raise PatchError("nodes가 목록이 아닙니다.")
     return nodes
 
 
@@ -39,7 +39,7 @@ def _index(nodes: list[dict[str, Any]], node_id: str, what: str) -> int:
     for i, one in enumerate(nodes):
         if one.get("id") == node_id:
             return i
-    raise PatchError(f"{what}: 피처 '{node_id}' 가 없습니다")
+    raise PatchError(f"{what}: 피처 ‘{node_id}’이(가) 없습니다.")
 
 
 def _referrers(nodes: list[dict[str, Any]], node_id: str) -> list[str]:
@@ -62,7 +62,7 @@ def apply(recipe: dict[str, Any], ops: list[dict[str, Any]]) -> dict[str, Any]:
         if kind == "set_param":
             name = str(op.get("name") or "").strip()
             if not name:
-                raise PatchError(f"{where}: 변수 이름이 없습니다")
+                raise PatchError(f"{where}: 변수 이름이 없습니다.")
             params = out.setdefault("params", {})
             params[name] = op.get("value")
         elif kind == "remove_param":
@@ -71,9 +71,9 @@ def apply(recipe: dict[str, Any], ops: list[dict[str, Any]]) -> dict[str, Any]:
         elif kind == "add_node":
             node = op.get("node")
             if not isinstance(node, dict) or not node.get("id") or not node.get("op"):
-                raise PatchError(f"{where}: node 에 id 와 op 가 있어야 합니다")
+                raise PatchError(f"{where}: node에 id와 op가 있어야 합니다.")
             if any(one.get("id") == node["id"] for one in nodes):
-                raise PatchError(f"{where}: 피처 '{node['id']}' 가 이미 있습니다")
+                raise PatchError(f"{where}: 피처 ‘{node['id']}’이(가) 이미 있습니다.")
             before = op.get("before")
             at = _index(nodes, before, where) if before else len(nodes)
             nodes.insert(at, copy.deepcopy(node))
@@ -81,7 +81,9 @@ def apply(recipe: dict[str, Any], ops: list[dict[str, Any]]) -> dict[str, Any]:
             i = _index(nodes, str(op.get("id")), where)
             field = str(op.get("field") or "")
             if not field or field in ("id", "op"):
-                raise PatchError(f"{where}: id · op 는 set_field 로 못 바꿉니다(rename_node)")
+                raise PatchError(
+                    f"{where}: id, op는 set_field로 변경할 수 없습니다(rename_node 사용)."
+                )
             if op.get("value") is None:
                 nodes[i].pop(field, None)
             else:
@@ -92,8 +94,8 @@ def apply(recipe: dict[str, Any], ops: list[dict[str, Any]]) -> dict[str, Any]:
             users = _referrers(nodes, node_id)
             if users:
                 raise PatchError(
-                    f"{where}: '{node_id}' 는 {', '.join(users)} 가 가리킵니다 — 그것부터 "
-                    "고치세요"
+                    f"{where}: ‘{node_id}’을(를) {', '.join(users)}이(가) 참조하고 "
+                    "있습니다. 참조하는 피처를 먼저 수정하십시오."
                 )
             del nodes[i]
         elif kind == "move_node":
@@ -107,9 +109,9 @@ def apply(recipe: dict[str, Any], ops: list[dict[str, Any]]) -> dict[str, Any]:
             old, new = str(op.get("id")), str(op.get("new_id") or "").strip()
             i = _index(nodes, old, where)
             if not new:
-                raise PatchError(f"{where}: 새 id 가 없습니다")
+                raise PatchError(f"{where}: 새 id가 없습니다.")
             if any(one.get("id") == new for one in nodes):
-                raise PatchError(f"{where}: 피처 '{new}' 가 이미 있습니다")
+                raise PatchError(f"{where}: 피처 ‘{new}’이(가) 이미 있습니다.")
             nodes[i]["id"] = new
             for one in nodes:
                 for key in _REF_FIELDS:
@@ -121,7 +123,7 @@ def apply(recipe: dict[str, Any], ops: list[dict[str, Any]]) -> dict[str, Any]:
             if out.get("result") == old:
                 out["result"] = new
         else:
-            raise PatchError(f"{where}: 모르는 연산입니다")
+            raise PatchError(f"{where}: 알 수 없는 연산입니다.")
     return out
 
 
@@ -154,7 +156,7 @@ def place_on(
     상자는 지금 translate 가 **이미 적용된** 것이므로, 그만큼 빼서 원래 자리 기준으로
     돌려준다."""
     if face not in _FACES:
-        raise PatchError(f"face 는 {' · '.join(_FACES)} 중 하나입니다")
+        raise PatchError(f"face는 {', '.join(_FACES)} 중 하나여야 합니다.")
     axis, sign = _FACES[face]
     (mmin, mmax), (tmin, tmax) = mover, target
     out = list(mover_translate)

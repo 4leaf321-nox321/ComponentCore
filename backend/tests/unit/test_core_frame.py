@@ -104,9 +104,9 @@ def test_알루미늄_프로파일은_슬롯_넷과_가운데_구멍(size: int) 
 @pytest.mark.parametrize(
     ("extra", "words"),
     [
-        ({"profile": {"type": "t_slot", "size": 25}}, "20 · 30 · 40 · 45"),
+        ({"profile": {"type": "t_slot", "size": 25}}, "20, 30, 40, 45"),
         ({"profile": {"type": "square_tube", "width": 10, "thickness": 5}}, "두 배"),
-        ({"paths": [[[0, 0, 0]]]}, "둘 이상"),
+        ({"paths": [[[0, 0, 0]]]}, "2개 이상"),
     ],
 )
 def test_단면_경로가_틀리면_말한다(extra: dict[str, Any], words: str) -> None:

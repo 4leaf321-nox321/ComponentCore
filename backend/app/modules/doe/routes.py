@@ -174,13 +174,14 @@ def _acting_for(db: Session, caller: User, request: Request, asked: str) -> User
     if "act_for_others" not in granted_scopes(request):
         raise Forbidden(
             code("DOE", 20),
-            "이 토큰에는 대행(act_for_others) 자격이 없습니다 — 남의 이름으로는 못 만듭니다.",
+            "이 토큰에는 대행(act_for_others) 권한이 없습니다. 다른 사용자의 이름으로 "
+            "생성할 수 없습니다.",
         )
     person = db.scalar(select(User).where(User.email == asked))
     if person is None and _looks_like_uuid(asked):
         person = db.get(User, uuid.UUID(asked))
     if person is None:
-        raise AppError(code("DOE", 21), f"그런 사용자가 없습니다: {asked}")
+        raise AppError(code("DOE", 21), f"사용자({asked})를 찾을 수 없습니다.")
     # 떠난 사람 · 정지된 계정 이름으로 만들지 않는다 — 그 이름은 아무도 안 본다.
     auth_services.ensure_can_sign_in(person)
     return person
@@ -383,7 +384,7 @@ def cancel_study(
     study = services.owned_study(db, study_id, user)
     job = db.get(Job, study.job_id) if study.job_id else None
     if job is None:
-        raise AppError(code("DOE", 29), "멈출 작업이 없습니다.")
+        raise AppError(code("DOE", 29), "중지할 작업이 없습니다.")
     jobs.cancel(db, job)
     return _out(db, study)
 

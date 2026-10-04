@@ -42,7 +42,7 @@ function TemporaryPasswordNotice({ value, onClose }: { value: string; onClose: (
         <DialogHeader>
           <DialogTitle>임시 비밀번호</DialogTitle>
           <DialogDescription>
-            지금 한 번만 보입니다. 본인에게 전달하세요 — 첫 로그인에서 바꾸게 됩니다.
+            이 비밀번호는 지금 한 번만 표시됩니다. 해당 사용자에게 전달하십시오. 첫 로그인 시 비밀번호를 변경해야 합니다.
           </DialogDescription>
         </DialogHeader>
         <p className="bg-muted rounded-md p-3 font-mono text-lg select-all">{value}</p>
@@ -77,7 +77,7 @@ export default function AccountsAdminPage() {
       setTemporary(made.temporary_password)
       accounts.reload()
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     }
   }
 
@@ -87,7 +87,7 @@ export default function AccountsAdminPage() {
       await work()
       accounts.reload()
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     }
   }
 
@@ -97,13 +97,13 @@ export default function AccountsAdminPage() {
     <div>
       <PageHeader
         title="계정"
-        description="계정은 여기서 만듭니다. 지우면 접근만 끊기고 그 사람의 프로젝트는 남습니다."
-        actions={<Button onClick={() => setCreating(true)}>계정 만들기</Button>}
+        description="계정을 생성하고 관리합니다. 계정을 삭제하면 로그인만 차단되며, 해당 사용자가 생성한 데이터는 유지됩니다."
+        actions={<Button onClick={() => setCreating(true)}>계정 생성</Button>}
       />
       <ErrorNotice error={error ?? accounts.error} className="mb-4" />
 
       {rows.length === 0 && !accounts.loading ? (
-        <EmptyState title="계정이 없습니다" hint="오른쪽 위에서 첫 계정을 만드세요." />
+        <EmptyState title="계정이 없습니다" hint="오른쪽 위의 ‘계정 생성’ 버튼으로 첫 계정을 생성하십시오." />
       ) : (
         <Table>
           <TableHeader>
@@ -112,8 +112,8 @@ export default function AccountsAdminPage() {
               <TableHead>이름</TableHead>
               <TableHead>상태</TableHead>
               <TableHead>권한</TableHead>
-              <TableHead>만든 날</TableHead>
-              <TableHead className="text-right">동작</TableHead>
+              <TableHead>생성일</TableHead>
+              <TableHead className="text-right">관리</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -194,8 +194,8 @@ export default function AccountsAdminPage() {
         <DialogContent>
           <form onSubmit={create} className="space-y-4">
             <DialogHeader>
-              <DialogTitle>계정 만들기</DialogTitle>
-              <DialogDescription>임시 비밀번호가 만들어지고, 첫 로그인에서 바꾸게 됩니다.</DialogDescription>
+              <DialogTitle>계정 생성</DialogTitle>
+              <DialogDescription>임시 비밀번호가 생성되며, 첫 로그인 시 비밀번호를 변경해야 합니다.</DialogDescription>
             </DialogHeader>
             <div className="space-y-2">
               <Label htmlFor="new-email">아이디</Label>
@@ -207,14 +207,14 @@ export default function AccountsAdminPage() {
             </div>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={asAdmin} onChange={(e) => setAsAdmin(e.target.checked)} />
-              시스템 관리자로 만든다
+              시스템 관리자 권한 부여
             </label>
             <ErrorNotice error={error} />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setCreating(false)}>
                 취소
               </Button>
-              <Button type="submit">만들기</Button>
+              <Button type="submit">생성</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -224,14 +224,14 @@ export default function AccountsAdminPage() {
 
       <ConfirmDialog
         open={deleting !== null}
-        title="계정을 지웁니다"
+        title="계정 삭제"
         description={
           <>
-            <b>{deleting?.email}</b> 은 더 이상 로그인할 수 없습니다. 이 사람이 만든 지그
-            프로젝트는 남고, 소유자 이름은 그대로 보입니다.
+            <b>{deleting?.email}</b> 계정을 삭제하시겠습니까? 삭제된 계정으로는 더 이상 로그인할 수 없습니다. 해당
+            사용자가 생성한 데이터는 유지되며, 소유자 이름도 그대로 표시됩니다.
           </>
         }
-        confirmLabel="지우기"
+        confirmLabel="삭제"
         destructive
         onConfirm={async () => {
           if (deleting) await accountsApi.remove(deleting.id)

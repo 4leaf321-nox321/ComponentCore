@@ -563,7 +563,10 @@ def test_없는_좌표계를_가리키는_조건은_만들기_전에_막는다(
         },
         headers=member.headers,
     )
-    assert bad.status_code == 400 and "좌표계가 없습니다" in bad.json()["error"]["message"]
+    assert (
+        bad.status_code == 400
+        and "좌표계 ‘없음’이(가) 없습니다" in bad.json()["error"]["message"]
+    )
 
 
 def test_없는_이름표를_가리키는_조건은_만들기_전에_막는다(
@@ -583,7 +586,7 @@ def test_없는_이름표를_가리키는_조건은_만들기_전에_막는다(
         headers=member.headers,
     )
     assert bad.status_code == 400
-    assert "선택 그룹이 없습니다" in bad.json()["error"]["message"]
+    assert "선택 그룹 ‘없다’이(가) 없습니다" in bad.json()["error"]["message"]
 
 
 def test_공유_폴더는_전달_큐다_기한이_지나면_사본만_치운다(
@@ -722,7 +725,7 @@ def test_서버_보관_폴더도_기한이_있고_치워져도_다시_만들_수
     # 「보내기」 는 막히고, **무엇을 하라는지 말한다.**
     blocked = client.post(f"/api/doe/{study_id}/export", headers=member.headers)
     assert blocked.status_code == 400
-    assert "다시 만들기" in blocked.json()["error"]["message"]
+    assert "‘재생성’을 먼저 실행" in blocked.json()["error"]["message"]
 
     # 다시 만들면 같은 파일이 같은 자리에 선다 — 그리고 보낼 수 있다.
     again = client.post(f"/api/doe/{study_id}/rerun", headers=member.headers)

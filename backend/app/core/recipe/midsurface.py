@@ -96,7 +96,7 @@ def midsurface(shape: Shape) -> MidSurface:
     )
     if not named:
         raise MidSurfaceError(
-            "솔리드가 없습니다 — 판(두께가 한결같은 입체)만 중간면을 뽑습니다"
+            "솔리드가 없습니다. 중간면은 판(두께가 균일한 솔리드)에서만 추출할 수 있습니다."
         )
     if len(named) == 1 and not children:
         named = [("판", named[0][1])]
@@ -117,9 +117,9 @@ def midsurface(shape: Shape) -> MidSurface:
         volume = float(solid.volume)
         if volume > 0 and abs(covered - volume) / volume > _COVER_TOL:
             notes.append(
-                f"{name}: 두께가 곳곳에 다릅니다 — 중간면 넓이 x 두께({covered:.0f} mm³)가 "
-                f"부피({volume:.0f} mm³)와 {abs(covered - volume) / volume:.0%} 어긋납니다. "
-                "두께가 다른 자리(리브 · 보스)는 빠졌을 수 있습니다"
+                f"{name}: 두께가 위치마다 다릅니다. 중간면 면적 x 두께({covered:.0f} mm³)가 "
+                f"부피({volume:.0f} mm³)와 {abs(covered - volume) / volume:.0%} 차이가 "
+                "납니다. 두께가 다른 부분(리브, 보스)은 누락되었을 수 있습니다."
             )
     builder, together = BRep_Builder(), TopoDS_Compound()
     builder.MakeCompound(together)
@@ -133,18 +133,17 @@ def _one(solid: Any) -> tuple[Any, float, int]:
     faces = list(solid.faces())
     planes = [one for one in faces if one.geom_type == GeomType.PLANE]
     if not planes:
-        raise MidSurfaceError("평면이 없습니다 — 판이 아닙니다")
+        raise MidSurfaceError("평면이 없습니다. 판이 아닙니다.")
     base = max(planes, key=lambda one: float(one.area))
     found = _inside_point(base)
     thickness = _depth(solid, *found) if found is not None else None
     if thickness is None:
-        raise MidSurfaceError("두께를 재지 못했습니다")
+        raise MidSurfaceError("두께를 측정하지 못했습니다.")
     perimeter = sum(float(one.length) for one in base.edges())
     width = 2 * float(base.area) / perimeter if perimeter > 0 else 0.0
     if thickness >= width:
         raise MidSurfaceError(
-            f"판이 아닙니다 — 두께 {thickness:.3g} mm 가 기준면의 폭({width:.3g} mm)보다 "
-            "큽니다"
+            f"판이 아닙니다. 두께 {thickness:.3g} mm가 기준면의 폭({width:.3g} mm)보다 큽니다."
         )
     tol = max(1e-3, thickness * 0.02)
 
@@ -187,8 +186,10 @@ def _one(solid: Any) -> tuple[Any, float, int]:
         GeomAbs_Intersection,
     )
     if not offset.IsDone():
-        raise MidSurfaceError("겉면을 두께의 가운데로 띄우지 못했습니다")
+        raise MidSurfaceError("겉면을 두께의 중간으로 오프셋하지 못했습니다.")
     mid = offset.Shape()
     if not BRepCheck_Analyzer(mid).IsValid():
-        raise MidSurfaceError("중간면이 올바르지 않습니다 — 모서리가 너무 촘촘한지 보세요")
+        raise MidSurfaceError(
+            "중간면이 유효하지 않습니다. 모서리가 지나치게 조밀하지 않은지 확인하십시오."
+        )
     return mid, thickness, len(kept)

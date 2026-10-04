@@ -32,11 +32,11 @@ function Host({ picks, kept = [] }: { picks: Pick[]; kept?: KeptMeasure[] }) {
 test('하나만 골라도 지름이 나오고, 둘이면 중심 사이 거리까지 한꺼번에 나온다', () => {
   const { rerender } = render(<Host picks={[HOLE_A]} />)
   expect(screen.getByText('⌀6 mm')).toBeInTheDocument()
-  expect(screen.getByText(/하나 더 고르면/)).toBeInTheDocument()
+  expect(screen.getByText(/하나를 더 선택하면/)).toBeInTheDocument()
 
   rerender(<Host picks={[HOLE_A, HOLE_B]} />)
   expect(screen.getByText('40 mm')).toBeInTheDocument() // 중심 사이
-  expect(screen.getByText('담기 — 3D 에 남깁니다')).toBeInTheDocument()
+  expect(screen.getByText('측정 보관')).toBeInTheDocument()
 })
 
 test('고를 종류를 켜고 끄되, 마지막 하나는 꺼지지 않는다', () => {
@@ -56,7 +56,7 @@ test('담아 둔 측정은 무엇을 어떻게 쟀는지 한 줄로 남는다', 
   expect(keptLabel([HOLE_A, HOLE_B])).toBe('원 1 ↔ 원 2 : 40 mm')
   render(<Host picks={[]} kept={[{ id: 'k1', picks: [HOLE_A, HOLE_B], label: '원 1 ↔ 원 2 : 40 mm' }]} />)
   expect(screen.getByText('원 1 ↔ 원 2 : 40 mm')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: /지우기/ })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /삭제/ })).toBeInTheDocument()
 })
 
 test('「점」 을 켜면 3D 에 점이 뜬다고 알려 주고, 끄면 그 안내도 사라진다', () => {

@@ -53,7 +53,7 @@ def grid(points: list[list[XYZ]]) -> Face:
         builder.Interpolate(array)
     except Exception as failure:
         raise SurfaceError(
-            f"점 격자로 곡면을 세우지 못했습니다 — 겹친 점이 없나 보세요 ({failure})"
+            f"점 격자로 곡면을 생성하지 못했습니다({failure}). 겹친 점이 없는지 확인하십시오."
         ) from failure
     return _checked(Face(BRepBuilderAPI_MakeFace(builder.Surface(), 1e-6).Face()))
 
@@ -72,7 +72,7 @@ def loft(curves: list[list[XYZ]], *, ruled: bool, smooth: bool) -> Shape:
     builder.Build()
     if not builder.IsDone():
         raise SurfaceError(
-            "곡선들을 잇지 못했습니다 — 곡선마다 점의 차례(방향)가 같은지 보세요"
+            "곡선들을 연결하지 못했습니다. 곡선마다 점의 순서(방향)가 같은지 확인하십시오."
         )
     made = builder.Shape()
     return _checked(Shell(made) if made.ShapeType() == TopAbs_SHELL else Face(made))
@@ -88,7 +88,7 @@ def fill(boundary: list[XYZ], through: list[XYZ], *, smooth: bool) -> Face:
         made = Face.make_surface(edges, surface_points=through or None)
     except Exception as failure:
         raise SurfaceError(
-            f"테두리를 메우지 못했습니다 — 테두리가 스스로 꼬이지 않았나 보세요 ({failure})"
+            f"경계를 채우지 못했습니다({failure}). 경계가 자체 교차하지 않는지 확인하십시오."
         ) from failure
     return _checked(made)
 
@@ -101,13 +101,15 @@ def thicken(surface: Shape, thickness: float, side: str) -> Solid:
         moved = BRepOffsetAPI_MakeOffsetShape()
         moved.PerformBySimple(base, -thickness / 2)
         if not moved.IsDone():
-            raise SurfaceError("곡면을 가운데로 옮기지 못했습니다 — 두께를 줄여 보세요")
+            raise SurfaceError("곡면을 두께 중앙으로 이동하지 못했습니다. 두께를 줄이십시오.")
         base = moved.Shape()
     maker = BRepOffsetAPI_MakeThickSolid()
     maker.MakeThickSolidBySimple(base, amount)
     maker.Build()
     if not maker.IsDone() or maker.Shape().ShapeType() != TopAbs_SOLID:
-        raise SurfaceError("두께를 주지 못했습니다 — 곡률 반지름보다 두꺼운지 보세요")
+        raise SurfaceError(
+            "두께를 부여하지 못했습니다. 두께가 곡률 반지름보다 크지 않은지 확인하십시오."
+        )
     solid = maker.Shape()
     props = GProp_GProps()
     BRepGProp.VolumeProperties_s(solid, props)
@@ -115,13 +117,13 @@ def thicken(surface: Shape, thickness: float, side: str) -> Solid:
         solid = solid.Reversed()
     made = Solid(TopoDS.Solid_s(solid))
     if not made.is_valid:
-        raise SurfaceError("두께를 준 입체가 올바르지 않습니다 — 두께를 줄여 보세요")
+        raise SurfaceError("두께를 부여한 솔리드가 유효하지 않습니다. 두께를 줄이십시오.")
     return made
 
 
 def _checked(shape: Shape) -> Any:
     if not BRepCheck_Analyzer(shape.wrapped).IsValid() or not shape.faces():
         raise SurfaceError(
-            "곡면이 올바르지 않습니다 — 점 · 곡선이 스스로 꼬이지 않았나 보세요"
+            "곡면이 유효하지 않습니다. 점이나 곡선이 자체 교차하지 않는지 확인하십시오."
         )
     return shape

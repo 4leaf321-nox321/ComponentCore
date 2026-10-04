@@ -10,11 +10,11 @@ import { Input } from '@/shared/components/ui/input'
 
 const KINDS: { value: Measure['kind']; label: string }[] = [
   { value: 'volume', label: '부피 (mm³)' },
-  { value: 'area', label: '겉넓이 (mm²)' },
+  { value: 'area', label: '표면적 (mm²)' },
   { value: 'size', label: '크기 (mm)' },
-  { value: 'region_area', label: '선택 그룹 넓이' },
-  { value: 'distance', label: '두 그룹 사이 거리' },
-  { value: 'expr', label: '식' },
+  { value: 'region_area', label: '선택 그룹 면적' },
+  { value: 'distance', label: '두 그룹 간 거리' },
+  { value: 'expr', label: '수식' },
 ]
 
 /** 종류를 고르면 붙는 이름 — 사람이 고칠 수 있다. */
@@ -29,7 +29,7 @@ export function MeasuresInput({ value, onChange, regions }: { value: Measure[]; 
   const set = (index: number, patch: Partial<Measure>) => onChange(value.map((one, i) => (i === index ? { ...one, ...patch } : one)))
   const select = (label: string, current: string | undefined, onPick: (v: string) => void) => (
     <select aria-label={label} className="bg-background h-7 rounded border px-1.5 text-xs" value={current ?? ''} onChange={(e) => onPick(e.target.value)}>
-      <option value="">그룹…</option>
+      <option value="">그룹 선택</option>
       {regions.map((one) => (
         <option key={one} value={one}>
           {one}
@@ -40,9 +40,9 @@ export function MeasuresInput({ value, onChange, regions }: { value: Measure[]; 
   return (
     <div className="rounded-md border" aria-label="측정값">
       <div className="bg-muted/40 flex items-center gap-3 border-b px-3 py-2 text-xs font-medium">
-        <span>측정값 — 점마다 재서 표에 열로 붙입니다</span>
+        <span>측정값 (설계점마다 측정하여 표에 열로 추가)</span>
         <select
-          aria-label="측정값 더하기"
+          aria-label="측정값 추가"
           className="bg-background ml-auto rounded border px-1.5 py-0.5 text-xs font-normal"
           value=""
           onChange={(e) => {
@@ -52,7 +52,7 @@ export function MeasuresInput({ value, onChange, regions }: { value: Measure[]; 
             onChange([...value, { name, kind, ...(kind === 'size' ? { axis: 'z' } : {}) }])
           }}
         >
-          <option value="">더하기…</option>
+          <option value="">측정값 추가</option>
           {KINDS.map((one) => (
             <option key={one.value} value={one.value}>
               {one.label}
@@ -62,7 +62,7 @@ export function MeasuresInput({ value, onChange, regions }: { value: Measure[]; 
       </div>
       {value.length === 0 ? (
         <p className="text-muted-foreground px-3 py-2 text-xs">
-          재지 않습니다. 질량은 「식」 으로 <code>부피 * 밀도</code>(예: 강 7.85e-6 kg/mm³) — 재료 · 단위계가 해석마다 달라 우리가 곱하지 않습니다.
+          측정하지 않습니다. 질량은 ‘수식’으로 <code>부피 * 밀도</code>(예: 강 7.85e-6 kg/mm³)와 같이 정의하십시오. 재료와 단위계가 해석마다 다르므로 자동으로 계산하지 않습니다.
         </p>
       ) : (
         value.map((one, index) => (
@@ -88,10 +88,10 @@ export function MeasuresInput({ value, onChange, regions }: { value: Measure[]; 
               <Input aria-label={`측정값 ${index + 1} 식`} value={one.expr ?? ''} placeholder="부피 * 7.85e-6" onChange={(e) => set(index, { expr: e.target.value })} className="h-7 flex-1 font-mono text-xs" />
             )}
             {(one.kind === 'region_area' || one.kind === 'distance') && regions.length === 0 && (
-              <span className="text-destructive">해석 조건에 선택 그룹이 없습니다</span>
+              <span className="text-destructive">해석 조건에 선택 그룹이 없습니다.</span>
             )}
-            <button type="button" className="text-muted-foreground hover:text-foreground ml-auto" onClick={() => onChange(value.filter((_, i) => i !== index))} aria-label={`측정값 ${index + 1} 빼기`}>
-              빼기
+            <button type="button" className="text-muted-foreground hover:text-foreground ml-auto" onClick={() => onChange(value.filter((_, i) => i !== index))} aria-label={`측정값 ${index + 1} 제거`}>
+              제거
             </button>
           </div>
         ))

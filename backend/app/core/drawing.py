@@ -392,7 +392,7 @@ def make_sheet(
 ) -> Sheet:
     """형상 → 도면 한 장. 세 뷰와 구멍표가 겹치지 않고 들어가는 가장 큰 표준 축척으로."""
     if sheet not in SHEETS:
-        raise ValueError(f"용지는 {' · '.join(SHEETS)} 중 하나입니다")
+        raise ValueError(f"용지는 {', '.join(SHEETS)} 중 하나여야 합니다.")
     paper_w, paper_h = SHEETS[sheet]
     box = shape.bounding_box()
     sizes = {
@@ -474,7 +474,7 @@ def _hole_marks(
         )
         if name is None:
             out.notes.append(
-                f"기울어진 구멍 Ø{_number(hole['diameter'])} 은 구멍표에 안 넣었습니다"
+                f"기울어진 구멍 Ø{_number(hole['diameter'])}은(는) 구멍표에서 제외했습니다."
             )
             continue
         u, v = VIEWS[name]["uv"](hole["center"])
@@ -576,13 +576,13 @@ def _hole_table(out: Sheet, paper_w: float, paper_h: float) -> None:
         out.items.append(Line((x, top), (x, bottom), "TABLE"))
         x += w
     out.items.append(Line((x, top), (x, bottom), "TABLE"))
-    note = "가로 · 세로: 구멍이 원으로 보이는 뷰의 왼쪽 아래 모서리(점)에서, 실제 크기 mm"
+    note = "가로·세로: 구멍이 원으로 보이는 뷰의 왼쪽 아래 모서리(점) 기준, 실제 크기(mm)"
     out.items.append(Text((x0, bottom - 4), note, 2.2, layer="TABLE"))
     if len(shown) < len(out.holes):
         out.items.append(
             Text(
                 (x0, bottom - 8),
-                f"외 {len(out.holes) - len(shown)} 개 — DXF 요약을 보세요",
+                f"외 {len(out.holes) - len(shown)}개(DXF 요약 참조)",
                 2.2,
                 layer="TABLE",
             )
@@ -622,17 +622,17 @@ def _frame(
     )
     out.items.append(Text((x0 + 3, y0 + h * 0.62), title or "(이름 없음)", 5.0))
     lines = [
-        f"축척 {out.scale_text}   단위 mm   3각법",
+        f"축척 {out.scale_text}   단위 mm   제3각법",
         f"재료 {material or '—'}",
     ]
     out.items.append(Text((x0 + 3, y0 + h * 0.28), lines[0], 2.8))
     out.items.append(Text((x0 + 3, y0 + h * 0.08), lines[1], 2.8))
-    out.items.append(Text((x0 + w * 0.6 + 3, y0 + h * 0.28), f"그린이 {drawn_by}", 2.6))
+    out.items.append(Text((x0 + w * 0.6 + 3, y0 + h * 0.28), f"작성자 {drawn_by}", 2.6))
     out.items.append(Text((x0 + w * 0.6 + 3, y0 + h * 0.08), date.today().isoformat(), 2.6))
     if note:
         out.items.append(Text((left + 4, bottom + 4), note, 2.6))
     if out.scale != 1:
-        out.notes.append(f"축척 {out.scale_text} — 도면의 치수 글씨는 실제 크기입니다")
+        out.notes.append(f"축척 {out.scale_text}: 도면의 치수 값은 실제 크기입니다.")
 
 
 # --- 쓰기 ---------------------------------------------------------------------------

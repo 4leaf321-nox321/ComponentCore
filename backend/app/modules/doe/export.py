@@ -162,7 +162,7 @@ def write_readme(folder: Path, study: dict[str, Any], point_count: int) -> Path:
     )
     # 제약식 — 범위 안이라도 이 조건을 어긴 조합은 만들지 않았다(만들기 전에 걸렀다).
     constraints = (
-        "\n제약 (어긴 조합은 만들지 않았다)\n"
+        "\n제약(위반하는 조합은 생성하지 않았습니다)\n"
         + "\n".join(f"  - {one}" for one in study.get("constraints") or [])
         + "\n"
         if study.get("constraints")
@@ -170,9 +170,9 @@ def write_readme(folder: Path, study: dict[str, Any], point_count: int) -> Path:
     )
     # 중간면 — 고른 스터디만. 셸 요소로 푸는 쪽이 읽는다.
     mid = (
-        "  <형상>_mid.step   중간면 — 두께 가운데의 면(셸 요소용). 판마다 두께는\n"
-        "                    점 파일의 `midsurface`, 표에서는 `mid_file`. 판이 아닌 점은\n"
-        "                    비고 warnings 에 까닭이 있다.\n"
+        "  <형상>_mid.step   중간면: 두께 중앙의 면입니다(셸 요소용). 각 판의 두께는\n"
+        "                    점 파일의 `midsurface`, 표의 `mid_file`에 있습니다. 판이 아닌\n"
+        "                    점은 비어 있으며, 사유는 warnings에 있습니다.\n"
         if "midsurface" in (study.get("outputs") or [])
         else ""
     )
@@ -181,32 +181,32 @@ def write_readme(folder: Path, study: dict[str, Any], point_count: int) -> Path:
 
 {study.get("description", "") or "(설명 없음)"}
 
-만든 때: {datetime.now(UTC).astimezone().strftime("%Y-%m-%d %H:%M")}
+생성일: {datetime.now(UTC).astimezone().strftime("%Y-%m-%d %H:%M")}
 방법: {_method_text(str(study.get("method") or ""))}
-설계점: {point_count} 개
-시드: {study.get("seed")}   ← 같은 표를 다시 만들 때 쓴다
+설계점: {point_count}개
+시드: {study.get("seed")}   ← 같은 표를 다시 생성할 때 사용합니다.
 
-바꾼 치수
+변경한 치수
 {factors or "  (없음)"}
 {constraints}
 파일
-  manifest.csv   설계점마다 바꾼 변수 값 · 파일 이름 · 상태 · 형상 점검 경고(warnings)
-  study.json     기준 레시피와 인자 정의 전부(다시 만들 때)
-  conditions.json  해석 조건 한 벌 — 선택 그룹 · 구속 · 하중 · 접촉 · 초기 · 해석 설정 · 물성
-                   (숫자 칸에 "=식" 이 있을 수 있다. 푼 값은 점 파일 안에)
-  points/        p0001.step   형상 (그 점만 쓰는 것)
-                 p0001.json   이 점의 모든 것 — 변수 값 · 영역과 바디의 좌표 지문 ·
-                              그 변수로 **풀린** 조건 · 이 점이 쓰는 STEP 파일 ·
-                              형상 점검(quality — 최소 벽 두께 · 짧은 모서리 · 좁은 면)
-  shapes/        <지문>.step  **여러 점이 나눠 쓰는 형상.** 조건만 훑으면(압력 2 · 3 MPa)
-                              형상이 모든 점에서 같으므로 한 벌만 둔다. 이 폴더가 없으면
-                              점마다 형상이 다른 것이다.
+  manifest.csv   설계점별 변경한 변수 값, 파일 이름, 상태, 형상 점검 경고(warnings)
+  study.json     기준 레시피와 전체 인자 정의(다시 생성할 때 사용)
+  conditions.json  해석 조건 전체: 선택 그룹, 구속, 하중, 접촉, 초기 조건, 해석 설정, 물성
+                   (숫자 필드에 "=식"이 있을 수 있으며, 계산된 값은 점 파일에 있습니다)
+  points/        p0001.step   형상(해당 점에서만 사용하는 형상)
+                 p0001.json   해당 점의 전체 정보: 변수 값, 영역과 바디의 좌표 지문,
+                              해당 변수로 계산된 조건, 이 점이 사용하는 STEP 파일,
+                              형상 점검(quality: 최소 벽 두께, 짧은 모서리, 좁은 면)
+  shapes/        <지문>.step  여러 점이 공유하는 형상입니다. 조건만 변경하면(압력 2, 3 MPa)
+                              모든 점의 형상이 같으므로 하나만 저장합니다. 이 폴더가 없으면
+                              점마다 형상이 다릅니다.
 {mid}
-어느 점이 어느 STEP 을 쓰는지는 **표와 점 파일의 `step_file`** 이 말한다 — 파일 이름을
-짐작하지 마라. 같은 STEP 을 가리키는 점들은 메시도 한 번만 만들면 된다.
+각 점이 사용하는 STEP 파일은 표와 점 파일의 `step_file`에 기록되어 있습니다. 파일 이름으로
+추정하지 마십시오. 같은 STEP 파일을 사용하는 점들은 메시를 한 번만 생성하면 됩니다.
 
-STEP 은 mm 단위이며, 바꾸지 않은 치수(연결부 등)는 모든 점에서 똑같다.
-해석 결과는 이 폴더로 돌아오지 않는다 — 푸는 쪽이 들고 거기서 본다.
+STEP은 mm 단위이며, 변경하지 않은 치수(연결부 등)는 모든 점에서 동일합니다.
+해석 결과는 이 폴더로 반환되지 않습니다. 해석을 수행하는 쪽에서 결과를 보관하고 조회합니다.
 """
     path = folder / "README.txt"
     path.write_text(text, encoding="utf-8")
@@ -217,11 +217,11 @@ STEP 은 mm 단위이며, 바꾸지 않은 치수(연결부 등)는 모든 점�
 METHOD_TEXT = {
     "factorial": "전체 조합",
     "lhs": "라틴 하이퍼큐브(LHS)",
-    "table": "직접 준 표(값 그대로 — 가공 단위로 맞추지 않았다)",
-    "oat": "하나씩 바꾸기(OAT — 가운데에서 변수마다 제 값들을)",
-    "ccd": "중심 합성(면 중심 CCF — 모서리 · 축 · 가운데)",
-    "bbd": "Box-Behnken(변수 둘씩 끝 · 나머지 가운데)",
-    "sobol": "Sobol 수열(시드로 디지털 이동 — 이어 뽑으면 이어진다)",
+    "table": "직접 입력한 표(입력값을 그대로 사용하며 가공 단위로 맞추지 않음)",
+    "oat": "하나씩 변경(OAT: 중심점에서 변수별로 각 값을 적용)",
+    "ccd": "중심 합성(면 중심 CCF: 모서리, 축, 중심점)",
+    "bbd": "Box-Behnken(변수 2개씩 양 끝, 나머지는 중심값)",
+    "sobol": "Sobol 수열(시드로 디지털 이동, 이어서 추출하면 수열이 이어짐)",
 }
 
 
@@ -232,7 +232,7 @@ def _method_text(method: str) -> str:
 def _factor_text(factor: dict[str, Any]) -> str:
     mode = factor.get("mode")
     if mode == "range":
-        return f"{factor.get('start')} ~ {factor.get('end')} ({factor.get('steps')} 단계)"
+        return f"{factor.get('start')} ~ {factor.get('end')} ({factor.get('steps')}단계)"
     if mode == "list":
         return ", ".join(str(v) for v in factor.get("values", []))
     return f"고정 {factor.get('value')}"

@@ -22,12 +22,12 @@ export default function DoeStudyPage() {
     <div>
       <PageHeader
         title={study.data.name}
-        description={study.data.description || '변수를 훑어 만든 형상들'}
+        description={study.data.description || '변수를 탐색하여 생성한 형상입니다.'}
         back={{ to: '/doe', label: 'DOE 목록' }}
         actions={
           // 만든 것은 그대로 두고, 이 설정을 채워 넣은 새 DOE 를 만든다 — 범위를 좁혀 다시 돌릴 때.
           <Button variant="outline" onClick={() => navigate(`/doe/new?from=${study.data!.id}`)}>
-            설정 바꿔 다시 만들기
+            설정 변경 후 새 DOE 생성
           </Button>
         }
       />

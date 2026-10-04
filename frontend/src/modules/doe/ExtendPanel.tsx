@@ -89,34 +89,34 @@ export function ExtendPanel({ study, onDone }: { study: DoeStudy; onDone: () => 
       await doeApi.extend(study.id, body)
       onDone()
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <div className="space-y-3 rounded-md border p-3" aria-label="점 더하기">
+    <div className="space-y-3 rounded-md border p-3" aria-label="설계점 추가">
       <div className="flex flex-wrap items-end gap-3 text-xs">
         <label className="space-y-1">
           <span className="text-muted-foreground block">방법</span>
-          <select aria-label="더할 방법" className="bg-background h-8 rounded border px-2" value={method} onChange={(e) => setMethod(e.target.value as DoeMethod)}>
+          <select aria-label="추가 방법" className="bg-background h-8 rounded border px-2" value={method} onChange={(e) => setMethod(e.target.value as DoeMethod)}>
             <option value="lhs">LHS</option>
-            <option value="sobol">Sobol (이어 뽑기)</option>
+            <option value="sobol">Sobol (이어서 생성)</option>
             <option value="factorial">전체 조합</option>
-            <option value="table">표 직접 넣기</option>
+            <option value="table">표 직접 입력</option>
           </select>
         </label>
         {(method === 'lhs' || method === 'sobol') && (
           <>
             <label className="space-y-1">
               <span className="text-muted-foreground block">표본 수</span>
-              <Input aria-label="더할 표본 수" type="number" min={1} value={samples ?? ''} onChange={(e) => setSamples(numberOrNull(e.target.value))} className="h-8 w-20 text-xs" />
+              <Input aria-label="추가 표본 수" type="number" min={1} value={samples ?? ''} onChange={(e) => setSamples(numberOrNull(e.target.value))} className="h-8 w-20 text-xs" />
             </label>
             <label className="space-y-1">
               <span className="text-muted-foreground block">시드</span>
               <Input
-                aria-label="더할 시드"
+                aria-label="추가 시드"
                 type="number"
                 value={seed ?? ''}
                 placeholder={method === 'sobol' ? '이어서' : '자동'}
@@ -129,7 +129,7 @@ export function ExtendPanel({ study, onDone }: { study: DoeStudy; onDone: () => 
       </div>
       {method === 'table' ? (
         <Textarea
-          aria-label="더할 설계점 표 (CSV)"
+          aria-label="추가 설계점 표 (CSV)"
           rows={4}
           className="font-mono text-xs"
           value={tableText}
@@ -138,7 +138,7 @@ export function ExtendPanel({ study, onDone }: { study: DoeStudy; onDone: () => 
         />
       ) : (
         <div className="space-y-1">
-          <p className="text-muted-foreground text-xs">범위를 바꿀 변수만 고르세요 — 나머지는 첫 묶음의 정의 그대로입니다.</p>
+          <p className="text-muted-foreground text-xs">범위를 변경할 변수만 선택하십시오. 나머지 변수는 첫 배치의 정의를 그대로 사용합니다.</p>
           {numeric.map((factor) => {
             const now = ranges[factor.name]
             return (
@@ -146,7 +146,7 @@ export function ExtendPanel({ study, onDone }: { study: DoeStudy; onDone: () => 
                 <label className="flex w-40 items-center gap-1.5 truncate font-mono">
                   <input
                     type="checkbox"
-                    aria-label={`${factor.name} 범위 바꾸기`}
+                    aria-label={`${factor.name} 범위 변경`}
                     checked={!!now}
                     onChange={(e) =>
                       setRanges((all) => {
@@ -173,7 +173,7 @@ export function ExtendPanel({ study, onDone }: { study: DoeStudy; onDone: () => 
                     </label>
                   ))
                 ) : (
-                  <span className="text-muted-foreground">그대로</span>
+                  <span className="text-muted-foreground">변경 없음</span>
                 )}
               </div>
             )
@@ -183,20 +183,20 @@ export function ExtendPanel({ study, onDone }: { study: DoeStudy; onDone: () => 
       <div className="flex flex-wrap items-center gap-2 text-xs">
         {count ? (
           <span>
-            <b>{count.added}</b> 점을 더합니다 — p{String(count.from).padStart(4, '0')}부터
-            {count.skipped > 0 && <span className="text-muted-foreground"> · 이미 있는 값 {count.skipped} 개는 뺍니다</span>}
-            {!!count.rejected && <span className="text-muted-foreground"> · 제약이 {count.rejected} 개를 걸렀습니다</span>}
+            설계점 <b>{count.added}</b>개를 p{String(count.from).padStart(4, '0')}부터 추가합니다.
+            {count.skipped > 0 && <span className="text-muted-foreground"> 기존 설계점과 값이 같은 {count.skipped}개는 제외합니다.</span>}
+            {!!count.rejected && <span className="text-muted-foreground"> 제약 조건으로 {count.rejected}개가 제외되었습니다.</span>}
           </span>
         ) : countError ? (
           <span className="text-destructive">{countError.message}</span>
         ) : (
-          <span className="text-muted-foreground">빈 칸을 채우면 몇 점인지 셉니다.</span>
+          <span className="text-muted-foreground">빈 입력란을 채우면 추가될 설계점 수를 계산합니다.</span>
         )}
         <Button size="sm" className="ml-auto" disabled={busy || !count || count.added === 0} onClick={() => void add()}>
-          {busy ? '더하는 중…' : '더하기'}
+          {busy ? '추가 중…' : '추가'}
         </Button>
       </div>
-      {study.exported_at && <p className="text-muted-foreground text-xs">공유 폴더에 이미 보냈습니다 — 더한 뒤에는 다시 보내야 해석이 새 점을 봅니다.</p>}
+      {study.exported_at && <p className="text-muted-foreground text-xs">이미 공유 폴더로 내보냈습니다. 설계점을 추가한 뒤에는 다시 내보내야 해석에 반영됩니다.</p>}
       <ErrorNotice error={error} />
     </div>
   )

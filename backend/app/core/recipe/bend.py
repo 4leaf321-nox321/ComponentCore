@@ -91,7 +91,7 @@ def bend(part: Part, node: S.BendNode) -> Part:
     else:
         pieces = _bent(plate.pattern, plate.thickness, node.bends, node.k_factor)
     if not pieces:  # pragma: no cover — 윤곽이 있으면 띠도 있다
-        raise BendError("굽힐 판이 없습니다")
+        raise BendError("굽힐 판이 없습니다.")
     placed = plate.plane.location * _fused(pieces)
     return Part(children=[_upright(one) for one in placed.solids()])
 
@@ -141,7 +141,7 @@ def _flanged(plate: _Plate, node: S.BendNode) -> list[Shape]:
         local = plate.plane.to_local_coords(along) - plate.plane.to_local_coords(Vector())
         if math.hypot(local.X, local.Y) < 0.1 * along.length:
             raise BendError(
-                f"{where}.along: 판 위의 방향이어야 합니다 — 두께 방향을 가리킵니다"
+                f"{where}.along: 판 위의 방향이어야 합니다. 현재 방향은 두께 방향입니다."
             )
         angle = math.atan2(local.Y, local.X)
         start = bends[0].at
@@ -156,8 +156,9 @@ def _flanged(plate: _Plate, node: S.BendNode) -> list[Shape]:
             shared = sum(one.area for a in regions[i] for one in _common([a], sides[j][1]))
             if shared > _TOL and not node.corner_relief:
                 raise BendError(
-                    f"{_name(i)} 와 {_name(j)} 의 날개가 모서리에서 겹칩니다(넓이 "
-                    f"{shared:.3g} mm²) — 펼친 판의 모서리를 따내거나 corner_relief: true"
+                    f"{_name(i)}의 플랜지와 {_name(j)}의 플랜지가 모서리에서 겹칩니다"
+                    f"(겹친 면적 {shared:.3g} mm²). 전개한 판의 모서리에 릴리프를 두거나 "
+                    "corner_relief: true를 지정하십시오."
                 )
     pieces: list[Shape] = []
     base = _cut(plate.pattern, [side for _, side in sides])
@@ -209,7 +210,9 @@ def _plate(part: Part, along: Vector) -> _Plate:
     faces = list(part.faces())
     planar = [one for one in faces if one.geom_type == GeomType.PLANE]
     if not planar:
-        raise BendError("평평한 면이 없습니다 — 판(두께가 한결같은 입체)만 굽힙니다")
+        raise BendError(
+            "평면이 없습니다. 굽힘은 판(두께가 균일한 솔리드)에만 적용할 수 있습니다."
+        )
     biggest = max(planar, key=lambda one: one.area)
     normal = _canonical(biggest.normal_at())
 
@@ -226,21 +229,21 @@ def _plate(part: Part, along: Vector) -> _Plate:
             continue
         if not _is_wall(one, normal):
             raise BendError(
-                "판의 위 · 아래 모서리를 다듬은 면(필렛 · 모따기 · 구배)이나 기운 면이 "
-                "있습니다 — 그런 것은 굽힌 뒤에 만드세요"
+                "판의 위, 아래 모서리에 필렛, 모따기, 구배 같은 가공 면이나 경사면이 "
+                "있습니다. 이러한 형상은 굽힌 뒤에 생성하십시오."
             )
     levels = _levels(heights)
     if len(levels) != 2:
         raise BendError(
-            "두께가 한결같은 판이 아닙니다 — 높이가 "
-            + " · ".join(f"{level:g}" for level in levels)
-            + " 인 면이 있습니다. 포켓 · 단차는 굽힌 뒤에 만드세요"
+            "두께가 균일한 판이 아닙니다. 높이가 "
+            + ", ".join(f"{level:g}" for level in levels)
+            + "인 면이 있습니다. 포켓, 단차는 굽힌 뒤에 생성하십시오."
         )
     low, high = levels
 
     direction = along - normal * along.dot(normal)
     if along.length < _TOL or direction.length < 0.1 * along.length:
-        raise BendError("along: 판 위의 방향이어야 합니다 — 판의 두께 방향을 가리킵니다")
+        raise BendError("along: 판 위의 방향이어야 합니다. 현재 방향은 판의 두께 방향입니다.")
     plane = Plane(origin=normal * low, x_dir=direction.normalized(), z_dir=normal)
     pattern = [
         plane.to_local_coords(one) for height, one in horizontal if abs(height - low) < _TOL
@@ -297,13 +300,13 @@ def _zones(
         # 판 끝(u_min)에서 바로 굽기 시작해도 된다 — 통째로 감기.
         if not u_min - _TOL <= one.at < u_max - _TOL:
             raise BendError(
-                f"{where}.at: 판({u_min:g} ~ {u_max:g}) 안이어야 합니다 — "
-                f"{one.at:g} 은 밖입니다"
+                f"{where}.at: 판의 범위({u_min:g} ~ {u_max:g}) 안의 값이어야 합니다"
+                f"(입력값: {one.at:g})."
             )
         if zones and one.at < zones[-1].start + zones[-1].length - _TOL:
             before = zones[-1].start + zones[-1].length
             raise BendError(
-                f"{where}.at: 앞 굽힘이 {before:g} 까지입니다 — 그 뒤에서 시작하세요"
+                f"{where}.at: 이전 굽힘이 {before:g}까지 차지합니다. 그 이후에서 시작하십시오."
             )
         neutral = one.radius + k_factor * t
         if one.until == "end":
@@ -311,8 +314,8 @@ def _zones(
             angle = length / neutral
             if angle >= 2 * math.pi - 1e-3:
                 raise BendError(
-                    f"{where}: 끝까지 감으면 {math.degrees(angle):.0f}° 로 한 바퀴를 "
-                    "넘습니다 — 반지름을 키우거나 판을 줄이세요"
+                    f"{where}: 끝까지 감을 경우 {math.degrees(angle):.0f}°가 되어 한 바퀴를 "
+                    "넘습니다. 반지름을 늘리거나 판 길이를 줄이십시오."
                 )
         else:
             angle = math.radians(one.angle)
@@ -320,8 +323,8 @@ def _zones(
             if one.at + length > u_max + _TOL:
                 raise BendError(
                     f"{where}: 굽힘 구간({one.at:g} ~ {one.at + length:g})이 판 끝"
-                    f"({u_max:g})을 넘습니다 — 각도 · 반지름을 줄이거나, 끝까지 감으려면 "
-                    "until: end"
+                    f"({u_max:g})을 넘습니다. 각도 또는 반지름을 줄이거나, 끝까지 감으려면 "
+                    "until: end를 지정하십시오."
                 )
         sign = 1.0 if one.toward == "up" else -1.0
         zones.append(_Zone(start=one.at, length=length, radius=one.radius, angle=sign * angle))
@@ -431,7 +434,7 @@ def _wrapped_down(face: Face, start: float, radius: float, neutral: float, t: fl
     maker.MakeThickSolidBySimple(wrapped.wrapped, depth)
     maker.Build()
     if not maker.IsDone():
-        raise BendError("굽힘 구간을 두껍게 만들지 못했습니다 — 반지름을 키워 보세요")
+        raise BendError("굽힘 구간에 두께를 부여하지 못했습니다. 반지름을 늘리십시오.")
     return _upright(_solid(maker.Shape()))
 
 
@@ -459,5 +462,5 @@ def _upright(shape: Shape) -> Shape:
 
 def _solid(shape: TopoDS_Shape) -> Solid:
     if shape.ShapeType() != TopAbs_SOLID:
-        raise BendError("굽힘 구간이 입체가 되지 못했습니다 — 반지름을 키워 보세요")
+        raise BendError("굽힘 구간을 솔리드로 생성하지 못했습니다. 반지름을 늘리십시오.")
     return Solid(TopoDS.Solid_s(shape))

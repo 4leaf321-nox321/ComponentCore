@@ -162,7 +162,7 @@ function deltas(from: Vec, to: Vec): string {
 
 /** 하나만 골랐을 때 — 그 자체의 치수. */
 export function single(pick: Pick): Row[] {
-  if (pick.kind === 'point') return [{ label: '자리', text: vecText(pick.at), headline: true }]
+  if (pick.kind === 'point') return [{ label: '위치', text: vecText(pick.at), headline: true }]
   if (pick.kind === 'edge') {
     const edge = pick.edge
     const points = edgePoints(edge)
@@ -175,12 +175,12 @@ export function single(pick: Pick): Row[] {
       rows.push({ label: '길이', text: `${fmt(edge.length)} mm`, headline: true })
     }
     rows.push({ label: '종류', text: edge.kind })
-    if (isStraight(edge)) rows.push({ label: '양 끝', text: `${vecText(points[0])} → ${vecText(points[points.length - 1])}` })
+    if (isStraight(edge)) rows.push({ label: '양 끝점', text: `${vecText(points[0])} → ${vecText(points[points.length - 1])}` })
     rows.push({ label: '중점', text: vecText(edge.midpoint as Vec) })
     return rows
   }
   const face = pick.face
-  const rows: Row[] = [{ label: '넓이', text: `${fmt(face.area)} mm²`, headline: true }]
+  const rows: Row[] = [{ label: '면적', text: `${fmt(face.area)} mm²`, headline: true }]
   if (face.radius) {
     rows.push({ label: '지름', text: `⌀${fmt(face.radius * 2)} mm` })
     rows.push({ label: '반지름', text: `R${fmt(face.radius)} mm` })
@@ -198,7 +198,7 @@ export function pair(a: Pick, b: Pick): { rows: Row[]; from: Vec; to: Vec } {
     return {
       rows: [
         { label: '거리', text: `${fmt(len(sub(b.at, a.at)))} mm`, headline: true },
-        { label: '축별', text: deltas(a.at, b.at) },
+        { label: '축별 성분', text: deltas(a.at, b.at) },
       ],
       from: a.at,
       to: b.at,
@@ -211,11 +211,11 @@ export function pair(a: Pick, b: Pick): { rows: Row[]; from: Vec; to: Vec } {
     const near = pointToPolyline(point, edgePoints(edge))
     const rows: Row[] = [
       { label: '거리', text: `${fmt(near.distance)} mm`, headline: true, approx: !isStraight(edge) },
-      { label: '축별', text: deltas(point, near.at) },
-      { label: '가까운 자리', text: vecText(near.at) },
+      { label: '축별 성분', text: deltas(point, near.at) },
+      { label: '최근접점', text: vecText(near.at) },
     ]
     if (edge.radius && edge.center) {
-      rows.push({ label: '원 중심까지', text: `${fmt(len(sub(point, edge.center as Vec)))} mm` })
+      rows.push({ label: '원 중심까지 거리', text: `${fmt(len(sub(point, edge.center as Vec)))} mm` })
     }
     return { rows, from: point, to: near.at }
   }
@@ -230,8 +230,8 @@ export function pair(a: Pick, b: Pick): { rows: Row[]; from: Vec; to: Vec } {
       return {
         rows: [
           { label: '면까지 수직 거리', text: `${fmt(Math.abs(gap))} mm`, headline: true },
-          { label: '어느 쪽', text: gap >= 0 ? '법선 쪽(+)' : '법선 반대(−)' },
-          { label: '발 자리', text: vecText(foot) },
+          { label: '방향', text: gap >= 0 ? '법선 방향(+)' : '법선 반대 방향(−)' },
+          { label: '수선의 발', text: vecText(foot) },
         ],
         from: point,
         to: foot,
@@ -241,7 +241,7 @@ export function pair(a: Pick, b: Pick): { rows: Row[]; from: Vec; to: Vec } {
     return {
       rows: [
         { label: '거리', text: `${fmt(near.distance)} mm`, headline: true, approx: true },
-        { label: '가까운 자리', text: vecText(near.at) },
+        { label: '최근접점', text: vecText(near.at) },
       ],
       from: point,
       to: near.at,
@@ -255,16 +255,16 @@ export function pair(a: Pick, b: Pick): { rows: Row[]; from: Vec; to: Vec } {
     const rows: Row[] = []
     // 구멍 둘이면 **중심 사이(피치)**가 재려던 값이다 — 가장자리 사이 틈이 아니라.
     if (centers) {
-      rows.push({ label: '중심 사이', text: `${fmt(len(sub(centers[1], centers[0])))} mm`, headline: true })
-      rows.push({ label: '축별', text: deltas(centers[0], centers[1]) })
+      rows.push({ label: '중심 간 거리', text: `${fmt(len(sub(centers[1], centers[0])))} mm`, headline: true })
+      rows.push({ label: '축별 성분', text: deltas(centers[0], centers[1]) })
       rows.push({ label: '지름', text: `⌀${fmt((a.edge.radius ?? 0) * 2)} · ⌀${fmt((b.edge.radius ?? 0) * 2)}` })
     }
     rows.push({ label: '최단 거리', text: `${fmt(near.distance)} mm`, headline: !centers, approx: !straight })
     if (straight) {
       const angle = angleBetween(edgeDirection(a.edge), edgeDirection(b.edge))
       rows.push({ label: '사잇각', text: `${fmt(angle)}°` })
-      rows.push({ label: '관계', text: angle < 0.5 ? '나란합니다' : angle > 89.5 ? '직각입니다' : '비스듬합니다' })
-      rows.push({ label: '중점 사이', text: `${fmt(len(sub(b.edge.midpoint as Vec, a.edge.midpoint as Vec)))} mm` })
+      rows.push({ label: '관계', text: angle < 0.5 ? '평행' : angle > 89.5 ? '직각' : '경사' })
+      rows.push({ label: '중점 간 거리', text: `${fmt(len(sub(b.edge.midpoint as Vec, a.edge.midpoint as Vec)))} mm` })
     }
     return centers ? { rows, from: centers[0], to: centers[1] } : { rows, from: near.from, to: near.to }
   }
@@ -280,13 +280,13 @@ export function pair(a: Pick, b: Pick): { rows: Row[]; from: Vec; to: Vec } {
       const far = gaps.reduce((best, gap, i) => (Math.abs(gap) > Math.abs(gaps[best]) ? i : best), 0)
       const parallel = Math.abs(Math.abs(gaps[near]) - Math.abs(gaps[far])) < 1e-3
       const foot = sub(points[near], mul(n, gaps[near]))
-      const rows: Row[] = [{ label: parallel ? '면까지 거리' : '가장 가까운 거리', text: `${fmt(Math.abs(gaps[near]))} mm`, headline: true }]
+      const rows: Row[] = [{ label: parallel ? '면까지 거리' : '최단 거리', text: `${fmt(Math.abs(gaps[near]))} mm`, headline: true }]
       if (isStraight(edge)) {
         const angle = 90 - angleBetween(edgeDirection(edge), n)
         rows.push({ label: '면과 이루는 각', text: `${fmt(angle)}°` })
-        rows.push({ label: '관계', text: angle < 0.5 ? '면과 나란합니다' : angle > 89.5 ? '면에 수직입니다' : '비스듬합니다' })
+        rows.push({ label: '관계', text: angle < 0.5 ? '면과 평행' : angle > 89.5 ? '면에 수직' : '경사' })
       }
-      if (!parallel) rows.push({ label: '가장 먼 거리', text: `${fmt(Math.abs(gaps[far]))} mm` })
+      if (!parallel) rows.push({ label: '최대 거리', text: `${fmt(Math.abs(gaps[far]))} mm` })
       return { rows, from: points[near], to: foot }
     }
     const near = nearestVertex(points[0], faceVertices(face))
@@ -300,17 +300,17 @@ export function pair(a: Pick, b: Pick): { rows: Row[]; from: Vec; to: Vec } {
   if (isPlane(fa) && isPlane(fb) && angle < 0.5) {
     const n = unit(fa.normal as Vec)
     const gap = Math.abs(dot(sub(fb.center as Vec, fa.center as Vec), n))
-    rows.push({ label: '면 사이 거리', text: `${fmt(gap)} mm`, headline: true })
-    rows.push({ label: '관계', text: '나란한 두 면입니다 — 두께 · 간격' })
+    rows.push({ label: '면 간 거리', text: `${fmt(gap)} mm`, headline: true })
+    rows.push({ label: '관계', text: '평행한 두 면(두께 또는 간격)' })
   } else {
     const near = nearestPair(faceVertices(fa), faceVertices(fb))
-    rows.push({ label: '가장 가까운 거리', text: `${fmt(near.distance)} mm`, headline: true, approx: true })
+    rows.push({ label: '최단 거리', text: `${fmt(near.distance)} mm`, headline: true, approx: true })
     rows.push({ label: '사잇각', text: `${fmt(angle)}°` })
-    rows.push({ label: '관계', text: angle > 89.5 ? '직각입니다' : '비스듬합니다' })
+    rows.push({ label: '관계', text: angle > 89.5 ? '직각' : '경사' })
   }
   if (fa.radius && fb.radius) rows.push({ label: '지름', text: `⌀${fmt(fa.radius * 2)} · ⌀${fmt(fb.radius * 2)}` })
-  rows.push({ label: '중심 사이', text: `${fmt(len(sub(fb.center as Vec, fa.center as Vec)))} mm` })
-  rows.push({ label: '넓이', text: `${fmt(fa.area)} · ${fmt(fb.area)} mm²` })
+  rows.push({ label: '중심 간 거리', text: `${fmt(len(sub(fb.center as Vec, fa.center as Vec)))} mm` })
+  rows.push({ label: '면적', text: `${fmt(fa.area)} · ${fmt(fb.area)} mm²` })
   return { rows, from: fa.center as Vec, to: fb.center as Vec }
 }
 
@@ -357,7 +357,7 @@ export function measurement(picks: Pick[]): { rows: Row[]; from?: Vec; to?: Vec 
     rows: [
       { label: '각도', text: `${fmt(angleOfThree(a, b, c))}°`, headline: true },
       { label: '변 길이', text: `${fmt(len(sub(a, b)))} · ${fmt(len(sub(c, b)))} mm` },
-      { label: '끝점 사이', text: `${fmt(len(sub(c, a)))} mm` },
+      { label: '끝점 간 거리', text: `${fmt(len(sub(c, a)))} mm` },
     ],
     from: a,
     to: c,

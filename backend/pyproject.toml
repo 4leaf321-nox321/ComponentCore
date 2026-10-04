@@ -13,6 +13,8 @@ src = [".", "scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+# 화면 문구의 작은따옴표(AGENTS.md 「화면 문구」) — 화면 요소 · 이름을 ‘’ 로 가리킨다.
+allowed-confusables = ["‘", "’"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app", "tests"]

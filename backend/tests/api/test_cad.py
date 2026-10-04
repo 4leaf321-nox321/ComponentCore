@@ -212,7 +212,7 @@ def test_치수를_훑어_고르고_보_공진을_가늠한다(client: TestClien
     )
     assert tuned.status_code == 200
     assert 10 < tuned.json()["thickness_mm"] < 11
-    assert "가늠값" in tuned.json()["accuracy"]
+    assert "추정값" in tuned.json()["accuracy"]
 
     too_high = client.post(
         "/api/cad/beam-frequency",

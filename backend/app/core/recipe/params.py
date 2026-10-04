@@ -67,7 +67,7 @@ def evaluate_expression(text: str, values: dict[str, float]) -> float:
     try:
         tree = _parsed(body)
     except SyntaxError as failure:
-        raise ExpressionError(f"식 '{text}' 을 읽지 못했습니다") from failure
+        raise ExpressionError(f"식 ‘{text}’의 구문이 올바르지 않습니다.") from failure
     return _node(tree.body, values, text)
 
 
@@ -91,7 +91,7 @@ def evaluate_condition(text: str, values: dict[str, float]) -> bool:
     try:
         tree = _parsed(body)
     except SyntaxError as failure:
-        raise ExpressionError(f"제약 '{text}' 을 읽지 못했습니다") from failure
+        raise ExpressionError(f"제약식 ‘{text}’의 구문이 올바르지 않습니다.") from failure
     return _truth(tree.body, values, text)
 
 
@@ -106,14 +106,15 @@ def _truth(node: ast.AST, values: dict[str, float], text: str) -> bool:
         for op, right_node in zip(node.ops, node.comparators, strict=True):
             handler = _COMPARE.get(type(op))
             if handler is None:
-                raise ExpressionError(f"제약 '{text}': 쓸 수 없는 비교입니다")
+                raise ExpressionError(f"제약식 ‘{text}’: 사용할 수 없는 비교 연산입니다.")
             right = _node(right_node, values, text)
             if not handler(left, right):
                 return False
             left = right
         return True
     raise ExpressionError(
-        f"제약 '{text}': 비교(<, <=, >, >=, ==, !=)가 있어야 합니다 — 예: 간격 > 2 * 지름"
+        f"제약식 ‘{text}’: 비교 연산자(<, <=, >, >=, ==, !=)가 필요합니다"
+        "(예: 간격 > 2 * 지름)."
     )
 
 
@@ -140,7 +141,7 @@ def names_in(text: str) -> set[str]:
 def _node(node: ast.AST, values: dict[str, float], text: str) -> float:
     if isinstance(node, ast.Constant):
         if isinstance(node.value, bool) or not isinstance(node.value, int | float):
-            raise ExpressionError(f"식 '{text}': 숫자가 아닌 값이 있습니다")
+            raise ExpressionError(f"식 ‘{text}’: 숫자가 아닌 값이 있습니다.")
         return float(node.value)
     if isinstance(node, ast.Name):
         if node.id in values:
@@ -148,40 +149,44 @@ def _node(node: ast.AST, values: dict[str, float], text: str) -> float:
         if node.id in CONSTANTS:
             return CONSTANTS[node.id]
         known = ", ".join(sorted(values)) or "(없음)"
-        raise ExpressionError(f"식 '{text}': 모르는 이름 '{node.id}' — 아는 치수: {known}")
+        raise ExpressionError(
+            f"식 ‘{text}’: 알 수 없는 이름 ‘{node.id}’이(가) 있습니다(정의된 변수: {known})."
+        )
     if isinstance(node, ast.BinOp):
         handler = _BINARY.get(type(node.op))
         if handler is None:
-            raise ExpressionError(f"식 '{text}': 쓸 수 없는 연산입니다")
+            raise ExpressionError(f"식 ‘{text}’: 사용할 수 없는 연산입니다.")
         left = _node(node.left, values, text)
         right = _node(node.right, values, text)
         try:
             return float(handler(left, right))
         except ZeroDivisionError as failure:
-            raise ExpressionError(f"식 '{text}': 0 으로 나눕니다") from failure
+            raise ExpressionError(f"식 ‘{text}’: 0으로 나눌 수 없습니다.") from failure
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.UAdd | ast.USub):
         value = _node(node.operand, values, text)
         return value if isinstance(node.op, ast.UAdd) else -value
     if isinstance(node, ast.Call):
         if not isinstance(node.func, ast.Name) or node.func.id not in FUNCTIONS:
             names = ", ".join(sorted(FUNCTIONS))
-            raise ExpressionError(f"식 '{text}': 쓸 수 있는 함수는 {names} 뿐입니다")
+            raise ExpressionError(f"식 ‘{text}’: 사용할 수 있는 함수는 {names}뿐입니다.")
         if node.keywords:
-            raise ExpressionError(f"식 '{text}': 함수에 이름 붙인 값은 못 씁니다")
+            raise ExpressionError(f"식 ‘{text}’: 함수에는 키워드 인수를 사용할 수 없습니다.")
         return float(FUNCTIONS[node.func.id](*[_node(arg, values, text) for arg in node.args]))
-    raise ExpressionError(f"식 '{text}': 치수 식에는 이름 · 숫자 · 사칙연산 · 괄호만 씁니다")
+    raise ExpressionError(
+        f"식 ‘{text}’: 치수 식에는 이름, 숫자, 사칙연산, 괄호만 사용할 수 있습니다."
+    )
 
 
 def resolve_params(raw: dict[str, Any]) -> dict[str, float]:
     """`params` 를 숫자로 푼다. 치수끼리 서로 가리켜도 된다(앞뒤 순서와 상관없이)."""
     given = raw.get("params") or {}
     if not isinstance(given, dict):
-        raise ExpressionError("params: 이름과 값의 표여야 합니다")
+        raise ExpressionError("params: 이름과 값의 쌍으로 구성되어야 합니다.")
     values: dict[str, float] = {}
     pending: dict[str, str] = {}
     for name, value in given.items():
         if isinstance(value, bool) or not isinstance(value, int | float | str):
-            raise ExpressionError(f"params.{name}: 숫자나 치수 식이어야 합니다")
+            raise ExpressionError(f"params.{name}: 숫자 또는 치수 식이어야 합니다.")
         if isinstance(value, str):
             pending[name] = value
         else:
@@ -203,7 +208,7 @@ def resolve_params(raw: dict[str, Any]) -> dict[str, float]:
                 evaluate_expression(text, values)
             except ExpressionError as failure:
                 raise ExpressionError(f"params.{name}: {failure}") from failure
-            raise ExpressionError(f"params.{name}: 치수가 서로를 가리킵니다")
+            raise ExpressionError(f"params.{name}: 변수끼리 서로를 참조합니다(순환 참조).")
     return values
 
 

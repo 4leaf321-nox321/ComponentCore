@@ -31,7 +31,7 @@ test('작업 이름을 표제란에 먼저 적고, 미리 본 뒤 PDF 로 받는
   await waitFor(() => expect(bodies.some((one) => one.material === 'SS400' && one.sheet === 'A4')).toBe(true))
 
   const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
-  fireEvent.click(screen.getByRole('button', { name: 'PDF 받기' }))
+  fireEvent.click(screen.getByRole('button', { name: 'PDF 다운로드' }))
   await waitFor(() => expect(click).toHaveBeenCalled())
   const pdf = bodies.find((one) => String(one.url).includes('format=pdf'))
   expect(pdf).toMatchObject({ title: '브래킷', material: 'SS400', sheet: 'A4', recipe: BOX })

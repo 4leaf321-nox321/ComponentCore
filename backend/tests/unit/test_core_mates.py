@@ -129,14 +129,17 @@ def test_구멍_테두리와_기준면에도_건다() -> None:
 @pytest.mark.parametrize(
     ("mates", "said"),
     [
-        ([TOUCH, {**TOUCH, "offset": 3}], "구속 2(맞대기) — 앞의 구속과 맞지 않습니다, 3 mm"),
+        ([TOUCH, {**TOUCH, "offset": 3}], "구속 2(접촉): 이전 구속과 충돌합니다(오차 3 mm)"),
         (
             [TOUCH, {**TOUCH, "type": "flush"}],
-            "구속 2(면 맞춤) — 앞의 구속과 맞지 않습니다, 180°",
+            "구속 2(동일 평면): 이전 구속과 충돌합니다(오차 180°)",
         ),
-        ([{**HOLES, "this": {"what": "faces", "role": "bottom"}}], "동심은 축끼리입니다"),
-        ([{k: v for k, v in TOUCH.items() if k != "select"}], "select 가 없습니다"),
-        ([{**TOUCH, "this": {"what": "faces", "kind": "plane"}}], "near 로 그중 하나를"),
+        (
+            [{**HOLES, "this": {"what": "faces", "role": "bottom"}}],
+            "동심 구속은 축끼리만 가능합니다",
+        ),
+        ([{k: v for k, v in TOUCH.items() if k != "select"}], "select가 없습니다"),
+        ([{**TOUCH, "this": {"what": "faces", "kind": "plane"}}], "near로 그중 하나를"),
     ],
 )
 def test_맞지_않는_구속은_몇째인지_말한다(mates: list[dict[str, Any]], said: str) -> None:

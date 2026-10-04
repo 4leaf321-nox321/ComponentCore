@@ -241,20 +241,22 @@ def unfold(
     그 반대쪽 겉면을 기준으로 — 전개도가 뒤집혀 굽힘의 위 · 아래가 바뀐다."""
     solids = shape.solids()
     if len(solids) != 1:
-        raise UnfoldError(f"판 하나(솔리드 1 개)만 펼 수 있습니다 — 지금 {len(solids)} 개")
+        raise UnfoldError(
+            f"판 1개(솔리드 1개)만 전개할 수 있습니다. 현재 솔리드는 {len(solids)}개입니다."
+        )
     solid = solids[0]
     faces = list(solid.faces())
     if base is None:
         planes = [one for one in faces if one.geom_type == GeomType.PLANE]
         if not planes:
-            raise UnfoldError("평면이 없습니다 — 판금이 아닙니다")
+            raise UnfoldError("평면이 없습니다. 판금이 아닙니다.")
         base = max(planes, key=lambda one: float(one.area))
     found = _inside_point(base)
     if found is None:
-        raise UnfoldError("기준면 안의 점을 찾지 못했습니다")
+        raise UnfoldError("기준면 안의 점을 찾지 못했습니다.")
     thickness = _depth(solid, *found)
     if thickness is None:
-        raise UnfoldError("두께를 재지 못했습니다")
+        raise UnfoldError("두께를 측정하지 못했습니다.")
     tol = max(1e-3, thickness * 0.02)
     # 판인가 — 두께가 기준면의 폭(넓이 · 2 / 둘레)보다 작아야 한다. 정육면체도 「마주 보는
     # 면까지 같은 거리」 라 판처럼 보인다.
@@ -262,14 +264,14 @@ def unfold(
     width = 2 * float(base.area) / perimeter if perimeter > 0 else 0.0
     if thickness >= width:
         raise UnfoldError(
-            f"판금이 아닙니다 — 두께 {thickness:.3g} mm 가 기준면의 폭({width:.3g} mm)보다 "
-            "큽니다"
+            f"판금이 아닙니다. 두께 {thickness:.3g} mm가 기준면의 폭({width:.3g} mm)보다 "
+            "큽니다."
         )
     if flip:
         base = _opposite(faces, *found, thickness, tol)
         found = _inside_point(base)
         if found is None:
-            raise UnfoldError("반대쪽 기준면 안의 점을 찾지 못했습니다")
+            raise UnfoldError("반대쪽 기준면 안의 점을 찾지 못했습니다.")
 
     index = TopTools_IndexedMapOfShape()
     TopExp.MapShapes_s(solid.wrapped, TopAbs_FACE, index)
@@ -331,14 +333,14 @@ def unfold(
     total = sum(float(one.area) for one in pieces)
     if float(flat.area) < total * (1 - 1e-4):
         notes.append(
-            f"펼치면 날개끼리 겹칩니다(겹친 넓이 {total - float(flat.area):.1f} mm²) — "
-            "모서리를 따내야 합니다"
+            f"전개하면 플랜지끼리 겹칩니다(겹친 면적 {total - float(flat.area):.1f} mm²). "
+            "모서리에 릴리프를 적용해야 합니다."
         )
     missing = [
         one for one in faces if index.FindIndex(one.wrapped) not in placed and skin(one)
     ]
     if len(missing) > len(placed):
-        notes.append("반대쪽 겉면이 더 많습니다 — 기준면을 다른 쪽에서 골라 보세요")
+        notes.append("반대쪽 겉면이 더 많습니다. 기준면을 반대쪽에서 선택하십시오.")
     plate = extrude(flat, amount=thickness)
     return Unfolded(
         face=flat,
@@ -363,7 +365,7 @@ def _opposite(faces: list[Face], point: Vector, normal: Vector, t: float, tol: f
             continue
         if face.distance_to(target) <= tol:
             return face
-    raise UnfoldError("기준면의 반대쪽 겉면을 찾지 못했습니다")
+    raise UnfoldError("기준면의 반대쪽 겉면을 찾지 못했습니다.")
 
 
 def _straight(edge: Any) -> bool:
@@ -558,7 +560,7 @@ def _unrolled(face: Face, mapping: _CylMap) -> Face:
         if len(points) >= 3:
             wires.append(Polyline(*[(x, y, 0.0) for x, y in points], close=True))
     if not wires:
-        raise UnfoldError("굽힘 면의 경계를 옮기지 못했습니다")
+        raise UnfoldError("굽힘 면의 경계를 변환하지 못했습니다.")
     outer = max(wires, key=lambda one: Face(one).area)
     holes = [one for one in wires if one is not outer]
     return Face(outer, holes)
@@ -583,7 +585,8 @@ def _merged(pieces: list[Face]) -> Face:
     faces = merged.faces()
     if len(faces) != 1:
         raise UnfoldError(
-            f"편 조각들이 한 장으로 붙지 않습니다({len(faces)} 조각) — 겉면이 끊긴 판입니다"
+            f"전개한 조각들이 하나의 면으로 합쳐지지 않습니다(조각 {len(faces)}개). "
+            "겉면이 끊어진 판입니다."
         )
     return faces[0]
 

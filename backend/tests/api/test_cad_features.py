@@ -309,7 +309,7 @@ def test_전개도는_요약_DXF_SVG_로_받는다(client: TestClient, member: S
 
     box = {"nodes": [{"id": "b", "op": "box", "length": 10, "width": 10, "height": 10}]}
     bad = client.post("/api/cad/recipe/unfold", json={"recipe": box}, headers=member.headers)
-    assert bad.status_code == 400 and "펼 수 없습니다" in bad.json()["error"]["message"]
+    assert bad.status_code == 400 and "전개할 수 없습니다" in bad.json()["error"]["message"]
 
 
 def test_도면은_PDF_DXF_SVG_PNG_요약으로_받는다(client: TestClient, member: Signed) -> None:

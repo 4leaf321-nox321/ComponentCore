@@ -50,7 +50,7 @@ test('선(두께) — 점을 찍고 「선 끝내기」 하면 중심선과 폭�
   fireEvent.click(screen.getByRole('button', { name: '+ 선 (두께)' }))
   fireEvent.pointerDown(svg, { clientX: 280, clientY: 200 })
   fireEvent.pointerDown(svg, { clientX: 380, clientY: 200 })
-  fireEvent.click(screen.getByRole('button', { name: /선 끝내기/ }))
+  fireEvent.click(screen.getByRole('button', { name: /선 입력 종료/ }))
   const next = onChange.mock.calls.at(-1)![0] as SketchShape[]
   expect(next).toHaveLength(1)
   expect(next[0].type).toBe('path')

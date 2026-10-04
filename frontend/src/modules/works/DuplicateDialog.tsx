@@ -50,7 +50,7 @@ export function DuplicateDialog({
       const made = await worksApi.duplicate(workId, name.trim() || undefined, withConditions && copyConditions)
       onMade(made.id)
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
       setBusy(false)
     }
@@ -61,7 +61,7 @@ export function DuplicateDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>작업 복제</DialogTitle>
-          <DialogDescription>현재 도면으로 새 작업을 만듭니다 — 종류 · 꼬리표 · 폴더가 따라가고 버전은 1 부터입니다.</DialogDescription>
+          <DialogDescription>현재 도면으로 새 작업을 생성합니다. 종류, 태그, 폴더가 함께 복사되며 버전은 1부터 시작합니다.</DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
           <Label htmlFor="duplicate-name">이름</Label>
@@ -73,12 +73,12 @@ export function DuplicateDialog({
             <span>
               해석 조건도 복사
               <span className="text-muted-foreground block text-xs">
-                같은 조건으로 변형을 훑을 때 켭니다. 다른 부품의 출발점으로 쓸 거면 끕니다 — 옛 선택 그룹이 엉뚱한 면을 가리킬 수 있습니다.
+                같은 조건으로 변형 설계를 검토할 때 선택하십시오. 다른 부품의 시작점으로 사용할 경우에는 해제하십시오. 기존 선택 그룹이 의도하지 않은 면을 가리킬 수 있습니다.
               </span>
             </span>
           </label>
         ) : (
-          <p className="text-muted-foreground text-xs">이 버전에는 해석 조건이 없습니다 — 도면만 복사합니다.</p>
+          <p className="text-muted-foreground text-xs">이 버전에는 해석 조건이 없습니다. 도면만 복사합니다.</p>
         )}
         <ErrorNotice error={error} />
         <DialogFooter>
@@ -86,7 +86,7 @@ export function DuplicateDialog({
             취소
           </Button>
           <Button onClick={() => void submit()} disabled={busy || !name.trim()}>
-            {busy ? '복제하는 중…' : '복제'}
+            {busy ? '복제 중…' : '복제'}
           </Button>
         </DialogFooter>
       </DialogContent>

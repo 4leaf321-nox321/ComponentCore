@@ -75,7 +75,7 @@ def from_vectors(
     z_raw = _cross(x, _unit(y_axis))
     if math.sqrt(sum(one * one for one in z_raw)) < 1e-6:
         raise ValueError(
-            f"좌표계 「{name}」: X 방향과 Y 방향이 나란합니다 — 평면을 정할 수 없습니다"
+            f"좌표계 ‘{name}’: X 방향과 Y 방향이 평행하여 평면을 정의할 수 없습니다."
         )
     z = _unit(z_raw)
     return _row(name, source, origin, x, _cross(z, x), z)

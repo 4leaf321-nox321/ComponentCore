@@ -24,7 +24,7 @@ const NULLABLE = new Set(['depth', 'diameter', 'counter_diameter', 'counter_dept
 
 /** 치수를 어느 자리에 맞출까 — 축마다 「작은 쪽 · 가운데 · 큰 쪽」. 한쪽을 고정하고 늘릴 때. */
 const ALIGN_NAMES = ['min', 'center', 'max'] as const
-const ALIGN_LABEL: Record<string, string> = { min: '작은 쪽', center: '가운데', max: '큰 쪽' }
+const ALIGN_LABEL: Record<string, string> = { min: '최소', center: '중앙', max: '최대' }
 
 function AlignInput({ value, size, onChange }: { value: unknown; size: 2 | 3; onChange: (next: string[]) => void }) {
   const current = Array.isArray(value) ? (value as string[]) : Array(size).fill('center')
@@ -106,10 +106,10 @@ const PROFILE_TYPES: { value: string; label: string; fields: [string, string][];
   { value: 't_slot', label: '알루미늄 프로파일 (T 슬롯)', fields: [['size', '계열 (20 · 30 · 40 · 45)']], seed: { size: 40 } },
   { value: 'square_tube', label: '각관', fields: [['width', '폭'], ['thickness', '벽 두께']], seed: { width: 40, thickness: 2 } },
   { value: 'rect_tube', label: '사각관', fields: [['width', '폭'], ['height', '높이'], ['thickness', '벽 두께']], seed: { width: 60, height: 30, thickness: 2 } },
-  { value: 'round_tube', label: '원관', fields: [['diameter', '바깥 지름'], ['thickness', '벽 두께']], seed: { diameter: 34, thickness: 2 } },
+  { value: 'round_tube', label: '원관', fields: [['diameter', '외경'], ['thickness', '벽 두께']], seed: { diameter: 34, thickness: 2 } },
   { value: 'round_bar', label: '환봉', fields: [['diameter', '지름']], seed: { diameter: 20 } },
-  { value: 'flat_bar', label: '평철 · 각재', fields: [['width', '폭'], ['height', '높이']], seed: { width: 50, height: 6 } },
-  { value: 'angle', label: '앵글 (L)', fields: [['width', '가로 다리'], ['height', '세로 다리'], ['thickness', '두께']], seed: { width: 40, height: 40, thickness: 4 } },
+  { value: 'flat_bar', label: '평철·각재', fields: [['width', '폭'], ['height', '높이']], seed: { width: 50, height: 6 } },
+  { value: 'angle', label: '앵글 (L)', fields: [['width', '가로 변'], ['height', '세로 변'], ['thickness', '두께']], seed: { width: 40, height: 40, thickness: 4 } },
   { value: 'channel', label: '채널 (ㄷ)', fields: [['width', '플랜지 폭'], ['height', '웨브 높이'], ['thickness', '두께']], seed: { width: 40, height: 80, thickness: 5 } },
   { value: 'h_beam', label: 'H 형강', fields: [['width', '플랜지 폭'], ['height', '높이'], ['web', '웨브 두께'], ['flange', '플랜지 두께']], seed: { width: 100, height: 100, web: 6, flange: 8 } },
 ]
@@ -176,9 +176,9 @@ function PathsInput({
           <div key={i} className="space-y-1 rounded border p-2">
             <div className="flex items-center justify-between text-xs">
               <span className="font-medium">
-                경로 {i + 1} — 부재 {Math.max(path.length - 1, 0)} 개{closed ? ' · 닫힘' : ''}
+                경로 {i + 1} (부재 {Math.max(path.length - 1, 0)} 개{closed ? ', 닫힘' : ''})
               </span>
-              <button type="button" className="text-muted-foreground px-1 hover:text-destructive" onClick={() => onChange(paths.filter((_, j) => j !== i))} aria-label={`경로 ${i + 1} 지우기`}>
+              <button type="button" className="text-muted-foreground px-1 hover:text-destructive" onClick={() => onChange(paths.filter((_, j) => j !== i))} aria-label={`경로 ${i + 1} 삭제`}>
                 ×
               </button>
             </div>
@@ -191,7 +191,7 @@ function PathsInput({
                   size={3}
                   onChange={(v) => put(i, path.map((one, m) => (m === k ? v : one)))}
                 />
-                <button type="button" className="text-muted-foreground px-1 text-xs hover:text-destructive" onClick={() => put(i, path.filter((_, m) => m !== k))} aria-label="점 지우기">
+                <button type="button" className="text-muted-foreground px-1 text-xs hover:text-destructive" onClick={() => put(i, path.filter((_, m) => m !== k))} aria-label="점 삭제">
                   ×
                 </button>
               </div>
@@ -209,7 +209,7 @@ function PathsInput({
               </button>
               {!closed && path.length > 2 && (
                 <button type="button" className="text-muted-foreground hover:underline" onClick={() => put(i, [...path, path[0]])}>
-                  처음 점으로 닫기
+                  시작점으로 닫기
                 </button>
               )}
             </div>
@@ -229,7 +229,7 @@ function PathsInput({
           ])
         }
       >
-        + 경로 (기둥 하나부터)
+        + 경로 (기둥 하나로 시작)
       </button>
     </div>
   )
@@ -241,7 +241,7 @@ function CutListPanel({ node, nodes, params }: { node: RecipeNode; nodes: Recipe
   const [trouble, setTrouble] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const csv = (got: CutList) =>
-    ['경로,부재,길이(mm),시작 각(°),끝 각(°),부피(mm³)', ...got.items.map((one) => [one.path, one.member, one.length, one.start_cut, one.end_cut, one.volume].join(','))].join('\n')
+    ['경로,부재,길이(mm),시작 절단각(°),끝 절단각(°),부피(mm³)', ...got.items.map((one) => [one.path, one.member, one.length, one.start_cut, one.end_cut, one.volume].join(','))].join('\n')
   return (
     <div className="space-y-1 text-xs">
       <button
@@ -252,25 +252,25 @@ function CutListPanel({ node, nodes, params }: { node: RecipeNode; nodes: Recipe
           try {
             setList(await cadApi.cutList({ params: params ?? {}, nodes }, node.id))
           } catch (failure) {
-            setTrouble(failure instanceof Error ? failure.message : '절단 목록을 받지 못했습니다')
+            setTrouble(failure instanceof Error ? failure.message : '절단 목록을 불러오지 못했습니다.')
           }
         }}
       >
-        절단 목록 보기
+        절단 목록 조회
       </button>
       {trouble && <p className="text-destructive">{trouble}</p>}
       {list && (
         <div className="space-y-1">
           <p className="text-muted-foreground">
-            {list.profile} · 부재 {list.count} 개 · 합계 {list.total_length.toLocaleString()} mm · 부피 {list.total_volume.toLocaleString()} mm³ (질량 = 부피 x 밀도)
+            {list.profile} · 부재 {list.count} 개 · 총 길이 {list.total_length.toLocaleString()} mm · 부피 {list.total_volume.toLocaleString()} mm³ (질량 = 부피 x 밀도)
           </p>
           <table className="w-full text-right">
             <thead className="text-muted-foreground">
               <tr>
                 <th className="text-left">경로-부재</th>
                 <th>길이</th>
-                <th>시작 각</th>
-                <th>끝 각</th>
+                <th>시작 절단각</th>
+                <th>끝 절단각</th>
               </tr>
             </thead>
             <tbody>
@@ -294,7 +294,7 @@ function CutListPanel({ node, nodes, params }: { node: RecipeNode; nodes: Recipe
               setCopied(true)
             }}
           >
-            {copied ? 'CSV 를 복사했습니다' : 'CSV 복사'}
+            {copied ? 'CSV를 복사했습니다.' : 'CSV 복사'}
           </button>
         </div>
       )}
@@ -325,39 +325,39 @@ function BendsInput({
         <div key={i} className="space-y-1 rounded border p-2">
           <div className="flex items-center justify-between text-xs">
             <span className="font-medium">굽힘 {i + 1}</span>
-            <button type="button" className="text-muted-foreground px-1 hover:text-destructive" onClick={() => onChange(bends.filter((_, j) => j !== i))} aria-label="지우기">
+            <button type="button" className="text-muted-foreground px-1 hover:text-destructive" onClick={() => onChange(bends.filter((_, j) => j !== i))} aria-label={`굽힘 ${i + 1} 삭제`}>
               ×
             </button>
           </div>
           <div className="grid grid-cols-2 gap-1">
             <label className="space-y-0.5 text-xs">
-              <span className="text-muted-foreground">시작 자리 (펼친 판의 좌표, mm)</span>
-              <NumberInput aria-label={`굽힘 ${i + 1} 시작 자리`} params={params} onCreateParam={onCreateParam} value={bend.at} onChange={(v) => put(i, { at: v ?? 0 })} />
+              <span className="text-muted-foreground">시작 위치 (펼친 판의 좌표, mm)</span>
+              <NumberInput aria-label={`굽힘 ${i + 1} 시작 위치`} params={params} onCreateParam={onCreateParam} value={bend.at} onChange={(v) => put(i, { at: v ?? 0 })} />
             </label>
             <label className="space-y-0.5 text-xs">
-              <span className="text-muted-foreground">안쪽 반지름 (mm)</span>
+              <span className="text-muted-foreground">내측 반지름 (mm)</span>
               <NumberInput aria-label={`굽힘 ${i + 1} 반지름`} params={params} onCreateParam={onCreateParam} value={bend.radius} step={0.5} onChange={(v) => put(i, { radius: v ?? 1 })} />
             </label>
             <label className="space-y-0.5 text-xs">
-              <span className="text-muted-foreground">어느 쪽으로</span>
+              <span className="text-muted-foreground">굽힘 방향</span>
               <Select value={bend.toward ?? 'up'} onValueChange={(v) => put(i, { toward: v })}>
                 <SelectTrigger className="h-8">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="up">위로 (판의 위쪽)</SelectItem>
-                  <SelectItem value="down">아래로</SelectItem>
+                  <SelectItem value="up">위쪽 (판의 윗면 방향)</SelectItem>
+                  <SelectItem value="down">아래쪽</SelectItem>
                 </SelectContent>
               </Select>
             </label>
             <label className="space-y-0.5 text-xs">
-              <span className="text-muted-foreground">어디까지</span>
+              <span className="text-muted-foreground">굽힘 범위</span>
               <Select value={bend.until ?? 'angle'} onValueChange={(v) => put(i, { until: v })}>
                 <SelectTrigger className="h-8">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="angle">각도만큼</SelectItem>
+                  <SelectItem value="angle">지정 각도</SelectItem>
                   <SelectItem value="end">끝까지 감기</SelectItem>
                 </SelectContent>
               </Select>
@@ -369,7 +369,7 @@ function BendsInput({
               <NumberInput aria-label={`굽힘 ${i + 1} 각`} params={params} onCreateParam={onCreateParam} value={bend.angle ?? 90} step={5} onChange={(v) => put(i, { angle: v ?? 90 })} />
             </label>
           ) : (
-            <p className="text-muted-foreground text-xs">남은 판을 이 반지름으로 끝까지 감습니다 — 각도는 남은 길이가 정합니다.</p>
+            <p className="text-muted-foreground text-xs">남은 판을 이 반지름으로 끝까지 감습니다. 각도는 남은 길이에 따라 정해집니다.</p>
           )}
         </div>
       ))}
@@ -395,7 +395,7 @@ function BendsInput({
   )
 }
 
-/** 다른 방향의 굽힘선 묶음 — 상자의 다른 날개. 묶음마다 방향과 굽힘들. */
+/** 다른 방향의 굽힘선 묶음 — 상자의 다른 플랜지. 묶음마다 방향과 굽힘들. */
 type BendGroup = { along?: (number | string)[]; bends?: Bend[] }
 
 function BendGroupsInput({
@@ -416,12 +416,12 @@ function BendGroupsInput({
       {groups.map((group, i) => (
         <div key={i} className="space-y-1 rounded border border-dashed p-2">
           <div className="flex items-center justify-between text-xs">
-            <span className="font-medium">날개 {i + 2}</span>
-            <button type="button" className="text-muted-foreground px-1 hover:text-destructive" onClick={() => onChange(groups.filter((_, j) => j !== i))} aria-label={`날개 ${i + 2} 지우기`}>
+            <span className="font-medium">플랜지 {i + 2}</span>
+            <button type="button" className="text-muted-foreground px-1 hover:text-destructive" onClick={() => onChange(groups.filter((_, j) => j !== i))} aria-label={`플랜지 ${i + 2} 삭제`}>
               ×
             </button>
           </div>
-          <span className="text-muted-foreground text-xs">굽혀 나가는 방향 (이 날개 쪽)</span>
+          <span className="text-muted-foreground text-xs">굽힘 진행 방향 (이 플랜지 방향)</span>
           <VectorInput params={params} onCreateParam={onCreateParam} value={group.along ?? [0, 1, 0]} size={3} onChange={(v) => put(i, { along: v })} />
           <BendsInput params={params} onCreateParam={onCreateParam} value={group.bends ?? []} onChange={(v) => put(i, { bends: v })} />
         </div>
@@ -431,7 +431,7 @@ function BendGroupsInput({
         className="text-muted-foreground text-xs hover:underline"
         onClick={() => onChange([...groups, { along: [0, 1, 0], bends: [{ at: 0, radius: 5, toward: 'up', until: 'angle', angle: 90 }] }])}
       >
-        + 다른 방향 날개
+        + 다른 방향 플랜지
       </button>
     </div>
   )
@@ -454,7 +454,7 @@ function RefSelect({
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="__none__">(고르세요)</SelectItem>
+        <SelectItem value="__none__">(선택하십시오)</SelectItem>
         {candidates.map((one) => (
           <SelectItem key={one.id} value={one.id}>
             {one.label ? `${one.label} (${one.id})` : one.id}
@@ -488,7 +488,7 @@ function JsonInput({ value, onChange, label }: { value: unknown; onChange: (next
             onChange(JSON.parse(event.target.value) as unknown)
             setTrouble(null)
           } catch (failure) {
-            setTrouble(failure instanceof Error ? failure.message : '읽을 수 없습니다')
+            setTrouble(failure instanceof Error ? failure.message : 'JSON을 읽을 수 없습니다.')
           }
         }}
       />
@@ -522,20 +522,20 @@ function RuleInput({
           setText(event.target.value)
           try {
             const parsed = JSON.parse(event.target.value) as unknown
-            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('객체여야 합니다')
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('JSON 객체여야 합니다.')
             setTrouble(null)
             onChange(bare ? (parsed as Record<string, unknown>) : { query: parsed as Record<string, unknown> })
           } catch (failure) {
-            setTrouble(failure instanceof Error ? failure.message : '읽을 수 없습니다')
+            setTrouble(failure instanceof Error ? failure.message : 'JSON을 읽을 수 없습니다.')
           }
         }}
       />
       <p className={trouble ? 'text-destructive' : 'text-muted-foreground'}>
         {trouble
-          ? `JSON 이 아닙니다 — ${trouble}`
+          ? `올바른 JSON이 아닙니다: ${trouble}`
           : what === 'edges'
-            ? '예: {"kind":"circle","radius":5} · {"of_face":{"normal":[0,0,1]}} — 치수를 바꿔도 다시 찾습니다.'
-            : '예: {"normal":[0,0,1]} · {"kind":"cylinder","radius":5} — 치수를 바꿔도 다시 찾습니다.'}
+            ? '예: {"kind":"circle","radius":5}, {"of_face":{"normal":[0,0,1]}}. 치수가 변경되어도 다시 검색합니다.'
+            : '예: {"normal":[0,0,1]}, {"kind":"cylinder","radius":5}. 치수가 변경되어도 다시 검색합니다.'}
       </p>
     </div>
   )
@@ -636,10 +636,10 @@ function DatumFields({
     ? [
         ['vector', '점과 방향'],
         ['through', '두 점'],
-        ['geometry', '형상에서 (구멍의 축 · 직선 엣지)'],
+        ['geometry', '형상에서 (구멍의 축, 직선 엣지)'],
       ]
     : [
-        ['plane', '이름 있는 평면 · 원점'],
+        ['plane', '기본 평면과 원점'],
         ['points', '세 점'],
         ['geometry', '형상의 평면에서'],
       ]
@@ -653,7 +653,7 @@ function DatumFields({
   return (
     <div className="space-y-2">
       <Select value={way} onValueChange={(v) => onChange(switchDatum(node, v as DatumWay, solids))}>
-        <SelectTrigger className="h-8" aria-label="정하는 법">
+        <SelectTrigger className="h-8" aria-label="지정 방식">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -665,7 +665,7 @@ function DatumFields({
         </SelectContent>
       </Select>
       {way === 'vector' && [
-        vector('origin', '지나는 점', node.origin, (v) => onChange({ ...node, origin: v })),
+        vector('origin', '통과점', node.origin, (v) => onChange({ ...node, origin: v })),
         vector('direction', '방향', node.direction, (v) => onChange({ ...node, direction: v })),
       ]}
       {(way === 'through' || way === 'points') &&
@@ -703,12 +703,12 @@ function DatumFields({
           <RefSelect value={String(node.target ?? '')} candidates={solids} onChange={(v) => onChange({ ...node, target: v })} placeholder="대상 입체" />
           <p className="text-muted-foreground font-mono break-all">{JSON.stringify(node.select)}</p>
           <p className="text-muted-foreground">
-            {axis ? '원통면(구멍 · 축)을 누르면 그 축이 됩니다.' : '평면을 누르면 그 면이 됩니다.'} 위치(near)로 고른 면을 치수가 바뀌어도
-            다시 찾습니다.
+            {axis ? '원통면(구멍, 축)을 선택하면 해당 축이 기준축이 됩니다.' : '평면을 선택하면 해당 면이 기준면이 됩니다.'} 위치(near)로 선택한 면은 치수가
+            변경되어도 다시 검색합니다.
           </p>
           {onPick && (
             <button type="button" className="underline" onClick={onPick}>
-              3D 에서 {axis ? '원통면' : '평면'} 고르기
+              3D에서 {axis ? '원통면' : '평면'} 선택
             </button>
           )}
         </div>
@@ -746,7 +746,7 @@ export function NodeForm({
     onChange({ ...node, [key]: value })
   }
 
-  if (!spec) return <p className="text-destructive text-sm">모르는 연산: {node.op}</p>
+  if (!spec) return <p className="text-destructive text-sm">알 수 없는 연산입니다: {node.op}</p>
 
   return (
     <div className="space-y-3">
@@ -761,7 +761,7 @@ export function NodeForm({
           <Label htmlFor="node-label" className="text-xs">
             이름
           </Label>
-          <Input id="node-label" value={node.label ?? ''} onChange={(e) => set('label', e.target.value)} className="h-8" placeholder="사람이 보는 이름" />
+          <Input id="node-label" value={node.label ?? ''} onChange={(e) => set('label', e.target.value)} className="h-8" placeholder="표시 이름" />
         </div>
       </div>
       <p className="text-muted-foreground text-xs">{spec.help}</p>
@@ -813,15 +813,15 @@ export function NodeForm({
                         {o.label}
                       </SelectItem>
                     ))}
-                    <SelectItem value="__near__">3D 에서 고른 엣지</SelectItem>
-                    <SelectItem value="__rule__">규칙으로 (치수가 바뀌어도 찾는다)</SelectItem>
+                    <SelectItem value="__near__">3D에서 선택한 엣지</SelectItem>
+                    <SelectItem value="__rule__">규칙 (치수가 변경되어도 다시 검색)</SelectItem>
                   </SelectContent>
                 </Select>
                 {isRule(node.edges) && <RuleInput value={node.edges} what="edges" onChange={(v) => set('edges', v)} />}
                 {typeof node.edges === 'object' && !isRule(node.edges) && (
                   <p className="text-muted-foreground text-xs">
-                    오른쪽 3D 에서 엣지를 누르세요 — 고른 것 {((node.edges as { near: number[][] }).near ?? []).length} 개.
-                    위치로 기억하므로 형상을 조금 고쳐도 같은 자리를 찾습니다.
+                    오른쪽 3D에서 엣지를 선택하십시오(선택한 엣지 {((node.edges as { near: number[][] }).near ?? []).length} 개).
+                    위치로 기억하므로 형상을 조금 수정해도 같은 위치를 찾습니다.
                   </p>
                 )}
               </div>
@@ -875,7 +875,7 @@ export function NodeForm({
                     </label>
                   )
                 })}
-                {candidatesFor(field).length === 0 && <p className="text-muted-foreground text-xs">앞에 고를 피처가 없습니다.</p>}
+                {candidatesFor(field).length === 0 && <p className="text-muted-foreground text-xs">앞쪽에 선택할 수 있는 피처가 없습니다.</p>}
               </div>
             )}
             {field.kind === 'axisref' && (
@@ -933,7 +933,7 @@ export function NodeForm({
                       type="button"
                       className="text-muted-foreground px-1 text-xs hover:text-destructive"
                       onClick={() => set(field.key, (node[field.key] as (number | string)[][]).filter((_, j) => j !== i))}
-                      aria-label="지우기"
+                      aria-label="삭제"
                     >
                       ×
                     </button>
@@ -952,28 +952,28 @@ export function NodeForm({
               <div className="space-y-1">
                 <RuleInput value={node[field.key]} what="faces" onChange={(v) => set(field.key, v)} />
                 <button type="button" className="text-muted-foreground text-xs underline" onClick={() => set(field.key, 'none')}>
-                  비우기
+                  초기화
                 </button>
               </div>
             )}
             {field.kind === 'facepicks' && !isRule(node[field.key]) && (
               <div className="space-y-1 text-xs">
                 <p className="text-muted-foreground">
-                  고른 면 {typeof node[field.key] === 'object' && node[field.key] !== null ? ((node[field.key] as { near: number[][] }).near ?? []).length : 0} 개 — 누른
-                  자리로 기억합니다.
+                  선택한 면 {typeof node[field.key] === 'object' && node[field.key] !== null ? ((node[field.key] as { near: number[][] }).near ?? []).length : 0} 개. 선택한
+                  위치로 기억합니다.
                 </p>
                 <div className="flex gap-2">
                   {onPickFaces && (
                     <button type="button" className="underline" onClick={() => onPickFaces(field.key)}>
-                      3D 에서 고르기
+                      3D에서 선택
                     </button>
                   )}
                   <button type="button" className="text-muted-foreground underline" onClick={() => set(field.key, { query: { normal: [0, 0, 1] } })}>
-                    규칙으로
+                    규칙으로 지정
                   </button>
                   {typeof node[field.key] === 'object' && node[field.key] !== null && (
                     <button type="button" className="text-muted-foreground underline" onClick={() => set(field.key, 'none')}>
-                      비우기
+                      초기화
                     </button>
                   )}
                 </div>
@@ -991,18 +991,18 @@ export function NodeForm({
                   <SelectContent>
                     <SelectItem value="top">윗면</SelectItem>
                     <SelectItem value="bottom">바닥면</SelectItem>
-                    <SelectItem value="none">없음 (닫힌 속 빈 덩어리)</SelectItem>
-                    <SelectItem value="__near__">3D 에서 고른 면</SelectItem>
-                    <SelectItem value="__rule__">규칙으로 (치수가 바뀌어도 찾는다)</SelectItem>
+                    <SelectItem value="none">없음 (닫힌 중공 솔리드)</SelectItem>
+                    <SelectItem value="__near__">3D에서 선택한 면</SelectItem>
+                    <SelectItem value="__rule__">규칙 (치수가 변경되어도 다시 검색)</SelectItem>
                   </SelectContent>
                 </Select>
                 {isRule(node[field.key]) && <RuleInput value={node[field.key]} what="faces" onChange={(v) => set(field.key, v)} />}
                 {typeof node[field.key] === 'object' && node[field.key] !== null && !isRule(node[field.key]) && (
                   <p className="text-muted-foreground text-xs">
-                    고른 면 {((node[field.key] as { near: number[][] }).near ?? []).length} 개 — 이 창을 닫고 3D 에서 면을 누르세요.
+                    선택한 면 {((node[field.key] as { near: number[][] }).near ?? []).length} 개. 이 창을 닫고 3D에서 면을 선택하십시오.
                     {onPickFaces && (
                       <button type="button" className="ml-2 underline" onClick={() => onPickFaces(field.key)}>
-                        3D 에서 고르기
+                        3D에서 선택
                       </button>
                     )}
                   </p>
@@ -1013,10 +1013,10 @@ export function NodeForm({
               <div className="text-xs">
                 {(node.plane as { normal?: number[] } | null)?.normal ? (
                   <p>
-                    면 위 — 원점 ({((node.plane as { origin: number[] }).origin ?? []).map((v) => v.toFixed(1)).join(', ')}), 법선 (
+                    면 위: 원점 ({((node.plane as { origin: number[] }).origin ?? []).map((v) => v.toFixed(1)).join(', ')}), 법선 (
                     {((node.plane as { normal: number[] }).normal ?? []).map((v) => v.toFixed(2)).join(', ')})
                     <button type="button" className="ml-2 underline" onClick={() => set('plane', null)}>
-                      윗면으로 되돌리기
+                      윗면으로 재설정
                     </button>
                   </p>
                 ) : (
@@ -1024,23 +1024,23 @@ export function NodeForm({
                 )}
                 {onPickFaces && (
                   <button type="button" className="text-muted-foreground underline" onClick={() => onPickFaces('plane')}>
-                    3D 에서 뚫을 면 고르기
+                    3D에서 구멍을 뚫을 면 선택
                   </button>
                 )}
               </div>
             )}
             {field.kind === 'plane' && typeof (node.plane as { datum?: string } | null)?.datum === 'string' && (
               <div className="space-y-1 text-xs">
-                <p>기준면 「{(node.plane as { datum: string }).datum}」 — 그 면이 움직이면 따라갑니다.</p>
+                <p>기준면 ‘{(node.plane as { datum: string }).datum}’: 해당 면이 이동하면 함께 이동합니다.</p>
                 <button type="button" className="text-muted-foreground hover:underline" onClick={() => set('plane', { name: 'XY', origin: [0, 0, 0] })}>
-                  이름 있는 평면으로 바꾸기
+                  기본 평면으로 변경
                 </button>
               </div>
             )}
             {field.kind === 'plane' && !(node.plane as { datum?: string } | null)?.datum && (node.plane as { normal?: number[] })?.normal && (
               <div className="space-y-1 text-xs">
                 <p>
-                  면 위 평면 — 법선 ({((node.plane as { normal: number[] }).normal ?? []).map((v) => v.toFixed(2)).join(', ')})
+                  면 위 평면: 법선 ({((node.plane as { normal: number[] }).normal ?? []).map((v) => v.toFixed(2)).join(', ')})
                 </p>
                 <Label className="text-muted-foreground text-xs">원점</Label>
                 <VectorInput
@@ -1049,7 +1049,7 @@ export function NodeForm({
                   onChange={(v) => set('plane', { ...(node.plane as object), origin: v })}
                 />
                 <button type="button" className="text-muted-foreground hover:underline" onClick={() => set('plane', { name: 'XY', origin: [0, 0, 0] })}>
-                  이름 있는 평면으로 바꾸기
+                  기본 평면으로 변경
                 </button>
               </div>
             )}
@@ -1085,7 +1085,7 @@ export function NodeForm({
                 />
                 {onPickFaces && (
                   <button type="button" className="text-muted-foreground text-xs underline" onClick={() => onPickFaces('plane')}>
-                    3D 에서 면 고르기 — 그 면이 평면이 됩니다
+                    3D에서 면 선택 (선택한 면이 평면이 됩니다)
                   </button>
                 )}
               </div>

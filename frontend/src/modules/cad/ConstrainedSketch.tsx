@@ -50,12 +50,12 @@ export const CONSTRAINT_KINDS: { value: string; label: string; points: number; s
   { value: 'angle', label: '각도', points: 0, segments: 2, unit: '°' },
   { value: 'parallel', label: '평행', points: 0, segments: 2 },
   { value: 'perpendicular', label: '직각', points: 0, segments: 2 },
-  { value: 'equal', label: '같은 길이', points: 0, segments: 2 },
+  { value: 'equal', label: '동일 길이', points: 0, segments: 2 },
   { value: 'radius', label: '반지름', points: 0, segments: 1, unit: 'mm' },
-  { value: 'tangent', label: '접함', points: 0, segments: 2 },
+  { value: 'tangent', label: '접선', points: 0, segments: 2 },
   { value: 'coincident', label: '일치', points: 2, segments: 0 },
-  { value: 'on', label: '위에', points: 1, segments: 1 },
-  { value: 'midpoint', label: '가운데', points: 1, segments: 1 },
+  { value: 'on', label: '선 위의 점', points: 1, segments: 1 },
+  { value: 'midpoint', label: '중점', points: 1, segments: 1 },
   { value: 'symmetric', label: '대칭', points: 2, segments: 1 },
 ]
 const KIND = Object.fromEntries(CONSTRAINT_KINDS.map((one) => [one.value, one]))
@@ -105,7 +105,7 @@ export function useSolvedSketches(shapes: Record<string, unknown>[], params: Rec
           cadApi
             .sketchSolve(one, params)
             .then((got): [number, Solved] => [index, got])
-            .catch((failure: unknown): [number, Solved] => [index, { error: failure instanceof Error ? failure.message : '풀지 못했습니다' }]),
+            .catch((failure: unknown): [number, Solved] => [index, { error: failure instanceof Error ? failure.message : '구속을 풀지 못했습니다.' }]),
         ),
       ).then((rows) => alive && setSolved(Object.fromEntries(rows)))
     }, 250)
@@ -279,21 +279,21 @@ export function ConstrainedForm({
     <div className="space-y-3 text-xs">
       <p role="status" className={solved && 'error' in solved ? 'text-destructive' : 'text-muted-foreground'}>
         {!solved
-          ? '푸는 중…'
+          ? '계산 중…'
           : 'error' in solved
             ? solved.error
             : solved.free === 0
-              ? '다 정해졌습니다.'
-              : `남은 움직임 ${solved.free} — 점 하나를 고정하고 한 변을 수평 · 수직으로 두면 대개 0 이 됩니다.`}
+              ? '완전히 구속되었습니다.'
+              : `남은 자유도: ${solved.free}. 점 하나를 고정하고 한 변을 수평 또는 수직으로 구속하면 대개 0이 됩니다.`}
       </p>
       {solved && 'points' in solved && (
-        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={adoptSolved} title="그린 자리를 푼 자리로 바꿉니다 — 다음 풀이가 여기서 시작합니다">
-          점을 푼 자리로
+        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={adoptSolved} title="작성한 점 위치를 계산된 위치로 변경합니다. 다음 계산은 이 위치에서 시작합니다.">
+          계산된 위치 적용
         </Button>
       )}
 
       <div>
-        <p className="mb-1 font-medium">점 (그린 자리 — 풀이가 옮긴다)</p>
+        <p className="mb-1 font-medium">점 (작성 위치, 계산 시 이동됨)</p>
         <div className="space-y-1">
           {names.map((name) => (
             <div key={name} className="flex items-center gap-1">
@@ -318,21 +318,21 @@ export function ConstrainedForm({
       </div>
 
       <div>
-        <p className="mb-1 font-medium">구간 (닫힌 고리)</p>
+        <p className="mb-1 font-medium">구간 (닫힌 윤곽)</p>
         <ul className="space-y-1">
           {segments.map((one, index) => (
             <li key={index} className="flex items-center gap-1">
               <span className="w-28 font-mono">{segmentLabel(index)}</span>
               <Button size="sm" variant="ghost" className="h-6 px-1 text-[11px]" onClick={() => split(index)}>
-                나누기
+                분할
               </Button>
               <Button size="sm" variant="ghost" className="h-6 px-1 text-[11px]" onClick={() => toggleArc(index)}>
-                {one.center ? '직선으로' : '호로'}
+                {one.center ? '직선으로 변경' : '호로 변경'}
               </Button>
               {one.center && (
                 <label className="flex items-center gap-0.5">
                   <input type="checkbox" checked={one.ccw ?? true} onChange={(e) => onChange({ segments: segments.map((s, i) => (i === index ? { ...s, ccw: e.target.checked } : s)) })} />
-                  반시계
+                  반시계 방향
                 </label>
               )}
             </li>
@@ -387,7 +387,7 @@ export function ConstrainedForm({
                 <button
                   type="button"
                   className="text-muted-foreground hover:text-destructive ml-auto px-1"
-                  aria-label={`구속 ${index + 1} 빼기`}
+                  aria-label={`구속 ${index + 1} 삭제`}
                   onClick={() => onChange({ constraints: constraints.filter((_, i) => i !== index) })}
                 >
                   ×
@@ -397,7 +397,7 @@ export function ConstrainedForm({
           })}
         </ul>
         <div className="mt-1 flex items-center gap-1">
-          <select aria-label="더할 구속" className="bg-background h-7 rounded border px-1" value={kind} onChange={(e) => setKind(e.target.value)}>
+          <select aria-label="추가할 구속" className="bg-background h-7 rounded border px-1" value={kind} onChange={(e) => setKind(e.target.value)}>
             {CONSTRAINT_KINDS.map((one) => (
               <option key={one.value} value={one.value}>
                 {one.label}

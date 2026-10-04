@@ -52,7 +52,7 @@ export function SaveTemplateDialog({
       onSaved?.()
       onClose()
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
       setBusy(false)
     }
@@ -65,8 +65,8 @@ export function SaveTemplateDialog({
           <DialogHeader>
             <DialogTitle>템플릿으로 저장</DialogTitle>
             <DialogDescription>
-              지금 도면이 템플릿 라이브러리에 들어갑니다 — 다음에 부품 · 지그를 그릴 때 출발점으로 고릅니다. 버전은 없습니다 — 시작점일 뿐이고, 고친
-              결과는 작업으로 갑니다.
+              현재 도면을 템플릿 라이브러리에 저장합니다. 이후 부품이나 지그를 모델링할 때 시작점으로 선택할 수 있습니다. 템플릿은
+              시작점이므로 버전을 관리하지 않으며, 수정한 결과는 작업에 저장됩니다.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
@@ -75,15 +75,15 @@ export function SaveTemplateDialog({
           </div>
           <div className="space-y-2">
             <Label htmlFor="tpl-desc">설명</Label>
-            <Input id="tpl-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="언제 쓰는 시작점인가" />
+            <Input id="tpl-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="템플릿의 용도" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="tpl-folder">폴더</Label>
-            <Input id="tpl-folder" value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="비우면 맨 위 · 예: 판금/브래킷" />
+            <Input id="tpl-folder" value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="예: 판금/브래킷 (비워 두면 최상위)" />
           </div>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} />
-            공용 — 로그인한 누구나 시작점으로 고를 수 있다
+            공용으로 공개(로그인한 모든 사용자가 시작점으로 선택 가능)
           </label>
           <ErrorNotice error={error} />
           <DialogFooter>

@@ -14,7 +14,7 @@
 curl -H "Authorization: Bearer <PAT>" http://<호스트>/api/works
 ```
 
-PAT 은 화면의 **내 정보 → 토큰**에서 만든다. 로그인 세션의 액세스 토큰도 같은 자리에 넣을 수
+PAT 은 화면의 **내 정보 → 개인 토큰**에서 만든다. 로그인 세션의 액세스 토큰도 같은 자리에 넣을 수
 있지만, 기계는 PAT 을 쓴다(세션은 만료된다).
 
 ### 범위 — 토큰에 붙는 울타리
@@ -84,7 +84,7 @@ curl -X POST "http://<호스트>/api/doe/run" \
   부르는 것이 정상이다. 열쇠가 같으면 **이미 만든 것을 돌려준다**(201 이 아니라 **200**).
   같은 열쇠에 다른 요청이면 400 으로 거절한다.
 - **안 끝나도 답은 온다.** `wait_seconds`(기본 300)가 다 되면 그때 상태로 돌아오고, 그 경우
-  **보내지 않는다** — 만들다 만 폴더를 해석이 읽으면 안 된다. 이어서 `POST /doe/{id}/wait`.
+  **내보내지 않는다** — 만들다 만 폴더를 해석이 읽으면 안 된다. 이어서 `POST /doe/{id}/wait`.
 - `export=false` 로 만들기만 할 수 있다(조건만 바꿔 가며 쌓아 둘 때).
 
 ### ② 진행만 묻는다
@@ -114,9 +114,9 @@ curl -X POST -H "Authorization: Bearer <PAT>" http://<호스트>/api/doe/<id>/re
 `POST /doe/{id}/keep?keep=true`(영구보관, 두 폴더 모두에 걸린다).
 
 **대행으로 만든 기계는 제가 만든 것을 제가 몰 수 있다** — 소유자는 사람이지만 돌리고 ·
-보내고 · 알리는 것은 기계다.
+내보내고 · 알리는 것은 기계다.
 
-### ④ 파일이 치워졌으면 다시 만든다
+### ④ 파일이 치워졌으면 재생성한다
 
 ```bash
 curl -H "Authorization: Bearer <PAT>" http://<호스트>/api/doe/<id>/status
@@ -133,7 +133,7 @@ curl -X POST -H "Authorization: Bearer <PAT>" "http://<호스트>/api/doe/<id>/r
 브래킷_압력_훑기-98e481ec/
   README.txt       사람이 열어 볼 한 장
   manifest.csv     설계점마다 바꾼 변수 값 · 파일 이름 · 상태
-  study.json       레시피 스냅샷 · 인자 · 시드 · **만든 사람과 돌린 쪽**
+  study.json       레시피 스냅샷 · 인자 · 시드 · **작성자와 돌린 쪽**
   conditions.json  조건 한 벌 — 식이 있는 그대로(사람이 읽는 정본)
   points/p0001.json   이 점의 모든 것 — 변수 값 · 영역과 바디의 좌표 지문 ·
                       그 값으로 **풀린** 조건 · 이 점이 쓰는 `step_file`
@@ -155,8 +155,8 @@ curl -X POST -H "Authorization: Bearer <PAT>" "http://<호스트>/api/doe/<id>/r
 | 묶음 | 무엇 |
 | --- | --- |
 | `auth` | 로그인 · PAT 발급 · 범위 목록(`GET /auth/token-scopes`) |
-| `works` | **내 작업** — 비공개로 그리는 자리. 버전마다 레시피와 해석 조건. 시스템 관리자는 목록 · 꼬리표 · 폴더에 `owner=all` · `owner=<사람 id>` 로 남의 것을 찾는다 |
-| `parts` · `jigs` · `templates` | 승격된 공용 카탈로그(불변 버전) |
+| `works` | **내 작업** — 비공개로 그리는 자리. 버전마다 레시피와 해석 조건. 시스템 관리자는 목록 · 태그 · 폴더에 `owner=all` · `owner=<사람 id>` 로 남의 것을 찾는다 |
+| `parts` · `jigs` · `templates` | 등록된 공용 카탈로그(불변 버전) |
 | `cad` | 레시피 검증 · 평가 · 질의 · 셀렉터 후보 · 조건 사양표. **대부분 아무것도 저장하지 않는다** |
 | `doe` | 위 3장 |
 | `materials` | 물성 — MatNexus 중계, 못 닿으면 올려 둔 카탈로그(`fallback`) |

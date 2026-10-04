@@ -107,7 +107,7 @@ export function NumberField({
             className={`pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 font-mono text-[10px] ${
               trouble && trouble.kind !== 'empty' ? 'text-destructive' : 'text-muted-foreground'
             }`}
-            title={trouble ? trouble.message : '지금 값'}
+            title={trouble ? trouble.message : '현재 값'}
           >
             {trouble ? (trouble.kind === 'empty' ? '…' : '?') : resolved}
           </span>
@@ -118,15 +118,15 @@ export function NumberField({
         <PopoverTrigger asChild>
           <button
             type="button"
-            aria-label={ariaLabel ? `${ariaLabel} 변수로` : '변수로'}
-            title="변수로 — 고르거나 이 값을 새 변수로 만듭니다"
+            aria-label={ariaLabel ? `${ariaLabel} 변수 지정` : '변수 지정'}
+            title="변수 지정: 기존 변수를 선택하거나 현재 값으로 새 변수를 생성합니다."
             className={`h-8 shrink-0 rounded-md border px-2 font-mono text-xs ${expression ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-accent'}`}
           >
             fx
           </button>
         </PopoverTrigger>
         <PopoverContent className="w-64 p-2" align="end">
-          <p className="text-muted-foreground mb-1 text-[11px]">이 칸을 무엇으로 할까요</p>
+          <p className="text-muted-foreground mb-1 text-[11px]">이 입력란에 사용할 값을 선택하십시오.</p>
 
           {names.length > 0 && (
             <ul className="mb-2 max-h-40 space-y-0.5 overflow-y-auto">
@@ -148,7 +148,7 @@ export function NumberField({
 
           {onCreateParam && (
             <div className="space-y-1 border-t pt-2">
-              <p className="text-[11px]">새 변수 만들기 — 값은 지금 이 칸의 수가 기본입니다</p>
+              <p className="text-[11px]">새 변수 생성: 기본값은 이 입력란의 현재 값입니다.</p>
               <div className="flex items-center gap-1">
                 <Input
                   value={newName}
@@ -159,7 +159,7 @@ export function NumberField({
                       create()
                     }
                   }}
-                  placeholder="이름 — 예: 두께"
+                  placeholder="이름(예: 두께)"
                   className="h-7 flex-1 font-mono text-xs"
                   aria-label="새 변수 이름"
                 />
@@ -171,16 +171,16 @@ export function NumberField({
                   aria-label="새 변수 값"
                 />
                 <Button size="sm" className="h-7 px-2 text-xs" disabled={!newName.trim() || newName.trim() in params} onClick={create}>
-                  <Plus className="size-3" /> 만들기
+                  <Plus className="size-3" /> 생성
                 </Button>
               </div>
-              {newName.trim() in params && <p className="text-destructive text-[10px]">이미 있는 이름입니다 — 위에서 고르세요.</p>}
+              {newName.trim() in params && <p className="text-destructive text-[10px]">이미 존재하는 이름입니다. 위 목록에서 선택하십시오.</p>}
             </div>
           )}
 
           <div className="mt-2 flex gap-2 border-t pt-2 text-[11px]">
             <button type="button" className="hover:underline" onClick={() => { onChange('='); setOpen(false) }}>
-              식 직접 쓰기
+              수식 직접 입력
             </button>
             {expression && (
               <button
@@ -188,7 +188,7 @@ export function NumberField({
                 className="text-muted-foreground ml-auto hover:underline"
                 onClick={() => { onChange(Number(resolved) || 0); setOpen(false) }}
               >
-                숫자로 되돌리기
+                숫자로 전환
               </button>
             )}
           </div>
@@ -206,7 +206,7 @@ export function NumberField({
               className="ml-1 underline"
               onClick={() => openCreate(trouble.name, current)}
             >
-              이 이름으로 만들기
+              이 이름으로 생성
             </button>
           )}
         </p>

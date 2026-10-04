@@ -169,7 +169,7 @@ def _sharp_sheet(node: S.SheetMetalNode, plane: Plane) -> Shape:
     for (x0, y0), (x1, y1) in itertools.pairwise(points):
         length = math.hypot(x1 - x0, y1 - y0)
         if length < 1e-9:
-            raise RecipeError(node.id, "꺾은선에 길이가 0 인 구간이 있습니다")
+            raise RecipeError(node.id, "꺾은선에 길이가 0인 구간이 있습니다.")
         directions.append(((x1 - x0) / length, (y1 - y0) / length))
     turn = sum(a[0] * b[1] - a[1] * b[0] for a, b in itertools.pairwise(directions))
     # 왼쪽으로 돌면(반시계) 바깥은 오른쪽이다.
@@ -251,7 +251,7 @@ def _shape2d(one: S.SketchShape) -> Sketch:
         face = _path(one)
     elif isinstance(one, S.RoundedRect):
         if one.radius >= min(one.width, one.height) / 2:
-            raise ValueError("모서리 반지름이 너비 · 높이의 절반보다 작아야 합니다")
+            raise ValueError("모서리 반지름은 너비와 높이의 절반보다 작아야 합니다.")
         face = RectangleRounded(
             one.width, one.height, one.radius, rotation=one.rotation, align=_align(one.align)
         )
@@ -269,7 +269,7 @@ def _shape2d(one: S.SketchShape) -> Sketch:
             )
         except Exception as failure:
             raise ValueError(
-                f"그 변 · 각으로는 삼각형이 되지 않습니다 ({failure})"
+                f"지정한 변과 각으로는 삼각형을 구성할 수 없습니다({failure})."
             ) from failure
     elif isinstance(one, S.TrapezoidShape):
         face = Trapezoid(
@@ -316,15 +316,15 @@ def _centerline(start: S.XY, segments: list[S.Segment]) -> list[Any]:
         if segment.tangent:
             if not edges:
                 raise ValueError(
-                    f"구간 {index + 1}: 접선 호는 앞 구간이 있어야 방향이 정해집니다"
+                    f"구간 {index + 1}: 접선 호는 이전 구간이 있어야 방향을 정할 수 있습니다."
                 )
             edges.append(TangentArc(cursor, target, tangent=edges[-1] % 1))
         elif segment.radius is not None:
             span = (target - cursor).length
             if abs(segment.radius) < span / 2 - 1e-9:
                 raise ValueError(
-                    f"구간 {index + 1}: 반지름 {abs(segment.radius)} 이 두 점 사이 "
-                    f"{round(span, 2)} 의 절반보다 작습니다"
+                    f"구간 {index + 1}: 반지름({abs(segment.radius)})이 두 점 사이 거리"
+                    f"({round(span, 2)})의 절반보다 작습니다."
                 )
             edges.append(RadiusArc(cursor, target, segment.radius))
         elif segment.via is not None:
@@ -342,15 +342,15 @@ def _path(shape: S.PathShape) -> Sketch:
     닫힌 곡선을 준다(실측) — make_face 로 면을 만든다."""
     edges = _centerline(shape.start, shape.segments)
     if not edges:
-        raise ValueError("선의 길이가 없습니다")
+        raise ValueError("선의 길이가 0입니다.")
     kind = Kind.ARC if shape.corners == "round" else Kind.INTERSECTION
     outline = offset(Wire(edges), shape.width / 2, kind=kind)
     wires = outline.wires()
     if len(wires) != 1 or not wires[0].is_closed:
-        raise ValueError("선이 스스로 겹칩니다 — 폭을 줄이거나 점을 고치세요")
+        raise ValueError("선이 자기 자신과 겹칩니다. 폭을 줄이거나 점을 수정하십시오.")
     face = make_face(wires[0])
     if not face.is_valid or face.area < 1e-6:
-        raise ValueError("선에서 면을 만들지 못했습니다")
+        raise ValueError("선에서 면을 생성하지 못했습니다.")
     sketch = Sketch(face.wrapped)
     if shape.rotation:
         sketch = sketch.rotate(Axis.Z, shape.rotation)
@@ -376,7 +376,7 @@ def _constrained(shape: S.ConstrainedShape) -> Sketch:
             (end - start) % (2 * math.pi) if segment.ccw else -((start - end) % (2 * math.pi))
         )
         if abs(sweep) < 1e-9:
-            raise ValueError("호의 두 끝이 같은 자리입니다")
+            raise ValueError("호의 양 끝점이 같은 위치에 있습니다.")
         radius = (a - c).length
         middle = start + sweep / 2
         mid = Vector(c.X + radius * math.cos(middle), c.Y + radius * math.sin(middle), 0)
@@ -384,7 +384,7 @@ def _constrained(shape: S.ConstrainedShape) -> Sketch:
     face = Face(Wire(edges))
     if not face.is_valid or face.area < 1e-6:
         raise ValueError(
-            "구속 윤곽이 스스로 교차하거나 면적이 없습니다 — 그린 자리를 확인하세요"
+            "구속 윤곽이 자체 교차하거나 면적이 0입니다. 스케치한 위치를 확인하십시오."
         )
     sketch = Sketch(face.wrapped)
     return sketch.rotate(Axis.Z, shape.rotation) if shape.rotation else sketch
@@ -394,14 +394,14 @@ def _polyline(shape: S.PolylineShape) -> Sketch:
     """점을 이어 닫힌 윤곽으로. 구간에 `via` 가 있으면 그 점을 지나는 호."""
     if shape.corner_radius > 0:
         if any(segment.via is not None for segment in shape.segments):
-            raise ValueError("모서리 둥글리기는 호(via)와 함께 쓸 수 없습니다")
+            raise ValueError("모서리 라운드는 호(via)와 함께 사용할 수 없습니다.")
         points = [shape.start, *[segment.to for segment in shape.segments]]
         if points[-1] == points[0]:
             points = points[:-1]
         rounded = FilletPolyline(*points, radius=shape.corner_radius, close=True)
         face = make_face(rounded.wires()[0])
         if not face.is_valid or face.area < 1e-6:
-            raise ValueError("모서리 반지름이 너무 큽니다 — 줄이세요")
+            raise ValueError("모서리 반지름이 너무 큽니다. 반지름을 줄이십시오.")
         sketch = Sketch(face.wrapped)
         return sketch.rotate(Axis.Z, shape.rotation) if shape.rotation else sketch
     edges = _centerline(shape.start, shape.segments)
@@ -410,10 +410,10 @@ def _polyline(shape: S.PolylineShape) -> Sketch:
     if (cursor - start).length > 1e-6:
         edges.append(Line(cursor, start))
     if len(edges) < 2:
-        raise ValueError("윤곽이 닫히지 않습니다 — 점이 둘 이상이어야 합니다")
+        raise ValueError("윤곽이 닫히지 않습니다. 점이 2개 이상이어야 합니다.")
     face = Face(Wire(edges))
     if not face.is_valid or face.area < 1e-6:
-        raise ValueError("윤곽이 스스로 교차하거나 면적이 없습니다")
+        raise ValueError("윤곽이 자체 교차하거나 면적이 0입니다.")
     sketch = Sketch(face.wrapped)
     if shape.rotation:
         sketch = sketch.rotate(Axis.Z, shape.rotation)
@@ -427,14 +427,17 @@ def _sketch(node: S.SketchNode) -> Sketch:
         if one.mode == "cut":
             if result is None:
                 raise RecipeError(
-                    node.id, f"shapes[{index}]: 뺄 것이 없습니다 — cut 이 맨 앞입니다"
+                    node.id,
+                    f"shapes[{index}]: 뺄 대상이 없습니다. cut 도형이 처음에 있습니다.",
                 )
             result = _as_sketch(result - face)
         else:
             result = face if result is None else _as_sketch(result + face)
     assert result is not None
     if not result.faces():
-        raise RecipeError(node.id, "스케치에 남은 면이 없습니다 — cut 이 전부를 지웠습니다")
+        raise RecipeError(
+            node.id, "스케치에 남은 면이 없습니다. cut 도형이 모든 면을 제거했습니다."
+        )
     if node.hull:
         result = make_hull(result.edges())
     return _plane(node.plane) * _offset2d(result, node.offset, node.id)
@@ -455,9 +458,9 @@ def _offset2d(sketch: Sketch, amount: float, node_id: str) -> Sketch:
     try:
         moved = offset(sketch, amount, kind=Kind.ARC)
     except Exception as failure:
-        raise RecipeError(node_id, f"윤곽을 {amount} 만큼 띄우지 못했습니다") from failure
+        raise RecipeError(node_id, f"윤곽을 {amount}만큼 오프셋하지 못했습니다.") from failure
     if not moved.faces() or moved.area < 1e-6:
-        raise RecipeError(node_id, f"윤곽을 {amount} 만큼 줄이니 남는 것이 없습니다")
+        raise RecipeError(node_id, f"윤곽을 {amount}만큼 오프셋한 결과 남는 면이 없습니다.")
     return moved
 
 
@@ -476,7 +479,9 @@ def _as_part(shape: Shape, node_id: str) -> Part:
         return shape
     if isinstance(shape, Sketch):
         raise RecipeError(
-            node_id, "스케치는 여기 쓸 수 없습니다 — 먼저 돌출(extrude) · 회전(revolve) 하세요"
+            node_id,
+            "이 피처에는 스케치를 사용할 수 없습니다. 먼저 돌출(extrude) 또는 "
+            "회전(revolve)하십시오.",
         )
     return Part(shape.wrapped)
 
@@ -506,7 +511,7 @@ def _faces(part: Part, select: S.FaceSelect, node_id: str) -> list[Any]:
             if any((f.center() - t).length <= select.tolerance for t in targets)
         ]
         if len(picked) < len(targets):
-            raise RecipeError(node_id, "고른 자리에 면이 없습니다 — 형상이 바뀌었습니다")
+            raise RecipeError(node_id, "선택한 위치에 면이 없습니다. 형상이 변경되었습니다.")
         return picked
     if select == "none":
         return []
@@ -515,7 +520,7 @@ def _faces(part: Part, select: S.FaceSelect, node_id: str) -> list[Any]:
     if select == "sides":
         picked = [f for f in faces if abs(f.normal_at().Z) < 0.1]
         if not picked:
-            raise RecipeError(node_id, "옆면이 없습니다")
+            raise RecipeError(node_id, "측면이 없습니다.")
         return picked
     ordered = faces.sort_by(Axis.Z)
     return [ordered[-1] if select == "top" else ordered[0]]
@@ -530,7 +535,7 @@ def _ruled(part: Part, rule: S.SelectRule, what: str, node_id: str) -> list[Any]
     if not rows:
         raise RecipeError(
             node_id,
-            f"규칙에 맞는 {'엣지가' if what == 'edges' else '면이'} 없습니다 — {rule.query}",
+            f"규칙에 맞는 {'엣지가' if what == 'edges' else '면이'} 없습니다({rule.query}).",
         )
     every = part.edges() if what == "edges" else part.faces()
     return [every[row["index"]] for row in rows]
@@ -550,8 +555,8 @@ def _edges(part: Part, select: S.EdgeSelect, node_id: str) -> Any:
         if len(edges) < len(targets):
             raise RecipeError(
                 node_id,
-                f"고른 자리 {len(targets)} 곳 중 {len(edges)} 곳에서만 엣지를 찾았습니다 — "
-                f"형상이 바뀌어 그 자리에 엣지가 없습니다",
+                f"선택한 위치 {len(targets)}곳 중 {len(edges)}곳에서만 엣지를 찾았습니다. "
+                "형상이 변경되어 해당 위치에 엣지가 없습니다.",
             )
     elif select in ("vertical", "horizontal"):
         seams = _seam_edges(part)
@@ -567,7 +572,7 @@ def _edges(part: Part, select: S.EdgeSelect, node_id: str) -> Any:
     elif select == "bottom":
         edges = part.faces().sort_by(Axis.Z)[0].edges()
     if not edges:
-        raise RecipeError(node_id, f"고른 엣지가 없습니다 (edges={select})")
+        raise RecipeError(node_id, f"선택한 엣지가 없습니다(edges={select}).")
     return edges
 
 
@@ -800,7 +805,7 @@ def _same_volume(one: Part, other: Part) -> bool:
 def _face_under_sketch(part: Part, drawn: Any, node_id: str) -> Any:
     """스케치와 같은 평면에 있고 스케치와 가장 넓게 겹치는 평면."""
     if not isinstance(drawn, Sketch) or not drawn.faces():
-        raise RecipeError(node_id, "sketch: 스케치를 고르세요")
+        raise RecipeError(node_id, "sketch: 스케치를 선택하십시오.")
     first = drawn.faces()[0]
     normal, point = first.normal_at(), first.center()
     best, best_overlap = None, 0.0
@@ -820,8 +825,8 @@ def _face_under_sketch(part: Part, drawn: Any, node_id: str) -> Any:
     if best is None:
         raise RecipeError(
             node_id,
-            "스케치가 놓인 면이 없습니다 — 면 위에 그리거나(3D 에서 면 누르기) on 으로 "
-            "고르세요",
+            "스케치가 놓인 면이 없습니다. 면 위에 스케치하거나(3D 뷰에서 면 클릭) on으로 "
+            "면을 선택하십시오.",
         )
     return best
 
@@ -838,13 +843,14 @@ def _divide_by_sketch(
     assert node.sketch is not None
     drawn = made[node.sketch]
     if not isinstance(drawn, Sketch):
-        raise RecipeError(node.id, f"'{node.sketch}' 는 스케치가 아닙니다")
+        raise RecipeError(node.id, f"‘{node.sketch}’은(는) 스케치가 아닙니다.")
     region = []
     for one in drawn.faces():
         if abs(abs(one.normal_at().dot(plane.z_dir)) - 1) > 1e-6:
             raise RecipeError(
                 node.id,
-                "스케치 평면이 나눌 면과 나란해야 합니다 — 그 면 위에 그린 스케치를 쓰세요",
+                "스케치 평면이 분할할 면과 평행해야 합니다. 해당 면 위에 작성한 스케치를 "
+                "사용하십시오.",
             )
         local = plane.to_local_coords(one)
         region.append(plane * (Pos(0, 0, -local.center().Z) * local))
@@ -855,7 +861,11 @@ def _divide_by_sketch(
     splitter.Build()
     divided = Part(splitter.Shape())
     if not divided.is_valid or not _same_volume(divided, part):
-        raise RecipeError(node.id, "면을 나누다 형상이 달라졌습니다 — 스케치가 면을 넘었나요?")
+        raise RecipeError(
+            node.id,
+            "면을 분할하는 중 형상이 변경되었습니다. 스케치가 면 밖으로 벗어나지 "
+            "않았는지 확인하십시오.",
+        )
     box = Compound(children=[copy.copy(one) for one in region]).bounding_box()
     at = (box.min + box.max) * 0.5
     return divided, {
@@ -892,11 +902,11 @@ def _divide_face(
             query["near"] = list(node.at)
         rows = find_features(part, query)["items"]
         if not rows:
-            raise RecipeError(node.id, f"나눌 면을 찾지 못했습니다 — on: {node.on}")
+            raise RecipeError(node.id, f"분할할 면을 찾지 못했습니다(on: {node.on}).")
         face = part.faces()[rows[0]["index"]]
     if face.geom_type != GeomType.PLANE:
         raise RecipeError(
-            node.id, "평면만 나눌 수 있습니다 — 곡면에 띠를 두르는 것은 아직 안 됩니다"
+            node.id, "평면만 분할할 수 있습니다. 곡면 분할은 아직 지원하지 않습니다."
         )
 
     plane = Plane(face)
@@ -907,12 +917,12 @@ def _divide_face(
     local = plane.to_local_coords(center)
     if node.shape == "circle":
         if not node.radius:
-            raise RecipeError(node.id, "circle 은 radius 가 있어야 합니다")
+            raise RecipeError(node.id, "circle에는 radius가 필요합니다.")
         patch = plane * Pos(local.X, local.Y) * Circle(node.radius)
         extent = float(node.radius)
     else:
         if not node.size:
-            raise RecipeError(node.id, "rect 는 size([가로, 세로])가 있어야 합니다")
+            raise RecipeError(node.id, "rect에는 size([가로, 세로])가 필요합니다.")
         patch = plane * Pos(local.X, local.Y) * Rectangle(node.size[0], node.size[1])
         extent = float(max(node.size)) / 2
 
@@ -921,7 +931,11 @@ def _divide_face(
     splitter.Build()
     divided = Part(splitter.Shape())
     if not divided.is_valid or not _same_volume(divided, part):
-        raise RecipeError(node.id, "면을 나누다 형상이 달라졌습니다 — 패치가 면을 넘었나요?")
+        raise RecipeError(
+            node.id,
+            "면을 분할하는 중 형상이 변경되었습니다. 패치가 면 밖으로 벗어나지 "
+            "않았는지 확인하십시오.",
+        )
 
     at = plane.from_local_coords(Vector(local.X, local.Y, 0))
     return divided, {
@@ -955,7 +969,7 @@ def _evaluate_node(
     if isinstance(node, S.ExtrudeNode):
         sketch = made[node.sketch]
         if not isinstance(sketch, Sketch):
-            raise RecipeError(node.id, f"'{node.sketch}' 는 스케치가 아닙니다")
+            raise RecipeError(node.id, f"‘{node.sketch}’은(는) 스케치가 아닙니다.")
         if node.until != "distance":
             assert node.target is not None
             normal = sketch.faces()[0].normal_at()
@@ -971,8 +985,8 @@ def _evaluate_node(
             except Exception as failure:
                 raise RecipeError(
                     node.id,
-                    "그 방향에 부딪힐 면이 없습니다 — "
-                    "스케치가 대상 밖에서 대상을 향해야 합니다",
+                    "해당 방향에 도달할 면이 없습니다. "
+                    "스케치가 대상 바깥에서 대상을 향해야 합니다.",
                 ) from failure
         if node.direction == "both":
             return extrude(sketch, node.distance / 2, both=True, taper=node.taper)
@@ -993,8 +1007,8 @@ def _evaluate_node(
             except Exception as failure:
                 raise RecipeError(
                     node.id,
-                    "판을 접지 못했습니다 — 굽힘 반지름을 줄이거나 꺾은선의 짧은 구간을 "
-                    "늘리세요",
+                    "판을 굽히지 못했습니다. 굽힘 반지름을 줄이거나 꺾은선의 짧은 구간을 "
+                    "늘리십시오.",
                 ) from failure
         else:
             # **각진 굽힘은 우리가 세운다** — make_brake_formed 는 모서리를 비스듬히 잘라
@@ -1030,7 +1044,7 @@ def _evaluate_node(
     if isinstance(node, S.HelixNode):
         sketch = made[node.sketch]
         if not isinstance(sketch, Sketch):
-            raise RecipeError(node.id, f"'{node.sketch}' 는 스케치가 아닙니다")
+            raise RecipeError(node.id, f"‘{node.sketch}’은(는) 스케치가 아닙니다.")
         rot = {"Z": Rot(0, 0, 0), "X": Rot(0, 90, 0), "Y": Rot(-90, 0, 0)}[node.axis]
         path = (
             Pos(*node.at)
@@ -1047,28 +1061,30 @@ def _evaluate_node(
             return sweep(placed, path, is_frenet=True)
         except Exception as failure:
             raise RecipeError(
-                node.id, "나선을 따라 밀지 못했습니다 — 단면이 피치보다 작아야 겹치지 않습니다"
+                node.id,
+                "나선을 따라 스윕하지 못했습니다. 단면이 겹치지 않으려면 피치보다 "
+                "작아야 합니다.",
             ) from failure
     if isinstance(node, S.SweepNode):
         sketch = made[node.sketch]
         if not isinstance(sketch, Sketch):
-            raise RecipeError(node.id, f"'{node.sketch}' 는 스케치가 아닙니다")
+            raise RecipeError(node.id, f"‘{node.sketch}’은(는) 스케치가 아닙니다.")
         points = [Vector(*p) for p in node.path]
         if any((b - a).length < 1e-6 for a, b in pairwise(points)):
-            raise RecipeError(node.id, "경로에 같은 점이 잇달아 있습니다")
+            raise RecipeError(node.id, "경로에 같은 점이 연속으로 있습니다.")
         path = Wire(Spline(*points)) if node.smooth else Wire(Polyline(*points))
         try:
             return sweep(sketch, path, transition=Transition.ROUND)
         except Exception as failure:
             raise RecipeError(
                 node.id,
-                "경로를 따라 밀지 못했습니다 — 단면이 경로 시작점에 놓였는지, 모서리가 "
-                "단면보다 급하지 않은지 보세요",
+                "경로를 따라 스윕하지 못했습니다. 단면이 경로 시작점에 있는지, 경로의 "
+                "꺾임이 단면 크기에 비해 급하지 않은지 확인하십시오.",
             ) from failure
     if isinstance(node, S.RevolveNode):
         sketch = made[node.sketch]
         if not isinstance(sketch, Sketch):
-            raise RecipeError(node.id, f"'{node.sketch}' 는 스케치가 아닙니다")
+            raise RecipeError(node.id, f"‘{node.sketch}’은(는) 스케치가 아닙니다.")
         return revolve(sketch, datums.axis(node.axis, made), node.angle)
     if isinstance(node, S.BoxNode):
         return Pos(*node.at) * Box(
@@ -1090,7 +1106,7 @@ def _evaluate_node(
         for tool in node.tools:
             result = result - _to_part(made[tool])
         if not result.solids():
-            raise RecipeError(node.id, "잘라 내고 남은 것이 없습니다")
+            raise RecipeError(node.id, "잘라 낸 결과 남는 형상이 없습니다.")
         return _cleaned(result)
     if isinstance(node, S.IntersectNode):
         parts = [_to_part(made[t]) for t in node.targets]
@@ -1098,7 +1114,7 @@ def _evaluate_node(
         for other in parts[1:]:
             result = result & other
         if not result.solids():
-            raise RecipeError(node.id, "겹치는 부분이 없습니다")
+            raise RecipeError(node.id, "겹치는 부분이 없습니다.")
         return _cleaned(result)
     if isinstance(node, S.FilletNode):
         part = _as_part(made[node.target], node.id)
@@ -1114,8 +1130,8 @@ def _evaluate_node(
         except ValueError as failure:
             raise RecipeError(
                 node.id,
-                f"반지름 {node.radius} 으로 블렌드(필렛)를 만들지 못했습니다 — "
-                f"인접한 면보다 작게 줄이거나 edges 를 좁히세요",
+                f"반지름 {node.radius}의 필렛을 생성하지 못했습니다. 반지름을 인접한 "
+                "면보다 작게 줄이거나 edges의 선택 범위를 줄이십시오.",
             ) from failure
     if isinstance(node, S.ChamferNode):
         part = _as_part(made[node.target], node.id)
@@ -1139,7 +1155,7 @@ def _evaluate_node(
             return chamfer(edges, node.length)
         except ValueError as failure:
             raise RecipeError(
-                node.id, f"길이 {node.length} 으로 챔퍼를 만들지 못했습니다 — 줄여 보세요"
+                node.id, f"길이 {node.length}의 챔퍼를 생성하지 못했습니다. 길이를 줄이십시오."
             ) from failure
     if isinstance(node, S.HoleNode):
         return _hole(_as_part(made[node.target], node.id), node)
@@ -1160,14 +1176,15 @@ def _evaluate_node(
             return offset(part, -node.thickness, openings=openings)
         except Exception as failure:
             raise RecipeError(
-                node.id, f"두께 {node.thickness} 으로 쉘을 만들지 못했습니다 — 줄여 보세요"
+                node.id,
+                f"두께 {node.thickness}의 쉘을 생성하지 못했습니다. 두께를 줄이십시오.",
             ) from failure
     if isinstance(node, S.LoftNode):
         sections = []
         for name in node.sketches:
             piece = made[name]
             if not isinstance(piece, Sketch):
-                raise RecipeError(node.id, f"'{name}' 는 스케치가 아닙니다")
+                raise RecipeError(node.id, f"‘{name}’은(는) 스케치가 아닙니다.")
             sections.append(piece)
         return loft(sections, ruled=node.ruled)
     if isinstance(node, S.SphereNode):
@@ -1247,13 +1264,14 @@ def _evaluate_node(
         part = _as_part(made[node.target], node.id)
         chosen = _faces(part, node.faces, node.id)
         if not chosen:
-            raise RecipeError(node.id, "구배를 줄 면을 고르지 않았습니다")
+            raise RecipeError(node.id, "구배를 적용할 면을 선택하지 않았습니다.")
         try:
             result = draft(chosen, neutral_plane=_plane(node.neutral), angle=node.angle)
         except Exception as failure:
             raise RecipeError(
                 node.id,
-                f"{node.angle}° 로 구배를 주지 못했습니다 — 각도를 줄이거나 면을 좁히세요",
+                f"{node.angle}°의 구배를 적용하지 못했습니다. 각도를 줄이거나 선택한 면을 "
+                "줄이십시오.",
             ) from failure
         return _to_part(result)
     if isinstance(node, S.DefeatureNode):
@@ -1266,9 +1284,9 @@ def _evaluate_node(
         result, left = defeature.remove(part, doomed)
         if left:
             notes.append(
-                f"{node.id}: 면 {left} 개는 이웃 면을 늘려 메울 수 없어 남겼습니다 — "
-                "서로 이어진 필렛이 끝면 둘레를 다 두르면 그렇습니다. 기준을 줄이거나 지울 "
-                "면을 골라 주세요"
+                f"{node.id}: 면 {left}개는 인접 면을 연장하여 메울 수 없어 남겨 "
+                "두었습니다. 서로 이어진 필렛이 끝면 둘레를 모두 감싸는 경우에 발생합니다. "
+                "기준값을 줄이거나 제거할 면을 직접 선택하십시오."
             )
         return result
     if isinstance(node, S.ImprintNode):
@@ -1277,7 +1295,7 @@ def _evaluate_node(
         except ImprintError as failure:
             raise RecipeError(node.id, str(failure)) from failure
         if not contacts:
-            notes.append(f"{node.id}: 서로 닿는 바디가 없어 새길 자리가 없습니다")
+            notes.append(f"{node.id}: 서로 접촉하는 바디가 없어 임프린트할 위치가 없습니다.")
         patches.update(contacts)
         return result
     if isinstance(node, S.SplitNode):
@@ -1287,18 +1305,20 @@ def _evaluate_node(
         if node.tool is not None:
             knife = made[node.tool]
             if not surfaces.is_surface(knife):
-                raise RecipeError(node.id, f"tool: '{node.tool}' 은 곡면(surface)이 아닙니다")
+                raise RecipeError(
+                    node.id, f"tool: ‘{node.tool}’은(는) 곡면(surface)이 아닙니다."
+                )
             faces = knife.faces()
             knife = faces[0] if len(faces) == 1 else Shell(faces)
         result = split(part, bisect_by=knife, keep=keep)
         if not result.solids():
             raise RecipeError(
                 node.id,
-                "자른 쪽에 남는 것이 없습니다 — "
+                "분할 후 남길 쪽에 형상이 없습니다. "
                 + (
-                    "곡면이 입체를 가로질러야 합니다"
+                    "곡면이 솔리드를 가로질러야 합니다."
                     if node.tool
-                    else "평면이 입체를 지나야 합니다"
+                    else "평면이 솔리드를 지나야 합니다."
                 ),
             )
         return _to_part(result)
@@ -1314,7 +1334,9 @@ def _evaluate_node(
     if isinstance(node, S.ThickenNode):
         target = made[node.target]
         if not surfaces.is_surface(target):
-            raise RecipeError(node.id, f"target: '{node.target}' 은 곡면(surface)이 아닙니다")
+            raise RecipeError(
+                node.id, f"target: ‘{node.target}’은(는) 곡면(surface)이 아닙니다."
+            )
         try:
             return surfaces.thicken(target, node.thickness, node.side)
         except surfaces.SurfaceError as failure:
@@ -1323,7 +1345,7 @@ def _evaluate_node(
         part = _as_part(made[node.target], node.id)
         cut = section(part, section_by=_plane(node.plane))
         if not cut.faces() or cut.area < 1e-6:
-            raise RecipeError(node.id, "그 평면은 입체를 지나지 않습니다")
+            raise RecipeError(node.id, "지정한 평면이 솔리드를 지나지 않습니다.")
         return _offset2d(
             Sketch(children=[copy.copy(f) for f in cut.faces()]), node.offset, node.id
         )
@@ -1334,10 +1356,12 @@ def _evaluate_node(
             result = offset(part, node.amount, kind=kind)
         except Exception as failure:
             raise RecipeError(
-                node.id, f"{node.amount} 만큼 키우거나 줄이지 못했습니다 — 얇은 곳보다 작게"
+                node.id,
+                f"{node.amount}만큼 오프셋하지 못했습니다. 가장 얇은 부분의 두께보다 작은 "
+                "값을 지정하십시오.",
             ) from failure
         if not result.solids() or result.volume <= 0:
-            raise RecipeError(node.id, "줄이고 남은 것이 없습니다")
+            raise RecipeError(node.id, "오프셋한 결과 남는 형상이 없습니다.")
         return _to_part(result)
     if isinstance(node, S.MirrorNode):
         source = made[node.target]
@@ -1357,10 +1381,12 @@ def _evaluate_node(
         return Compound(children=children)
     if isinstance(node, S.ComponentNode):
         if resolve_component is None:
-            raise RecipeError(node.id, "이 자리에서는 다른 도면을 가져올 수 없습니다")
+            raise RecipeError(node.id, "이 작업에서는 다른 도면을 가져올 수 없습니다.")
         if depth >= MAX_COMPONENT_DEPTH:
             raise RecipeError(
-                node.id, "조립이 너무 깊습니다 — 서로를 가져오고 있지 않은지 보세요"
+                node.id,
+                "조립 단계가 너무 깊습니다. 도면끼리 서로를 가져오고 있지 않은지 "
+                "확인하십시오.",
             )
         try:
             source = resolve_component(node.source)
@@ -1396,16 +1422,16 @@ def _evaluate_node(
         return location * sub.shape
     if isinstance(node, S.ImportStepNode):
         if resolve_file is None:
-            raise RecipeError(node.id, "이 자리에서는 STEP 을 불러올 수 없습니다")
+            raise RecipeError(node.id, "이 작업에서는 STEP을 불러올 수 없습니다.")
         try:
             path = resolve_file(node.file)
         except Exception as failure:
             raise RecipeError(node.id, f"파일을 찾지 못했습니다: {failure}") from failure
         shape = import_step(path)
         if not shape.solids():
-            raise RecipeError(node.id, "STEP 에 솔리드가 없습니다")
+            raise RecipeError(node.id, "STEP 파일에 솔리드가 없습니다.")
         return _to_part(shape)
-    raise RecipeError(node.id, f"모르는 연산입니다: {node.op}")  # pragma: no cover
+    raise RecipeError(node.id, f"알 수 없는 연산입니다: {node.op}")  # pragma: no cover
 
 
 def _deformed(node: S.DeformNode, made: dict[str, Any]) -> Part:
@@ -1423,7 +1449,9 @@ def _deformed(node: S.DeformNode, made: dict[str, Any]) -> Part:
     start = min(corners) if node.start is None else node.start
     end = max(corners) if node.end is None else node.end
     if end - start < 1e-6:
-        raise RecipeError(node.id, "변형할 구간의 길이가 0 입니다 — 축이 대상을 가로지르나요?")
+        raise RecipeError(
+            node.id, "변형할 구간의 길이가 0입니다. 축이 대상을 가로지르는지 확인하십시오."
+        )
     move = deform.mapping(
         Axis(base, direction), start, end, math.radians(node.twist), node.taper
     )
@@ -1458,7 +1486,8 @@ def _mate_spec(mate: S.Mate, local: Shape, made: dict[str, Any]) -> mates.Spec:
             to = mates.datum_element(target)
         elif mate.select is None:
             raise mates.MateError(
-                f"{where}: select 가 없습니다 — '{mate.to}' 에서 어느 면 · 축인지 고르세요"
+                f"{where}: select가 없습니다. ‘{mate.to}’에서 사용할 면 또는 축을 "
+                "선택하십시오."
             )
         else:
             try:
@@ -1549,13 +1578,14 @@ def _evaluate_recipe(
             # OCC 의 말은 사람에게 뜻이 없다 — 노드와 연산 이름을 붙여 준다.
             raise RecipeError(
                 node.id,
-                f"{node.op} 를 만들지 못했습니다 ({type(failure).__name__}: {failure})",
+                f"{node.op}을(를) 생성하지 못했습니다"
+                f"({type(failure).__name__}: {str(failure).rstrip('.')}).",
             ) from failure
         if isinstance(shape, Part) and (not shape.is_valid or shape.volume <= 0):
             raise RecipeError(
                 node.id,
-                f"{node.op} 의 결과가 유효한 입체가 아닙니다 — "
-                f"면이 정확히 포개지거나 서로 스치는 도형은 조금 겹치게 하세요",
+                f"{node.op}의 결과가 유효한 솔리드가 아닙니다. 면이 정확히 포개지거나 "
+                "서로 스치는 도형은 약간 겹치도록 배치하십시오.",
             )
         made[node.id] = shape
         infos.append(_info(node, shape, placements.get(node.id)))
@@ -1572,13 +1602,13 @@ def _evaluate_recipe(
                 shape=result,
                 nodes=infos,
                 warnings=[
-                    "아직 스케치(2D)입니다 — 돌출 · 회전을 더하면 입체가 됩니다.",
+                    "아직 스케치(2D)입니다. 돌출 또는 회전을 추가하면 솔리드가 됩니다.",
                     *notes,
                 ],
                 datums=marks,
             )
         raise RecipeError(
-            result_id, "결과가 스케치입니다 — extrude · revolve 로 입체를 만드세요"
+            result_id, "결과가 스케치입니다. extrude 또는 revolve로 솔리드를 생성하십시오."
         )
     if surfaces.is_surface(result):
         # 곡면은 미리보기에서만 그대로 보인다 — 저장 · 지그는 입체여야 한다.
@@ -1589,18 +1619,19 @@ def _evaluate_recipe(
                 shape=shown,
                 nodes=infos,
                 warnings=[
-                    "곡면입니다(두께 없음) — thicken 으로 두께를 주거나 split 의 tool 로 "
-                    "쓰세요.",
+                    "곡면입니다(두께 없음). thicken으로 두께를 부여하거나 split의 tool로 "
+                    "사용하십시오.",
                     *notes,
                 ],
                 datums=marks,
             )
         raise RecipeError(
-            result_id, "결과가 곡면입니다 — thicken 으로 두께를 주거나 split 의 tool 로 쓰세요"
+            result_id,
+            "결과가 곡면입니다. thicken으로 두께를 부여하거나 split의 tool로 사용하십시오.",
         )
     part = _to_part(result)
     if not part.solids():
-        raise RecipeError(result_id, "결과에 솔리드가 없습니다")
+        raise RecipeError(result_id, "결과에 솔리드가 없습니다.")
     part.label = "model"
     return Evaluation(
         shape=part,
@@ -1619,9 +1650,9 @@ def _result_id(recipe: S.Recipe, made: dict[str, Any]) -> str:
         return recipe.result_id
     if recipe.result is not None:
         raise RecipeError(
-            recipe.result_id, "기준(축 · 면)은 결과가 될 수 없습니다 — 형상 피처를 고르세요"
+            recipe.result_id, "기준(축·면)은 결과가 될 수 없습니다. 형상 피처를 선택하십시오."
         )
     shapes = [node.id for node in recipe.nodes if not datums.is_datum(made[node.id])]
     if not shapes:
-        raise RecipeError(recipe.result_id, "형상이 없습니다 — 기준(축 · 면)만 있습니다")
+        raise RecipeError(recipe.result_id, "형상이 없습니다. 기준(축·면)만 있습니다.")
     return shapes[-1]

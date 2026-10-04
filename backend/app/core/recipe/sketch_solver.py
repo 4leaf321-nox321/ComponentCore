@@ -40,11 +40,11 @@ LABELS = {
     "angle": "각도",
     "parallel": "평행",
     "perpendicular": "직각",
-    "equal": "같은 길이",
+    "equal": "동일 길이",
     "radius": "반지름",
-    "tangent": "접함",
-    "on": "위에",
-    "midpoint": "가운데",
+    "tangent": "접선",
+    "on": "선 위의 점",
+    "midpoint": "중점",
     "symmetric": "대칭",
 }
 
@@ -79,9 +79,9 @@ def solve(shape: S.ConstrainedShape) -> Solved:
         one = shape.constraints[culprit]
         label = LABELS[one.type]
         raise SketchSolveError(
-            f"구속 {culprit + 1}({label})"
-            + (" — 맞출 수 없습니다" if culprit == 0 else " — 앞의 구속과 맞지 않습니다")
-            + f", {_conflict_size(start, residuals[: implicit + culprit + 1]):.3g} 어긋남"
+            f"구속 {culprit + 1}({label}): "
+            + ("만족할 수 없습니다" if culprit == 0 else "이전 구속과 충돌합니다")
+            + f"(오차 {_conflict_size(start, residuals[: implicit + culprit + 1]):.3g})."
         )
     jacobian = _jacobian(solved, residuals)
     rank = int(np.linalg.matrix_rank(jacobian, tol=1e-6)) if jacobian.size else 0
@@ -245,7 +245,7 @@ def _residual(
         first, second = (shape.segments[one] for one in segs)
         if (first.center is None) != (second.center is None):
             raise SketchSolveError(
-                f"구속 {index + 1}(같은 길이): 선은 선끼리, 호는 호끼리입니다"
+                f"구속 {index + 1}(동일 길이): 선은 선끼리, 호는 호끼리만 지정할 수 있습니다."
             )
         if first.center is None:
             return lambda x: [
@@ -303,7 +303,9 @@ def _residual(
             ]
 
         return mirrored
-    raise SketchSolveError(f"구속 {index + 1}: 모르는 종류 {kind}")  # pragma: no cover
+    raise SketchSolveError(  # pragma: no cover
+        f"구속 {index + 1}: 알 수 없는 종류입니다({kind})."
+    )
 
 
 def _tangent(
@@ -320,7 +322,7 @@ def _tangent(
     차(그린 쪽)."""
     first, second = (shape.segments[one] for one in segs)
     if first.center is None and second.center is None:
-        raise SketchSolveError(f"구속 {index + 1}(접함): 하나는 호여야 합니다")
+        raise SketchSolveError(f"구속 {index + 1}(접선): 둘 중 하나는 호여야 합니다.")
     shared = {first.start, first.end} & {second.start, second.end}
     if shared:
         # 끝을 나눠 가진 둘 — 그 점에서 반지름이 선에 수직(선과 호), 두 중심과 그 점이 한 줄

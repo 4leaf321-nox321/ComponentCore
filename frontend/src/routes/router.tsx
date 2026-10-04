@@ -64,7 +64,7 @@ export const router = createBrowserRouter(
             {
               path: '*',
               element: (
-                <Placeholder title="없는 페이지" phase="—" description="주소를 확인해 주세요." />
+                <Placeholder title="페이지를 찾을 수 없습니다" phase="—" description="주소를 확인하십시오." />
               ),
             },
           ],

@@ -24,7 +24,7 @@ class SimilarRequest(BaseModel):
     @model_validator(mode="after")
     def _one(self) -> SimilarRequest:
         if (self.source is None) == (self.recipe is None):
-            raise ValueError("source · recipe 중 하나만 줍니다")
+            raise ValueError("source와 recipe 중 하나만 지정하십시오.")
         if not self.where:
-            raise ValueError("where: works · parts · jigs 중 하나 이상")
+            raise ValueError("where에는 works, parts, jigs 중 하나 이상을 지정하십시오.")
         return self

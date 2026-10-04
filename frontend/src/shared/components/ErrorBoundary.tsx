@@ -64,9 +64,9 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div className="mx-auto max-w-lg py-16 text-center">
         <AlertTriangle className="text-destructive mx-auto size-8" />
-        <h1 className="mt-4 text-lg font-semibold">이 화면을 그리지 못했습니다</h1>
+        <h1 className="mt-4 text-lg font-semibold">화면을 표시하지 못했습니다</h1>
         <p className="text-muted-foreground mt-1 text-sm">
-          화면 쪽 문제라 서버에는 기록이 남지 않습니다. 계속 나면 아래 내용을 알려 주세요.
+          화면(브라우저)에서 발생한 오류이므로 서버에는 기록이 남지 않습니다. 오류가 반복되면 아래 내용을 관리자에게 전달하십시오.
         </p>
         <p className="bg-muted text-muted-foreground mt-4 rounded-md p-3 text-left font-mono text-xs break-all">
           {error.message || String(error)}
@@ -77,7 +77,7 @@ export class ErrorBoundary extends Component<Props, State> {
           </Button>
           {/* 새로고침이 아니라 홈으로 보낸다 — 같은 화면을 다시 그리면 대개 또
               터지고, 그러면 사람은 앱이 통째로 고장났다고 읽는다. */}
-          <Button onClick={() => window.location.assign(`${PUBLIC_PATH}/`)}>홈으로</Button>
+          <Button onClick={() => window.location.assign(`${PUBLIC_PATH}/`)}>홈으로 이동</Button>
         </div>
       </div>
     )

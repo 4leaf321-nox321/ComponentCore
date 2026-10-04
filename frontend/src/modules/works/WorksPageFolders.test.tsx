@@ -109,17 +109,17 @@ test('폴더를 누르면 그 폴더로 거르고, 골라서 옮기고, 연도�
   expect(screen.getByText(/📁 고객A › 2026/)).toBeInTheDocument()
 
   // 골라서 옮기기 — 창에 경로를 적는다.
-  fireEvent.click(screen.getByLabelText('모터 지그 고르기'))
-  fireEvent.click(screen.getByRole('button', { name: '폴더로 옮기기' }))
+  fireEvent.click(screen.getByLabelText('모터 지그 선택'))
+  fireEvent.click(screen.getByRole('button', { name: '폴더로 이동' }))
   fireEvent.change(screen.getByLabelText('폴더 경로'), { target: { value: '보관/ 2026 ' } })
-  fireEvent.click(screen.getByRole('button', { name: '옮기기' }))
+  fireEvent.click(screen.getByRole('button', { name: '이동' }))
   await waitFor(() => expect(calls.some((one) => one.url.endsWith('/works/move'))).toBe(true))
   const moved = calls.find((one) => one.url.endsWith('/works/move'))
   expect(moved?.body).toEqual({ ids: ['w2'], folder: '보관/2026' })
 
   // 연도별로 묶기 — 만든 순으로 다시 묻고 해마다 머리줄이 생긴다.
   fireEvent.click(within(tree).getByText('모든 작업'))
-  fireEvent.click(screen.getByRole('button', { name: '연도별로 묶기' }))
+  fireEvent.click(screen.getByRole('button', { name: '연도별 그룹화' }))
   await waitFor(() => expect(calls.some((one) => one.url.includes('order=created'))).toBe(true))
   expect(await screen.findByText(/2026년 · 2개/)).toBeInTheDocument()
   expect(screen.getByText(/2025년 · 1개/)).toBeInTheDocument()

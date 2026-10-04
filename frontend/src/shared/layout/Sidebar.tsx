@@ -32,8 +32,8 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
               className={cn('ml-1.5 font-mono', stale && 'font-semibold text-amber-600')}
               title={
                 stale
-                  ? `이 화면은 ${__APP_VERSION__} 인데 서버는 ${release} 입니다.`
-                  : '지금 도는 서버의 버전입니다'
+                  ? `화면 버전(${__APP_VERSION__})과 서버 버전(${release})이 다릅니다.`
+                  : '현재 실행 중인 서버의 버전입니다.'
               }
             >
               {release}

@@ -22,26 +22,26 @@ export function SimilarCard({ source, where, limit = 8, className }: { source: s
   return (
     <Card className={className}>
       <CardHeader>
-        <CardTitle>비슷한 것</CardTitle>
-        <p className="text-muted-foreground text-xs">최신 버전의 형상끼리 — 크기 · 비율 · 꽉 찬 정도 · 구멍 · 만든 방식.</p>
+        <CardTitle>유사 형상</CardTitle>
+        <p className="text-muted-foreground text-xs">최신 버전의 형상을 크기, 비율, 체적 충전율, 구멍, 생성 방식으로 비교합니다.</p>
       </CardHeader>
       <CardContent>
         {answer.loading && !answer.data ? (
-          <p className="text-muted-foreground text-sm">찾는 중…</p>
+          <p className="text-muted-foreground text-sm">검색 중…</p>
         ) : answer.error ? (
           // 색인이 없는 버전(이 기능 전) · 아직 평가 중 — 오류라기보다 아직 못 견주는 것이다.
           <p className="text-muted-foreground text-sm">{answer.error.message}</p>
         ) : items.length === 0 ? (
-          <p className="text-muted-foreground text-sm">비슷한 것이 없습니다(가장 긴 변이 네 배 안에서 {answer.data?.compared ?? 0} 개를 견줬습니다).</p>
+          <p className="text-muted-foreground text-sm">유사 형상이 없습니다(최장 변 길이 차이가 4배 이내인 후보 {answer.data?.compared ?? 0}개를 비교했습니다).</p>
         ) : (
-          <ul className="space-y-2" aria-label="비슷한 것">
+          <ul className="space-y-2" aria-label="유사 형상">
             {items.map((one) => {
               const place = placeOf(one.source)
               const percent = Math.round(one.score * 100)
               return (
                 <li key={one.source} className="space-y-0.5 text-sm">
                   <div className="flex items-center gap-2">
-                    <span className="w-10 shrink-0 text-right font-mono text-xs" title="닮음">
+                    <span className="w-10 shrink-0 text-right font-mono text-xs" title="유사도">
                       {percent}%
                     </span>
                     <span className="bg-muted h-1.5 w-12 shrink-0 overflow-hidden rounded" aria-hidden>
@@ -67,7 +67,7 @@ export function SimilarCard({ source, where, limit = 8, className }: { source: s
                       이 부품의 지그:{' '}
                       {one.jigs.map((jig, index) => (
                         <span key={jig.source}>
-                          {index > 0 && ' · '}
+                          {index > 0 && ', '}
                           <Link to={placeOf(jig.source).to} className="hover:underline">
                             {jig.name}
                           </Link>

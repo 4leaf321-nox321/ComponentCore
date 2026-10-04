@@ -168,8 +168,8 @@ def test_DOE_계획_도구가_제약_미리보기_표_측정값을_나른다(bot
     probe = bot.call(server.doe_probe, BOX, factors, conditions={})
     by_label = {one["label"]: one for one in probe["points"]}
     assert (
-        by_label["가운데"]["status"] == "ok"
-        and by_label["모두 최소 · 두께 최소"]["status"] == "failed"
+        by_label["중심"]["status"] == "ok"
+        and by_label["전체 최소, 두께 최소"]["status"] == "failed"
     )
 
     made = bot.call(
@@ -206,7 +206,7 @@ def test_멈추기와_워커_상태(bot: Bot) -> None:  # noqa: F811
         stopped = bot.call(server.doe_cancel, made["id"])
         assert stopped["job"]["status"] == "cancelled" and stopped["done"] == 0
         again = bot.call(server.cancel_job, made["job"]["id"])
-        assert "이미 끝난 작업" in again["error"]
+        assert "이미 종료된 작업" in again["error"]
     finally:
         settings.jobs_inline = True
     # 워커 상태는 관리자만 — 사람에게 무엇이 막혔는지 그대로 전한다.
@@ -322,7 +322,7 @@ def test_닮은_형상(bot: Bot) -> None:  # noqa: F811
     names = [one["name"] for one in got["items"]]
     assert "닮음 비교판" in names and "닮음 기준판" not in names
     first = next(one for one in got["items"] if one["name"] == "닮음 비교판")
-    assert first["score"] > 0.9 and "크기 비슷" in first["why"]
+    assert first["score"] > 0.9 and "크기 유사" in first["why"]
     assert "error" in bot.call(server.find_similar)
 
 

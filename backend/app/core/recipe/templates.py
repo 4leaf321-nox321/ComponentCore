@@ -22,7 +22,7 @@ def box(length: float = 80, width: float = 50, height: float = 20) -> dict[str, 
             {
                 "id": "body",
                 "op": "extrude",
-                "label": "몸통",
+                "label": "본체",
                 "sketch": "base",
                 "distance": height,
             },
@@ -43,7 +43,7 @@ def cylinder(radius: float = 25, height: float = 40) -> dict[str, Any]:
             {
                 "id": "body",
                 "op": "extrude",
-                "label": "몸통",
+                "label": "본체",
                 "sketch": "base",
                 "distance": height,
             },
@@ -125,7 +125,7 @@ def bracket(
                 "sketch": "wall_sk",
                 "distance": height,
             },
-            {"id": "body", "op": "union", "label": "몸통", "targets": ["base", "wall"]},
+            {"id": "body", "op": "union", "label": "본체", "targets": ["base", "wall"]},
             {
                 "id": "holes",
                 "op": "hole",
@@ -166,7 +166,7 @@ def from_primitive_spec(spec: dict[str, Any]) -> dict[str, Any]:
     """옛 `product_spec`({"kind": "box", "length": …}) 을 레시피로."""
     kind = str(spec.get("kind", ""))
     if kind not in TEMPLATES:
-        raise ValueError(f"모르는 도형입니다: {kind!r}")
+        raise ValueError(f"알 수 없는 도형입니다: {kind!r}")
     params = {key: float(value) for key, value in spec.items() if key != "kind"}
     return dict(TEMPLATES[kind](**params))
 

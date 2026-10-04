@@ -83,7 +83,7 @@ const KIND_LABELS: Record<string, string> = { cylinder: '원통면' }
 
 /** 「원통면 · 바디」 처럼 — 받는 것을 사람 말로. */
 export function acceptsLabel(accepts: TargetKind[]): string {
-  return accepts.map((one) => (one.kind ? KIND_LABELS[one.kind] ?? one.kind : ENTITY_LABELS[one.entity])).join(' · ')
+  return accepts.map((one) => (one.kind ? KIND_LABELS[one.kind] ?? one.kind : ENTITY_LABELS[one.entity])).join(', ')
 }
 
 export interface ImpliedHold {

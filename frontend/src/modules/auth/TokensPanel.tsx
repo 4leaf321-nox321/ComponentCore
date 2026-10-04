@@ -121,7 +121,7 @@ function CopyButton({ text, label, size = 'sm' }: { text: string; label: string;
       }}
     >
       {done ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-      {failed ? '직접 골라 복사하세요' : done ? '복사됨' : label}
+      {failed ? '직접 선택하여 복사하십시오' : done ? '복사됨' : label}
     </Button>
   )
 }
@@ -150,20 +150,20 @@ function IssueCard({ issued, onIssued }: { issued: string | null; onIssued: (tok
       onIssued(made.token, name.trim())
       tokens.reload()
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
       setBusy(false)
     }
   }
 
   async function revoke(token: Pat) {
-    if (!window.confirm(`「${token.name}」 토큰을 폐기합니까? 이 토큰을 쓰는 AI 연결은 바로 끊깁니다.`)) return
+    if (!window.confirm(`‘${token.name}’ 토큰을 폐기하시겠습니까? 이 토큰을 사용하는 AI 연결이 즉시 해제됩니다.`)) return
     setError(null)
     try {
       await api.delete(`/auth/tokens/${token.id}`)
       tokens.reload()
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     }
   }
 
@@ -179,25 +179,25 @@ function IssueCard({ issued, onIssued }: { issued: string | null; onIssued: (tok
           <CardTitle className="text-base">개인 토큰</CardTitle>
         </div>
         <CardDescription>
-          AI 도구가 <b>내 권한</b>으로 이 플랫폼을 부르는 열쇠입니다. AI 가 만든 것은 내 작업에 출처 「AI」 로 쌓입니다. 발급된 값은 <b>한 번만</b> 보이니 바로 복사하세요. 유출되면 여기서
-          폐기하면 됩니다.
+          AI 도구가 <b>본인 권한</b>으로 이 플랫폼에 접근할 때 사용하는 인증 키입니다. AI가 생성한 항목은 내 작업에 출처 ‘AI’로 저장됩니다. 발급된 값은 <b>한 번만</b> 표시되므로 즉시 복사하십시오. 유출된 경우
+          이 화면에서 폐기하십시오.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {issued && (
           <div className="border-primary/40 bg-primary/5 space-y-2 rounded-md border p-3">
-            <p className="text-primary text-sm font-medium">토큰이 발급되었습니다 — 지금 복사하세요. 다시 볼 수 없습니다.</p>
+            <p className="text-primary text-sm font-medium">토큰이 발급되었습니다. 이 값은 다시 표시되지 않으므로 지금 복사하십시오.</p>
             <div className="flex items-center gap-2">
               <code className="bg-muted flex-1 truncate rounded px-2 py-1 font-mono text-xs select-all">{issued}</code>
               <CopyButton text={issued} label="토큰 복사" />
             </div>
-            <p className="text-muted-foreground text-xs">→ 오른쪽 「도구별 등록 방법」 에 이 토큰이 채워져 있습니다. 쓰는 도구 탭을 골라 그대로 복사하세요.</p>
+            <p className="text-muted-foreground text-xs">→ 오른쪽 ‘도구별 등록 방법’에 이 토큰이 입력되어 있습니다. 사용하는 도구의 탭을 선택하여 그대로 복사하십시오.</p>
           </div>
         )}
 
         <form onSubmit={issue} className="space-y-3">
           <div className="space-y-1">
-            <Label htmlFor="pat-name">이름 — 어디에 쓰는 토큰인지</Label>
+            <Label htmlFor="pat-name">이름 (토큰 용도)</Label>
             <Input id="pat-name" value={name} onChange={(e) => setName(e.target.value)} required maxLength={100} placeholder="예: Claude Code (내 노트북)" />
             <div className="flex flex-wrap gap-1">
               {NAME_PRESETS.map((preset) => (
@@ -218,10 +218,10 @@ function IssueCard({ issued, onIssued }: { issued: string | null; onIssued: (tok
                   </label>
                 ))}
               </div>
-              <p className="text-muted-foreground text-xs">그리게 하려면 「쓰기」 가 있어야 합니다. 읽기만이면 보기 · 치수 · 그림까지.</p>
+              <p className="text-muted-foreground text-xs">AI가 모델링하려면 ‘쓰기’ 권한이 필요합니다. ‘읽기’ 권한만 있으면 조회, 치수, 이미지 확인만 가능합니다.</p>
             </div>
             <div className="space-y-1">
-              <Label htmlFor="pat-expires">만료일 (비우면 만료 없음)</Label>
+              <Label htmlFor="pat-expires">만료일 (비워 두면 만료 없음)</Label>
               <Input id="pat-expires" type="date" min={today} value={expires} onChange={(e) => setExpires(e.target.value)} />
               <div className="flex flex-wrap gap-1">
                 {EXPIRY_PRESETS.map((preset) => {
@@ -274,7 +274,7 @@ function IssueCard({ issued, onIssued }: { issued: string | null; onIssued: (tok
         )}
         {revokedCount > 0 && (
           <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setShowRevoked(!showRevoked)}>
-            {showRevoked ? '폐기된 것 숨기기' : `폐기된 것 ${revokedCount}개 보기`}
+            {showRevoked ? '폐기된 토큰 숨기기' : `폐기된 토큰 ${revokedCount}개 표시`}
           </button>
         )}
       </CardContent>
@@ -320,13 +320,13 @@ function SetupCard({ issued, issuedName }: { issued: string | null; issuedName: 
           <CardTitle className="text-base">도구별 등록 방법</CardTitle>
         </div>
         <CardDescription>
-          쓰는 AI 도구 탭을 골라 그대로 복사하세요. MCP 주소는 <code className="font-mono break-all">{mcpUrl}</code> 입니다{info.data?.url ? '' : ' (지금 접속한 호스트 기준 — 다른 PC 에서 붙이면 서버 주소로 바꾸세요)'}.
+          사용하는 AI 도구의 탭을 선택하여 그대로 복사하십시오. MCP 주소는 <code className="font-mono break-all">{mcpUrl}</code>입니다.{info.data?.url ? '' : ' 현재 접속한 호스트를 기준으로 한 주소이므로, 다른 PC에서 연결하려면 서버 주소로 변경하십시오.'}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {!issued && (
           <div className="bg-muted/40 text-muted-foreground rounded-md border border-dashed px-3 py-2 text-xs">
-            아직 토큰을 발급하지 않았습니다. 아래는 <b>형식</b>이고 토큰 자리에 <code className="font-mono">{TOKEN_PLACEHOLDER}</code> 이 있습니다. 왼쪽에서 발급하면 실제 토큰이 채워집니다.
+            아직 토큰을 발급하지 않았습니다. 아래는 <b>형식</b> 예시이며, 토큰 위치에 <code className="font-mono">{TOKEN_PLACEHOLDER}</code>이 표시됩니다. 왼쪽에서 토큰을 발급하면 실제 토큰이 입력됩니다.
           </div>
         )}
         <Tabs key={initialTab} defaultValue={initialTab}>
@@ -339,34 +339,34 @@ function SetupCard({ issued, issuedName }: { issued: string | null; issuedName: 
           </TabsList>
 
           <TabsContent value="claude-code" className="space-y-2">
-            <p className="text-muted-foreground text-xs">터미널에서 한 번 실행하면 이 PC 의 사용자 설정에 남습니다(저장소에는 안 들어감). 확인은 <code className="font-mono">claude mcp list</code>.</p>
+            <p className="text-muted-foreground text-xs">터미널에서 한 번 실행하면 이 PC의 사용자 설정에 저장됩니다(저장소에는 포함되지 않음). 등록 여부는 <code className="font-mono">claude mcp list</code>로 확인할 수 있습니다.</p>
             <Snippet text={claudeCode} label="명령 복사" />
-            <p className="text-muted-foreground text-xs">그 뒤 Claude 에게 「센서 브래킷으로 볼트 고정 지그를 만들고 조립해서 두께 4~12 로 DOE 돌려 줘」 처럼 말하면 됩니다. 도구 안내(가이드)는 Claude 가 스스로 읽습니다.</p>
+            <p className="text-muted-foreground text-xs">이후 Claude에게 ‘센서 브래킷으로 볼트 고정 지그를 만들고 조립해서 두께 4~12로 DOE 돌려 줘’와 같이 요청할 수 있습니다. 도구 안내(가이드)는 Claude가 자동으로 참조합니다.</p>
           </TabsContent>
 
           <TabsContent value="desktop" className="space-y-2">
             <p className="text-muted-foreground text-xs">
-              설정 → 개발자 → 「설정 편집」 으로 <code className="font-mono">claude_desktop_config.json</code> 을 열고, 아래 항목을 <code className="font-mono">{'"mcpServers": { }'}</code> 안에 붙여넣은 뒤 Claude Desktop 을 다시 시작합니다. Desktop 은 HTTP 서버를 바로 못 받아 <code className="font-mono">npx mcp-remote</code>(Node.js 필요)를 거칩니다. 다른 항목이 이미 있으면 사이에 쉼표.
+              설정 → 개발자 → ‘설정 편집’으로 <code className="font-mono">claude_desktop_config.json</code>을 열고, 아래 항목을 <code className="font-mono">{'"mcpServers": { }'}</code> 안에 붙여 넣은 후 Claude Desktop을 다시 시작하십시오. Desktop은 HTTP 서버에 직접 연결할 수 없으므로 <code className="font-mono">npx mcp-remote</code>(Node.js 필요)를 거칩니다. 다른 항목이 이미 있으면 항목 사이에 쉼표를 넣으십시오.
             </p>
             <Snippet text={desktopEntry} label="항목 복사" />
           </TabsContent>
 
           <TabsContent value="gemini" className="space-y-2">
             <p className="text-muted-foreground text-xs">
-              <code className="font-mono">~/.gemini/settings.json</code> 의 <code className="font-mono">{'"mcpServers": { }'}</code> 안에 아래 항목을 붙여넣고 Gemini CLI 를 다시 시작합니다. Gemini 는 HTTP 서버를 바로 받습니다(브리지 없음). 확인은 <code className="font-mono">/mcp</code>.
+              <code className="font-mono">~/.gemini/settings.json</code>의 <code className="font-mono">{'"mcpServers": { }'}</code> 안에 아래 항목을 붙여 넣은 후 Gemini CLI를 다시 시작하십시오. Gemini는 HTTP 서버에 직접 연결합니다(브리지 불필요). 등록 여부는 <code className="font-mono">/mcp</code>로 확인할 수 있습니다.
             </p>
             <Snippet text={geminiEntry} label="항목 복사" />
           </TabsContent>
 
           <TabsContent value="codex" className="space-y-2">
             <p className="text-muted-foreground text-xs">
-              <code className="font-mono">~/.codex/config.toml</code> 에 아래를 더하고 Codex 를 다시 시작합니다(<code className="font-mono">npx mcp-remote</code> 브리지, Node.js 필요).
+              <code className="font-mono">~/.codex/config.toml</code>에 아래 내용을 추가한 후 Codex를 다시 시작하십시오(<code className="font-mono">npx mcp-remote</code> 브리지, Node.js 필요).
             </p>
             <Snippet text={codexEntry} label="설정 복사" />
           </TabsContent>
 
           <TabsContent value="script" className="space-y-2">
-            <p className="text-muted-foreground text-xs">MCP 가 아니라 REST 를 바로 부를 때 — 같은 토큰을 Bearer 헤더로. API 문서는 <code className="font-mono">/docs</code>.</p>
+            <p className="text-muted-foreground text-xs">MCP 대신 REST API를 직접 호출할 때 사용합니다. 같은 토큰을 Bearer 헤더에 넣으십시오. API 문서는 <code className="font-mono">/docs</code>에서 확인할 수 있습니다.</p>
             <Snippet text={curl} label="예시 복사" />
           </TabsContent>
         </Tabs>

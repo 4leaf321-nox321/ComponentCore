@@ -51,7 +51,7 @@ def _integer_or_expr(value: Any) -> Any:
         try:
             return int(value)
         except ValueError as failure:
-            raise ValueError(f"정수 또는 「=식」 이어야 합니다: {value!r}") from failure
+            raise ValueError(f"정수 또는 ‘=식’이어야 합니다: {value!r}") from failure
     return value
 
 
@@ -87,15 +87,15 @@ class NamedSelection(Base):
         if members is None:
             return value
         if not isinstance(members, list) or not members:
-            raise ValueError("select.any 는 셀렉터를 하나 이상 담은 목록이어야 합니다")
+            raise ValueError("select.any는 셀렉터를 하나 이상 포함한 목록이어야 합니다.")
         if not all(isinstance(one, dict) for one in members):
-            raise ValueError("select.any 의 항목은 셀렉터(객체)여야 합니다")
+            raise ValueError("select.any의 항목은 셀렉터(객체)여야 합니다.")
         # **한 그룹은 한 종류다** — 면과 엣지를 섞으면 받는 쪽이 지문을 어느 쪽으로 짝지을지
         # 모른다. 바디(`body`)는 `what` 이 없다.
         kinds = {str(one.get("what", "body" if "body" in one else "faces")) for one in members}
         if len(kinds) > 1:
             raise ValueError(
-                f"select.any 의 셀렉터는 한 종류여야 합니다(지금: {', '.join(sorted(kinds))})"
+                f"select.any의 셀렉터는 한 종류여야 합니다(현재: {', '.join(sorted(kinds))})."
             )
         return value
 
@@ -192,35 +192,51 @@ Hold = Literal["fixed", "free"]
 #: 어떻게 잡히는지 모르고 고르면, 풀리지 않는 모델(강체 운동)이나 과구속을 만든다.
 IMPLIED_HOLDS: dict[str, list[dict[str, str]]] = {
     "fixed_support": [
-        {"label": "X", "hold": "fixed", "hint": "모든 이동을 막는다 — 좌표계와 상관없다"},
+        {
+            "label": "X",
+            "hold": "fixed",
+            "hint": "모든 방향의 이동을 구속합니다. 좌표계와 무관합니다.",
+        },
         {"label": "Y", "hold": "fixed", "hint": ""},
         {"label": "Z", "hold": "fixed", "hint": ""},
         {
             "label": "회전",
             "hold": "fixed",
-            "hint": "셸 · 빔이면 회전도 막는다(솔리드는 회전이 없다)",
+            "hint": "셸·빔 요소는 회전도 구속합니다(솔리드 요소에는 회전 자유도가 없습니다).",
         },
     ],
     "frictionless": [
         {
             "label": "법선",
             "hold": "fixed",
-            "hint": "면에 수직 — 뚫고 들어가지도, 떨어지지도 못한다",
+            "hint": "면에 수직인 방향입니다. 면을 관통하거나 면에서 분리될 수 없습니다.",
         },
-        {"label": "접선", "hold": "free", "hint": "면을 따라 두 방향 — 마찰 없이 미끄러진다"},
+        {
+            "label": "접선",
+            "hold": "free",
+            "hint": "면을 따르는 두 방향입니다. 마찰 없이 미끄러집니다.",
+        },
     ],
     "compression_only": [
-        {"label": "누르는 쪽", "hold": "fixed", "hint": "법선 방향으로 면을 파고들지 못한다"},
         {
-            "label": "떨어지는 쪽",
-            "hold": "free",
-            "hint": "면에서 들뜰 수 있다(비선형 — 반복해 푼다)",
+            "label": "압축 방향",
+            "hold": "fixed",
+            "hint": "법선 방향으로 면을 관통할 수 없습니다.",
         },
-        {"label": "접선", "hold": "free", "hint": "면을 따라 마찰 없이 미끄러진다"},
+        {
+            "label": "분리 방향",
+            "hold": "free",
+            "hint": "면에서 분리될 수 있습니다(비선형, 반복 계산).",
+        },
+        {"label": "접선", "hold": "free", "hint": "면을 따라 마찰 없이 미끄러집니다."},
     ],
     "elastic_support": [
-        {"label": "법선", "hold": "spring", "hint": "면에 수직 — 기초 강성만큼 버티며 눌린다"},
-        {"label": "접선", "hold": "free", "hint": "면을 따라서는 받치지 않는다"},
+        {
+            "label": "법선",
+            "hold": "spring",
+            "hint": "면에 수직인 방향입니다. 기초 강성에 비례하여 저항합니다.",
+        },
+        {"label": "접선", "hold": "free", "hint": "면을 따르는 방향으로는 지지하지 않습니다."},
     ],
 }
 
@@ -237,17 +253,29 @@ CONSTRAINT_LABELS: dict[str, str] = {
 
 #: 종류마다 한 줄 — 화면이 종류 아래에 보인다.
 CONSTRAINT_NOTES: dict[str, str] = {
-    "fixed_support": "완전히 붙박습니다 — 볼트로 꽉 조인 바닥, 용접된 끝.",
+    "fixed_support": (
+        "모든 자유도를 구속합니다. 볼트로 체결된 바닥면이나 용접된 끝단에 사용합니다."
+    ),
     "displacement": (
-        "방향마다 자유 · 고정 · 변위량을 정합니다 — 한쪽만 받치거나 정해진 만큼 밉니다."
+        "방향별로 자유, 고정 또는 변위량을 지정합니다. 한 방향만 지지하거나 "
+        "지정한 변위를 부여할 때 사용합니다."
     ),
     "remote_displacement": (
-        "면을 한 점에 묶고 그 점의 이동 · 회전을 잡습니다 — 축 둘레로 돌게 둘 때."
+        "면을 한 점에 연결하고 그 점의 이동과 회전을 지정합니다. 축을 중심으로 한 "
+        "회전을 허용할 때 사용합니다."
     ),
-    "frictionless": "면에 수직으로만 막고 미끄러짐은 풉니다 — 대칭면, 매끈한 바닥.",
-    "cylindrical": "구멍 · 축을 반지름 · 축 · 접선마다 막거나 풉니다 — 핀에 끼운 구멍.",
-    "compression_only": "누르는 쪽만 받치고 들뜨는 것은 둡니다 — 그냥 올려 둔 부품(비선형).",
-    "elastic_support": "면을 스프링으로 받칩니다 — 고무 패드, 지반.",
+    "frictionless": (
+        "면의 법선 방향만 구속하고 미끄러짐은 허용합니다. 대칭면이나 마찰이 없는 "
+        "바닥에 사용합니다."
+    ),
+    "cylindrical": (
+        "구멍이나 축의 반지름, 축, 접선 방향을 각각 구속하거나 해제합니다. 핀이 "
+        "끼워진 구멍에 사용합니다."
+    ),
+    "compression_only": (
+        "압축 방향만 지지하고 분리는 허용합니다. 고정 없이 올려 둔 부품에 사용합니다(비선형)."
+    ),
+    "elastic_support": "면을 스프링으로 지지합니다. 고무 패드나 지반에 사용합니다.",
 }
 
 
@@ -278,7 +306,9 @@ class Constraint(Base):
     location: Literal["centroid", "cs_origin"] = Field(
         "centroid",
         title="원격점",
-        description="면을 묶는 한 점 — 고른 면의 중심, 또는 좌표계의 원점",
+        description=(
+            "면을 연결하는 한 점입니다. 선택한 면의 중심 또는 좌표계의 원점을 사용합니다."
+        ),
         json_schema_extra=_extra(
             {
                 "only_for": ["remote_displacement"],
@@ -290,7 +320,8 @@ class Constraint(Base):
         "deformable",
         title="면의 거동",
         description=(
-            "변형체: 면이 따라 휘어진다 · 강체: 면이 모양을 지킨 채 움직인다(더 뻣뻣하다)"
+            "변형체: 면이 하중에 따라 변형됩니다. 강체: 면이 형상을 유지한 채 이동합니다"
+            "(강성이 더 높습니다)."
         ),
         json_schema_extra=_extra(
             {
@@ -300,13 +331,13 @@ class Constraint(Base):
         ),
     )
     x: Number | None = Field(
-        None, title="X", description="좌표계의 X 축 방향", json_schema_extra=_DISPLACEMENT
+        None, title="X", description="좌표계의 X축 방향", json_schema_extra=_DISPLACEMENT
     )
     y: Number | None = Field(
-        None, title="Y", description="좌표계의 Y 축 방향", json_schema_extra=_DISPLACEMENT
+        None, title="Y", description="좌표계의 Y축 방향", json_schema_extra=_DISPLACEMENT
     )
     z: Number | None = Field(
-        None, title="Z", description="좌표계의 Z 축 방향", json_schema_extra=_DISPLACEMENT
+        None, title="Z", description="좌표계의 Z축 방향", json_schema_extra=_DISPLACEMENT
     )
     """`displacement` · `remote_displacement` 의 이동 성분. **`null` 은 자유, 0 은 고정**, 그
     밖의 값은 그만큼 움직인다.
@@ -314,38 +345,42 @@ class Constraint(Base):
     화면은 빈칸 · 0 을 묵시적으로 읽게 두지 않고 「자유 · 고정 · 변위량」 을 고르게 한다
     (`component`) — 둘을 헷갈리면 구속이 통째로 바뀐다."""
     rx: Number | None = Field(
-        None, title="회전 X", description="X 축 둘레 회전(도)", json_schema_extra=_ROTATION
+        None, title="회전 X", description="X축 기준 회전(도)", json_schema_extra=_ROTATION
     )
     ry: Number | None = Field(
-        None, title="회전 Y", description="Y 축 둘레 회전(도)", json_schema_extra=_ROTATION
+        None, title="회전 Y", description="Y축 기준 회전(도)", json_schema_extra=_ROTATION
     )
     rz: Number | None = Field(
-        None, title="회전 Z", description="Z 축 둘레 회전(도)", json_schema_extra=_ROTATION
+        None, title="회전 Z", description="Z축 기준 회전(도)", json_schema_extra=_ROTATION
     )
     """`remote_displacement` 의 회전 성분(도) — 뜻은 이동과 같다(`null` 자유 · 0 고정)."""
     stiffness: Number | None = Field(
         None,
         title="기초 강성",
-        description=("법선으로 1 mm 눌리는 데 드는 압력(N/mm³ = MPa/mm)"),
+        description="법선 방향으로 1 mm 변형시키는 데 필요한 압력입니다(N/mm³ = MPa/mm).",
         json_schema_extra=_extra({"only_for": ["elastic_support"]}),
     )
     """`elastic_support` 의 스프링 — 단위 면적 · 단위 변위당 힘(응력 / 길이)."""
     radial: Hold = Field(
         "fixed",
         title="반지름",
-        description="원통 중심에서 바깥쪽 — 구멍이 커지거나 줄어드는 방향",
+        description=(
+            "원통 중심에서 바깥쪽을 향하는 방향으로, 구멍이 커지거나 작아지는 방향입니다."
+        ),
         json_schema_extra=_CYLINDER,
     )
     axial: Hold = Field(
         "fixed",
         title="축",
-        description="원통 축을 따라 — 빠지거나 밀려 들어가는 방향",
+        description="원통 축을 따르는 방향으로, 빠지거나 삽입되는 방향입니다.",
         json_schema_extra=_CYLINDER,
     )
     tangential: Hold = Field(
         "fixed",
         title="접선",
-        description="원통 축 둘레로 도는 방향 — 풀면 핀에 끼운 채 돈다",
+        description=(
+            "원통 축을 중심으로 회전하는 방향입니다. 해제하면 핀에 끼워진 상태로 회전합니다."
+        ),
         json_schema_extra=_CYLINDER,
     )
     """`cylindrical` 의 방향마다 고정(`fixed`) · 자유(`free`). 기본은 셋 다 고정."""
@@ -378,14 +413,30 @@ DIRECTED_LOADS = [
 
 #: 종류마다 한 줄 — 화면이 종류 아래에 보인다(무엇이고, 방향이 무엇을 뜻하나).
 LOAD_NOTES: dict[str, str] = {
-    "pressure": "면에 고르게 누르는 힘. 면의 법선이면 양수가 면을 누르는 쪽입니다.",
-    "force": "합계 힘 — 여러 면에 걸면 나눠 가집니다(면마다 이 크기가 아닙니다).",
-    "moment": "비트는 힘. 방향은 회전축이고, 오른손 법칙으로 돕니다.",
-    "bearing": "구멍 안쪽을 핀이 미는 힘 — 방향 쪽 반원에만 걸립니다. 원통면에 겁니다.",
-    "bolt_pretension": "볼트를 조입니다 — 먼저 조이고, 그 길이를 잠근 채 다른 하중을 겁니다.",
-    "standard_earth_gravity": "모든 바디의 자중(9.80665 m/s²). 밀도가 있어야 걸립니다.",
-    "acceleration": "모델이 이 방향으로 가속됩니다 — 관성력은 반대쪽으로 걸립니다. 밀도 필요.",
-    "rotational_velocity": "좌표계 원점을 지나는 축 둘레로 돕니다(원심력). 밀도 필요.",
+    "pressure": (
+        "면에 균일하게 작용하는 힘입니다. 방향이 면의 법선이면 양수가 면을 누르는 방향입니다."
+    ),
+    "force": (
+        "합력입니다. 여러 면에 적용하면 면들이 나누어 받습니다(면마다 이 크기가 "
+        "적용되지 않습니다)."
+    ),
+    "moment": "비틀림 하중입니다. 방향은 회전축이며, 오른손 법칙을 따릅니다.",
+    "bearing": (
+        "핀이 구멍 안쪽을 미는 힘입니다. 하중 방향 쪽 반원에만 작용하며, 원통면에 적용합니다."
+    ),
+    "bolt_pretension": (
+        "볼트에 예압을 가합니다. 먼저 체결한 뒤 그 길이를 고정한 상태에서 다른 "
+        "하중을 적용합니다."
+    ),
+    "standard_earth_gravity": (
+        "모든 바디의 자중입니다(9.80665 m/s²). 밀도가 지정되어야 적용됩니다."
+    ),
+    "acceleration": (
+        "모델이 이 방향으로 가속됩니다. 관성력은 반대 방향으로 작용하며, 밀도가 필요합니다."
+    ),
+    "rotational_velocity": (
+        "좌표계 원점을 지나는 축을 중심으로 회전합니다(원심력). 밀도가 필요합니다."
+    ),
 }
 
 LOAD_LABELS: dict[str, str] = {
@@ -466,7 +517,7 @@ class Load(Base):
 
 
 CONTACT_LABELS: dict[str, str] = {
-    "bonded": "본딩(붙음)",
+    "bonded": "본딩(접합)",
     "no_separation": "분리 없음",
     "frictional": "마찰",
     "frictionless": "마찰 없음",
@@ -474,14 +525,14 @@ CONTACT_LABELS: dict[str, str] = {
 }
 
 CONTACT_NOTES: dict[str, str] = {
-    "bonded": "두 면이 붙어 한 몸처럼 움직입니다 — 미끄러지지도 떨어지지도 않습니다(선형). "
-    "볼트 · 용접 · 접착을 단순화할 때.",
-    "no_separation": "떨어지지 않고, 면을 따라 조금 미끄러질 수 있습니다"
-    "(마찰 없음 · 거의 선형).",
-    "frictional": "눌리면 마찰계수만큼 버티다 미끄러지고, 떨어질 수도 있습니다(비선형). "
-    "실제 맞닿음에 가장 가깝습니다.",
-    "frictionless": "마찰 없이 미끄러지고, 떨어질 수도 있습니다(비선형).",
-    "rough": "미끄러지지 않지만 떨어질 수는 있습니다(마찰 무한대 · 비선형).",
+    "bonded": "두 면이 접합되어 하나의 물체처럼 거동합니다. 미끄러지거나 분리되지 "
+    "않습니다(선형). 볼트, 용접, 접착을 단순화할 때 사용합니다.",
+    "no_separation": "분리되지 않으며, 면을 따라 약간 미끄러질 수 있습니다"
+    "(마찰 없음, 선형에 가까움).",
+    "frictional": "압축 시 마찰계수만큼 저항하다가 미끄러지며, 분리될 수도 있습니다"
+    "(비선형). 실제 접촉에 가장 가깝습니다.",
+    "frictionless": "마찰 없이 미끄러지며, 분리될 수도 있습니다(비선형).",
+    "rough": "미끄러지지 않지만 분리될 수는 있습니다(마찰 무한대, 비선형).",
 }
 
 #: 틈 · 겹침을 다루는 방법 — 떨어질 수 있는(비선형) 접촉만 쓴다.
@@ -496,15 +547,17 @@ class Contact(Base):
         json_schema_extra=_extra({"labels": CONTACT_LABELS})
     )
     source: str = Field(
-        title="접촉면 (contact)", description="보통 작거나 볼록하거나 부드러운 쪽"
+        title="접촉면(contact)",
+        description="일반적으로 더 작거나, 볼록하거나, 연한 쪽 면입니다.",
     )
     target: str = Field(
-        title="대상면 (target)", description="보통 크거나 오목하거나 단단한 쪽"
+        title="대상면(target)",
+        description="일반적으로 더 크거나, 오목하거나, 단단한 쪽 면입니다.",
     )
     friction: Number | None = Field(
         None,
         title="마찰계수",
-        description="0 ~ 1 — 강과 강(마른 면)은 대략 0.15 ~ 0.2",
+        description="0~1 범위입니다. 강재 간 건조 접촉은 약 0.15~0.2입니다.",
         json_schema_extra=_extra({"only_for": ["frictional"]}),
     )
     formulation: Literal[
@@ -512,11 +565,12 @@ class Contact(Base):
     ] = Field(
         "program_controlled",
         title="정식화",
-        description="모르면 「프로그램이 정함」. MPC 는 본딩 · 분리 없음에만 씁니다",
+        description="확실하지 않으면 ‘프로그램 제어’를 선택하십시오. MPC는 본딩과 분리 없음 "
+        "접촉에만 사용합니다.",
         json_schema_extra=_extra(
             {
                 "labels": {
-                    "program_controlled": "프로그램이 정함",
+                    "program_controlled": "프로그램 제어",
                     "pure_penalty": "페널티",
                     "augmented_lagrange": "증강 라그랑주",
                     "normal_lagrange": "라그랑주(법선)",
@@ -529,11 +583,12 @@ class Contact(Base):
         Field(
             "program_controlled",
             title="검사 방향",
-            description="대칭: 두 면이 서로를 검사 · 비대칭: 접촉면만 대상면을 검사",
+            description="대칭: 두 면이 서로를 검사합니다. 비대칭: 접촉면만 대상면을 "
+            "검사합니다.",
             json_schema_extra=_extra(
                 {
                     "labels": {
-                        "program_controlled": "프로그램이 정함",
+                        "program_controlled": "프로그램 제어",
                         "symmetric": "대칭",
                         "asymmetric": "비대칭",
                         "auto_asymmetric": "자동 비대칭",
@@ -545,25 +600,24 @@ class Contact(Base):
     pinball: Number | None = Field(
         None,
         title="pinball 반경",
-        description="이 거리 안의 면끼리만 접촉으로 봅니다 — 비우면 프로그램이 정함. "
-        "틈이 있는 본딩이면 틈보다 크게",
+        description="이 거리 안에 있는 면만 접촉으로 판정합니다. 비워 두면 프로그램이 "
+        "결정합니다. 간극이 있는 본딩 접촉에서는 간극보다 크게 지정하십시오.",
         json_schema_extra=_extra({"unit": "mm"}),
     )
     interface_treatment: Literal[
         "add_offset_ramped", "add_offset_no_ramp", "adjust_to_touch"
     ] = Field(
         "add_offset_ramped",
-        title="처음의 틈 · 겹침",
-        description="형상에 작은 틈이나 겹침이 있을 때 — 「맞붙여 시작」 은 그것을 없앤 것으로"
-        " "
-        "칩니다",
+        title="초기 간극·겹침",
+        description="형상에 작은 간극이나 겹침이 있을 때의 처리 방법입니다. ‘접촉 상태로 "
+        "조정’은 간극과 겹침을 제거한 상태로 시작합니다.",
         json_schema_extra=_extra(
             {
                 "only_for": _NONLINEAR_CONTACTS,
                 "labels": {
-                    "add_offset_ramped": "형상 그대로(서서히)",
-                    "add_offset_no_ramp": "형상 그대로(바로)",
-                    "adjust_to_touch": "맞붙여 시작",
+                    "add_offset_ramped": "형상 유지(점진 적용)",
+                    "add_offset_no_ramp": "형상 유지(즉시 적용)",
+                    "adjust_to_touch": "접촉 상태로 조정",
                 },
             }
         ),
@@ -586,11 +640,16 @@ INITIAL_LABELS: dict[str, str] = {
 }
 
 INITIAL_NOTES: dict[str, str] = {
-    "environment_temperature": "모델 전체의 기준 온도 — 열팽창이 0 인 온도입니다(보통 22 °C).",
-    "temperature": "고른 바디가 이 온도에서 시작합니다 — 열 해석(과도)의 출발점.",
-    "velocity": "고른 바디가 이 속도로 움직이며 시작합니다 — 낙하 · 충돌(explicit) 해석용.",
-    "prestress": "앞선 정적 해석의 응력을 안고 시작합니다 — 볼트 조임 · 원심력이 고유진동수를 "
-    "바꿀 때(모달).",
+    "environment_temperature": (
+        "모델 전체의 기준 온도로, 열팽창이 0인 온도입니다(일반적으로 22 °C)."
+    ),
+    "temperature": "선택한 바디의 시작 온도입니다. 과도 열 해석의 초기 상태로 사용합니다.",
+    "velocity": (
+        "선택한 바디가 이 속도로 움직이는 상태에서 시작합니다. 낙하·충돌(explicit) "
+        "해석에 사용합니다."
+    ),
+    "prestress": "선행 정적 해석의 응력을 반영한 상태에서 시작합니다. 볼트 체결이나 "
+    "원심력이 고유진동수에 영향을 줄 때 사용합니다(모달).",
 }
 
 
@@ -618,7 +677,7 @@ class Initial(Base):
     vector: list[Number] | None = Field(
         None,
         title="속도",
-        description="전역 X · Y · Z 성분",
+        description="전역 X, Y, Z 성분",
         json_schema_extra=_extra(
             {"only_for": ["velocity"], "unit": "mm/s", "components": True}
         ),
@@ -628,8 +687,8 @@ class Initial(Base):
     from_step: str = Field(
         "",
         title="선행 정적 해석",
-        description="응력을 가져올 해석의 이름 — 비우면 받는 쪽이 이 모델의 정적 해석을 "
-        "씁니다",
+        description="응력을 가져올 해석의 이름입니다. 비워 두면 해석 프로그램이 이 모델의 "
+        "정적 해석을 사용합니다.",
         json_schema_extra=_extra({"only_for": ["prestress"]}),
     )
 
@@ -638,20 +697,21 @@ ANALYSIS_LABELS: dict[str, str] = {
     "modal": "모달(고유진동)",
     "static": "정적 구조",
     "harmonic": "조화 응답(주파수 응답)",
-    "explicit": "명시적 동해석(충돌 · 낙하)",
+    "explicit": "명시적 동해석(충돌·낙하)",
     "thermal": "열",
 }
 
 ANALYSIS_NOTES: dict[str, str] = {
-    "modal": "구조가 스스로 떠는 진동수와 모양을 찾습니다 — 하중은 쓰지 않고 "
-    "구속 · 물성(밀도)만 씁니다.",
-    "static": "하중이 천천히 걸려 멈춘 상태의 변형 · 응력을 봅니다. "
-    "접촉 · 대변형이면 비선형으로 풉니다.",
-    "harmonic": "정해진 주파수로 흔드는 하중에 대한 응답(진폭 · 응력)을 주파수마다 "
-    "봅니다 — 공진을 찾을 때.",
-    "explicit": "아주 짧은 시간(수 ms)의 충돌 · 낙하 · 파손을 시간에 따라 풉니다 — "
-    "초기 속도가 흔히 필요합니다.",
-    "thermal": "열이 어떻게 퍼지는지(온도 분포) 봅니다 — 정상 상태 또는 시간에 따라(과도).",
+    "modal": "구조물의 고유진동수와 모드 형상을 구합니다. 하중은 사용하지 않고 "
+    "구속 조건과 물성(밀도)만 사용합니다.",
+    "static": "하중이 서서히 가해진 뒤 평형 상태의 변형과 응력을 계산합니다. "
+    "접촉이나 대변형이 있으면 비선형으로 계산합니다.",
+    "harmonic": "지정한 주파수로 가진하는 하중에 대한 응답(진폭, 응력)을 주파수별로 "
+    "계산합니다. 공진을 확인할 때 사용합니다.",
+    "explicit": "매우 짧은 시간(수 ms) 동안의 충돌, 낙하, 파손을 시간에 따라 "
+    "계산합니다. 일반적으로 초기 속도가 필요합니다.",
+    "thermal": "열 전달에 따른 온도 분포를 계산합니다. 정상 상태 또는 시간에 따른 "
+    "과도 상태를 해석합니다.",
 }
 
 #: 종류 안에서 **다른 칸의 값에 따라** 보이는 칸 — `{종류: {칸: 값}}`. 열 해석의 시간 칸은
@@ -660,8 +720,9 @@ _TRANSIENT: dict[str, dict[str, str]] = {"thermal": {"thermal_mode": "transient"
 
 #: 해석 설정 창 맨 위의 한두 줄.
 _ANALYSIS_INTRO = (
-    "무엇을 풀지 고릅니다. 종류마다 필요한 칸만 보이고, 내보낼 때도 그 칸만 실립니다. "
-    "모르는 칸은 비우거나 「프로그램이 정함」 으로 둡니다."
+    "해석 종류를 선택합니다. 종류별로 필요한 입력란만 표시되며, 내보낼 때도 해당 "
+    "항목만 포함됩니다. 확실하지 않은 항목은 비워 두거나 ‘프로그램 제어’로 "
+    "두십시오."
 )
 
 
@@ -677,14 +738,16 @@ class Analysis(Base):
     modes: Integer | None = Field(
         default=6,
         title="모드 수",
-        description="찾을(조화 응답이면 쓸) 고유진동 모드의 개수 — 보통 6 ~ 20",
+        description="구할 고유진동 모드의 개수입니다(조화 응답에서는 사용할 모드 수). "
+        "일반적으로 6~20입니다.",
         json_schema_extra=_extra({"only_for": ["modal", "harmonic"], "integer": True}),
     )
     frequency_range: list[Number] | None = Field(
         default=None,
         title="주파수 범위",
         description=(
-            "모달: 이 범위 안에서 찾습니다(비우면 낮은 것부터) · 조화 응답: 훑을 범위(필수)"
+            "모달: 이 범위 안에서 모드를 구합니다(비워 두면 낮은 차수부터). "
+            "조화 응답: 계산할 주파수 범위입니다(필수)."
         ),
         json_schema_extra=_extra(
             {"only_for": ["modal", "harmonic"], "unit": "Hz", "range": True}
@@ -693,21 +756,23 @@ class Analysis(Base):
     prestressed: bool = Field(
         default=False,
         title="선응력 반영",
-        description="앞선 정적 해석의 응력(볼트 조임 · 원심력)을 안고 풉니다 — 초기조건의 "
-        "「선응력」 과 함께 씁니다",
+        description="선행 정적 해석의 응력(볼트 체결, 원심력)을 반영하여 계산합니다. "
+        "초기조건의 ‘선응력’과 함께 사용합니다.",
         json_schema_extra=_extra({"only_for": ["modal", "harmonic"]}),
     )
     # ── 조화 응답 ──────────────────────────────────────────────────────────
     solution_intervals: Integer = Field(
         default=10,
         title="주파수 점 수",
-        description="범위를 몇 점으로 나눠 풀지 — 공진 근처를 자세히 보려면 늘립니다",
+        description="주파수 범위를 나누는 계산점의 개수입니다. 공진 부근을 자세히 확인하려면 "
+        "늘리십시오.",
         json_schema_extra=_extra({"only_for": ["harmonic"], "integer": True}),
     )
     method: Literal["mode_superposition", "full"] = Field(
         default="mode_superposition",
         title="풀이 방법",
-        description="모드 중첩: 모달 결과로 빨리 풉니다(모드 수 필요) · 완전법: 느리지만 정확",
+        description="모드 중첩: 모달 결과를 이용해 빠르게 계산합니다(모드 수 필요). "
+        "완전법: 느리지만 정확합니다.",
         json_schema_extra=_extra(
             {
                 "only_for": ["harmonic"],
@@ -718,8 +783,8 @@ class Analysis(Base):
     damping_ratio: Number | None = Field(
         default=None,
         title="감쇠비",
-        description="임계 감쇠에 대한 비 — 강 구조는 0.01 ~ 0.03. 비우면 감쇠가 없어 공진에서 "
-        "응답이 끝없이 커집니다",
+        description="임계 감쇠에 대한 비율입니다. 강 구조물은 0.01~0.03입니다. 비워 두면 "
+        "감쇠가 없어 공진에서 응답이 무한히 커집니다.",
         json_schema_extra=_extra({"only_for": ["harmonic"]}),
     )
     # ── 정적 구조 ──────────────────────────────────────────────────────────
@@ -727,21 +792,24 @@ class Analysis(Base):
         default=False,
         title="대변형",
         description=(
-            "변형이 커서 모양이 바뀌면 켭니다(비선형 · 느림) — 얇은 판 · 고무 · 큰 처짐"
+            "변형이 커서 형상이 크게 바뀌는 경우 사용합니다(비선형, 계산 시간 증가). "
+            "얇은 판, 고무, 큰 처짐이 해당합니다."
         ),
         json_schema_extra=_extra({"only_for": ["static"]}),
     )
     steps: Integer = Field(
         default=1,
         title="하중 단계 수",
-        description="하중을 나눠 거는 단계 — 볼트를 먼저 조이고 하중을 걸면 2",
+        description="하중을 나누어 적용하는 단계 수입니다. 볼트를 먼저 체결한 뒤 하중을 "
+        "적용하면 2입니다.",
         json_schema_extra=_extra({"only_for": ["static"], "integer": True}),
     )
     substeps: Integer | None = Field(
         default=None,
-        title="처음 부단계 수",
+        title="초기 부단계 수",
         description=(
-            "한 단계를 몇 번에 나눠 풀지 — 접촉 · 대변형이 안 풀리면 늘립니다. 비우면 자동"
+            "한 하중 단계를 나누어 계산하는 횟수입니다. 접촉이나 대변형이 수렴하지 않으면 "
+            "늘리십시오. 비워 두면 자동으로 결정됩니다."
         ),
         json_schema_extra=_extra({"only_for": ["static"], "integer": True}),
     )
@@ -749,14 +817,14 @@ class Analysis(Base):
         default="program_controlled",
         title="솔버",
         description=(
-            "모르면 「프로그램이 정함」 — 직접법은 메모리를 많이 쓰고, "
-            "반복법은 큰 솔리드에 빠릅니다"
+            "확실하지 않으면 ‘프로그램 제어’를 선택하십시오. 직접법은 메모리 사용량이 "
+            "많고, 반복법은 큰 솔리드 모델에서 빠릅니다."
         ),
         json_schema_extra=_extra(
             {
                 "only_for": ["static", "modal", "harmonic", "thermal"],
                 "labels": {
-                    "program_controlled": "프로그램이 정함",
+                    "program_controlled": "프로그램 제어",
                     "direct": "직접법",
                     "iterative": "반복법",
                 },
@@ -767,25 +835,27 @@ class Analysis(Base):
     thermal_mode: Literal["steady", "transient"] = Field(
         default="steady",
         title="열 해석",
-        description="정상 상태: 오래 지나 변하지 않는 온도 · 과도: 시간에 따라(끝 시간 필요)",
+        description="정상 상태: 시간이 충분히 지나 변하지 않는 온도를 계산합니다. "
+        "과도: 시간에 따른 변화를 계산합니다(종료 시간 필요).",
         json_schema_extra=_extra(
             {
                 "only_for": ["thermal"],
-                "labels": {"steady": "정상 상태", "transient": "과도(시간에 따라)"},
+                "labels": {"steady": "정상 상태", "transient": "과도(시간 이력)"},
             }
         ),
     )
     time_step: Number | None = Field(
         default=None,
-        title="처음 시간 간격",
-        description="열 과도: 첫 시간 간격 — 비우면 자동",
+        title="초기 시간 간격",
+        description="과도 열 해석의 첫 시간 간격입니다. 비워 두면 자동으로 결정됩니다.",
         json_schema_extra=_extra({"only_for": ["thermal"], "unit": "s", "when": _TRANSIENT}),
     )
     # ── 명시적 · 열 과도 ─────────────────────────────────────────────────
     end_time: Number | None = Field(
         default=None,
-        title="끝 시간",
-        description="명시적: 충돌 · 낙하가 끝날 만큼(보통 수 ms) · 열 과도: 지켜볼 시간",
+        title="종료 시간",
+        description="명시적: 충돌·낙하가 끝날 때까지의 시간입니다(일반적으로 수 ms). "
+        "열 과도: 관찰할 시간입니다.",
         json_schema_extra=_extra(
             {
                 "only_for": ["explicit", "thermal"],
@@ -797,7 +867,7 @@ class Analysis(Base):
     output_count: Integer = Field(
         default=20,
         title="결과 저장 횟수",
-        description="끝 시간 동안 결과를 몇 번 남길지 — 많을수록 파일이 커집니다",
+        description="종료 시간까지 결과를 저장하는 횟수입니다. 많을수록 파일 크기가 커집니다.",
         json_schema_extra=_extra(
             {
                 "only_for": ["explicit", "thermal"],
@@ -809,8 +879,8 @@ class Analysis(Base):
     mass_scaling_dt: Number | None = Field(
         default=None,
         title="질량 스케일링 시간 간격",
-        description="이보다 작은 시간 간격이 필요한 작은 요소에 질량을 더해 빨리 "
-        "풉니다 — 비우면 쓰지 않습니다(정확)",
+        description="이보다 작은 시간 간격이 필요한 작은 요소에 질량을 추가하여 계산 "
+        "속도를 높입니다. 비워 두면 사용하지 않습니다(정확).",
         json_schema_extra=_extra({"only_for": ["explicit"], "unit": "s"}),
     )
 
@@ -844,21 +914,22 @@ class MeshHint(Base):
     on: str = Field(
         "전체",
         title="적용 대상",
-        description="「전체」 또는 선택 그룹 — 선택 그룹이면 그 자리만 이 크기로",
+        description="‘전체’ 또는 선택 그룹입니다. 선택 그룹을 지정하면 해당 영역에만 "
+        "적용합니다.",
         json_schema_extra=_extra({"whole": "전체"}),
     )
     element_size: Number | None = Field(
         None,
         title="요소 크기",
-        description="요소 한 변의 평균 — 작을수록 정확하고 느립니다. "
-        "판이면 두께의 1/2 ~ 1/3 쯤",
+        description="요소 한 변의 평균 길이입니다. 작을수록 정확하지만 계산이 느려집니다. "
+        "판은 두께의 1/2~1/3 정도가 적당합니다.",
         json_schema_extra=_extra({"unit": "mm"}),
     )
     method: Literal["automatic", "tetrahedrons", "hex_dominant", "sweep", "multizone"] = Field(
         "automatic",
-        title="요소 모양",
-        description="모르면 「자동」. 스윕 · 멀티존은 쓸어 만든 모양(판 · 축)을 "
-        "육면체로 채웁니다",
+        title="요소 형상",
+        description="확실하지 않으면 ‘자동’을 선택하십시오. 스윕과 멀티존은 스윕 "
+        "형상(판, 축)을 육면체 요소로 채웁니다.",
         json_schema_extra=_extra(
             {
                 "labels": {
@@ -874,14 +945,14 @@ class MeshHint(Base):
     order: Literal["program_controlled", "linear", "quadratic"] = Field(
         "program_controlled",
         title="요소 차수",
-        description="2 차가 응력 · 굽힘에 정확합니다(권장). "
-        "1 차는 빠르지만 사면체면 뻣뻣하게 나옵니다",
+        description="2차 요소가 응력과 굽힘 계산에 정확합니다(권장). 1차 요소는 "
+        "빠르지만 사면체에서는 강성이 과대평가됩니다.",
         json_schema_extra=_extra(
             {
                 "labels": {
-                    "program_controlled": "프로그램이 정함",
-                    "linear": "1 차(빠름)",
-                    "quadratic": "2 차(정확)",
+                    "program_controlled": "프로그램 제어",
+                    "linear": "1차(빠름)",
+                    "quadratic": "2차(정확)",
                 }
             }
         ),
@@ -889,13 +960,14 @@ class MeshHint(Base):
     inflation_layers: Integer | None = Field(
         None,
         title="경계층 수",
-        description="벽 가까이를 얇은 층으로 — 유동 · 열 경계층용. 구조 해석에서는 비웁니다",
+        description="벽면 근처를 얇은 층으로 분할합니다. 유동·열 경계층용이며, 구조 "
+        "해석에서는 비워 두십시오.",
         json_schema_extra=_extra({"integer": True}),
     )
     defeature_size: Number | None = Field(
         None,
         title="무시할 형상 크기",
-        description="이보다 작은 모서리 · 구멍 · 필렛은 메시에서 무시합니다",
+        description="이보다 작은 모서리, 구멍, 필렛은 메시 생성 시 무시합니다.",
         json_schema_extra=_extra({"unit": "mm"}),
     )
 
@@ -1018,7 +1090,7 @@ _KIND_LABELS = {"cylinder": "원통면"}
 
 def _accepts_label(options: list[dict[str, str]]) -> str:
     """「원통면 · 바디」 처럼 — 받는 것을 사람 말로."""
-    return " · ".join(
+    return ", ".join(
         _KIND_LABELS.get(one.get("kind", ""), "") or _ENTITY_LABELS[one["entity"]]
         for one in options
     )
@@ -1032,20 +1104,21 @@ def _check_target(
     fits = [one for one in accepts if one["entity"] == selection.entity]
     if not fits:
         raise ConditionError(
-            f"{where}: {label} 는 {_accepts_label(accepts)} 선택 그룹에만 겁니다 — "
-            f"「{selection.name}」 은 {_ENTITY_LABELS[selection.entity]} 선택 그룹입니다"
+            f"{where}: {label}에는 {_accepts_label(accepts)} 선택 그룹만 지정할 수 있습니다. "
+            f"선택 그룹 ‘{selection.name}’의 종류는 {_ENTITY_LABELS[selection.entity]}입니다."
         )
     if not all(one.get("kind") for one in fits):
         return
     kinds = {one["kind"] for one in fits}
     members = selection.select.get("any") or [selection.select]
     if any(str(one.get("kind", "")) not in kinds for one in members):
-        wanted = " · ".join(_KIND_LABELS.get(kind, kind) for kind in sorted(kinds))
+        wanted = ", ".join(_KIND_LABELS.get(kind, kind) for kind in sorted(kinds))
         raise ConditionError(
-            f"{where}: {label} 는 {wanted} 에만 겁니다 — 선택 그룹 「{selection.name}」 의 "
-            f"규칙에 kind: {' · '.join(sorted(kinds))} 가 없어, 치수가 바뀐 설계점에서 다른 "
-            "모양의 면을 집을 수 있습니다. 3D 에서 고를 때 원통면 규칙을 고르세요"
-            '(셀렉터라면 {"what": "faces", "kind": "cylinder", …})'
+            f"{where}: {label}에는 {wanted}만 지정할 수 있습니다. 선택 그룹 "
+            f"‘{selection.name}’의 규칙에 kind: {', '.join(sorted(kinds))} 조건이 없어, "
+            "치수가 바뀐 설계점에서 다른 형상의 면이 선택될 수 있습니다. 3D에서 선택할 때 "
+            "원통면 규칙을 사용하십시오"
+            '(셀렉터의 경우 {"what": "faces", "kind": "cylinder", …}).'
         )
 
 
@@ -1058,21 +1131,21 @@ def _check_targets(conditions: Conditions) -> None:
             _check_target(where, label, accepts, selections[name])
 
     for index, one in enumerate(conditions.constraints):
-        label = f"{CONSTRAINT_LABELS[one.type]} 「{one.name}」"
+        label = f"{CONSTRAINT_LABELS[one.type]} ‘{one.name}’"
         check(f"constraints[{index}]", label, CONSTRAINT_ACCEPTS.get(one.type), one.on)
     for index, load in enumerate(conditions.loads):
-        label = f"{LOAD_LABELS[load.type]} 「{load.name}」"
+        label = f"{LOAD_LABELS[load.type]} ‘{load.name}’"
         check(f"loads[{index}]", label, LOAD_ACCEPTS.get(load.type), load.on)
     for index, contact in enumerate(conditions.contacts):
         accepts = CONTACT_ACCEPTS.get(contact.type)
-        label = f"접촉 「{contact.name}」"
-        check(f"contacts[{index}]", f"{label} 의 접촉면", accepts, contact.source)
-        check(f"contacts[{index}]", f"{label} 의 대상면", accepts, contact.target)
+        label = f"접촉 ‘{contact.name}’"
+        check(f"contacts[{index}]", f"{label}의 접촉면", accepts, contact.source)
+        check(f"contacts[{index}]", f"{label}의 대상면", accepts, contact.target)
     for index, initial in enumerate(conditions.initial):
         label = INITIAL_LABELS[initial.type]
         check(f"initial[{index}]", label, INITIAL_ACCEPTS.get(initial.type), initial.on)
     for index, hint in enumerate(conditions.mesh_hints):
-        check(f"mesh_hints[{index}]", f"메시 힌트 「{hint.on}」", MESH_ACCEPTS["*"], hint.on)
+        check(f"mesh_hints[{index}]", f"메시 힌트 ‘{hint.on}’", MESH_ACCEPTS["*"], hint.on)
 
 
 def _known_names(conditions: Conditions) -> set[str]:
@@ -1106,7 +1179,7 @@ def parse(
     names = _known_names(conditions)
     if len(names) != len(conditions.named_selections):
         raise ConditionError(
-            "선택 그룹 이름이 겹칩니다 — 조건이 어느 것을 가리킬지 알 수 없습니다"
+            "선택 그룹 이름이 중복됩니다. 조건이 어느 선택 그룹을 가리키는지 알 수 없습니다."
         )
 
     # **가리키는 선택 그룹이 없으면 지금 말한다.** 안 그러면 내보낸 뒤 해석 쪽에서 0 개를 집고,
@@ -1128,8 +1201,8 @@ def parse(
             for target in targets:
                 if target not in names:
                     raise ConditionError(
-                        f"{group}[{index}]: 「{target}」 라는 선택 그룹이 없습니다 "
-                        f"(있는 것: {', '.join(sorted(names)) or '없음'})"
+                        f"{group}[{index}]: 선택 그룹 ‘{target}’이(가) 없습니다"
+                        f"(정의된 선택 그룹: {', '.join(sorted(names)) or '없음'})."
                     )
 
     # **받을 수 있는 것인가** — 압력을 엣지에, 베어링을 평면에 걸면 받는 쪽이 거절하거나
@@ -1143,22 +1216,24 @@ def parse(
     for index, frame in enumerate(conditions.coordinate_systems):
         if frame.name in GLOBAL_FRAMES:
             raise ConditionError(
-                f"coordinate_systems[{index}]: 「{frame.name}」 은 전역 좌표계의 이름입니다"
+                f"coordinate_systems[{index}]: ‘{frame.name}’은(는) 전역 좌표계용으로 "
+                "예약된 이름입니다."
             )
         if local.count(frame.name) > 1 or frame.name in (frames or []):
             raise ConditionError(
-                f"coordinate_systems[{index}]: 좌표계 「{frame.name}」 이 겹칩니다 "
-                "(도면의 좌표계와도 이름이 달라야 합니다)"
+                f"coordinate_systems[{index}]: 좌표계 이름 ‘{frame.name}’이(가) 중복됩니다"
+                "(도면의 좌표계와도 이름이 달라야 합니다)."
             )
         if frame.on and frame.on not in names:
             raise ConditionError(
-                f"coordinate_systems[{index}]: 「{frame.on}」 라는 선택 그룹이 없습니다"
+                f"coordinate_systems[{index}]: 선택 그룹 ‘{frame.on}’이(가) 없습니다."
             )
     known_frames = GLOBAL_FRAMES | set(local) | set(frames or [])
+    defined_frames = ", ".join(sorted(known_frames - GLOBAL_FRAMES)) or "없음"
     for index, item in enumerate(conditions.constraints):
         if item.type == "elastic_support" and item.stiffness is None:
             raise ConditionError(
-                f"constraints[{index}]: 탄성 지지 「{item.name}」 에 기초 강성이 없습니다"
+                f"constraints[{index}]: 탄성 지지 ‘{item.name}’에 기초 강성이 없습니다."
             )
         if (
             item.type == "remote_displacement"
@@ -1166,13 +1241,13 @@ def parse(
             and item.cs in GLOBAL_FRAMES
         ):
             raise ConditionError(
-                f"constraints[{index}]: 「{item.name}」 의 원격점을 좌표계의 원점으로 두려면 "
-                "좌표계를 고르세요 — 전역의 원점은 모델과 상관없는 자리입니다"
+                f"constraints[{index}]: ‘{item.name}’의 원격점을 좌표계 원점으로 지정하려면 "
+                "좌표계를 선택하십시오. 전역 좌표계의 원점은 모델과 무관한 위치입니다."
             )
         if frames is not None and item.cs not in known_frames:
             raise ConditionError(
-                f"constraints[{index}]: 「{item.cs}」 라는 좌표계가 없습니다 "
-                f"(있는 것: {', '.join(sorted(known_frames - GLOBAL_FRAMES)) or '없음'})"
+                f"constraints[{index}]: 좌표계 ‘{item.cs}’이(가) 없습니다"
+                f"(정의된 좌표계: {defined_frames})."
             )
 
     _check_analysis(conditions.analysis)
@@ -1184,8 +1259,8 @@ def parse(
         _check_load(f"loads[{index}]", load)
         if frames is not None and load.cs not in known_frames:
             raise ConditionError(
-                f"loads[{index}]: 「{load.cs}」 라는 좌표계가 없습니다 "
-                f"(있는 것: {', '.join(sorted(known_frames - GLOBAL_FRAMES)) or '없음'})"
+                f"loads[{index}]: 좌표계 ‘{load.cs}’이(가) 없습니다"
+                f"(정의된 좌표계: {defined_frames})."
             )
 
     # **물성이 붙은 바디가 진짜 있나.** 「전체」 는 늘 된다(모든 바디).
@@ -1195,24 +1270,24 @@ def parse(
         for where in material.apply_to:
             if known is not None and where != ALL_BODIES and where not in known:
                 raise ConditionError(
-                    f"materials[{index}]: 「{where}」 라는 바디가 없습니다 "
-                    f"(있는 것: {', '.join(sorted(known)) or '없음'})"
+                    f"materials[{index}]: 바디 ‘{where}’이(가) 없습니다"
+                    f"(존재하는 바디: {', '.join(sorted(known)) or '없음'})."
                 )
             # **바디 하나에 물성 하나.** 둘이면 해석 쪽이 어느 것으로 풀지 모른다 — 먼저 온
             # 것을 쓰든 나중 것을 쓰든, 사람이 고른 것과 다를 수 있다.
             if where in owner:
                 raise ConditionError(
-                    f"materials[{index}]: 「{where}」 에 물성이 둘 붙었습니다 — "
-                    f"materials[{owner[where]}] 와 겹칩니다. "
-                    "바디 하나에는 물성 하나만 붙습니다."
+                    f"materials[{index}]: ‘{where}’에 물성이 2개 지정되었습니다. "
+                    f"materials[{owner[where]}]와(과) 중복됩니다. "
+                    "바디 하나에는 물성을 하나만 지정할 수 있습니다."
                 )
             owner[where] = index
     if ALL_BODIES in owner and len(owner) > 1:
         other = next(name for name in owner if name != ALL_BODIES)
         raise ConditionError(
-            f"materials[{owner[ALL_BODIES]}] 이 「{ALL_BODIES}」 에 붙어 있는데 "
-            f"materials[{owner[other]}] 이 「{other}」 에 또 붙었습니다 — "
-            f"「{other}」 에 물성이 둘이 됩니다."
+            f"materials[{owner[ALL_BODIES]}]이(가) ‘{ALL_BODIES}’에 지정되어 있는데 "
+            f"materials[{owner[other]}]이(가) ‘{other}’에도 지정되었습니다. "
+            f"‘{other}’에 물성이 2개 지정됩니다."
         )
     return conditions
 
@@ -1476,28 +1551,28 @@ def _check_load(where: str, load: Load) -> None:
 
     안 그러면 크기 없는 하중이나 0 벡터가 내보내져, 받는 쪽이 하중 없는 해석을 끝까지 돌린다.
     """
-    label = f"{LOAD_LABELS[load.type]} 「{load.name}」"
+    label = f"{LOAD_LABELS[load.type]} ‘{load.name}’"
     if load.type not in BODY_LOADS and not load.on:
-        raise ConditionError(f"{where}: {label} 에 선택 그룹이 없습니다")
+        raise ConditionError(f"{where}: {label}에 선택 그룹이 없습니다.")
     if load.type in LOAD_DIMENSIONS and load.magnitude is None:
-        raise ConditionError(f"{where}: {label} 에 크기가 없습니다")
+        raise ConditionError(f"{where}: {label}에 크기가 없습니다.")
     if load.type == "bolt_pretension" and load.preload is None:
-        raise ConditionError(f"{where}: {label} 에 예압(또는 조임량)이 없습니다")
+        raise ConditionError(f"{where}: {label}에 예압(또는 조임량)이 없습니다.")
     allowed = _load_units(load.type)
     if load.unit and load.unit not in allowed:
         raise ConditionError(
-            f"{where}: {label} 의 단위 「{load.unit}」 는 쓸 수 없습니다 — 조건은 "
-            f"mm · N · t 로 적습니다({' 또는 '.join(allowed) or '단위 없음'})"
+            f"{where}: {label}의 단위 ‘{load.unit}’은(는) 사용할 수 없습니다. 조건 값은 "
+            f"mm·N·t 단위로 입력합니다({' 또는 '.join(allowed) or '단위 없음'})."
         )
     direction = load.direction
     if direction == "normal" and load.type != "pressure":
-        raise ConditionError(f"{where}: 면의 법선 방향은 압력만 쓸 수 있습니다")
+        raise ConditionError(f"{where}: 면의 법선 방향은 압력에만 사용할 수 있습니다.")
     if isinstance(direction, list):
         if len(direction) != 3:
-            raise ConditionError(f"{where}: 방향은 X · Y · Z 세 성분입니다")
+            raise ConditionError(f"{where}: 방향은 X, Y, Z 세 성분으로 지정해야 합니다.")
         numbers = [one for one in direction if not isinstance(one, str)]
         if len(numbers) == 3 and all(one == 0 for one in numbers):
-            raise ConditionError(f"{where}: {label} 의 방향이 0 벡터입니다")
+            raise ConditionError(f"{where}: {label}의 방향이 0 벡터입니다.")
     elif (
         direction is None
         and load.type in DIRECTED_LOADS
@@ -1507,7 +1582,7 @@ def _check_load(where: str, load: Load) -> None:
             "standard_earth_gravity",
         )
     ):
-        raise ConditionError(f"{where}: {label} 에 방향이 없습니다")
+        raise ConditionError(f"{where}: {label}에 방향이 없습니다.")
 
 
 def _check_analysis(analysis: Analysis) -> None:
@@ -1520,35 +1595,38 @@ def _check_analysis(analysis: Analysis) -> None:
     span = analysis.frequency_range
     if span is not None:
         if len(span) != 2:
-            raise ConditionError("analysis: 주파수 범위는 최소 · 최대 두 값입니다")
+            raise ConditionError(
+                "analysis: 주파수 범위는 최솟값과 최댓값 두 개로 지정해야 합니다."
+            )
         low, high = span
         if not isinstance(low, str) and not isinstance(high, str) and not 0 <= low < high:
-            raise ConditionError("analysis: 주파수 범위는 0 ≤ 최소 < 최대 여야 합니다")
+            raise ConditionError("analysis: 주파수 범위는 0 ≤ 최소 < 최대를 만족해야 합니다.")
     if analysis.type == "modal" and not positive(analysis.modes):
-        raise ConditionError(f"analysis: {label} 의 모드 수는 1 이상입니다")
+        raise ConditionError(f"analysis: {label}의 모드 수는 1 이상이어야 합니다.")
     if analysis.type == "harmonic":
         if span is None:
-            raise ConditionError(f"analysis: {label} 에 주파수 범위가 없습니다")
+            raise ConditionError(f"analysis: {label}에 주파수 범위가 없습니다.")
         if analysis.method == "mode_superposition" and not positive(analysis.modes):
             raise ConditionError(
-                f"analysis: {label} 을 모드 중첩으로 풀려면 모드 수가 1 이상이어야 합니다"
+                f"analysis: {label}을(를) 모드 중첩으로 계산하려면 모드 수가 1 이상이어야 "
+                "합니다."
             )
         if isinstance(analysis.solution_intervals, int) and analysis.solution_intervals < 1:
-            raise ConditionError(f"analysis: {label} 의 주파수 점 수는 1 이상입니다")
+            raise ConditionError(f"analysis: {label}의 주파수 점 수는 1 이상이어야 합니다.")
     if analysis.type == "static" and isinstance(analysis.steps, int) and analysis.steps < 1:
-        raise ConditionError(f"analysis: {label} 의 하중 단계 수는 1 이상입니다")
+        raise ConditionError(f"analysis: {label}의 하중 단계 수는 1 이상이어야 합니다.")
     needs_end = analysis.type == "explicit" or (
         analysis.type == "thermal" and analysis.thermal_mode == "transient"
     )
     if needs_end and not positive(analysis.end_time):
-        kind = label if analysis.type == "explicit" else "열 과도 해석"
-        raise ConditionError(f"analysis: {kind} 에 끝 시간이 없습니다")
+        kind = label if analysis.type == "explicit" else "과도 열 해석"
+        raise ConditionError(f"analysis: {kind}에 종료 시간이 없습니다.")
     if (
         analysis.type in ("explicit", "thermal")
         and isinstance(analysis.output_count, int)
         and analysis.output_count < 1
     ):
-        raise ConditionError("analysis: 결과 저장 횟수는 1 이상입니다")
+        raise ConditionError("analysis: 결과 저장 횟수는 1 이상이어야 합니다.")
 
 
 #: 정수 칸 — 식이 풀린 뒤 정수여야 하고, 수 · 단계는 1 이상이어야 한다.
@@ -1570,10 +1648,10 @@ def _integerized(values: dict[str, Any], where: str) -> dict[str, Any]:
         value = out.get(key)
         if isinstance(value, float):
             if not value.is_integer():
-                raise ConditionError(f"{where}.{key}: {value} 는 정수가 아닙니다")
+                raise ConditionError(f"{where}.{key}: 정수가 아닙니다({value}).")
             out[key] = int(value)
         if isinstance(out.get(key), int) and key != "inflation_layers" and out[key] < 1:
-            raise ConditionError(f"{where}.{key}: 1 이상이어야 합니다(지금 {out[key]})")
+            raise ConditionError(f"{where}.{key}: 1 이상이어야 합니다(현재 {out[key]}).")
     return out
 
 
@@ -1605,24 +1683,27 @@ def _filled_analysis(analysis: dict[str, Any]) -> dict[str, Any]:
 
 def _check_contact(where: str, contact: Contact) -> None:
     """접촉 하나 — 종류에 빠진 값 · 맞지 않는 선택을 **저장할 때** 말한다."""
-    label = f"{CONTACT_LABELS[contact.type]} 접촉 「{contact.name}」"
+    label = f"{CONTACT_LABELS[contact.type]} 접촉 ‘{contact.name}’"
     if contact.type == "frictional" and contact.friction is None:
-        raise ConditionError(f"{where}: {label} 에 마찰계수가 없습니다")
+        raise ConditionError(f"{where}: {label}에 마찰계수가 없습니다.")
     if contact.formulation == "mpc" and contact.type not in ("bonded", "no_separation"):
-        raise ConditionError(f"{where}: {label} — MPC 정식화는 본딩 · 분리 없음에만 씁니다")
+        raise ConditionError(
+            f"{where}: {label}에는 MPC 정식화를 사용할 수 없습니다. MPC는 본딩과 분리 없음 "
+            "접촉에만 사용합니다."
+        )
     if contact.source and contact.source == contact.target:
-        raise ConditionError(f"{where}: {label} 의 접촉면과 대상면이 같습니다")
+        raise ConditionError(f"{where}: {label}의 접촉면과 대상면이 같습니다.")
 
 
 def _check_initial(where: str, initial: Initial) -> None:
     """초기조건 하나 — 종류에 빠진 값을 **저장할 때** 말한다."""
     label = INITIAL_LABELS[initial.type]
     if initial.type in ("environment_temperature", "temperature") and initial.value is None:
-        raise ConditionError(f"{where}: {label} 에 온도가 없습니다")
+        raise ConditionError(f"{where}: {label}에 온도가 없습니다.")
     if initial.type in ("temperature", "velocity") and not initial.on:
-        raise ConditionError(f"{where}: {label} 에 바디 선택 그룹이 없습니다")
+        raise ConditionError(f"{where}: {label}에 바디 선택 그룹이 없습니다.")
     if initial.type == "velocity" and (not initial.vector or len(initial.vector) != 3):
-        raise ConditionError(f"{where}: {label} 에 속도(X · Y · Z)가 없습니다")
+        raise ConditionError(f"{where}: {label}에 속도(X, Y, Z)가 없습니다.")
 
 
 def _filled_initial(initial: dict[str, Any], system: str) -> dict[str, Any]:
@@ -1672,12 +1753,13 @@ def material_index(raw: dict[str, Any], choice: str) -> int:
     if not found:
         have = ", ".join(str((one.get("ref") or {}).get("name", "?")) for one in materials)
         raise ConditionError(
-            f"「{choice}」 라는 재료가 조건에 없습니다 — 후보는 먼저 조건에 담아 둡니다"
-            f"(담아 둔 재료: {have or '없음'})"
+            f"재료 ‘{choice}’이(가) 조건에 없습니다. 후보 재료를 먼저 조건에 "
+            f"추가하십시오(추가된 재료: {have or '없음'})."
         )
     if len(found) > 1:
         raise ConditionError(
-            f"「{choice}」 가 담아 둔 재료 {len(found)} 개에 맞습니다 — 번호(M-…)로 적으세요"
+            f"‘{choice}’에 해당하는 재료가 {len(found)}개입니다. 재료 번호(M-…)로 "
+            "지정하십시오."
         )
     return found[0]
 
@@ -1697,8 +1779,9 @@ def with_material(raw: dict[str, Any], bodies: list[str], choice: str) -> dict[s
         where = applied_bodies(one.get("apply_to", ALL_BODIES))
         if ALL_BODIES in where and ALL_BODIES not in targets and i != index:
             raise ConditionError(
-                f"재료 「{(one.get('ref') or {}).get('name', '?')}」 가 「전체」 에 붙어 있어 "
-                f"{', '.join(bodies)} 만 바꿔 끼울 수 없습니다 — 파트마다 재료를 지정하세요"
+                f"재료 ‘{(one.get('ref') or {}).get('name', '?')}’이(가) ‘전체’에 "
+                f"지정되어 있어 {', '.join(bodies)}의 재료만 교체할 수 없습니다. 파트별로 "
+                "재료를 지정하십시오."
             )
         kept = [body for body in where if body not in targets]
         if i == index:
@@ -1724,7 +1807,7 @@ def _target_item(out: dict[str, Any], group: str, item: Any) -> dict[str, Any]:
     if isinstance(item, int) and not isinstance(item, bool):
         if not 1 <= item <= len(rows):
             raise ConditionError(
-                f"{group} 에 {item} 번째 항목이 없습니다(있는 것 {len(rows)} 개)"
+                f"{group}에 {item}번째 항목이 없습니다(항목 수: {len(rows)}개)."
             )
         found: dict[str, Any] = rows[item - 1]
         return found
@@ -1732,10 +1815,10 @@ def _target_item(out: dict[str, Any], group: str, item: Any) -> dict[str, Any]:
     hits = [one for one in rows if str(one.get(key, "")) == str(item)]
     if not hits:
         have = ", ".join(str(one.get(key, "?")) for one in rows) or "없음"
-        raise ConditionError(f"{group} 에 「{item}」 이 없습니다(있는 것: {have})")
+        raise ConditionError(f"{group}에 ‘{item}’이(가) 없습니다(정의된 항목: {have}).")
     if len(hits) > 1:
         raise ConditionError(
-            f"{group} 에 「{item}」 이 여럿입니다 — 번호(1 부터)로 가리키세요"
+            f"{group}에 ‘{item}’이(가) 여러 개 있습니다. 번호(1부터 시작)로 지정하십시오."
         )
     return hits[0]
 
@@ -1786,7 +1869,7 @@ def _scaled_converted(converted: dict[str, Any], prop: str, factor: float) -> di
     # **없는 물성에 곱했다고 적지 않는다.** 값은 그대로인데 `scaled` 만 붙으면 받는 쪽은 배율이
     # 걸린 줄 알고 푼다(재료를 바꿔 끼운 후보에 그 물성이 없을 때 실제로 그랬다).
     if not has_property(converted, prop):
-        raise ConditionError(f"재료에 「{prop}」 가 없어 배율을 곱할 수 없습니다")
+        raise ConditionError(f"재료에 ‘{prop}’ 물성이 없어 배율을 적용할 수 없습니다.")
     out = deepcopy(converted)
     top = _TOP_PROPERTIES.get(prop)
     if top and isinstance(out.get(top), int | float):
@@ -1821,8 +1904,8 @@ def with_scale(
         # 「전체」 에 붙은 재료는 바디 하나 몫만 떼어 낼 수 없다 — 곱하면 모든 바디가 바뀐다.
         if ALL_BODIES in where and ALL_BODIES not in targets:
             raise ConditionError(
-                f"재료가 「전체」 에 붙어 있어 {', '.join(bodies)} 에만 배율을 걸 수 "
-                "없습니다 — 파트마다 재료를 지정하세요"
+                f"재료가 ‘전체’에 지정되어 있어 {', '.join(bodies)}에만 배율을 적용할 수 "
+                "없습니다. 파트별로 재료를 지정하십시오."
             )
         if ALL_BODIES in where or set(where) <= targets:
             one["converted"] = _scaled_converted(one["converted"], prop, factor)
@@ -1863,12 +1946,12 @@ def _value_fields(
     하나다(칸을 더하고 여기를 빠뜨리면 그 칸만 mm 로 나간다). 볼트는 적힌 단위로 가른다."""
     out: list[tuple[dict[str, Any], str, Any, str]] = []
     for one in conditions.get("constraints") or []:
-        name = f"구속 「{one.get('name', '')}」"
+        name = f"구속 ‘{one.get('name', '')}’"
         for axis in ("x", "y", "z"):
             out.append((one, axis, _LENGTH, f"{name} {axis.upper()} 변위량"))
         out.append((one, "stiffness", _STIFFNESS, f"{name} 기초 강성"))
     for one in conditions.get("loads") or []:
-        name = f"하중 「{one.get('name', '')}」"
+        name = f"하중 ‘{one.get('name', '')}’"
         kind = str(one.get("type", ""))
         if kind == "bolt_pretension":
             by_length = one.get("unit") == system.names["length"]
@@ -1881,14 +1964,14 @@ def _value_fields(
                 (one, "magnitude", _LOAD_DIMENSION[LOAD_DIMENSIONS[kind]], f"{name} 크기")
             )
     for one in conditions.get("contacts") or []:
-        out.append((one, "pinball", _LENGTH, f"접촉 「{one.get('name', '')}」 pinball 반경"))
+        out.append((one, "pinball", _LENGTH, f"접촉 ‘{one.get('name', '')}’ pinball 반경"))
     for index, one in enumerate(conditions.get("initial") or []):
         if one.get("type") == "velocity":
             out.append((one, "vector", _VELOCITY, f"초기조건 {index + 1} 속도"))
     for one in conditions.get("mesh_hints") or []:
-        name = f"메시 힌트 「{one.get('on', '')}」"
+        name = f"메시 힌트 ‘{one.get('on', '')}’"
         out.append((one, "element_size", _LENGTH, f"{name} 요소 크기"))
-        out.append((one, "defeature_size", _LENGTH, f"{name} 무시할 크기"))
+        out.append((one, "defeature_size", _LENGTH, f"{name} 무시할 형상 크기"))
     return out
 
 
@@ -1945,22 +2028,24 @@ def spec() -> dict[str, Any]:
             "model": Contact,
             "notes": CONTACT_NOTES,
             "accepts": CONTACT_ACCEPTS,
-            "intro": "두 선택 그룹이 맞닿는 자리입니다. 접촉면 · 대상면을 고르고, 붙어 있는지 "
-            "미끄러지는지를 종류로 정합니다. 모르는 칸은 「프로그램이 정함」 그대로 둡니다.",
+            "intro": "두 선택 그룹이 맞닿는 영역을 정의합니다. 접촉면과 대상면을 선택하고, "
+            "접합 여부와 미끄러짐 여부를 접촉 종류로 지정합니다. 확실하지 않은 항목은 "
+            "‘프로그램 제어’로 두십시오.",
         },
         "initial": {
             "label": "초기조건",
             "model": Initial,
             "notes": INITIAL_NOTES,
             "accepts": INITIAL_ACCEPTS,
-            "intro": "풀기 전의 상태입니다 — 기준 온도, 처음 온도 · 속도, 앞선 해석의 응력.",
+            "intro": "해석 시작 시점의 상태를 정의합니다. 기준 온도, 초기 온도와 속도, "
+            "선행 해석의 응력을 지정할 수 있습니다.",
         },
         "mesh_hints": {
             "label": "메시 힌트",
             "model": MeshHint,
             "accepts": MESH_ACCEPTS,
-            "intro": "메시는 받는 쪽(SimEngBay)이 만듭니다 — 여기 적는 것은 바람입니다. "
-            "비운 칸은 받는 쪽이 정합니다.",
+            "intro": "메시는 해석 플랫폼(SimEngBay)에서 생성합니다. 여기에 입력하는 값은 "
+            "권장 사항이며, 비워 둔 항목은 해석 플랫폼이 결정합니다.",
         },
     }
     out: dict[str, Any] = {

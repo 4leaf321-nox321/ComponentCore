@@ -66,16 +66,16 @@ export default function AllWorksPage() {
     <div>
       <PageHeader
         title="모든 작업"
-        description="모든 사람의 내 작업 — 시스템 관리자만 봅니다. 열어 보는 것은 괜찮지만, 고치면 그 사람의 작업에 새 버전이 생깁니다."
+        description="모든 사용자의 작업입니다. 시스템 관리자만 조회할 수 있습니다. 작업을 열어 조회하는 것은 무방하나, 수정하면 해당 사용자의 작업에 새 버전이 생성됩니다."
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <select
-          aria-label="만든 사람"
+          aria-label="작성자"
           className="bg-background h-9 rounded-md border px-2 text-sm"
           value={owner}
           onChange={(event) => pickOwner(event.target.value)}
         >
-          <option value="all">모든 사람</option>
+          <option value="all">전체 사용자</option>
           {(accounts.data ?? []).map((one) => (
             <option key={one.id} value={one.id}>
               {one.display_name} ({one.email})
@@ -91,14 +91,14 @@ export default function AllWorksPage() {
           aria-pressed={trashed}
           className={`ml-auto rounded-md border px-3 py-1 text-sm ${trashed ? 'bg-destructive/10 border-destructive/40' : 'hover:bg-accent'}`}
         >
-          {trashed ? '휴지통 보는 중 — 작업으로' : '휴지통'}
+          {trashed ? '휴지통 조회 중 (작업 목록으로 돌아가기)' : '휴지통'}
         </button>
       </div>
       <ErrorNotice error={page.error ?? accounts.error} className="mb-4" />
       {rows.length === 0 && !page.loading ? (
         <EmptyState
-          title={trashed ? '휴지통이 비었습니다' : '맞는 작업이 없습니다'}
-          hint="사람 · 찾는 말(만든 사람의 이름도 찾습니다) · 종류 · 꼬리표를 바꿔 보세요."
+          title={trashed ? '휴지통이 비어 있습니다' : '조건에 맞는 작업이 없습니다'}
+          hint="사용자, 검색어(작성자 이름도 검색합니다), 종류, 태그를 변경하십시오."
         />
       ) : (
         <>
@@ -106,11 +106,11 @@ export default function AllWorksPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>이름</TableHead>
-                <TableHead>만든 사람</TableHead>
+                <TableHead>작성자</TableHead>
                 <TableHead>종류</TableHead>
                 <TableHead>버전</TableHead>
-                <TableHead>승격</TableHead>
-                <TableHead>{trashed ? '지움' : '수정'}</TableHead>
+                <TableHead>등록</TableHead>
+                <TableHead>{trashed ? '삭제일' : '수정일'}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

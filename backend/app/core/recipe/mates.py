@@ -39,8 +39,8 @@ _TURN_TOL = 1e-6
 _MOVE_TOL = 1e-4
 
 LABELS = {
-    "touch": "맞대기",
-    "flush": "면 맞춤",
+    "touch": "접촉",
+    "flush": "동일 평면",
     "concentric": "동심",
     "parallel": "평행",
     "perpendicular": "직각",
@@ -106,8 +106,8 @@ def element(shape: Any, select: dict[str, Any]) -> Element:
             foot = base + direction * float(np.dot(middle - base, direction))
             return Element("axis", foot, direction)
         raise MateError(
-            f"select: {face.geom_type.name.lower()} 면은 구속에 못 씁니다 — "
-            "평면 · 원통면 · 원뿔면"
+            f"select: {face.geom_type.name.lower()} 면은 구속에 사용할 수 없습니다. "
+            "평면, 원통면, 원뿔면만 사용할 수 있습니다."
         )
     edge = shape.edges()[index]
     if edge.geom_type == GeomType.LINE:
@@ -121,7 +121,8 @@ def element(shape: Any, select: dict[str, Any]) -> Element:
             np.array([normal.X(), normal.Y(), normal.Z()]),
         )
     raise MateError(
-        f"select: {edge.geom_type.name.lower()} 엣지는 구속에 못 씁니다 — 직선 · 원 엣지"
+        f"select: {edge.geom_type.name.lower()} 엣지는 구속에 사용할 수 없습니다. "
+        "직선 엣지와 원 엣지만 사용할 수 있습니다."
     )
 
 
@@ -137,12 +138,15 @@ def check_kinds(spec: Spec) -> None:
     if spec.kind in ("touch", "flush"):
         for side, one in (("this", spec.this), ("to", spec.to)):
             if one.kind != "plane":
-                raise MateError(f"{name}는 평면끼리입니다 — {side} 가 {one.label}입니다")
+                raise MateError(
+                    f"{name} 구속은 평면끼리만 가능합니다. {side}이(가) {one.label}입니다."
+                )
     if spec.kind == "concentric":
         for side, one in (("this", spec.this), ("to", spec.to)):
             if one.kind != "axis":
                 raise MateError(
-                    f"{name}은 축끼리입니다(원통면 · 원 엣지) — {side} 가 {one.label}입니다"
+                    f"{name} 구속은 축끼리만 가능합니다(원통면, 원 엣지). "
+                    f"{side}이(가) {one.label}입니다."
                 )
 
 
@@ -409,8 +413,8 @@ def solve(
 def _conflict(specs: list[Spec], index: int, miss: str) -> str:
     name = LABELS[specs[index].kind]
     if index == 0:
-        return f"구속 1({name}) — 맞출 수 없습니다, {miss} 어긋남"
-    return f"구속 {index + 1}({name}) — 앞의 구속과 맞지 않습니다, {miss} 어긋남"
+        return f"구속 1({name}): 만족할 수 없습니다(오차 {miss})."
+    return f"구속 {index + 1}({name}): 이전 구속과 충돌합니다(오차 {miss})."
 
 
 def placement(location: Location, report: dict[str, Any] | None = None) -> dict[str, Any]:

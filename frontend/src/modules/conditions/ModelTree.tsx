@@ -134,7 +134,7 @@ export function ModelTree({
         {bodies === null && !bodiesError && <Skeleton className="h-16 w-full" />}
         {bodiesError && (
           <p className="text-muted-foreground px-1 text-xs">
-            파트 목록을 불러오지 못했습니다 — 「도면」 탭에서 도면을 확인하세요.
+            파트 목록을 불러오지 못했습니다. ‘도면’ 탭에서 도면을 확인하십시오.
           </p>
         )}
         <ul className="space-y-0.5">
@@ -162,7 +162,7 @@ export function ModelTree({
                   <div className="mt-1 mb-2 ml-4 space-y-2 border-l pl-3">
                     {on.length > 1 && (
                       <p className="text-xs text-amber-700 dark:text-amber-400">
-                        물성이 둘 이상 지정되어 있습니다 — 하나를 선택하세요. 이대로는 저장되지 않습니다.
+                        물성이 둘 이상 지정되어 있습니다. 하나를 선택하십시오. 이 상태로는 저장할 수 없습니다.
                       </p>
                     )}
                     {materials.length === 0 ? (
@@ -241,19 +241,17 @@ export function ModelTree({
                 </button>
                 {open && (
                   <div className="mt-1 mb-2 ml-4 space-y-2 border-l pl-3 text-xs">
-                    <p className="text-muted-foreground">
-                      {[ref.code, ref.source].filter(Boolean).join(' · ')} — 값은 물성 플랫폼이 제공한 그대로
-                      전달됩니다.
-                    </p>
+                    <p className="text-muted-foreground">{[ref.code, ref.source].filter(Boolean).join(' · ')}</p>
+                    <p className="text-muted-foreground">값은 물성 플랫폼이 제공한 그대로 전달됩니다.</p>
                     <p>
                       <span className="text-muted-foreground">적용 파트 </span>
-                      {where.length === 0 ? '없음 — 파트 목록에서 지정합니다.' : where.join(', ')}
+                      {where.length === 0 ? '없음. 파트 목록에서 지정하십시오.' : where.join(', ')}
                     </p>
                     {가능한덱.length > 0 && (
                       <div className="space-y-1">
                         <Label className="text-xs">솔버 덱 포함</Label>
                         <p className="text-muted-foreground">
-                          중립 물성은 그대로 전달되며, 선택한 덱이 그 옆에 추가됩니다.
+                          중립 물성은 그대로 전달되며, 선택한 덱이 함께 추가됩니다.
                         </p>
                         <div className="flex flex-wrap gap-1">
                           {가능한덱.map((one) => {
@@ -292,7 +290,7 @@ export function ModelTree({
 
       <Branch title="선택 그룹" count={names.length}>
         {names.length === 0 && (
-          <p className="text-muted-foreground px-1 text-xs">리본의 「선택 그룹」 또는 3D 선택으로 생성합니다.</p>
+          <p className="text-muted-foreground px-1 text-xs">리본의 ‘선택 그룹’ 또는 3D 선택으로 생성합니다.</p>
         )}
         <ul className="space-y-0.5">
           {names.map((one, index) => {
@@ -324,7 +322,7 @@ export function ModelTree({
                 {open && (
                   <div className="mt-1 mb-2 ml-4 space-y-2 border-l pl-3 text-xs">
                     <p className="text-muted-foreground">
-                      좌표가 아니라 <strong>선택 규칙</strong>으로 저장됩니다 — 치수가 변경되어도 같은 형상을
+                      좌표가 아닌 <strong>선택 규칙</strong>으로 저장되므로 치수가 변경되어도 같은 형상을
                       가리킵니다.
                     </p>
                     {/* 3D 에 비춘 수 — 0 이면 지금 형상에서 아무것도 안 집는다(규칙을 다시 볼 자리). */}
@@ -333,22 +331,22 @@ export function ModelTree({
                       {selectionCount === null || selectionCount === undefined ? (
                         <span className="text-muted-foreground">확인 중…</span>
                       ) : selectionCount === 0 ? (
-                        <span className="text-amber-700 dark:text-amber-400">0 개 — 가리키는 형상이 없습니다</span>
+                        <span className="text-amber-700 dark:text-amber-400">0개 (가리키는 형상이 없습니다)</span>
                       ) : (
-                        `${selectionCount} 개 (3D 에 표시)`
+                        `${selectionCount}개 (3D에 표시)`
                       )}
                     </p>
                     {fragile && (
                       <p className="rounded border border-amber-300 bg-amber-50 p-1 text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                        ⚠ 좌표만 쓰는 규칙이 있습니다 — DOE 로 치수가 바뀌면 다른 형상을 선택할 수 있습니다. 삭제하고 다시
-                        선택하면 방향으로 거른 규칙이 기본입니다.
+                        ⚠ 좌표만 사용하는 규칙이 포함된 그룹입니다. DOE로 치수가 변경되면 다른 형상이 선택될 수 있습니다.
+                        삭제 후 다시 선택하면 방향 기준 규칙이 기본으로 적용됩니다.
                       </p>
                     )}
                     {/* 여럿을 묶은 그룹은 규칙들의 합이다 — 몇 개를 묶었는지 먼저 말한다. */}
                     {Array.isArray((one.select as { any?: unknown[] }).any) && (
                       <p>
                         <span className="text-muted-foreground">선택 규칙 </span>
-                        {(one.select as { any: unknown[] }).any.length} 개의 합
+                        {(one.select as { any: unknown[] }).any.length}개의 합
                       </p>
                     )}
                     <pre className="bg-muted overflow-x-auto rounded p-2">{JSON.stringify(one.select ?? {}, null, 2)}</pre>
@@ -369,13 +367,13 @@ export function ModelTree({
 
       <Branch title="좌표계" count={frames.length}>
         {frames.length === 0 && (
-          <p className="text-muted-foreground px-1 text-xs">리본의 「좌표계」 또는 도면 편집기에서 만듭니다. 없으면 전역입니다.</p>
+          <p className="text-muted-foreground px-1 text-xs">리본의 ‘좌표계’ 또는 도면 편집기에서 생성합니다. 좌표계가 없으면 전역 좌표계가 사용됩니다.</p>
         )}
         <ul className="space-y-0.5">
           {frames.map((one) =>
             one.source === 'cad' ? (
               // 도면의 좌표계는 **도면 편집기에서** 고친다 — 여기서 고치면 버전이 안 남는다.
-              <li key={`cad-${one.name}`} className="flex items-center gap-2 px-2 py-1" title="도면 편집기의 「좌표계」 에서 고칩니다">
+              <li key={`cad-${one.name}`} className="flex items-center gap-2 px-2 py-1" title="도면 편집기의 ‘좌표계’에서 수정합니다.">
                 <span className="truncate">{one.name}</span>
                 <span className="text-muted-foreground ml-auto shrink-0 text-xs">도면</span>
               </li>
@@ -387,7 +385,7 @@ export function ModelTree({
                   onClick={() => onOpenFrame?.(one.index)}
                 >
                   <span className="truncate">{one.name}</span>
-                  <span className="text-muted-foreground ml-auto shrink-0 text-xs">{one.on ? `「${one.on}」 면` : '원점 · 회전'}</span>
+                  <span className="text-muted-foreground ml-auto shrink-0 text-xs">{one.on ? `‘${one.on}’ 면` : '원점·회전'}</span>
                 </button>
               </li>
             ),

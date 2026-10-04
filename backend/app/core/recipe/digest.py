@@ -152,7 +152,7 @@ def mass_properties(shape: Shape, material: str = "aluminum") -> dict[str, Any]:
     density = DENSITIES.get(material.lower())
     if density is None:
         known = ", ".join(sorted(DENSITIES))
-        raise ValueError(f"모르는 재료입니다: {material} (아는 것: {known})")
+        raise ValueError(f"알 수 없는 재료입니다: {material} (사용 가능: {known}).")
     at_origin = GProp_GProps()
     BRepGProp.VolumeProperties_s(shape.wrapped, at_origin)
     center = at_origin.CentreOfMass()

@@ -74,7 +74,7 @@ def test_두께가_곳곳에_다르면_알린다() -> None:
             {"id": "u", "op": "union", "targets": ["p", "r"]},
         ]
     )
-    assert any("두께가 곳곳에 다릅니다" in one for one in ribbed.summary()["notes"])
+    assert any("두께가 위치마다 다릅니다" in one for one in ribbed.summary()["notes"])
 
 
 def test_판이_아니면_거절한다() -> None:

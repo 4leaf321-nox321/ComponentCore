@@ -86,7 +86,10 @@ def build(material: dict[str, Any], system: str, mid: int) -> dict[str, Any]:
     source = str(ref.get("source") or "")
     label = str(ref.get("name") or ref.get("code") or "물성")
     if not material_id:
-        return {"decks": [], "notes": [f"{label}: 그쪽 id 를 몰라 덱을 못 뽑았습니다"]}
+        return {
+            "decks": [],
+            "notes": [f"{label}: MatNexus 재료 ID가 없어 덱을 생성하지 못했습니다."],
+        }
 
     decks: list[dict[str, Any]] = []
     notes: list[str] = []
@@ -102,8 +105,8 @@ def build(material: dict[str, Any], system: str, mid: int) -> dict[str, Any]:
                 card = _card_for(material_id, deck_format)
                 if card is None:
                     notes.append(
-                        f"{label}/{deck_format}: 이 재료로는 낼 수 없습니다 "
-                        "(확정 카드가 없거나 그 형식이 요구하는 값이 빠졌습니다)"
+                        f"{label}/{deck_format}: 이 재료로는 생성할 수 없습니다"
+                        "(확정된 카드가 없거나 해당 형식에 필요한 값이 누락되었습니다)."
                     )
                     continue
                 text, name = matnexus.card_deck(card, deck_format, system, mid), ""
@@ -112,7 +115,7 @@ def build(material: dict[str, Any], system: str, mid: int) -> dict[str, Any]:
             notes.append(f"{label}/{deck_format}: {failure}")
             continue
         if not text.strip():
-            notes.append(f"{label}/{deck_format}: 빈 덱이 왔습니다")
+            notes.append(f"{label}/{deck_format}: 빈 덱이 반환되었습니다.")
             continue
         decks.append(
             {

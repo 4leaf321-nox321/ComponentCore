@@ -64,13 +64,13 @@ export function SelectionMembers({
           선택 {members.length} {members[0] && <span className="text-muted-foreground text-xs">({members[0].label})</span>}
         </p>
         <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={onClear} disabled={members.length === 0}>
-          비우기
+          초기화
         </Button>
       </div>
       {members.length === 0 ? (
         <p className="text-muted-foreground rounded-md border border-dashed p-2 text-xs">
-          3D 에서 형상을 선택합니다. Ctrl 또는 Shift 를 누른 채 선택하면 더해지고, Shift 를 누른 채 끌면 사각형
-          안의 것이 더해집니다.
+          3D에서 형상을 선택하십시오. Ctrl 또는 Shift를 누른 채 선택하면 추가되고, Shift를 누른 채 드래그하면 사각형
+          영역 안의 형상이 추가됩니다.
         </p>
       ) : (
         <ol className="space-y-1">
@@ -85,7 +85,7 @@ export function SelectionMembers({
               >
                 {member.candidates.map((one, at) => (
                   <option key={one.label} value={at}>
-                    {one.label} (현재 {one.matches} 개){one.stable === false ? ' — 치수 변경에 취약' : ''}
+                    {one.label} (현재 {one.matches}개{one.stable === false ? ', 치수 변경에 취약' : ''})
                   </option>
                 ))}
               </select>
@@ -107,18 +107,18 @@ export function SelectionMembers({
       */}
       {members.some((one) => one.candidates[one.chosen]?.stable === false) && (
         <p className="rounded border border-amber-300 bg-amber-50 p-1 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-          ⚠ 좌표 기준 규칙이 있습니다 — DOE 로 치수가 바뀌면 다른 형상을 선택할 수 있습니다. 방향으로 거른 규칙(「… 중 이
-          면」)을 권장합니다.
+          ⚠ 좌표 기준 규칙이 포함되어 있습니다. DOE로 치수가 변경되면 다른 형상이 선택될 수 있으므로 방향 기준 규칙(‘… 중 이
+          면’)을 권장합니다.
         </p>
       )}
       <p className="text-muted-foreground text-[11px]">
-        좌표가 아니라 <strong>선택 규칙</strong>으로 저장합니다 — 치수가 변경되어도 같은 형상을 가리킵니다. Ctrl 로 다시
-        누르면 제외됩니다.
+        좌표가 아닌 <strong>선택 규칙</strong>으로 저장되므로 치수가 변경되어도 같은 형상을 가리킵니다. Ctrl을 누른 채 다시
+        클릭하면 제외됩니다.
       </p>
       {existing ? (
         // 같은 자리를 두 번 선택해도 그룹이 둘이 되지 않는다 — 조건마다 같은 면을 가리키는 일이 흔하다.
         <p className="text-muted-foreground text-xs">
-          같은 선택 규칙의 선택 그룹 「{existing}」 이(가) 이미 있습니다 — 그 그룹을 사용합니다.
+          같은 선택 규칙의 선택 그룹 ‘{existing}’이(가) 이미 존재하므로 해당 그룹을 사용합니다.
         </p>
       ) : (
         members.length > 0 && (

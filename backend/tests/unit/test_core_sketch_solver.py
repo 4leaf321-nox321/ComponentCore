@@ -154,7 +154,7 @@ def test_맞지_않는_구속은_몇째인지_말한다() -> None:
             {"type": "length", "segments": [2], "value": 50},  # 네모의 마주 보는 변은 같다
         ],
     )
-    with pytest.raises(SketchSolveError, match=r"구속 6\(길이\) — 앞의 구속과 맞지 않습니다"):
+    with pytest.raises(SketchSolveError, match=r"구속 6\(길이\): 이전 구속과 충돌합니다"):
         _solve(shape)
     raw = {"nodes": [{"id": "s", "op": "sketch", "shapes": [shape]}]}
     with pytest.raises(RecipeError, match="구속 6"):
@@ -166,7 +166,7 @@ def test_맞지_않는_구속은_몇째인지_말한다() -> None:
     [
         ([{"from": "a", "to": "b"}, {"from": "c", "to": "a"}], [], "다음 구간의 from"),
         (_loop(["a", "b", "c"]), [{"type": "length", "segments": [0]}], r"값\(value\)이 필요"),
-        (_loop(["a", "b", "c"]), [{"type": "fix", "points": ["z"]}], "없는 점 'z'"),
+        (_loop(["a", "b", "c"]), [{"type": "fix", "points": ["z"]}], "존재하지 않는 점 .z."),
         (_loop(["a", "b", "c"]), [{"type": "radius", "segments": [0], "value": 3}], "호"),
     ],
 )

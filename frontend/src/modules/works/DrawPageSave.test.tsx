@@ -55,7 +55,7 @@ test('기존 작업을 불러와도 「새 작업」 은 늘 새 작업으로 �
   // 덮어 저장이라는 갈림길이 없다 — 이름은 「사본」 으로 미리 채워져 원본이 남는다는 걸 보인다.
   expect(await screen.findByLabelText('작업 이름')).toHaveValue('센서 브래킷 사본')
   expect(screen.queryByText(/덮어 저장/)).toBeNull()
-  expect(screen.getByText(/「센서 브래킷」 은 그대로 남습니다/)).toBeInTheDocument()
+  expect(screen.getByText(/‘센서 브래킷’은\(는\) 그대로 유지됩니다/)).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: '새 작업으로 저장' }))
   await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/works'))).toBe(true))

@@ -39,13 +39,13 @@ def test_연산_몇_개로_고치고_원본은_두지_않는다() -> None:
 
 
 def test_가리키는_것이_있으면_못_지우고_이유를_말한다() -> None:
-    with pytest.raises(PatchError, match="구멍 가 가리킵니다"):
+    with pytest.raises(PatchError, match=r"구멍이\(가\) 참조하고 있습니다"):
         apply(RECIPE, [{"op": "remove_node", "id": "판"}])
     made = apply(RECIPE, [{"op": "remove_node", "id": "구멍"}])
     assert [n["id"] for n in made["nodes"]] == ["판"]
     with pytest.raises(PatchError, match="없습니다"):
         apply(RECIPE, [{"op": "set_field", "id": "없음", "field": "x", "value": 1}])
-    with pytest.raises(PatchError, match="모르는 연산"):
+    with pytest.raises(PatchError, match="알 수 없는 연산"):
         apply(RECIPE, [{"op": "explode"}])
 
 

@@ -406,4 +406,4 @@ def test_문헌은_사본이_없으니_못_닿으면_빈손으로_말한다(
     assert got.status_code == 200
     assert got.json()["items"] == []
     assert got.json()["fallback"] is True
-    assert "문헌 물성은 MatNexus 에만" in got.json()["detail"]
+    assert "문헌 물성은 MatNexus에서만" in got.json()["detail"]

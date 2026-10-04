@@ -37,7 +37,7 @@ def test_기준은_준_것만_바꾸고_틀리면_말한다() -> None:
     assert thresholds(None) == {"enabled": True, **DEFAULTS}
     assert thresholds({"min_wall": 1})["min_wall"] == 1.0
     assert thresholds({"enabled": False})["enabled"] is False
-    with pytest.raises(QualityError, match="모르는"):
+    with pytest.raises(QualityError, match="알 수 없는 점검 기준"):
         thresholds({"wall": 1})
     with pytest.raises(QualityError, match="0 이상"):
         thresholds({"min_wall": -1})
@@ -46,6 +46,6 @@ def test_기준은_준_것만_바꾸고_틀리면_말한다() -> None:
 def test_기준_형상과_견줘_바디가_쪼개지면_경고_면_수는_알림() -> None:
     base = {"solids": 1, "faces": 6, "warnings": []}
     split = compare({"solids": 2, "faces": 12, "warnings": []}, base)
-    assert split["warnings"] == ["바디 수가 기준과 다릅니다 (1 → 2)"]
+    assert split["warnings"] == ["바디 수가 기준과 다릅니다(1 → 2)."]
     assert split["notes"] == ["면 수 6 → 12"]
     assert compare({"solids": 1, "faces": 6, "warnings": []}, None)["notes"] == []

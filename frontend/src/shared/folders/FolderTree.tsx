@@ -83,10 +83,10 @@ function Row({ node, depth, space, fail }: { node: FolderNode; depth: number; sp
           <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => space.setDialog({ kind: 'new', parent: node.path })} aria-label={`${node.name} 안에 새 폴더`}>
             <FolderPlus className="size-3.5" />
           </button>
-          <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => space.setDialog({ kind: 'rename', path: node.path })} aria-label={`${node.name} 이름 바꾸기`}>
+          <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => space.setDialog({ kind: 'rename', path: node.path })} aria-label={`${node.name} 이름 변경`}>
             <Pencil className="size-3.5" />
           </button>
-          <button type="button" className="text-muted-foreground hover:text-destructive" onClick={() => space.setDialog({ kind: 'remove', path: node.path })} aria-label={`${node.name} 지우기`}>
+          <button type="button" className="text-muted-foreground hover:text-destructive" onClick={() => space.setDialog({ kind: 'remove', path: node.path })} aria-label={`${node.name} 삭제`}>
             <Trash2 className="size-3.5" />
           </button>
         </span>
@@ -121,7 +121,7 @@ export function FolderTree({ space, allLabel, noun, years = [], year = null, onY
           {...rootDrop.handlers}
           className={`${item(space.folder === '')} ${rootDrop.over ? 'ring-primary ring-2' : ''}`}
           onClick={() => space.select('')}
-          title={`폴더에 넣지 않은 ${noun} — 여기로 끌어다 놓으면 폴더에서 뺀다`}
+          title={`폴더에 속하지 않은 ${noun} 목록입니다. 여기로 끌어다 놓으면 폴더에서 제외됩니다.`}
         >
           폴더 없음 <span className="text-muted-foreground ml-auto text-xs">{loose}</span>
         </button>
@@ -134,7 +134,7 @@ export function FolderTree({ space, allLabel, noun, years = [], year = null, onY
           </button>
         </div>
         {tree.length === 0 ? (
-          <p className="text-muted-foreground px-2 text-xs">폴더가 없습니다. 새 폴더를 만들고 {josa(noun, '을', '를')} 끌어다 놓으세요.</p>
+          <p className="text-muted-foreground px-2 text-xs">폴더가 없습니다. 새 폴더를 생성한 후 {josa(noun, '을', '를')} 끌어다 놓으십시오.</p>
         ) : (
           <ul>
             {tree.map((node) => (
@@ -153,7 +153,7 @@ export function FolderTree({ space, allLabel, noun, years = [], year = null, onY
       </div>
       {years.length > 0 && onYear && (
         <div>
-          <span className="text-muted-foreground mb-1 block px-2 text-xs font-medium">만든 해</span>
+          <span className="text-muted-foreground mb-1 block px-2 text-xs font-medium">생성 연도</span>
           {years.map((one) => (
             <button
               key={one.year}

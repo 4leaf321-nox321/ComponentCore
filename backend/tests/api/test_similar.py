@@ -98,7 +98,7 @@ def test_내_작업과_카탈로그에서_닮은_것을_점수_순으로(
     assert names.index(f"구멍 둘 판{t}") < names.index(f"구멍 없는 판{t}")
     assert names[-1] in (f"ㄱ자 판금{t}", f"받침{t} 지그")
     best = rows[0]
-    assert best["score"] > 0.9 and "크기 비슷" in best["why"] and "구멍 같음" in best["why"]
+    assert best["score"] > 0.9 and "크기 유사" in best["why"] and "구멍 동일" in best["why"]
     assert set(best["parts"]) >= {"size", "proportion", "fill", "holes", "ops", "solids"}
     # 같은 모양의 부품(복사 판에서 올린 것)이 카탈로그에서 나오고, 그 부품의 지그가 붙는다.
     catalog = next(one for one in rows if one["source"].startswith("part:"))
@@ -155,5 +155,5 @@ def test_묻는_것이_틀리면_말한다(
         "/api/search/similar", json={"source": f"work:{work}"}, headers=member.headers
     )
     assert (
-        missing.status_code == 400 and "형상 색인 채우기" in missing.json()["error"]["message"]
+        missing.status_code == 400 and "형상 색인 생성" in missing.json()["error"]["message"]
     )

@@ -68,17 +68,17 @@ test('부품 카탈로그 — 폴더로 거르고, 내 것만 골라 옮긴다',
   expect(within(tree).getByText('공정').closest('button')).toHaveTextContent('2')
 
   // 남의 부품은 고르지 못한다 — 옮기는 것은 올린 사람 · 관리자.
-  await waitFor(() => expect(screen.getByLabelText('내 브래킷 고르기')).not.toBeDisabled())
-  expect(screen.getByLabelText('남의 블록 고르기')).toBeDisabled()
+  await waitFor(() => expect(screen.getByLabelText('내 브래킷 선택')).not.toBeDisabled())
+  expect(screen.getByLabelText('남의 블록 선택')).toBeDisabled()
 
   fireEvent.click(within(tree).getByText('선반'))
   await waitFor(() => expect(screen.queryByText('남의 블록')).toBeNull())
   expect(calls.some((one) => one.url.includes('folder=%EA%B3%B5%EC%A0%95%2F%EC%84%A0%EB%B0%98'))).toBe(true)
 
-  fireEvent.click(screen.getByLabelText('내 브래킷 고르기'))
-  fireEvent.click(screen.getByRole('button', { name: '폴더로 옮기기' }))
+  fireEvent.click(screen.getByLabelText('내 브래킷 선택'))
+  fireEvent.click(screen.getByRole('button', { name: '폴더로 이동' }))
   fireEvent.change(screen.getByLabelText('폴더 경로'), { target: { value: ' 보관 / 2026' } })
-  fireEvent.click(screen.getByRole('button', { name: '옮기기' }))
+  fireEvent.click(screen.getByRole('button', { name: '이동' }))
   await waitFor(() => expect(calls.some((one) => one.url.endsWith('/parts/move'))).toBe(true))
   expect(calls.find((one) => one.url.endsWith('/parts/move'))?.body).toEqual({ ids: ['p1'], folder: '보관/2026' })
 })
@@ -97,11 +97,11 @@ test('지그 카탈로그 — 폴더 없음은 하위를 보지 않고, 폴더 �
   fireEvent.click(within(tree).getByText('폴더 없음'))
   await waitFor(() => expect(calls.some((one) => one.url.includes('folder=&') && one.url.includes('subfolders=false'))).toBe(true))
 
-  fireEvent.click(within(tree).getByLabelText('공정 이름 바꾸기'))
+  fireEvent.click(within(tree).getByLabelText('공정 이름 변경'))
   // 여럿이 쓰는 공간 — 남의 것이 든 폴더는 관리자만이라고 적는다.
-  expect(screen.getByText(/다른 사람의 지그가 든 폴더는 관리자만/)).toBeInTheDocument()
+  expect(screen.getByText(/다른 사용자의 지그가 포함된 폴더는 관리자만/)).toBeInTheDocument()
   fireEvent.change(screen.getByLabelText('폴더 경로'), { target: { value: '가공' } })
-  fireEvent.click(screen.getByRole('button', { name: '바꾸기' }))
+  fireEvent.click(screen.getByRole('button', { name: '변경' }))
   await waitFor(() => expect(calls.some((one) => one.url.endsWith('/jigs/folders/rename'))).toBe(true))
   expect(calls.find((one) => one.url.endsWith('/jigs/folders/rename'))?.body).toEqual({ path: '공정', to: '가공' })
 })

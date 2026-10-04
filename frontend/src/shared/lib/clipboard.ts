@@ -15,7 +15,7 @@ export async function copyText(text: string): Promise<void> {
   document.body.appendChild(area)
   area.select()
   try {
-    if (!document.execCommand('copy')) throw new Error('copy 명령이 거부됐습니다')
+    if (!document.execCommand('copy')) throw new Error('복사 명령이 거부되었습니다.')
   } finally {
     document.body.removeChild(area)
   }

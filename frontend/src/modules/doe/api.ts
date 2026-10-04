@@ -95,8 +95,8 @@ export type DoeMethod = 'factorial' | 'lhs' | 'table' | 'oat' | 'ccd' | 'bbd' | 
 export const METHOD_LABELS: Record<DoeMethod, string> = {
   factorial: '전체 조합',
   lhs: 'LHS',
-  table: '직접 준 표',
-  oat: '하나씩 바꾸기',
+  table: '직접 입력 표',
+  oat: '단일 인자 변경',
   ccd: '중심 합성',
   bbd: 'Box-Behnken',
   sobol: 'Sobol',

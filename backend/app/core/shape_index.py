@@ -205,27 +205,27 @@ def reasons(
     size = parts.get("size")
     proportion = parts.get("proportion")
     if size is not None and size >= 0.85:
-        out.append("크기 비슷")
+        out.append("크기 유사")
     elif proportion is not None and proportion >= 0.85:
-        out.append("모양 비율 같음(크기는 다름)")
+        out.append("형상 비율 동일(크기 다름)")
     elif size is not None and size < 0.5:
-        out.append("크기 많이 다름")
+        out.append("크기 차이 큼")
     holes = parts.get("holes")
     has_holes = bool(first.get("holes")) or bool(second.get("holes"))
     if has_holes and holes is not None:
         if holes >= 0.99:
-            out.append("구멍 같음")
+            out.append("구멍 동일")
         elif holes >= 0.5:
-            out.append("구멍 비슷")
+            out.append("구멍 유사")
         elif holes == 0:
             out.append("구멍 다름")
     fill = parts.get("fill")
     if fill is not None and fill >= 0.9 and (size is None or size < 0.85):
-        out.append("꽉 찬 정도 비슷")
+        out.append("체적 충전율 유사")
     ops = parts.get("ops")
     if ops is not None and ops >= 0.75:
-        out.append("만든 방식 비슷")
+        out.append("모델링 방식 유사")
     solids = parts.get("solids")
     if solids is not None and solids < 1:
-        out.append("덩어리 수 다름")
+        out.append("솔리드 수 다름")
     return out

@@ -42,15 +42,15 @@ export default function DoeStudiesPage() {
     <div>
       <PageHeader
         title="DOE"
-        description="부품 · 지그 · 조립 하나를 골라 변수에 범위를 주면 형상을 여럿 만듭니다. 다 만든 뒤 「보내기」 로 공유 폴더에 — 해석(ANSYS)은 그 폴더를 읽습니다."
+        description="부품, 지그 또는 조립을 선택하고 변수에 범위를 지정하면 여러 형상을 생성합니다. 생성이 완료되면 ‘내보내기’로 공유 폴더에 복사하며, 해석(ANSYS)은 해당 폴더를 사용합니다."
         actions={<Button onClick={() => navigate('/doe/new')}>새 DOE</Button>}
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-1">
           {(
             [
-              { value: 'mine', label: '내 것' },
-              { value: 'all', label: '모두' },
+              { value: 'mine', label: '내 항목' },
+              { value: 'all', label: '전체' },
             ] as const
           ).map((one) => (
             <button
@@ -64,17 +64,17 @@ export default function DoeStudiesPage() {
             </button>
           ))}
         </div>
-        <SearchBox value={q} onChange={(next) => refilter(() => setQ(next))} placeholder="이름 · 설명 · 대상 작업 · 만든 사람" />
-        <TagFilter tags={tags.data ?? []} value={tag} onChange={(next) => refilter(() => setTag(next))} label="대상 작업의 꼬리표" />
+        <SearchBox value={q} onChange={(next) => refilter(() => setQ(next))} placeholder="이름, 설명, 대상 작업, 작성자로 검색" />
+        <TagFilter tags={tags.data ?? []} value={tag} onChange={(next) => refilter(() => setTag(next))} label="대상 작업 태그" />
       </div>
       <ErrorNotice error={page.error} className="mb-4" />
       {rows.length === 0 && !page.loading ? (
         filtered || scope === 'all' ? (
-          <EmptyState title="맞는 DOE 가 없습니다" hint="찾는 말 · 꼬리표를 바꾸거나 「모두」 로 남이 공개한 것까지 보세요." />
+          <EmptyState title="조건에 맞는 DOE가 없습니다" hint="검색어나 태그를 변경하거나, ‘전체’를 선택하여 다른 사용자가 공개한 DOE까지 조회하십시오." />
         ) : (
           <EmptyState
-            title="아직 DOE 가 없습니다"
-            hint="「새 DOE」 로 대상(부품 · 지그 · 조립)을 고르면 시작합니다. 도면에 변수가 먼저 있어야 합니다."
+            title="아직 DOE가 없습니다"
+            hint="‘새 DOE’에서 대상(부품, 지그, 조립)을 선택하여 시작하십시오. 대상 도면에 변수가 정의되어 있어야 합니다."
             action={<Button onClick={() => navigate('/doe/new')}>새 DOE</Button>}
           />
         )
@@ -87,7 +87,7 @@ export default function DoeStudiesPage() {
                 <TableHead>대상</TableHead>
                 <TableHead>방법</TableHead>
                 <TableHead>설계점</TableHead>
-                <TableHead>만든 때</TableHead>
+                <TableHead>생성일</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -108,7 +108,7 @@ export default function DoeStudiesPage() {
                         </Badge>
                       </Link>
                     ) : (
-                      <span className="text-muted-foreground text-xs">스냅샷만</span>
+                      <span className="text-muted-foreground text-xs">스냅샷 전용</span>
                     )}
                   </TableCell>
                   <TableCell>

@@ -159,8 +159,8 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
         }
         return Math.round(((current ?? 0) + by[i]) * 1000) / 1000
       })
-    update(id, { translate: add(one.translate, delta.translate, '자리'), rotate: add(one.rotate, delta.rotate, '회전') })
-    setDragNote(skipped.length > 0 ? `${skipped.join(' · ')} 는 식으로 묶여 있어 끌기로 바꾸지 않았습니다 — 편집 창에서 변수를 고치세요.` : null)
+    update(id, { translate: add(one.translate, delta.translate, '위치'), rotate: add(one.rotate, delta.rotate, '회전') })
+    setDragNote(skipped.length > 0 ? `${skipped.join(', ')}은(는) 수식으로 연결되어 있어 드래그로 변경하지 않았습니다. 편집 창에서 변수를 수정하십시오.` : null)
   }
 
   /** 다른 구성품의 면에 얹는다 — 서버가 경계 상자로 translate 를 계산한다(「지그 윗면에 부품 바닥을」). */
@@ -170,7 +170,7 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
       update(id, { translate: got.translate })
       setDragNote(null)
     } catch (caught) {
-      setDragNote(caught instanceof Error ? caught.message : '얹지 못했습니다')
+      setDragNote(caught instanceof Error ? caught.message : '배치하지 못했습니다.')
     }
   }
 
@@ -205,11 +205,11 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
     if (!editing || !draft || !picking) return
     const before = placed.slice(0, placed.findIndex((one) => one.id === editing)).map((one) => one.id)
     if (picking === 'this' && face.part !== editing) {
-      setPickNote('이 구성품의 면을 누르세요.')
+      setPickNote('이 구성품의 면을 클릭하십시오.')
       return
     }
     if (picking === 'to' && (!face.part || !before.includes(face.part))) {
-      setPickNote(face.part === editing ? '상대는 다른 구성품입니다.' : '구속은 앞에 놓인 구성품에만 겁니다(목록에서 위에 있는 것).')
+      setPickNote(face.part === editing ? '상대는 다른 구성품이어야 합니다.' : '구속은 먼저 배치된 구성품(목록에서 위에 있는 항목)에만 적용할 수 있습니다.')
       return
     }
     try {
@@ -223,7 +223,7 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
         setPicking(null)
       }
     } catch (caught) {
-      setPickNote(caught instanceof Error ? caught.message : '고르지 못했습니다')
+      setPickNote(caught instanceof Error ? caught.message : '선택하지 못했습니다.')
     }
   }
 
@@ -248,14 +248,14 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
         <div className="rounded-md border">
           <p className="bg-muted/40 border-b px-2 py-1 text-xs font-medium">구성 {placed.length > 0 && `(${placed.length})`}</p>
           {placed.length === 0 ? (
-            <p className="text-muted-foreground p-2 text-xs">아직 없습니다 — 아래 「가져오기」 에서 부품이나 지그를 고르세요.</p>
+            <p className="text-muted-foreground p-2 text-xs">아직 구성품이 없습니다. 아래 ‘가져오기’에서 부품 또는 지그를 선택하십시오.</p>
           ) : (
             <>
               {/* **여기서 고치는 것은 자리뿐이다.** 모양을 고치러 온 사람이 「편집」 을
                   눌렀다가 자리 · 회전만 나와 막히는 자리라, 어디로 가야 하는지 적어 둔다. */}
               <p className="text-muted-foreground border-b px-2 py-1 text-[11px]">
-                여기서는 <b>자리 · 회전 · 치수 덮어쓰기</b>만 고칩니다. 모양 자체는 원본
-                도면에서 — 줄 끝의 <ExternalLink className="inline size-3" /> 로 엽니다.
+                여기서는 <b>위치, 회전, 치수 덮어쓰기</b>만 수정합니다. 형상 자체는 원본
+                도면에서 수정하십시오. 원본 도면은 행 끝의 <ExternalLink className="inline size-3" /> 아이콘으로 엽니다.
               </p>
             <ul className="p-1">
               {placed.map((one, index) => {
@@ -275,7 +275,7 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
                         type="button"
                         className="text-muted-foreground hover:text-foreground rounded p-1"
                         aria-label={`${one.label ?? one.id} 편집`}
-                        title="자리 · 회전 · 치수 덮어쓰기"
+                        title="위치, 회전, 치수 덮어쓰기를 편집합니다."
                         onClick={() => {
                           setSelected(one.id)
                           setEditing(one.id)
@@ -296,7 +296,7 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
                           target="_blank"
                           rel="noreferrer"
                           aria-label={`${one.label ?? one.id} 원본 열기`}
-                          title="원본 도면 열기 (새 탭) — 모양은 거기서 고친다"
+                          title="원본 도면을 새 탭에서 엽니다. 형상은 원본 도면에서 수정하십시오."
                           onClick={(e) => e.stopPropagation()}
                         >
                           <ExternalLink className="size-3.5" />
@@ -305,7 +305,7 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
                       <button
                         type="button"
                         className="text-muted-foreground hover:text-destructive rounded p-1"
-                        aria-label={`${one.label ?? one.id} 빼기`}
+                        aria-label={`${one.label ?? one.id} 제거`}
                         onClick={() => remove(one.id)}
                       >
                         <Trash2 className="size-3.5" />
@@ -360,22 +360,22 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
       <div className="space-y-2 lg:col-span-9">
         <p className="text-muted-foreground text-xs">
           {drawing
-            ? '그리는 중…'
+            ? '계산 중…'
             : placed.length === 0
-              ? '가져온 부품 · 지그가 여기에 그려집니다.'
+              ? '가져온 부품과 지그가 여기에 표시됩니다.'
               : problems.length > 0
-                ? '고칠 것이 있습니다.'
+                ? '수정이 필요한 항목이 있습니다.'
                 : selected
-                  ? '고른 구성품에 손잡이가 붙었습니다 — 화살표를 끌어 옮기거나(0.5 mm 단위) 고리를 돌립니다(5°). 목록에서 다시 누르면 풉니다.'
-                  : '끌어서 돌리고, 굴려서 확대합니다. 목록에서 고르면 그것만 또렷해지고 손잡이가 붙습니다.'}
+                  ? '선택한 구성품에 핸들이 표시되었습니다. 화살표를 드래그하여 이동(0.5 mm 단위)하거나 고리를 드래그하여 회전(5° 단위)합니다. 목록에서 다시 클릭하면 선택이 해제됩니다.'
+                  : '드래그하여 회전하고, 마우스 휠로 확대합니다. 목록에서 선택하면 해당 구성품이 강조되고 핸들이 표시됩니다.'}
         </p>
         {selected && (
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-muted-foreground">손잡이</span>
+            <span className="text-muted-foreground">핸들</span>
             {(
               [
-                { value: 'translate', label: '옮기기' },
-                { value: 'rotate', label: '돌리기' },
+                { value: 'translate', label: '이동' },
+                { value: 'rotate', label: '회전' },
               ] as const
             ).map((one) => (
               <button
@@ -409,7 +409,7 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
           </Suspense>
         ) : (
           <div className="text-muted-foreground flex h-full items-center justify-center rounded-md border border-dashed text-sm">
-            {placed.length === 0 ? '왼쪽 「가져오기」 에서 부품이나 지그를 누르세요.' : problems.length > 0 ? '도면이 맞으면 여기에 그려집니다.' : '그리는 중…'}
+            {placed.length === 0 ? '왼쪽 ‘가져오기’에서 부품 또는 지그를 클릭하십시오.' : problems.length > 0 ? '도면 오류가 해결되면 여기에 표시됩니다.' : '계산 중…'}
           </div>
         )}
         </div>
@@ -425,14 +425,15 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
           <div className="flex flex-wrap items-center gap-2 text-xs" role="status">
             <StatusBadge kind="interference" value={interference.ok ? 'ok' : 'bad'} />
             {interference.ok ? (
-              <span className="text-muted-foreground">구성품 {interference.parts.length} 개, {interference.checked_pairs} 쌍 검사 — 겹치지 않습니다.</span>
+              <span className="text-muted-foreground">구성품 {interference.parts.length}개, {interference.checked_pairs}쌍을 검사했습니다. 간섭이 없습니다.</span>
             ) : (
               <span className="text-destructive">
+                간섭:{' '}
                 {interference.items
                   .filter((one) => !one.ok)
                   .map((one) => `${one.a} × ${one.b} ${one.volume.toLocaleString()} mm³`)
-                  .join(' · ')}{' '}
-                — 편집 창에서 자리를 옮기세요.
+                  .join(', ')}
+                . 편집 창에서 위치를 조정하십시오.
               </span>
             )}
           </div>
@@ -455,7 +456,7 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
                   <span className="size-2.5 rounded-full" style={{ background: cssColor(partColors[editingNode.id] ?? PALETTE[0]) }} aria-hidden />
                   {editingNode.label || editingNode.id}
                 </DialogTitle>
-                <DialogDescription>고치는 대로 3D 에 바로 보입니다. 칸의 fx 로 조립의 변수를 물릴 수 있습니다.</DialogDescription>
+                <DialogDescription>수정 사항은 3D 화면에 즉시 반영됩니다. 입력란의 fx로 조립 변수를 연결할 수 있습니다.</DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
@@ -474,7 +475,7 @@ export function AssemblyEditor({ value, onChange }: { value: Recipe; onChange: (
                   />
                 </div>
                 <div>
-                  <p className="text-muted-foreground mb-1 text-xs">자리 (mm)</p>
+                  <p className="text-muted-foreground mb-1 text-xs">위치 (mm)</p>
                   <div className="grid grid-cols-3 gap-1">
                     {AXES.map((axis, index) => (
                       <div key={axis} className="flex items-center gap-1">
@@ -591,9 +592,9 @@ function PlaceOnRow({ node, others, onPlace }: { node: Placed; others: Placed[];
   const target = others.some((one) => one.id === onto) ? onto : others[0].id
   return (
     <div>
-      <p className="text-muted-foreground mb-1 text-xs">다른 구성품의 면에 얹기</p>
+      <p className="text-muted-foreground mb-1 text-xs">다른 구성품의 면에 배치</p>
       <div className="flex flex-wrap items-center gap-1 text-xs">
-        <select value={target} onChange={(e) => setOnto(e.target.value)} className="h-7 rounded-md border bg-background px-1" aria-label={`${node.label ?? node.id} 를 얹을 구성품`}>
+        <select value={target} onChange={(e) => setOnto(e.target.value)} className="h-7 rounded-md border bg-background px-1" aria-label={`${node.label ?? node.id}을(를) 배치할 구성품`}>
           {others.map((one) => (
             <option key={one.id} value={one.id}>
               {one.label || one.id}
@@ -601,7 +602,7 @@ function PlaceOnRow({ node, others, onPlace }: { node: Placed; others: Placed[];
           ))}
         </select>
         <span className="text-muted-foreground">의</span>
-        <select value={face} onChange={(e) => setFace(e.target.value)} className="h-7 rounded-md border bg-background px-1" aria-label="어느 면">
+        <select value={face} onChange={(e) => setFace(e.target.value)} className="h-7 rounded-md border bg-background px-1" aria-label="대상 면">
           <option value="top">윗면</option>
           <option value="bottom">아랫면</option>
           <option value="+x">+X 면</option>
@@ -609,13 +610,13 @@ function PlaceOnRow({ node, others, onPlace }: { node: Placed; others: Placed[];
           <option value="+y">+Y 면</option>
           <option value="-y">-Y 면</option>
         </select>
-        <span className="text-muted-foreground">에 틈</span>
-        <Input type="number" step={0.5} value={offset} onChange={(e) => setOffset(e.target.value)} className="h-7 w-16 text-xs" aria-label="틈 (mm)" />
+        <span className="text-muted-foreground">에 간극</span>
+        <Input type="number" step={0.5} value={offset} onChange={(e) => setOffset(e.target.value)} className="h-7 w-16 text-xs" aria-label="간극 (mm)" />
         <Button size="sm" type="button" className="h-7 px-2 text-xs" onClick={() => onPlace(target, face, Number(offset) || 0)}>
-          얹기
+          배치
         </Button>
       </div>
-      <p className="text-muted-foreground mt-1 text-[11px]">경계 상자로 맞춥니다 — 닿는 면이 평면이면 정확하고, 곡면이면 어림입니다. 나머지 두 축은 가운데를 맞춥니다.</p>
+      <p className="text-muted-foreground mt-1 text-[11px]">경계 상자를 기준으로 배치합니다. 접촉면이 평면이면 정확하고, 곡면이면 근삿값입니다. 나머지 두 축은 중심을 맞춥니다.</p>
     </div>
   )
 }
@@ -656,7 +657,7 @@ function ComponentParams({
             <button
               type="button"
               className="text-muted-foreground hover:text-destructive rounded p-1"
-              aria-label={`${key} 덮어쓰기 빼기`}
+              aria-label={`${key} 덮어쓰기 제거`}
               onClick={() => {
                 const next = { ...current }
                 delete next[key]
@@ -680,12 +681,12 @@ function ComponentParams({
           <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="가져온 도면의 변수 이름 — 예: 두께"
+            placeholder="가져온 도면의 변수 이름 (예: 두께)"
             className="h-7 flex-1 font-mono text-xs"
             aria-label={`${node.label ?? node.id} 덮어쓸 변수 이름`}
           />
           <Button size="sm" type="submit" className="h-7 px-2 text-xs" disabled={!name.trim()}>
-            더하기
+            추가
           </Button>
         </form>
       </div>

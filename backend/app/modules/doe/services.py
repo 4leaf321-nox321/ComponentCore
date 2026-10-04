@@ -84,11 +84,11 @@ def _table_factors(
     표에만 있고 정의에 없는 변수는 더한다(MCP 가 표만 줘도 되게). 재료 · 고르기 · 배율 인자는
     후보를 정의가 들고 있으므로 그대로 둔다."""
     if not isinstance(table, list) or not table:
-        raise AppError(code("DOE", 25), "표가 비었습니다 — 설계점을 한 줄 이상 주세요")
+        raise AppError(code("DOE", 25), "표가 비어 있습니다. 설계점을 1행 이상 입력하십시오.")
     columns: list[str] = []
     for number, row in enumerate(table, start=1):
         if not isinstance(row, dict):
-            raise AppError(code("DOE", 25), f"표 {number} 줄: 이름과 값의 짝이어야 합니다")
+            raise AppError(code("DOE", 25), f"표 {number}행: 이름과 값의 쌍이어야 합니다.")
         for key in row:
             if str(key) not in columns:
                 columns.append(str(key))
@@ -103,7 +103,7 @@ def _table_factors(
             except (TypeError, ValueError) as failure:
                 raise AppError(
                     code("DOE", 25),
-                    f"표 {number} 줄: '{name}' 이 숫자가 아닙니다 ({row[name]!r})",
+                    f"표 {number}행: ‘{name}’ 값이 숫자가 아닙니다({row[name]!r}).",
                 ) from failure
         return sorted(values)
 
@@ -134,8 +134,8 @@ def _samples(db: Session, raw: dict[str, Any]) -> int:
         if samples > limit:
             raise AppError(
                 code("DOE", 14),
-                f"LHS 표본 수 {samples} 는 상한 {limit} 을 넘습니다 — 관리자가 서버 설정에서 "
-                "올릴 수 있습니다.",
+                f"LHS 표본 수({samples})가 상한({limit})을 초과합니다. 상한은 관리자가 서버 "
+                "설정에서 변경할 수 있습니다.",
             )
     return samples
 
@@ -184,7 +184,7 @@ def _constraint_check(
         }
     except params.ExpressionError as failure:
         raise AppError(
-            code("DOE", 23), f"도면의 치수를 풀지 못했습니다: {failure}"
+            code("DOE", 23), f"도면의 치수를 계산하지 못했습니다: {failure}"
         ) from failure
     for index, text in enumerate(constraints, start=1):
         names = params.names_in(text)
@@ -192,15 +192,15 @@ def _constraint_check(
         if clash:
             raise AppError(
                 code("DOE", 23),
-                f"제약 {index} 「{text}」: {', '.join(clash)} 는 재료 · 고르기 · 배율 인자라 "
-                "식에 못 씁니다",
+                f"제약 {index} ‘{text}’: 재료, 선택, 배율 인자({', '.join(clash)})는 식에 "
+                "사용할 수 없습니다.",
             )
         unknown = sorted(names - known)
         if unknown:
             raise AppError(
                 code("DOE", 23),
-                f"제약 {index} 「{text}」: 모르는 이름 {', '.join(unknown)} — 있는 변수: "
-                f"{', '.join(sorted(known)) or '(없음)'}",
+                f"제약 {index} ‘{text}’: 알 수 없는 이름({', '.join(unknown)})입니다. "
+                f"사용 가능한 변수: {', '.join(sorted(known)) or '(없음)'}",
             )
         try:
             params.evaluate_condition(text, {name: 1.0 for name in known})
@@ -237,7 +237,8 @@ def _plan(db: Session, raw: dict[str, Any]) -> engine.Plan:
     method = raw.get("method", "factorial")
     if method not in METHODS:
         raise AppError(
-            code("DOE", 2), f"모르는 방식입니다: {method} — {' · '.join(METHODS)} 중 하나"
+            code("DOE", 2),
+            f"알 수 없는 방식({method})입니다. 사용 가능한 방식: {', '.join(METHODS)}",
         )
     factors_raw = raw.get("factors") or []
     factors = _factors(factors_raw)
@@ -275,21 +276,22 @@ def _points(db: Session, raw: dict[str, Any]) -> list[dict[str, float | str]]:
     if found.too_many:
         raise AppError(
             code("DOE", 3),
-            f"설계점이 {len(found.rows) or found.requested} 개입니다 — 한 번에 {limit} 개까지 "
-            "만듭니다. 단계를 줄이거나 인자를 빼거나, LHS 로 표본 수를 정하세요.",
+            f"설계점이 {len(found.rows) or found.requested}개입니다. "
+            f"한 번에 최대 {limit}개까지 생성할 수 있습니다. 단계 수를 줄이거나 인자를 "
+            "제외하거나, LHS로 표본 수를 지정하십시오.",
         )
     if raw.get("method") == "table" and found.rejected:
         # 표는 사람(또는 최적화기)이 고른 점이다 — 말없이 빼면 번호가 표의 줄과 어긋난다.
         raise AppError(
             code("DOE", 23),
-            f"표의 {found.rejected} 줄이 제약을 어깁니다 — 미리보기에서 걸린 줄을 보고 표에서 "
-            "빼거나 제약을 고치세요.",
+            f"표의 {found.rejected}개 행이 제약을 위반합니다. 미리보기에서 해당 행을 "
+            "확인한 후 표에서 제외하거나 제약을 수정하십시오.",
         )
     if not found.rows:
         raise AppError(
             code("DOE", 23),
-            f"제약을 지키는 설계점이 하나도 없습니다 — 후보 {found.candidates} 개가 모두 "
-            "걸렸습니다. 제약이나 범위를 고치세요.",
+            f"제약을 만족하는 설계점이 하나도 없습니다. 후보 {found.candidates}개가 모두 "
+            "제약을 위반합니다. 제약 또는 범위를 수정하십시오.",
         )
     return found.rows
 
@@ -331,7 +333,7 @@ def _check_condition_factors(
     for one in engine.non_shape_factors(factors, "choice"):
         name = str(one.get("name"))
         if not conditions:
-            raise AppError(code("DOE", 22), f"고르기 인자 「{name}」: 해석 조건이 없습니다")
+            raise AppError(code("DOE", 22), f"선택 인자 ‘{name}’: 해석 조건이 없습니다.")
         for value in one.get("values") or []:
             try:
                 condition_model.parse(
@@ -341,7 +343,7 @@ def _check_condition_factors(
                 )
             except condition_model.ConditionError as failure:
                 raise AppError(
-                    code("DOE", 22), f"고르기 인자 「{name}」 = {value!r}: {failure}"
+                    code("DOE", 22), f"선택 인자 ‘{name}’ = {value!r}: {failure}"
                 ) from failure
     scales = engine.non_shape_factors(factors, "scale")
     if not scales:
@@ -356,9 +358,7 @@ def _check_condition_factors(
         name = str(one.get("name"))
         targets = [str(b) for b in one.get("bodies") or []]
         if not conditions:
-            raise AppError(
-                code("DOE", 22), f"배율 인자 「{name}」: 해석 조건(재료)이 없습니다"
-            )
+            raise AppError(code("DOE", 22), f"배율 인자 ‘{name}’: 해석 조건(재료)이 없습니다.")
         missing = [
             b
             for b in targets
@@ -366,7 +366,8 @@ def _check_condition_factors(
         ]
         if missing:
             raise AppError(
-                code("DOE", 22), f"배율 인자 「{name}」: 도면에 없는 바디 {', '.join(missing)}"
+                code("DOE", 22),
+                f"배율 인자 ‘{name}’: 도면에 없는 바디({', '.join(missing)})입니다.",
             )
         variants: list[tuple[str, dict[str, Any]]] = [("", conditions)]
         for swap in swaps:
@@ -390,12 +391,12 @@ def _check_condition_factors(
                     for m in resolved.get("materials") or []
                 ):
                     raise condition_model.ConditionError(
-                        f"{', '.join(targets)} 에 붙은 재료가 없습니다"
+                        f"{', '.join(targets)}에 지정된 재료가 없습니다."
                     )
                 condition_model.with_scale(resolved, targets, str(one.get("property")), 1.5)
             except condition_model.ConditionError as failure:
                 raise AppError(
-                    code("DOE", 22), f"배율 인자 「{name}」{label}: {failure}"
+                    code("DOE", 22), f"배율 인자 ‘{name}’{label}: {failure}"
                 ) from failure
 
 
@@ -407,8 +408,8 @@ def _check_material_factors(
     if not (conditions or {}).get("materials"):
         raise AppError(
             code("DOE", 22),
-            "재료 인자는 해석 조건에 **담아 둔 재료** 중에서 고릅니다 — "
-            "조건에 재료가 없습니다",
+            "재료 인자는 해석 조건에 등록된 재료 중에서 선택합니다. "
+            "현재 조건에 재료가 없습니다.",
         )
     params = recipe.get("params") or {}
     bodies = _body_names(recipe)
@@ -418,15 +419,15 @@ def _check_material_factors(
         name = str(one.get("name"))
         if name in params:
             raise AppError(
-                code("DOE", 22), f"재료 인자 「{name}」 이 도면의 치수 이름과 겹칩니다"
+                code("DOE", 22), f"재료 인자 ‘{name}’: 도면의 치수 이름과 중복됩니다."
             )
         targets = [str(b) for b in one.get("bodies") or []]
         missing = [b for b in targets if bodies is not None and b not in bodies]
         if missing:
             raise AppError(
                 code("DOE", 22),
-                f"재료 인자 「{name}」: 도면에 없는 바디입니다 — {', '.join(missing)} "
-                f"(있는 바디: {', '.join(bodies or []) or '없음'})",
+                f"재료 인자 ‘{name}’: 도면에 없는 바디({', '.join(missing)})입니다. "
+                f"사용 가능한 바디: {', '.join(bodies or []) or '없음'}",
             )
         for choice in one.get("values") or []:
             try:
@@ -436,9 +437,7 @@ def _check_material_factors(
                     frames.recipe_frame_names(recipe),
                 )
             except condition_model.ConditionError as failure:
-                raise AppError(
-                    code("DOE", 22), f"재료 인자 「{name}」: {failure}"
-                ) from failure
+                raise AppError(code("DOE", 22), f"재료 인자 ‘{name}’: {failure}") from failure
 
 
 def _body_names(recipe: dict[str, Any]) -> list[str] | None:
@@ -554,14 +553,14 @@ def _check_factor_names(recipe: dict[str, Any], factors: list[dict[str, Any]]) -
     clash = sorted(other & set(names))
     if clash:
         raise AppError(
-            code("DOE", 22), f"인자 이름이 도면의 치수 이름과 겹칩니다: {', '.join(clash)}"
+            code("DOE", 22), f"인자 이름이 도면의 치수 이름과 중복됩니다: {', '.join(clash)}"
         )
     unknown = [one["name"] for one in factors if one.get("name") not in set(names) | other]
     if unknown:
         known = ", ".join(sorted(names)) or "(없음)"
         raise AppError(
             code("DOE", 5),
-            f"레시피에 없는 치수입니다: {', '.join(unknown)} — 있는 치수: {known}",
+            f"레시피에 없는 치수({', '.join(unknown)})입니다. 사용 가능한 치수: {known}",
         )
 
 
@@ -585,7 +584,7 @@ def probe(db: Session, owner: User, raw: dict[str, Any]) -> dict[str, Any]:
     except RecipeValidationError as failure:
         raise AppError(
             code("DOE", 4),
-            "레시피가 올바르지 않습니다",
+            "레시피가 올바르지 않습니다.",
             details={"problems": failure.problems},
         ) from failure
     if raw.get("method") == "table":
@@ -620,14 +619,16 @@ def probe(db: Session, owner: User, raw: dict[str, Any]) -> dict[str, Any]:
                 {
                     **entry,
                     "status": "skipped",
-                    "error": "제약 "
+                    "error": "제약 위반("
                     + ", ".join(str(i + 1) for i in failed)
-                    + " 을 어겨 만들지 않습니다(실제 DOE 에도 이 조합은 없습니다)",
+                    + ")으로 생성하지 않습니다(실제 DOE에도 이 조합은 포함되지 않습니다).",
                 }
             )
             continue
         if time.perf_counter() - started > PROBE_SECONDS:
-            out.append({**entry, "status": "skipped", "error": "시간이 다 돼 건너뛰었습니다"})
+            out.append(
+                {**entry, "status": "skipped", "error": "제한 시간을 초과하여 건너뛰었습니다."}
+            )
             continue
         values = engine.shape_values(row, factors_raw)
         begun = time.perf_counter()
@@ -760,9 +761,9 @@ def create_study(
             if digest_of(found) != asked:
                 raise AppError(
                     code("DOE", 18),
-                    f"같은 멱등 열쇠({idempotency_key})로 **다른 요청**이 왔습니다 — 이미 "
-                    f"「{found.name}」 이 그 열쇠를 쓰고 있습니다. 열쇠를 바꾸거나 설정을 "
-                    "맞추세요.",
+                    f"같은 멱등 키({idempotency_key})로 다른 요청이 접수되었습니다. 이미 "
+                    f"‘{found.name}’에서 이 키를 사용하고 있습니다. 키를 변경하거나 설정을 "
+                    "일치시키십시오.",
                 )
             return found, True
     try:
@@ -770,7 +771,7 @@ def create_study(
     except RecipeValidationError as failure:
         raise AppError(
             code("DOE", 4),
-            "레시피가 올바르지 않습니다",
+            "레시피가 올바르지 않습니다.",
             details={"problems": failure.problems},
         ) from failure
     _check_factor_names(recipe, factors)
@@ -872,13 +873,15 @@ def owned_study(db: Session, study_id: uuid.UUID, viewer: User) -> DoeStudy:
         return study
     if viewer.id in (study.owner_id, study.requested_by_id):
         return study
-    raise Forbidden(code("DOE", 7), "남의 실험계획입니다 — 볼 수는 있지만 고치지는 못합니다.")
+    raise Forbidden(
+        code("DOE", 7), "다른 사용자의 실험계획입니다. 조회만 가능하며 수정할 수 없습니다."
+    )
 
 
 def set_visibility(db: Session, study: DoeStudy, value: str) -> DoeStudy:
     """`read` 또는 `private`. 기본은 `read` 이고, 감추는 것이 예외다."""
     if value not in ("read", "private"):
-        raise AppError(code("DOE", 19), "공개는 read 또는 private 입니다.")
+        raise AppError(code("DOE", 19), "공개 설정은 read 또는 private이어야 합니다.")
     study.visibility = value
     db.commit()
     db.refresh(study)
@@ -988,11 +991,11 @@ def point_mesh(db: Session, study: DoeStudy, number: int) -> dict[str, Any]:
         select(DoePoint).where(DoePoint.study_id == study.id, DoePoint.number == number)
     )
     if point is None:
-        raise NotFound(code("DOE", 12), f"설계점 {number} 이 없습니다.")
+        raise NotFound(code("DOE", 12), f"설계점 {number}번이 없습니다.")
     if point.status != "ok":
         raise AppError(
             code("DOE", 13),
-            "이 점은 형상이 없습니다 — " + (point.error or "아직 만드는 중입니다.")[:200],
+            "이 설계점에는 형상이 없습니다. " + (point.error or "아직 생성 중입니다.")[:200],
         )
     recipe = {
         **study.recipe,
@@ -1116,13 +1119,13 @@ def _batch_factors(
         if name not in current:
             raise AppError(
                 code("DOE", 26),
-                f"이 DOE 에 없는 변수입니다: {name} — 변수를 더하려면 새 DOE 를 만드세요",
+                f"이 DOE에 없는 변수({name})입니다. 변수를 추가하려면 새 DOE를 생성하십시오.",
             )
         before = current[name].get("mode")
         after = one.get("mode", before)
         if (before in engine.NON_SHAPE or after in engine.NON_SHAPE) and before != after:
             raise AppError(
-                code("DOE", 26), f"'{name}' 은 {before} 인자라 방식을 바꿀 수 없습니다"
+                code("DOE", 26), f"‘{name}’: {before} 인자는 방식을 변경할 수 없습니다."
             )
         out[name] = {**current[name], **one}
     return list(out.values())
@@ -1173,7 +1176,10 @@ def extend_study(
     - `dry_run` 이면 세기만 한다(화면의 미리보기)."""
     job = db.get(Job, study.job_id) if study.job_id else None
     if job is not None and job.status in ("queued", "running"):
-        raise AppError(code("DOE", 17), "아직 만드는 중입니다 — 끝나면 점을 더할 수 있습니다.")
+        raise AppError(
+            code("DOE", 17),
+            "아직 생성 중입니다. 생성이 완료된 후 설계점을 추가할 수 있습니다.",
+        )
     key = str(raw.get("idempotency_key") or "")
     if key and not dry_run:
         for batch in study.batches or []:
@@ -1188,8 +1194,8 @@ def extend_study(
         if extra:
             raise AppError(
                 code("DOE", 26),
-                f"이 DOE 에 없는 변수입니다: {', '.join(extra)} — 변수를 더하려면 새 DOE 를 "
-                "만드세요",
+                f"이 DOE에 없는 변수({', '.join(extra)})입니다. 변수를 추가하려면 새 DOE를 "
+                "생성하십시오.",
             )
         factors = _table_factors(factors, table)
     batches = list(study.batches or [])
@@ -1217,12 +1223,14 @@ def extend_study(
         limit = settings_store.doe_max_points(db)
         raise AppError(
             code("DOE", 3),
-            f"더할 점이 {found.kept} 개입니다 — 한 번에 {limit} 개까지 더합니다.",
+            f"추가할 설계점이 {found.kept}개입니다. "
+            f"한 번에 최대 {limit}개까지 추가할 수 있습니다.",
         )
     if method == "table" and found.rejected:
         raise AppError(
             code("DOE", 23),
-            f"표의 {found.rejected} 줄이 제약을 어깁니다 — 빼거나 제약을 고치세요.",
+            f"표의 {found.rejected}개 행이 제약을 위반합니다. 해당 행을 제외하거나 제약을 "
+            "수정하십시오.",
         )
     existing = points(db, study)
     names = [str(one["name"]) for one in study.factors]
@@ -1262,8 +1270,8 @@ def extend_study(
     if not fresh:
         raise AppError(
             code("DOE", 27),
-            f"더할 새 점이 없습니다 — {skipped} 개가 이미 있는 점과 같습니다. 범위나 시드를 "
-            "바꾸세요.",
+            f"추가할 새 설계점이 없습니다. {skipped}개가 기존 설계점과 같습니다. 범위 또는 "
+            "시드를 변경하십시오.",
         )
     for offset, row in enumerate(fresh):
         db.add(
@@ -1304,10 +1312,13 @@ def rerun_study(
     같은 값으로 한 번 더 해 보는 것이다. 파일이 사라진 점은 `ok` 였어도 다시 만든다.
     """
     if only not in ("all", "failed"):
-        raise AppError(code("DOE", 16), "only 는 all 또는 failed 입니다.")
+        raise AppError(code("DOE", 16), "only는 all 또는 failed여야 합니다.")
     job = db.get(Job, study.job_id) if study.job_id else None
     if job is not None and job.status in ("queued", "running"):
-        raise AppError(code("DOE", 17), "아직 만드는 중입니다 — 끝나면 다시 만들 수 있습니다.")
+        raise AppError(
+            code("DOE", 17),
+            "아직 생성 중입니다. 생성이 완료된 후 다시 생성할 수 있습니다.",
+        )
     # 폴더 경로가 비어 있던 옛 줄도 여기서 제 자리를 얻는다.
     if not study.local_dir:
         study.local_dir = str(
@@ -1369,7 +1380,9 @@ def export_study(db: Session, study: DoeStudy) -> DoeStudy:
     만들기가 끝나야 보낸다 — 만드는 중에 보내면 해석이 반쪽짜리 표를 읽는다."""
     job = db.get(Job, study.job_id) if study.job_id else None
     if job is None or job.status not in ("done", "failed"):
-        raise AppError(code("DOE", 9), "아직 만드는 중입니다 — 끝나면 보낼 수 있습니다.")
+        raise AppError(
+            code("DOE", 9), "아직 생성 중입니다. 생성이 완료된 후 내보낼 수 있습니다."
+        )
     source = Path(study.local_dir)
     if not (source / "manifest.csv").exists():
         # 둘을 갈라 말한다 — 「없다」 는 같아도 할 일이 다르다. 만들다 만 것이면 기다릴 일,
@@ -1377,9 +1390,9 @@ def export_study(db: Session, study: DoeStudy) -> DoeStudy:
         made = any(one.status == "ok" for one in points(db, study))
         raise AppError(
             code("DOE", 10),
-            "서버 보관 폴더가 정리되었습니다 — 「다시 만들기」 를 먼저 누르세요."
+            "서버 보관 폴더가 정리되었습니다. ‘재생성’을 먼저 실행하십시오."
             if made
-            else "보낼 것이 없습니다 — 설계점이 하나도 만들어지지 않았습니다.",
+            else "내보낼 파일이 없습니다. 생성된 설계점이 없습니다.",
         )
     root = check_root()
     target = files.study_dir(root, study.name, str(study.id))
@@ -1658,8 +1671,8 @@ def _write_decks(folder: Path, conditions: dict[str, Any] | None) -> list[dict[s
     if notes:
         (folder / "materials").mkdir(parents=True, exist_ok=True)
         (folder / "materials" / "README.txt").write_text(
-            "솔버 덱을 다 뽑지는 못했습니다 — 중립 물성(점 파일의 conditions.materials)은\n"
-            "그대로 있습니다. 못 뽑은 까닭:\n\n"
+            "일부 솔버 덱을 생성하지 못했습니다. 중립 물성(점 파일의 conditions.materials)은\n"
+            "그대로 포함되어 있습니다. 생성하지 못한 사유:\n\n"
             + "\n".join(f"- {one}" for one in notes)
             + "\n",
             encoding="utf-8",
@@ -1849,7 +1862,10 @@ def _inspect(
     try:
         return checking.compare(checking.inspect(shape, limits), reference)
     except Exception as failure:
-        return {"warnings": [f"형상 점검을 못 했습니다: {str(failure)[:120]}"], "notes": []}
+        return {
+            "warnings": [f"형상 점검을 수행하지 못했습니다: {str(failure)[:120]}"],
+            "notes": [],
+        }
 
 
 def _measure_point(
@@ -2055,7 +2071,7 @@ def run_job(
     try:
         study = db.get(DoeStudy, uuid.UUID(str(input["study_id"])))
         if study is None:
-            raise registry.UserFacingError("실험계획이 사라졌습니다")
+            raise registry.UserFacingError("실험계획이 존재하지 않습니다.")
         folder = Path(study.local_dir)
         (folder / "points").mkdir(parents=True, exist_ok=True)
         factor_names = [one["name"] for one in study.factors]
@@ -2347,7 +2363,10 @@ def run_job(
                             point.params,
                             factor_names,
                             status="pending",
-                            error="취소로 멈췄습니다 — 「다시 만들기」 로 잇습니다",
+                            error=(
+                                "취소되어 중단되었습니다. "
+                                "‘재생성’으로 이어서 생성할 수 있습니다."
+                            ),
                         )
                     )
         # 여러 프로세스가 끝나는 차례대로 왔다 — 표는 번호 차례로.

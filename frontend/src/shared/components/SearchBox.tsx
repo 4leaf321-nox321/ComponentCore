@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 
 import { Input } from '@/shared/components/ui/input'
 
-export function SearchBox({ value, onChange, placeholder = '이름 · 설명으로 찾기', className }: { value: string; onChange: (next: string) => void; placeholder?: string; className?: string }) {
+export function SearchBox({ value, onChange, placeholder = '이름, 설명으로 검색', className }: { value: string; onChange: (next: string) => void; placeholder?: string; className?: string }) {
   const [text, setText] = useState(value)
   useEffect(() => setText(value), [value])
   useEffect(() => {
@@ -17,9 +17,9 @@ export function SearchBox({ value, onChange, placeholder = '이름 · 설명으�
   return (
     <div className={`relative ${className ?? 'w-64'}`}>
       <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
-      <Input value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder} className="h-8 pr-7 pl-7 text-sm" aria-label="찾기" />
+      <Input value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder} className="h-8 pr-7 pl-7 text-sm" aria-label="검색" />
       {text && (
-        <button type="button" className="text-muted-foreground hover:text-foreground absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5" onClick={() => setText('')} aria-label="찾기 지우기">
+        <button type="button" className="text-muted-foreground hover:text-foreground absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5" onClick={() => setText('')} aria-label="검색어 초기화">
           <X className="size-3.5" />
         </button>
       )}

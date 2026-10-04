@@ -34,9 +34,9 @@ export function useFullscreen() {
 
 export function FullscreenButton({ active, onToggle, className }: { active: boolean; onToggle: () => void; className?: string }) {
   return (
-    <Button size="sm" variant={active ? 'default' : 'outline'} className={className} onClick={onToggle} title="브라우저 밖 전체 화면 (Esc 로 나옴)">
+    <Button size="sm" variant={active ? 'default' : 'outline'} className={className} onClick={onToggle} title="전체 화면으로 표시합니다(Esc 키로 종료).">
       {active ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
-      {active ? '전체 화면 끝' : '전체 화면'}
+      {active ? '전체 화면 종료' : '전체 화면'}
     </Button>
   )
 }

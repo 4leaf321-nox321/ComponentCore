@@ -64,7 +64,7 @@ def _reference(
         item_id = uuid.UUID(raw_id)
     except ValueError as failure:
         raise AppError(
-            _BAD_SOURCE, "source 는 work:<id> · part:<id> · jig:<id> 입니다"
+            _BAD_SOURCE, "source는 work:<id>, part:<id>, jig:<id> 형식이어야 합니다."
         ) from failure
     job_id: uuid.UUID | None
     if kind == "work":
@@ -85,14 +85,17 @@ def _reference(
         jig_version = jigs.current_version(db, jigs.get_jig(db, item_id))
         job_id = jig_version.job_id if jig_version else None
     else:
-        raise AppError(_BAD_SOURCE, "source 는 work:<id> · part:<id> · jig:<id> 입니다")
+        raise AppError(
+            _BAD_SOURCE, "source는 work:<id>, part:<id>, jig:<id> 형식이어야 합니다."
+        )
     job = db.get(Job, job_id) if job_id else None
     shape = (job.summary or {}).get("shape") if job else None
     if not _usable(shape):
         raise AppError(
             _NO_INDEX,
-            "이 버전에는 형상 색인이 없습니다 — 평가가 끝나지 않았거나 이 기능 전에 만든 "
-            "버전입니다(관리자가 서버 화면에서 「형상 색인 채우기」).",
+            "이 버전에는 형상 색인이 없습니다. 평가가 완료되지 않았거나 이 기능이 추가되기 "
+            "전에 생성된 버전입니다. 관리자가 서버 화면에서 ‘형상 색인 생성’을 실행할 수 "
+            "있습니다.",
         )
     assert isinstance(shape, dict)
     return shape, job_id

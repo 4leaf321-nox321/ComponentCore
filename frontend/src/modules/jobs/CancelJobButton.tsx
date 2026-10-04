@@ -11,13 +11,14 @@ import { jobsApi } from '@/modules/jobs/api'
 import type { Job } from '@/modules/jobs/api'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { Button } from '@/shared/components/ui/button'
+import { josa } from '@/shared/folders/paths'
 
 export function CancelJobButton({
   job,
   onCancelled,
   cancel,
   what = '이 작업',
-  keeps = '지금 단계까지 한 것은 남고, 산출물은 만들어지지 않습니다.',
+  keeps = '현재 단계까지 처리된 내용은 유지되며, 산출물은 생성되지 않습니다.',
 }: {
   job: Pick<Job, 'id' | 'status' | 'cancel_requested_at'>
   onCancelled?: () => void
@@ -32,24 +33,24 @@ export function CancelJobButton({
   if (job.cancel_requested_at) {
     return (
       <Button size="sm" variant="outline" disabled>
-        멈추는 중…
+        중지 중…
       </Button>
     )
   }
   return (
     <>
       <Button size="sm" variant="outline" onClick={() => setAsking(true)}>
-        멈추기
+        중지
       </Button>
       <ConfirmDialog
         open={asking}
-        title={`${what}을 멈춥니다`}
+        title={`${josa(what, '을', '를')} 중지하시겠습니까?`}
         description={
           job.status === 'queued'
-            ? '아직 시작하지 않았습니다 — 바로 취소합니다.'
-            : `지금 하는 단계를 마치고 멈춥니다(계산을 중간에 자르지 않습니다). ${keeps}`
+            ? '아직 시작되지 않은 작업이므로 즉시 취소합니다.'
+            : `현재 단계를 마친 후 중지합니다(계산을 중간에 중단하지 않습니다). ${keeps}`
         }
-        confirmLabel="멈추기"
+        confirmLabel="중지"
         onConfirm={async () => {
           await (cancel ? cancel() : jobsApi.cancel(job.id))
           onCancelled?.()

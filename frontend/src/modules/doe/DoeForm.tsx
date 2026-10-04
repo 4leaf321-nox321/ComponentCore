@@ -62,10 +62,10 @@ function refText(one: MaterialItem, key: string): string {
 
 /** 방식마다 언제 쓰나. */
 const METHOD_HINTS: Partial<Record<DoeMethod, string>> = {
-  sobol: 'Sobol — 공간을 고르게 채우는 수열입니다. 나중에 「점 더하기」 로 같은 수열을 이어 뽑아 빈 곳을 메웁니다. 표본 수는 2의 거듭제곱(8 · 16 · 32 …)이 가장 고릅니다.',
-  oat: '하나씩 바꾸기 — 가운데 한 점에서 변수마다 제 값들을 하나씩 바꿉니다(나머지는 가운데). 어느 변수가 중요한지 먼저 고를 때.',
-  ccd: '중심 합성(면 중심) — 모서리 2^k + 축 2k + 가운데. 범위 밖으로 나가지 않습니다. 해석 쪽이 2차 응답면을 만들 때의 표준입니다. 수 변수만.',
-  bbd: 'Box-Behnken — 변수 둘씩 끝, 나머지는 가운데 + 가운데 한 점. 모두 끝인 모서리를 만들지 않아 끝끼리 겹치면 깨지는 형상에 맞습니다. 수 변수 셋 이상.',
+  sobol: 'Sobol: 설계 공간을 균일하게 채우는 수열입니다. 이후 ‘설계점 추가’에서 같은 수열을 이어서 생성하여 빈 영역을 채울 수 있습니다. 표본 수는 2의 거듭제곱(8, 16, 32 등)일 때 가장 균일합니다.',
+  oat: '단일 인자 변경(OAT): 중심점에서 변수별로 수준을 하나씩 변경합니다(나머지 변수는 중심값으로 고정). 주요 변수를 선별할 때 사용합니다.',
+  ccd: '중심 합성(면 중심, CCF): 꼭짓점 2^k개, 축점 2k개, 중심점으로 구성되며 범위를 벗어나지 않습니다. 2차 응답면 모델을 구성할 때의 표준 방법입니다. 수치 변수에만 적용됩니다.',
+  bbd: 'Box-Behnken: 두 변수씩 끝값을 조합하고 나머지 변수는 중심값으로 두며, 중심점을 하나 추가합니다. 모든 변수가 끝값인 꼭짓점을 생성하지 않으므로 끝값끼리 조합되면 형상이 손상되는 경우에 적합합니다. 수치 변수가 3개 이상 필요합니다.',
 }
 
 /** 서버의 기본 가공 단위와 같다(core/doe.py DEFAULT_RESOLUTION). */
@@ -90,7 +90,7 @@ function snap(value: number, unit: number): number {
 function ResolutionSelect({ name, value, onChange }: { name: string; value: number; onChange: (unit: number) => void }) {
   return (
     <label className="flex items-center gap-1 text-xs">
-      <span className="text-muted-foreground" title="값을 이 단위의 배수로 맞춥니다 — 가공할 수 있는 치수만 나오게">
+      <span className="text-muted-foreground" title="값을 이 단위의 배수로 맞추어 가공 가능한 치수만 생성합니다.">
         단위
       </span>
       <Select value={String(value)} onValueChange={(next) => onChange(Number(next))}>
@@ -343,7 +343,7 @@ export function DoeForm({
       })
       setProbe({ result, signature })
     } catch (caught) {
-      setProbeError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setProbeError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
       setProbing(false)
     }
@@ -367,7 +367,7 @@ export function DoeForm({
       })
       onCreated(made.id)
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
       setBusy(false)
     }
@@ -376,21 +376,21 @@ export function DoeForm({
   if (params.length === 0 && materials.length === 0 && !hasConditions) {
     return (
       <div className="space-y-3 rounded-md border border-dashed p-4 text-sm">
-        <p className="font-medium">먼저 도면에 「변수」 를 만들어야 합니다.</p>
-        <p className="text-muted-foreground">DOE 는 <strong>변수</strong>만 훑습니다 — 값에 이름이 없으면 무엇을 바꿔야 할지 알 수 없습니다.</p>
+        <p className="font-medium">먼저 도면에 ‘변수’를 생성해야 합니다.</p>
+        <p className="text-muted-foreground">DOE는 <strong>변수</strong>만 탐색합니다. 이름이 없는 값은 변경 대상으로 인식할 수 없습니다.</p>
         <ol className="text-muted-foreground list-inside list-decimal space-y-1 text-xs">
-          <li>「수정」 을 눌러 편집기를 엽니다.</li>
+          <li>‘수정’을 클릭하여 편집기를 엽니다.</li>
           <li>
-            왼쪽 위 <b>변수</b> 상자의 <b>+</b> 로 이름과 값을 만듭니다 — 예: <code>두께</code>, 6.
+            왼쪽 위 <b>변수</b> 상자의 <b>+</b>로 이름과 값을 생성합니다(예: <code>두께</code>, 6).
           </li>
           <li>
-            바꿀 피처(또는 스케치 도형)를 눌러 열고, 그 숫자 칸의 <b>fx</b> 를 누른 뒤 <code>=두께</code> 라고 씁니다.
+            변경할 피처(또는 스케치 도형)를 열고, 해당 숫자 입력란의 <b>fx</b>를 클릭한 뒤 <code>=두께</code>를 입력합니다.
           </li>
-          <li>「새 버전으로」 저장하면 여기서 그 치수를 훑을 수 있습니다.</li>
+          <li>새 버전으로 저장하면 이 화면에서 해당 치수를 탐색할 수 있습니다.</li>
         </ol>
         {onEditRecipe && (
           <Button size="sm" onClick={onEditRecipe}>
-            도면 고치러 가기
+            도면 수정
           </Button>
         )}
       </div>
@@ -401,11 +401,11 @@ export function DoeForm({
     <div className="space-y-4">
       <div className="space-y-1">
         <Label htmlFor="doe-name">이름</Label>
-        <Input id="doe-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="브래킷 두께 훑기" />
+        <Input id="doe-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="브래킷 두께 탐색" />
       </div>
       <div className="space-y-1">
-        <Label htmlFor="doe-desc">무엇을 찾는가</Label>
-        <Textarea id="doe-desc" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="세트 공진 440 Hz 에 맞는 두께를 찾는다" />
+        <Label htmlFor="doe-desc">목적</Label>
+        <Textarea id="doe-desc" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="예: 세트 공진 440 Hz에 맞는 두께 선정" />
       </div>
 
       <div className="rounded-md border">
@@ -494,14 +494,14 @@ export function DoeForm({
       {/* 제약식 — 범위만으로는 말이 안 되는 조합(벽이 구멍보다 얇은 판)을 만들기 전에 거른다. */}
       <div className="rounded-md border" aria-label="제약식">
         <div className="bg-muted/40 flex items-center gap-3 border-b px-3 py-2 text-xs font-medium">
-          <span>제약식 — 어긴 조합은 만들지 않습니다</span>
+          <span>제약식 (위반하는 조합은 생성하지 않음)</span>
           <button type="button" className="text-muted-foreground hover:text-foreground ml-auto font-normal" onClick={() => setConstraints([...constraints, ''])}>
-            + 제약 더하기
+            + 제약 추가
           </button>
         </div>
         {constraints.length === 0 ? (
           <p className="text-muted-foreground px-3 py-2 text-xs">
-            예: <code>구멍_간격 &gt; 2 * 구멍_지름</code> · <code>4 &lt;= 두께 &lt;= 높이 / 2</code>. 도면의 다른 변수(식으로 정해진 것까지)도 부를 수 있습니다.
+            예: <code>구멍_간격 &gt; 2 * 구멍_지름</code>, <code>4 &lt;= 두께 &lt;= 높이 / 2</code>. 도면의 다른 변수(수식으로 정의된 변수 포함)도 참조할 수 있습니다.
           </p>
         ) : (
           constraints.map((text, index) => {
@@ -517,10 +517,10 @@ export function DoeForm({
                   aria-label={`제약 ${index + 1}`}
                 />
                 {text.trim() && hit !== undefined && (
-                  <span className={`shrink-0 text-xs ${hit > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'}`}>{hit > 0 ? `${hit}개 걸림` : '걸린 것 없음'}</span>
+                  <span className={`shrink-0 text-xs ${hit > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'}`}>{hit > 0 ? `${hit}개 위반` : '위반 없음'}</span>
                 )}
-                <button type="button" className="text-muted-foreground hover:text-foreground text-xs" onClick={() => setConstraints(constraints.filter((_, i) => i !== index))} aria-label={`제약 ${index + 1} 빼기`}>
-                  빼기
+                <button type="button" className="text-muted-foreground hover:text-foreground text-xs" onClick={() => setConstraints(constraints.filter((_, i) => i !== index))} aria-label={`제약 ${index + 1} 제거`}>
+                  제거
                 </button>
               </div>
             )
@@ -528,17 +528,17 @@ export function DoeForm({
         )}
         {constraints.length > 0 && (
           <p className="text-muted-foreground px-3 py-1.5 text-[11px]">
-            쓸 수 있는 이름: {params.map(([key]) => key).join(', ') || '(없음)'} · 비교 &lt; &lt;= &gt; &gt;= == != · and · or · not
+            사용 가능한 이름: {params.map(([key]) => key).join(', ') || '(없음)'}. 비교 연산자: &lt; &lt;= &gt; &gt;= == !=. 논리 연산자: and, or, not.
           </p>
         )}
       </div>
 
       <MeasuresInput value={measures} onChange={setMeasures} regions={regions} />
 
-      <label className="flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs" title="두께가 한결같은 판(판금 · 굽힌 판 · 쉘)이면 점마다 두께 가운데의 면을 STEP 으로 — 표의 mid_file. 판이 아닌 점은 warnings 에 까닭.">
+      <label className="flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs" title="두께가 일정한 판(판금, 절곡 판, 쉘)이면 설계점마다 두께 중간면을 STEP으로 출력합니다(표의 mid_file 열). 판이 아닌 설계점은 warnings 열에 사유를 기록합니다.">
         <input type="checkbox" checked={midsurface} onChange={(e) => setMidsurface(e.target.checked)} />
-        <span className="font-medium">중간면 STEP 도</span>
-        <span className="text-muted-foreground">— 얇은 판을 셸 요소로 풀 때(점마다 &lt;형상&gt;_mid.step)</span>
+        <span className="font-medium">중간면 STEP 출력</span>
+        <span className="text-muted-foreground">(얇은 판을 셸 요소로 해석할 때 사용, 설계점마다 &lt;형상&gt;_mid.step)</span>
       </label>
 
       {/* 형상 점검 — 해석이 메시를 못 만들 점(얇은 벽 · 짧은 모서리 · 좁은 면 · 쪼개진 바디)을 표에 적는다. */}
@@ -569,14 +569,14 @@ export function DoeForm({
             <span className="text-muted-foreground">mm</span>
           </label>
         ))}
-        <span className="text-muted-foreground">이보다 작으면 표의 「점검」 에 경고로 적습니다 — 해석이 메시에서 막힐 점을 미리 압니다.</span>
+        <span className="text-muted-foreground">이 값보다 작으면 표의 ‘점검’ 열에 경고로 기록합니다. 메시 생성에 실패할 설계점을 사전에 파악할 수 있습니다.</span>
       </div>
 
       {materials.length > 0 && (
-        <div className="rounded-md border" aria-label="재료 훑기">
+        <div className="rounded-md border" aria-label="재료 탐색">
           <div className="bg-muted/40 grid grid-cols-[minmax(6rem,1fr)_minmax(0,3fr)] gap-3 border-b px-3 py-2 text-xs font-medium">
             <span>재료 (바디)</span>
-            <span>훑을 재료 — 고르지 않으면 시뮬레이션 조건 그대로</span>
+            <span>탐색할 재료 (선택하지 않으면 시뮬레이션 조건의 재료를 사용)</span>
           </div>
           {bodyNames.map((body) => {
             const now = materials.find((one) => appliedTo(one).includes(body))
@@ -587,7 +587,7 @@ export function DoeForm({
                   <div className="truncate font-mono text-xs" title={body}>
                     {body}
                   </div>
-                  <div className="text-muted-foreground truncate text-[11px]">지금: {now ? refText(now, 'name') : '재료 없음'}</div>
+                  <div className="text-muted-foreground truncate text-[11px]">현재: {now ? refText(now, 'name') : '재료 없음'}</div>
                 </div>
                 <div className="flex flex-wrap gap-x-3 gap-y-1">
                   {materials.map((one) => {
@@ -618,7 +618,7 @@ export function DoeForm({
                       value={scales[body]?.property ?? ''}
                       onChange={(e) => setScales((all) => ({ ...all, [body]: { property: e.target.value, text: all[body]?.text ?? '0.9, 1, 1.1' } }))}
                     >
-                      <option value="">(안 곱함)</option>
+                      <option value="">(적용 안 함)</option>
                       {properties.map((one) => (
                         <option key={one} value={one}>
                           {one}
@@ -640,22 +640,22 @@ export function DoeForm({
             )
           })}
           <p className="text-muted-foreground px-3 py-2 text-xs">
-            후보는 시뮬레이션 조건에 <b>담아 둔 재료</b>입니다 — 더 훑으려면 조건 화면의 「물성」 에서 담아 두세요(파트에 붙이지 않아도 됩니다).
-            형상은 그대로라 한 벌을 나눠 씁니다.
+            후보는 시뮬레이션 조건에 <b>추가된 재료</b>입니다. 다른 재료를 탐색하려면 조건 화면의 ‘물성’에서 추가하십시오(파트에 지정하지 않아도 됩니다).
+            형상은 변하지 않으므로 하나의 형상을 공유합니다.
           </p>
         </div>
       )}
       {targets.length > 0 && (
-        <div className="rounded-md border" aria-label="조건 바꿔 보기">
+        <div className="rounded-md border" aria-label="조건 변경">
           <div className="bg-muted/40 flex items-center gap-3 border-b px-3 py-2 text-xs font-medium">
-            <span>조건 바꿔 보기</span>
+            <span>조건 변경</span>
             <select
-              aria-label="바꿔 볼 칸 더하기"
+              aria-label="변경할 필드 추가"
               className="bg-background ml-auto rounded border px-1.5 py-0.5 text-xs font-normal"
               value=""
               onChange={(e) => e.target.value && setChoices((all) => ({ ...all, [e.target.value]: [] }))}
             >
-              <option value="">칸 더하기…</option>
+              <option value="">필드 추가</option>
               {targets
                 .filter((one) => !(one.key in choices))
                 .map((one) => (
@@ -706,21 +706,21 @@ export function DoeForm({
                       })
                     }
                   >
-                    빼기
+                    제거
                   </button>
                 </div>
               )
             })}
           <p className="text-muted-foreground px-3 py-2 text-xs">
-            종류 · 선택 그룹 · 켬끔처럼 <b>고르는 칸</b>을 설계점마다 바꿉니다. 하중 크기 · 마찰계수 같은 <b>숫자</b>는 도면에 변수를 만들고
-            조건 칸에 <code>=변수</code> 로 적어 위 표에서 훑습니다. 바꿔 볼 값에 필요한 칸(마찰이면 마찰계수)은 조건에 미리 적어 둡니다.
+            종류, 선택 그룹, 켜짐/꺼짐과 같은 <b>선택형 필드</b>를 설계점마다 변경합니다. 하중 크기, 마찰계수와 같은 <b>수치</b>는 도면에 변수를 생성하고
+            조건 필드에 <code>=변수</code>로 입력하여 위 표에서 탐색합니다. 변경할 값에 필요한 필드(마찰이면 마찰계수)는 조건에 미리 입력하십시오.
           </p>
         </div>
       )}
       {conditions && Object.keys(conditions).length > 0 && (
         <p className="text-muted-foreground text-xs">
-          <b>저장된</b> 시뮬레이션 조건(구속 · 하중 · 접촉 · 물성 · 해석 설정)이 함께 실려 설계점마다 풀립니다 — 조건 화면에서 고치고
-          저장하지 않은 것은 실리지 않습니다.
+          <b>저장된</b> 시뮬레이션 조건(구속, 하중, 접촉, 물성, 해석 설정)이 함께 포함되어 설계점마다 적용됩니다. 조건 화면에서 수정한 뒤
+          저장하지 않은 내용은 포함되지 않습니다.
         </p>
       )}
 
@@ -735,10 +735,10 @@ export function DoeForm({
               <SelectItem value="factorial">전체 조합 (격자)</SelectItem>
               <SelectItem value="lhs">라틴 하이퍼큐브 (LHS)</SelectItem>
               <SelectItem value="sobol">Sobol 수열</SelectItem>
-              <SelectItem value="oat">하나씩 바꾸기 (OAT)</SelectItem>
+              <SelectItem value="oat">단일 인자 변경 (OAT)</SelectItem>
               <SelectItem value="ccd">중심 합성 (CCF)</SelectItem>
               <SelectItem value="bbd">Box-Behnken</SelectItem>
-              <SelectItem value="table">표 직접 넣기 (CSV)</SelectItem>
+              <SelectItem value="table">표 직접 입력 (CSV)</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -756,39 +756,39 @@ export function DoeForm({
         )}
         <div className="text-muted-foreground text-xs">
           {tableMode && parsed.rows.length === 0 ? (
-            '아래에 설계점 표를 붙여 넣거나 CSV 파일을 여세요.'
+            '아래에 설계점 표를 붙여 넣거나 CSV 파일을 여십시오.'
           ) : varying.length === 0 ? (
-            '바꿀 변수를 하나는 고르세요 — 「구간」 이나 「값 목록」 으로.'
+            '변경할 변수를 하나 이상 ‘구간’ 또는 ‘값 목록’으로 지정하십시오.'
           ) : incomplete ? (
-            '빈 칸을 채우면 설계점을 셉니다.'
+            '빈 입력란을 채우면 설계점 수를 계산합니다.'
           ) : preview ? (
             <span className={preview.too_many || preview.count === 0 ? 'text-destructive' : ''}>
-              설계점 <b>{preview.count}</b> 개{' '}
-              {preview.too_many && `— 한 번에 ${preview.max} 개까지 만듭니다(서버 설정 DOE_MAX_POINTS). 단계를 줄이거나, LHS 로 표본 수를 정하세요.`}
+              설계점 <b>{preview.count}</b>개
+              {preview.too_many && `: 한 번에 최대 ${preview.max}개까지 생성할 수 있습니다(서버 설정 DOE_MAX_POINTS). 단계 수를 줄이거나 LHS로 표본 수를 지정하십시오.`}
               {!!preview.rejected && (
                 <span className="text-muted-foreground">
                   {' '}
-                  (후보 {preview.candidates} 개 중 {preview.rejected} 개를 제약이 걸렀습니다)
+                  (후보 {preview.candidates}개 중 {preview.rejected}개가 제약 조건으로 제외되었습니다)
                 </span>
               )}
-              {!!preview.shortfall && <span className="text-destructive"> — 제약이 좁아 {preview.shortfall} 개를 못 채웠습니다</span>}
+              {!!preview.shortfall && <span className="text-destructive"> (제약 조건이 엄격하여 {preview.shortfall}개를 생성하지 못했습니다)</span>}
             </span>
           ) : previewError && (rules.length > 0 || tableMode) ? (
             <span className="text-destructive">{previewError.message}</span>
           ) : (
-            '세는 중…'
+            '계산 중…'
           )}
         </div>
         <Button className="ml-auto" disabled={busy || !name.trim() || varying.length === 0 || incomplete || !!preview?.too_many || preview?.count === 0} onClick={() => void run()}>
-          {busy ? '만드는 중…' : '만들기'}
+          {busy ? '생성 중…' : '생성'}
         </Button>
       </div>
       {SAMPLED.includes(method) && (
-        <p className="text-muted-foreground text-xs">시드를 적어 두면 <strong>같은 표</strong>를 다시 만들 수 있습니다 — 해석 결과와 형상을 잇는 열쇠입니다.</p>
+        <p className="text-muted-foreground text-xs">시드를 기록해 두면 <strong>동일한 표</strong>를 다시 생성할 수 있습니다. 시드는 해석 결과와 형상을 연결하는 기준입니다.</p>
       )}
       {/* 설계점 분포 — 만들기 전에 고르게 퍼졌는지, 제약이 어디를 잘랐는지. */}
       {preview && !preview.too_many && preview.points.length > 0 && varying.length > 0 && (
-        <ScatterDetails summary="설계점 분포 보기 — 고르게 퍼졌는지 · 제약이 어디를 잘랐는지">
+        <ScatterDetails summary="설계점 분포 (균일성 및 제약 조건에 의한 제외 영역 확인)">
           {() => (
             <PointsScatter
               names={varying.map((one) => one.name)}
@@ -807,7 +807,7 @@ export function DoeForm({
         <div className="space-y-1.5 rounded-md border p-3" aria-label="설계점 표">
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="font-medium">설계점 표</span>
-            <span className="text-muted-foreground">첫 줄은 변수 이름, 한 줄이 설계점 하나(줄 순서가 번호). 값은 가공 단위로 맞추지 않고 그대로 만듭니다.</span>
+            <span className="text-muted-foreground">첫 행은 변수 이름이며, 각 행이 설계점 하나입니다(행 순서가 번호). 값은 가공 단위로 보정하지 않고 그대로 생성합니다.</span>
             <label className="text-muted-foreground hover:text-foreground ml-auto cursor-pointer underline">
               CSV 파일 열기
               <input
@@ -831,7 +831,7 @@ export function DoeForm({
             aria-label="설계점 표 (CSV)"
           />
           <p className="text-muted-foreground text-xs">
-            {parsed.rows.length > 0 ? `${parsed.rows.length} 줄 · 열: ${parsed.columns.join(', ')}` : '엑셀에서 복사해 붙여 넣어도 됩니다(탭으로 나뉜 표).'} 표에 없는 변수는 위 칸의 값으로 고정됩니다.
+            {parsed.rows.length > 0 ? `${parsed.rows.length}행, 열: ${parsed.columns.join(', ')}.` : '엑셀에서 복사하여 붙여 넣을 수 있습니다(탭으로 구분된 표).'} 표에 없는 변수는 위 입력란의 값으로 고정됩니다.
           </p>
           {strangeColumns.length > 0 && <p className="text-destructive text-xs">도면에 없는 변수: {strangeColumns.join(', ')}</p>}
           {parsed.problems.map((one) => (
@@ -844,12 +844,12 @@ export function DoeForm({
       {/* 끝 점 미리 만들어 보기 — 다 돌리기 전에 범위의 끝에서 깨지는지 · 그룹이 어긋나는지. */}
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" size="sm" disabled={probing || varying.length === 0 || incomplete} onClick={() => void tryEnds()}>
-          {probing ? '만들어 보는 중…' : '끝 점 미리 만들어 보기'}
+          {probing ? '사전 생성 중…' : '경계점 사전 생성'}
         </Button>
         <span className="text-muted-foreground text-xs">
-          가운데 · 모두 최소 · 모두 최대 · 변수마다 최소 · 최대만 먼저 만들어 실패 · 그룹 어긋남 · 겹침 · 걸리는 시간을 봅니다. 파일은 쓰지 않습니다.
+          중심점, 전체 최소, 전체 최대, 변수별 최소·최대 점만 먼저 생성하여 실패, 그룹 불일치, 간섭, 소요 시간을 확인합니다. 파일은 저장하지 않습니다.
         </span>
-        {probe && probe.signature !== signature && <span className="text-xs text-amber-700 dark:text-amber-400">설정이 바뀌었습니다 — 다시 만들어 보세요.</span>}
+        {probe && probe.signature !== signature && <span className="text-xs text-amber-700 dark:text-amber-400">설정이 변경되었습니다. 다시 사전 생성하십시오.</span>}
       </div>
       <ErrorNotice error={probeError} />
       {probe && <ProbePanel result={probe.result} recipe={recipe} names={varying.map((one) => one.name)} measures={measures.map((one) => one.name)} count={preview?.count ?? null} />}

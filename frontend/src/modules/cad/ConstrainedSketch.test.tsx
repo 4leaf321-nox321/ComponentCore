@@ -51,14 +51,14 @@ function Host({ solved, onShape }: { solved?: Solved; onShape: (next: Constraine
 test('구속을 더하고, 구간을 나누면 뒤 구간을 가리키던 구속의 번호가 따라 밀린다', () => {
   const onShape = vi.fn()
   render(<Host solved={{ points: {}, free: 1 }} onShape={onShape} />)
-  expect(screen.getByRole('status')).toHaveTextContent('남은 움직임 1')
-  fireEvent.change(screen.getByLabelText('더할 구속'), { target: { value: 'perpendicular' } })
+  expect(screen.getByRole('status')).toHaveTextContent('남은 자유도: 1')
+  fireEvent.change(screen.getByLabelText('추가할 구속'), { target: { value: 'perpendicular' } })
   fireEvent.click(screen.getByRole('button', { name: '+ 구속' }))
   let last = onShape.mock.calls.at(-1)![0] as ConstrainedSpec
   expect(last.constraints.at(-1)).toEqual({ type: 'perpendicular', segments: [0, 1] })
 
   // 구간 0 을 나누면 새 점 e 가 생기고, 구간 1 · 2 · 3 을 가리키던 구속이 2 · 3 · 4 로.
-  fireEvent.click(screen.getAllByRole('button', { name: '나누기' })[0])
+  fireEvent.click(screen.getAllByRole('button', { name: '분할' })[0])
   last = onShape.mock.calls.at(-1)![0] as ConstrainedSpec
   expect(last.points.e).toEqual([20, 0])
   expect(last.segments.slice(0, 2)).toEqual([
@@ -72,8 +72,8 @@ test('구속을 더하고, 구간을 나누면 뒤 구간을 가리키던 구속
 test('직선을 호로 바꾸면 중심점이 새로 생긴다 — 반지름은 구속으로', () => {
   const onShape = vi.fn()
   render(<Host onShape={onShape} />)
-  expect(screen.getByRole('status')).toHaveTextContent('푸는 중')
-  fireEvent.click(screen.getAllByRole('button', { name: '호로' })[1])
+  expect(screen.getByRole('status')).toHaveTextContent('계산 중')
+  fireEvent.click(screen.getAllByRole('button', { name: '호로 변경' })[1])
   const last = onShape.mock.calls.at(-1)![0] as ConstrainedSpec
   expect(last.segments[1]).toEqual({ from: 'b', to: 'c', center: 'e', ccw: false })
   expect(Object.keys(last.points)).toContain('e')
@@ -86,7 +86,7 @@ test('캔버스는 서버가 푼 모양을 그리고, 못 풀면 까닭을 보�
   const { container, rerender } = render(<SketchCanvas shapes={shapes} onChange={() => {}} />)
   await waitFor(() => expect(container.querySelector('[data-solved="yes"]')).not.toBeNull())
   expect(fetched.mock.calls[0][0]).toContain('/cad/recipe/sketch-solve')
-  expect(screen.getByRole('status')).toHaveTextContent('다 정해졌습니다')
+  expect(screen.getByRole('status')).toHaveTextContent('완전히 구속되었습니다')
 
   answer = new Response(JSON.stringify({ error: { code: 'CCR-CAD-0021', message: '구속 8(길이) — 앞의 구속과 맞지 않습니다, 10 어긋남' } }), { status: 400, headers: { 'Content-Type': 'application/json' } })
   rerender(<SketchCanvas shapes={[{ ...shapes[0], constraints: [...BOX.constraints, { type: 'length', segments: [2], value: 50 }] } as SketchShape]} onChange={() => {}} />)

@@ -39,7 +39,7 @@ export default function NewDoePage() {
     const snapshot = from.data
     return (
       <div>
-        <PageHeader title={`DOE — ${snapshot.name} (다시)`} description="대상 작업이 지워져 그때의 도면 스냅샷으로 만듭니다." back={{ to: `/doe/${snapshot.id}`, label: '지난 DOE' }} />
+        <PageHeader title={`DOE — ${snapshot.name} (설정 재사용)`} description="대상 작업이 삭제되어 당시의 도면 스냅샷으로 생성합니다." back={{ to: `/doe/${snapshot.id}`, label: '이전 DOE' }} />
         {/* 대상 작업이 없으니 서버가 조건을 가져올 곳도 없다 — 스냅샷의 조건을 실어 보낸다. */}
         <DoeForm
           recipe={snapshot.recipe}
@@ -59,15 +59,15 @@ export default function NewDoePage() {
       <div>
         <PageHeader
           title="새 DOE"
-          description="무엇을 훑을지 고릅니다 — 부품 · 지그 하나, 또는 둘을 놓은 조립. 변수가 있는 도면이어야 합니다."
+          description="탐색할 대상을 선택합니다. 부품 또는 지그 하나, 또는 이들을 배치한 조립을 선택할 수 있으며, 변수가 정의된 도면이어야 합니다."
           back={{ to: '/doe', label: 'DOE' }}
         />
         <ErrorNotice error={works.error} className="mb-4" />
         {rows.length === 0 && !works.loading ? (
           <EmptyState
-            title="훑을 도면이 없습니다"
-            hint="먼저 「새 작업」 에서 부품이나 지그를 그려 저장하세요. 조립은 내 작업의 「새 조립」 으로 만듭니다."
-            action={<Button onClick={() => navigate('/draw')}>새 작업 만들기</Button>}
+            title="탐색할 도면이 없습니다"
+            hint="먼저 ‘새 작업’에서 부품 또는 지그를 모델링하여 저장하십시오. 조립은 내 작업의 ‘새 조립’에서 생성합니다."
+            action={<Button onClick={() => navigate('/draw')}>새 작업 생성</Button>}
           />
         ) : (
           <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -87,13 +87,13 @@ export default function NewDoePage() {
   return (
     <div>
       <PageHeader
-        title={from.data ? `DOE — ${w.name} (다시)` : `DOE — ${w.name}`}
+        title={from.data ? `DOE — ${w.name} (설정 재사용)` : `DOE — ${w.name}`}
         description={
           from.data
-            ? `「${from.data.name}」 의 설정을 채워 두었습니다. 지금 도면(v${w.current_version})을 기준으로 새 DOE 를 만듭니다 — 지난 것은 그대로 남습니다.`
-            : `${KIND_LABEL[w.kind] ?? w.kind} v${w.current_version} 을 기준으로 인스턴스를 여럿 만듭니다.`
+            ? `‘${from.data.name}’의 설정을 불러왔습니다. 현재 도면(v${w.current_version})을 기준으로 새 DOE를 생성하며, 이전 DOE는 그대로 유지됩니다.`
+            : `${KIND_LABEL[w.kind] ?? w.kind} v${w.current_version} 기준으로 여러 인스턴스를 생성합니다.`
         }
-        back={from.data ? { to: `/doe/${from.data.id}`, label: '지난 DOE' } : { to: '/doe/new', label: '대상 다시 고르기' }}
+        back={from.data ? { to: `/doe/${from.data.id}`, label: '이전 DOE' } : { to: '/doe/new', label: '대상 다시 선택' }}
       />
       {w.current ? (
         <DoeForm
@@ -101,13 +101,13 @@ export default function NewDoePage() {
           recipe={w.current.recipe}
           conditions={w.current.conditions}
           workId={w.id}
-          defaultName={`${w.name} 훑기`}
+          defaultName={`${w.name} 탐색`}
           initial={from.data ?? undefined}
           onCreated={(id) => navigate(`/doe/${id}`)}
           onEditRecipe={() => navigate(`/works/${w.id}`)}
         />
       ) : (
-        <EmptyState title="저장된 도면이 없습니다" hint="먼저 도면을 저장하세요." />
+        <EmptyState title="저장된 도면이 없습니다" hint="먼저 도면을 저장하십시오." />
       )}
     </div>
   )

@@ -363,7 +363,7 @@ def _resolve(shape: Shape, selector: dict[str, Any]) -> dict[str, Any]:
             if best is None or d < best[0]:
                 best = (d, face, axis)
         if best is None:
-            raise ValueError("원통(구멍)이 없습니다")
+            raise ValueError("원통면(구멍)이 없습니다.")
         _d, face, axis = best
         origin = axis.position
         return {
@@ -387,7 +387,7 @@ def _resolve(shape: Shape, selector: dict[str, Any]) -> dict[str, Any]:
             "at": _xyz(edge.position_at(0.5)),
             "length": round(float(edge.length), 3),
         }
-    raise ValueError("선택자는 point · hole_near · face_near · edge_near 중 하나입니다")
+    raise ValueError("선택자는 point, hole_near, face_near, edge_near 중 하나여야 합니다.")
 
 
 def measure(shape: Shape, a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
@@ -461,7 +461,7 @@ def _face_candidates(
         direction = _direction_label(row["normal"], signed=True)
         out.append(
             (
-                f"「{body}」 의 {direction} 방향 평면",
+                f"‘{body}’의 {direction} 방향 평면",
                 {
                     "what": "faces",
                     "body": body,
@@ -476,7 +476,7 @@ def _face_candidates(
         kind = _KIND_LABEL.get(row["kind"], f"{row['kind']} 면")
         out.append(
             (
-                f"「{body}」 의 {direction}축 {kind}",
+                f"‘{body}’의 {direction}축 {kind}",
                 {
                     "what": "faces",
                     "body": body,
@@ -619,7 +619,7 @@ def selector_candidates(shape: Shape, pick: dict[str, Any]) -> dict[str, Any]:
     what = pick.get("what", "faces")
     point = pick.get("point")
     if not isinstance(point, list) or len(point) != 3:
-        raise ValueError("pick.point: [x, y, z] 가 필요합니다")
+        raise ValueError("pick.point: [x, y, z]가 필요합니다.")
 
     found = find_features(shape, {"what": what, "near": point, "limit": _EVERYTHING})["items"]
     if not found:

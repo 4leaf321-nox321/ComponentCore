@@ -80,12 +80,14 @@ def _whose(owner: str, user: User) -> uuid.UUID | None:
             whose = uuid.UUID(raw)
         except ValueError as failure:
             raise AppError(
-                code("WORKS", 36), "owner 는 비우거나 all 이거나 사람 id 여야 합니다."
+                code("WORKS", 36), "owner는 비워 두거나 all 또는 사용자 ID여야 합니다."
             ) from failure
         if whose == user.id:
             return whose
     if not user.is_system_admin:
-        raise Forbidden(code("WORKS", 35), "남의 작업 목록은 시스템 관리자만 봅니다.")
+        raise Forbidden(
+            code("WORKS", 35), "다른 사용자의 작업 목록은 시스템 관리자만 조회할 수 있습니다."
+        )
     return whose
 
 
@@ -419,12 +421,12 @@ def patch_work(
     work = _mine(db, work_id, user)
     version = services.current_version(db, work)
     if version is None:
-        raise AppError(code("WORKS", 8), "고칠 도면이 없습니다.")
+        raise AppError(code("WORKS", 8), "수정할 도면이 없습니다.")
     made = cad.patch(version.recipe, payload.ops)
     if made["problems"]:
         raise AppError(
             code("WORKS", 30),
-            "고친 도면이 올바르지 않습니다",
+            "수정한 도면이 올바르지 않습니다.",
             details={"problems": made["problems"], "recipe": made["recipe"]},
         )
     new = services.add_version(

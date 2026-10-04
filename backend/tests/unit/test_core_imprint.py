@@ -77,7 +77,7 @@ def test_겹치면_거절하고_떨어져_있으면_알린다() -> None:
     with pytest.raises(RecipeError, match="겹칩니다"):
         _stack([30, 0, 4])
     apart = _stack([30, 0, 8])
-    assert apart.warnings and "닿는 바디가 없어" in apart.warnings[0]
+    assert apart.warnings and "접촉하는 바디가 없어" in apart.warnings[0]
 
 
 def test_조립이_아니면_새길_것이_없다() -> None:

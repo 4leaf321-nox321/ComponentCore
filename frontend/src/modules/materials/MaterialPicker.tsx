@@ -217,7 +217,7 @@ export function MaterialPicker({
         .then((got) => {
           if (!alive) return
           setRows(got.items)
-          setFallback(got.fallback ? (got.detail ?? '올려 둔 카탈로그로 고르는 중입니다') : null)
+          setFallback(got.fallback ? (got.detail ?? '업로드된 카탈로그에서 선택합니다.') : null)
           setError(null)
         })
         .catch((failure) => alive && setError(failure as Error))
@@ -262,7 +262,7 @@ export function MaterialPicker({
         <DialogHeader>
           <DialogTitle>물성 선택</DialogTitle>
           <DialogDescription>
-            MatNexus 의 재료를 <b>전체</b> 가져옵니다 — 항목 이름과 단위를 변경하지 않습니다.
+            MatNexus의 재료 정보를 <b>전체</b> 가져옵니다. 항목 이름과 단위는 변경하지 않습니다.
           </DialogDescription>
         </DialogHeader>
 
@@ -305,12 +305,12 @@ export function MaterialPicker({
             onChange={(e) => setQuery(e.target.value)}
             placeholder={
               source === 'literature'
-                ? '이름 · 제조사로 검색 (예: EMC, Al 6061) — 고른 분야 · 분류 안에서'
-                : '이름 · 별칭 · 번호로 검색 (예: SPCC, M-000123) — 선택한 계열 · 분류 내에서'
+                ? '선택한 분야·분류 내에서 이름, 제조사로 검색 (예: EMC, Al 6061)'
+                : '선택한 계열·분류 내에서 이름, 별칭, 번호로 검색 (예: SPCC, M-000123)'
             }
           />
         </div>
-        {fallback && <p className="text-muted-foreground text-xs">⚠ MatNexus 에 닿지 못했습니다 — {fallback}</p>}
+        {fallback && <p className="text-muted-foreground text-xs">⚠ MatNexus에 연결하지 못했습니다. {fallback}</p>}
         {error && <ErrorNotice error={error} />}
 
         {/* 재료 칸과 물성 칸이 넓어야 한다 — 쪽 · 분류는 이름만 보면 된다. */}
@@ -340,7 +340,7 @@ export function MaterialPicker({
             ))}
           </Column>
 
-          <Column title="분류" hint={family || (source === 'literature' ? '모든 분야' : '전체 계열')}>
+          <Column title="분류" hint={family || (source === 'literature' ? '전체 분야' : '전체 계열')}>
             <Row chosen={!category} onClick={() => setCategory('')}>
               전체{' '}
               <span className="text-muted-foreground text-xs">
@@ -445,7 +445,7 @@ export function MaterialPicker({
             })}
             {!loading && rows.length >= LIMIT && (
               <p className="text-muted-foreground p-1 text-xs">
-                {LIMIT} 건까지만 보입니다 — 분류를 좁히거나 이름으로 찾으세요.
+                최대 {LIMIT}건까지만 표시됩니다. 분류를 좁히거나 이름으로 검색하십시오.
               </p>
             )}
           </Column>
@@ -499,13 +499,13 @@ export function MaterialPicker({
                 */}
                 {(chosen.converted?.missing_structural ?? []).length > 0 ? (
                   <p className="rounded border border-amber-300 bg-amber-50 p-1 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                    ⚠ 구조 해석에 빠진 것: {(chosen.converted?.missing_structural ?? []).join(' · ')} — 이 상태로
-                    전달하면 해석이 기본값으로 계산합니다.
+                    ⚠ 구조 해석에 필요한 항목 누락: {(chosen.converted?.missing_structural ?? []).join(', ')}. 이 상태로
+                    전달하면 해석에서 기본값으로 계산합니다.
                   </p>
                 ) : (
                   chosen.converted?.properties && (
                     <p className="text-xs text-emerald-700 dark:text-emerald-400">
-                      ✓ 탄성계수 · 푸아송비 · 밀도가 다 있습니다
+                      ✓ 탄성계수, 푸아송비, 밀도가 모두 있습니다.
                     </p>
                   )
                 )}
@@ -515,8 +515,8 @@ export function MaterialPicker({
                 */}
                 {(chosen.converted?.unconverted ?? []).length > 0 && (
                   <p className="text-xs text-amber-700 dark:text-amber-400">
-                    ⚠ 단위를 못 바꾼 항목: {(chosen.converted?.unconverted ?? []).join(' · ')} — 값은 원래
-                    단위 그대로입니다.
+                    ⚠ 단위를 변환하지 못한 항목: {(chosen.converted?.unconverted ?? []).join(', ')}. 값은 원래
+                    단위로 표시됩니다.
                   </p>
                 )}
               </dl>
@@ -535,7 +535,7 @@ export function MaterialPicker({
           <div className="mr-auto flex min-w-0 flex-wrap items-center gap-1 text-xs">
             {basket.length === 0 ? (
               <span className="text-muted-foreground">
-                재료 행을 클릭하여 선택합니다 — 여러 개를 함께 선택할 수 있습니다.
+                재료 행을 클릭하여 선택합니다. 여러 개를 함께 선택할 수 있습니다.
               </span>
             ) : (
               <>

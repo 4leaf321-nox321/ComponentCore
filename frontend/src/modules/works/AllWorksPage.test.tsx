@@ -67,7 +67,7 @@ test('모든 사람의 작업을 둘러보고, 사람으로 거른다', async ()
 
   // 사람으로 — 고르개에서.
   await screen.findByRole('option', { name: /이 \(lee@/ })
-  fireEvent.change(screen.getByLabelText('만든 사람'), { target: { value: 'lee' } })
+  fireEvent.change(screen.getByLabelText('작성자'), { target: { value: 'lee' } })
   await waitFor(() => expect(screen.queryByText('김의 브래킷')).toBeNull())
   expect(screen.getByText('이의 받침')).toBeInTheDocument()
   expect(calls.some((c) => c.includes('/works/tags?owner=lee'))).toBe(true)

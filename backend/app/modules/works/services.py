@@ -59,7 +59,7 @@ def get_work(db: Session, work_id: uuid.UUID) -> Work:
 def require_owner(work: Work, user: User) -> None:
     """**내 공간이다.** 소유자와 시스템 관리자만 보고 고친다. 남에게 보이려면 승격한다."""
     if work.owner_id != user.id and not user.is_system_admin:
-        raise Forbidden(code("WORKS", 2), "남의 작업입니다.")
+        raise Forbidden(code("WORKS", 2), "다른 사용자의 작업입니다.")
 
 
 # --- 조회 ---------------------------------------------------------------------
@@ -100,7 +100,7 @@ def get_version(db: Session, work: Work, number: int) -> WorkVersion:
         select(WorkVersion).where(WorkVersion.work_id == work.id, WorkVersion.number == number)
     )
     if version is None:
-        raise NotFound(code("WORKS", 3), f"버전 {number} 이 없습니다.")
+        raise NotFound(code("WORKS", 3), f"v{number} 버전을 찾을 수 없습니다.")
     return version
 
 
@@ -352,7 +352,7 @@ def duplicate_work(
         description=work.description,
         recipe=version.recipe if version else None,
         source="copy",
-        note=f"{work.name} v{work.current_version} 에서 복제",
+        note=f"{work.name} v{work.current_version}에서 복제",
         kind=work.kind,
         jig_for_part_id=work.jig_for_part_id,
     )
@@ -396,7 +396,7 @@ def _validated(raw: dict[str, Any]) -> dict[str, Any]:
     problems = cad.check(raw)
     if problems:
         raise AppError(
-            code("CAD", 2), "레시피가 올바르지 않습니다", details={"problems": problems}
+            code("CAD", 2), "레시피가 올바르지 않습니다.", details={"problems": problems}
         )
     return raw
 
@@ -405,7 +405,7 @@ def add_version(
     db: Session, work: Work, *, recipe: dict[str, Any], source: str, note: str, by: User
 ) -> WorkVersion:
     if source not in VERSION_SOURCES:
-        raise AppError(code("WORKS", 4), f"모르는 출처입니다: {source}")
+        raise AppError(code("WORKS", 4), f"알 수 없는 출처({source})입니다.")
     version = WorkVersion(
         work_id=work.id,
         number=work.current_version + 1,
@@ -451,7 +451,10 @@ def create_work(
     if unit_system is not None:
         _check_unit_system(unit_system)
     if kind not in WORK_KINDS:
-        raise AppError(code("WORKS", 23), f"모르는 종류입니다: {kind} (part · jig)")
+        raise AppError(
+            code("WORKS", 23),
+            f"알 수 없는 종류({kind})입니다. part 또는 jig 중 하나여야 합니다.",
+        )
     work = Work(
         name=name.strip(),
         description=description.strip(),
@@ -477,7 +480,9 @@ def _check_unit_system(key: str) -> None:
 
     if key not in unit_systems.SYSTEMS:
         known = ", ".join(unit_systems.SYSTEMS)
-        raise AppError(code("WORKS", 32), f"모르는 단위계입니다: {key} ({known})")
+        raise AppError(
+            code("WORKS", 32), f"알 수 없는 단위계({key})입니다. 사용 가능한 단위계: {known}"
+        )
 
 
 def update_work(db: Session, work: Work, *, fields: dict[str, Any]) -> Work:
@@ -486,7 +491,10 @@ def update_work(db: Session, work: Work, *, fields: dict[str, Any]) -> Work:
     if fields.get("unit_system") is not None:
         _check_unit_system(fields["unit_system"])
     if fields.get("kind") is not None and fields["kind"] not in WORK_KINDS:
-        raise AppError(code("WORKS", 23), f"모르는 종류입니다: {fields['kind']} (part · jig)")
+        raise AppError(
+            code("WORKS", 23),
+            f"알 수 없는 종류({fields['kind']})입니다. part 또는 jig 중 하나여야 합니다.",
+        )
     for key, value in fields.items():
         if value is None:
             continue
@@ -510,7 +518,7 @@ def update_work(db: Session, work: Work, *, fields: dict[str, Any]) -> Work:
 def restore_version(db: Session, work: Work, number: int, *, by: User) -> WorkVersion:
     old = get_version(db, work, number)
     return add_version(
-        db, work, recipe=old.recipe, source="restore", note=f"v{number} 으로 되돌림", by=by
+        db, work, recipe=old.recipe, source="restore", note=f"v{number}에서 복원", by=by
     )
 
 
@@ -548,7 +556,7 @@ def import_step(
     쌓인다."""
     safe = filestore.safe_filename(filename)
     if not safe.lower().endswith((".step", ".stp")):
-        raise AppError(code("WORKS", 5), "STEP 파일(.step · .stp)만 올릴 수 있습니다.")
+        raise AppError(code("WORKS", 5), "STEP 파일(.step, .stp)만 업로드할 수 있습니다.")
     limit = get_settings().max_upload_mb * 1024 * 1024
     target = filestore.new_dir("imports", str(work.id)) / safe
     try:
@@ -556,7 +564,7 @@ def import_step(
     except ValueError as failure:
         raise AppError(
             code("WORKS", 6),
-            f"파일이 너무 큽니다 (최대 {get_settings().max_upload_mb} MB).",
+            f"파일이 너무 큽니다(최대 {get_settings().max_upload_mb} MB).",
             status=413,
         ) from failure
     try:
@@ -597,16 +605,17 @@ def _product_source(
     try:
         ident = uuid.UUID(raw)
     except ValueError as failure:
-        raise AppError(code("WORKS", 26), f"출처를 읽을 수 없습니다: {source}") from failure
+        raise AppError(code("WORKS", 26), f"출처({source})를 읽을 수 없습니다.") from failure
     if head == "work":
         work = get_work(db, ident)
         require_owner(work, by)
         if work.kind != "part":
-            raise AppError(code("WORKS", 27), "부품 작업에서만 지그를 생성합니다.")
+            raise AppError(code("WORKS", 27), "지그는 부품 작업에서만 생성할 수 있습니다.")
         version = current_version(db, work)
         if version is None:
             raise AppError(
-                code("WORKS", 8), "형상이 없습니다 — 먼저 그리거나 STEP 을 올리세요."
+                code("WORKS", 8),
+                "형상이 없습니다. 먼저 모델링하거나 STEP 파일을 업로드하십시오.",
             )
         part_id, _jig = _promoted_ids(db, work.id)
         return (
@@ -632,7 +641,10 @@ def _product_source(
             part.id,
             {"product_part_id": str(part.id), "product_part_version_id": str(catalog.id)},
         )
-    raise AppError(code("WORKS", 26), f"출처는 work:<id> 또는 part:<id> 입니다: {source}")
+    raise AppError(
+        code("WORKS", 26),
+        f"출처({source})는 work:<id> 또는 part:<id> 형식이어야 합니다.",
+    )
 
 
 def jig_preview(
@@ -668,7 +680,7 @@ def jig_from_part(
     opts = JigOptions.from_dict(options)
     made = Work(
         name=(name or f"{label} 지그").strip(),
-        description=f"{label} 에서 규칙으로 생성",
+        description=f"{label}에서 규칙으로 생성",
         owner_id=by.id,
         kind="jig",
         jig_for_part_id=part_id,
@@ -710,7 +722,8 @@ def assemble_jig_on_part(
     require_owner(jig, by)
     if jig.kind != "jig":
         raise AppError(
-            code("WORKS", 27), "지그 작업을 고르세요 — 부품 위에 놓을 것은 지그입니다."
+            code("WORKS", 27),
+            "지그 작업을 선택하십시오. 부품에 배치할 대상은 지그 작업이어야 합니다.",
         )
     jig_version = current_version(db, jig)
     if jig_version is None:
@@ -730,7 +743,7 @@ def assemble_jig_on_part(
         lift = float(generated.summary["plan"].get("product_lift", 0.0))
         translate = [-center[0], -center[1], -pmin[2] + lift]
         mode = "generated"
-        note = f"{part_label} + {jig.name} — 생성기 좌표계로 맞춤(받침 높이 {lift:g})"
+        note = f"{part_label} + {jig.name}: 생성기 좌표계로 정렬(받침 높이 {lift:g})"
     else:
         jmin, jmax = _bbox_of(jig_version.recipe)
         lift = jmax[2]
@@ -740,7 +753,7 @@ def assemble_jig_on_part(
             -pmin[2] + lift,
         ]
         mode = "guessed"
-        note = f"{part_label} + {jig.name} — 지그 윗면에 얹어 어림(확인 필요)"
+        note = f"{part_label} + {jig.name}: 지그 윗면에 올려 근사 배치(확인 필요)"
 
     height_name = "부품_높이"
     recipe: dict[str, Any] = {
@@ -795,10 +808,10 @@ def assemble_jig_on_part(
 def adopt_jig_run(db: Session, work: Work, *, by: User, job_id: uuid.UUID) -> WorkVersion:
     """끝난 생성 결과(STEP)를 이 지그 작업의 **버전**으로. 두 번 불러도 같은 버전이다."""
     if work.kind != "jig":
-        raise AppError(code("WORKS", 27), "지그 작업에서만 생성 결과를 가져옵니다.")
+        raise AppError(code("WORKS", 27), "생성 결과는 지그 작업에서만 가져올 수 있습니다.")
     job = _done_job(db, job_id, "지그 생성")
     if job.work_id != work.id or job.kind != JIG_JOB_KIND:
-        raise NotFound(code("WORKS", 24), "이 작업의 지그 생성이 아닙니다.")
+        raise NotFound(code("WORKS", 24), "이 작업의 지그 생성 결과가 아닙니다.")
     summary = job.summary or {}
     generated = summary.get("recipe") or {}
     if generated.get("nodes"):
@@ -811,7 +824,7 @@ def adopt_jig_run(db: Session, work: Work, *, by: User, job_id: uuid.UUID) -> Wo
             select(Artifact).where(Artifact.job_id == job.id, Artifact.kind == "jig_step")
         )
         if artifact is None:
-            raise AppError(code("WORKS", 25), "이 생성 결과에 STEP 이 없습니다.")
+            raise AppError(code("WORKS", 25), "이 생성 결과에 STEP 파일이 없습니다.")
         recipe = {
             "nodes": [{"id": "생성된_지그", "op": "import_step", "file": str(artifact.id)}]
         }
@@ -823,11 +836,11 @@ def adopt_jig_run(db: Session, work: Work, *, by: User, job_id: uuid.UUID) -> Wo
             return version
     plan = summary.get("plan") or {}
     label = job.input.get("product_label", "부품")
-    counts = " · ".join(
-        f"{word} {len(plan.get(key, []))}"
+    counts = ", ".join(
+        f"{word} {len(plan.get(key, []))}개"
         for word, key in (("받침", "supports"), ("로케이터", "locators"), ("클램프", "clamps"))
     )
-    note = f"{label} 에서 생성 — {counts}"
+    note = f"{label}에서 생성({counts})"
     return add_version(db, work, recipe=recipe, source="generated", note=note, by=by)
 
 
@@ -846,7 +859,7 @@ def _product_from_input(input: dict[str, Any]) -> Shape | Path | None:
             ) from failure
         except RecipeError as failure:
             raise registry.UserFacingError(
-                f"제품 레시피를 만들지 못했습니다 — {failure.node_id}: {failure.message}"
+                f"제품 형상을 생성하지 못했습니다({failure.node_id}): {failure.message}"
             ) from failure
     if input.get("product_path"):  # 옛 작업(마이그레이션 전) 호환
         return filestore.resolve(str(input["product_path"]))
@@ -890,7 +903,7 @@ def run_jig_job(
 def _done_job(db: Session, job_id: uuid.UUID | None, what: str) -> Job:
     job = db.get(Job, job_id) if job_id else None
     if job is None or job.status != "done":
-        raise AppError(code("WORKS", 9), f"{what}이 아직 끝나지 않았거나 실패했습니다.")
+        raise AppError(code("WORKS", 9), f"{what} 작업이 아직 완료되지 않았거나 실패했습니다.")
     return job
 
 
@@ -905,7 +918,8 @@ def promote_part(
     if already is not None:
         raise AppError(
             code("WORKS", 10),
-            f"이 버전(v{version.number})은 이미 부품 v{already.number} 으로 올라가 있습니다.",
+            f"이 버전(v{version.number})은 이미 부품으로 등록되어 있습니다"
+            f"(부품 v{already.number}).",
         )
     _done_job(db, version.job_id, "형상 평가")
 
@@ -925,7 +939,7 @@ def promote_part(
         db.add(part)
         db.flush()
     elif part.owner_id != by.id and not by.is_system_admin:
-        raise Forbidden(code("WORKS", 11), "이 부품에 버전을 올릴 권한이 없습니다.")
+        raise Forbidden(code("WORKS", 11), "이 부품에 버전을 등록할 권한이 없습니다.")
     # **버전을 올릴 때도 따라온다** — 첫 승격 뒤에 작업에 꼬리표를 더했으면 그것도 와야 한다.
     # 카탈로그에서 뺀 것을 되살리지는 않는다(거기서 지운 것은 뜻이 있다) — 더하기만 한다.
     part.tags = sorted({*(part.tags or []), *(work.tags or [])})
@@ -936,7 +950,7 @@ def promote_part(
         work_version_id=version.id,
         recipe=version.recipe,
         job_id=version.job_id,
-        note=note.strip() or f"작업 v{version.number} 에서",
+        note=note.strip() or f"작업 v{version.number}에서",
         promoted_by_id=by.id,
     )
     db.add(promoted)
@@ -966,19 +980,20 @@ def promote_jig_recipe(
     어느 부품의 지그인지는 골라서 잇는다(안 고르면 홀로 선 지그다)."""
     version = current_version(db, work) if number is None else get_version(db, work, number)
     if version is None:
-        raise AppError(code("WORKS", 20), "올릴 버전이 없습니다.")
+        raise AppError(code("WORKS", 20), "등록할 버전이 없습니다.")
     job = db.get(Job, version.job_id) if version.job_id else None
     if job is None or job.status != "done":
         raise AppError(
             code("WORKS", 21),
-            "이 버전의 평가가 끝나지 않았습니다 — 형상이 만들어져야 지그로 올립니다.",
+            "이 버전의 평가가 완료되지 않았습니다. "
+            "형상이 생성된 후 지그로 등록할 수 있습니다.",
         )
     part_version: PartVersion | None = None
     part_id = part_id or work.jig_for_part_id  # 작업에 이어 둔 부품이 기본
     if part_id is not None:
         part = db.get(Part, part_id)
         if part is None or part.deleted_at is not None:
-            raise NotFound(code("WORKS", 22), "고른 부품을 찾을 수 없습니다.")
+            raise NotFound(code("WORKS", 22), "선택한 부품을 찾을 수 없습니다.")
         part_version = db.scalar(
             select(PartVersion).where(
                 PartVersion.part_id == part.id, PartVersion.number == part.current_version
@@ -1026,7 +1041,7 @@ def _jig_for(
         db.add(jig)
         db.flush()
     elif jig.owner_id != by.id and not by.is_system_admin:
-        raise Forbidden(code("WORKS", 15), "이 지그에 버전을 올릴 권한이 없습니다.")
+        raise Forbidden(code("WORKS", 15), "이 지그에 버전을 등록할 권한이 없습니다.")
     jig.tags = sorted({*(jig.tags or []), *(work.tags or [])})
     if part_version is not None:
         jig.part_id = part_version.part_id

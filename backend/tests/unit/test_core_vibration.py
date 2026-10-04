@@ -39,7 +39,7 @@ def test_범위_밖이면_무엇을_바꿔야_하는지_말한다() -> None:
         thickness_for_frequency(target_hz=5, length_mm=20, width_mm=20)
     with pytest.raises(VibrationError, match="짧게 하거나"):
         thickness_for_frequency(target_hz=500_000, length_mm=200, width_mm=20)
-    with pytest.raises(VibrationError, match="모르는 재료"):
+    with pytest.raises(VibrationError, match="알 수 없는 재료"):
         beam_frequency(length_mm=100, width_mm=20, thickness_mm=5, material="나무")
 
 
@@ -47,4 +47,4 @@ def test_가정_밖이면_경고를_붙인다() -> None:
     """짧고 두꺼운 보에서 이 식은 높게 나온다 — 말없이 숫자만 주면 안 된다."""
     stubby = beam_frequency(length_mm=20, width_mm=20, thickness_mm=10)
     assert stubby["warnings"] and "전단" in stubby["warnings"][0]
-    assert "가늠값" in stubby["accuracy"]
+    assert "추정값" in stubby["accuracy"]

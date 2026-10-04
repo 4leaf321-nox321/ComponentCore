@@ -45,7 +45,7 @@ export function DrawingDialog({ open, recipe, defaultTitle = '', onClose }: { op
           setSummary(info)
           setError(null)
         })
-        .catch((caught) => alive && setError(caught instanceof Error ? caught : new Error('알 수 없는 오류')))
+        .catch((caught) => alive && setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.')))
     }, 400)
     return () => {
       alive = false
@@ -60,7 +60,7 @@ export function DrawingDialog({ open, recipe, defaultTitle = '', onClose }: { op
     try {
       save(await cadApi.drawing(recipe, format, options), `${options.title || '도면'}.${format}`)
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
       setBusy(false)
     }
@@ -72,7 +72,7 @@ export function DrawingDialog({ open, recipe, defaultTitle = '', onClose }: { op
       <DialogContent className="max-w-5xl">
         <DialogHeader>
           <DialogTitle>도면</DialogTitle>
-          <DialogDescription>3각법 세 뷰 · 전체 치수 · 구멍표 · 표제란. 구멍 위치는 그 구멍이 원으로 보이는 뷰의 왼쪽 아래 모서리에서 잽니다.</DialogDescription>
+          <DialogDescription>3각법 3면도, 전체 치수, 구멍표, 표제란으로 구성됩니다. 구멍 위치는 해당 구멍이 원으로 보이는 뷰의 왼쪽 아래 모서리를 기준으로 측정합니다.</DialogDescription>
         </DialogHeader>
         <div className="grid gap-2 sm:grid-cols-[2fr_1fr_auto_2fr]">
           <Input aria-label="도면 이름" placeholder="이름" value={options.title} onChange={(e) => set({ title: e.target.value })} />
@@ -81,10 +81,10 @@ export function DrawingDialog({ open, recipe, defaultTitle = '', onClose }: { op
             <option value="A3">A3</option>
             <option value="A4">A4</option>
           </select>
-          <Input aria-label="메모" placeholder="메모 (공차 · 다듬질)" value={options.note} onChange={(e) => set({ note: e.target.value })} />
+          <Input aria-label="메모" placeholder="메모 (공차, 다듬질)" value={options.note} onChange={(e) => set({ note: e.target.value })} />
         </div>
         <div className="bg-muted/30 flex min-h-64 items-center justify-center rounded-md border">
-          {preview ? <img src={preview} alt="도면 미리보기" className="max-h-[60vh] w-full object-contain" /> : <span className="text-muted-foreground text-sm">그리는 중…</span>}
+          {preview ? <img src={preview} alt="도면 미리보기" className="max-h-[60vh] w-full object-contain" /> : <span className="text-muted-foreground text-sm">생성 중…</span>}
         </div>
         {summary && (
           <p className="text-muted-foreground text-xs">
@@ -97,10 +97,10 @@ export function DrawingDialog({ open, recipe, defaultTitle = '', onClose }: { op
             닫기
           </Button>
           <Button variant="outline" disabled={busy || !summary} onClick={() => void download('dxf')}>
-            DXF 받기
+            DXF 다운로드
           </Button>
           <Button disabled={busy || !summary} onClick={() => void download('pdf')}>
-            PDF 받기
+            PDF 다운로드
           </Button>
         </div>
       </DialogContent>

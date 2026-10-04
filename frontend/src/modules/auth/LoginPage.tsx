@@ -36,7 +36,7 @@ export default function LoginPage() {
         replace: true,
       })
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
       setBusy(false)
     }
@@ -79,7 +79,7 @@ export default function LoginPage() {
           {busy ? '확인 중…' : '로그인'}
         </Button>
         <p className="text-muted-foreground text-center text-xs">
-          계정은 시스템 관리자가 만듭니다.
+          계정은 시스템 관리자가 생성합니다.
         </p>
       </form>
     </div>

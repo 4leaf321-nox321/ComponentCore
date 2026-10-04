@@ -105,7 +105,7 @@ test('종류가 정하는 방향은 **잠긴 단추**로 보인다 — 어느 �
   rerender(<ConditionForm group={GROUP} item={{ name: '미끄럼', type: 'frictionless', on: '바닥' }} names={[]} onChange={() => {}} />)
   expect([pressed('법선'), pressed('접선')]).toEqual(['고정', '자유'])
   expect(screen.getByText('면을 따라 미끄러진다')).toBeInTheDocument()
-  expect(screen.getByText(/바꿀 수 없습니다/)).toBeInTheDocument()
+  expect(screen.getByText(/변경할 수 없습니다/)).toBeInTheDocument()
 })
 
 test('원격 변위는 이동 X · Y · Z 와 **회전 X · Y · Z** 를 고르고, 원격점을 사람 말로 고른다', () => {
@@ -177,7 +177,7 @@ test('압력은 **면의 법선**이 기본이고 성분으로 바꿀 수 있다
   expect(screen.getByRole('button', { name: '면의 법선' })).toHaveAttribute('aria-pressed', 'true')
   expect(screen.queryByLabelText('방향 X')).toBeNull()
   expect(screen.queryByLabelText('좌표계')).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'X · Y · Z 성분' }))
+  fireEvent.click(screen.getByRole('button', { name: 'X·Y·Z 성분' }))
   expect(item.direction).toEqual([0, 0, -1])
   rerender(view())
   expect(screen.getByLabelText('방향 Z')).toHaveValue('-1')
@@ -205,7 +205,7 @@ test('변위량에는 **단위계의 길이**가, 회전에는 도가 칸마다 
   const item: ConditionItem = { name: '핀', type: 'remote_displacement', on: '구멍', x: 0.001, rx: 2 }
   const { rerender } = render(<ConditionForm group={GROUP} item={item} names={[]} units={{ length: 'm' }} onChange={() => {}} />)
   expect(pressed('X')).toBe('변위량 (m)')
-  expect(screen.getByLabelText('X 변위량')).toHaveAttribute('placeholder', '수 또는 =식 · m')
+  expect(screen.getByLabelText('X 변위량')).toHaveAttribute('placeholder', '수 또는 =식 (m)')
   expect(pressed('회전 X')).toBe('변위량 (도)')
   rerender(<ConditionForm group={GROUP} item={item} names={[]} units={{ length: 'mm' }} onChange={() => {}} />)
   expect(pressed('X')).toBe('변위량 (mm)')
@@ -317,7 +317,7 @@ test('해석 설정은 종류마다 칸이 다르고, 켬 · 끔과 **최소 ~ �
   const { rerender } = render(view())
   expect(screen.getByText('구조가 스스로 떠는 진동수를 찾습니다.')).toBeInTheDocument()
   // 비우면 기본값 — 그것을 보여 준다.
-  expect(screen.getByLabelText('모드 수')).toHaveAttribute('placeholder', '기본 6')
+  expect(screen.getByLabelText('모드 수')).toHaveAttribute('placeholder', '기본값 6')
 
   fireEvent.click(within(screen.getByRole('group', { name: '선응력 반영' })).getByRole('button', { name: '켬' }))
   expect(item.prestressed).toBe(true)
@@ -344,11 +344,11 @@ test('조건은 **받는 종류의 선택 그룹만** 고르게 하고, 받는 �
   }
   const edges = [{ name: '모서리', entity: 'edge', select: {} }] as never
   const { rerender } = render(<ConditionForm group={group} item={{ name: '누름', type: 'pressure', on: '' }} names={edges} units={MM} onChange={() => {}} />)
-  expect(screen.getByText('받는 것: 면 선택 그룹')).toBeInTheDocument()
+  expect(screen.getByText('적용 가능 대상: 면 선택 그룹')).toBeInTheDocument()
   // 엣지 그룹뿐이면 고를 것이 없다고 말한다.
-  expect(screen.getByText(/고를 수 있는 선택 그룹이 없습니다 — 면 을 3D 에서/)).toBeInTheDocument()
+  expect(screen.getByText(/사용할 수 있는 선택 그룹이 없습니다\. 3D에서 대상 형상\(면\)을/)).toBeInTheDocument()
   rerender(<ConditionForm group={group} item={{ name: '조임', type: 'bolt_pretension', on: '' }} names={edges} units={MM} onChange={() => {}} />)
-  expect(screen.getByText('받는 것: 원통면 · 바디 선택 그룹')).toBeInTheDocument()
+  expect(screen.getByText('적용 가능 대상: 원통면, 바디 선택 그룹')).toBeInTheDocument()
 })
 
 test('종류가 없는 메시 힌트는 `*` 규칙으로 받는 것을 보인다', () => {
@@ -360,5 +360,5 @@ test('종류가 없는 메시 힌트는 `*` 규칙으로 받는 것을 보인다
     accepts: { '*': [{ entity: 'face' }, { entity: 'edge' }, { entity: 'body' }] },
   }
   render(<ConditionForm group={MESH} item={{ on: '전체' }} names={[]} onChange={() => {}} />)
-  expect(screen.getByText('받는 것: 면 · 엣지 · 바디 선택 그룹')).toBeInTheDocument()
+  expect(screen.getByText('적용 가능 대상: 면, 엣지, 바디 선택 그룹')).toBeInTheDocument()
 })

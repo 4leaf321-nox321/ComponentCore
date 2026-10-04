@@ -148,8 +148,8 @@ def _defeatured(part: Part, faces: list[Face]) -> Part:
     algo.Build()
     if not algo.IsDone():
         raise DefeatureError(
-            f"면 {len(faces)} 개를 지우고 메우지 못했습니다 — 이웃 면을 늘려 막을 수 없는 "
-            "자리입니다(지울 면을 줄이거나, 그 피처를 만든 노드를 고치세요)"
+            f"면 {len(faces)}개를 제거하고 메우지 못했습니다. 인접 면을 연장하여 메울 수 "
+            "없는 위치입니다. 제거할 면을 줄이거나 해당 피처를 생성한 노드를 수정하십시오."
         )
     solids = []
     explorer = TopExp_Explorer(algo.Shape(), TopAbs_SOLID)
@@ -157,7 +157,7 @@ def _defeatured(part: Part, faces: list[Face]) -> Part:
         solids.append(Solid(TopoDS.Solid_s(explorer.Current())))
         explorer.Next()
     if not solids:
-        raise DefeatureError("면을 지우고 나니 입체가 남지 않았습니다")
+        raise DefeatureError("면을 제거한 결과 솔리드가 남지 않았습니다.")
     return Part(children=solids)
 
 

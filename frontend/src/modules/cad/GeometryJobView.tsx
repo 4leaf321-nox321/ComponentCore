@@ -103,7 +103,7 @@ export function GeometryJobView({
         <FullscreenButton active={full.active} onToggle={() => void full.toggle()} />
         {step && stepName && (
           <Button size="sm" variant="outline" onClick={() => downloadFile(jobsApi.artifactPath(step.id), stepName)}>
-            STEP 받기
+            STEP 다운로드
           </Button>
         )}
       </div>

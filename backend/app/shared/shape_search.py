@@ -70,7 +70,7 @@ def _box(text: str) -> tuple[float, ...] | None:
         return None
     found = _BOX.match(text)
     if not found:
-        raise AppError(_BAD, f"fits: 「100x60x30」 꼴이어야 합니다 — 받은 값 {text!r}")
+        raise AppError(_BAD, f"fits는 ‘100x60x30’ 형식이어야 합니다(입력값: {text!r}).")
     values = [float(one) for one in found.groups() if one is not None]
     return tuple(sorted(values, reverse=True))
 

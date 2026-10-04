@@ -44,7 +44,7 @@ def resolve_import(key: str) -> Path:
     try:
         artifact = db.get(Artifact, uuid.UUID(key))
         if artifact is None:
-            raise ValueError(f"작업물이 없습니다: {key}")
+            raise ValueError(f"작업물({key})을 찾을 수 없습니다.")
         return filestore.resolve(artifact.path)
     finally:
         db.close()
@@ -71,7 +71,7 @@ def resolve_component(key: str) -> dict[str, Any]:
         if kind == "part":
             part = db.get(Part, identifier)
             if part is None:
-                raise ValueError(f"부품이 없습니다: {name}")
+                raise ValueError(f"부품({name})을 찾을 수 없습니다.")
             version = db.scalar(
                 select(PartVersion).where(
                     PartVersion.part_id == part.id,
@@ -81,7 +81,7 @@ def resolve_component(key: str) -> dict[str, Any]:
         elif kind == "jig":
             jig = db.get(Jig, identifier)
             if jig is None:
-                raise ValueError(f"지그가 없습니다: {name}")
+                raise ValueError(f"지그({name})를 찾을 수 없습니다.")
             version = db.scalar(
                 select(JigVersion).where(
                     JigVersion.jig_id == jig.id,
@@ -90,11 +90,14 @@ def resolve_component(key: str) -> dict[str, Any]:
             )
             if version is not None and not getattr(version, "recipe", None):
                 # 지그 카탈로그의 버전은 레시피 대신 생성 작업을 들고 있을 수 있다.
-                raise ValueError("이 지그 버전에는 레시피가 없습니다 — 그린 지그만 가져옵니다")
+                raise ValueError(
+                    "이 지그 버전에는 레시피가 없습니다. 레시피로 모델링한 지그만 "
+                    "가져올 수 있습니다."
+                )
         elif kind == "work":
             work = db.get(Work, identifier)
             if work is None:
-                raise ValueError(f"작업이 없습니다: {name}")
+                raise ValueError(f"작업({name})을 찾을 수 없습니다.")
             version = db.scalar(
                 select(WorkVersion).where(
                     WorkVersion.work_id == work.id,
@@ -102,9 +105,11 @@ def resolve_component(key: str) -> dict[str, Any]:
                 )
             )
         else:
-            raise ValueError(f"모르는 열쇠입니다: {key} (part: · jig: · work:)")
+            raise ValueError(
+                f"알 수 없는 참조 키({key})입니다. part:, jig:, work: 중 하나를 사용하십시오."
+            )
         if version is None:
-            raise ValueError(f"버전을 찾지 못했습니다: {key}")
+            raise ValueError(f"버전({key})을 찾을 수 없습니다.")
         return dict(version.recipe)
     finally:
         db.close()
@@ -142,22 +147,23 @@ def place(
     evaluation = build(raw)
     boxes = {one.id: one.bbox for one in evaluation.nodes}
     if mover not in boxes or onto not in boxes:
-        raise AppError(code("CAD", 11), f"피처를 찾을 수 없습니다: {mover} · {onto}")
+        raise AppError(code("CAD", 11), f"피처({mover}, {onto})를 찾을 수 없습니다.")
     node = next((n for n in raw.get("nodes", []) if n.get("id") == mover), None)
     if node is None or node.get("op") not in ("component", "transform"):
         raise AppError(
-            code("CAD", 11), f"'{mover}' 는 component · transform 이어야 옮길 수 있습니다"
+            code("CAD", 11), f"‘{mover}’: component 또는 transform 피처만 이동할 수 있습니다."
         )
     current = [
         float(v) if not isinstance(v, str) else 0.0 for v in node.get("translate") or [0, 0, 0]
     ]
     if any(isinstance(v, str) for v in node.get("translate") or []):
         raise AppError(
-            code("CAD", 11), f"'{mover}' 의 translate 에 식이 있어 숫자로 놓을 수 없습니다"
+            code("CAD", 11),
+            f"‘{mover}’: translate 값에 식이 포함되어 있어 위치를 계산할 수 없습니다.",
         )
     mbox, tbox = boxes[mover], boxes[onto]
     if mbox is None or tbox is None:
-        raise AppError(code("CAD", 11), "상자를 잴 수 없는 피처입니다(스케치?)")
+        raise AppError(code("CAD", 11), "경계 상자를 계산할 수 없는 피처입니다(스케치 등).")
     try:
         translate = place_on(mbox, current, tbox, face=face, offset=offset, align=align)
     except PatchError as failure:
@@ -189,14 +195,15 @@ def mate_pick(
     nodes = list(raw.get("nodes") or [])
     ids = [str(one.get("id")) for one in nodes]
     if node not in ids:
-        raise AppError(code("CAD", 19), f"'{node}' 피처가 없습니다")
+        raise AppError(code("CAD", 19), f"‘{node}’ 피처가 존재하지 않습니다.")
     mover = nodes[ids.index(node)]
     if mover.get("op") != "component":
-        raise AppError(code("CAD", 19), f"'{node}' 는 가져온 구성품(component)이 아닙니다")
+        raise AppError(code("CAD", 19), f"‘{node}’: 가져온 구성품(component)이 아닙니다.")
     if side == "to":
         if target is None or target not in ids[: ids.index(node)]:
             raise AppError(
-                code("CAD", 19), "target: 구속은 이 구성품보다 앞에 놓인 것에만 겁니다"
+                code("CAD", 19),
+                "target: 구속은 이 구성품보다 앞에 있는 피처에만 지정할 수 있습니다.",
             )
         shape = build({**raw, "nodes": nodes[: ids.index(target) + 1], "result": None}).shape
         at = list(point)
@@ -223,7 +230,9 @@ def mate_pick(
         next((one for one in candidates if one["matches"] == 1), None),
     )
     if best is None:
-        raise AppError(code("CAD", 19), "누른 자리에서 면 · 엣지를 하나로 집지 못했습니다")
+        raise AppError(
+            code("CAD", 19), "선택한 위치에서 면 또는 엣지를 하나로 특정하지 못했습니다."
+        )
     return {"select": best["select"], "label": best["label"], "candidates": candidates}
 
 
@@ -261,12 +270,12 @@ def cut_list(raw: dict[str, Any], node_id: str) -> dict[str, Any]:
     except RecipeValidationError as failure:
         raise AppError(
             code("CAD", 2),
-            "레시피가 올바르지 않습니다",
+            "레시피가 올바르지 않습니다.",
             details={"problems": failure.problems},
         ) from failure
     node = next((one for one in recipe.nodes if one.id == node_id), None)
     if not isinstance(node, recipe_schema.FrameNode):
-        raise AppError(code("CAD", 15), f"'{node_id}' 는 구조 프레임(frame)이 아닙니다")
+        raise AppError(code("CAD", 15), f"‘{node_id}’: 구조 프레임(frame)이 아닙니다.")
     try:
         return {"node": node_id, **frame_cut_list(node)}
     except FrameError as failure:
@@ -282,7 +291,7 @@ def unfold(
     try:
         return unfold_shape(evaluation.shape, k_factor=k_factor, flip=flip)
     except UnfoldError as failure:
-        raise AppError(code("CAD", 17), f"펼 수 없습니다 — {failure}") from failure
+        raise AppError(code("CAD", 17), f"전개할 수 없습니다: {failure}") from failure
 
 
 def solve_sketch(shape: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
@@ -297,14 +306,14 @@ def solve_sketch(shape: dict[str, Any], params: dict[str, Any]) -> dict[str, Any
     except RecipeValidationError as failure:
         raise AppError(
             code("CAD", 21),
-            "구속 윤곽이 올바르지 않습니다",
+            "구속 윤곽이 올바르지 않습니다.",
             details={"problems": failure.problems},
         ) from failure
     node = recipe.nodes[0]
     assert isinstance(node, recipe_schema.SketchNode)
     one = node.shapes[0]
     if not isinstance(one, recipe_schema.ConstrainedShape):
-        raise AppError(code("CAD", 21), "구속 윤곽(type: constrained)이 아닙니다")
+        raise AppError(code("CAD", 21), "구속 윤곽(type: constrained)이 아닙니다.")
     try:
         solved = solve(one)
     except SketchSolveError as failure:
@@ -323,7 +332,9 @@ def mid_surface(raw: dict[str, Any], *, node: str | None = None) -> Any:
     try:
         return midsurface(evaluation.shape)
     except MidSurfaceError as failure:
-        raise AppError(code("CAD", 20), f"중간면을 뽑지 못했습니다 — {failure}") from failure
+        raise AppError(
+            code("CAD", 20), f"중간면을 추출하지 못했습니다: {failure}"
+        ) from failure
 
 
 def drawing_sheet(
@@ -344,7 +355,7 @@ def drawing_sheet(
             evaluation.shape, title=title, sheet=sheet, material=material, note=note
         )
     except ValueError as failure:
-        raise AppError(code("CAD", 18), f"도면을 그리지 못했습니다 — {failure}") from failure
+        raise AppError(code("CAD", 18), f"도면을 생성하지 못했습니다: {failure}") from failure
 
 
 def build(raw: dict[str, Any], *, allow_sketch: bool = False) -> Evaluation:
@@ -355,7 +366,7 @@ def build(raw: dict[str, Any], *, allow_sketch: bool = False) -> Evaluation:
     except RecipeValidationError as failure:
         raise AppError(
             code("CAD", 2),
-            "레시피가 올바르지 않습니다",
+            "레시피가 올바르지 않습니다.",
             details={"problems": failure.problems},
         ) from failure
     try:
@@ -368,7 +379,7 @@ def build(raw: dict[str, Any], *, allow_sketch: bool = False) -> Evaluation:
     except RecipeError as failure:
         raise AppError(
             code("CAD", 3),
-            f"만들지 못했습니다 — {failure.message}",
+            f"형상을 생성하지 못했습니다: {failure.message}",
             details={"node_id": failure.node_id},
         ) from failure
 
@@ -389,11 +400,11 @@ def sweep(
         known = ", ".join(sorted(params)) or "(없음)"
         raise AppError(
             code("CAD", 10),
-            f"레시피에 '{param}' 치수가 없습니다",
+            f"레시피에 ‘{param}’ 치수가 없습니다.",
             details={"known": known},
         )
     if len(values) > 40:
-        raise AppError(code("CAD", 11), "한 번에 40개까지 봅니다")
+        raise AppError(code("CAD", 11), "한 번에 최대 40개 값까지 계산할 수 있습니다.")
     out: list[dict[str, Any]] = []
     for value in values:
         variant = {**raw, "params": {**params, param: value}}
@@ -432,7 +443,7 @@ def run_job(
     progress(
         "evaluate",
         int((time.perf_counter() - started) * 1000),
-        f"노드 {len(evaluation.nodes)}",
+        f"노드 {len(evaluation.nodes)}개",
     )
 
     started = time.perf_counter()

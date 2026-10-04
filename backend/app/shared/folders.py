@@ -52,13 +52,16 @@ def normalize(raw: str, error_code: str) -> str:
     parts = [one.strip() for one in raw.replace("\\", "/").split("/")]
     parts = [one for one in parts if one]
     if len(parts) > DEPTH:
-        raise AppError(error_code, f"폴더는 {DEPTH} 단계까지입니다")
+        raise AppError(error_code, f"폴더는 최대 {DEPTH}단계까지 생성할 수 있습니다.")
     for one in parts:
         if len(one) > NAME:
-            raise AppError(error_code, f"폴더 이름은 {NAME} 자까지입니다: {one[:20]}…")
+            raise AppError(
+                error_code,
+                f"폴더 이름은 최대 {NAME}자까지 입력할 수 있습니다(‘{one[:20]}…’).",
+            )
     path = "/".join(parts)
     if len(path) > LENGTH:
-        raise AppError(error_code, "폴더 경로가 너무 깁니다")
+        raise AppError(error_code, "폴더 경로가 너무 깁니다.")
     return path
 
 
@@ -103,9 +106,11 @@ def checked_rename(path: str, to: str, error_code: str) -> tuple[str, str]:
     old = normalize(path, error_code)
     new = normalize(to, error_code)
     if not old:
-        raise AppError(error_code, "맨 위는 옮길 수 없습니다 — 폴더를 고르세요")
+        raise AppError(
+            error_code, "최상위 폴더는 이동할 수 없습니다. 이동할 폴더를 선택하십시오."
+        )
     if new.startswith(old + "/"):
-        raise AppError(error_code, "폴더를 제 하위 폴더 안으로 옮길 수 없습니다")
+        raise AppError(error_code, "폴더를 자신의 하위 폴더로 이동할 수 없습니다.")
     return old, new
 
 
@@ -151,8 +156,8 @@ def rename_shared(
     if not _may_touch(rows, user):
         raise Forbidden(
             forbidden_code,
-            f"다른 사람의 {_josa(noun, '이', '가')} 든 폴더는 관리자만 옮기거나 "
-            "이름을 바꿀 수 있습니다",
+            f"다른 사용자의 {_josa(noun, '이', '가')} 포함된 폴더는 관리자만 이동하거나 "
+            "이름을 변경할 수 있습니다.",
         )
     for row in rows:
         row.folder = renamed(row.folder, old, new, error_code)
@@ -177,9 +182,12 @@ def move_shared(
     path = normalize(folder, error_code)
     rows = list(db.scalars(select(model).where(model.id.in_(ids), *visible)))
     if len(rows) != len(set(ids)):
-        raise NotFound(missing_code, f"{_josa(noun, '을', '를')} 찾을 수 없습니다")
+        raise NotFound(missing_code, f"{_josa(noun, '을', '를')} 찾을 수 없습니다.")
     if not _may_touch(rows, user):
-        raise Forbidden(forbidden_code, f"남의 {_josa(noun, '은', '는')} 옮길 수 없습니다")
+        raise Forbidden(
+            forbidden_code,
+            f"다른 사용자의 {_josa(noun, '은', '는')} 이동할 수 없습니다.",
+        )
     for row in rows:
         row.folder = path
     db.commit()

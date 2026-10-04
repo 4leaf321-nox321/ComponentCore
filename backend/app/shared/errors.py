@@ -30,20 +30,20 @@ def code(module: str, number: int) -> str:
 
 
 _VALIDATION_MESSAGES = {
-    "missing": "값이 빠졌습니다",
-    "string_too_short": "값이 필요합니다",
-    "string_too_long": "너무 깁니다",
-    "string_pattern_mismatch": "쓸 수 없는 문자가 있습니다",
-    "int_parsing": "정수여야 합니다",
-    "float_parsing": "숫자여야 합니다",
-    "bool_parsing": "예/아니오 값이어야 합니다",
-    "value_error": "값이 올바르지 않습니다",
-    "greater_than_equal": "너무 작습니다",
-    "greater_than": "너무 작습니다",
-    "less_than_equal": "너무 큽니다",
-    "less_than": "너무 큽니다",
-    "too_long": "너무 많습니다",
-    "too_short": "개수가 모자랍니다",
+    "missing": "필수 값이 누락되었습니다.",
+    "string_too_short": "값이 비어 있거나 너무 짧습니다.",
+    "string_too_long": "값이 너무 깁니다.",
+    "string_pattern_mismatch": "사용할 수 없는 문자가 포함되어 있습니다.",
+    "int_parsing": "정수 값이어야 합니다.",
+    "float_parsing": "숫자 값이어야 합니다.",
+    "bool_parsing": "예/아니요 값이어야 합니다.",
+    "value_error": "값이 올바르지 않습니다.",
+    "greater_than_equal": "값이 허용 범위보다 작습니다.",
+    "greater_than": "값이 허용 범위보다 작습니다.",
+    "less_than_equal": "값이 허용 범위보다 큽니다.",
+    "less_than": "값이 허용 범위보다 큽니다.",
+    "too_long": "항목 수가 너무 많습니다.",
+    "too_short": "항목 수가 부족합니다.",
 }
 
 _MAX_VALIDATION_ITEMS = 3
@@ -70,11 +70,13 @@ def describe_validation(errors: Sequence[Any]) -> str:
             if kind == "value_error" and message.startswith("Value error, ")
             else _VALIDATION_MESSAGES.get(kind, message)
         )
-        parts.append(f"{where or '요청'} — {reason}")
+        if not reason.endswith((".", "?", "!")):
+            reason += "."
+        parts.append(f"{where or '요청'}: {reason}")
 
     more = len(errors) - len(parts)
-    summary = " / ".join(parts)
-    return f"{summary} 외 {more}건" if more > 0 else summary
+    summary = " ".join(parts)
+    return f"{summary} 이 외에 {more}건의 오류가 더 있습니다." if more > 0 else summary
 
 
 def _plain(errors: Sequence[Any]) -> list[dict[str, Any]]:
@@ -139,7 +141,7 @@ def _body(code: str, message: str, details: dict[str, Any] | None = None) -> dic
 
 
 _HTTP_MESSAGES = {
-    405: "이 주소는 그 방식의 요청을 받지 않습니다. 서버가 옛 버전일 수 있습니다.",
+    405: "이 주소는 해당 HTTP 메서드를 지원하지 않습니다. 서버 버전이 오래되었을 수 있습니다.",
     413: "파일이 너무 큽니다.",
 }
 
@@ -193,6 +195,6 @@ def register_error_handlers(app: FastAPI) -> None:
             status_code=500,
             content=_body(
                 code("COMMON", 500),
-                "서버 오류가 발생했습니다. 요청 ID를 관리자에게 알려주세요.",
+                "서버 오류가 발생했습니다. 요청 ID를 관리자에게 전달하십시오.",
             ),
         )

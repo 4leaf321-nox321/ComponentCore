@@ -68,7 +68,7 @@ def missing() -> str:
         empty.append("MATNEXUS_TOKEN(토큰)")
     if not empty:
         return ""
-    return f".env 의 {' · '.join(empty)} 가 비어 있습니다"
+    return f".env에 {', '.join(empty)} 값이 설정되지 않았습니다."
 
 
 def _client() -> httpx.Client:
@@ -88,13 +88,15 @@ def _post(path: str, body: dict[str, Any]) -> Any:
         with _client() as client:
             answer = client.post(path, json=body)
     except httpx.HTTPError as failure:
-        raise MatNexusUnavailable(f"MatNexus 에 닿지 못했습니다: {failure}") from failure
+        raise MatNexusUnavailable(f"MatNexus에 연결하지 못했습니다: {failure}") from failure
     if answer.status_code == 401:
-        raise MatNexusUnavailable("MatNexus 토큰이 거절됐습니다 — .env 의 MATNEXUS_TOKEN")
+        raise MatNexusUnavailable(
+            "MatNexus가 토큰을 거부했습니다. .env의 MATNEXUS_TOKEN을 확인하십시오."
+        )
     if answer.status_code >= 400:
         raise AppError(
             code("MATERIALS", 1),
-            f"MatNexus 가 거절했습니다 (HTTP {answer.status_code}): {answer.text[:200]}",
+            f"MatNexus가 요청을 거부했습니다(HTTP {answer.status_code}): {answer.text[:200]}",
         )
     return answer.json()
 
@@ -106,14 +108,16 @@ def _get(path: str, params: dict[str, Any] | None = None) -> Any:
         with _client() as client:
             answer = client.get(path, params=params)
     except httpx.HTTPError as failure:
-        raise MatNexusUnavailable(f"MatNexus 에 닿지 못했습니다: {failure}") from failure
+        raise MatNexusUnavailable(f"MatNexus에 연결하지 못했습니다: {failure}") from failure
     if answer.status_code == 401:
-        raise MatNexusUnavailable("MatNexus 토큰이 거절됐습니다 — .env 의 MATNEXUS_TOKEN")
+        raise MatNexusUnavailable(
+            "MatNexus가 토큰을 거부했습니다. .env의 MATNEXUS_TOKEN을 확인하십시오."
+        )
     if answer.status_code >= 400:
         # 그쪽 오류 문구를 그대로 옮긴다 — 우리가 다시 지어 내면 되짚을 수 없다.
         raise AppError(
             code("MATERIALS", 1),
-            f"MatNexus 가 거절했습니다 (HTTP {answer.status_code}): {answer.text[:200]}",
+            f"MatNexus가 요청을 거부했습니다(HTTP {answer.status_code}): {answer.text[:200]}",
         )
     return answer.json()
 
@@ -165,7 +169,7 @@ def get(material_id: str) -> dict[str, Any] | None:
     if _UUID.match(material_id):
         got = _get(f"/api/materials/{material_id}")
         if not isinstance(got, dict):
-            raise AppError(code("MATERIALS", 2), "MatNexus 의 답이 재료 한 벌이 아닙니다")
+            raise AppError(code("MATERIALS", 2), "MatNexus의 응답이 재료 형식이 아닙니다.")
         return got
     params: dict[str, Any] = {"code": material_id, "limit": 1}
     if workspace := get_settings().matnexus_workspace:
@@ -189,13 +193,13 @@ def _account_line(me: dict[str, Any]) -> str:
     """사람이 읽을 한 줄 — 누구로 붙었고 어디를 보나."""
     who = me.get("display_name") or me.get("email") or "(이름 없음)"
     if me.get("is_system_admin"):
-        return f"{who} — 시스템 관리자라 **모든 부서**가 보입니다"
+        return f"{who}(시스템 관리자: 모든 부서 조회 가능)"
     rooms = me.get("memberships") or []
     if not rooms:
-        return f"{who} — 소속 부서가 없습니다(재료가 안 보일 수 있습니다)"
+        return f"{who}(소속 부서 없음: 재료가 조회되지 않을 수 있음)"
     names = ", ".join(str(one.get("name") or one.get("slug")) for one in rooms[:3])
-    more = f" 외 {len(rooms) - 3}" if len(rooms) > 3 else ""
-    return f"{who} — 부서 {len(rooms)}곳({names}{more})"
+    more = f" 외 {len(rooms) - 3}곳" if len(rooms) > 3 else ""
+    return f"{who}(부서 {len(rooms)}곳: {names}{more})"
 
 
 def unit_systems() -> list[dict[str, Any]]:
@@ -339,11 +343,11 @@ def card_deck(card_id: str, deck_format: str, system: str, mid: int | None = Non
         with _client() as client:
             answer = client.get(f"/api/fitting/cards/{card_id}/export", params=params)
     except httpx.HTTPError as failure:
-        raise MatNexusUnavailable(f"MatNexus 에 닿지 못했습니다: {failure}") from failure
+        raise MatNexusUnavailable(f"MatNexus에 연결하지 못했습니다: {failure}") from failure
     if answer.status_code >= 400:
         raise AppError(
             code("MATERIALS", 7),
-            f"덱을 못 만들었습니다 ({deck_format}): {answer.text[:200]}",
+            f"덱을 생성하지 못했습니다({deck_format}): {answer.text[:200]}",
         )
     return answer.text
 
@@ -410,7 +414,7 @@ def ping() -> dict[str, Any]:
     except AppError as failure:
         return {"configured": True, "ok": False, "detail": failure.message}
     room = settings.matnexus_workspace
-    where = f"부서 「{room}」 로 좁힘" if room else "좁히지 않음"
+    where = f"‘{room}’ 부서로 한정" if room else "제한 없음"
     count = "?" if seen is None else seen
     return {
         "configured": True,
@@ -420,5 +424,7 @@ def ping() -> dict[str, Any]:
         "system_admin": bool(me.get("is_system_admin")),
         "workspace": settings.matnexus_workspace,
         "materials": seen,
-        "detail": f"{_account_line(me)} · {where} · 보이는 재료 {count}건",
+        "detail": (
+            f"연결 계정: {_account_line(me)}. 부서 범위: {where}. 조회 가능한 재료: {count}건."
+        ),
     }

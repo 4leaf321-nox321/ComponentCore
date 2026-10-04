@@ -70,7 +70,7 @@ def test_id_가_겹치면_거절() -> None:
                 ]
             }
         )
-    assert "겹칩니다" in caught.value.problems[0]
+    assert "중복됩니다" in caught.value.problems[0]
 
 
 def test_틀린_칸은_어느_칸인지_말한다() -> None:
@@ -519,7 +519,7 @@ def test_자르기_여유_배율() -> None:
         evaluate(
             parse({"nodes": [box, {"id": "o", "op": "offset", "target": "b", "amount": -11}]})
         )
-    with pytest.raises(RecipeValidationError, match="0 이면"):
+    with pytest.raises(RecipeValidationError, match="0이면"):
         parse({"nodes": [box, {"id": "o", "op": "offset", "target": "b", "amount": 0}]})
     scaled = evaluate(
         parse(
@@ -561,7 +561,7 @@ def test_면까지_돌출_나선_단면_윤곽_여유() -> None:
         )
     )
     assert pytest.approx(-10) == to_next.shape.bounding_box().max.Z  # 상자 바닥에서 멈춘다
-    with pytest.raises(RecipeValidationError, match="대상 입체"):
+    with pytest.raises(RecipeValidationError, match="대상 솔리드"):
         parse(
             {
                 "nodes": [

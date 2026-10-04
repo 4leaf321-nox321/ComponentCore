@@ -36,18 +36,18 @@ type Source = { key: string; label: string; hint: string }
 
 /** 미리보기 색 — 요소 종류마다. 이름표(「받침 2」)의 앞말로 고른다. */
 const ELEMENT_COLORS: { prefix: string; label: string; color: number; note: string }[] = [
-  { prefix: '제품', label: '제품', color: 0x3b82f6, note: '고른 부품' },
-  { prefix: '바닥판', label: '바닥판', color: 0x9ca3af, note: '부품 바닥 크기 + 판 여유' },
-  { prefix: '바닥', label: '바닥', color: 0x9ca3af, note: '낙하 바닥 — 부품 발자국 + 여유' },
-  { prefix: '받침대', label: '받침대', color: 0xf97316, note: '바닥에 구멍이 없으면 옆면을 받침대로 잡는다' },
-  { prefix: '받침', label: '받침', color: 0x10b981, note: '부품 바닥면에서 구멍을 피해 놓는다(3 · 4개)' },
-  { prefix: '위치 핀', label: '위치 핀', color: 0xf97316, note: '부품 바닥의 구멍 두 개에 꽂는다(가장 먼 쌍)' },
-  { prefix: '클램프', label: '클램프', color: 0xa855f7, note: '부품 윗면 가장자리를 위에서 누른다' },
-  { prefix: '볼트', label: '볼트', color: 0xa855f7, note: '부품의 관통 구멍(서로 먼 것부터)을 지나 판의 탭 구멍에' },
-  { prefix: '스페이서', label: '스페이서', color: 0x10b981, note: '볼트 자리마다 부품을 띄우는 원통' },
-  { prefix: '롤러', label: '롤러', color: 0x10b981, note: '긴 변 방향 ±스팬/2 에 눕힌 원기둥, 받침대 위' },
-  { prefix: '로딩 노즈', label: '로딩 노즈', color: 0xa855f7, note: '스팬 가운데, 부품 윗면을 누른다' },
-  { prefix: '임팩터', label: '낙하물', color: 0xef4444, note: '부품 윗면 가운데 위, 틈만큼 떨어져' },
+  { prefix: '제품', label: '제품', color: 0x3b82f6, note: '선택한 부품입니다.' },
+  { prefix: '바닥판', label: '바닥판', color: 0x9ca3af, note: '부품 바닥 크기에 판 여유를 더한 크기입니다.' },
+  { prefix: '바닥', label: '바닥', color: 0x9ca3af, note: '낙하 바닥입니다. 부품 투영 면적에 여유를 더한 크기입니다.' },
+  { prefix: '받침대', label: '받침대', color: 0xf97316, note: '바닥에 구멍이 없으면 옆면을 받침대로 지지합니다.' },
+  { prefix: '받침', label: '받침', color: 0x10b981, note: '부품 바닥면에서 구멍을 피해 배치합니다(3개 또는 4개).' },
+  { prefix: '위치 핀', label: '위치 핀', color: 0xf97316, note: '부품 바닥의 구멍 두 개(가장 멀리 떨어진 쌍)에 삽입합니다.' },
+  { prefix: '클램프', label: '클램프', color: 0xa855f7, note: '부품 윗면 가장자리를 위에서 가압합니다.' },
+  { prefix: '볼트', label: '볼트', color: 0xa855f7, note: '부품의 관통 구멍(서로 멀리 떨어진 것부터)을 지나 판의 탭 구멍에 체결합니다.' },
+  { prefix: '스페이서', label: '스페이서', color: 0x10b981, note: '볼트 위치마다 부품을 띄우는 원통입니다.' },
+  { prefix: '롤러', label: '롤러', color: 0x10b981, note: '긴 변 방향 ±스팬/2 위치의 받침대 위에 눕힌 원기둥입니다.' },
+  { prefix: '로딩 노즈', label: '로딩 노즈', color: 0xa855f7, note: '스팬 중앙에서 부품 윗면을 가압합니다.' },
+  { prefix: '임팩터', label: '낙하물', color: 0xef4444, note: '부품 윗면 중앙 위에 간극만큼 띄워 배치합니다.' },
 ]
 const colorOfLabel = (label: string) => ELEMENT_COLORS.find((one) => label.startsWith(one.prefix))?.color ?? 0x3b82f6
 const cssColor = (color: number) => `#${color.toString(16).padStart(6, '0')}`
@@ -100,7 +100,7 @@ export default function JigFromPartPage() {
       } catch (caught) {
         if (!alive) return
         setPreview(null)
-        setPreviewError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+        setPreviewError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
       } finally {
         if (alive) setPreviewing(false)
       }
@@ -140,7 +140,7 @@ export default function JigFromPartPage() {
       // 인라인 워커면 이미 끝나 있다 — 기다릴 것 없이 바로 가져간다.
       if (got.job.status === 'done') await adopt(got.work, got.job)
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
       setBusy(false)
     }
@@ -163,7 +163,7 @@ export default function JigFromPartPage() {
     <div className="space-y-4">
       <PageHeader
         title="부품에서 지그 생성"
-        description="부품 하나를 고르면 규칙으로 놓고 간섭을 검사합니다. 결과는 변수(판 두께 · 받침 높이 …)가 있는 도면으로 지그 작업이 되고, 거기서 이어서 그리거나 DOE 로 훑습니다."
+        description="부품을 선택하면 규칙에 따라 지그 요소를 배치하고 간섭을 검사합니다. 결과는 변수(판 두께, 받침 높이 등)를 포함한 도면으로 지그 작업에 저장되며, 이후 모델링을 이어 가거나 DOE로 탐색할 수 있습니다."
         back={{ to: '/works', label: '내 작업' }}
       />
       <ErrorNotice error={error} />
@@ -172,7 +172,7 @@ export default function JigFromPartPage() {
         <Card>
           <CardHeader>
             <CardTitle>
-              {made.work.name} <span className="text-muted-foreground text-sm font-normal">— 만드는 중이면 끝날 때 지그 작업으로 이동합니다</span>
+              {made.work.name} <span className="text-muted-foreground text-sm font-normal">생성이 완료되면 지그 작업으로 이동합니다.</span>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -184,7 +184,7 @@ export default function JigFromPartPage() {
               }}
               actions={
                 <Button size="sm" variant="outline" onClick={() => void retry()}>
-                  옵션 고쳐 다시
+                  옵션 수정 후 다시 생성
                 </Button>
               }
             />
@@ -195,7 +195,7 @@ export default function JigFromPartPage() {
           {/* 1. 어느 부품인가 */}
           <Card className="lg:col-span-4">
             <CardHeader>
-              <CardTitle>1. 부품 고르기</CardTitle>
+              <CardTitle>1. 부품 선택</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <SourceList title="내 작업의 부품" icon={Layers} rows={mine} picked={source?.key} onPick={setSource} empty="저장된 부품 작업이 없습니다." />
@@ -207,7 +207,7 @@ export default function JigFromPartPage() {
           {/* 2. 미리보기 · 옵션 · 만들기 */}
           <Card className="lg:col-span-8">
             <CardHeader>
-              <CardTitle>2. 미리 보고 만들기</CardTitle>
+              <CardTitle>2. 미리보기 및 생성</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {/* 형식 — 어떤 규칙으로 놓나. 먼저 고르고, 그 형식의 옵션만 편다. */}
@@ -230,10 +230,10 @@ export default function JigFromPartPage() {
               </div>
               {source ? (
                 <p className="text-sm">
-                  <b>{source.label}</b> <span className="text-muted-foreground text-xs">({source.hint})</span> 의 형상을 읽어 규칙으로 놓습니다 — 아래 3D 가 만들어질 그대로입니다. 형식 · 옵션을 바꾸면 따라 바뀝니다.
+                  <b>{source.label}</b> <span className="text-muted-foreground text-xs">({source.hint})</span>의 형상을 읽어 규칙에 따라 배치합니다. 아래 3D 화면은 실제로 생성될 결과와 같습니다. 형식이나 옵션을 변경하면 함께 갱신됩니다.
                 </p>
               ) : (
-                <p className="text-muted-foreground text-sm">왼쪽에서 부품을 고르면 여기에 미리보기가 뜹니다.</p>
+                <p className="text-muted-foreground text-sm">왼쪽에서 부품을 선택하면 여기에 미리보기가 표시됩니다.</p>
               )}
 
               {/* 미리보기 — 만들기와 같은 규칙. 색은 요소 종류. */}
@@ -246,7 +246,7 @@ export default function JigFromPartPage() {
                     </Suspense>
                   ) : (
                     <div className="text-muted-foreground flex h-full items-center justify-center rounded-md border border-dashed text-sm">
-                      {previewing ? '미리 보는 중…' : previewError ? '이 부품에는 규칙을 적용하지 못했습니다.' : '미리 보는 중…'}
+                      {previewing ? '미리보기 계산 중…' : previewError ? '이 부품에는 규칙을 적용하지 못했습니다.' : '미리보기 계산 중…'}
                     </div>
                   )}
                   </div>
@@ -254,7 +254,7 @@ export default function JigFromPartPage() {
                   {preview && (
                     <>
                       <div className="flex flex-wrap items-center gap-2 text-xs">
-                        {previewing && <span className="text-muted-foreground">다시 보는 중…</span>}
+                        {previewing && <span className="text-muted-foreground">미리보기 갱신 중…</span>}
                         <span>{planLine(preview)}</span>
                         <StatusBadge kind="interference" value={preview.interference.ok ? 'ok' : 'bad'} />
                       </div>
@@ -272,8 +272,8 @@ export default function JigFromPartPage() {
                               }}
                             >
                               <span className="size-2.5 rounded-full" style={{ background: cssColor(one.color) }} aria-hidden />
-                              <span className={emphasis?.startsWith(one.prefix) ? 'font-medium' : ''}>{one.label}</span>
-                              <span className="text-muted-foreground">— {one.note}</span>
+                              <span className={emphasis?.startsWith(one.prefix) ? 'font-medium' : ''}>{one.label}:</span>
+                              <span className="text-muted-foreground">{one.note}</span>
                             </button>
                           </li>
                         ))}
@@ -286,7 +286,7 @@ export default function JigFromPartPage() {
                         </ul>
                       )}
                       {!preview.interference.ok && (
-                        <p className="text-destructive text-xs">간섭이 있습니다 — 옵션을 바꿔 보세요. 만든 뒤 도면에서 옮길 수도 있습니다.</p>
+                        <p className="text-destructive text-xs">간섭이 있습니다. 옵션을 변경하십시오. 생성한 후 도면에서 위치를 조정할 수도 있습니다.</p>
                       )}
                     </>
                   )}
@@ -298,14 +298,14 @@ export default function JigFromPartPage() {
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Button onClick={() => void run()} disabled={busy || !source || !options || !!previewError}>
-                  {busy ? '거는 중…' : '이대로 지그 만들기'}
+                  {busy ? '요청 중…' : '이 설정으로 지그 생성'}
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => setShowOptions(!showOptions)}>
-                  {showOptions ? '세부 옵션 접기' : '세부 옵션 펴기'}
+                  {showOptions ? '세부 옵션 숨기기' : '세부 옵션 표시'}
                 </Button>
                 {showOptions && (
                   <Button variant="ghost" size="sm" onClick={() => defaults.data && setOptions({ ...defaults.data, kind })}>
-                    기본값으로
+                    기본값으로 초기화
                   </Button>
                 )}
               </div>
@@ -323,7 +323,7 @@ function planLine(preview: JigPreview): string {
   const p = preview.plan
   if (p.kind === 'bolted') return `볼트 ${p.bolts.length}${p.product_lift > 0 ? ` · 스페이서 ${p.bolts.length}` : ''}`
   if (p.kind === 'bending') return `롤러 ${p.rollers.length} · 로딩 노즈 1`
-  if (p.kind === 'drop') return p.impactor ? `바닥 · 낙하물(${p.impactor.kind === 'ball' ? '강구' : '펜'})` : '바닥 — 부품이 떨어진다'
+  if (p.kind === 'drop') return p.impactor ? `바닥 · 낙하물(${p.impactor.kind === 'ball' ? '강구' : '펜'})` : '바닥(부품 자유 낙하)'
   const locator = p.locators.some((one) => one.kind === 'pin') ? '위치 핀' : '받침대'
   return `받침 ${p.supports.length} · ${locator} ${p.locators.length} · 클램프 ${p.clamps.length}`
 }

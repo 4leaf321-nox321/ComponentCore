@@ -23,10 +23,10 @@ def load_step(path: Path) -> Shape:
     try:
         shape = import_step(path)
     except Exception as failure:
-        raise GeometryError(f"STEP 을 읽지 못했습니다: {failure}") from failure
+        raise GeometryError(f"STEP 파일을 읽지 못했습니다: {failure}") from failure
     if not shape.solids():
         raise GeometryError(
-            "STEP 에 솔리드가 없습니다 — 면(서피스)만 있는 파일은 지그를 잡을 수 없습니다."
+            "STEP 파일에 솔리드가 없습니다. 서피스만 있는 파일로는 지그를 생성할 수 없습니다."
         )
     return shape
 
@@ -60,7 +60,8 @@ def pose(shape: Shape, orientation: str) -> Shape:
     }
     if orientation not in turns:
         raise GeometryError(
-            f"모르는 낙하 자세입니다: {orientation} ({' · '.join(DROP_ORIENTATIONS)})"
+            f"알 수 없는 낙하 자세입니다: {orientation} "
+            f"(선택 가능: {', '.join(DROP_ORIENTATIONS)})"
         )
     return shape.moved(turns[orientation])
 
@@ -69,7 +70,7 @@ def understand(shape: Shape) -> ProductGeometry:
     normalized = normalize(shape)
     box = normalized.bounding_box()
     if box.size.X < 1e-3 or box.size.Y < 1e-3 or box.size.Z < 1e-3:
-        raise GeometryError("형상의 크기가 0 입니다.")
+        raise GeometryError("형상의 크기가 0입니다.")
     solids = normalized.solids()
     return ProductGeometry(
         shape=normalized,

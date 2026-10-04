@@ -99,7 +99,7 @@ def test_핀은_반대쪽_끝에서_들어가_지름만큼_나온다() -> None:
 
 
 def test_맞는_나사가_없으면_말한다() -> None:
-    with pytest.raises(RecipeError, match="thread 를 주세요"):
+    with pytest.raises(RecipeError, match="thread를 지정하십시오"):
         _plate({"id": "볼트", "op": "fasten", "target": "핀구멍", "part": "bolt"})
 
 

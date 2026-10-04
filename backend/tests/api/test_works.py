@@ -407,7 +407,7 @@ def test_부품이든_지그든_그리는_법은_같고_종류만_다르다(
     bad = client.patch(
         f"/api/works/{part['id']}", json={"kind": "치구"}, headers=member.headers
     )
-    assert bad.status_code == 400 and "모르는 종류" in bad.json()["error"]["message"]
+    assert bad.status_code == 400 and "알 수 없는 종류" in bad.json()["error"]["message"]
 
 
 def test_지그_작업에_이어_둔_부품이_승격까지_따라간다(
@@ -694,7 +694,10 @@ def test_해석_조건은_버전에_붙고_새_버전을_만들지_않는다(
         },
         headers=member.headers,
     )
-    assert bad.status_code == 400 and "선택 그룹이 없습니다" in bad.json()["error"]["message"]
+    assert (
+        bad.status_code == 400
+        and "선택 그룹 ‘옆면’이(가) 없습니다" in bad.json()["error"]["message"]
+    )
 
     # 조건의 칸 사양표 — 화면과 AI 가 같은 것을 본다.
     spec = client.get("/api/cad/conditions/schema", headers=member.headers).json()
@@ -722,7 +725,7 @@ def test_작업의_기본_단위계를_정하고_복제에_따라간다(
     bad = client.patch(
         f"/api/works/{work_id}", json={"unit_system": "inch"}, headers=member.headers
     )
-    assert bad.status_code >= 400 and "모르는 단위계" in bad.text
+    assert bad.status_code >= 400 and "알 수 없는 단위계" in bad.text
 
     client.patch(f"/api/works/{work_id}", json={"unit_system": "si"}, headers=member.headers)
     copy = client.post(f"/api/works/{work_id}/duplicate", headers=member.headers)

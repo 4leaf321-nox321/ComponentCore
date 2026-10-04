@@ -1,4 +1,4 @@
-<!-- version: 2026-10-04.1 -->
+<!-- version: 2026-10-04.2 -->
 # CompCore MCP 가이드
 
 ## overview
@@ -18,32 +18,32 @@
 | **물성 붙이기** | `material_search` → `material_get`(→ `condition_item`) · `recipe_bodies` → `set_conditions` |
 | **형상 여러 벌 만들기(DOE)** | `doe_preview` → `doe_probe`(끝 점 미리) → `doe_create` → `doe_points` → `doe_export` — 공유 폴더에 STEP 이 쌓인다. 더 뽑을 때 `doe_extend` |
 | **2D 도면(가공 맡길 때)** | `recipe_drawing(recipe, title, material)` — 3각법 세 뷰 · 전체 치수 · 구멍표 · 표제란. 답은 요약 + 그림. PDF · DXF 는 화면의 「파일 › 도면」 |
-| **조립에서 면끼리 맞대기 · 구멍 동심** | component 의 `mates` — 아래 「작업은 셋 중 하나다」 의 조립 |
+| **조립에서 면끼리 접촉 · 구멍 동심** | component 의 `mates` — 아래 「작업은 셋 중 하나다」 의 조립 |
 | **셸 해석용 중간면** | `recipe_midsurface(recipe)` — 판마다 두께 · 넓이. DOE 는 `doe_create(..., outputs=["midsurface"])` 로 점마다 `_mid.step` |
 | **판금 전개도** | `recipe_unfold(recipe)` — 펼친 크기 · 굽힘(선 · 각 · R · 위아래). 레시피 안에서는 `unfold` 노드. DXF 는 화면의 「파일 › 전개도」 |
-| **닮은 것 · 다시 쓸 지그 찾기** | `find_similar(source="part:<id>")` 또는 `find_similar(recipe=…)` — 점수 · 「왜」 · 비슷한 부품의 지그(`jigs`) |
-| **이미 있는 것부터 찾기** | `find_by_shape(has, thread, fits, hole, holes …)` — 내 작업 · 부품 · 지그의 최신 버전을 형상으로. **새로 그리기 전에** |
+| **유사 형상 · 다시 쓸 지그 검색** | `find_similar(source="part:<id>")` 또는 `find_similar(recipe=…)` — 점수 · 이유(`why`) · 유사 부품의 지그(`jigs`) |
+| **이미 있는 것부터 검색** | `find_by_shape(has, thread, fits, hole, holes …)` — 내 작업 · 부품 · 지그의 최신 버전을 형상으로. **새로 그리기 전에** |
 | 레시피가 맞나, 만들어지나 | `recipe_check` — **저장 전에 반드시** |
 | 새 부품 시작 | `create_work(name, recipe)` |
 | 있는 부품 고치기 | `get_work` 로 레시피를 받아 고쳐 `save_version` |
-| 되돌리기 | `list_versions` → `restore_version` |
+| 버전 복원 | `list_versions` → `restore_version` |
 | 부품에서 지그 생성 | `jig_preview(source, options)` 로 계획을 보고 → `run_jig` → 지그 작업이 생긴다 |
-| 남에게 내놓기 | `promote_part` · `promote_jig_recipe` — **사용자가 시킬 때만** |
-| 남의 것 가져오기 | `list_parts` → `copy_part_to_work` |
+| 공용 부품 · 지그로 등록(다른 사용자에게 공개) | `promote_part` · `promote_jig_recipe` — **사용자가 시킬 때만** |
+| 다른 사용자의 부품 가져오기 | `list_parts` → `copy_part_to_work` |
 | 폴더로 나눠 보기 | `list_folders(space)` 로 나무를 보고 `list_works` · `list_parts` · `list_jigs` · `list_templates` 의 `folder`(그 아래까지)로 거른다. 만들 때 `create_work(folder)` · `save_template(folder)` |
-| **정리하기** | `move_to_folder(space, ids, folder)` · `rename_folder(space, path, to)`(지우기 = 위 폴더로 합치기) · `update_work`(이름 · 설명 · 꼬리표 · 폴더 · 종류) · `list_tags` — 공용 공간은 올린 사람 · 관리자만 옮긴다 |
+| **정리하기** | `move_to_folder(space, ids, folder)` · `rename_folder(space, path, to)`(삭제 = 위 폴더로 합치기) · `update_work`(이름 · 설명 · 태그 · 폴더 · 종류) · `list_tags` — 공용 공간은 등록한 사용자 · 관리자만 옮긴다 |
 | 복제 · 휴지통 | `duplicate_work`(`with_conditions` — 해석 조건까지; 사용자가 안 정했으면 묻는다) · `delete_work`(휴지통 — **사용자가 지우라고 할 때만**) · `restore_work`(`list_works(trashed=True)` 로 본다) |
 | 템플릿 · 카탈로그 고치기 | `list_templates` · `update_template`(이름 · 공용 여부 · 폴더) · `copy_template` · `update_catalog_item(parts\|jigs)` — 내 것만 |
 | 멈추기 · 워커 | `cancel_job` · `doe_cancel`(만든 점은 남고 `doe_rerun(only="failed")` 로 잇는다) — **사용자가 멈추라고 할 때만**. 작업이 안 돌면 `worker_status`(관리자) |
-| 남의 작업 둘러보기(시스템 관리자만) | `list_works(owner="all")` · `list_works(owner=<사람 id>)` — 답에 `owner`. 작업 하나는 `get_work` 로 그대로 열린다. **고치면 그 사람의 작업에 새 버전이 생긴다** — 사용자가 시킬 때만 |
-| 이름 · 꼬리표 · 만든 사람으로 찾기 | `search("알루미늄 브래킷")` — 내 작업 · 공용 부품 · 지그 · 템플릿 한꺼번에(낱말마다 AND). DOE 는 `doe_studies(query=…, tag=…)` — 대상 작업 이름 · 꼬리표로도 |
+| 다른 사용자의 작업 조회(시스템 관리자만 — 화면의 「모든 작업」) | `list_works(owner="all")` · `list_works(owner=<사용자 id>)` — 답에 `owner`. 작업 하나는 `get_work` 로 그대로 열린다. **고치면 그 사용자의 작업에 새 버전이 생긴다** — 사용자가 시킬 때만 |
+| 이름 · 태그 · 작성자로 검색 | `search("알루미늄 브래킷")` — 내 작업 · 공용 부품 · 지그 · 템플릿 한꺼번에(낱말마다 AND). DOE 는 `doe_studies(query=…, tag=…)` — 대상 작업 이름 · 태그로도 |
 
 기본 습관:
 1. 저장은 늘 **사용자의 내 작업**에 새 버전으로 들어간다. 옛 버전은 남는다. 그러니 겁내지 말고
    저장하되, `note` 에 무엇을 바꿨는지 한 줄 적어라 — 사람이 이력에서 그것을 읽는다.
 2. `recipe_check` 가 실패하면 메시지에 **어느 피처가 왜**인지 있다. 그것을 읽고 고쳐 다시 불러라.
    같은 실패를 세 번 반복하면 사용자에게 상황을 말하고 판단을 받아라.
-3. 승격(카탈로그에 올리기)은 사람의 판단이다. 시키지 않았으면 하지 마라.
+3. 등록(공용 카탈로그에 올리기)은 사람의 판단이다. 시키지 않았으면 하지 마라.
 4. 치수 단위는 mm. 좌표계는 X 오른쪽 · Y 앞 · Z 위. 스케치 평면 XY 의 법선이 +Z 라 `extrude` 는
    위로 자란다.
 5. **눈으로 확인한다** — `recipe_check` 를 통과했어도 저장 전에 `recipe_views` 로 그림(등각 ·
@@ -82,10 +82,10 @@
   perpendicular · equal · radius · tangent(선-호 · 호-호) · coincident · on · midpoint ·
   symmetric). 풀이가 점을 **가장 덜 옮겨** 맞춘다 — 치수에 `=변수` 를 쓰면 DOE 가 훑는다. 먼저
   `sketch_solve(shape, params)` 로 풀어 보면 점의 자리 · **남은 움직임**(`free`, 0 이면 다
-  정해졌다)이 오고, 맞지 않으면 「구속 7(길이) — 앞의 구속과 맞지 않습니다」. 점 하나를 fix 하고
+  정해졌다)이 오고, 맞지 않으면 「구속 7(길이): 이전 구속과 충돌합니다(오차 …)」. 점 하나를 fix 하고
   한 변을 수평으로 두면 대개 free 가 0 이 된다.
   스케치의 `hull: true` 는 도형들을 **감싸는 볼록 윤곽** 하나로 만든다(흩어진 자리를 덮는 베이스
-  판). 스케치의 `offset` 은 합친 윤곽을 밖(+)/안(−)으로 띄운다(2D 여유). `section`(target, plane,
+  판). 스케치의 `offset` 은 합친 윤곽을 밖(+)/안(−)으로 띄운다(2D 오프셋). `section`(target, plane,
   offset) 은 입체를 평면으로 자른 단면을 **스케치로** 준다 — 여유를 주고 돌출하면 포켓 윤곽.
 - 입체 `extrude`(sketch, distance, direction normal|reverse|both, taper — 구배 도, 양수면 좁아짐,
   until distance|next|last + target — 대상의 다음/마지막 면까지; 관통 구멍은 last) ·
@@ -120,8 +120,8 @@
   원통면(안쪽 R · 바깥 R+t)이라 `kind: cylinder` 로 고를 수 있다. 펼친 길이는 중립면
   (`k_factor`, 기본 0.5 — 안쪽 면에서 두께의 몇 할)에서 보존된다. 포켓 · 단차 · 위아래 모서리
   필렛 · 모따기가 있는 판은 거절한다 — 그런 것은 굽힌 **뒤에**. `bends` 의 굽힘선은 서로
-  평행이고, **다른 방향의 날개**(상자 전개도의 네 변)는 `also: [{along, bends}…]` 로 — 판이
-  「바탕」 과 묶음마다의 날개(그 묶음의 첫 굽힘선 너머)로 나뉘어 따로 굽는다. 이웃한 두 날개가
+  평행이고, **다른 방향의 플랜지**(상자 전개도의 네 변)는 `also: [{along, bends}…]` 로 — 판이
+  「바탕」 과 묶음마다의 플랜지(그 묶음의 첫 굽힘선 너머)로 나뉘어 따로 굽는다. 이웃한 두 플랜지가
   모서리에서 겹치면 거절하고, `corner_relief: true` 면 겹친 자리를 따낸다. 예 — 100 길이 판을
   x=40 에서 R5 로 90° 세우기: `{"op":"bend","target":"판","bends":[{"at":40,"radius":5,"angle":90}]}`;
   십자 전개도(바탕 100 x 60)로 상자: `"along":[1,0,0],"bends":[{"at":50,…}],"also":[{"along":[-1,0,0],
@@ -144,10 +144,10 @@
   height) · `angle`(width, height, thickness) · `channel`(width, height, thickness) ·
   `h_beam`(width, height, web, flange). 경로 하나는 점 목록 — 점 사이가 부재 하나, 마지막 점이
   처음 점과 같으면 닫힌 틀. 단면 가운데가 경로 위, 단면 위쪽이 +Z(서 있는 부재는 +X) — roll 로
-  돌린다. corner: miter 45° 맞대기 · butt 앞 부재가 지나가고 뒤 부재가 그 옆면에서 시작(직각에서
+  돌린다. corner: miter 45° 마이터 · butt(맞대기) 앞 부재가 지나가고 뒤 부재가 그 옆면에서 시작(직각에서
   꼭 맞는다) · none 겹치기. **다른 경로에 닿는 열린 끝**(기둥 → 틀)은 meet 가 정한다 — butt
   (기본)면 그 부재의 옆면까지 맞춘다: 기둥 경로를 틀의 **중심선 점까지** 그리면 틀 밑면에서
-  멈춘다(조금 모자라도 단면 안이면 늘인다), overlap 이면 그대로 겹친다. 기본은 한 덩어리,
+  멈춘다(조금 모자라도 단면 안이면 늘인다), overlap 이면 그대로 겹친다. 기본은 한 솔리드,
   separate 면 부재마다 따로(볼트 조립 프레임을 부재별로 해석). **절단 목록**은
   `recipe_cutlist(recipe, node_id)` — 부재마다 자를 길이 · 끝의 각(0 = 직각) · 부피. 예 — 600 x 400 탁자 틀:
   `{"op":"frame","profile":{"type":"t_slot","size":40},"corner":"butt",
@@ -169,7 +169,7 @@
   fillets_below 보다 작은 필렛, 고른 면을 지우고 이웃 면을 늘려 막는다. 해석용 단순화와 피처
   이력이 없는 `import_step` 제품을 고칠 때. 이어진 필렛이 끝면 둘레를 다 두르면 메울 수 없어
   남기고 요약의 `warnings` 에 적는다 — 그때는 기준을 줄이거나 faces 로 골라 지운다)
-- 영역 `imprint`(target — **접촉 자리 새기기**: 조립(group)의 바디끼리 닿는 자리를 서로의 면에
+- 영역 `imprint`(target — **접촉 영역 임프린트**: 조립(group)의 바디끼리 닿는 자리를 서로의 면에
   새겨 나눈다. 판 위의 블록이면 판 윗면이 닿는 자리와 나머지로 갈려 접촉면 짝이 넓이 · 자리까지
   같아진다. 닿는 자리마다 태그 `받침판/블록`(받침판 쪽 면) · `블록/받침판`(블록 쪽 면) — 접촉
   조건은 `source`·`target` 선택 그룹을 `{"what":"faces","tag":"블록/받침판"}` ·
@@ -240,7 +240,7 @@
    · 짧은 모서리 · 좁은 면 · 바디 수)은 늘 하고, 기준은 `checks`(mm). 해석 쪽이 목표 · 제약으로
    쓸 **형상 값**은 `measures` 로 열을 더한다(부피 · 크기 · 그룹 넓이 · 거리 · 식 — 질량은
    `부피 * 밀도` 식으로). 해석 결과는 계산하지 않는다. 다 만들어지면 `doe_export` 로
-   **공유 폴더**에 보낸다 — 해석(ANSYS)은 그때부터 그 폴더를 읽는다(만드는 중에 보내지 않는다).
+   **공유 폴더**로 내보낸다 — 해석(ANSYS)은 그때부터 그 폴더를 읽는다(만드는 중에 내보내지 않는다).
 4. **결과는 이 플랫폼에 돌아오지 않는다.** 해석 플랫폼이 폴더를 읽어 풀고, 결과를 보고
    설계점을 고르는 일도 거기서 한다 — 여기서 「어느 점이 좋은가」 를 묻지 마라. 점마다
    `points/pNNNN.topology.json` 에 **영역 지문과 그 점의 변수 값**이 함께 있어, 해석 쪽이
@@ -278,13 +278,13 @@
   **구속(`mates`)으로 놓으면 치수가 바뀌어도 따라 앉는다** — 손으로 적은 `translate` 는 지그
   높이가 DOE 로 바뀌면 부품이 허공에 뜬다. component 에 `"mates": [...]`(6 개까지, 차례대로):
   `{"type":"touch","this":{"what":"faces","role":"bottom"},"to":"지그","select":{"what":"faces","role":"top"}}`
-  (맞대기 — `offset` 은 틈), `flush`(면 맞춤 — 같은 쪽), `concentric`(동심 — 원통면 · 원 엣지,
+  (접촉 — `offset` 은 간극), `flush`(동일 평면 — 같은 쪽), `concentric`(동심 — 원통면 · 원 엣지,
   `flip` 은 축 방향 뒤집기), `parallel` · `perpendicular` · `angle`(`angle` 도). **`this` 는
   가져온 도면의 좌표**로 쓴다(그 부품 레시피에 `recipe_find` 를 물어 만든다), `to` 는 **앞에
   놓인** 피처 id + `select`, 또는 기준(`XY` · `Z` · 기준 피처 id — `select` 없이). 구속이 정하지
   않은 쪽은 `translate` · `rotate` 가 정한다(처음 자리). `recipe_check` 의 `summary.nodes[]
   .placement` 에 자리와 남은 움직임(`free_rotation` · `free_translation`)이 온다 — 0 · 0 이면 다
-  정해졌다. 맞지 않는 구속은 「구속 2(맞대기) — 앞의 구속과 맞지 않습니다, 3 mm 어긋남」.
+  정해졌다. 맞지 않는 구속은 「구속 2(접촉): 이전 구속과 충돌합니다(오차 3 mm)」.
 
 **지그 작업은 두 길로 시작한다** — 어느 쪽이든 결과는 `kind="jig"` 작업이고 그 뒤는 같다:
 - **부품에서 생성**: `run_jig(source, options)` — 부품(`work:<id>` · `part:<id>`)의 형상에서
@@ -295,7 +295,7 @@
   으로 그린다(그때부터 `params` 로 변수를 심는다).
 - **빈 화면에서 그린다**: 생성기가 만들 수 없는 지그(공진을 맞추는 시험 지그, 특수 치구)는
   `create_work(kind="jig")` 로 시작해 레시피로 그린다.
-다 그리면 `promote_jig_recipe` 로 지그 카탈로그에 올린다(작업에 이어 둔 부품이 자동으로 따라간다).
+다 그리면 `promote_jig_recipe` 로 지그 카탈로그에 등록한다(작업에 이어 둔 부품이 자동으로 따라간다).
 
 제품을 기준으로 **지그**를 그릴 때:
 1. `list_parts` → `part_geometry(part_id)` — 크기 · 바닥 평면 · **구멍(지름 · 중심 · 깊이)** 을
@@ -313,13 +313,13 @@
   값을 그대로** 넣어라. 좌표로 환산하면서 틀리는 일이 제일 많다.
 - 접어 만드는 것은 `sheet_metal`(옆모습 꺾은선이 주어질 때) 또는 `bend`(**전개도** — 펼친 판의
   치수 · 구멍 자리가 주어질 때, 원통에 감는 띠), 살을 붙이는 리브는 `path`(두께 있는 선), 감싸는 판은
-  `sketch.hull`, 제품에 맞춘 포켓은 `section`(단면) + `offset`(여유) 또는 `offset` 뒤 `cut`.
+  `sketch.hull`, 제품에 맞춘 포켓은 `section`(단면) + `offset`(오프셋) 또는 `offset` 뒤 `cut`.
 
 자주 하는 실수:
 - 결과가 스케치다 → `extrude` · `revolve` 로 입체를 만들어야 한다.
 - 필렛 반지름이 인접 면보다 크다 → 줄이거나 `edges` 를 좁혀라(`vertical` 등).
 - 뒤 피처를 가리켰다 → 순서를 바꿔라. id 가 겹친다 → 이름을 바꿔라.
-- 면이 정확히 포개진 두 덩어리를 합쳤다 → 조금 겹치게 하라(예: 벽을 바닥판에 1mm 묻기).
+- 면이 정확히 포개진 두 솔리드를 합쳤다 → 조금 겹치게 하라(예: 벽을 바닥판에 1mm 묻기).
 - `cut` 이 전부를 지웠다 → 도구 위치를 확인하라.
 
 템플릿에서 시작해 고치는 것이 가장 빠르다(내장은 `recipe_schema` 의 `templates`, 사람이 저장한
@@ -338,7 +338,7 @@
 ## workflow
 
 1. `get_work(work_id)` 로 지금 레시피와 평가 요약(크기 · 부피 · 면 수)을 받는다. 새로 만들 때는
-   **먼저 `find_similar(recipe=…)` · `find_by_shape` 로 비슷한 것이 이미 있는지 본다**(크기 · 구멍 · 나사 · 판금 여부) —
+   **먼저 `find_similar(recipe=…)` · `find_by_shape` 로 유사 형상이 이미 있는지 본다**(크기 · 구멍 · 나사 · 판금 여부) —
    있으면 `duplicate_work` · `copy_part_to_work` 로 시작한다. 없으면 `recipe_schema` 의 템플릿에서. 치수만 바꿔 되풀이해 쓸 모양이면 `save_template` 로 남긴다
    (`shared: true` 면 공용 자리).
 2. 레시피를 고친다 — **바꾸는 피처만** 손대고 나머지는 그대로 둔다. 새 피처는 끝에 붙이고 앞 피처를
@@ -358,7 +358,7 @@
 
 결과 `summary`:
 - `plan.supports` 받침 위치, `plan.locators` 핀(구멍이 있을 때) 또는 레스트(옆면), `plan.clamps`
-  패드 · 기둥 위치, `plan.notes` 계획이 스스로 남긴 말(「구멍이 없어 옆면 레스트로」 등)
+  패드 · 기둥 위치, `plan.notes` 계획이 스스로 남긴 말(「구멍이 없어 옆면 레스트(2-1)로 위치를 결정합니다.」 등)
 - `interference.ok` 와 `items` — 겹친 부품 쌍과 부피(mm³). 0 이어야 정상.
 - `stages` 단계별 시간.
 
@@ -418,7 +418,7 @@
    인자에 `{"name": "블록 재료", "mode": "material", "bodies": ["블록"], "values": [이름 · 번호…]}`.
    치수 인자와 섞어 격자 · LHS 로 조합한다. 형상은 그대로라 한 벌을 나눠 쓴다.
 5. **조건 값도 훑는다** — 무엇을 어떻게:
-   - 숫자 칸(하중 크기 · 변위량 · 마찰계수 · 온도 · 끝 시간 · 모드 수 …): 도면 `params` 에 변수를
+   - 숫자 칸(하중 크기 · 변위량 · 마찰계수 · 온도 · 종료 시간 · 모드 수 …): 도면 `params` 에 변수를
      두고(형상에 안 써도 된다) 조건 칸에 `"=압력"` 처럼 적은 뒤 그 변수를 인자로 훑는다. 정수 칸
      (모드 수 · 단계 수)도 식을 받는다 — 풀려서 정수여야 한다.
    - 고르는 칸(구속 · 하중 · 접촉의 종류, 정식화, 선택 그룹, 해석 종류, 켬끔, 변위의 자유 `null` ↔

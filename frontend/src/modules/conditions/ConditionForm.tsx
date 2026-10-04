@@ -139,7 +139,7 @@ function AmountField({
           aria-label={`${label} 변위량`}
           className="col-start-2"
           value={value === null || value === undefined ? '' : String(value)}
-          placeholder={unit ? `수 또는 =식 · ${unit}` : '수 또는 =식'}
+          placeholder={unit ? `수 또는 =식 (${unit})` : '수 또는 =식'}
           onChange={(e) => {
             const text = e.target.value
             // 비우면 0 — 자유로 바꾸려면 「자유」 를 누른다(빈칸이 자유를 뜻하지 않게).
@@ -227,7 +227,7 @@ function DirectionField({
           {(
             [
               [true, '면의 법선'],
-              [false, 'X · Y · Z 성분'],
+              [false, 'X·Y·Z 성분'],
             ] as const
           ).map(([isNormal, label]) => (
             <button
@@ -243,7 +243,7 @@ function DirectionField({
         </div>
       )}
       {normal ? (
-        <p className="text-muted-foreground text-xs">면마다 그 면의 법선으로 겁니다 — 양수가 면을 누르는 쪽입니다.</p>
+        <p className="text-muted-foreground text-xs">각 면의 법선 방향으로 적용됩니다. 양수 값은 면을 누르는 방향입니다.</p>
       ) : (
         <>
           <div className="grid grid-cols-3 gap-1">
@@ -268,7 +268,7 @@ function DirectionField({
               </button>
             ))}
           </div>
-          <p className="text-muted-foreground text-xs">위 「좌표계」 의 축 성분입니다 — 길이는 상관없고 방향만 씁니다.</p>
+          <p className="text-muted-foreground text-xs">위 ‘좌표계’의 축 성분입니다. 벡터의 크기와 관계없이 방향만 사용됩니다.</p>
         </>
       )}
     </div>
@@ -292,8 +292,8 @@ function BoltField({
   const byLength = unit === length
   return (
     <div className="space-y-1">
-      <Label>조이는 방법</Label>
-      <div className="flex gap-1" role="group" aria-label="조이는 방법">
+      <Label>체결 방식</Label>
+      <div className="flex gap-1" role="group" aria-label="체결 방식">
         {(
           [
             [false, `예압 (${force})`],
@@ -318,7 +318,7 @@ function BoltField({
         onChange={(e) => onChange(e.target.value === '' ? null : numberOrExpr(e.target.value), byLength ? length : force)}
       />
       <p className="text-muted-foreground text-xs">
-        {byLength ? '볼트를 이 길이만큼 줄여 조입니다.' : '볼트 축으로 이 힘만큼 당겨 조입니다.'} 볼트 축은 원통면에서 정해집니다.
+        {byLength ? '볼트를 이 길이만큼 단축하여 체결합니다.' : '볼트 축 방향으로 이 힘만큼 인장하여 체결합니다.'} 볼트 축은 원통면으로부터 결정됩니다.
       </p>
     </div>
   )
@@ -326,11 +326,11 @@ function BoltField({
 
 /** 방향마다 무엇을 적는가 — 종류별 안내. */
 const FOOTNOTE: Record<string, string> = {
-  displacement: '방향은 위 「좌표계」 의 축입니다. 변위량은 도면과 같은 mm 로 적습니다.',
+  displacement: '방향은 위 ‘좌표계’의 축을 따릅니다. 변위량은 도면과 같은 mm 단위로 입력합니다.',
   remote_displacement:
-    '고른 면을 원격점 하나에 묶고 그 점을 잡습니다. 방향은 위 「좌표계」 의 축이고, 이동은 mm · 회전은 도입니다.',
-  elastic_support: '방향은 종류가 정합니다 — 스프링의 세기는 아래 「기초 강성」 입니다.',
-  cylindrical: '방향은 고른 원통면의 축 기준입니다. 좌표계를 고르지 않습니다.',
+    '선택한 면을 하나의 원격점에 연결하고 그 점을 구속합니다. 방향은 위 ‘좌표계’의 축을 따르며, 이동은 mm, 회전은 도(°) 단위입니다.',
+  elastic_support: '방향은 종류에 따라 정해집니다. 스프링 강성은 아래 ‘기초 강성’에 입력합니다.',
+  cylindrical: '방향은 선택한 원통면의 축을 기준으로 합니다. 좌표계는 선택하지 않습니다.',
 }
 
 export function ConditionForm({
@@ -443,15 +443,15 @@ export function ConditionForm({
             </SelectContent>
           </Select>
           {field.description && <p className="text-muted-foreground text-xs">{field.description}</p>}
-          {accepts && <p className="text-muted-foreground text-xs">받는 것: {acceptsLabel(accepts)} 선택 그룹</p>}
+          {accepts && <p className="text-muted-foreground text-xs">적용 가능 대상: {acceptsLabel(accepts)} 선택 그룹</p>}
           {names.length > 0 && choosable.length === 0 && (
             <p className="text-xs text-amber-700 dark:text-amber-400">
-              고를 수 있는 선택 그룹이 없습니다 — {acceptsLabel(accepts ?? [])} 을 3D 에서 선택해 만드세요.
+              사용할 수 있는 선택 그룹이 없습니다. 3D에서 대상 형상({acceptsLabel(accepts ?? [])})을 선택하여 생성하십시오.
             </p>
           )}
           {names.length === 0 && !field.whole && (
             <p className="text-muted-foreground text-xs">
-              선택 그룹이 없습니다 — 3D 에서 형상을 선택하면 생성됩니다.
+              선택 그룹이 없습니다. 3D에서 형상을 선택하면 생성됩니다.
             </p>
           )}
         </div>
@@ -488,7 +488,7 @@ export function ConditionForm({
       */}
       {(components.length > 0 || implied.length > 0) && (
         <div className="space-y-2">
-          <Label>방향마다</Label>
+          <Label>방향별 구속</Label>
           {components.map(([key, field]) => (
             <ComponentField key={key} name={key} field={field} units={units} value={item[key]} onChange={(v) => set(key, v)} />
           ))}
@@ -502,7 +502,7 @@ export function ConditionForm({
             />
           ))}
           <p className="text-muted-foreground text-xs">
-            {FOOTNOTE[type] ?? '이 종류가 정한 것이라 바꿀 수 없습니다 — 방향마다 정하려면 displacement 나 cylindrical 을 고르세요.'}
+            {FOOTNOTE[type] ?? '이 종류에서 정해진 값이므로 변경할 수 없습니다. 방향별로 지정하려면 displacement 또는 cylindrical을 선택하십시오.'}
           </p>
         </div>
       )}
@@ -639,7 +639,7 @@ export function ConditionForm({
               placeholder={
                 // 비우면 서버가 기본값을 쓴다 — 그것을 보여 준다(빈칸이 「안 보낸다」 로 읽히지 않게).
                 field.default !== undefined && field.default !== null && field.default !== ''
-                  ? `기본 ${String(field.default)}`
+                  ? `기본값 ${String(field.default)}`
                   : field.integer
                     ? '정수 또는 =식'
                     : isNumeric(field)

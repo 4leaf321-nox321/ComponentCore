@@ -44,7 +44,7 @@ def chamfer(
             builder.AddDA(length, math.radians(angle), edge.wrapped, side.wrapped)
         else:
             builder.Add(length, length2 or length, edge.wrapped, side.wrapped)
-    return _built(builder, "모따기를 만들지 못했습니다 — 길이 · 각을 줄여 보세요")
+    return _built(builder, "모따기를 생성하지 못했습니다. 길이 또는 각도를 줄이십시오.")
 
 
 def fillet(
@@ -62,7 +62,8 @@ def fillet(
             first, last = last, first
         builder.Add(first, last, TopoDS.Edge_s(edge.wrapped))
     return _built(
-        builder, "반지름이 변하는 필렛을 만들지 못했습니다 — 반지름을 줄이거나 엣지를 좁히세요"
+        builder,
+        "가변 반지름 필렛을 생성하지 못했습니다. 반지름을 줄이거나 선택한 엣지를 줄이십시오.",
     )
 
 
@@ -80,7 +81,7 @@ def _measured_side(
     """`length` 를 재는 면 — 고른 기준면 중 이 엣지에 붙은 것, 없으면 더 위를 보는 면."""
     faces = [Face(TopoDS.Face_s(one)) for one in neighbours.FindFromKey(edge.wrapped)]
     if not faces:  # pragma: no cover — 입체의 엣지는 면에 붙어 있다
-        raise BlendError("엣지에 붙은 면이 없습니다")
+        raise BlendError("엣지에 인접한 면이 없습니다.")
     for face in faces:
         if reference and any(face.is_same(one) for one in reference):
             return face

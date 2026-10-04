@@ -102,7 +102,7 @@ def test_메울_수_없는_필렛_고리는_남기고_경고한다() -> None:
     **경계상자로** 메워 버린다(6424 → 24000, 실측). 그런 결과는 쓰지 않는다."""
     made = evaluate(parse({"nodes": _l_block("all")}))
     assert made.shape.volume == pytest.approx(6424.45, abs=0.1)
-    assert len(made.warnings) == 1 and "30 개" in made.warnings[0]
+    assert len(made.warnings) == 1 and "30개" in made.warnings[0]
 
     # 한 방향의 모서리만 둥글렸으면 지운다 — 날카로운 ㄴ자(325 mm² x 20)로 돌아온다.
     near = {"near": [[5, -10, 5], [40, -10, 5], [0, -10, 30], [5, -10, 30]], "tolerance": 2}
@@ -113,7 +113,7 @@ def test_메울_수_없는_필렛_고리는_남기고_경고한다() -> None:
 
 @pytest.mark.parametrize(
     ("extra", "words"),
-    [({}, "하나는 있어야"), ({"faces": "top"}, "3D 에서 고른 자리")],
+    [({}, "하나 이상을 지정해야"), ({"faces": "top"}, "3D 뷰에서 선택한 위치")],
 )
 def test_무엇을_지울지_없으면_말한다(extra: dict[str, Any], words: str) -> None:
     with pytest.raises(RecipeValidationError, match=words):

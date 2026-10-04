@@ -135,8 +135,8 @@ def members(node: S.FrameNode) -> list[Member]:
         length = (one.end - one.start).length + one.head + one.tail
         if length <= _TOL:
             raise FrameError(
-                f"paths[{one.path}] 부재 {one.index + 1}: 맞닿는 부재에 맞추니 길이가 남지 "
-                "않습니다 — 경로를 늘이세요"
+                f"paths[{one.path}] 부재 {one.index + 1}: 맞닿는 부재에 맞춰 자르면 남는 "
+                "길이가 없습니다. 경로를 늘리십시오."
             )
         solid: Shape = extrude(plane * shape, length)
         for point, incoming, outgoing, front in one.miters:
@@ -210,7 +210,7 @@ def _path_members(
     segments = list(zip(points, points[1:] + ([points[0]] if closed else []), strict=False))
     for start, end in segments:
         if (end - start).length < _TOL:
-            raise FrameError(f"{where}: 같은 점이 잇달아 있어 길이 0 인 부재가 됩니다")
+            raise FrameError(f"{where}: 같은 점이 연속으로 있어 길이가 0인 부재가 생깁니다.")
     count = len(segments)
     out = []
     for i, (start, end) in enumerate(segments):
@@ -236,7 +236,8 @@ def _path_members(
         turn = out[i].direction.get_angle(out[j].direction)  # build123d 는 도로 준다
         if turn > _MAX_TURN:
             raise FrameError(
-                f"{where}: 점 {j} 에서 {turn:.0f}° 로 거의 되돌아갑니다 — 맞댈 면이 없습니다"
+                f"{where}: 점 {j}에서 {turn:.0f}°로 꺾여 거의 되돌아갑니다. "
+                "맞댈 면이 없습니다."
             )
         return turn
 

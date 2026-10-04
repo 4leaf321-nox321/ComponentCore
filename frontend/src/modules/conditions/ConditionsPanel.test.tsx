@@ -285,9 +285,9 @@ test('선택하면 좌표가 아니라 **선택 규칙**으로 되돌려 주고,
   const asked = calls.mock.calls.filter((one) => String(one[0]).includes('selectors'))
   expect((asked[asked.length - 1][1] as { pick: unknown }).pick).toEqual({ what: 'faces', point: [0, 0, 0], index: 0 })
   // 후보마다 「지금 몇 개에 맞나」 가 보여야 한다 — 하나만 집을지 부류 전부를 집을지 고른다.
-  await waitFor(() => screen.getByRole('option', { name: 'bottom 면 (현재 1 개)' }))
+  await waitFor(() => screen.getByRole('option', { name: 'bottom 면 (현재 1개)' }))
   // 좌표만 쓰는 규칙은 **치수 변경에 취약하다고** 적혀 있다.
-  expect(screen.getByRole('option', { name: '좌표에 가장 가까운 면 (현재 1 개) — 치수 변경에 취약' })).toBeInTheDocument()
+  expect(screen.getByRole('option', { name: '좌표에 가장 가까운 면 (현재 1개, 치수 변경에 취약)' })).toBeInTheDocument()
 
   fireEvent.change(screen.getByLabelText('그룹 이름'), { target: { value: '바닥' } })
   fireEvent.click(screen.getByRole('button', { name: '생성' }))
@@ -302,7 +302,7 @@ test('트리에서 선택 그룹을 누르면 **3D 에 비추고**, 지금 몇 �
   await panel()
   await makeGroup('면 찍기', '바닥')
   // 만들자마자 트리에서 펼쳐진다 — 그 그룹이 3D 에 비친다.
-  await waitFor(() => screen.getByText('1 개 (3D 에 표시)'))
+  await waitFor(() => screen.getByText('1개 (3D에 표시)'))
   expect(lastMarks?.faces).toHaveLength(1)
 
   // 접으면 비추지 않는다.
@@ -339,7 +339,7 @@ test('**Ctrl · Shift** 로 여럿을 한 그룹에 담고, 그 합으로 저장
   fireEvent.change(screen.getByLabelText('그룹 이름'), { target: { value: '윗면과 바닥' } })
   fireEvent.click(screen.getByRole('button', { name: '생성' }))
   // 트리가 「선택 규칙 2 개의 합」 이라고 말한다(숫자와 말만 그 줄의 제 글자다).
-  await waitFor(() => screen.getByText(/^2 개의 합$/))
+  await waitFor(() => screen.getByText(/^2개의 합$/))
 
   const saved = await save(onSave)
   // **규칙 하나로는 이 모음을 말할 수 없다** — 고른 것마다의 규칙의 합이다.
@@ -371,7 +371,7 @@ test('**Shift + 끌기**(사각형)로 고른 것들을 더하고, 규칙은 서
 
   fireEvent.change(screen.getByLabelText('그룹 이름'), { target: { value: '위아래' } })
   fireEvent.click(screen.getByRole('button', { name: '생성' }))
-  await waitFor(() => screen.getByText(/^2 개의 합$/))
+  await waitFor(() => screen.getByText(/^2개의 합$/))
   expect((await save(onSave)).named_selections[0].select).toEqual({
     any: [{ what: 'faces', role: 'bottom' }, { what: 'faces', role: 'top' }],
   })
@@ -383,10 +383,10 @@ test('좌표만 쓰는 규칙은 **기본이 아니고**, 고르면 경고한다
   await waitFor(() => screen.getByLabelText('1번 선택 규칙'))
   // 좌표 기준이 앞에 있어도 **방향으로 거른 규칙**이 기본이다.
   expect(screen.getByLabelText('1번 선택 규칙')).toHaveValue('2')
-  expect(screen.queryByText(/좌표 기준 규칙이 있습니다/)).toBeNull()
+  expect(screen.queryByText(/좌표 기준 규칙이 포함되어 있습니다/)).toBeNull()
 
   fireEvent.change(screen.getByLabelText('1번 선택 규칙'), { target: { value: '1' } })
-  await waitFor(() => screen.getByText(/좌표 기준 규칙이 있습니다/))
+  await waitFor(() => screen.getByText(/좌표 기준 규칙이 포함되어 있습니다/))
   fireEvent.change(screen.getByLabelText('1번 선택 규칙'), { target: { value: '2' } })
 
   fireEvent.change(screen.getByLabelText('그룹 이름'), { target: { value: '+X 옆면' } })
@@ -404,9 +404,9 @@ test('좌표만 쓰는 규칙은 **기본이 아니고**, 고르면 경고한다
 test('아무 키 없이 선택하면 **새로 고른다**', async () => {
   await panel()
   fireEvent.click(screen.getByText('면 찍기'))
-  await waitFor(() => screen.getByRole('option', { name: 'bottom 면 (현재 1 개)' }))
+  await waitFor(() => screen.getByRole('option', { name: 'bottom 면 (현재 1개)' }))
   fireEvent.click(screen.getByText('다른 면 찍기'))
-  await waitFor(() => screen.getByRole('option', { name: 'top 면 (현재 1 개)' }))
+  await waitFor(() => screen.getByRole('option', { name: 'top 면 (현재 1개)' }))
   expect(screen.queryByLabelText('2번 선택 규칙')).toBeNull()
 })
 
@@ -453,7 +453,7 @@ test('같은 이름을 두 번 사용하면 거절한다 — 조건이 어느 �
   await makeGroup('면 찍기', '바닥')
   // 다른 규칙(「좌표에 가장 가까운 면」)에 같은 이름을 붙인다.
   await makeGroup('면 찍기', '바닥', '1')
-  await waitFor(() => screen.getByText(/이미 있습니다/))
+  await waitFor(() => screen.getByText(/이미 존재합니다/))
 })
 
 test('같은 자리를 다시 선택하면 **선택 그룹을 새로 만들지 않는다**', async () => {
@@ -465,7 +465,7 @@ test('같은 자리를 다시 선택하면 **선택 그룹을 새로 만들지 �
   fireEvent.click(screen.getByRole('button', { name: '하중' }))
   await waitFor(() => screen.getByRole('dialog', { name: '하중 추가' }))
   fireEvent.click(screen.getByText('면 찍기'))
-  await waitFor(() => screen.getByText(/「바닥」 이\(가\) 이미 있습니다/))
+  await waitFor(() => screen.getByText(/‘바닥’이\(가\) 이미 존재하므로/))
   fireEvent.click(screen.getByRole('button', { name: '적용 대상으로 지정' }))
   fireEvent.click(screen.getByRole('button', { name: '확인' }))
 
@@ -577,7 +577,7 @@ test('바디는 서버에 조회하지 않는다 — 이름이 곧 답이다', a
   const before = calls.mock.calls.length
 
   fireEvent.click(screen.getByText('바디 찍기'))
-  await waitFor(() => screen.getByRole('option', { name: /바디 「기둥」/ }))
+  await waitFor(() => screen.getByRole('option', { name: /바디 ‘기둥’/ }))
   // 면 · 엣지 · 점은 「이 자리를 무엇으로 부를까」 를 서버에 되묻지만, 바디는 그럴 것이 없다.
   expect(
     calls.mock.calls.slice(before).filter((one) => String(one[0]).includes('selectors')),
@@ -695,7 +695,7 @@ test('좌표계 이름이 겹치면 거절한다 — 조건이 어느 것을 가
     fireEvent.change(screen.getByLabelText('이름'), { target: { value: '끝' } })
     fireEvent.click(screen.getByRole('button', { name: '확인' }))
   }
-  await waitFor(() => screen.getByText(/이미 있는 좌표계 이름입니다/))
+  await waitFor(() => screen.getByText(/사용할 수 없는 좌표계 이름입니다/))
 })
 
 test('**측정**을 켜면 3D 선택이 재는 데 쓰인다 — 선택 그룹을 만들지 않는다', async () => {
@@ -706,7 +706,7 @@ test('**측정**을 켜면 3D 선택이 재는 데 쓰인다 — 선택 그룹�
   fireEvent.click(screen.getByText('점 찍기'))
   // 선택 그룹 창은 안 뜨고, 측정 창에 고른 것이 들어간다.
   expect(screen.queryByRole('dialog', { name: '선택 그룹 추가' })).toBeNull()
-  await waitFor(() => screen.getByText('고른 것 (1)'))
+  await waitFor(() => screen.getByText('선택 항목 (1)'))
 })
 
 

@@ -300,7 +300,7 @@ def test_스케치가_면과_나란하지_않거나_떠_있으면_말한다() ->
              "shape": "sketch", "sketch": "모양", "tag": "패드"},
         ]
     }  # fmt: skip
-    with pytest.raises(RecipeError, match="나란해야"):
+    with pytest.raises(RecipeError, match="평행해야"):
         evaluate(parse(upright))
 
 

@@ -152,7 +152,7 @@ def classifications(db: Session) -> dict[str, Any]:
         except AppError as failure:
             detail = failure.message
     else:
-        detail = f"{matnexus.missing()} — 올려 둔 카탈로그로 고릅니다"
+        detail = f"{matnexus.missing()} 업로드된 카탈로그에서 선택합니다."
     counted: dict[tuple[str, str], int] = {}
     for row in db.scalars(select(CatalogMaterial)).all():
         payload = row.payload or {}
@@ -191,7 +191,9 @@ def search(
             return {
                 "items": [],
                 "fallback": True,
-                "detail": f"{matnexus.missing()} — 문헌 물성은 MatNexus 에만 있습니다",
+                "detail": (
+                    f"{matnexus.missing()} 문헌 물성은 MatNexus에서만 조회할 수 있습니다."
+                ),
             }
         try:
             return _literature(query, family, category, limit, system)
@@ -214,7 +216,7 @@ def search(
     return {
         "items": _from_catalog(db, query, family, category, limit, system),
         "fallback": True,
-        "detail": f"{matnexus.missing()} — 올려 둔 카탈로그로 고릅니다",
+        "detail": f"{matnexus.missing()} 업로드된 카탈로그에서 선택합니다.",
     }
 
 
@@ -228,7 +230,9 @@ def one(
     if source == "literature":
         full = matnexus.catalog_get(code_or_id)
         if not full:
-            raise NotFound(code("MATERIALS", 3), f"그런 문헌 재료가 없습니다: {code_or_id}")
+            raise NotFound(
+                code("MATERIALS", 3), f"문헌 재료({code_or_id})를 찾을 수 없습니다."
+            )
         picked = {**full, "values": _pick_values(full.get("values") or [])}
         return _catalog_row(picked, system)
     if matnexus.configured():
@@ -240,7 +244,7 @@ def one(
             pass
     row = db.scalar(select(CatalogMaterial).where(CatalogMaterial.code == code_or_id))
     if row is None:
-        raise NotFound(code("MATERIALS", 3), f"그런 재료가 없습니다: {code_or_id}")
+        raise NotFound(code("MATERIALS", 3), f"재료({code_or_id})를 찾을 수 없습니다.")
     return _row(row.payload, "catalog", system)
 
 
@@ -254,7 +258,7 @@ def load_catalog(db: Session, payload: Any, *, filename: str) -> dict[str, Any]:
     if not isinstance(rows, list):
         raise AppError(
             code("MATERIALS", 4),
-            "물성 카탈로그 파일이 아닙니다 — MatNexus 의 「내보내기」 JSON 이어야 합니다",
+            "물성 카탈로그 파일이 아닙니다. MatNexus의 ‘내보내기’ JSON 파일이어야 합니다.",
         )
     kept: list[CatalogMaterial] = []
     for item in rows:
@@ -273,7 +277,7 @@ def load_catalog(db: Session, payload: Any, *, filename: str) -> dict[str, Any]:
             )
         )
     if not kept:
-        raise AppError(code("MATERIALS", 5), "파일에서 재료를 하나도 읽지 못했습니다")
+        raise AppError(code("MATERIALS", 5), "파일에서 재료를 하나도 읽지 못했습니다.")
     db.query(CatalogMaterial).delete()
     db.add_all(kept)
     db.commit()

@@ -74,7 +74,7 @@ def test_제약식이_틀리면_이름을_짚어_말한다(client: TestClient, m
         assert got.status_code == 400, got.text
         return str(got.json()["error"]["message"])
 
-    assert "모르는 이름 높이" in ask(["높이 > 3"])
+    assert "알 수 없는 이름(높이)" in ask(["높이 > 3"])
     assert "비교" in ask(["두께 * 2"])
     # 아무것도 못 지키면 만들지 않는다.
     none = client.post(
@@ -108,11 +108,14 @@ def test_미리_만들어_보기는_끝_점을_만들고_어긴_점과_깨진_�
     )
     assert got.status_code == 200, got.text
     rows = {one["label"]: one for one in got.json()["points"]}
-    assert next(iter(rows)) == "가운데" and rows["가운데"]["status"] == "ok"
-    assert rows["가운데"]["params"] == {"두께": 6.0, "길이": 90.0}
-    assert rows["가운데"]["ms"] >= 0 and rows["가운데"]["solids"] == 1
+    assert next(iter(rows)) == "중심" and rows["중심"]["status"] == "ok"
+    assert rows["중심"]["params"] == {"두께": 6.0, "길이": 90.0}
+    assert rows["중심"]["ms"] >= 0 and rows["중심"]["solids"] == 1
     # 두께 12 · 길이 90 은 제약(길이 >= 9 * 두께)을 어긴다 — 만들지 않고 까닭을 말한다.
-    assert rows["두께 최대"]["status"] == "skipped" and "제약 1" in rows["두께 최대"]["error"]
+    assert (
+        rows["두께 최대"]["status"] == "skipped"
+        and "제약 위반(1)" in rows["두께 최대"]["error"]
+    )
     # 두께 0 은 형상이 깨진다 — 미리 안다.
     assert rows["두께 최소"]["status"] == "failed" and rows["두께 최소"]["error"]
     assert got.json()["mean_ms"] is not None
@@ -161,7 +164,7 @@ def test_형상_점검은_얇은_벽을_표와_점에_적는다(client: TestClie
         },
         headers=member.headers,
     )
-    assert bad.status_code == 400 and "모르는 점검 기준" in bad.json()["error"]["message"]
+    assert bad.status_code == 400 and "알 수 없는 점검 기준" in bad.json()["error"]["message"]
 
 
 def test_미리_만들어_보기도_형상을_점검한다(client: TestClient, member: Signed) -> None:
@@ -182,7 +185,7 @@ def test_미리_만들어_보기도_형상을_점검한다(client: TestClient, m
     assert far["quality"]["warnings"] and far["quality"]["min_wall"] == pytest.approx(
         0.2, abs=1e-3
     )
-    assert rows["가운데"]["quality"]["warnings"] == []
+    assert rows["중심"]["quality"]["warnings"] == []
 
 
 def test_표를_직접_주면_값_그대로_줄_순서대로_만든다(
@@ -237,9 +240,9 @@ def test_표가_틀리거나_제약을_어기면_만들지_않는다(client: Tes
 
     assert "숫자가 아닙니다" in make([{"두께": "얇게"}])
     assert "값이 없습니다" in make([{"두께": 4, "길이": 80}, {"두께": 5}])
-    assert "표가 비었습니다" in make([])
+    assert "표가 비어 있습니다" in make([])
     assert "레시피에 없는 치수" in make([{"높이": 3}])
-    assert "1 줄이 제약을 어깁니다" in make(
+    assert "1개 행이 제약을 위반합니다" in make(
         [{"두께": 4, "길이": 80}, {"두께": 12, "길이": 80}], constraints=["길이 >= 10 * 두께"]
     )
 
@@ -298,7 +301,7 @@ def test_점을_더하면_번호를_잇고_같은_값은_빼고_묶음을_남긴
     )
     assert (
         new_var.status_code == 400
-        and "이 DOE 에 없는 변수" in new_var.json()["error"]["message"]
+        and "이 DOE에 없는 변수" in new_var.json()["error"]["message"]
     )
     nothing = client.post(
         f"/api/doe/{made['id']}/extend",
@@ -310,7 +313,7 @@ def test_점을_더하면_번호를_잇고_같은_값은_빼고_묶음을_남긴
     )
     assert (
         nothing.status_code == 400
-        and "더할 새 점이 없습니다" in nothing.json()["error"]["message"]
+        and "추가할 새 설계점이 없습니다" in nothing.json()["error"]["message"]
     )
 
 
@@ -388,12 +391,14 @@ def test_측정값이_틀리면_만들기_전에_말한다(client: TestClient, m
         assert got.status_code == 400, got.text
         return str(got.json()["error"]["message"])
 
-    assert "해석 조건에 없는 선택 그룹 옆면" in make(
+    assert "해석 조건에 선택 그룹 ‘옆면’이(가) 없습니다" in make(
         [{"name": "a", "kind": "region_area", "region": "옆면"}]
     )
-    assert "겹칩니다" in make([{"name": "길이", "kind": "volume"}])
-    assert "모르는 이름 밀도" in make([{"name": "m", "kind": "expr", "expr": "부피 * 밀도"}])
-    assert "x · y · z" in make([{"name": "s", "kind": "size", "axis": "w"}])
+    assert "중복됩니다" in make([{"name": "길이", "kind": "volume"}])
+    assert "알 수 없는 이름이 있습니다(밀도" in make(
+        [{"name": "m", "kind": "expr", "expr": "부피 * 밀도"}]
+    )
+    assert "x, y, z" in make([{"name": "s", "kind": "size", "axis": "w"}])
 
 
 def test_표본_방식_넷과_Sobol_은_더하면_이어_뽑는다(
@@ -416,13 +421,15 @@ def test_표본_방식_넷과_Sobol_은_더하면_이어_뽑는다(
     bbd = client.post(
         "/api/doe/preview", json={"factors": three, "method": "bbd"}, headers=member.headers
     )
-    assert bbd.status_code == 400 and "셋 이상" in bbd.json()["error"]["message"]
+    assert bbd.status_code == 400 and "3개 이상" in bbd.json()["error"]["message"]
     unknown = client.post(
         "/api/doe/preview",
         json={"factors": three, "method": "taguchi"},
         headers=member.headers,
     )
-    assert unknown.status_code == 400 and "모르는 방식" in unknown.json()["error"]["message"]
+    assert (
+        unknown.status_code == 400 and "알 수 없는 방식" in unknown.json()["error"]["message"]
+    )
 
     made = client.post(
         "/api/doe",

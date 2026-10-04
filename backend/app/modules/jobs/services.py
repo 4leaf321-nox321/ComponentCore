@@ -113,7 +113,7 @@ def get_artifact(db: Session, artifact_id: uuid.UUID) -> Artifact:
 def artifact_path(artifact: Artifact) -> Path:
     path = filestore.resolve(artifact.path)
     if not path.exists():
-        raise NotFound(code("JOBS", 3), "작업물 파일이 저장소에서 사라졌습니다.")
+        raise NotFound(code("JOBS", 3), "작업물 파일이 저장소에 존재하지 않습니다.")
     return path
 
 
@@ -207,11 +207,11 @@ def requeue_stale(db: Session) -> int:
     for job in stale:
         if job.cancel_requested_at is not None:
             job.status = "cancelled"
-            job.error = "취소를 요청받은 채 워커가 멈췄습니다."
+            job.error = "취소 요청 후 워커가 중단되었습니다."
             job.finished_at = now
         elif job.attempts >= MAX_ATTEMPTS:
             job.status = "failed"
-            job.error = "워커가 응답하지 않아 중단됐습니다(재시도 한도)."
+            job.error = "워커가 응답하지 않아 중단되었습니다(재시도 한도 초과)."
             job.finished_at = _now()
         else:
             job.status = "queued"
@@ -231,7 +231,7 @@ def require_cancel(db: Session, job: Job, user: User) -> None:
         return
     if _work_owner(db, job.work_id) == user.id:
         return
-    raise Forbidden(code("JOBS", 6), "이 작업을 멈출 권한이 없습니다.")
+    raise Forbidden(code("JOBS", 6), "이 작업을 중지할 권한이 없습니다.")
 
 
 def cancel(db: Session, job: Job) -> Job:
@@ -242,13 +242,16 @@ def cancel(db: Session, job: Job) -> Job:
     줄도 안 바뀌고, 그때는 도는 작업으로 다룬다 — 안 그러면 워커가 도는 작업이 「취소됨」
     으로 적힌다."""
     if job.status in FINISHED:
-        raise AppError(code("JOBS", 7), f"이미 끝난 작업입니다({job.status}).")
+        raise AppError(code("JOBS", 7), f"이미 종료된 작업입니다({job.status}).")
     now = _now()
     took = db.execute(
         update(Job)
         .where(Job.id == job.id, Job.status == "queued")
         .values(
-            status="cancelled", finished_at=now, cancel_requested_at=now, error="취소했습니다."
+            status="cancelled",
+            finished_at=now,
+            cancel_requested_at=now,
+            error="취소되었습니다.",
         )
         .returning(Job.id)
     ).scalar()
@@ -407,7 +410,7 @@ def execute(db: Session, job: Job, *, worker_id: str) -> Job:
         outcome = registry.resolve(job.kind)(job.input, job.options, out_dir, progress)
     except registry.Cancelled as stop:
         job.status = "cancelled"
-        job.error = f"취소했습니다 — {stop} 에서 멈췄습니다." if str(stop) else "취소했습니다."
+        job.error = f"취소되었습니다(중단 시점: {stop})." if str(stop) else "취소되었습니다."
         logger.info("작업 취소 (%s %s): %s", job.kind, job.id, stop)
     except registry.UserFacingError as failure:
         job.status = "failed"
@@ -415,7 +418,7 @@ def execute(db: Session, job: Job, *, worker_id: str) -> Job:
         logger.warning("작업 실패 (%s %s): %s", job.kind, job.id, failure)
     except Exception as failure:
         job.status = "failed"
-        job.error = f"실행 중 오류: {type(failure).__name__}: {failure}"
+        job.error = f"실행 중 오류가 발생했습니다: {type(failure).__name__}: {failure}"
         logger.exception("작업 중 예외 (%s %s)", job.kind, job.id)
     else:
         job.status = "done"
@@ -467,7 +470,7 @@ def require_visible(db: Session, job: Job, user: User) -> None:
         return
     if _is_promoted(db, job.id):
         return
-    raise Forbidden(code("JOBS", 4), "이 작업을 볼 권한이 없습니다.")
+    raise Forbidden(code("JOBS", 4), "이 작업을 조회할 권한이 없습니다.")
 
 
 def require_artifact_visible(db: Session, artifact: Artifact, user: User) -> None:
@@ -477,4 +480,4 @@ def require_artifact_visible(db: Session, artifact: Artifact, user: User) -> Non
         return
     if artifact.job_id is not None and _is_promoted(db, artifact.job_id):
         return
-    raise Forbidden(code("JOBS", 5), "이 작업물을 볼 권한이 없습니다.")
+    raise Forbidden(code("JOBS", 5), "이 작업물을 조회할 권한이 없습니다.")

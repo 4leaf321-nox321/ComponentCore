@@ -28,7 +28,7 @@ def get_part(db: Session, part_id: uuid.UUID) -> Part:
 
 def require_owner(part: Part, user: User) -> None:
     if part.owner_id != user.id and not user.is_system_admin:
-        raise Forbidden(code("PARTS", 2), "이 부품을 고칠 권한이 없습니다.")
+        raise Forbidden(code("PARTS", 2), "이 부품을 수정할 권한이 없습니다.")
 
 
 def get_version(db: Session, part: Part, number: int) -> PartVersion:
@@ -36,7 +36,7 @@ def get_version(db: Session, part: Part, number: int) -> PartVersion:
         select(PartVersion).where(PartVersion.part_id == part.id, PartVersion.number == number)
     )
     if version is None:
-        raise NotFound(code("PARTS", 3), f"버전 {number} 이 없습니다.")
+        raise NotFound(code("PARTS", 3), f"v{number} 버전을 찾을 수 없습니다.")
     return version
 
 

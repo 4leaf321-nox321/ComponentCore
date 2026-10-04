@@ -48,7 +48,7 @@ def axis(ref: str, made: dict[str, Any]) -> Axis:
         return _GLOBAL_AXES[ref]
     found = made.get(ref)
     if not isinstance(found, Axis):
-        raise DatumError(f"'{ref}' 은 기준축이 아닙니다")
+        raise DatumError(f"‘{ref}’은(는) 기준축이 아닙니다.")
     return found
 
 
@@ -58,7 +58,7 @@ def plane(ref: str, made: dict[str, Any]) -> Plane:
         return _GLOBAL_PLANES[ref]
     found = made.get(ref)
     if not isinstance(found, Plane):
-        raise DatumError(f"'{ref}' 은 기준면이 아닙니다")
+        raise DatumError(f"‘{ref}’은(는) 기준면이 아닙니다.")
     return found
 
 
@@ -90,7 +90,7 @@ def make_axis(node: S.DatumAxisNode, made: dict[str, Any]) -> Axis:
     if what == "faces":
         face = shape.faces()[index]
         if face.geom_type not in (GeomType.CYLINDER, GeomType.CONE):
-            raise DatumError("select: 원통 · 원뿔면이어야 축이 있습니다")
+            raise DatumError("select: 축을 얻으려면 원통면 또는 원뿔면을 선택해야 합니다.")
         # 축 위의 점은 **그 면 곁으로** — OCC 가 주는 점은 원통을 만든 자리라 면에서 1 m 넘게
         # 떨어져 있기도 하다(실측: 판 구멍의 축이 z = -1220). 미리보기가 그 점에 축을 그린다.
         line = face.axis_of_rotation
@@ -99,7 +99,7 @@ def make_axis(node: S.DatumAxisNode, made: dict[str, Any]) -> Axis:
         return Axis(foot, line.direction)
     edge = shape.edges()[index]
     if edge.geom_type != GeomType.LINE:
-        raise DatumError("select: 직선 엣지여야 축이 됩니다")
+        raise DatumError("select: 축으로 사용하려면 직선 엣지를 선택해야 합니다.")
     return Axis(edge.position_at(0), edge.tangent_at(0))
 
 
@@ -113,7 +113,7 @@ def make_plane(
         a, b, c = (Vector(*one) for one in node.points)
         normal = (b - a).cross(c - a)
         if normal.length < 1e-9:
-            raise DatumError("points: 세 점이 한 줄 위에 있어 평면이 정해지지 않습니다")
+            raise DatumError("points: 세 점이 한 직선 위에 있어 평면을 정의할 수 없습니다.")
         base = Plane(origin=a, x_dir=(b - a).normalized(), z_dir=normal.normalized())
     else:
         assert node.target is not None and node.select is not None
@@ -121,7 +121,7 @@ def make_plane(
         _, index = _picked(shape, {"what": "faces", **node.select}, ("faces",))
         face = shape.faces()[index]
         if face.geom_type != GeomType.PLANE:
-            raise DatumError("select: 평면이어야 기준면이 됩니다")
+            raise DatumError("select: 기준면으로 사용하려면 평면을 선택해야 합니다.")
         base = _settled(face.center(), face.normal_at(face.center()))
     if node.offset:
         base = base.offset(node.offset)
@@ -151,16 +151,17 @@ def describe(name: str, value: Axis | Plane) -> dict[str, Any]:
 def _picked(shape: Any, select: dict[str, Any], kinds: tuple[str, ...]) -> tuple[str, int]:
     """질의가 집는 **하나**. 여럿이면 어느 것인지 모르니 거절한다."""
     if not isinstance(shape, Shape) or is_datum(shape):
-        raise DatumError("target: 형상이어야 합니다")
+        raise DatumError("target: 형상 피처여야 합니다.")
     what = str(select.get("what", "faces"))
     if what not in kinds:
-        raise DatumError(f"select.what: {' · '.join(kinds)} 중 하나입니다")
+        raise DatumError(f"select.what: {', '.join(kinds)} 중 하나여야 합니다.")
     found = find_features(shape, {**select, "what": what})
     if found["total"] == 0:
-        raise DatumError(f"select: 맞는 것이 없습니다 — {select}")
+        raise DatumError(f"select: 조건에 맞는 항목이 없습니다({select}).")
     if not select.get("near") and found["total"] > 1:
         raise DatumError(
-            f"select: {found['total']} 개에 맞습니다 — near 로 그중 하나를 고르세요"
+            f"select: 조건에 맞는 항목이 {found['total']}개입니다. "
+            "near로 그중 하나를 선택하십시오."
         )
     return what, int(found["items"][0]["index"])
 
@@ -195,7 +196,7 @@ def _turned(base: Plane, hinge: Axis, angle: float) -> Plane:
 def _direction(value: Any, where: str) -> Vector:
     vector = Vector(*value) if not isinstance(value, Vector) else value
     if vector.length < 1e-9:
-        raise DatumError(f"{where}: 방향의 길이가 0 입니다")
+        raise DatumError(f"{where}: 방향 벡터의 길이가 0입니다.")
     return vector.normalized()
 
 

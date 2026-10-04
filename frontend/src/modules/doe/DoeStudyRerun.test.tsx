@@ -82,17 +82,17 @@ test("파일이 치워졌으면 사정과 할 일을 말하고, 「보내기」 
   )
 
   expect(
-    screen.getByText(/보관 기한을 지나 정리되었습니다/),
+    screen.getByText(/보관 기한 경과로 정리되었습니다/),
   ).toBeInTheDocument()
   // **설정은 남아 있다** — 사람이 스터디를 다시 만들지 않게 그것부터 말한다.
   expect(
-    screen.getByText(/설정\(레시피 · 인자 · 시드 · 조건\)은 그대로 남아/),
+    screen.getByText(/설정\(레시피, 인자, 시드, 조건\)은 보존되어/),
   ).toBeInTheDocument()
   expect(
-    screen.getByRole("button", { name: /공유 폴더로 보내기/ }),
+    screen.getByRole("button", { name: /공유 폴더로 내보내기/ }),
   ).toBeDisabled()
 
-  fireEvent.click(screen.getByRole("button", { name: "다시 만들기" }))
+  fireEvent.click(screen.getByRole("button", { name: "재생성" }))
   await waitFor(() =>
     expect(seen).toContain("POST /api/doe/s1/rerun?only=all"),
   )
@@ -108,7 +108,7 @@ test("파일이 있으면 그 안내는 안 뜨고 보낼 수 있다", () => {
   )
   expect(screen.queryByText(/정리되었습니다/)).toBeNull()
   expect(
-    screen.getByRole("button", { name: /공유 폴더로 보내기/ }),
+    screen.getByRole("button", { name: /공유 폴더로 내보내기/ }),
   ).toBeEnabled()
 })
 
@@ -144,7 +144,7 @@ test("실패한 점만 다시 — 성한 것을 다시 만들지 않으려고 �
       />
     </MemoryRouter>,
   )
-  fireEvent.click(screen.getByRole("button", { name: /실패한 1 점만 다시/ }))
+  fireEvent.click(screen.getByRole("button", { name: /실패한 설계점 1개 재생성/ }))
   await waitFor(() =>
     expect(seen).toContain("POST /api/doe/s1/rerun?only=failed"),
   )
@@ -161,6 +161,6 @@ test('누가 만들었고 누가 돌렸는지, 누가 보는지 말한다', asyn
   // 기계가 대행하면 둘이 다르다 — 소유자는 사람, 돌린 것은 서비스 계정.
   expect(screen.getByText('오케스트레이터 대행', { exact: false })).toBeInTheDocument()
   // 기본은 공개 — 감추는 것이 예외다.
-  fireEvent.click(screen.getByRole('button', { name: /모두 봅니다/ }))
+  fireEvent.click(screen.getByRole('button', { name: /전체 공개/ }))
   await waitFor(() => expect(seen).toContain('POST /api/doe/s1/visibility?value=private'))
 })

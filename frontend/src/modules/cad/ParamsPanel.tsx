@@ -47,14 +47,14 @@ export function ParamsPanel({ value, onChange }: { value: Recipe; onChange: (nex
       <div className="mb-1 flex items-center gap-1">
         <Ruler className="text-muted-foreground size-3.5" />
         <span className="text-xs font-medium">변수</span>
-        <span className="text-muted-foreground truncate text-[11px]">칸의 fx 로 만들거나 고른다</span>
-        <Button size="sm" variant="ghost" className="ml-auto h-6 px-1" onClick={() => setAdding(true)} aria-label="변수 만들기">
+        <span className="text-muted-foreground truncate text-[11px]">입력란의 fx로 생성하거나 선택합니다.</span>
+        <Button size="sm" variant="ghost" className="ml-auto h-6 px-1" onClick={() => setAdding(true)} aria-label="변수 생성">
           <Plus className="size-3.5" />
         </Button>
       </div>
       {names.length === 0 && !adding && (
         <p className="text-muted-foreground text-[11px]">
-          없습니다. 피처(또는 스케치 도형)를 열어 바꿀 숫자 칸의 <b>fx</b> 를 누르고 <b>이름만</b> 적으면 그 값이 변수가 됩니다 — 여기 <b>+</b> 로 먼저 만들어 둘 수도 있습니다.
+          변수가 없습니다. 피처(또는 스케치 도형)를 열고 변경할 숫자 입력란의 <b>fx</b>를 누른 뒤 <b>이름</b>을 입력하면 해당 값이 변수가 됩니다. 이곳의 <b>+</b>로 미리 생성할 수도 있습니다.
         </p>
       )}
       <ul className="space-y-1">
@@ -76,14 +76,14 @@ export function ParamsPanel({ value, onChange }: { value: Recipe; onChange: (nex
             />
             <span
               className={`w-14 shrink-0 text-right text-[10px] ${usage(key) === 0 ? 'text-destructive' : 'text-muted-foreground'}`}
-              title={usage(key) === 0 ? '아무 칸에서도 안 씁니다 — 칸의 fx 를 눌러 =이름 을 넣으세요' : `${usage(key)} 칸에서 씁니다`}
+              title={usage(key) === 0 ? '어느 입력란에서도 사용하지 않습니다. 입력란의 fx를 눌러 =이름을 입력하십시오.' : `${usage(key)} 개 입력란에서 사용합니다.`}
             >
-              {usage(key) === 0 ? '안 쓰임' : `${usage(key)} 칸`}
+              {usage(key) === 0 ? '미사용' : `${usage(key)} 개 입력란`}
             </span>
             <button
               type="button"
               className="text-muted-foreground hover:text-destructive rounded p-1"
-              aria-label={`변수 ${key} 지우기`}
+              aria-label={`변수 ${key} 삭제`}
               onClick={() => {
                 const next = { ...params }
                 delete next[key]
@@ -112,7 +112,7 @@ export function ParamsPanel({ value, onChange }: { value: Recipe; onChange: (nex
               autoFocus
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="이름 — 예: 판_길이"
+              placeholder="이름(예: 판_길이)"
               className="h-7 flex-1 font-mono text-xs"
               aria-label="새 변수 이름"
             />
@@ -125,14 +125,14 @@ export function ParamsPanel({ value, onChange }: { value: Recipe; onChange: (nex
               aria-label="새 변수 값"
             />
             <Button size="sm" type="submit" className="h-7 px-2 text-xs" disabled={!name.trim()}>
-              만들기
+              생성
             </Button>
             <button type="button" className="text-muted-foreground px-1 text-xs" onClick={() => setAdding(false)}>
               취소
             </button>
           </div>
           <p className="text-muted-foreground text-[10px]">
-            만든 뒤 <b>피처를 열어</b> 바꿀 숫자 칸의 <b>fx</b> 를 누르고 목록에서 <code>={name.trim() || '이름'}</code> 을 고릅니다.
+            생성한 뒤 <b>피처를 열고</b> 변경할 숫자 입력란의 <b>fx</b>를 눌러 목록에서 <code>={name.trim() || '이름'}</code>을(를) 선택하십시오.
           </p>
         </form>
       )}

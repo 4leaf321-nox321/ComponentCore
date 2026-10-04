@@ -66,9 +66,9 @@ def test_LHS_는_표본_수가_찰_때까지_더_뽑고_같은_시드면_같은_
 
 def test_제약식_목록을_다듬고_너무_많으면_말한다() -> None:
     assert parse_constraints([" a > b ", "", "  "]) == ["a > b"]
-    with pytest.raises(DoeError, match="글자"):
+    with pytest.raises(DoeError, match="문자열"):
         parse_constraints([3])
-    with pytest.raises(DoeError, match="20 개"):
+    with pytest.raises(DoeError, match="20개"):
         parse_constraints([f"a > {i}" for i in range(21)])
 
 
@@ -100,11 +100,11 @@ def test_중심_합성은_모서리_축_가운데이고_Box_Behnken_은_둘씩()
     assert {"고정": 9.0, "a": 0.0, "b": 1.0, "c": 5.0} not in bbd  # 모두 끝인 점은 없다
     unit = {"mode": "range", "start": 0, "end": 1, "steps": 2}
     two = parse_factors([{"name": "a", **unit}, {"name": "b", **unit}])
-    with pytest.raises(DoeError, match="셋 이상"):
+    with pytest.raises(DoeError, match="3개 이상"):
         plan(two, method="bbd")
     swap = {"name": "재료", "mode": "material", "values": ["A", "B"], "bodies": ["전체"]}
     material = parse_factors([{"name": "a", **unit}, swap])
-    with pytest.raises(DoeError, match="수 변수만"):
+    with pytest.raises(DoeError, match="수치 변수만"):
         plan(material, method="ccd")
 
 

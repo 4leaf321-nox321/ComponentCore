@@ -82,7 +82,9 @@ def deform(
     거기서 갈라 두면 한 면이 꺾인 변형을 맞추느라 마디를 끝없이 늘리지 않는다."""
     solids = shape.solids()
     if not solids:
-        raise DeformError("솔리드가 없습니다 — 입체만 비틀고 줄입니다")
+        raise DeformError(
+            "솔리드가 없습니다. 비틀림과 테이퍼는 솔리드에만 적용할 수 있습니다."
+        )
     return Part(children=[_solid(one, move, tolerance, cuts or []) for one in solids])
 
 
@@ -100,7 +102,7 @@ def _split(solid: Solid, cuts: list[Plane]) -> TopoDS_Shape:
     splitter.SetTools(tools)
     splitter.Build()
     if not splitter.IsDone():  # pragma: no cover — 평면으로 가르기는 실패하지 않는다
-        raise DeformError("변형 구간의 경계에서 형상을 가르지 못했습니다")
+        raise DeformError("변형 구간의 경계에서 형상을 분할하지 못했습니다.")
     return splitter.Shape()
 
 
@@ -133,14 +135,14 @@ def _solid(solid: Solid, move: Mapping, tolerance: float, cuts: list[Plane]) -> 
     fixed.Perform()
     shells = TopExp_Explorer(fixed.Shape(), TopAbs_SHELL)
     if not shells.More():
-        raise DeformError("변형한 면들을 하나로 꿰매지 못했습니다 — 각을 줄여 보세요")
+        raise DeformError("변형한 면들을 하나로 봉합하지 못했습니다. 각도를 줄이십시오.")
     made = BRepBuilderAPI_MakeSolid(TopoDS.Shell_s(shells.Current())).Solid()
     upright = ShapeFix_Solid(made)
     upright.Perform()
     out = upright.Solid()
     if not BRepCheck_Analyzer(out).IsValid():
         raise DeformError(
-            "변형한 형상이 올바르지 않습니다 — 비틀기 각을 줄이거나 구간을 늘리세요"
+            "변형한 형상이 유효하지 않습니다. 비틀림 각도를 줄이거나 구간을 늘리십시오."
         )
     return Solid(out)
 
@@ -163,7 +165,7 @@ def _face(face: TopoDS_Face, move: Mapping, tolerance: float) -> TopoDS_Shape:
             holes.append(rebuilt)
         wires.Next()
     if builder is None:  # pragma: no cover — 면에는 바깥 테두리가 있다
-        raise DeformError("면의 바깥 테두리를 찾지 못했습니다")
+        raise DeformError("면의 외곽 경계를 찾지 못했습니다.")
     for hole in holes:
         builder.Add(hole)
     made = builder.Face()

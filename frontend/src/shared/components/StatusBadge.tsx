@@ -22,11 +22,11 @@ const ACCOUNT: Record<string, { label: string; tone: Tone }> = {
 
 const RUN: Record<string, { label: string; tone: Tone }> = {
   queued: { label: '대기', tone: 'neutral' },
-  running: { label: '생성 중', tone: 'warn' },
+  running: { label: '실행 중', tone: 'warn' },
   done: { label: '완료', tone: 'good' },
   failed: { label: '실패', tone: 'bad' },
-  cancelled: { label: '멈춤', tone: 'neutral' },
-  cancelling: { label: '멈추는 중', tone: 'warn' },
+  cancelled: { label: '취소됨', tone: 'neutral' },
+  cancelling: { label: '취소 중', tone: 'warn' },
 }
 
 const INTERFERENCE: Record<string, { label: string; tone: Tone }> = {

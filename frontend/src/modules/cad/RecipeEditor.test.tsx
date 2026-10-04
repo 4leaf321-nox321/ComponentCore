@@ -39,7 +39,7 @@ test('피처 트리를 그리고, 칸을 고치면 레시피가 바뀐다', asyn
 test('스케치 피처를 고르면 캔버스가 뜬다', () => {
   render(<RecipeEditor value={BOX} onChange={() => {}} />)
   fireEvent.click(screen.getByText('바닥'))
-  expect(screen.getByRole('button', { name: '선택 · 이동' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '선택·이동' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '+ 원' })).toBeInTheDocument()
 })
 
@@ -126,11 +126,11 @@ function dragOverAt(row: Element, clientY: number) {
 test('목록의 고치기 · 지우기는 손을 올렸을 때 쓰고, 지우면 그 피처가 빠진다', () => {
   const onChange = vi.fn()
   render(<RecipeEditor value={THREE} onChange={onChange} />)
-  fireEvent.click(screen.getByRole('button', { name: 'plate 고치기' }))
+  fireEvent.click(screen.getByRole('button', { name: 'plate 수정' }))
   expect(screen.getByRole('dialog')).toBeInTheDocument()
   fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
 
-  fireEvent.click(screen.getByRole('button', { name: 'plate 지우기' }))
+  fireEvent.click(screen.getByRole('button', { name: 'plate 삭제' }))
   const next = onChange.mock.calls.at(-1)![0] as Recipe
   expect(next.nodes.map((n) => n.id)).toEqual(['s', 'e'])
 })
@@ -187,10 +187,10 @@ test('칸에서 만든 변수가 사라지지 않는다 — 한 동작이 레시
   }
   render(<Host />)
   // 돌출 피처를 열어 「거리」 칸을 변수로 바꾼다.
-  fireEvent.click(screen.getByRole('button', { name: 'b 고치기' }))
-  fireEvent.click(await screen.findByRole('button', { name: '거리 (mm) 변수로' }))
+  fireEvent.click(screen.getByRole('button', { name: 'b 수정' }))
+  fireEvent.click(await screen.findByRole('button', { name: '거리 (mm) 변수 지정' }))
   fireEvent.change(screen.getByLabelText('새 변수 이름'), { target: { value: '두께' } })
-  fireEvent.click(screen.getByRole('button', { name: '만들기' }))
+  fireEvent.click(screen.getByRole('button', { name: '생성' }))
 
   const recipe = JSON.parse(screen.getByTestId('recipe').textContent!) as Recipe
   // 변수가 남아 있고(예전에는 두 번째 갱신이 덮어 지웠다), 칸이 그것을 가리킨다.
@@ -209,11 +209,11 @@ test('스케치 도형 칸에서 만든 변수도 남는다', async () => {
     )
   }
   render(<Host />)
-  fireEvent.click(screen.getByRole('button', { name: 's 고치기' })) // 스케치 피처(id: s)
+  fireEvent.click(screen.getByRole('button', { name: 's 수정' })) // 스케치 피처(id: s)
   // 스케치 모달의 사각형 「너비」 칸.
-  fireEvent.click(await screen.findByRole('button', { name: '너비 변수로' }))
+  fireEvent.click(await screen.findByRole('button', { name: '너비 변수 지정' }))
   fireEvent.change(screen.getByLabelText('새 변수 이름'), { target: { value: '판_폭' } })
-  fireEvent.click(screen.getByRole('button', { name: '만들기' }))
+  fireEvent.click(screen.getByRole('button', { name: '생성' }))
 
   const recipe = JSON.parse(screen.getByTestId('recipe').textContent!) as Recipe
   expect(recipe.params).toEqual({ 판_폭: 40 })

@@ -132,7 +132,7 @@ def analyze(
     clock = _Clock(on_stage)
 
     raw = clock.run(
-        "load", lambda: resolve_product(source), lambda s: f"솔리드 {len(s.solids())}"
+        "load", lambda: resolve_product(source), lambda s: f"솔리드 {len(s.solids())}개"
     )
     if options.kind == "drop":
         # 낙하는 고른 면이 아래를 보게 돌린 뒤 정규화한다 — 나머지 단계는 모른다.
@@ -142,32 +142,34 @@ def analyze(
         lambda: geometry.understand(raw),
         lambda g: (
             f"{g.bbox.size[0]:.1f} x {g.bbox.size[1]:.1f} x {g.bbox.size[2]:.1f} mm, "
-            f"면 {g.face_count}"
+            f"면 {g.face_count}개"
         ),
     )
     found = clock.run(
-        "features", lambda: features.recognize(geom), lambda f: f"특징 {len(f)} 개"
+        "features", lambda: features.recognize(geom), lambda f: f"피처 {len(f)}개"
     )
     fixture = clock.run(
         "planning",
         lambda: planning.plan(geom, found, options),
         lambda p: (
-            f"받침 {len(p.supports)} · 로케이터 {len(p.locators)} · 클램프 {len(p.clamps)}"
+            f"받침 {len(p.supports)}개, 로케이터 {len(p.locators)}개, 클램프 {len(p.clamps)}개"
         ),
     )
     built = clock.run(
         "elements",
         lambda: assembly.build_elements(fixture, options),
-        lambda e: f"부품 {len(e.all_parts())} 개",
+        lambda e: f"부품 {len(e.all_parts())}개",
     )
     jig = clock.run(
-        "assembly", lambda: assembly.assemble(built), lambda j: f"자식 {len(j.children)}"
+        "assembly",
+        lambda: assembly.assemble(built),
+        lambda j: f"하위 형상 {len(j.children)}개",
     )
     product = assembly.lifted_product(geom, fixture)
     report = clock.run(
         "interference",
         lambda: interference.check(built, product, options.interference_tolerance),
-        lambda r: "간섭 없음" if r.ok else f"간섭 {sum(not i.ok for i in r.items)} 건",
+        lambda r: "간섭 없음" if r.ok else f"간섭 {sum(not i.ok for i in r.items)}건",
     )
     return JigBuild(
         geometry=geom,

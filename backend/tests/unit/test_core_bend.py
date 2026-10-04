@@ -193,7 +193,7 @@ def _box_then(
                 },
                 {"id": "파기", "op": "cut", "target": "판", "tools": ["홈"]},
             ),
-            "두께가 한결같은 판이 아닙니다",
+            "두께가 균일한 판이 아닙니다",
         ),
         (
             _box_then(
@@ -201,14 +201,14 @@ def _box_then(
             ),
             "굽힌 뒤에",
         ),
-        (_box_then(bends=[{"at": 90, "radius": 4}]), "판\\(0 ~ 80\\) 안이어야"),
+        (_box_then(bends=[{"at": 90, "radius": 4}]), "판의 범위\\(0 ~ 80\\) 안의 값이어야"),
         (
             _box_then(bends=[{"at": 70, "radius": 10, "angle": 180}]),
             "판 끝\\(80\\)을 넘습니다",
         ),
         (
             _box_then(bends=[{"at": 20, "radius": 10}, {"at": 25, "radius": 3}]),
-            "앞 굽힘이",
+            "이전 굽힘이",
         ),
         (_box_then(bends=[{"at": 1, "radius": 3, "until": "end"}]), "한 바퀴를"),
     ],
@@ -229,8 +229,11 @@ def test_판_위의_방향이어야_한다() -> None:
 @pytest.mark.parametrize(
     ("bends", "words"),
     [
-        ([{"at": 40, "radius": 4}, {"at": 20, "radius": 4}], "앞 굽힘"),
-        ([{"at": 20, "radius": 4, "until": "end"}, {"at": 60, "radius": 4}], "마지막 굽힘만"),
+        ([{"at": 40, "radius": 4}, {"at": 20, "radius": 4}], "이전 굽힘"),
+        (
+            [{"at": 20, "radius": 4, "until": "end"}, {"at": 60, "radius": 4}],
+            "마지막 굽힘에만",
+        ),
         ([{"at": 20, "radius": 4, "angle": 360}], "360"),
     ],
 )

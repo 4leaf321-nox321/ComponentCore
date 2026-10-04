@@ -63,7 +63,7 @@ test('지그 작업은 그림 탭이 「지그」 이고, 승격이 지그 카�
   // 그림 탭 이름은 종류와 상관없이 「도면」 — 생성기 탭은 이제 어느 작업에도 없다(새 작업 › 부품에서 지그 생성).
   await waitFor(() => expect(screen.getByRole('tab', { name: /^도면$/ })).toBeInTheDocument())
   expect(screen.queryByRole('tab', { name: /지그 만들어 주기/ })).toBeNull()
-  expect(await screen.findByRole('button', { name: '공용 지그로 승격' })).toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: '공용 지그로 등록' })).toBeInTheDocument()
 })
 
 test('관리자가 남의 작업을 열면 누구의 것인지 늘 보이고, 꼬리표 제안도 그 사람의 것', async () => {
@@ -71,7 +71,7 @@ test('관리자가 남의 작업을 열면 누구의 것인지 늘 보이고, �
   const calls = vi.mocked(globalThis.fetch).mock.calls
   show()
   const note = await screen.findByRole('note')
-  expect(note).toHaveTextContent('김 의 작업입니다')
+  expect(note).toHaveTextContent('김의 작업입니다')
   expect(screen.getByRole('link', { name: /모든 작업/ })).toHaveAttribute('href', '/admin/works?owner=kim')
   await waitFor(() => expect(calls.some(([url]) => String(url).includes('/works/tags?owner=kim'))).toBe(true))
 })
@@ -79,6 +79,6 @@ test('관리자가 남의 작업을 열면 누구의 것인지 늘 보이고, �
 test('내 작업이면 알림이 없다', async () => {
   serve(WORK)
   show()
-  expect(await screen.findByRole('button', { name: '공용 지그로 승격' })).toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: '공용 지그로 등록' })).toBeInTheDocument()
   expect(screen.queryByRole('note')).toBeNull()
 })

@@ -152,7 +152,9 @@ def recipe_find(payload: FindRequest, _: User = Depends(current_user)) -> dict[s
     try:
         (query,) = resolved([payload.query], resolve_params(payload.recipe))
     except ExpressionError as failure:
-        raise AppError(code("CAD", 16), f"규칙의 식을 풀지 못했습니다: {failure}") from failure
+        raise AppError(
+            code("CAD", 16), f"규칙의 식을 계산하지 못했습니다: {failure}"
+        ) from failure
     return select_features(evaluation.shape, query, evaluation.tags)
 
 
@@ -503,7 +505,7 @@ def beam_frequency(payload: BeamRequest, _: User = Depends(current_user)) -> dic
                 added_mass_g=payload.added_mass_g,
             )
         if payload.thickness_mm is None:
-            raise vibration.VibrationError("두께나 목표 주파수 중 하나는 주어야 합니다")
+            raise vibration.VibrationError("두께 또는 목표 주파수 중 하나를 입력하십시오.")
         return vibration.beam_frequency(
             length_mm=payload.length_mm,
             width_mm=payload.width_mm,

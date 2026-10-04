@@ -19,7 +19,7 @@ const PickViewer = lazy(() => import('@/shared/viewer/PickViewer'))
 function show(value: unknown): string {
   if (value === null || value === undefined) return '—'
   if (typeof value === 'number') return value.toLocaleString(undefined, { maximumFractionDigits: 3 })
-  if (typeof value === 'boolean') return value ? '켬' : '끔'
+  if (typeof value === 'boolean') return value ? '켜짐' : '꺼짐'
   return String(value)
 }
 
@@ -29,11 +29,11 @@ function show(value: unknown): string {
  */
 export function probeNotes(point: ProbePoint, baseSolids: number | undefined): string[] {
   const notes: string[] = []
-  if (point.unresolved?.length) notes.push(`못 찾은 그룹: ${point.unresolved.join(', ')}`)
-  for (const one of point.drift ?? []) notes.push(`${one.name} 이 예측 자리에서 ${one.distance.toFixed(2)} mm 벗어남`)
-  if (point.interference && !point.interference.ok) notes.push(`부품 겹침 ${point.interference.items.filter((one) => !one.ok).length}건`)
+  if (point.unresolved?.length) notes.push(`찾지 못한 그룹: ${point.unresolved.join(', ')}`)
+  for (const one of point.drift ?? []) notes.push(`${one.name}: 예측 위치에서 ${one.distance.toFixed(2)} mm 벗어남`)
+  if (point.interference && !point.interference.ok) notes.push(`부품 간섭 ${point.interference.items.filter((one) => !one.ok).length}건`)
   if (point.quality) notes.push(...point.quality.warnings)
-  else if (baseSolids !== undefined && point.solids !== undefined && point.solids !== baseSolids) notes.push(`바디 ${baseSolids} → ${point.solids}`)
+  else if (baseSolids !== undefined && point.solids !== undefined && point.solids !== baseSolids) notes.push(`바디 수 ${baseSolids} → ${point.solids}`)
   for (const one of point.warnings ?? []) notes.push(one)
   return notes
 }
@@ -68,21 +68,21 @@ export function ProbePanel({
       const got = await cadApi.mesh({ ...recipe, params: { ...recipe.params, ...values } })
       setMesh(got.mesh)
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     }
   }
 
   const minutes = result.mean_ms !== null && count ? (result.mean_ms * count + result.setup_ms) / 60000 : null
   return (
-    <div className="space-y-2 rounded-md border p-3" aria-label="미리 만들어 본 점">
+    <div className="space-y-2 rounded-md border p-3" aria-label="사전 생성 결과">
       <p className="text-xs">
-        끝 점 {result.points.length} 개를 만들어 봤습니다 —{' '}
-        {bad === 0 ? <b>문제 없음</b> : <b className="text-destructive">{bad} 개에 문제가 있습니다</b>}
+        경계점 {result.points.length}개를 사전 생성했습니다.{' '}
+        {bad === 0 ? <b>문제가 없습니다.</b> : <b className="text-destructive">{bad}개에 문제가 있습니다.</b>}
         {result.mean_ms !== null && (
           <span className="text-muted-foreground">
             {' '}
-            · 한 점에 약 {(result.mean_ms / 1000).toFixed(1)} 초
-            {minutes !== null && ` · 설계점 ${count} 개면 약 ${minutes < 1 ? '1 분 안' : `${Math.ceil(minutes)} 분`}`}
+            예상 소요 시간: 설계점당 약 {(result.mean_ms / 1000).toFixed(1)}초
+            {minutes !== null && `, 전체 ${count}개 기준 약 ${minutes < 1 ? '1분 미만' : `${Math.ceil(minutes)}분`}`}
           </span>
         )}
       </p>
@@ -90,7 +90,7 @@ export function ProbePanel({
         <table className="w-full min-w-max text-xs">
           <thead className="text-muted-foreground">
             <tr className="border-b text-left">
-              <th className="py-1 pr-2 font-medium">점</th>
+              <th className="py-1 pr-2 font-medium">구분</th>
               {names.map((name) => (
                 <th key={name} className="py-1 pr-2 font-mono font-medium">
                   {name}
@@ -123,7 +123,7 @@ export function ProbePanel({
                     </td>
                   ))}
                   <td className={`py-1 pr-2 ${point.status === 'failed' ? 'text-destructive' : point.status === 'skipped' ? 'text-muted-foreground' : ''}`} title={point.error}>
-                    {point.status === 'ok' ? `만듦 ${((point.ms ?? 0) / 1000).toFixed(1)}s` : point.status === 'failed' ? `실패 — ${point.error.slice(0, 80)}` : `건너뜀 — ${point.error}`}
+                    {point.status === 'ok' ? `생성 ${((point.ms ?? 0) / 1000).toFixed(1)}s` : point.status === 'failed' ? `실패: ${point.error.slice(0, 80)}` : `건너뜀: ${point.error}`}
                   </td>
                   <td className="py-1 pr-2">
                     <span className="text-amber-700 dark:text-amber-400">{notes.join(' · ')}</span>
@@ -132,7 +132,7 @@ export function ProbePanel({
                   <td className="py-1">
                     {point.status === 'ok' && (
                       <button type="button" className="text-muted-foreground hover:text-foreground underline" onClick={() => void view(point)}>
-                        보기
+                        형상 조회
                       </button>
                     )}
                   </td>

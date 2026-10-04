@@ -51,25 +51,25 @@ export default function JobsPage() {
     <div>
       <PageHeader
         title="실행 기록"
-        description="내가 건 작업 전부 — 부품 평가 · 지그 생성. 앞으로 AI 편집도 여기 온다."
+        description="본인이 실행한 모든 작업(부품 평가, 지그 생성)의 기록입니다. 향후 AI 편집 작업도 이곳에 표시됩니다."
       />
       <ErrorNotice error={page.error} className="mb-4" />
 
       {rows.length === 0 && !page.loading ? (
         <EmptyState
-          title="아직 건 작업이 없습니다"
-          hint="내 작업에서 부품을 저장하거나 지그를 만들면 여기 쌓입니다."
+          title="실행한 작업이 없습니다"
+          hint="내 작업에서 부품을 저장하거나 지그를 생성하면 이곳에 기록됩니다."
         />
       ) : (
         <>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>걸린 때</TableHead>
+                <TableHead>요청 일시</TableHead>
                 <TableHead>종류</TableHead>
                 <TableHead>작업</TableHead>
                 <TableHead>상태</TableHead>
-                <TableHead>걸린 시간</TableHead>
+                <TableHead>소요 시간</TableHead>
                 <TableHead>산출물</TableHead>
               </TableRow>
             </TableHeader>

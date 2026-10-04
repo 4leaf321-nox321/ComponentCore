@@ -266,7 +266,7 @@ export function ConditionsPanel({
     // **바디는 서버에 물을 것이 없다.** 면 · 엣지 · 점은 「이 자리를 무엇으로 부를까」 를
     // 셀렉터 후보로 되받아야 하지만, 바디는 **이름이 곧 답**이다(`topology.bodies`).
     if (pick.kind === 'body') {
-      candidates = [{ label: `바디 「${pick.name}」`, select: { body: pick.name }, matches: 1 }]
+      candidates = [{ label: `바디 ‘${pick.name}’`, select: { body: pick.name }, matches: 1 }]
     } else {
       try {
         candidates = (await conditionsApi.selectors(recipe, what, point, index)).candidates
@@ -319,7 +319,7 @@ export function ConditionsPanel({
       const { what, label } = toPick(pick)
       const candidates =
         pick.kind === 'body'
-          ? [{ label: `바디 「${pick.name}」`, select: { body: pick.name }, matches: 1 }]
+          ? [{ label: `바디 ‘${pick.name}’`, select: { body: pick.name }, matches: 1 }]
           : (answers[at++]?.candidates ?? [])
       if (candidates.length === 0) continue
       const chosen = defaultRule(candidates)
@@ -348,7 +348,7 @@ export function ConditionsPanel({
   const defaultName =
     members.length === 0
       ? ''
-      : `${members[0].candidates[members[0].chosen].label}${members.length > 1 ? ` 외 ${members.length - 1}` : ''}`
+      : `${members[0].candidates[members[0].chosen].label}${members.length > 1 ? ` 외 ${members.length - 1}개` : ''}`
 
   /**
    * 담은 것으로 선택 그룹을 만든다 — 같은 규칙의 그룹이 있으면 새로 만들지 않고 그것을 쓴다.
@@ -359,7 +359,7 @@ export function ConditionsPanel({
     if (existing) return { name: existing, draft }
     const name = groupName.trim() || defaultName
     if (names.some((one) => one.name === name)) {
-      setError(new Error(`「${name}」 선택 그룹이 이미 있습니다 — 다른 이름을 입력하세요.`))
+      setError(new Error(`‘${name}’ 선택 그룹이 이미 존재합니다. 다른 이름을 입력하십시오.`))
       return null
     }
     const made: NamedSelection = { name, entity: members[0].entity, select: groupSelect(members) }
@@ -621,7 +621,13 @@ export function ConditionsPanel({
     const name = frameEditing.item.name.trim()
     const others = frameNames.filter((_, i) => i !== cadFrames.length + (frameEditing.index ?? -1))
     if (!name || ['global', '전역'].includes(name) || others.includes(name)) {
-      setError(new Error(`「${name}」 — 비었거나 전역(global)이거나 이미 있는 좌표계 이름입니다(도면의 좌표계와도 달라야 합니다).`))
+      setError(
+        new Error(
+          !name
+            ? '좌표계 이름을 입력하십시오.'
+            : `‘${name}’은(는) 사용할 수 없는 좌표계 이름입니다. 전역(global) 또는 이미 존재하는 이름(도면의 좌표계 포함)과 달라야 합니다.`,
+        ),
+      )
       return
     }
     const item = { ...frameEditing.item, name }
@@ -804,7 +810,7 @@ export function ConditionsPanel({
           <RibbonButton
             icon={Save}
             label="조건 저장"
-            title={editing ? '열린 창을 먼저 확인하거나 취소합니다' : '도면은 변경되지 않습니다 — 새 버전이 생기지 않습니다'}
+            title={editing ? '열려 있는 창을 먼저 확인하거나 취소하십시오.' : '도면은 변경되지 않으며, 새 버전이 생성되지 않습니다.'}
             active={dirty}
             disabled={saving || !!editing}
             onClick={() => onSave(draft)}
@@ -816,8 +822,8 @@ export function ConditionsPanel({
             label="선택 그룹"
             title={
               editing && editingTargets.length > 0
-                ? '열린 조건 창에서 3D 를 선택하면 그 조건의 선택 그룹이 됩니다'
-                : '선택 그룹 추가 — 3D 에서 Ctrl · Shift 로 여럿을 선택합니다'
+                ? '조건 창이 열려 있는 동안 3D에서 선택한 형상은 해당 조건의 선택 그룹이 됩니다.'
+                : '선택 그룹 추가: 3D에서 Ctrl 또는 Shift를 눌러 여러 형상을 선택합니다.'
             }
             active={grouping}
             disabled={!!editing && editingTargets.length > 0}
@@ -832,7 +838,7 @@ export function ConditionsPanel({
           <RibbonButton
             icon={FlaskConical}
             label="물성"
-            title="물성 추가 — MatNexus 에서 여러 개를 함께 선택합니다"
+            title="물성 추가: MatNexus에서 여러 물성을 함께 선택합니다."
             onClick={() => setPicking(true)}
           />
         </RibbonGroup>
@@ -847,11 +853,11 @@ export function ConditionsPanel({
             />
           ))}
         </RibbonGroup>
-        <RibbonGroup title="좌표계 · 측정">
+        <RibbonGroup title="좌표계·측정">
           <RibbonButton
             icon={Axis3d}
             label="좌표계"
-            title="좌표계 추가 — 조건의 x · y · z 가 어느 방향인가(원점 · 회전 또는 선택 그룹의 면)"
+            title="좌표계 추가: 조건의 x·y·z 방향을 정의합니다(원점·회전 또는 선택 그룹의 면 기준)."
             onClick={() =>
               setFrameEditing({ index: null, item: { name: nextFrameName(frameNames), origin: [0, 0, 0], rotate: [0, 0, 0] } })
             }
@@ -859,7 +865,7 @@ export function ConditionsPanel({
           <RibbonButton
             icon={Ruler}
             label="측정"
-            title="측정 — 창을 띄운 채 3D 를 누릅니다(켜 있는 동안은 선택 그룹을 만들지 않습니다)"
+            title="측정: 창을 연 상태에서 3D를 클릭합니다(측정 중에는 선택 그룹을 생성하지 않습니다)."
             active={measuring}
             onClick={() => {
               if (!measuring) {
@@ -888,9 +894,9 @@ export function ConditionsPanel({
       <div className="bg-muted/40 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border px-3 py-1.5 text-xs">
         <Scale className="size-4" />
         <span className="font-medium">
-          입력 {inputOf ? `${inputOf.length} · ${inputOf.force} · ${inputOf.stress} · ${inputOf.mass}` : 'mm · N · MPa · tonne'}
+          입력 {inputOf ? `${inputOf.length}·${inputOf.force}·${inputOf.stress}·${inputOf.mass}` : 'mm·N·MPa·tonne'}
         </span>
-        <span className="text-muted-foreground">도면과 같은 단위로 적습니다.</span>
+        <span className="text-muted-foreground">도면과 동일한 단위로 입력합니다.</span>
         <label className="ml-auto flex items-center gap-1.5 font-medium">
           내보내기 단위계
           <select
@@ -908,12 +914,12 @@ export function ConditionsPanel({
         </label>
         {systemOf && systemOf.key !== inputOf?.key && (
           <span className="text-muted-foreground">
-            점 파일로 내보낼 때 {systemOf.length} · {systemOf.force} · {systemOf.stress} 로 옮깁니다
+            점 파일로 내보낼 때 {systemOf.length}·{systemOf.force}·{systemOf.stress} 단위로 변환합니다.
           </span>
         )}
         {defaultSystem && defaultSystem !== system && (
           <span className="text-amber-700 dark:text-amber-400">
-            작업의 기본 내보내기 단위계({spec.unit_systems?.find((one) => one.key === defaultSystem)?.label ?? defaultSystem})와 다릅니다
+            작업의 기본 내보내기 단위계({spec.unit_systems?.find((one) => one.key === defaultSystem)?.label ?? defaultSystem})와 다릅니다.
           </span>
         )}
       </div>
@@ -934,7 +940,7 @@ export function ConditionsPanel({
       {error && <ErrorNotice error={error} />}
       {problems.length > 0 && (
         <p className="text-muted-foreground text-xs">
-          도면에 문제가 있어 3D 가 표시되지 않습니다 — 「도면」 탭에서 수정합니다.
+          도면에 문제가 있어 3D가 표시되지 않습니다. ‘도면’ 탭에서 수정하십시오.
         </p>
       )}
 
@@ -961,7 +967,7 @@ export function ConditionsPanel({
                 label: spec.groups[key]?.label ?? key,
                 items: draft[key] ?? [],
               }))}
-              analysis={[String(draft.analysis?.type ?? ''), systemOf ? `내보내기 ${systemOf.length} · ${systemOf.stress}` : '']
+              analysis={[String(draft.analysis?.type ?? ''), systemOf ? `내보내기 ${systemOf.length}·${systemOf.stress}` : '']
                 .filter(Boolean)
                 .join(' · ')}
               editing={editing}
@@ -1011,7 +1017,7 @@ export function ConditionsPanel({
                 disabled={!!editingAccepts && !editingAccepts.some((ok) => ok.entity === one.entity)}
                 title={
                   editingAccepts && !editingAccepts.some((ok) => ok.entity === one.entity)
-                    ? `이 조건은 ${acceptsLabel(editingAccepts)} 에만 겁니다`
+                    ? `이 조건은 ${acceptsLabel(editingAccepts)}에만 적용됩니다.`
                     : undefined
                 }
                 className={`rounded border px-2 py-0.5 text-xs disabled:opacity-40 ${
@@ -1030,12 +1036,12 @@ export function ConditionsPanel({
               </button>
             ))}
             <span className="text-muted-foreground ml-auto text-xs">
-              {pickKind === 'body' && '면을 클릭하면 그 바디가 선택됩니다 · '}
+              {pickKind === 'body' && '면을 클릭하면 해당 바디가 선택됩니다. '}
               {editing && editingTargets.length > 0
-                ? '선택하면 열린 조건의 적용 대상이 됩니다 — Ctrl · Shift 로 여럿, Shift + 끌기는 사각형'
+                ? '선택한 형상이 열린 조건의 적용 대상이 됩니다(Ctrl·Shift: 다중 선택, Shift+드래그: 사각형 선택).'
                 : grouping
-                  ? 'Ctrl · Shift 로 더하고, Shift + 끌기로 사각형 안의 것을 더합니다'
-                  : '3D 에서 선택하면 선택 그룹을 만듭니다'}
+                  ? 'Ctrl 또는 Shift로 추가하고, Shift+드래그로 사각형 영역 안의 형상을 추가합니다.'
+                  : '3D에서 선택하면 선택 그룹이 생성됩니다.'}
             </span>
           </div>
           <CardContent className="min-h-0 flex-1 p-0">
@@ -1099,8 +1105,8 @@ export function ConditionsPanel({
           editingTargets.length === 0
             ? undefined
             : editingAccepts
-              ? `이 조건은 ${acceptsLabel(editingAccepts)} 에만 겁니다 — 3D 에서 선택하면 적용 대상으로 지정됩니다(Ctrl · Shift 로 여럿).`
-              : '3D 에서 형상을 선택하면 적용 대상으로 지정됩니다 — Ctrl · Shift 로 여럿을 묶습니다.'
+              ? `이 조건은 ${acceptsLabel(editingAccepts)}에만 적용됩니다. 3D에서 선택하면 적용 대상으로 지정됩니다(Ctrl 또는 Shift로 다중 선택).`
+              : '3D에서 형상을 선택하면 적용 대상으로 지정됩니다. Ctrl 또는 Shift로 여러 형상을 함께 선택할 수 있습니다.'
         }
         onClose={closeWindow}
         footer={
@@ -1154,7 +1160,7 @@ export function ConditionsPanel({
       <FloatingWindow
         open={!!frameEditing}
         title={`좌표계 ${frameEditing?.index === null ? '추가' : '수정'}`}
-        description="구속의 x · y · z 가 이 좌표계의 축 방향이 됩니다. 원점 · 회전에 =식을 쓰거나 선택 그룹의 면에 붙이면 DOE 로 치수가 바뀔 때 따라갑니다."
+        description="구속의 x·y·z가 이 좌표계의 축 방향이 됩니다. 원점·회전에 =식을 사용하거나 선택 그룹의 면에 연결하면 DOE로 치수가 변경될 때 함께 갱신됩니다."
         onClose={() => {
           setFrameEditing(null)
           setPlacing(null)
@@ -1222,7 +1228,7 @@ export function ConditionsPanel({
       <FloatingWindow
         open={grouping}
         title="선택 그룹 추가"
-        description="3D 에서 형상을 선택합니다 — Ctrl 또는 Shift 를 누른 채 선택하면 여럿을 담고, Shift 를 누른 채 끌면 사각형 안에 온전히 든 것을 담습니다. 한 그룹은 한 종류(점 · 엣지 · 면 · 바디)입니다."
+        description="3D에서 형상을 선택하십시오. Ctrl 또는 Shift를 누른 채 선택하면 여러 형상이 추가되고, Shift를 누른 채 드래그하면 사각형 영역 안에 완전히 포함된 형상이 추가됩니다. 한 그룹에는 한 종류(점, 엣지, 면, 바디)만 포함할 수 있습니다."
         onClose={closeGroup}
         // 해석 설정 창과 함께 뜨는 드문 경우 겹치지 않게 조금 아래에 세운다.
         className={editing ? 'top-56' : 'top-24'}

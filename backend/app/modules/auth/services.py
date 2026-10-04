@@ -25,9 +25,9 @@ def _now() -> datetime:
 
 def ensure_can_sign_in(user: User) -> None:
     if user.deleted_at is not None:
-        raise Forbidden(code("AUTH", 2), "삭제된 계정입니다. 관리자에게 문의하세요.")
+        raise Forbidden(code("AUTH", 2), "삭제된 계정입니다. 관리자에게 문의하십시오.")
     if user.status != "active":
-        raise Forbidden(code("AUTH", 2), "정지된 계정입니다. 관리자에게 문의하세요.")
+        raise Forbidden(code("AUTH", 2), "정지된 계정입니다. 관리자에게 문의하십시오.")
 
 
 #: 시험이 갈아 끼운다 — 실제로 자면 시험이 30초씩 선다.
@@ -108,7 +108,7 @@ def rotate_refresh(
     )
     if token is None:
         raise AppError(
-            code("AUTH", 3), "세션이 만료되었습니다. 다시 로그인해 주세요.", status=401
+            code("AUTH", 3), "세션이 만료되었습니다. 다시 로그인하십시오.", status=401
         )
 
     if token.revoked_at is not None:
@@ -122,19 +122,19 @@ def rotate_refresh(
             revoke_all_for_user(db, token.user_id)
             raise AppError(
                 code("AUTH", 5),
-                "세션이 무효화되었습니다. 다시 로그인해 주세요.",
+                "세션이 무효화되었습니다. 다시 로그인하십시오.",
                 status=401,
                 details={"reason": "reuse_of_revoked_token"},
             )
 
     if token.expires_at <= _now():
         raise AppError(
-            code("AUTH", 3), "세션이 만료되었습니다. 다시 로그인해 주세요.", status=401
+            code("AUTH", 3), "세션이 만료되었습니다. 다시 로그인하십시오.", status=401
         )
 
     user = db.get(User, token.user_id)
     if user is None:
-        raise Forbidden(code("AUTH", 2), "삭제된 계정입니다. 관리자에게 문의하세요.")
+        raise Forbidden(code("AUTH", 2), "삭제된 계정입니다. 관리자에게 문의하십시오.")
     ensure_can_sign_in(user)
 
     settings = get_settings()
@@ -180,7 +180,7 @@ def change_password(db: Session, user: User, current: str, new: str) -> None:
     if not security.verify_password(current, user.password_hash):
         raise AppError(code("AUTH", 4), "현재 비밀번호가 올바르지 않습니다.", status=400)
     if current == new:
-        raise AppError(code("AUTH", 6), "이전과 다른 비밀번호를 사용하세요.", status=400)
+        raise AppError(code("AUTH", 6), "이전과 다른 비밀번호를 사용하십시오.", status=400)
 
     user.password_hash = security.hash_password(new)
     user.must_change_password = False
@@ -197,13 +197,19 @@ def user_out(user: User) -> UserOut:
 
 #: 아는 범위와 뜻. 화면과 MCP 안내가 이것을 읽는다 — 손으로 두 벌 적지 않는다.
 SCOPES: dict[str, str] = {
-    "read": "조회 — 내 작업 · 부품 · 지그 · 작업 상태 읽기, 레시피 검증 · 미리보기",
-    "write": "만들고 고치기 — 작업 · 버전 저장 · 지그 생성 · 승격",
+    "read": (
+        "조회 권한입니다. 내 작업, 부품, 지그, 작업 상태를 조회하고 레시피를 검증하거나 "
+        "미리 볼 수 있습니다."
+    ),
+    "write": (
+        "생성·수정 권한입니다. 작업과 버전을 저장하고, 지그를 생성하며, 부품과 지그를 "
+        "등록할 수 있습니다."
+    ),
     "act_for_others": (
-        "대행 — 「누구를 위해」 를 밝히고 그 사람 이름으로 만든다. "
-        "오케스트레이터(기계)가 쓰는 자격이다: 서비스 계정이 만든 것이 서비스 계정 것으로만 "
-        "남으면 정작 사람이 제 활동에서 못 찾는다. **남의 이름을 빌리는 일이라** 아무 "
-        "토큰에나 주지 않는다"
+        "대행 권한입니다. 대상 사용자를 지정하여 해당 사용자의 이름으로 생성합니다. "
+        "오케스트레이터(자동화 시스템)용 권한입니다. 서비스 계정이 생성한 항목이 서비스 계정 "
+        "소유로만 남으면 실제 사용자가 본인의 활동에서 조회할 수 없기 때문입니다. 다른 "
+        "사용자의 이름을 사용하는 권한이므로 꼭 필요한 토큰에만 부여하십시오."
     ),
 }
 
@@ -216,7 +222,7 @@ def create_pat(
     if unknown:
         raise AppError(
             code("AUTH", 107),
-            f"모르는 범위입니다: {', '.join(unknown)}",
+            f"알 수 없는 범위({', '.join(unknown)})입니다.",
             status=400,
             details={"known": list(SCOPES)},
         )

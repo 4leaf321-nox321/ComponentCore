@@ -102,9 +102,11 @@ class Segment(BaseModel):
     def _one_way(self) -> Segment:
         chosen = [self.via is not None, self.radius is not None, self.tangent]
         if sum(chosen) > 1:
-            raise ValueError("via · radius · tangent 중 하나만 씁니다")
+            raise ValueError("via, radius, tangent 중 하나만 지정할 수 있습니다.")
         if self.radius is not None and self.radius == 0:
-            raise ValueError("radius: 0 은 호가 되지 않습니다 — 빼면 직선입니다")
+            raise ValueError(
+                "radius: 0으로는 호가 되지 않습니다. 직선이 필요하면 radius를 비워 두십시오."
+            )
         return self
 
 
@@ -165,9 +167,9 @@ class TriangleShape(_Shape, _Aligned):
     def _enough(self) -> TriangleShape:
         given = [v for v in (self.a, self.b, self.c, self.A, self.B, self.C) if v is not None]
         if len(given) < 3:
-            raise ValueError("변 · 각을 셋은 주어야 삼각형이 정해집니다")
+            raise ValueError("삼각형을 정의하려면 변과 각 중 3개 이상을 지정해야 합니다.")
         if all(v is None for v in (self.a, self.b, self.c)):
-            raise ValueError("변을 적어도 하나는 주어야 크기가 정해집니다")
+            raise ValueError("크기를 정하려면 변을 적어도 하나 지정해야 합니다.")
         return self
 
 
@@ -282,12 +284,14 @@ class ConstrainedShape(_Shape):
                 ("center", segment.center),
             ):
                 if name is not None and name not in names:
-                    raise ValueError(f"segments[{index}].{role}: 없는 점 '{name}'")
+                    raise ValueError(
+                        f"segments[{index}].{role}: 존재하지 않는 점 ‘{name}’입니다."
+                    )
             following = self.segments[(index + 1) % len(self.segments)]
             if segment.end != following.start:
                 raise ValueError(
-                    f"segments[{index}].to: 다음 구간의 from('{following.start}')과 같아야 "
-                    "윤곽이 닫힙니다"
+                    f"segments[{index}].to: 윤곽이 닫히려면 다음 구간의 "
+                    f"from(‘{following.start}’)과 같아야 합니다."
                 )
         for index, one in enumerate(self.constraints):
             points, segments, valued = SKETCH_CONSTRAINTS[one.type]
@@ -296,19 +300,19 @@ class ConstrainedShape(_Shape):
                 if not (len(one.segments) == 1 and not one.points) and not (
                     len(one.points) == 2 and not one.segments
                 ):
-                    raise ValueError(f"{where}: 구간 하나 또는 점 둘입니다")
+                    raise ValueError(f"{where}: 구간 1개 또는 점 2개를 지정해야 합니다.")
             elif len(one.points) != points or len(one.segments) != segments:
-                raise ValueError(f"{where}: 점 {points} 개 · 구간 {segments} 개가 필요합니다")
+                raise ValueError(f"{where}: 점 {points}개와 구간 {segments}개가 필요합니다.")
             if valued and one.value is None:
-                raise ValueError(f"{where}: 값(value)이 필요합니다")
+                raise ValueError(f"{where}: 값(value)이 필요합니다.")
             for name in one.points:
                 if name not in names:
-                    raise ValueError(f"{where}: 없는 점 '{name}'")
+                    raise ValueError(f"{where}: 존재하지 않는 점 ‘{name}’입니다.")
             for number in one.segments:
                 if not 0 <= number < len(self.segments):
-                    raise ValueError(f"{where}: 없는 구간 {number}")
+                    raise ValueError(f"{where}: 존재하지 않는 구간({number})입니다.")
             if one.type == "radius" and self.segments[one.segments[0]].center is None:
-                raise ValueError(f"{where}: 호(center 가 있는 구간)여야 합니다")
+                raise ValueError(f"{where}: 호(center가 있는 구간)여야 합니다.")
             if one.type in (
                 "length",
                 "parallel",
@@ -319,7 +323,7 @@ class ConstrainedShape(_Shape):
                 self.segments[number].center is not None
                 for number in (one.segments if one.type != "symmetric" else one.segments[:1])
             ):
-                raise ValueError(f"{where}: 직선 구간이어야 합니다")
+                raise ValueError(f"{where}: 직선 구간이어야 합니다.")
         return self
 
 
@@ -403,10 +407,10 @@ class ExtrudeNode(_Node):
         if self.until != "distance":
             if self.target is None:
                 raise ValueError(
-                    "target: 「다음 면까지」 「마지막 면까지」 는 대상 입체가 있어야 합니다"
+                    "target: ‘다음 면까지’와 ‘마지막 면까지’는 대상 솔리드가 필요합니다."
                 )
             if self.direction == "both":
-                raise ValueError("direction: 면까지 돌출은 한쪽 방향만 됩니다")
+                raise ValueError("direction: 면까지 돌출은 한쪽 방향으로만 가능합니다.")
         return self
 
 
@@ -487,10 +491,10 @@ class DeformNode(_Node):
     def _something(self) -> DeformNode:
         if not self.twist and self.taper == 1:
             raise ValueError(
-                "twist · taper 중 하나는 있어야 합니다 — 지금은 바꾸는 것이 없습니다"
+                "twist 또는 taper 중 하나 이상을 지정해야 합니다. 현재는 변형이 없습니다."
             )
         if self.start is not None and self.end is not None and self.end <= self.start:
-            raise ValueError("end: start 보다 커야 합니다")
+            raise ValueError("end: start보다 커야 합니다.")
         return self
 
 
@@ -512,11 +516,13 @@ def _check_bend_order(bends: list[Bend]) -> None:
     for index in range(1, len(bends)):
         if bends[index].at <= bends[index - 1].at:
             raise ValueError(
-                f"bends[{index}].at: 앞 굽힘({bends[index - 1].at})보다 뒤여야 합니다"
+                f"bends[{index}].at: 이전 굽힘의 위치({bends[index - 1].at})보다 커야 합니다."
             )
     for index, one in enumerate(bends[:-1]):
         if one.until == "end":
-            raise ValueError(f"bends[{index}].until: 끝까지 감기(end)는 마지막 굽힘만 됩니다")
+            raise ValueError(
+                f"bends[{index}].until: 끝까지 감기(end)는 마지막 굽힘에만 지정할 수 있습니다."
+            )
 
 
 class BendNode(_Node):
@@ -579,7 +585,7 @@ class TSlotProfile(_Profile):
     @model_validator(mode="after")
     def _series(self) -> TSlotProfile:
         if round(self.size) not in T_SLOT_SERIES or abs(self.size - round(self.size)) > 1e-9:
-            raise ValueError(f"size: {' · '.join(map(str, T_SLOT_SERIES))} 중 하나입니다")
+            raise ValueError(f"size: {', '.join(map(str, T_SLOT_SERIES))} 중 하나여야 합니다.")
         return self
 
 
@@ -594,7 +600,7 @@ class SquareTubeProfile(_Profile):
     @model_validator(mode="after")
     def _wall(self) -> SquareTubeProfile:
         if self.thickness * 2 >= self.width:
-            raise ValueError("thickness: 벽 두께의 두 배가 폭보다 작아야 합니다")
+            raise ValueError("thickness: 벽 두께의 두 배가 폭보다 작아야 합니다.")
         return self
 
 
@@ -609,7 +615,7 @@ class RectTubeProfile(_Profile):
     @model_validator(mode="after")
     def _wall(self) -> RectTubeProfile:
         if self.thickness * 2 >= min(self.width, self.height):
-            raise ValueError("thickness: 벽 두께의 두 배가 폭 · 높이보다 작아야 합니다")
+            raise ValueError("thickness: 벽 두께의 두 배가 폭과 높이보다 작아야 합니다.")
         return self
 
 
@@ -624,7 +630,7 @@ class RoundTubeProfile(_Profile):
     @model_validator(mode="after")
     def _wall(self) -> RoundTubeProfile:
         if self.thickness * 2 >= self.diameter:
-            raise ValueError("thickness: 벽 두께의 두 배가 지름보다 작아야 합니다")
+            raise ValueError("thickness: 벽 두께의 두 배가 지름보다 작아야 합니다.")
         return self
 
 
@@ -655,7 +661,7 @@ class AngleProfile(_Profile):
     @model_validator(mode="after")
     def _legs(self) -> AngleProfile:
         if self.thickness >= min(self.width, self.height):
-            raise ValueError("thickness: 다리 길이보다 작아야 합니다")
+            raise ValueError("thickness: 두께가 다리 길이보다 작아야 합니다.")
         return self
 
 
@@ -670,7 +676,7 @@ class ChannelProfile(_Profile):
     @model_validator(mode="after")
     def _legs(self) -> ChannelProfile:
         if self.thickness >= self.width or self.thickness * 2 >= self.height:
-            raise ValueError("thickness: 플랜지 폭과 웨브 높이의 절반보다 작아야 합니다")
+            raise ValueError("thickness: 플랜지 폭과 웨브 높이의 절반보다 작아야 합니다.")
         return self
 
 
@@ -686,7 +692,10 @@ class HBeamProfile(_Profile):
     @model_validator(mode="after")
     def _plates(self) -> HBeamProfile:
         if self.web >= self.width or self.flange * 2 >= self.height:
-            raise ValueError("web · flange: 웨브는 폭보다, 플랜지 둘은 높이보다 얇아야 합니다")
+            raise ValueError(
+                "web, flange: 웨브 두께는 폭보다, 플랜지 두께의 두 배는 높이보다 "
+                "작아야 합니다."
+            )
         return self
 
 
@@ -735,7 +744,9 @@ class FrameNode(_Node):
     def _paths(self) -> FrameNode:
         for index, path in enumerate(self.paths):
             if len(path) < 2:
-                raise ValueError(f"paths[{index}]: 점이 둘 이상이어야 부재가 됩니다")
+                raise ValueError(
+                    f"paths[{index}]: 부재를 생성하려면 점이 2개 이상이어야 합니다."
+                )
         return self
 
 
@@ -901,7 +912,9 @@ class ChamferNode(_Node):
     @model_validator(mode="after")
     def _one_way(self) -> ChamferNode:
         if self.length2 is not None and self.angle is not None:
-            raise ValueError("length2(두 거리)와 angle(거리-각도) 중 하나만 씁니다")
+            raise ValueError(
+                "length2(두 거리)와 angle(거리-각도) 중 하나만 지정할 수 있습니다."
+            )
         return self
 
 
@@ -944,15 +957,16 @@ class HoleNode(_Node):
     def _check_dimensions(self) -> HoleNode:
         if self.thread is not None and self.thread not in THREADS:
             raise ValueError(
-                f"thread: 모르는 나사입니다: {self.thread} (가능: {', '.join(THREADS)})"
+                f"thread: 지원하지 않는 나사입니다: {self.thread} "
+                f"(사용 가능: {', '.join(THREADS)})."
             )
         if self.thread is None and self.diameter is None:
-            raise ValueError("diameter: thread 를 안 주면 지름이 필요합니다")
+            raise ValueError("diameter: thread를 지정하지 않으면 지름이 필요합니다.")
         if self.kind in ("counterbore", "countersink") and self.thread is None:
             if self.counter_diameter is None:
-                raise ValueError("counter_diameter: 카운터 지름이 필요합니다(또는 thread)")
+                raise ValueError("counter_diameter: 카운터 지름 또는 thread가 필요합니다.")
             if self.kind == "counterbore" and self.counter_depth is None:
-                raise ValueError("counter_depth: 카운터보어 깊이가 필요합니다(또는 thread)")
+                raise ValueError("counter_depth: 카운터보어 깊이 또는 thread가 필요합니다.")
         return self
 
 
@@ -999,7 +1013,7 @@ class DivideFaceNode(_Node):
     @model_validator(mode="after")
     def _shape_needs(self) -> DivideFaceNode:
         if self.shape == "sketch" and self.sketch is None:
-            raise ValueError("sketch: 모양을 스케치로 하려면 그 스케치를 고릅니다")
+            raise ValueError("sketch: 모양을 스케치로 지정하려면 해당 스케치를 선택하십시오.")
         return self
 
 
@@ -1057,9 +1071,9 @@ class WedgeNode(_Node):
     @model_validator(mode="after")
     def _top_order(self) -> WedgeNode:
         if self.top_x_max is not None and self.top_x_max <= self.top_x_min:
-            raise ValueError("top_x_max: top_x_min 보다 커야 합니다")
+            raise ValueError("top_x_max: top_x_min보다 커야 합니다.")
         if self.top_z_max is not None and self.top_z_max <= self.top_z_min:
-            raise ValueError("top_z_max: top_z_min 보다 커야 합니다")
+            raise ValueError("top_z_max: top_z_min보다 커야 합니다.")
         return self
 
 
@@ -1101,7 +1115,7 @@ class StandoffNode(_Node):
     @model_validator(mode="after")
     def _hole_fits(self) -> StandoffNode:
         if self.hole >= self.outer:
-            raise ValueError("구멍이 바깥 지름보다 작아야 합니다")
+            raise ValueError("구멍 지름이 바깥 지름보다 작아야 합니다.")
         return self
 
 
@@ -1154,7 +1168,7 @@ BRACKETS: dict[int, tuple[float, float, float, float]] = {
 
 def _known(value: str, table: dict[str, Any], field: str) -> None:
     if value not in table:
-        raise ValueError(f"{field}: {' · '.join(table)} 중 하나입니다")
+        raise ValueError(f"{field}: {', '.join(table)} 중 하나여야 합니다.")
 
 
 class NutNode(_Node):
@@ -1218,10 +1232,11 @@ class SpringNode(_Node):
     @model_validator(mode="after")
     def _fits(self) -> SpringNode:
         if self.wire >= self.diameter:
-            raise ValueError("wire: 선 지름이 평균 지름보다 작아야 합니다")
+            raise ValueError("wire: 선 지름이 평균 지름보다 작아야 합니다.")
         if (self.length - self.wire) / self.coils <= self.wire * 1.05:
             raise ValueError(
-                "coils: 감김이 촘촘해 코일끼리 닿습니다 — 줄이거나 길이를 늘리세요"
+                "coils: 감김 수가 많아 코일끼리 닿습니다. 감김 수를 줄이거나 길이를 "
+                "늘리십시오."
             )
         return self
 
@@ -1239,13 +1254,13 @@ class BracketNode(_Node):
     @model_validator(mode="after")
     def _series(self) -> BracketNode:
         if round(self.size) not in BRACKETS or abs(self.size - round(self.size)) > 1e-9:
-            raise ValueError(f"size: {' · '.join(map(str, BRACKETS))} 중 하나입니다")
+            raise ValueError(f"size: {', '.join(map(str, BRACKETS))} 중 하나여야 합니다.")
         a, b = self.legs
         if (
             abs(sum(x * y for x, y in zip(a, b, strict=True)))
             > 1e-6 * (sum(x * x for x in a) * sum(y * y for y in b)) ** 0.5
         ):
-            raise ValueError("legs: 두 다리 방향이 서로 수직이어야 합니다")
+            raise ValueError("legs: 두 다리 방향이 서로 수직이어야 합니다.")
         return self
 
 
@@ -1319,10 +1334,13 @@ class DefeatureNode(_Node):
     def _something(self) -> DefeatureNode:
         if self.faces == "none" and self.holes_below is None and self.fillets_below is None:
             raise ValueError(
-                "faces · holes_below · fillets_below 중 하나는 있어야 지울 것이 있습니다"
+                "제거할 대상을 정하려면 faces, holes_below, fillets_below 중 하나 이상을 "
+                "지정해야 합니다."
             )
         if self.faces in ("all", "top", "bottom", "sides"):
-            raise ValueError('faces: 지울 면은 3D 에서 고른 자리({"near": [...]})로 줍니다')
+            raise ValueError(
+                'faces: 제거할 면은 3D 뷰에서 선택한 위치({"near": [...]})로 지정하십시오.'
+            )
         return self
 
 
@@ -1375,15 +1393,17 @@ class SurfaceNode(_Node):
         if self.kind == "grid":
             rows = self.grid or []
             if len(rows) < 2 or len(rows[0]) < 2:
-                raise ValueError("grid: 2 x 2 점 이상이 필요합니다")
+                raise ValueError("grid: 2 x 2개 이상의 점이 필요합니다.")
             if any(len(row) != len(rows[0]) for row in rows):
-                raise ValueError("grid: 행마다 점의 수가 같아야 합니다")
+                raise ValueError("grid: 행마다 점의 수가 같아야 합니다.")
         if self.kind == "loft":
             curves = self.curves or []
             if len(curves) < 2 or any(len(one) < 2 for one in curves):
-                raise ValueError("curves: 곡선 둘 이상, 곡선마다 점 둘 이상입니다")
+                raise ValueError(
+                    "curves: 곡선이 2개 이상이고, 곡선마다 점이 2개 이상이어야 합니다."
+                )
         if self.kind == "fill" and len(self.boundary or []) < 3:
-            raise ValueError("boundary: 테두리는 점 셋 이상입니다")
+            raise ValueError("boundary: 경계에는 점이 3개 이상 필요합니다.")
         return self
 
 
@@ -1420,7 +1440,7 @@ class OffsetNode(_Node):
     @model_validator(mode="after")
     def _nonzero(self) -> OffsetNode:
         if self.amount == 0:
-            raise ValueError("amount: 0 이면 아무것도 안 바뀝니다")
+            raise ValueError("amount: 0이면 형상이 변하지 않습니다.")
         return self
 
 
@@ -1474,9 +1494,9 @@ class Mate(BaseModel):
     @model_validator(mode="after")
     def _check_angle(self) -> Mate:
         if self.type == "angle" and self.angle is None:
-            raise ValueError("angle: 각도 구속에는 각(도)이 필요합니다")
+            raise ValueError("angle: 각도 구속에는 각도(°)가 필요합니다.")
         if self.offset and self.type not in ("touch", "flush"):
-            raise ValueError("offset: 맞대기 · 면 맞춤에만 씁니다")
+            raise ValueError("offset: 접촉, 동일 평면 구속에만 사용할 수 있습니다.")
         return self
 
 
@@ -1525,8 +1545,8 @@ def _one_way(node: BaseModel, ways: dict[str, bool]) -> None:
     chosen = [name for name, given in ways.items() if given]
     if len(chosen) != 1:
         raise ValueError(
-            f"{' · '.join(ways)} 중 하나로 정합니다"
-            + (f" — 지금 {' · '.join(chosen)}" if chosen else " — 지금 없음")
+            f"{', '.join(ways)} 중 하나로 정의해야 합니다"
+            + (f"(현재: {', '.join(chosen)})." if chosen else "(현재: 없음).")
         )
 
 
@@ -1559,9 +1579,9 @@ class DatumAxisNode(_Node):
             },
         )
         if (self.origin is None) != (self.direction is None):
-            raise ValueError("origin 과 direction 은 함께 줍니다")
+            raise ValueError("origin과 direction은 함께 지정해야 합니다.")
         if (self.target is None) != (self.select is None):
-            raise ValueError("target 과 select 는 함께 줍니다")
+            raise ValueError("target과 select는 함께 지정해야 합니다.")
         return self
 
 
@@ -1600,9 +1620,9 @@ class DatumPlaneNode(_Node):
             },
         )
         if (self.target is None) != (self.select is None):
-            raise ValueError("target 과 select 는 함께 줍니다")
+            raise ValueError("target과 select는 함께 지정해야 합니다.")
         if self.angle and self.hinge is None:
-            raise ValueError("angle 은 hinge(기울일 축)와 함께 줍니다")
+            raise ValueError("angle은 hinge(기울일 축)와 함께 지정해야 합니다.")
         return self
 
 
@@ -1703,11 +1723,13 @@ class Recipe(BaseModel):
         for index, frame in enumerate(self.coordinate_systems):
             if frame.name in RESERVED_FRAMES:
                 raise ValueError(
-                    f"coordinate_systems[{index}]: 「{frame.name}」 은 전역 좌표계의 "
-                    "이름입니다"
+                    f"coordinate_systems[{index}]: ‘{frame.name}’은(는) 전역 좌표계의 "
+                    "이름이므로 사용할 수 없습니다."
                 )
             if frame.name in seen:
-                raise ValueError(f"coordinate_systems[{index}]: 「{frame.name}」 이 겹칩니다")
+                raise ValueError(
+                    f"coordinate_systems[{index}]: ‘{frame.name}’이(가) 중복됩니다."
+                )
             seen.add(frame.name)
         return self
 
@@ -1716,7 +1738,7 @@ class Recipe(BaseModel):
         seen: dict[str, str] = {}
         for index, node in enumerate(self.nodes):
             if node.id in seen:
-                raise ValueError(f"nodes[{index}]: id '{node.id}' 가 겹칩니다")
+                raise ValueError(f"nodes[{index}]: id ‘{node.id}’이(가) 중복됩니다.")
             datums = datum_references(node)
             for key, value in _references(node):
                 names = value if isinstance(value, list) else [value]
@@ -1724,7 +1746,7 @@ class Recipe(BaseModel):
                     if name not in seen:
                         raise ValueError(
                             f"nodes[{index}] ({node.id}).{key}: "
-                            f"'{name}' 은 앞에 없는 피처입니다"
+                            f"‘{name}’은(는) 앞에 없는 피처입니다."
                         )
                     # 기준은 형상이 아니다 — 축 · 평면 칸에만 쓴다.
                     # 구속은 기준축 · 기준면에도 건다(`mates[…].to`).
@@ -1734,8 +1756,9 @@ class Recipe(BaseModel):
                         and not key.startswith("mates[")
                     ):
                         raise ValueError(
-                            f"nodes[{index}] ({node.id}).{key}: '{name}' 은 기준(축 · 면)"
-                            "이라 형상이 아닙니다 — 축 · 평면 칸에 씁니다"
+                            f"nodes[{index}] ({node.id}).{key}: ‘{name}’은(는) "
+                            "기준(축·면)이므로 형상이 아닙니다. 기준은 축 또는 평면 필드에만 "
+                            "사용할 수 있습니다."
                         )
             for key, name, wanted in datums:
                 if seen[name] != wanted:
@@ -1745,11 +1768,11 @@ class Recipe(BaseModel):
                         else "기준면(datum_plane)"
                     )
                     raise ValueError(
-                        f"nodes[{index}] ({node.id}).{key}: '{name}' 은 {what}이 아닙니다"
+                        f"nodes[{index}] ({node.id}).{key}: ‘{name}’은(는) {what}이 아닙니다."
                     )
             seen[node.id] = node.op
         if self.result is not None and self.result not in seen:
-            raise ValueError(f"result: '{self.result}' 피처가 없습니다")
+            raise ValueError(f"result: ‘{self.result}’ 피처가 없습니다.")
         return self
 
     @property
@@ -1831,23 +1854,23 @@ class RecipeValidationError(ValueError):
 
 #: pydantic 의 영어 문구 → 사람 말. 화면과 AI 가 같은 말을 읽는다. 없는 것은 원문 그대로.
 _MESSAGES: dict[str, str] = {
-    "too_short": "적어도 {min_length}개가 있어야 합니다",
-    "too_long": "많아야 {max_length}개입니다",
-    "missing": "값이 빠졌습니다",
-    "greater_than": "{gt}보다 커야 합니다",
-    "greater_than_equal": "{ge} 이상이어야 합니다",
-    "less_than_equal": "{le} 이하여야 합니다",
-    "string_pattern_mismatch": "쓸 수 없는 문자가 있습니다",
-    "string_too_short": "값이 필요합니다",
-    "string_too_long": "너무 깁니다",
-    "extra_forbidden": "이 피처에는 없는 칸입니다",
-    "int_parsing": "정수여야 합니다",
-    "float_parsing": "숫자여야 합니다",
-    "bool_parsing": "예/아니오 값이어야 합니다",
-    "union_tag_invalid": "모르는 종류입니다: {tag} (가능: {expected_tags})",
-    "literal_error": "가능한 값: {expected}",
-    "model_type": '위치로 고르려면 {{"near": [[x, y, z], …]}} 모양이어야 합니다',
-    "dict_type": '위치로 고르려면 {{"near": [[x, y, z], …]}} 모양이어야 합니다',
+    "too_short": "{min_length}개 이상이어야 합니다.",
+    "too_long": "{max_length}개 이하여야 합니다.",
+    "missing": "필수 값이 없습니다.",
+    "greater_than": "{gt}보다 커야 합니다.",
+    "greater_than_equal": "{ge} 이상이어야 합니다.",
+    "less_than_equal": "{le} 이하여야 합니다.",
+    "string_pattern_mismatch": "사용할 수 없는 문자가 있습니다.",
+    "string_too_short": "값이 필요합니다.",
+    "string_too_long": "값이 너무 깁니다.",
+    "extra_forbidden": "이 피처에 없는 필드입니다.",
+    "int_parsing": "정수여야 합니다.",
+    "float_parsing": "숫자여야 합니다.",
+    "bool_parsing": "예/아니요 값이어야 합니다.",
+    "union_tag_invalid": "알 수 없는 종류입니다: {tag} (사용 가능: {expected_tags}).",
+    "literal_error": "다음 값 중 하나여야 합니다: {expected}.",
+    "model_type": '위치로 선택하려면 {{"near": [[x, y, z], …]}} 형식이어야 합니다.',
+    "dict_type": '위치로 선택하려면 {{"near": [[x, y, z], …]}} 형식이어야 합니다.',
 }
 
 

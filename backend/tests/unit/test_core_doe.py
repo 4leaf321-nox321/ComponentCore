@@ -57,14 +57,14 @@ def test_너무_많으면_미리_막는다() -> None:
     ]
     factors = parse_factors(many)
     assert count(factors, "factorial", 0) == 625
-    with pytest.raises(DoeError, match="625 개입니다"):
+    with pytest.raises(DoeError, match="625개입니다"):
         build_points(factors, method="factorial")
 
 
 def test_틀린_인자는_이름을_짚어_말한다() -> None:
-    with pytest.raises(DoeError, match="바꿔 볼 치수를 하나는"):
+    with pytest.raises(DoeError, match="변경할 치수를 하나 이상"):
         parse_factors([{"name": "두께", "mode": "fixed", "value": 5}])
-    with pytest.raises(DoeError, match="'두께': 값 목록이 비었습니다"):
+    with pytest.raises(DoeError, match="‘두께’: 값 목록이 비어 있습니다"):
         parse_factors([{"name": "두께", "mode": "list", "values": []}])
     with pytest.raises(DoeError, match="두 번"):
         parse_factors([FACTORS[0], FACTORS[0]])
@@ -164,12 +164,12 @@ def test_고르기_배율_인자는_후보를_고르고_형상_값에서_빠진�
 def test_고르기_배율_인자가_틀리면_말한다() -> None:
     target = {"group": "contacts", "item": "a", "field": "type"}
     cases: list[tuple[dict[str, Any], str]] = [
-        ({"mode": "choice", "target": {**target, "group": "parts"}, "values": ["x"]}, "묶음"),
+        ({"mode": "choice", "target": {**target, "group": "parts"}, "values": ["x"]}, "그룹"),
         ({"mode": "choice", "target": {**target, "item": None}, "values": ["x"]}, "항목"),
         ({"mode": "choice", "target": target, "values": []}, "후보"),
         ({"mode": "choice", "target": target, "values": ["a", "a"]}, "두 번"),
         ({"mode": "scale", "bodies": ["b"], "values": [1]}, "물성"),
-        ({"mode": "scale", "property": "E", "bodies": ["b"], "values": [0]}, "0 보다"),
+        ({"mode": "scale", "property": "E", "bodies": ["b"], "values": [0]}, "0보다"),
     ]
     for one, message in cases:
         with pytest.raises(DoeError, match=message):

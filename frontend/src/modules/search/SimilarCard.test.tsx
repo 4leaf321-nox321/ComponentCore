@@ -52,12 +52,12 @@ test('점수 · 왜 · 형상을 보이고, 비슷한 부품에는 그 부품의
 
 test('색인이 없는 버전이면 서버의 말을 그대로 — 오류가 아니라 아직 못 견주는 것', async () => {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
-    json({ error: { code: 'CCR-SEARCH-0003', message: '이 버전에는 형상 색인이 없습니다 — 관리자가 서버 화면에서 「형상 색인 채우기」.' } }, 400),
+    json({ error: { code: 'CCR-SEARCH-0003', message: '이 버전에는 형상 색인이 없습니다. 관리자가 서버 화면에서 ‘형상 색인 생성’을 실행할 수 있습니다.' } }, 400),
   )
   render(
     <MemoryRouter>
       <SimilarCard source="work:w1" />
     </MemoryRouter>,
   )
-  await waitFor(() => expect(screen.getByText(/형상 색인 채우기/)).toBeInTheDocument())
+  await waitFor(() => expect(screen.getByText(/형상 색인 생성/)).toBeInTheDocument())
 })

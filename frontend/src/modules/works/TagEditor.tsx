@@ -17,7 +17,7 @@ export function TagEditor({ tags, suggestions = [], onChange, busy }: { tags: st
       {tags.map((one) => (
         <span key={one} className="bg-accent inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs">
           {one}
-          <button type="button" className="text-muted-foreground hover:text-destructive" onClick={() => onChange(tags.filter((t) => t !== one))} disabled={busy} aria-label={`${one} 떼기`}>
+          <button type="button" className="text-muted-foreground hover:text-destructive" onClick={() => onChange(tags.filter((t) => t !== one))} disabled={busy} aria-label={`${one} 태그 제거`}>
             <X className="size-3" />
           </button>
         </span>
@@ -32,10 +32,10 @@ export function TagEditor({ tags, suggestions = [], onChange, busy }: { tags: st
           }
         }}
         onBlur={() => text && add(text)}
-        placeholder={tags.length === 0 ? '꼬리표 (Enter)' : '+'}
+        placeholder={tags.length === 0 ? '태그 (Enter)' : '+'}
         className="h-6 min-w-20 bg-transparent px-1 text-xs outline-none"
         list="tag-suggestions"
-        aria-label="꼬리표 더하기"
+        aria-label="태그 추가"
         disabled={busy}
       />
       {rest.length > 0 && (

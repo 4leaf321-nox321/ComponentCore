@@ -53,27 +53,27 @@ export default function JigsPage() {
 
   return (
     <div>
-      <PageHeader title="지그" description="내 작업에서 승격된 지그. 어느 부품 버전의 지그인지 함께 적혀 있습니다." />
+      <PageHeader title="지그" description="내 작업에서 등록된 지그입니다. 각 지그가 어느 부품 버전에 대한 지그인지 함께 표시됩니다." />
       <div className="flex gap-4">
         {/* 폴더 — 넓은 화면에서 왼쪽에. 좁으면 위의 고르개로. */}
         <aside className="hidden w-56 shrink-0 md:block">
-          <FolderTree space={space} allLabel="모든 지그" noun="지그" />
+          <FolderTree space={space} allLabel="전체 지그" noun="지그" />
         </aside>
         <div className="min-w-0 flex-1">
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <FolderSelect space={space} allLabel="모든 지그" />
+        <FolderSelect space={space} allLabel="전체 지그" />
         <SearchBox value={q} onChange={(next) => { setQ(next); setOffset(0) }} />
         <TagFilter tags={tags.data ?? []} value={tag} onChange={(next) => { setTag(next); setOffset(0) }} />
         <ShapeFilter value={shape} onChange={(next) => { setShape(next); setOffset(0) }} />
       </div>
-      <FolderCrumbs space={space} allLabel="모든 지그" />
+      <FolderCrumbs space={space} allLabel="전체 지그" />
       <ChosenBar space={space} />
       <ErrorNotice error={page.error} className="mb-4" />
       {rows.length === 0 && !page.loading ? (
         filtered ? (
-          <EmptyState title="맞는 지그가 없습니다" hint="찾는 말 · 꼬리표 · 폴더 · 형상 조건을 바꿔 보세요. 빈 폴더라면 지그를 끌어다 놓으세요." />
+          <EmptyState title="조건에 맞는 지그가 없습니다" hint="검색어, 태그, 폴더, 형상 조건을 변경하십시오. 빈 폴더에는 지그를 끌어다 놓아 이동할 수 있습니다." />
         ) : (
-          <EmptyState title="아직 올라온 지그가 없습니다" hint="내 작업의 지그 탭에서 결과를 「지그로 승격」 하면 여기 뜹니다." />
+          <EmptyState title="등록된 지그가 없습니다" hint="내 작업의 지그 탭에서 결과를 ‘공용 지그로 등록’하면 이 목록에 표시됩니다." />
         )
       ) : (
         <>
@@ -87,8 +87,8 @@ export default function JigsPage() {
                 <TableHead>부품</TableHead>
                 <TableHead>버전</TableHead>
                 <TableHead>간섭</TableHead>
-                <TableHead>올린 사람</TableHead>
-                <TableHead>갱신</TableHead>
+                <TableHead>등록자</TableHead>
+                <TableHead>수정일</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -115,7 +115,7 @@ export default function JigsPage() {
                         {row.part_name}
                       </Link>
                     ) : (
-                      <span className="text-muted-foreground text-xs">스냅숏만</span>
+                      <span className="text-muted-foreground text-xs">제품 스냅숏</span>
                     )}
                   </TableCell>
                   <TableCell>v{row.current_version}</TableCell>

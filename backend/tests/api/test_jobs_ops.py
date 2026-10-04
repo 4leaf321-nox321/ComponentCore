@@ -102,7 +102,7 @@ def test_대기_중이면_바로_취소하고_워커는_집지_않는다(
     assert services.claim_next(db, "시험:1") is None
     # 끝난 것은 다시 못 멈춘다.
     again = client.post(f"/api/jobs/{job.id}/cancel", headers=member.headers)
-    assert again.status_code == 400 and "이미 끝난" in again.json()["error"]["message"]
+    assert again.status_code == 400 and "이미 종료된" in again.json()["error"]["message"]
 
 
 def test_도는_작업은_다음_단계에서_멈춘다(
@@ -116,7 +116,7 @@ def test_도는_작업은_다음_단계에서_멈춘다(
     assert claimed is not None and claimed.id == job.id
     done = services.execute(db, claimed, worker_id="시험:1")
     assert done.status == "cancelled"
-    assert "계획 끝 에서 멈췄습니다" in (done.error or "")
+    assert "중단 시점: 계획 끝" in (done.error or "")
     # 멈추기 전까지의 단계는 남는다 — 어디까지 했는지 안다.
     assert [one["name"] for one in done.progress] == ["읽기", "계획"]
     shown = client.get(f"/api/jobs/{job.id}", headers=member.headers).json()

@@ -54,10 +54,10 @@ test('찾기 · 꼬리표 · 휴지통은 서버가 거르고, 되살리기가 �
   expect(await screen.findByText('센서 브래킷')).toBeInTheDocument()
 
   // 찾기 — 조금 쉬었다 서버에 q 로 묻는다.
-  fireEvent.change(screen.getByLabelText('찾기'), { target: { value: '모터' } })
+  fireEvent.change(screen.getByLabelText('검색'), { target: { value: '모터' } })
   await waitFor(() => expect(calls.some((c) => c.includes('q=%EB%AA%A8%ED%84%B0'))).toBe(true))
   await waitFor(() => expect(screen.queryByText('센서 브래킷')).toBeNull())
-  fireEvent.click(screen.getByLabelText('찾기 지우기'))
+  fireEvent.click(screen.getByLabelText('검색어 초기화'))
   await waitFor(() => expect(screen.getByText('센서 브래킷')).toBeInTheDocument())
 
   // 꼬리표 칩 — 서버에 tag 로.
@@ -69,6 +69,6 @@ test('찾기 · 꼬리표 · 휴지통은 서버가 거르고, 되살리기가 �
   // 휴지통 — 지운 것만, 되살리기.
   fireEvent.click(screen.getByRole('button', { name: '휴지통' }))
   await waitFor(() => expect(calls.some((c) => c.includes('trashed=true'))).toBe(true))
-  fireEvent.click(await screen.findByRole('button', { name: '되살리기' }))
+  fireEvent.click(await screen.findByRole('button', { name: '복원' }))
   await waitFor(() => expect(calls.some((c) => c.startsWith('POST') && c.endsWith('/works/w2/restore'))).toBe(true))
 })

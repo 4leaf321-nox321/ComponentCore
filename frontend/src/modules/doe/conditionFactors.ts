@@ -54,8 +54,8 @@ function optionsOf(key: string, field: FieldSchema, type: string, group: GroupSc
   if (values) return values.map((value) => ({ value, label: field.labels?.[value] ?? value }))
   if (field.type === 'boolean') {
     return [
-      { value: false, label: '끔' },
-      { value: true, label: '켬' },
+      { value: false, label: '꺼짐' },
+      { value: true, label: '켜짐' },
     ]
   }
   // 변위 성분 — 자유(null) ↔ 고정(0). 변위량(수)은 `=식` 으로 훑는다.

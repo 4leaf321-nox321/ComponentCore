@@ -39,7 +39,7 @@ class HardwareError(ValueError):
 def placed(shape: Shape, at: Vector, direction: Vector) -> Shape:
     """원점에서 +Z 로 선 부품을 `at` 에, +Z 가 `direction` 을 보게."""
     if direction.length < 1e-9:
-        raise HardwareError("direction: 길이 0 인 방향입니다")
+        raise HardwareError("direction: 길이가 0인 방향입니다.")
     return Plane(origin=at, z_dir=direction.normalized()).location * shape
 
 
@@ -130,7 +130,7 @@ def holes(part: Part, query: dict[str, object], side: str) -> list[Hole]:
             )
         )
     if not out:
-        raise HardwareError(f"holes: 규칙에 맞는 구멍이 없습니다 — {query}")
+        raise HardwareError(f"holes: 규칙에 맞는 구멍이 없습니다({query}).")
     return sorted(
         out, key=lambda one: (round(one.seat.X, 3), round(one.seat.Y, 3), round(one.seat.Z, 3))
     )
@@ -142,7 +142,7 @@ def thread_for(diameter: float) -> str:
         if abs(diameter - clearance) <= 0.3 or abs(diameter - tap) <= 0.2:
             return name
     raise HardwareError(
-        f"지름 {diameter:g} 구멍에 맞는 나사(M3 ~ M12)가 없습니다 — thread 를 주세요"
+        f"지름 {diameter:g} 구멍에 맞는 나사(M3 ~ M12)가 없습니다. thread를 지정하십시오."
     )
 
 

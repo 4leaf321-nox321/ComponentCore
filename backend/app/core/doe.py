@@ -116,9 +116,9 @@ def _resolution(one: dict[str, Any], name: str) -> float:
     try:
         got = float(raw)
     except (TypeError, ValueError) as failure:
-        raise DoeError(f"'{name}': 가공 단위가 숫자가 아닙니다") from failure
+        raise DoeError(f"‘{name}’: 가공 단위가 숫자가 아닙니다.") from failure
     if got <= 0:
-        raise DoeError(f"'{name}': 가공 단위는 0 보다 커야 합니다")
+        raise DoeError(f"‘{name}’: 가공 단위는 0보다 커야 합니다.")
     return got
 
 
@@ -126,15 +126,15 @@ def parse_factors(raw: list[dict[str, Any]], *, allow_fixed: bool = False) -> li
     """화면 · AI 가 준 인자 정의를 읽는다. 틀린 곳은 이름을 짚어 말한다. `allow_fixed` 는
     「모두 고정」 을 받는다(점을 더할 때 — 범위는 새 묶음이 준다)."""
     if not raw:
-        raise DoeError("인자가 없습니다 — 바꿔 볼 치수를 적어도 하나 고르세요")
+        raise DoeError("인자가 없습니다. 변경할 치수를 하나 이상 선택하십시오.")
     out: list[Factor] = []
     seen: set[str] = set()
     for one in raw:
         name = str(one.get("name", "")).strip()
         if not name:
-            raise DoeError("이름 없는 인자가 있습니다")
+            raise DoeError("이름이 없는 인자가 있습니다.")
         if name in seen:
-            raise DoeError(f"인자 '{name}' 이 두 번 있습니다")
+            raise DoeError(f"인자 ‘{name}’이(가) 두 번 지정되었습니다.")
         seen.add(name)
         mode = one.get("mode", "fixed")
         resolution = _resolution(one, name)
@@ -145,9 +145,9 @@ def parse_factors(raw: list[dict[str, Any]], *, allow_fixed: bool = False) -> li
             end = _number(one, "end", name)
             steps = int(one.get("steps", 5) or 1)
             if steps < 1:
-                raise DoeError(f"'{name}': 단계 수는 1 이상입니다")
+                raise DoeError(f"‘{name}’: 단계 수는 1 이상이어야 합니다.")
             if steps > 1 and start == end:
-                raise DoeError(f"'{name}': 시작과 끝이 같은데 단계가 {steps} 입니다")
+                raise DoeError(f"‘{name}’: 시작값과 끝값이 같은데 단계 수가 {steps}입니다.")
             out.append(
                 Factor(
                     name=name,
@@ -162,12 +162,13 @@ def parse_factors(raw: list[dict[str, Any]], *, allow_fixed: bool = False) -> li
             choices = tuple(str(v).strip() for v in one.get("values") or [] if str(v).strip())
             bodies = tuple(str(v).strip() for v in one.get("bodies") or [] if str(v).strip())
             if not choices:
-                raise DoeError(f"'{name}': 후보 재료가 없습니다")
+                raise DoeError(f"‘{name}’: 후보 재료가 없습니다.")
             if len(set(choices)) != len(choices):
-                raise DoeError(f"'{name}': 같은 재료가 두 번 있습니다")
+                raise DoeError(f"‘{name}’: 같은 재료가 두 번 지정되었습니다.")
             if not bodies:
                 raise DoeError(
-                    f"'{name}': 재료를 바꿔 끼울 바디가 없습니다(단품이면 「전체」)"
+                    f"‘{name}’: 재료를 교체할 바디가 없습니다(단일 부품이면 ‘전체’를 "
+                    "지정하십시오)."
                 )
             out.append(Factor(name=name, mode="material", bodies=bodies, choices=choices))
         elif mode == "choice":
@@ -178,18 +179,21 @@ def parse_factors(raw: list[dict[str, Any]], *, allow_fixed: bool = False) -> li
             values = one.get("values") or []
             numbers = tuple(snap(float(v), resolution) for v in values)
             if not numbers:
-                raise DoeError(f"'{name}': 값 목록이 비었습니다")
+                raise DoeError(f"‘{name}’: 값 목록이 비어 있습니다.")
             out.append(Factor(name=name, mode="list", values=numbers, resolution=resolution))
         else:
             raise DoeError(
-                f"'{name}': 모르는 방식입니다 — fixed · range · list · material · choice · "
-                "scale 중 하나"
+                f"‘{name}’: 알 수 없는 방식입니다. fixed, range, list, material, choice, "
+                "scale 중 하나를 지정하십시오."
             )
     varying = [f for f in out if f.varying]
     if not varying and not allow_fixed:
-        raise DoeError("모두 고정입니다 — 바꿔 볼 치수를 하나는 두세요")
+        raise DoeError("모든 인자가 고정되어 있습니다. 변경할 치수를 하나 이상 지정하십시오.")
     if len(varying) > MAX_FACTORS:
-        raise DoeError(f"바꿀 인자는 {MAX_FACTORS} 개까지입니다 (지금 {len(varying)} 개)")
+        raise DoeError(
+            f"변경할 인자는 최대 {MAX_FACTORS}개까지 지정할 수 있습니다"
+            f"(현재 {len(varying)}개)."
+        )
     return out
 
 
@@ -202,23 +206,27 @@ def _choice_factor(one: dict[str, Any], name: str) -> Factor:
 
     target = one.get("target") or {}
     if not isinstance(target, dict):
-        raise DoeError(f"'{name}': target 은 {{group, item, field}} 입니다")
+        raise DoeError(f"‘{name}’: target은 {{group, item, field}} 형식이어야 합니다.")
     group = str(target.get("group") or "")
     item = target.get("item")
     field = str(target.get("field") or "")
     if group not in CHOICE_GROUPS:
-        raise DoeError(f"'{name}': 묶음(group)은 {' · '.join(CHOICE_GROUPS)} 중 하나입니다")
+        raise DoeError(
+            f"‘{name}’: 그룹(group)은 {', '.join(CHOICE_GROUPS)} 중 하나여야 합니다."
+        )
     if not field or field == "name":
-        raise DoeError(f"'{name}': 바꿀 칸(field)이 없습니다")
+        raise DoeError(f"‘{name}’: 변경할 필드(field)가 없습니다.")
     if group != "analysis" and (item is None or item == ""):
-        raise DoeError(f"'{name}': 어느 항목인지(item — 이름 또는 1 부터의 번호)가 없습니다")
+        raise DoeError(
+            f"‘{name}’: 대상 항목(item: 이름 또는 1부터 시작하는 번호)이 지정되지 않았습니다."
+        )
     values = one.get("values") or []
     if not values:
-        raise DoeError(f"'{name}': 후보 값이 없습니다")
+        raise DoeError(f"‘{name}’: 후보 값이 없습니다.")
     if any(isinstance(v, dict | list) for v in values):
-        raise DoeError(f"'{name}': 후보 값은 글자 · 수 · 참거짓 · null 입니다")
+        raise DoeError(f"‘{name}’: 후보 값은 문자열, 숫자, 불리언, null 중 하나여야 합니다.")
     if len({json.dumps(v, ensure_ascii=False) for v in values}) != len(values):
-        raise DoeError(f"'{name}': 같은 값이 두 번 있습니다")
+        raise DoeError(f"‘{name}’: 같은 값이 두 번 지정되었습니다.")
     return Factor(
         name=name,
         mode="choice",
@@ -231,19 +239,21 @@ def _scale_factor(one: dict[str, Any], name: str) -> Factor:
     prop = str(one.get("property") or "").strip()
     bodies = tuple(str(v).strip() for v in one.get("bodies") or [] if str(v).strip())
     if not prop:
-        raise DoeError(f"'{name}': 곱할 물성(property)이 없습니다")
+        raise DoeError(f"‘{name}’: 배율을 적용할 물성(property)이 없습니다.")
     if not bodies:
-        raise DoeError(f"'{name}': 물성을 바꿀 바디가 없습니다(단품이면 「전체」)")
+        raise DoeError(
+            f"‘{name}’: 물성을 변경할 바디가 없습니다(단일 부품이면 ‘전체’를 지정하십시오)."
+        )
     try:
         values = tuple(float(v) for v in one.get("values") or [])
     except (TypeError, ValueError) as failure:
-        raise DoeError(f"'{name}': 배율은 수입니다") from failure
+        raise DoeError(f"‘{name}’: 배율은 숫자여야 합니다.") from failure
     if not values:
-        raise DoeError(f"'{name}': 배율이 없습니다")
+        raise DoeError(f"‘{name}’: 배율이 없습니다.")
     if any(v <= 0 for v in values):
-        raise DoeError(f"'{name}': 배율은 0 보다 커야 합니다")
+        raise DoeError(f"‘{name}’: 배율은 0보다 커야 합니다.")
     if len(set(values)) != len(values):
-        raise DoeError(f"'{name}': 같은 배율이 두 번 있습니다")
+        raise DoeError(f"‘{name}’: 같은 배율이 두 번 지정되었습니다.")
     return Factor(name=name, mode="scale", bodies=bodies, choices=values, prop=prop)
 
 
@@ -251,7 +261,7 @@ def _number(one: dict[str, Any], key: str, name: str) -> float:
     try:
         return float(one[key])
     except (KeyError, TypeError, ValueError) as failure:
-        raise DoeError(f"'{name}': {key} 가 숫자가 아닙니다") from failure
+        raise DoeError(f"‘{name}’: {key} 값이 숫자가 아닙니다.") from failure
 
 
 def levels(factor: Factor) -> list[float | str]:
@@ -326,8 +336,8 @@ def build_points(
     total = count(factors, method, samples)
     if total > limit:
         raise DoeError(
-            f"설계점이 {total} 개입니다 — 한 번에 {limit} 개까지 만듭니다. "
-            f"단계를 줄이거나 인자를 빼거나, LHS 로 표본 수를 정하세요."
+            f"설계점이 {total}개입니다. 한 번에 최대 {limit}개까지 생성할 수 있습니다. "
+            "단계 수를 줄이거나 인자를 제외하거나, LHS로 표본 수를 지정하십시오."
         )
     fixed: dict[str, float | str] = {f.name: levels(f)[0] for f in factors if not f.varying}
     varying = [f for f in factors if f.varying]
@@ -381,12 +391,14 @@ def parse_constraints(raw: list[Any] | None) -> list[str]:
     out: list[str] = []
     for one in raw or []:
         if not isinstance(one, str):
-            raise DoeError("제약식은 글자입니다 — 예: 간격 > 2 * 지름")
+            raise DoeError("제약식은 문자열이어야 합니다(예: 간격 > 2 * 지름).")
         text = one.strip()
         if text:
             out.append(text)
     if len(out) > MAX_CONSTRAINTS:
-        raise DoeError(f"제약식은 {MAX_CONSTRAINTS} 개까지입니다 (지금 {len(out)} 개)")
+        raise DoeError(
+            f"제약식은 최대 {MAX_CONSTRAINTS}개까지 지정할 수 있습니다(현재 {len(out)}개)."
+        )
     return out
 
 
@@ -399,34 +411,35 @@ def table_points(
     **가공 단위로 맞추지 않고**(표의 값이 곧 원하는 값이다) 겹친 줄도 그대로 둔다(번호가 표의
     줄과 같아야 결과를 되짚는다). 재료 · 고르기 · 배율 인자는 후보 중 하나여야 한다."""
     if not table:
-        raise DoeError("표가 비었습니다 — 설계점을 한 줄 이상 주세요")
+        raise DoeError("표가 비어 있습니다. 설계점을 1행 이상 입력하십시오.")
     by_name = {f.name: f for f in factors}
     fixed: dict[str, float | str] = {f.name: levels(f)[0] for f in factors if not f.varying}
     varying = [f for f in factors if f.varying]
     rows: list[dict[str, float | str]] = []
     for number, raw in enumerate(table, start=1):
         if not isinstance(raw, dict):
-            raise DoeError(f"표 {number} 줄: 이름과 값의 짝이어야 합니다")
+            raise DoeError(f"표 {number}행: 이름과 값의 쌍이어야 합니다.")
         unknown = sorted(str(k) for k in raw if k not in by_name)
         if unknown:
-            raise DoeError(f"표 {number} 줄: 모르는 변수 {', '.join(unknown)}")
+            raise DoeError(f"표 {number}행: 알 수 없는 변수입니다({', '.join(unknown)}).")
         stuck = sorted(str(k) for k in raw if not by_name[k].varying)
         if stuck:
             raise DoeError(
-                f"표 {number} 줄: {', '.join(stuck)} 은 고정입니다 — 표의 값으로 바꾸려면 "
-                "고정을 푸세요"
+                f"표 {number}행: {', '.join(stuck)}은(는) 고정 인자입니다. 표의 값으로 "
+                "변경하려면 고정을 해제하십시오."
             )
         row = dict(fixed)
         for factor in varying:
             value = raw.get(factor.name)
             if value is None or value == "":
-                raise DoeError(f"표 {number} 줄: '{factor.name}' 값이 없습니다")
+                raise DoeError(f"표 {number}행: ‘{factor.name}’ 값이 없습니다.")
             if factor.mode in NON_SHAPE:
                 match = [one for one in factor.choices if _same(one, value)]
                 if not match:
                     shown = ", ".join(str(one) for one in factor.choices)
                     raise DoeError(
-                        f"표 {number} 줄: '{factor.name}' 은 {shown} 중 하나입니다 ({value!r})"
+                        f"표 {number}행: ‘{factor.name}’은(는) {shown} 중 하나여야 "
+                        f"합니다({value!r})."
                     )
                 row[factor.name] = match[0]
                 continue
@@ -434,10 +447,10 @@ def table_points(
                 number_value = float(value)
             except (TypeError, ValueError) as failure:
                 raise DoeError(
-                    f"표 {number} 줄: '{factor.name}' 이 숫자가 아닙니다 ({value!r})"
+                    f"표 {number}행: ‘{factor.name}’ 값이 숫자가 아닙니다({value!r})."
                 ) from failure
             if not math.isfinite(number_value):
-                raise DoeError(f"표 {number} 줄: '{factor.name}' 이 유한한 수가 아닙니다")
+                raise DoeError(f"표 {number}행: ‘{factor.name}’ 값이 유한한 숫자가 아닙니다.")
             row[factor.name] = number_value
         rows.append(row)
     return rows
@@ -561,8 +574,8 @@ def plan(
         )
     if total > GRID_CAP:
         raise DoeError(
-            f"격자가 {total} 칸입니다 — 제약으로 거르려면 {GRID_CAP} 칸까지만 훑습니다. "
-            "단계를 줄이거나 LHS 로 표본 수를 정하세요."
+            f"격자 조합이 {total}개입니다. 제약식으로 필터링할 때는 최대 {GRID_CAP}개까지만 "
+            "탐색합니다. 단계 수를 줄이거나 LHS로 표본 수를 지정하십시오."
         )
     kept, dropped = keep(_grid(factors))
     return Plan(
@@ -598,10 +611,10 @@ def probe_points(factors: list[Factor]) -> list[tuple[str, dict[str, float | str
 
     base: dict[str, float | str] = {f.name: levels(f)[0] for f in factors}
     center = {**base, **{f.name: _center(f) for f in shape}}
-    wanted: list[tuple[str, dict[str, float | str]]] = [("가운데", center)]
+    wanted: list[tuple[str, dict[str, float | str]]] = [("중심", center)]
     if shape:
-        wanted.append(("모두 최소", {**center, **{f.name: low(f) for f in shape}}))
-        wanted.append(("모두 최대", {**center, **{f.name: high(f) for f in shape}}))
+        wanted.append(("전체 최소", {**center, **{f.name: low(f) for f in shape}}))
+        wanted.append(("전체 최대", {**center, **{f.name: high(f) for f in shape}}))
     for factor in shape:
         wanted.append((f"{factor.name} 최소", {**center, factor.name: low(factor)}))
         wanted.append((f"{factor.name} 최대", {**center, factor.name: high(factor)}))
@@ -611,7 +624,7 @@ def probe_points(factors: list[Factor]) -> list[tuple[str, dict[str, float | str
         if same is None:
             out.append((label, row))
         else:
-            out[same] = (f"{out[same][0]} · {label}", row)
+            out[same] = (f"{out[same][0]}, {label}", row)
     return out
 
 
@@ -632,12 +645,12 @@ def _coded(factor: Factor) -> tuple[float, float | str, float]:
     """중심 합성 · Box-Behnken 의 -1 · 0 · +1. 수 인자여야 하고 끝이 둘이어야 한다."""
     if factor.mode in NON_SHAPE:
         raise DoeError(
-            f"'{factor.name}': 중심 합성 · Box-Behnken 은 수 변수만 받습니다 — 재료 · "
-            "고르기 · 배율 인자는 고정하거나 격자 · LHS 로"
+            f"‘{factor.name}’: 중심 합성 설계와 Box-Behnken 설계에는 수치 변수만 사용할 수 "
+            "있습니다. 재료, 선택, 배율 인자는 고정하거나 격자 또는 LHS 방식을 사용하십시오."
         )
     values = [float(v) for v in levels(factor)]
     if min(values) == max(values):
-        raise DoeError(f"'{factor.name}': 끝이 하나뿐입니다 — 범위를 주세요")
+        raise DoeError(f"‘{factor.name}’: 최솟값과 최댓값이 같습니다. 범위를 지정하십시오.")
     return min(values), _center(factor), max(values)
 
 
@@ -674,7 +687,8 @@ def designed_points(factors: list[Factor], method: str) -> list[dict[str, float 
     elif method == "bbd":
         if len(names) < 3:
             raise DoeError(
-                "Box-Behnken 은 바꿀 변수가 셋 이상이어야 합니다 — 둘이면 중심 합성으로"
+                "Box-Behnken 설계는 변경할 변수가 3개 이상이어야 합니다. 변수가 2개이면 "
+                "중심 합성 설계를 사용하십시오."
             )
         for first, second in itertools.combinations(names, 2):
             for a, b in itertools.product((-1, 1), repeat=2):
@@ -723,7 +737,7 @@ def sobol(dimensions: int, count: int, seed: int = 0, start: int = 0) -> list[li
     이동**(차원마다 시드로 정한 수를 XOR)으로 섞는다 — 고른 분포는 그대로이고, 같은 시드면 같은
     수열이다. 이어 뽑으면(`start`) 앞의 점들과 함께 공간을 고르게 채운다."""
     if dimensions > len(_JOE_KUO) + 1:
-        raise DoeError(f"Sobol 은 변수 {len(_JOE_KUO) + 1} 개까지입니다")
+        raise DoeError(f"Sobol 수열은 변수를 최대 {len(_JOE_KUO) + 1}개까지 지원합니다.")
     v = [_directions(d) for d in range(dimensions)]
     rng = seeded_random(seed)
     shift = (

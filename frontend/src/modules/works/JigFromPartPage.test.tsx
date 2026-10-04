@@ -68,7 +68,7 @@ test('부품을 고르고 만들면 지그 작업이 생기고, 끝난 결과가
   expect(screen.getByRole('button', { name: /공용 브래킷/ })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /옛 지그/ })).toBeNull()
   expect(screen.queryByRole('button', { name: /빈 부품/ })).toBeNull()
-  expect(screen.getByRole('button', { name: '이대로 지그 만들기' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: '이 설정으로 지그 생성' })).toBeDisabled()
 
   fireEvent.click(screen.getByRole('button', { name: /센서 브래킷/ }))
   // 고르면 미리보기가 돈다 — 만들기와 같은 옵션으로. 계획이 글로도 보인다.
@@ -80,12 +80,12 @@ test('부품을 고르고 만들면 지그 작업이 생기고, 끝난 결과가
   // 형식을 바꾸면 옵션에 kind 가 실려 미리보기가 다시 돈다 — 그 형식의 칸만 편다.
   fireEvent.click(screen.getByRole('button', { name: /볼트 고정/ }))
   await waitFor(() => expect(calls.filter((c) => c.url.endsWith('/jig-from-part/preview')).at(-1)!.body).toMatchObject({ options: { kind: 'bolted' } }), { timeout: 3000 })
-  fireEvent.click(screen.getByRole('button', { name: '세부 옵션 펴기' }))
+  fireEvent.click(screen.getByRole('button', { name: '세부 옵션 표시' }))
   expect(screen.getByLabelText('볼트 수 (최대)')).toBeInTheDocument()
   expect(screen.queryByLabelText('클램프 수')).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: '세부 옵션 접기' }))
-  await waitFor(() => expect(screen.getByRole('button', { name: '이대로 지그 만들기' })).toBeEnabled())
-  fireEvent.click(screen.getByRole('button', { name: '이대로 지그 만들기' }))
+  fireEvent.click(screen.getByRole('button', { name: '세부 옵션 숨기기' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: '이 설정으로 지그 생성' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: '이 설정으로 지그 생성' }))
 
   await waitFor(() => expect(screen.getByText('작업 화면')).toBeInTheDocument())
   const made = calls.find((c) => c.url.endsWith('/works/jig-from-part'))!

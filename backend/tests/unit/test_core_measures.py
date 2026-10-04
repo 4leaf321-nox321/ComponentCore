@@ -43,7 +43,7 @@ def test_형상에서_부피_겉넓이_크기를_잰다() -> None:
 def test_정의가_틀리면_말한다() -> None:
     with pytest.raises(MeasureError, match="종류"):
         parse([{"name": "a", "kind": "mass"}], taken=set(), variables=set())
-    with pytest.raises(MeasureError, match="겹칩니다"):
+    with pytest.raises(MeasureError, match="중복됩니다"):
         parse([{"name": "error", "kind": "volume"}], taken=set(), variables=set())
     with pytest.raises(MeasureError, match="바디"):
         parse(

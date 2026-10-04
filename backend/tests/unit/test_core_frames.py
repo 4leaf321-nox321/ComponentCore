@@ -25,7 +25,7 @@ def test_X_Y_방향으로_정하면_Y_는_X_에_수직으로_맞추고_Z_는_외
     row = frames.from_vectors("비스듬", "cad", [0, 0, 0], [0, 2, 0], [-1, 1, 0])
     assert row["x"] == [0.0, 1.0, 0.0]
     assert row["y"] == [-1.0, 0.0, 0.0] and row["z"] == [0.0, 0.0, 1.0]
-    with pytest.raises(ValueError, match="나란합니다"):
+    with pytest.raises(ValueError, match="평행"):
         frames.from_vectors("나란", "cad", [0, 0, 0], [1, 0, 0], [3, 0, 0])
 
 
@@ -86,7 +86,7 @@ def test_도면의_좌표계는_방향_벡터로도_정하고_나란하면_알�
         )
     )
     assert made.frames[0]["x"] == [0.0, 0.0, 1.0] and made.frames[0]["z"] == [0.0, 1.0, 0.0]
-    with pytest.raises(ValueError, match="나란합니다"):
+    with pytest.raises(ValueError, match="평행"):
         evaluate(
             parse(
                 {
@@ -115,16 +115,16 @@ def test_조건의_cs_는_있는_좌표계를_가리켜야_한다() -> None:
     }
     # 도면에 「끝」 이 있으면 된다.
     conditions.parse(raw, frames=["끝"])
-    with pytest.raises(conditions.ConditionError, match="「끝」 라는 좌표계가 없습니다"):
+    with pytest.raises(conditions.ConditionError, match="좌표계 ‘끝’이"):
         conditions.parse(raw, frames=[])
     # 조건에서 정한 좌표계도 된다 — 선택 그룹의 면에 붙인 것.
     conditions.parse({**raw, "coordinate_systems": [{"name": "끝", "on": "바닥"}]}, frames=[])
     # 없는 그룹에 붙이거나, 도면의 이름과 겹치면 막는다.
-    with pytest.raises(conditions.ConditionError, match="선택 그룹이 없습니다"):
+    with pytest.raises(conditions.ConditionError, match="선택 그룹 ‘없는것’이"):
         conditions.parse(
             {**raw, "coordinate_systems": [{"name": "끝", "on": "없는것"}]}, frames=[]
         )
-    with pytest.raises(conditions.ConditionError, match="겹칩니다"):
+    with pytest.raises(conditions.ConditionError, match="중복됩니다"):
         conditions.parse({**raw, "coordinate_systems": [{"name": "끝"}]}, frames=["끝"])
 
 

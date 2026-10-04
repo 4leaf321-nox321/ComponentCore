@@ -90,19 +90,19 @@ test('점 더하기 — 범위를 바꿀 변수만 골라 세어 보고 더하�
       <DoeStudyView study={base} onReload={reload} />
     </MemoryRouter>,
   )
-  expect(screen.getByText(/보낸 뒤에 점을 더했습니다/)).toBeInTheDocument()
-  expect(screen.getByText(/묶음 2 — LHS 1 점 · 시드 7 · p0003–p0003/)).toBeInTheDocument()
-  expect(screen.getByText('묶음')).toBeInTheDocument()
+  expect(screen.getByText(/내보낸 뒤 설계점이 추가되었습니다/)).toBeInTheDocument()
+  expect(screen.getByText(/배치 2: LHS 설계점 1개, 시드 7, p0003–p0003/)).toBeInTheDocument()
+  expect(screen.getByText('배치')).toBeInTheDocument()
 
-  fireEvent.click(screen.getByRole('button', { name: '점 더하기' }))
-  fireEvent.change(screen.getByLabelText('더할 방법'), { target: { value: 'factorial' } })
-  fireEvent.click(screen.getByLabelText('구멍_x 범위 바꾸기'))
+  fireEvent.click(screen.getByRole('button', { name: '설계점 추가' }))
+  fireEvent.change(screen.getByLabelText('추가 방법'), { target: { value: 'factorial' } })
+  fireEvent.click(screen.getByLabelText('구멍_x 범위 변경'))
   fireEvent.change(screen.getByLabelText('구멍_x 새 시작'), { target: { value: '10' } })
-  expect(await screen.findByText(/이미 있는 값 1 개는 뺍니다/)).toBeInTheDocument()
+  expect(await screen.findByText(/기존 설계점과 값이 같은 1개는 제외합니다/)).toBeInTheDocument()
   const dry = calls.filter((c) => c.url.includes('dry_run=true')).at(-1)!
   expect(dry.body).toMatchObject({ method: 'factorial', factors: [{ name: '구멍_x', mode: 'range', start: 10, end: 20, steps: 2 }] })
 
-  fireEvent.click(screen.getByRole('button', { name: '더하기' }))
+  fireEvent.click(screen.getByRole('button', { name: '추가' }))
   await waitFor(() => expect(reload).toHaveBeenCalled())
   expect(calls.some((c) => c.url.endsWith('/doe/s1/extend'))).toBe(true)
 })
@@ -118,7 +118,7 @@ test('측정값 — 정의한 열이 표에 붙고, 못 잰 값은 빈 칸이다
       <DoeStudyView study={base} onReload={() => {}} />
     </MemoryRouter>,
   )
-  expect(screen.getByText('부피')).toHaveAttribute('title', '측정값 — 형상에서 잰 값')
+  expect(screen.getByText('부피')).toHaveAttribute('title', '측정값: 형상에서 측정한 값')
   expect(screen.getByText('24,000')).toBeInTheDocument()
 })
 
@@ -130,7 +130,7 @@ test('설계점 분포 — 펼치면 그리고, 점을 누르면 그 점을 하�
     </MemoryRouter>,
   )
   expect(screen.queryByRole('img', { name: '구멍_x' })).toBeNull()
-  const details = screen.getByText(/설계점 분포 — 몰린 곳/).closest('details')!
+  const details = screen.getByText(/설계점 분포 \(밀집 영역/).closest('details')!
   details.open = true
   fireEvent(details, new Event('toggle'))
   const plot = screen.getByRole('img', { name: '구멍_x' })
@@ -155,6 +155,6 @@ test('멈춘 DOE — 남은 점을 같은 값으로 이어 만든다', async () 
       <DoeStudyView study={stopped} onReload={() => {}} />
     </MemoryRouter>,
   )
-  fireEvent.click(screen.getByRole('button', { name: /남은 1 점 이어 만들기/ }))
+  fireEvent.click(screen.getByRole('button', { name: /남은 설계점 1개 이어서 생성/ }))
   await waitFor(() => expect(seen).toContain('POST /api/doe/s1/rerun?only=failed'))
 })

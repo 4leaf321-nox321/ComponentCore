@@ -126,7 +126,7 @@ export function ShapeFilter({ value, onChange }: { value: ShapeQuery; onChange: 
       </PopoverTrigger>
       <PopoverContent className="w-80 space-y-3 p-3 text-sm" aria-label="형상 조건">
         <div>
-          <p className="text-muted-foreground mb-1 text-xs">들어 있는 것 (모두)</p>
+          <p className="text-muted-foreground mb-1 text-xs">포함 피처 (모두 충족)</p>
           <div className="flex flex-wrap gap-1">
             {FEATURE_LABELS.map((one) => (
               <button
@@ -157,8 +157,8 @@ export function ShapeFilter({ value, onChange }: { value: ShapeQuery; onChange: 
           </label>
         </div>
         <label className="block text-xs">
-          <span className="text-muted-foreground">이 상자 안에 (mm, 방향 무관)</span>
-          <Input aria-label="상자 크기" className="mt-0.5 h-8" value={draft.fits ?? ''} onChange={(e) => set({ fits: e.target.value })} placeholder="100x60x30 · 판이면 100x60" />
+          <span className="text-muted-foreground">외곽 치수 상한 (mm, 방향 무관)</span>
+          <Input aria-label="외곽 치수 상한" className="mt-0.5 h-8" value={draft.fits ?? ''} onChange={(e) => set({ fits: e.target.value })} placeholder="100x60x30 (판재는 100x60)" />
         </label>
         <div className="grid grid-cols-2 gap-2">
           <label className="text-xs">
@@ -174,11 +174,11 @@ export function ShapeFilter({ value, onChange }: { value: ShapeQuery; onChange: 
             <Input aria-label="구멍 지름" type="number" min={0} step={0.1} className="mt-0.5 h-8" value={draft.hole ?? ''} onChange={(e) => set({ hole: numberOrNull(e.target.value) })} />
           </label>
           <label className="text-xs">
-            <span className="text-muted-foreground">구멍 개수 이상</span>
-            <Input aria-label="구멍 개수" type="number" min={1} step={1} className="mt-0.5 h-8" value={draft.holes ?? ''} onChange={(e) => set({ holes: numberOrNull(e.target.value) })} />
+            <span className="text-muted-foreground">최소 구멍 개수</span>
+            <Input aria-label="최소 구멍 개수" type="number" min={1} step={1} className="mt-0.5 h-8" value={draft.holes ?? ''} onChange={(e) => set({ holes: numberOrNull(e.target.value) })} />
           </label>
         </div>
-        <p className="text-muted-foreground text-[11px]">최신 버전의 형상으로 거릅니다. 오래전에 만든 것이 안 보이면 관리자가 서버 화면에서 「형상 색인 채우기」 를 누릅니다.</p>
+        <p className="text-muted-foreground text-[11px]">최신 버전의 형상을 기준으로 필터링합니다. 이전에 생성한 항목이 표시되지 않으면 관리자가 서버 화면에서 ‘형상 색인 생성’을 실행해야 합니다.</p>
         <div className="flex justify-between gap-2">
           <Button
             size="sm"
@@ -188,7 +188,7 @@ export function ShapeFilter({ value, onChange }: { value: ShapeQuery; onChange: 
               setOpen(false)
             }}
           >
-            모두 풀기
+            모두 해제
           </Button>
           <Button
             size="sm"

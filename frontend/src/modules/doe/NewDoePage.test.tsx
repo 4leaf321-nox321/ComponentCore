@@ -74,7 +74,7 @@ test('지난 DOE 에서 「설정 바꿔 다시 만들기」 로 오면 대상�
     </MemoryRouter>,
   )
   // 대상을 다시 고르지 않고 바로 그 조립의 폼이다. 이름 · 방식 · 구간이 지난 값이다.
-  expect(await screen.findByText(/DOE — 브래킷 \+ 지그 \(다시\)/)).toBeInTheDocument()
+  expect(await screen.findByText(/DOE — 브래킷 \+ 지그 \(설정 재사용\)/)).toBeInTheDocument()
   expect(await screen.findByLabelText('이름')).toHaveValue('높이 훑기')
   expect(screen.getByLabelText('지그_높이 시작')).toHaveValue(20)
   expect(screen.getByLabelText('지그_높이 끝')).toHaveValue(30)

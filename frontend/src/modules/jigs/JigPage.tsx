@@ -49,10 +49,10 @@ export default function JigPage() {
                 <Link to={`/parts/${j.part_id}`} className="hover:underline">
                   {j.part_name}
                 </Link>
-                {selected?.part_version != null && ` v${selected.part_version}`} 의 지그
+                {selected?.part_version != null && ` v${selected.part_version}`}의 지그
               </>
             ) : (
-              '제품 스냅숏만 있는 지그'
+              '제품 스냅숏 기반 지그'
             )}
             {' · '}
             {j.owner_name} · {shownDateTime(j.updated_at)}
@@ -63,12 +63,12 @@ export default function JigPage() {
           <>
             {j.work_id && user?.id === j.owner_id && (
               <Button variant="outline" onClick={() => navigate(`/works/${j.work_id}`)}>
-                원본 작업으로
+                원본 작업 열기
               </Button>
             )}
             {editable && (
               <Button variant="ghost" onClick={() => setDeleting(true)}>
-                내리기
+                등록 해제
               </Button>
             )}
           </>
@@ -123,16 +123,16 @@ export default function JigPage() {
           {selected?.job ? (
             <JigResultView key={selected.id} job={selected.job} />
           ) : (
-            <EmptyState title="결과 파일이 없습니다" hint="이 버전의 생성 작업이 지워졌습니다. 계획 요약만 남아 있습니다." />
+            <EmptyState title="결과 파일이 없습니다" hint="이 버전의 생성 작업이 삭제되었습니다. 계획 요약만 남아 있습니다." />
           )}
         </div>
       </div>
 
       <ConfirmDialog
         open={deleting}
-        title="지그를 내립니다"
-        description={`「${j.name}」 이 카탈로그에서 사라집니다. 원본 작업과 부품은 남습니다.`}
-        confirmLabel="내리기"
+        title="지그 등록을 해제하시겠습니까?"
+        description={`‘${j.name}’이(가) 카탈로그에서 삭제됩니다. 원본 작업과 부품은 유지됩니다.`}
+        confirmLabel="등록 해제"
         destructive
         onConfirm={async () => {
           await jigsApi.remove(id)

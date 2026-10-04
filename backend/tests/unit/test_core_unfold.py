@@ -157,7 +157,7 @@ def test_뒤집으면_굽힘의_위아래가_바뀐다() -> None:
 
 
 def test_펼_수_없으면_말한다() -> None:
-    with pytest.raises(UnfoldError, match="솔리드 1 개"):
+    with pytest.raises(UnfoldError, match="솔리드 1개"):
         unfold(Box(10, 10, 10) + Pos(50, 0, 0) * Box(10, 10, 10))
 
 
@@ -181,7 +181,7 @@ def test_레시피의_펴기_노드() -> None:
     )
     size = made.summary()["bbox"]["size"]
     assert size == pytest.approx([30 - 4 + 40 - 4 + 5 * math.pi / 2, 40, 2], abs=1e-3)
-    with pytest.raises(RecipeError, match="펼"):
+    with pytest.raises(RecipeError, match="전개할 수"):
         evaluate(
             parse(
                 {

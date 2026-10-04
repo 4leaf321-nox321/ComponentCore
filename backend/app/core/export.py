@@ -24,7 +24,7 @@ from build123d import (
 def write_step(shape: Shape, path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not export_step(shape, path):
-        raise RuntimeError(f"STEP 을 쓰지 못했습니다: {path.name}")
+        raise RuntimeError(f"STEP 파일을 저장하지 못했습니다: {path.name}")
     return path
 
 
@@ -33,14 +33,14 @@ def write_gltf(shape: Shape, path: Path) -> Path:
     if not export_gltf(
         shape, path, binary=True, linear_deflection=0.05, angular_deflection=0.2
     ):
-        raise RuntimeError(f"glTF 를 쓰지 못했습니다: {path.name}")
+        raise RuntimeError(f"glTF 파일을 저장하지 못했습니다: {path.name}")
     return path
 
 
 def write_stl(shape: Shape, path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not export_stl(shape, path):
-        raise RuntimeError(f"STL 을 쓰지 못했습니다: {path.name}")
+        raise RuntimeError(f"STL 파일을 저장하지 못했습니다: {path.name}")
     return path
 
 
@@ -55,7 +55,7 @@ def _flat(shape: Shape) -> Sketch:
         flat = section(shape, section_by=Plane.XY.offset(middle))
     faces = flat.faces()
     if not faces:
-        raise RuntimeError("2D 로 내보낼 윤곽이 없습니다")
+        raise RuntimeError("2D로 내보낼 윤곽이 없습니다.")
     first = faces[0]
     local = Plane(origin=first.center(), z_dir=first.normal_at()).to_local_coords(flat)
     return local if isinstance(local, Sketch) else Sketch(local.wrapped)

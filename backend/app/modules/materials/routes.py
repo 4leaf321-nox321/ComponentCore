@@ -104,9 +104,7 @@ async def upload_catalog(
     try:
         payload = json.loads(raw.decode("utf-8-sig"))
     except (UnicodeDecodeError, json.JSONDecodeError) as failure:
-        raise AppError(
-            code("MATERIALS", 6), f"JSON 을 읽지 못했습니다: {failure}"
-        ) from failure
+        raise AppError(code("MATERIALS", 6), f"JSON을 읽지 못했습니다: {failure}") from failure
     return services.load_catalog(db, payload, filename=file.filename or "")
 
 
@@ -130,7 +128,7 @@ def material_decks(
                 {"key": one, "label": one, "ready": True, "missing": []}
                 for one in ("dyna_elastic", "dyna_thermal")
             ],
-            "note": "문헌 재료는 카드가 없어 선형 탄성 · 열물성 덱만 나옵니다.",
+            "note": "문헌 재료는 카드가 없으므로 선형 탄성 및 열물성 덱만 생성할 수 있습니다.",
         }
     try:
         return {"items": matnexus.deck_formats(material_id), "note": ""}

@@ -52,27 +52,27 @@ export default function PartsPage() {
 
   return (
     <div>
-      <PageHeader title="부품" description="내 작업에서 승격된 부품. 버전은 바뀌지 않고, 고치려면 내 공간으로 복사합니다." />
+      <PageHeader title="부품" description="내 작업에서 등록된 부품입니다. 등록된 버전은 변경할 수 없으며, 수정하려면 내 작업 공간으로 복사하십시오." />
       <div className="flex gap-4">
         {/* 폴더 — 넓은 화면에서 왼쪽에. 좁으면 위의 고르개로. */}
         <aside className="hidden w-56 shrink-0 md:block">
-          <FolderTree space={space} allLabel="모든 부품" noun="부품" />
+          <FolderTree space={space} allLabel="전체 부품" noun="부품" />
         </aside>
         <div className="min-w-0 flex-1">
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <FolderSelect space={space} allLabel="모든 부품" />
+        <FolderSelect space={space} allLabel="전체 부품" />
         <SearchBox value={q} onChange={(next) => { setQ(next); setOffset(0) }} />
         <TagFilter tags={tags.data ?? []} value={tag} onChange={(next) => { setTag(next); setOffset(0) }} />
         <ShapeFilter value={shape} onChange={(next) => { setShape(next); setOffset(0) }} />
       </div>
-      <FolderCrumbs space={space} allLabel="모든 부품" />
+      <FolderCrumbs space={space} allLabel="전체 부품" />
       <ChosenBar space={space} />
       <ErrorNotice error={page.error} className="mb-4" />
       {rows.length === 0 && !page.loading ? (
         filtered ? (
-          <EmptyState title="맞는 부품이 없습니다" hint="찾는 말 · 꼬리표 · 폴더 · 형상 조건을 바꿔 보세요. 빈 폴더라면 부품을 끌어다 놓으세요." />
+          <EmptyState title="조건에 맞는 부품이 없습니다" hint="검색어, 태그, 폴더, 형상 조건을 변경하십시오. 빈 폴더에는 부품을 끌어다 놓아 이동할 수 있습니다." />
         ) : (
-          <EmptyState title="아직 올라온 부품이 없습니다" hint="내 작업의 부품 탭에서 「부품으로 승격」 하면 여기 뜹니다." />
+          <EmptyState title="등록된 부품이 없습니다" hint="내 작업에서 ‘공용 부품으로 등록’을 실행하면 이 목록에 표시됩니다." />
         )
       ) : (
         <>
@@ -85,8 +85,8 @@ export default function PartsPage() {
                 <TableHead>이름</TableHead>
                 <TableHead>버전</TableHead>
                 <TableHead>지그</TableHead>
-                <TableHead>올린 사람</TableHead>
-                <TableHead>갱신</TableHead>
+                <TableHead>등록자</TableHead>
+                <TableHead>수정일</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

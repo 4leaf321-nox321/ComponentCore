@@ -112,9 +112,9 @@ def test_기준축을_따라_띠를_비튼다() -> None:
 
 
 def test_바꿀_것이_없거나_구간이_틀리면_말한다() -> None:
-    with pytest.raises(RecipeValidationError, match="twist · taper 중 하나"):
+    with pytest.raises(RecipeValidationError, match="twist 또는 taper 중 하나"):
         parse({"nodes": [BAR, {"id": "d", "op": "deform", "target": "b"}]})
-    with pytest.raises(RecipeValidationError, match="start 보다 커야"):
+    with pytest.raises(RecipeValidationError, match="start보다 커야"):
         parse(
             {
                 "nodes": [

@@ -49,7 +49,7 @@ export default function PartPage() {
       const made = await partsApi.copyToWork(id, { number })
       navigate(`/works/${made.id}`)
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
       setBusy(false)
     }
@@ -64,11 +64,11 @@ export default function PartPage() {
         actions={
           <>
             <Button variant="outline" onClick={() => void copy(selected?.number)} disabled={busy}>
-              내 공간으로 복사{selected && selected.number !== p.current_version ? ` (v${selected.number})` : ''}
+              내 작업 공간으로 복사{selected && selected.number !== p.current_version ? ` (v${selected.number})` : ''}
             </Button>
             {editable && (
               <Button variant="ghost" onClick={() => setDeleting(true)} disabled={busy}>
-                내리기
+                등록 해제
               </Button>
             )}
           </>
@@ -123,7 +123,7 @@ export default function PartPage() {
             </CardHeader>
             <CardContent>
               {(jigs.data?.items ?? []).length === 0 ? (
-                <p className="text-muted-foreground text-sm">아직 없습니다.</p>
+                <p className="text-muted-foreground text-sm">등록된 지그가 없습니다.</p>
               ) : (
                 <ul className="space-y-1 text-sm">
                   {(jigs.data?.items ?? []).map((one) => (
@@ -148,9 +148,9 @@ export default function PartPage() {
 
       <ConfirmDialog
         open={deleting}
-        title="부품을 내립니다"
-        description={`「${p.name}」 이 카탈로그에서 사라집니다. 이 부품을 가리키는 지그는 남지만 부품 연결이 풀립니다.`}
-        confirmLabel="내리기"
+        title="부품 등록을 해제하시겠습니까?"
+        description={`‘${p.name}’이(가) 카탈로그에서 삭제됩니다. 이 부품을 참조하는 지그는 유지되지만 부품 연결은 해제됩니다.`}
+        confirmLabel="등록 해제"
         destructive
         onConfirm={async () => {
           await partsApi.remove(id)

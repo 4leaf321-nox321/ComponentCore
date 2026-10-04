@@ -38,7 +38,7 @@ def test_폴더_경로는_한_모양으로_적힌다(client: TestClient, member:
         "/api/works", json={"name": "깊음", "kind": "assembly", "folder": deep},
         headers=member.headers,
     )  # fmt: skip
-    assert bad.status_code == 400 and "8 단계" in bad.json()["error"]["message"]
+    assert bad.status_code == 400 and "8단계" in bad.json()["error"]["message"]
 
 
 def test_폴더로_거르고_하위까지_또는_바로_그_폴더만(

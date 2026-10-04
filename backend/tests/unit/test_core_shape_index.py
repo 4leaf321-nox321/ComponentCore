@@ -79,9 +79,9 @@ def test_레시피가_없으면_연산은_빼고_남은_무게로() -> None:
     step = _index([10, 60, 100], 60000, [])  # 가져온 STEP — 연산을 모른다
     score, parts = shape_index.similarity(plate, step)
     assert "ops" not in parts and score == 1.0
-    assert shape_index.reasons(parts, plate, step) == ["크기 비슷"]
+    assert shape_index.reasons(parts, plate, step) == ["크기 유사"]
     # 두 배 큰 같은 모양 — 크기는 멀고 비율은 같다.
     big = _index([20, 120, 200], 480000, [])
     score, parts = shape_index.similarity(plate, big)
     assert parts["proportion"] == 1.0 and parts["size"] < 0.3
-    assert "모양 비율 같음(크기는 다름)" in shape_index.reasons(parts, plate, big)
+    assert "형상 비율 동일(크기 다름)" in shape_index.reasons(parts, plate, big)

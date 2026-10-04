@@ -23,24 +23,24 @@ interface FolderDialogsProps {
 export function FolderDialogs({ space, noun, shared = false }: FolderDialogsProps) {
   const { dialog, setDialog, known, pending } = space
   const close = () => setDialog(null)
-  const others = shared ? ` 다른 사람의 ${josa(noun, '이', '가')} 든 폴더는 관리자만 바꿀 수 있습니다.` : ''
+  const others = shared ? ` 다른 사용자의 ${josa(noun, '이', '가')} 포함된 폴더는 관리자만 변경할 수 있습니다.` : ''
   return (
     <>
       <FolderDialog
         open={dialog?.kind === 'new'}
         title="새 폴더"
-        description={`${dialog?.kind === 'new' && dialog.parent ? `「${shownPath(dialog.parent)}」 안에` : '맨 위에'} 만듭니다. ${josa(noun, '을', '를')} 끌어다 놓으면 자리를 잡습니다.`}
-        confirmLabel="만들기"
+        description={`${dialog?.kind === 'new' && dialog.parent ? `‘${shownPath(dialog.parent)}’ 폴더 안에` : '최상위에'} 폴더를 생성합니다. ${josa(noun, '을', '를')} 끌어다 놓으면 해당 폴더로 이동합니다.`}
+        confirmLabel="생성"
         onSubmit={(name) => space.createFolder(joinPath(dialog?.kind === 'new' ? dialog.parent : '', name))}
         onClose={close}
       />
       <FolderDialog
         open={dialog?.kind === 'rename'}
-        title="폴더 이름 바꾸기 · 옮기기"
-        description={`경로를 고치면 하위 폴더와 그 안의 ${josa(noun, '이', '가')} 함께 옮겨 갑니다. 이미 있는 폴더면 합쳐집니다.${others}`}
+        title="폴더 이름 변경·이동"
+        description={`경로를 수정하면 하위 폴더와 그 안의 ${josa(noun, '이', '가')} 함께 이동합니다. 이미 있는 폴더이면 병합됩니다.${others}`}
         initial={dialog?.kind === 'rename' ? dialog.path : ''}
         suggestions={known}
-        confirmLabel="바꾸기"
+        confirmLabel="변경"
         onSubmit={async (to) => {
           if (dialog?.kind === 'rename') await space.renameFolder(dialog.path, to)
         }}
@@ -48,23 +48,23 @@ export function FolderDialogs({ space, noun, shared = false }: FolderDialogsProp
       />
       <FolderDialog
         open={dialog?.kind === 'move'}
-        title={`${noun} ${space.chosen.size}개를 폴더로`}
-        description="있는 폴더를 고르거나 새 경로를 적습니다. 비우면 맨 위(폴더 없음)로."
+        title={`${noun} ${space.chosen.size}개를 폴더로 이동`}
+        description="기존 폴더를 선택하거나 새 경로를 입력하십시오. 비워 두면 최상위(폴더 없음)로 이동합니다."
         suggestions={[...known, ...pending]}
         allowEmpty
-        confirmLabel="옮기기"
+        confirmLabel="이동"
         onSubmit={(path) => space.moveTo([...space.chosen], path)}
         onClose={close}
       />
       <ConfirmDialog
         open={dialog?.kind === 'remove'}
-        title="폴더 지우기"
+        title="폴더 삭제"
         description={
           dialog?.kind === 'remove'
-            ? `「${nameOf(dialog.path)}」 폴더를 지웁니다. 안의 ${noun}과 하위 폴더는 ${parentOf(dialog.path) ? `위 폴더 「${parentOf(dialog.path)}」` : '맨 위(폴더 없음)'} 로 옮깁니다 — ${josa(noun, '은', '는')} 지우지 않습니다.${others}`
+            ? `‘${nameOf(dialog.path)}’ 폴더를 삭제하시겠습니까? 폴더 안의 ${josa(noun, '과', '와')} 하위 폴더는 ${parentOf(dialog.path) ? `상위 폴더(‘${parentOf(dialog.path)}’)` : '최상위(폴더 없음)'}로 이동하며, ${josa(noun, '은', '는')} 삭제되지 않습니다.${others}`
             : ''
         }
-        confirmLabel="지우기"
+        confirmLabel="삭제"
         onConfirm={async () => {
           if (dialog?.kind === 'remove') await space.removeFolder(dialog.path)
         }}
@@ -79,7 +79,7 @@ export function FolderCrumbs({ space, allLabel, extra }: { space: FolderSpace; a
   const { folder } = space
   if (folder === null && !extra) return null
   return (
-    <nav aria-label="지금 보는 곳" className="text-muted-foreground mb-2 flex flex-wrap items-center gap-1 text-sm">
+    <nav aria-label="현재 위치" className="text-muted-foreground mb-2 flex flex-wrap items-center gap-1 text-sm">
       <button type="button" className="hover:underline" onClick={() => space.select(null)}>
         {allLabel}
       </button>
@@ -104,14 +104,14 @@ export function ChosenBar({ space }: { space: FolderSpace }) {
   if (space.chosen.size === 0) return null
   return (
     <div className="bg-accent/50 mb-2 flex items-center gap-2 rounded-md px-3 py-1.5 text-sm">
-      <span>{space.chosen.size}개 골랐습니다</span>
+      <span>{space.chosen.size}개 선택됨</span>
       <Button size="sm" variant="outline" className="h-7" onClick={() => space.setDialog({ kind: 'move' })}>
-        폴더로 옮기기
+        폴더로 이동
       </Button>
       <button type="button" className="text-muted-foreground text-xs hover:underline" onClick={() => space.setChosen(new Set())}>
-        고르기 풀기
+        선택 해제
       </button>
-      <span className="text-muted-foreground ml-auto text-xs">왼쪽 폴더로 끌어다 놓아도 됩니다.</span>
+      <span className="text-muted-foreground ml-auto text-xs">왼쪽 폴더 목록으로 끌어다 놓아 이동할 수도 있습니다.</span>
     </div>
   )
 }
@@ -120,7 +120,7 @@ export function ChosenBar({ space }: { space: FolderSpace }) {
 export function FolderSelect({ space, allLabel }: { space: FolderSpace; allLabel: string }) {
   return (
     <select
-      aria-label="폴더 고르기"
+      aria-label="폴더 선택"
       className="h-8 rounded-md border px-2 text-sm md:hidden"
       value={space.folder === null ? '__all__' : space.folder}
       onChange={(event) => space.select(event.target.value === '__all__' ? null : event.target.value)}
@@ -141,10 +141,10 @@ export function PickBox({ space, id, name, disabled = false }: { space: FolderSp
   return (
     <input
       type="checkbox"
-      aria-label={`${name} 고르기`}
+      aria-label={`${name} 선택`}
       checked={space.chosen.has(id)}
       disabled={disabled}
-      title={disabled ? '올린 사람과 관리자만 옮길 수 있습니다' : undefined}
+      title={disabled ? '작성자와 관리자만 이동할 수 있습니다.' : undefined}
       onChange={() => space.toggle(id)}
     />
   )
@@ -155,7 +155,7 @@ export function PickAll({ space, ids }: { space: FolderSpace; ids: string[] }) {
   return (
     <input
       type="checkbox"
-      aria-label="이 쪽 모두 고르기"
+      aria-label="이 페이지 전체 선택"
       disabled={ids.length === 0}
       checked={ids.length > 0 && ids.every((id) => space.chosen.has(id))}
       onChange={(event) => space.setChosen(event.target.checked ? new Set(ids) : new Set())}
@@ -190,7 +190,7 @@ export function FolderLine({
   return (
     <div className="flex items-center gap-2 text-xs">
       <span className="text-muted-foreground">폴더</span>
-      <span>{folder ? shownPath(folder) : '없음(맨 위)'}</span>
+      <span>{folder ? shownPath(folder) : '없음(최상위)'}</span>
       {editable && (
         <button
           type="button"
@@ -202,17 +202,17 @@ export function FolderLine({
               .catch(() => setKnown([]))
           }}
         >
-          옮기기
+          이동
         </button>
       )}
       <FolderDialog
         open={open}
-        title="폴더로 옮기기"
-        description="있는 폴더를 고르거나 새 경로(예: 고객A/2026)를 적습니다. 비우면 맨 위로."
+        title="폴더 이동"
+        description="기존 폴더를 선택하거나 새 경로(예: 고객A/2026)를 입력하십시오. 비워 두면 최상위로 이동합니다."
         initial={folder}
         suggestions={known}
         allowEmpty
-        confirmLabel="옮기기"
+        confirmLabel="이동"
         onSubmit={async (path) => {
           await onMove(path)
         }}

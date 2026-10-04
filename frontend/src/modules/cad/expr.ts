@@ -62,7 +62,7 @@ export function evalNumber(value: unknown, params: Record<string, number> = {}):
 export function explain(value: unknown, params: Record<string, number> = {}): Trouble | null {
   if (!isExpression(value)) return null
   const body = value.slice(1).trim()
-  if (body === '') return { kind: 'empty', message: '식을 쓰세요 — 예: 두께 * 2' }
+  if (body === '') return { kind: 'empty', message: '식을 입력하십시오. 예: 두께 * 2' }
   try {
     const parser = new Parser(body, params)
     parser.expression()
@@ -73,10 +73,10 @@ export function explain(value: unknown, params: Record<string, number> = {}): Tr
       return {
         kind: 'unknown',
         name: caught.name,
-        message: `「${caught.name}」 이라는 변수가 없습니다`,
+        message: `‘${caught.name}’ 변수가 없습니다.`,
       }
     }
-    return { kind: 'syntax', message: '식을 읽을 수 없습니다 — 괄호와 연산자를 보세요' }
+    return { kind: 'syntax', message: '식을 읽을 수 없습니다. 괄호와 연산자를 확인하십시오.' }
   }
 }
 

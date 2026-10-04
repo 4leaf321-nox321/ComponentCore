@@ -32,7 +32,7 @@ export function JigForPartCard({ work, onSaved }: { work: Work; onSaved: () => v
       await worksApi.update(work.id, { jig_for_part_id: partId })
       onSaved()
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
       setBusy(false)
     }
@@ -41,7 +41,7 @@ export function JigForPartCard({ work, onSaved }: { work: Work; onSaved: () => v
   return (
     <Card>
       <CardHeader>
-        <CardTitle>잡는 부품</CardTitle>
+        <CardTitle>고정 대상 부품</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
@@ -51,10 +51,10 @@ export function JigForPartCard({ work, onSaved }: { work: Work; onSaved: () => v
             disabled={busy}
           >
             <SelectTrigger className="w-72">
-              <SelectValue placeholder="고르지 않음" />
+              <SelectValue placeholder="선택 안 함" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={NONE}>고르지 않음 — 홀로 선 지그</SelectItem>
+              <SelectItem value={NONE}>선택 안 함 (독립 지그)</SelectItem>
               {(parts.data?.items ?? []).map((one) => (
                 <SelectItem key={one.id} value={one.id}>
                   {one.name} (v{one.current_version})
@@ -64,12 +64,12 @@ export function JigForPartCard({ work, onSaved }: { work: Work; onSaved: () => v
           </Select>
           {work.jig_for_part_id && (
             <Button variant="ghost" size="sm" asChild>
-              <Link to={`/parts/${work.jig_for_part_id}`}>부품 보기</Link>
+              <Link to={`/parts/${work.jig_for_part_id}`}>부품 조회</Link>
             </Button>
           )}
         </div>
         <p className="text-muted-foreground text-xs">
-          이어 두면 승격할 때 「어느 부품의 지그인가」 가 따라갑니다. 제품 형상을 지그 안으로 불러오려면 부품 화면에서 STEP 을 받아 「STEP 올리기」 하거나, 레시피에 <code>import_step</code> 으로 넣습니다.
+          연결해 두면 등록할 때 어느 부품의 지그인지 함께 기록됩니다. 제품 형상을 지그에 불러오려면 부품 화면에서 STEP을 다운로드한 후 ‘STEP 업로드’를 사용하거나, 레시피에 <code>import_step</code>으로 추가하십시오.
         </p>
         <ErrorNotice error={error ?? parts.error} />
       </CardContent>

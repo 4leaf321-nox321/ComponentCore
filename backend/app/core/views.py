@@ -57,7 +57,8 @@ def views(
     unknown = [one for one in names if one not in VIEW_DIRECTIONS]
     if unknown:
         raise ValueError(
-            f"모르는 뷰입니다: {', '.join(unknown)} ({', '.join(VIEW_DIRECTIONS)})"
+            f"알 수 없는 뷰입니다: {', '.join(unknown)} "
+            f"(선택 가능: {', '.join(VIEW_DIRECTIONS)})"
         )
     out: dict[str, Any] = {}
     for name in names:

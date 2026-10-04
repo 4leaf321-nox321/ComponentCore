@@ -100,7 +100,7 @@ def fill(db: Session, *, limit: int = 20) -> dict[str, Any]:
             except Exception as failure:
                 problems.append(f"{job.id}: {type(failure).__name__}: {failure}")
         else:
-            problems.append(f"{job.id}: STEP 이 없습니다")
+            problems.append(f"{job.id}: STEP 파일이 없습니다.")
         if made is None:
             failed += 1
             # 다시 골라지지 않게 — 빈 색인(version 만)을 적어 둔다. 찾기에서는 빠진다.

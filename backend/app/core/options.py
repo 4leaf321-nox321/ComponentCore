@@ -10,10 +10,10 @@ from typing import Any
 
 #: 지그 형식 — 어떤 규칙으로 놓나. 화면의 「형식」 과 같은 이름.
 JIG_KINDS: dict[str, str] = {
-    "clamped": "판 · 클램프 고정",
-    "bolted": "볼트 고정 (진동 · 충격 시험)",
+    "clamped": "판·클램프 고정",
+    "bolted": "볼트 고정(진동·충격 시험)",
     "bending": "3점 굽힘 픽스처",
-    "drop": "낙하 · 충격 자세",
+    "drop": "낙하·충격 자세",
 }
 
 

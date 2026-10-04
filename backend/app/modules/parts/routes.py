@@ -164,6 +164,6 @@ def copy_to_work(
         description=part.description,
         recipe=version.recipe,
         source="copy",
-        note=f"부품 {part.name} v{version.number} 에서 복사",
+        note=f"부품 {part.name} v{version.number}에서 복사",
     )
     return works.work_out(db, work)

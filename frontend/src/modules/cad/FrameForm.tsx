@@ -21,11 +21,11 @@ import { Label } from '@/shared/components/ui/label'
 export type Placing = 'point' | 'edge' | 'face' | 'rotate' | 'translate' | null
 
 const PLACING: { key: Exclude<Placing, null>; label: string; hint: string }[] = [
-  { key: 'point', label: '점', hint: '누른 점이 원점이 됩니다' },
-  { key: 'edge', label: '선', hint: '엣지 중점이 원점, 엣지 방향이 X 가 됩니다' },
-  { key: 'face', label: '면', hint: '누른 자리가 원점, 면의 법선이 Z 가 됩니다' },
-  { key: 'rotate', label: '회전', hint: '3D 의 손잡이를 끌어 돌립니다(5° 씩)' },
-  { key: 'translate', label: '이동', hint: '3D 의 손잡이를 끌어 옮깁니다(0.5 mm 씩)' },
+  { key: 'point', label: '점', hint: '선택한 점이 원점이 됩니다.' },
+  { key: 'edge', label: '선', hint: '엣지 중점이 원점, 엣지 방향이 X축이 됩니다.' },
+  { key: 'face', label: '면', hint: '선택한 위치가 원점, 면의 법선이 Z축이 됩니다.' },
+  { key: 'rotate', label: '회전', hint: '3D의 핸들을 끌어 회전합니다(5° 단위).' },
+  { key: 'translate', label: '이동', hint: '3D의 핸들을 끌어 이동합니다(0.5 mm 단위).' },
 ]
 
 export interface FrameDraft {
@@ -102,8 +102,8 @@ export function FrameForm({
   const attached = !!value.on
   const method: FrameMethod | 'on' = attached ? 'on' : methodOf(value)
   const methods: [FrameMethod | 'on', string][] = [
-    ['vectors', '원점 · X · Y 방향'],
-    ['rotate', '원점 · 회전'],
+    ['vectors', '원점·X·Y 방향'],
+    ['rotate', '원점·회전'],
     ...(groups ? [['on', '선택 그룹의 면'] as [FrameMethod | 'on', string]] : []),
   ]
   const choose = (next: FrameMethod | 'on') => {
@@ -117,8 +117,8 @@ export function FrameForm({
         <Input id="frame-name" value={value.name} onChange={(e) => onChange({ ...value, name: e.target.value })} />
       </div>
       <div className="space-y-1">
-        <Label className="text-xs">정하는 방법</Label>
-        <div className="flex gap-1" role="group" aria-label="정하는 방법">
+        <Label className="text-xs">지정 방식</Label>
+        <div className="flex gap-1" role="group" aria-label="지정 방식">
           {methods.map(([key, label]) => (
             <button
               key={key}
@@ -148,7 +148,7 @@ export function FrameForm({
             ))}
           </select>
           <p className="text-muted-foreground text-xs">
-            원점은 그 그룹의 첫 면 중심, Z 는 면의 법선(원통면이면 축)입니다 — 설계점마다 그 면을 따라갑니다.
+            원점은 해당 그룹의 첫 면 중심이고, Z축은 면의 법선(원통면이면 축)입니다. 설계점마다 해당 면을 따라 이동합니다.
           </p>
           {groups?.length === 0 && <p className="text-xs text-amber-700 dark:text-amber-400">면 선택 그룹이 없습니다.</p>}
         </div>
@@ -174,33 +174,33 @@ export function FrameForm({
               <p className="text-muted-foreground text-xs">
                 {placing
                   ? PLACING.find((one) => one.key === placing)?.hint
-                  : '점 · 선 · 면을 누르거나 손잡이로 돌려 정합니다. 화면에서 지정하면 식 대신 숫자가 들어갑니다.'}
+                  : '점, 선, 면을 선택하거나 핸들로 회전하여 지정합니다. 화면에서 지정하면 수식 대신 숫자가 입력됩니다.'}
               </p>
             </div>
           )}
-          <Triple label="원점" unit="mm · 수 또는 =식" value={value.origin} onChange={(origin) => onChange({ ...value, origin })} />
+          <Triple label="원점" unit="mm, 숫자 또는 =수식" value={value.origin} onChange={(origin) => onChange({ ...value, origin })} />
           {method === 'vectors' ? (
             <>
               <Triple
                 label="X 방향"
-                unit="벡터 · 길이 무관"
+                unit="벡터, 길이 무관"
                 value={value.x_axis ?? [1, 0, 0]}
                 onChange={(x_axis) => onChange({ ...value, x_axis })}
               />
               <Triple
                 label="Y 방향"
-                unit="벡터 · X 에 수직으로 맞춤"
+                unit="벡터, X에 수직으로 보정"
                 value={value.y_axis ?? [0, 1, 0]}
                 onChange={(y_axis) => onChange({ ...value, y_axis })}
               />
               <p className="text-muted-foreground text-xs">
-                Z 는 X 와 Y 의 외적입니다. Y 는 「대략 이쪽」 이면 되고, X 와 나란하면 안 됩니다.
+                Z는 X와 Y의 외적입니다. Y는 대략적인 방향이면 충분하지만, X와 평행해서는 안 됩니다.
               </p>
             </>
           ) : (
             <Triple
               label="회전"
-              unit="도 · X → Y → Z 축 순서"
+              unit="도, X → Y → Z 축 순서"
               value={value.rotate}
               onChange={(rotate) => onChange({ ...value, rotate })}
             />

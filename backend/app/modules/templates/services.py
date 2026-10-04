@@ -66,7 +66,7 @@ def _visible(viewer: User) -> ColumnElement[bool]:
 def _scoped(viewer: User, scope: str) -> ColumnElement[bool]:
     """`scope` 는 mine(내 것) · shared(공용) · all(둘 다)."""
     if scope not in SCOPES:
-        raise AppError(code("TPL", 3), f"모르는 자리입니다: {scope}")
+        raise AppError(code("TPL", 3), f"알 수 없는 범위({scope})입니다.")
     if scope == "mine":
         return RecipeTemplate.owner_id == viewer.id
     if scope == "shared":
@@ -164,7 +164,7 @@ def get_template(db: Session, template_id: uuid.UUID, viewer: User) -> RecipeTem
 
 def require_owner(template: RecipeTemplate, user: User) -> None:
     if template.owner_id != user.id and not user.is_system_admin:
-        raise Forbidden(code("TPL", 2), "이 템플릿을 고칠 권한이 없습니다.")
+        raise Forbidden(code("TPL", 2), "이 템플릿을 수정할 권한이 없습니다.")
 
 
 def _checked(recipe: dict[str, Any]) -> dict[str, Any]:
@@ -174,7 +174,7 @@ def _checked(recipe: dict[str, Any]) -> dict[str, Any]:
     except RecipeValidationError as failure:
         raise AppError(
             code("TPL", 4),
-            "레시피가 올바르지 않습니다",
+            "레시피가 올바르지 않습니다.",
             details={"problems": failure.problems},
         ) from failure
     return recipe

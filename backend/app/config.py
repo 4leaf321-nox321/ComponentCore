@@ -176,7 +176,8 @@ class Settings(BaseSettings):
     def _derive_from_slug(self) -> Settings:
         if not re.fullmatch(r"[a-z][a-z0-9]{0,31}", self.app_slug):
             raise ValueError(
-                f"APP_SLUG 는 소문자·숫자 한 덩어리 32자 이내여야 합니다: {self.app_slug!r}"
+                f"APP_SLUG는 영문 소문자로 시작하는 소문자·숫자 32자 이내여야 합니다: "
+                f"{self.app_slug!r}"
             )
         if not self.database_url:
             self.database_url = (

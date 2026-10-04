@@ -104,7 +104,7 @@ test('식으로 묶인 축은 끌기가 건드리지 않고 말한다', async ()
   await waitFor(() => expect(lastViewer.dragPart).toBe('지그'))
   act(() => lastViewer.onMoved!('지그', { translate: [1, 1, 1], rotate: [0, 0, 0] }))
   expect((recipeNow().nodes[0] as { translate: (number | string)[] }).translate).toEqual([1, 1, '=높이'])
-  expect(screen.getByText(/자리 Z 는 식으로 묶여 있어/)).toBeInTheDocument()
+  expect(screen.getByText(/위치 Z은\(는\) 수식으로 연결되어 있어/)).toBeInTheDocument()
 })
 
 test('구성품끼리 겹치면 배지와 함께 어느 것끼리 얼마나인지 말하고, 3D 에서 빨갛다', async () => {
@@ -135,7 +135,7 @@ test('라이브러리에서 가져오면 component 피처가 생기고 묶음이
   fireEvent.click(screen.getByRole('button', { name: /시험 지그/ }))
   // 가져온 것은 왼쪽 「구성」 목록에 선다 — 라이브러리 단추와는 별개의 줄이다.
   expect(screen.getByRole('button', { name: '센서 브래킷 편집' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '시험 지그 빼기' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '시험 지그 제거' })).toBeInTheDocument()
 
   const nodes = recipeNow().nodes
   expect(nodes.map((one) => one.op)).toEqual(['component', 'component', 'group'])
@@ -157,10 +157,10 @@ test('놓인 것의 자리와 구성품 치수에 변수를 물릴 수 있다', 
   fireEvent.change(screen.getByLabelText('시험 지그 덮어쓸 변수 이름'), { target: { value: '높이' } })
   fireEvent.submit(screen.getByLabelText('시험 지그 덮어쓸 변수 이름').closest('form')!)
   await waitFor(() => expect(screen.getByLabelText('시험 지그 높이')).toBeInTheDocument())
-  fireEvent.click(screen.getByRole('button', { name: '시험 지그 높이 변수로' }))
+  fireEvent.click(screen.getByRole('button', { name: '시험 지그 높이 변수 지정' }))
   fireEvent.change(screen.getByLabelText('새 변수 이름'), { target: { value: '지그_높이' } })
   fireEvent.change(screen.getByLabelText('새 변수 값'), { target: { value: '30' } })
-  fireEvent.click(screen.getByRole('button', { name: '만들기' }))
+  fireEvent.click(screen.getByRole('button', { name: '생성' }))
 
   const now = recipeNow()
   expect(now.params).toEqual({ 지그_높이: 30 })
@@ -179,7 +179,7 @@ test('구성품마다 **원본 도면으로 가는 길**이 있다 — 여기선
   // 새 탭 — 고치던 배치를 잃지 않게.
   expect(link.getAttribute('target')).toBe('_blank')
   // 어디서 무엇을 고치는지 한 줄로 말해 준다(모양을 고치러 온 사람이 막히던 자리).
-  expect(screen.getByText(/자리 · 회전 · 치수 덮어쓰기/)).toBeTruthy()
+  expect(screen.getByText(/위치, 회전, 치수 덮어쓰기/)).toBeTruthy()
 })
 
 test('공용 부품 · 지그도 제 화면으로 간다', () => {

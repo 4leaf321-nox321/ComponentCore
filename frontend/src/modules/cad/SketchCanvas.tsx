@@ -446,7 +446,7 @@ export function SketchCanvas({
       <div className="lg:col-span-2">
         <div className="mb-2 flex flex-wrap items-center gap-1">
           <Button size="sm" variant={tool === 'select' ? 'default' : 'outline'} onClick={() => setTool('select')}>
-            선택 · 이동
+            선택·이동
           </Button>
           {SHAPE_TYPES.map((t) => (
             <Button key={t.value} size="sm" variant={tool === t.value ? 'default' : 'outline'} onClick={() => setTool(t.value)}>
@@ -460,15 +460,15 @@ export function SketchCanvas({
           )}
           {tool === 'path' && drafting && drafting.length >= 2 && (
             <Button size="sm" variant="secondary" onClick={finishPolyline}>
-              선 끝내기 ({drafting.length}점)
+              선 입력 종료 ({drafting.length}점)
             </Button>
           )}
           <span className="text-muted-foreground ml-2 text-xs">
             {tool === 'select'
-              ? '도형을 끌어 옮깁니다. 격자 1mm, Shift 로 5mm.'
+              ? '도형을 끌어 이동합니다. 격자 간격은 1mm이며, Shift를 누르면 5mm입니다.'
               : tool === 'polyline' || tool === 'path'
-                ? '점을 차례로 누릅니다. 같은 자리를 다시 누르거나 단추로 끝. 호는 폼에서.'
-                : '캔버스를 눌러 놓습니다.'}
+                ? '점을 차례로 누르십시오. 같은 위치를 다시 누르거나 버튼을 눌러 종료합니다. 호는 폼에서 지정합니다.'
+                : '캔버스를 눌러 도형을 배치합니다.'}
           </span>
         </div>
         <svg
@@ -514,7 +514,7 @@ export function SketchCanvas({
             )}
           </g>
           <text x={6} y={H - 6} fontSize={11} fill="#6b7280">
-            격자 {gridStep} mm · 보이는 범위 ±{half.toFixed(0)} mm
+            격자 {gridStep} mm · 표시 범위 ±{half.toFixed(0)} mm
           </text>
         </svg>
       </div>
@@ -541,7 +541,7 @@ export function SketchCanvas({
             }}
           />
         ) : (
-          <p className="text-muted-foreground text-sm">도형을 누르면 치수를 고칩니다 — 칸의 <b>fx</b> 로 변수(<code>=두께</code>)도 쓸 수 있습니다. 순서가 곧 더하고 빼는 순서입니다.</p>
+          <p className="text-muted-foreground text-sm">도형을 선택하면 치수를 수정할 수 있습니다. 입력란의 <b>fx</b>로 변수(<code>=두께</code>)도 사용할 수 있습니다. 목록 순서대로 더하기와 빼기가 적용됩니다.</p>
         )}
       </div>
     </div>
@@ -617,7 +617,7 @@ function ShapeForm({
         {isConstrained(shape) && <ConstrainedForm shape={shape} solved={solved} params={params} onCreateParam={onCreateParam} onChange={(patch) => onChange(patch)} />}
         {shape.type === 'slot' && (
           <>
-            {numberField('length', shape.measure === 'centers' ? '중심 사이 거리' : '전체 길이')}
+            {numberField('length', shape.measure === 'centers' ? '중심 간 거리' : '전체 길이')}
             {numberField('width', '폭')}
             <div className="space-y-1">
               <Label className="text-xs">길이 기준</Label>
@@ -627,7 +627,7 @@ function ShapeForm({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="overall">전체 길이</SelectItem>
-                  <SelectItem value="centers">중심 사이</SelectItem>
+                  <SelectItem value="centers">중심 간 거리</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -635,13 +635,13 @@ function ShapeForm({
         )}
         {shape.type === 'triangle' && (
           <>
-            {numberField('a', '변 a (A 의 맞은편)')}
+            {numberField('a', '변 a (각 A의 대변)')}
             {numberField('b', '변 b')}
             {numberField('c', '변 c')}
             {numberField('A', '각 A (°)', 1)}
             {numberField('B', '각 B (°)', 1)}
             {numberField('C', '각 C (°)', 1)}
-            <p className="text-muted-foreground col-span-2 text-[11px]">셋을 주면 정해집니다. 비운 칸은 빈 채로 두세요 — 변은 하나 이상.</p>
+            <p className="text-muted-foreground col-span-2 text-[11px]">세 값을 입력하면 삼각형이 정해집니다. 나머지 입력란은 비워 두십시오. 변은 하나 이상 입력해야 합니다.</p>
           </>
         )}
         {shape.type === 'regular_polygon' && (
@@ -686,7 +686,7 @@ function ShapeForm({
             </label>
           </>
         )}
-        {shape.type === 'polyline' && numberField('corner_radius', '모서리 둥글리기 (mm, 0 = 각지게)')}
+        {shape.type === 'polyline' && numberField('corner_radius', '모서리 반지름 (mm, 0이면 각진 모서리)')}
         {shape.type === 'path' && (
           <>
             {numberField('width', '폭 (mm)')}
@@ -697,8 +697,8 @@ function ShapeForm({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="round">둥글게</SelectItem>
-                  <SelectItem value="sharp">뾰족하게</SelectItem>
+                  <SelectItem value="round">둥근 모서리</SelectItem>
+                  <SelectItem value="sharp">각진 모서리</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -709,7 +709,7 @@ function ShapeForm({
       {(shape.type === 'polyline' || shape.type === 'path') && (
         <div className="space-y-1">
           <Label className="text-xs">
-            구간 (시작 {((shape.start as number[]) ?? [0, 0]).join(', ')}) — 호는 <strong>반지름</strong> 이나 <strong>접선</strong> 으로 주는 것이 쉽습니다
+            구간 (시작점 {((shape.start as number[]) ?? [0, 0]).join(', ')}). 호는 <strong>반지름</strong> 또는 <strong>접선</strong>으로 지정하는 것이 간편합니다.
           </Label>
           {((shape.segments as Segment[]) ?? []).map((g, i) => {
             const segs = shape.segments as Segment[]
@@ -741,9 +741,9 @@ function ShapeForm({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="line">직선</SelectItem>
-                    <SelectItem value="radius">호 · 반지름</SelectItem>
-                    <SelectItem value="tangent">호 · 접선</SelectItem>
-                    <SelectItem value="via">호 · 지나는 점</SelectItem>
+                    <SelectItem value="radius">호(반지름)</SelectItem>
+                    <SelectItem value="tangent">호(접선)</SelectItem>
+                    <SelectItem value="via">호(경유점)</SelectItem>
                   </SelectContent>
                 </Select>
                 {kind === 'radius' && (
@@ -754,7 +754,7 @@ function ShapeForm({
                     onChange={(e) => update({ radius: Number(e.target.value) })}
                     className="h-7 w-20"
                     aria-label={`구간 ${i + 1} 반지름`}
-                    title="부호가 휘는 쪽 — 양수는 가는 방향의 왼쪽"
+                    title="부호는 휘는 방향을 나타냅니다. 양수는 진행 방향의 왼쪽입니다."
                   />
                 )}
                 {kind === 'via' && g.via && (
@@ -801,14 +801,14 @@ function ShapeForm({
       )}
       <div className="flex gap-1 pt-1">
         <Button size="sm" variant="outline" onClick={() => onMove(-1)}>
-          앞으로
+          앞으로 이동
         </Button>
         <Button size="sm" variant="outline" onClick={() => onMove(1)}>
-          뒤로
+          뒤로 이동
         </Button>
         <div className="flex-1" />
         <Button size="sm" variant="ghost" onClick={onDelete}>
-          지우기
+          삭제
         </Button>
       </div>
     </div>

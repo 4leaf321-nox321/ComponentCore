@@ -31,13 +31,13 @@ def _num(
 ) -> float:
     raw = spec.get(key, default)
     if raw is None:
-        raise PrimitiveError(f"{key} 가 필요합니다")
+        raise PrimitiveError(f"{key} 값이 필요합니다.")
     try:
         value = float(raw)
     except (TypeError, ValueError) as failure:
-        raise PrimitiveError(f"{key} 는 숫자여야 합니다") from failure
+        raise PrimitiveError(f"{key} 값은 숫자여야 합니다.") from failure
     if value < minimum:
-        raise PrimitiveError(f"{key} 는 {minimum} 이상이어야 합니다")
+        raise PrimitiveError(f"{key} 값은 {minimum} 이상이어야 합니다.")
     return value
 
 
@@ -57,7 +57,7 @@ def plate_with_holes(spec: dict[str, Any]) -> Part:
     hole_d = _num(spec, "hole_diameter", 8.0)
     margin = _num(spec, "hole_margin", 10.0)
     if 2 * margin >= min(length, width):
-        raise PrimitiveError("hole_margin 이 너무 큽니다 — 구멍이 판 밖으로 나갑니다")
+        raise PrimitiveError("hole_margin 값이 너무 커서 구멍이 판 밖으로 벗어납니다.")
     part: Part = Box(length, width, thickness)
     dx, dy = length / 2 - margin, width / 2 - margin
     for sx in (-1, 1):
@@ -75,7 +75,7 @@ def bracket(spec: dict[str, Any]) -> Part:
     thickness = _num(spec, "thickness", 8.0)
     hole_d = _num(spec, "hole_diameter", 6.0)
     if thickness >= min(width, height):
-        raise PrimitiveError("thickness 가 너무 큽니다")
+        raise PrimitiveError("thickness 값이 너무 큽니다.")
 
     base = Box(length, width, thickness)
     wall = Pos(0, -(width - thickness) / 2, (height - thickness) / 2) * Box(
@@ -106,7 +106,9 @@ def build(spec: dict[str, Any]) -> Part:
     kind = str(spec.get("kind", ""))
     builder = _BUILDERS.get(kind)
     if builder is None:
-        raise PrimitiveError(f"모르는 종류입니다: {kind!r} (가능: {', '.join(KINDS)})")
+        raise PrimitiveError(
+            f"알 수 없는 종류입니다: {kind!r} (선택 가능: {', '.join(KINDS)})"
+        )
     part = builder(spec)
     part.label = kind
     return part

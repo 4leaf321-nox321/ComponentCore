@@ -112,7 +112,7 @@ export default function WorksPage() {
     <div>
       <PageHeader
         title="내 작업"
-        description="그리고 있는 것들. 나만 봅니다 — 남에게 보이려면 부품이나 지그로 승격합니다."
+        description="작성 중인 작업입니다. 본인만 조회할 수 있으며, 다른 사용자에게 공개하려면 부품 또는 지그로 등록하십시오."
         actions={
           <>
             {/* 시작하는 길 셋 — 그리기, 부품에서 생성, 놓기. 흔한 순서대로. */}
@@ -126,7 +126,7 @@ export default function WorksPage() {
               부품 + 지그로 조립
             </Button>
             <Button variant="outline" onClick={() => void startAssembly()} disabled={starting}>
-              {starting ? '만드는 중…' : '빈 조립'}
+              {starting ? '생성 중…' : '빈 조립 생성'}
             </Button>
           </>
         }
@@ -156,10 +156,10 @@ export default function WorksPage() {
           aria-pressed={byYear}
           className={`rounded-md border px-3 py-1 text-sm ${byYear ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-accent'}`}
         >
-          연도별로 묶기
+          연도별 그룹화
         </button>
         <button type="button" onClick={() => refilter(() => setTrashed(!trashed))} aria-pressed={trashed} className={`ml-auto rounded-md border px-3 py-1 text-sm ${trashed ? 'bg-destructive/10 border-destructive/40' : 'hover:bg-accent'}`}>
-          {trashed ? '휴지통 보는 중 — 내 작업으로' : '휴지통'}
+          {trashed ? '휴지통 조회 중 (내 작업으로 돌아가기)' : '휴지통'}
         </button>
       </div>
       {/* 지금 보는 폴더 — 위 폴더로 바로 간다. */}
@@ -169,8 +169,8 @@ export default function WorksPage() {
         extra={
           year !== null && (
             <span className="ml-2 rounded-full border px-2 text-xs">
-              {year}년에 만든 것{' '}
-              <button type="button" aria-label="연도 거르기 풀기" onClick={() => refilter(() => setYear(null))}>
+              생성 연도: {year}년{' '}
+              <button type="button" aria-label="연도 필터 해제" onClick={() => refilter(() => setYear(null))}>
                 ×
               </button>
             </span>
@@ -181,14 +181,14 @@ export default function WorksPage() {
       <ErrorNotice error={page.error} className="mb-4" />
       {rows.length === 0 && !page.loading ? (
         trashed ? (
-          <EmptyState title="휴지통이 비었습니다" hint="지운 작업이 여기 오고, 되살릴 수 있습니다." />
+          <EmptyState title="휴지통이 비어 있습니다" hint="삭제한 작업은 이곳으로 이동하며, 복원할 수 있습니다." />
         ) : q || tag || folder !== null || year !== null || shapeConditionCount(shape) > 0 ? (
-          <EmptyState title="맞는 작업이 없습니다" hint="찾는 말 · 꼬리표 · 폴더 · 연도 · 형상 조건을 바꿔 보세요. 빈 폴더라면 작업을 끌어다 놓으세요." />
+          <EmptyState title="조건에 맞는 작업이 없습니다" hint="검색어, 태그, 폴더, 연도, 형상 조건을 변경하십시오. 빈 폴더인 경우 작업을 끌어서 놓으십시오." />
         ) : (
           <EmptyState
             title="작업이 없습니다"
-            hint="「새 작업」 에서 빈 화면 · 템플릿 · STEP 으로 그려 저장하세요."
-            action={<Button onClick={() => navigate('/draw')}>새 작업 만들기</Button>}
+            hint="‘새 작업’에서 빈 화면, 템플릿 또는 STEP으로 모델링한 후 저장하십시오."
+            action={<Button onClick={() => navigate('/draw')}>새 작업 생성</Button>}
           />
         )
       ) : (
@@ -203,8 +203,8 @@ export default function WorksPage() {
                 <TableHead>종류</TableHead>
                 <TableHead>버전</TableHead>
                 <TableHead>지그 생성</TableHead>
-                <TableHead>승격</TableHead>
-                <TableHead>수정</TableHead>
+                <TableHead>등록</TableHead>
+                <TableHead>수정일</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -212,7 +212,7 @@ export default function WorksPage() {
                 byYear ? (
                   <TableRow key={`year-${group.year}`} className="bg-muted/40 hover:bg-muted/40">
                     <TableCell colSpan={7} className="py-1 text-xs font-medium">
-                      {group.year}년 · {group.rows.length}개{page.data && page.data.total > rows.length ? ' (이 쪽에서)' : ''}
+                      {group.year}년 · {group.rows.length}개{page.data && page.data.total > rows.length ? ' (현재 페이지 기준)' : ''}
                     </TableCell>
                   </TableRow>
                 ) : null,
@@ -281,9 +281,9 @@ export default function WorksPage() {
           <TableCell className="text-sm">
             {trashed ? (
               <div className="flex items-center gap-2">
-                <span className="text-muted-foreground text-xs">지움 {row.deleted_at ? shownDateTime(row.deleted_at) : ''}</span>
+                <span className="text-muted-foreground text-xs">삭제됨 {row.deleted_at ? shownDateTime(row.deleted_at) : ''}</span>
                 <Button size="sm" variant="outline" className="h-7" disabled={restoring === row.id} onClick={() => void restore(row.id)}>
-                  되살리기
+                  복원
                 </Button>
               </div>
             ) : (

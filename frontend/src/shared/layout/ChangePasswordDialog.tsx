@@ -42,7 +42,7 @@ export function ChangePasswordDialog({
     // **한 번 더 받는 이유**: 서버는 새 비밀번호가 무엇이었는지 모른다. 오타로
     // 바꾸면 그 사람은 아무도 모르는 값으로 잠기고, 복구는 관리자뿐이다.
     if (next !== again) {
-      setError(new Error('새 비밀번호가 서로 다릅니다.'))
+      setError(new Error('새 비밀번호와 확인 값이 일치하지 않습니다.'))
       return
     }
     setBusy(true)
@@ -57,7 +57,7 @@ export function ChangePasswordDialog({
       setAgain('')
       onChanged()
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
       setBusy(false)
     }
@@ -70,7 +70,7 @@ export function ChangePasswordDialog({
           <DialogHeader>
             <DialogTitle>비밀번호 변경</DialogTitle>
             <DialogDescription>
-              바꾸면 다른 기기의 로그인이 모두 끊깁니다. 다시 로그인해 주세요.
+              비밀번호를 변경하면 모든 기기에서 로그아웃됩니다. 변경 후 다시 로그인하십시오.
             </DialogDescription>
           </DialogHeader>
 
@@ -115,7 +115,7 @@ export function ChangePasswordDialog({
               취소
             </Button>
             <Button type="submit" disabled={busy}>
-              {busy ? '바꾸는 중…' : '바꾸기'}
+              {busy ? '변경 중…' : '변경'}
             </Button>
           </DialogFooter>
         </form>

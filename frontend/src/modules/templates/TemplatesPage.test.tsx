@@ -49,11 +49,11 @@ test('자리(내 것 · 공용)로 나눠 보고, 내 것은 공용으로 내놓
   await waitFor(() => expect(screen.getByText('내 브래킷')).toBeInTheDocument())
 
   // 내 것에는 「공용으로 내놓기」, 남의 것에는 「내 것으로 복사」 가 뜬다.
-  fireEvent.click(screen.getByRole('button', { name: '공용으로 내놓기' }))
+  fireEvent.click(screen.getByRole('button', { name: '공용으로 공개' }))
   await waitFor(() => expect(calls.some((c) => c.method === 'PATCH' && c.url.endsWith('/templates/a'))).toBe(true))
   expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({ is_shared: true })
 
-  fireEvent.click(screen.getByRole('button', { name: '내 것으로 복사' }))
+  fireEvent.click(screen.getByRole('button', { name: '내 템플릿으로 복사' }))
   await waitFor(() => expect(calls.some((c) => c.url.endsWith('/templates/b/copy'))).toBe(true))
 
   // 자리 탭은 scope 로 물어본다.

@@ -53,10 +53,10 @@ import { shownDateTime } from '@/shared/lib/datetime'
 
 const SOURCE_LABELS: Record<string, string> = {
   template: '템플릿',
-  manual: '직접',
+  manual: '직접 작성',
   ai: 'AI',
   import: 'STEP',
-  restore: '되돌림',
+  restore: '복원',
   copy: '복사',
   generated: '생성기',
 }
@@ -115,7 +115,7 @@ export default function WorkPage() {
     try {
       await fn()
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
       setBusy(false)
     }
@@ -132,7 +132,7 @@ export default function WorkPage() {
     try {
       await saveRecipeAs(draft, format, w?.name ?? 'model')
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     }
   }
 
@@ -161,7 +161,7 @@ export default function WorkPage() {
         recipe: draft,
         kind: w.kind,
         source: 'copy',
-        note: `${w.name} v${w.current_version} 에서`,
+        note: `${w.name} v${w.current_version}에서`,
       })
       setSaveChoice(false)
       setEditing(false)
@@ -219,7 +219,7 @@ export default function WorkPage() {
           <>
             {/* 여러 벌 만드는 일은 실험계획 공간에서 — 여기서는 이 도면을 대상으로 넘겨 줄 뿐이다. */}
             <Button variant="outline" onClick={() => navigate(`/doe/new?work=${id}`)} disabled={w.current_version === 0}>
-              DOE 만들기
+              DOE 생성
             </Button>
             {!isAssembly && (
               <Button
@@ -230,26 +230,26 @@ export default function WorkPage() {
                   setPromoteNote('')
                   setPromoting(isJig ? 'jig-recipe' : 'part')
                 }}
-                title={isJig ? '이 지그 도면을 공용 지그에 올립니다' : currentPromoted ? '현재 버전은 이미 공용 부품에 올라가 있습니다' : undefined}
+                title={isJig ? '이 지그 도면을 공용 지그로 등록합니다.' : currentPromoted ? '현재 버전은 이미 공용 부품으로 등록되어 있습니다.' : undefined}
               >
-                {isJig ? '공용 지그로 승격' : currentPromoted ? `부품 v${w.current?.promoted_part_version} 으로 올라감` : '공용 부품으로 승격'}
+                {isJig ? '공용 지그로 등록' : currentPromoted ? `부품 v${w.current?.promoted_part_version} 등록됨` : '공용 부품으로 등록'}
               </Button>
             )}
             {w.promoted_part_id && (
               <Link to={`/parts/${w.promoted_part_id}`} className="text-muted-foreground text-xs hover:underline">
-                부품으로 올라감
+                부품으로 등록됨
               </Link>
             )}
             {w.promoted_jig_id && (
               <Link to={`/jigs/${w.promoted_jig_id}`} className="text-muted-foreground text-xs hover:underline">
-                지그로 올라감
+                지그로 등록됨
               </Link>
             )}
-            <Button variant="ghost" disabled={busy} title="현재 도면으로 새 작업 — 종류 · 꼬리표 · 폴더가 따라갑니다" onClick={() => setDuplicating(true)}>
+            <Button variant="ghost" disabled={busy} title="현재 도면으로 새 작업을 생성합니다. 종류, 태그, 폴더가 함께 복사됩니다." onClick={() => setDuplicating(true)}>
               복제
             </Button>
             <Button variant="ghost" onClick={() => setDeleting(true)} disabled={busy}>
-              지우기
+              삭제
             </Button>
           </>
         }
@@ -258,27 +258,27 @@ export default function WorkPage() {
       {othersOwner && (
         // 관리자는 남의 작업을 열고 고칠 수 있다 — 고친 것이 누구의 이력에 남는지 늘 보이게.
         <p role="note" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
-          <strong>{w.owner_name}</strong> 의 작업입니다 — 시스템 관리자로 보고 있습니다. 저장 · 승격 · 옮기기 ·
-          지우기는 그 사람의 작업에 그대로 남습니다. 복제하면 내 작업으로 옵니다.
+          <strong>{w.owner_name}</strong>의 작업입니다. 시스템 관리자 권한으로 조회하고 있습니다. 저장, 등록, 이동,
+          삭제는 해당 사용자의 작업에 그대로 반영됩니다. 복제하면 사본이 내 작업에 생성됩니다.
         </p>
       )}
 
       {/* 폴더 — 「내 작업」 의 어디에 놓였나. 꼬리표와 달리 한 곳이다. */}
       <div className="flex items-center gap-2 text-xs">
         <span className="text-muted-foreground">폴더</span>
-        <span>{w.folder ? w.folder.split('/').join(' › ') : '없음(맨 위)'}</span>
+        <span>{w.folder ? w.folder.split('/').join(' › ') : '없음(최상위)'}</span>
         <button type="button" className="text-muted-foreground underline" onClick={() => setMoving(true)} disabled={busy}>
-          옮기기
+          이동
         </button>
       </div>
       <FolderDialog
         open={moving}
-        title="폴더로 옮기기"
-        description="있는 폴더를 고르거나 새 경로(예: 고객A/2026)를 적습니다. 비우면 맨 위로."
+        title="폴더로 이동"
+        description="기존 폴더를 선택하거나 새 경로(예: 고객A/2026)를 입력하십시오. 비워 두면 최상위로 이동합니다."
         initial={w.folder}
         suggestions={(allFolders.data ?? []).map((one) => one.path)}
         allowEmpty
-        confirmLabel="옮기기"
+        confirmLabel="이동"
         onSubmit={async (folder) => {
           await worksApi.update(id, { folder })
           work.reload()
@@ -287,7 +287,7 @@ export default function WorkPage() {
       />
       {/* 꼬리표 — 프로젝트 · 제품군으로 묶는다. 내 작업 목록이 이것으로 거른다. */}
       <div className="flex items-center gap-2">
-        <span className="text-muted-foreground text-xs">꼬리표</span>
+        <span className="text-muted-foreground text-xs">태그</span>
         <TagEditor
           tags={w.tags}
           suggestions={allTags.data ?? []}
@@ -306,7 +306,7 @@ export default function WorkPage() {
         */}
         <label
           className="text-muted-foreground ml-auto flex items-center gap-1.5 text-xs"
-          title="새 시뮬레이션 조건이 점 파일을 이 단위계로 내보냅니다. 값은 늘 도면과 같은 mm · N · t 로 적습니다. 이미 있는 조건의 설정은 그대로입니다."
+          title="새 시뮬레이션 조건은 설계점 파일을 이 단위계로 내보냅니다. 값은 항상 도면과 같은 mm, N, t 단위로 입력합니다. 기존 조건의 설정은 변경되지 않습니다."
         >
           기본 내보내기 단위계
           <select
@@ -352,10 +352,10 @@ export default function WorkPage() {
               <CardHeader>
                 <div className="flex flex-wrap items-center gap-2">
                   <CardTitle>새 버전 (v{w.current_version + 1})</CardTitle>
-                  <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="무엇을 바꿨나" className="h-8 w-56" />
-                  <span className="text-muted-foreground text-xs">저장은 「파일」 탭에서.</span>
+                  <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="변경 내용" className="h-8 w-56" />
+                  <span className="text-muted-foreground text-xs">저장은 ‘파일’ 탭에서 할 수 있습니다.</span>
                   <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setEditing(false)} disabled={busy}>
-                    고치기 취소
+                    수정 취소
                   </Button>
                 </div>
               </CardHeader>
@@ -376,8 +376,8 @@ export default function WorkPage() {
                     download: (format) => void downloadDraft(format),
                     // 올린 STEP 이 곧 새 버전이다 — 지금 고치던 것은 버리고 그 버전을 보여 준다.
                     importStep: {
-                      label: 'STEP 올리기',
-                      title: `STEP 을 올려 새 버전(v${w.current_version + 1})으로 — 지금 고치던 것은 버립니다`,
+                      label: 'STEP 업로드',
+                      title: `STEP을 업로드하여 새 버전(v${w.current_version + 1})으로 저장합니다. 현재 수정 중인 내용은 폐기됩니다.`,
                       busy,
                       run: (file) =>
                         void act(async () => {
@@ -387,7 +387,7 @@ export default function WorkPage() {
                           reloadAll()
                         }),
                     },
-                    onLoaded: (label, source) => setNote(source === 'copy' ? `${label} 에서 복사` : `${label} 템플릿에서`),
+                    onLoaded: (label, source) => setNote(source === 'copy' ? `${label}에서 복사` : `${label} 템플릿에서`),
                     currentWorkId: id,
                     drawingTitle: w.name,
                   }}
@@ -398,7 +398,7 @@ export default function WorkPage() {
                     <Button size="sm" onClick={() => setSaveChoice(true)} disabled={busy}>
                       저장
                     </Button>
-                    <span className="text-muted-foreground text-xs">저장해야 3D 와 DOE 에 반영됩니다.</span>
+                    <span className="text-muted-foreground text-xs">저장해야 3D 화면과 DOE에 반영됩니다.</span>
                   </div>
                 )}
               </CardContent>
@@ -408,15 +408,15 @@ export default function WorkPage() {
               {/* 이 도면을 어떻게 — 한 줄에 모은다. 작업 자체의 일(실험계획 · 승격 · 지우기)은 머리에 있다. */}
               <div className="flex flex-wrap items-center gap-2">
                 <Button onClick={startEditing} disabled={busy}>
-                  {w.current_version === 0 ? '그리기 시작' : '수정'}
+                  {w.current_version === 0 ? '모델링 시작' : '수정'}
                 </Button>
                 <Button
                   variant="outline"
                   disabled={!selectedStep}
-                  title={selectedStep ? undefined : '아직 평가된 STEP 이 없습니다'}
+                  title={selectedStep ? undefined : '아직 평가된 STEP이 없습니다.'}
                   onClick={() => selectedStep && selectedVersion && downloadFile(jobsApi.artifactPath(selectedStep.id), `${w.name}-v${selectedVersion.number}.step`)}
                 >
-                  STEP 받기{selectedVersion && selectedVersion.number !== w.current_version ? ` (v${selectedVersion.number})` : ''}
+                  STEP 다운로드{selectedVersion && selectedVersion.number !== w.current_version ? ` (v${selectedVersion.number})` : ''}
                 </Button>
                 <Button variant="outline" onClick={() => setSavingTemplate(true)} disabled={busy || !selectedVersion}>
                   템플릿으로 저장
@@ -427,7 +427,7 @@ export default function WorkPage() {
               {w.current_version === 0 && isAssembly ? (
                 <EmptyState
                   title="빈 조립입니다"
-                  hint="「구성품 놓기」 를 누르면 왼쪽 라이브러리에서 부품 · 지그를 가져와 놓을 수 있습니다."
+                  hint="‘구성품 배치’를 누르면 왼쪽 라이브러리에서 부품 또는 지그를 가져와 배치할 수 있습니다."
                   action={
                     <Button
                       onClick={() => {
@@ -435,15 +435,15 @@ export default function WorkPage() {
                         setEditing(true)
                       }}
                     >
-                      구성품 놓기
+                      구성품 배치
                     </Button>
                   }
                 />
               ) : w.current_version === 0 ? (
                 <EmptyState
                   title="아직 도면이 없습니다"
-                  hint="「그리기 시작」 으로 들어가 그리거나, 그 안 「파일」 탭에서 STEP 을 올리세요."
-                  action={<Button onClick={startEditing}>그리기 시작</Button>}
+                  hint="‘모델링 시작’을 눌러 모델링하거나, 편집 화면의 ‘파일’ 탭에서 STEP을 업로드하십시오."
+                  action={<Button onClick={startEditing}>모델링 시작</Button>}
                 />
               ) : (
                 <div className="grid gap-4 lg:grid-cols-4">
@@ -487,7 +487,7 @@ export default function WorkPage() {
                                   })
                                 }
                               >
-                                이 버전으로 되돌리기
+                                이 버전으로 복원
                               </Button>
                             )}
                           </li>
@@ -514,7 +514,7 @@ export default function WorkPage() {
           {isJig && latestRun && (
             <Card>
               <CardHeader>
-                <CardTitle>생성기 결과 — 계획 · 간섭</CardTitle>
+                <CardTitle>생성기 결과: 계획·간섭</CardTitle>
               </CardHeader>
               <CardContent>
                 <JigResultView
@@ -565,7 +565,7 @@ export default function WorkPage() {
               }}
             />
           ) : (
-            <EmptyState title="도면이 먼저입니다" hint="「도면」 탭에서 그리고 저장한 뒤 조건을 붙이세요." />
+            <EmptyState title="도면이 필요합니다" hint="‘도면’ 탭에서 모델링하고 저장한 후 조건을 추가하십시오." />
           )}
         </TabsContent>
       </Tabs>
@@ -574,7 +574,7 @@ export default function WorkPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>저장</DialogTitle>
-            <DialogDescription>이 작업에 덮어 저장할지, 새 작업으로 따로 저장할지 고릅니다.</DialogDescription>
+            <DialogDescription>이 작업에 덮어 저장할지, 새 작업으로 별도 저장할지 선택하십시오.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">
             <button
@@ -587,17 +587,17 @@ export default function WorkPage() {
               }}
             >
               <div className="text-sm font-medium">
-                「{w.name}」 에 덮어 저장 (v{w.current_version} → v{w.current_version + 1})
+                ‘{w.name}’에 덮어 저장 (v{w.current_version} → v{w.current_version + 1})
               </div>
-              <div className="text-muted-foreground text-xs">새 버전이 붙습니다. 옛 버전은 남아 되돌릴 수 있습니다.</div>
+              <div className="text-muted-foreground text-xs">새 버전이 추가됩니다. 이전 버전은 유지되며 복원할 수 있습니다.</div>
             </button>
             <div className="rounded-md border px-3 py-2">
               <div className="text-sm font-medium">새 작업으로 저장</div>
-              <div className="text-muted-foreground mb-2 text-xs">원본 「{w.name}」 은 그대로 두고 다른 이름의 작업을 만듭니다.</div>
+              <div className="text-muted-foreground mb-2 text-xs">원본 ‘{w.name}’은(는) 그대로 두고 다른 이름의 작업을 생성합니다.</div>
               <div className="flex items-center gap-2">
                 <Input value={saveAsName} onChange={(e) => setSaveAsName(e.target.value)} placeholder={`${w.name} 사본`} className="h-8" aria-label="새 작업 이름" />
                 <Button size="sm" variant="outline" disabled={busy} onClick={() => void saveAsNew()}>
-                  새 작업으로
+                  새 작업으로 저장
                 </Button>
               </div>
             </div>
@@ -615,11 +615,11 @@ export default function WorkPage() {
             className="space-y-4"
           >
             <DialogHeader>
-              <DialogTitle>{promoting === 'part' ? '공용 부품으로 승격' : '공용 지그로 승격'}</DialogTitle>
+              <DialogTitle>{promoting === 'part' ? '공용 부품으로 등록' : '공용 지그로 등록'}</DialogTitle>
               <DialogDescription>
                 {promoting === 'part'
-                  ? `부품 v${w.current_version} 이 공용 부품으로 올라갑니다. 올라간 버전은 바뀌지 않습니다 — 고치려면 여기서 고쳐 다시 승격합니다.`
-                  : `지금 도면(v${w.current_version})을 공용 지그로 올립니다. 형상과 STEP 이 올라가고, 잡는 부품이 이어져 있으면 함께 적힙니다.`}
+                  ? `현재 버전(v${w.current_version})을 공용 부품으로 등록합니다. 등록된 버전은 변경되지 않으므로, 수정하려면 이 작업에서 수정한 후 다시 등록하십시오.`
+                  : `현재 도면(v${w.current_version})을 공용 지그로 등록합니다. 형상과 STEP이 등록되며, 고정 대상 부품이 연결되어 있으면 함께 기록됩니다.`}
               </DialogDescription>
             </DialogHeader>
             {!(promoting === 'part' ? w.promoted_part_id : w.promoted_jig_id) && (
@@ -630,14 +630,14 @@ export default function WorkPage() {
             )}
             <div className="space-y-2">
               <Label htmlFor="promote-note">메모</Label>
-              <Input id="promote-note" value={promoteNote} onChange={(e) => setPromoteNote(e.target.value)} placeholder="무엇이 바뀌었나" />
+              <Input id="promote-note" value={promoteNote} onChange={(e) => setPromoteNote(e.target.value)} placeholder="변경 내용" />
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setPromoting(null)} disabled={busy}>
                 취소
               </Button>
               <Button type="submit" disabled={busy}>
-                {busy ? '올리는 중…' : '승격'}
+                {busy ? '등록 중…' : '등록'}
               </Button>
             </DialogFooter>
           </form>
@@ -669,9 +669,9 @@ export default function WorkPage() {
       />
       <ConfirmDialog
         open={deleting}
-        title="작업을 지웁니다"
-        description={`「${w.name}」 이 내 작업에서 사라집니다. 이미 승격한 부품 · 지그는 남습니다.`}
-        confirmLabel="지우기"
+        title="작업 삭제"
+        description={`‘${w.name}’이(가) 내 작업에서 삭제됩니다. 이미 등록한 부품과 지그는 유지됩니다.`}
+        confirmLabel="삭제"
         destructive
         onConfirm={async () => {
           await worksApi.remove(id)

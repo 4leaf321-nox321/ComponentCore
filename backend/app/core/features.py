@@ -116,7 +116,7 @@ def bottom_face(geometry: ProductGeometry) -> Face:
     faces = geometry.shape.faces().filter_by(GeomType.PLANE)
     bottoms = [f for f in faces if f.normal_at(f.center()).Z < -_AXIS_COS]
     if not bottoms:
-        raise ValueError("바닥에 평면이 없습니다 — 곡면 바닥은 이 뼈대가 다루지 않습니다.")
+        raise ValueError("바닥에 평면이 없습니다. 곡면 바닥은 지원하지 않습니다.")
     return max(bottoms, key=lambda f: f.area)
 
 

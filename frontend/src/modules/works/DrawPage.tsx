@@ -33,7 +33,7 @@ export default function DrawPage() {
   const [savingTemplate, setSavingTemplate] = useState(false)
   const [noteOf, setNoteOf] = useState<Origin>({
     source: 'manual',
-    label: '처음부터 그림',
+    label: '처음부터 모델링',
   })
   /** 부품을 그린 것인지 지그를 그린 것인지 — 저장할 때 고른다. 그리는 방법은 같다. */
   const [kind, setKind] = useState<WorkKind>('part')
@@ -66,7 +66,7 @@ export default function DrawPage() {
         setName(template.name)
         setNoteOf({ source: 'template', label: `${template.name} 템플릿에서` })
       } catch (caught) {
-        if (alive) setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+        if (alive) setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
       } finally {
         // 주소를 비워 둔다 — 새로고침이나 「새로」 뒤에 다시 실리면 사람이 놀란다.
         if (alive) setParams({}, { replace: true })
@@ -83,7 +83,7 @@ export default function DrawPage() {
     try {
       await saveRecipeAs(recipe, format, name || 'model')
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     }
   }
 
@@ -101,7 +101,7 @@ export default function DrawPage() {
       })
       navigate(`/works/${made.id}`)
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
       setBusy(false)
     }
@@ -114,7 +114,7 @@ export default function DrawPage() {
       const made = await worksApi.createFromStep(file)
       navigate(`/works/${made.id}`)
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
       setBusy(false)
     }
@@ -124,7 +124,7 @@ export default function DrawPage() {
     <div className="space-y-4">
       <PageHeader
         title="새 작업"
-        description="부품이나 지그를 그려 새 작업으로 저장합니다. 빈 화면에서 그리거나 「파일」 탭에서 템플릿 · 기존 작업(사본) · STEP 을 엽니다. 저장하기 전에는 아무것도 남지 않습니다."
+        description="부품 또는 지그를 모델링하여 새 작업으로 저장합니다. 빈 화면에서 모델링하거나 ‘파일’ 탭에서 템플릿, 기존 작업(사본), STEP을 엽니다. 저장하기 전에는 아무것도 저장되지 않습니다."
         actions={
           <Button variant="outline" onClick={() => navigate('/draw/jig-from-part')}>
             부품에서 지그 생성
@@ -144,7 +144,7 @@ export default function DrawPage() {
             importStep: { label: 'STEP 열기', run: (picked) => void startFromStep(picked), busy },
             drawingTitle: name,
             onLoaded: (label, source, work) => {
-              setNoteOf(source === 'copy' ? { source, label: `${label} 에서 복사` } : { source, label: `${label} 템플릿에서` })
+              setNoteOf(source === 'copy' ? { source, label: `${label}에서 복사` } : { source, label: `${label} 템플릿에서` })
               // 기존 작업은 **사본**으로 시작한다 — 이름을 미리 「사본」 으로 두어 원본이 남는다는 걸 보인다.
               setOrigin(work ?? null)
               if (work) {
@@ -170,19 +170,19 @@ export default function DrawPage() {
             <DialogHeader>
               <DialogTitle>저장</DialogTitle>
               <DialogDescription>
-                내 공간에 <b>새 작업</b>이 생기고 버전 1 이 평가됩니다. 남에게는 승격해야 보입니다.
-                {origin && ` 불러온 「${origin.name}」 은 그대로 남습니다 — 그것을 고치려면 내 작업에서 「수정」 하세요.`}
+                내 작업 공간에 <b>새 작업</b>이 생성되고 버전 1이 평가됩니다. 다른 사용자에게 공개하려면 등록해야 합니다.
+                {origin && ` 불러온 ‘${origin.name}’은(는) 그대로 유지됩니다. 원본을 수정하려면 내 작업에서 ‘수정’을 사용하십시오.`}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-2">
               <Label htmlFor="work-name">작업 이름</Label>
               <Input id="work-name" value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
               <div className="space-y-1 pt-2">
-                <Label>무엇으로 저장합니까</Label>
+                <Label>저장 종류</Label>
                 <div className="flex gap-1">
                   {(
                     [
-                      { value: 'part', label: '부품 · 제품' },
+                      { value: 'part', label: '부품·제품' },
                       { value: 'jig', label: '지그' },
                     ] as const
                   ).map((one) => (
@@ -200,7 +200,7 @@ export default function DrawPage() {
                   ))}
                 </div>
                 <p className="text-muted-foreground text-xs">
-                  부품과 지그는 <b>서로 관계없는 각자의 도면</b>입니다. 둘을 함께 놓아 보려면 「조립」 에서 가져다 씁니다. 종류는 나중에 바꿀 수 있습니다.
+                  부품과 지그는 <b>서로 독립된 별개의 도면</b>입니다. 두 도면을 함께 배치하려면 ‘조립’에서 가져와 사용하십시오. 종류는 나중에 변경할 수 있습니다.
                 </p>
               </div>
             </div>

@@ -45,7 +45,7 @@ function SettingRow({ setting, onSaved }: { setting: ServerSetting; onSaved: (ne
       const mine = next.find((one) => one.key === setting.key)
       if (mine) setDraft(String(mine.value))
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
       setBusy(false)
     }
@@ -57,7 +57,7 @@ function SettingRow({ setting, onSaved }: { setting: ServerSetting; onSaved: (ne
         <span className="text-sm font-medium">{setting.label}</span>
         <span className="text-muted-foreground text-xs">
           {setting.minimum.toLocaleString()} ~ {setting.maximum.toLocaleString()} · .env 기본값 {setting.default.toLocaleString()}
-          {setting.overridden && ' · 화면에서 바꿈'}
+          {setting.overridden && ' · 화면에서 변경됨'}
         </span>
         <form
           className="ml-auto flex items-center gap-1"
@@ -72,7 +72,7 @@ function SettingRow({ setting, onSaved }: { setting: ServerSetting; onSaved: (ne
           </Button>
           {setting.overridden && (
             <Button size="sm" type="button" variant="ghost" disabled={busy} onClick={() => void put(null)}>
-              기본값으로
+              기본값 복원
             </Button>
           )}
         </form>
@@ -103,10 +103,10 @@ interface WorkersOverview {
 }
 
 const WORKER_STATE: Record<WorkerRow['state'], { label: string; tone: string }> = {
-  idle: { label: '기다림', tone: 'text-emerald-700 dark:text-emerald-400' },
+  idle: { label: '대기', tone: 'text-emerald-700 dark:text-emerald-400' },
   busy: { label: '작업 중', tone: 'text-amber-700 dark:text-amber-400' },
-  stopping: { label: '끝내는 중', tone: 'text-amber-700 dark:text-amber-400' },
-  stopped: { label: '멈춤', tone: 'text-muted-foreground' },
+  stopping: { label: '종료 중', tone: 'text-amber-700 dark:text-amber-400' },
+  stopped: { label: '중지됨', tone: 'text-muted-foreground' },
   lost: { label: '응답 없음', tone: 'text-destructive' },
 }
 
@@ -142,18 +142,18 @@ function WorkersCard() {
           <>
             {data.alive === 0 && data.queue.queued > 0 && (
               <p className="text-destructive text-sm font-medium">
-                살아 있는 워커가 없는데 작업 {data.queue.queued} 개가 기다립니다 — 워커(`python -m app.worker` · `&lt;slug&gt;-worker` 서비스)를 띄우세요.
+                실행 중인 워커가 없어 작업 {data.queue.queued}개가 대기 중입니다. 워커(`python -m app.worker` 또는 `&lt;slug&gt;-worker` 서비스)를 실행하십시오.
               </p>
             )}
             <p className="text-sm">
-              대기 <b>{data.queue.queued}</b> · 도는 중 <b>{data.queue.running}</b>
-              {data.queue.cancelling > 0 && <> · 멈추는 중 {data.queue.cancelling}</>}
+              대기 <b>{data.queue.queued}</b> · 실행 중 <b>{data.queue.running}</b>
+              {data.queue.cancelling > 0 && <> · 취소 중 {data.queue.cancelling}</>}
               {data.queue.oldest_queued_seconds !== null && (
-                <span className="text-muted-foreground"> · 가장 오래 기다린 것 {ago(data.queue.oldest_queued_seconds)} 걸림</span>
+                <span className="text-muted-foreground"> · 가장 오래된 대기 작업: {ago(data.queue.oldest_queued_seconds)} 요청</span>
               )}
             </p>
             {data.workers.length === 0 ? (
-              <p className="text-muted-foreground text-sm">신호를 적은 워커가 없습니다(하루 안).</p>
+              <p className="text-muted-foreground text-sm">최근 24시간 동안 신호를 보낸 워커가 없습니다.</p>
             ) : (
               <table className="w-full text-sm">
                 <thead className="text-muted-foreground text-xs">
@@ -161,7 +161,7 @@ function WorkersCard() {
                     <th className="py-1 pr-2 font-medium">워커</th>
                     <th className="py-1 pr-2 font-medium">상태</th>
                     <th className="py-1 pr-2 font-medium">마지막 신호</th>
-                    <th className="py-1 font-medium">하는 일</th>
+                    <th className="py-1 font-medium">현재 작업</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -177,7 +177,7 @@ function WorkersCard() {
                           <>
                             {KIND_LABELS[one.job.kind] ?? one.job.kind}
                             {one.job.step && <span className="text-muted-foreground"> · {one.job.step}</span>}
-                            {one.job.cancelling && <span className="text-amber-700 dark:text-amber-400"> · 멈추는 중</span>}
+                            {one.job.cancelling && <span className="text-amber-700 dark:text-amber-400"> · 취소 중</span>}
                           </>
                         ) : (
                           '—'
@@ -216,11 +216,11 @@ function ShapeIndexCard() {
         const got = await api.post<{ filled: number; failed: number; remaining: number }>('/server/shape-index?limit=20', {})
         filled += got.filled
         failed += got.failed
-        setNote(`채움 ${filled}${failed ? ` · 못 연 STEP ${failed}` : ''} · 남음 ${got.remaining}`)
+        setNote(`완료 ${filled}${failed ? ` · STEP 읽기 실패 ${failed}` : ''} · 잔여 ${got.remaining}`)
         if (got.remaining === 0 || got.filled + got.failed === 0) break
       }
     } catch (caught) {
-      setError(caught instanceof Error ? caught : new Error('채우지 못했습니다'))
+      setError(caught instanceof Error ? caught : new Error('형상 색인을 생성하지 못했습니다.'))
     } finally {
       setFilling(false)
       status.reload()
@@ -237,10 +237,10 @@ function ShapeIndexCard() {
         {status.data && (
           <p>
             {status.data.missing === 0 ? (
-              '모든 최신 버전에 색인이 있습니다 — 형상으로 찾기가 다 봅니다.'
+              '모든 최신 버전에 색인이 있습니다. 형상 검색 결과에 모든 최신 버전이 포함됩니다.'
             ) : (
               <>
-                색인이 없는 최신 버전 <b>{status.data.missing}</b> 개 — 이 기능 전에 만든 것이라 형상으로 찾으면 빠집니다.
+                색인이 없는 최신 버전이 <b>{status.data.missing}</b>개 있습니다. 이 기능이 도입되기 전에 생성된 버전이므로 형상 검색 결과에서 제외됩니다.
               </>
             )}
           </p>
@@ -248,7 +248,7 @@ function ShapeIndexCard() {
         {note && <p className="text-muted-foreground text-xs" role="status">{note}</p>}
         {status.data && status.data.missing > 0 && (
           <Button size="sm" disabled={filling} onClick={() => void fill()}>
-            {filling ? '채우는 중…' : '형상 색인 채우기'}
+            {filling ? '생성 중…' : '형상 색인 생성'}
           </Button>
         )}
       </CardContent>
@@ -265,7 +265,7 @@ export default function ServerPage() {
 
   return (
     <div>
-      <PageHeader title="서버" description="문제가 났을 때 첫 물음: 무슨 버전이고 어느 DB 를 보고 있나." />
+      <PageHeader title="서버" description="서버 버전, 데이터베이스 연결, 워커 상태와 설정을 확인합니다. 문제가 발생하면 먼저 이 화면을 확인하십시오." />
       <ErrorNotice error={status.error ?? settings.error} className="mb-4" />
       <WorkersCard />
       <ShapeIndexCard />
@@ -285,14 +285,14 @@ export default function ServerPage() {
         <div className="grid gap-4 md:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle>설치</CardTitle>
+              <CardTitle>설치 정보</CardTitle>
             </CardHeader>
             <CardContent>
               <Row label="이름" value={`${s.app_name} (${s.app_slug})`} />
               <Row label="버전" value={s.version} />
               <Row label="환경" value={s.app_env} />
               <Row label="build123d" value={s.build123d_version} />
-              <Row label="기동" value={shownDateTime(s.started_at)} />
+              <Row label="기동 시각" value={shownDateTime(s.started_at)} />
             </CardContent>
           </Card>
           <Card>
@@ -300,14 +300,14 @@ export default function ServerPage() {
               <CardTitle>데이터베이스</CardTitle>
             </CardHeader>
             <CardContent>
-              <Row label="접속" value={s.database_url_safe} />
+              <Row label="접속 정보" value={s.database_url_safe} />
               <Row label="코드 리비전" value={s.schema_head ?? '—'} />
               <Row
                 label="DB 리비전"
                 value={
                   <span className={s.schema_behind ? 'text-destructive' : undefined}>
                     {s.schema_current ?? '—'}
-                    {s.schema_behind && ' (뒤처짐 — alembic upgrade head)'}
+                    {s.schema_behind && ' (업그레이드 필요: alembic upgrade head)'}
                   </span>
                 }
               />

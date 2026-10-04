@@ -41,7 +41,7 @@ export function LoadRecipeDialog({ open, onClose, onLoad }: { open: boolean; onC
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>템플릿 불러오기</DialogTitle>
-          <DialogDescription>내장 템플릿과 템플릿 라이브러리. 고르면 지금 도면을 바꿉니다.</DialogDescription>
+          <DialogDescription>내장 템플릿과 템플릿 라이브러리의 템플릿입니다. 선택하면 현재 도면을 대체합니다.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1">
@@ -69,19 +69,19 @@ export function LoadRecipeDialog({ open, onClose, onLoad }: { open: boolean; onC
           </div>
           <div className="space-y-1">
             <p className="text-muted-foreground text-xs">
-              저장한 템플릿 —{' '}
+              저장한 템플릿은{' '}
               <Link to="/templates" className="underline" onClick={onClose}>
                 템플릿 공간
-              </Link>{' '}
+              </Link>
               에서 관리합니다.
             </p>
-            {(saved.data?.items ?? []).length === 0 && <p className="text-muted-foreground text-xs">아직 없습니다 — 「템플릿으로 저장」 으로 만듭니다.</p>}
+            {(saved.data?.items ?? []).length === 0 && <p className="text-muted-foreground text-xs">저장한 템플릿이 없습니다. ‘템플릿으로 저장’으로 생성하십시오.</p>}
             {(saved.data?.items ?? []).map((t) => (
               <Row
                 key={t.id}
                 title={
                   <>
-                    {t.name} <span className="text-muted-foreground text-xs">{t.mine ? '내 것' : `공용 · ${t.owner_name}`}</span>
+                    {t.name} <span className="text-muted-foreground text-xs">{t.mine ? '내 항목' : `공용 · ${t.owner_name}`}</span>
                   </>
                 }
                 hint={t.description || shownDateTime(t.updated_at)}
@@ -93,14 +93,14 @@ export function LoadRecipeDialog({ open, onClose, onLoad }: { open: boolean; onC
                         variant="ghost"
                         disabled={busy === t.id}
                         onClick={async () => {
-                          if (!window.confirm(`템플릿 「${t.name}」 을 지웁니까?`)) return
+                          if (!window.confirm(`템플릿 ‘${t.name}’을(를) 삭제하시겠습니까?`)) return
                           setBusy(t.id)
                           await templatesApi.remove(t.id)
                           setBusy(null)
                           saved.reload()
                         }}
                       >
-                        지우기
+                        삭제
                       </Button>
                     )}
                     <Button
@@ -141,7 +141,7 @@ export function LoadWorkDialog({ open, onClose, onLoad, currentWorkId }: { open:
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>기존 작업 불러오기</DialogTitle>
-          <DialogDescription>「도면 가져오기」 는 그 작업의 현재 도면을 여기로 복사합니다(원본은 그대로). 「열기」 는 그 작업으로 갑니다.</DialogDescription>
+          <DialogDescription>‘도면 가져오기’는 해당 작업의 현재 도면을 이곳으로 복사합니다(원본은 변경되지 않습니다). ‘열기’는 해당 작업으로 이동합니다.</DialogDescription>
         </DialogHeader>
         <div className="space-y-1">
           {(works.data?.items ?? [])

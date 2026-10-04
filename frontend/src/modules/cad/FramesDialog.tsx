@@ -52,7 +52,7 @@ export function FramesDialog({
     <FloatingWindow
       open={open}
       title="좌표계"
-      description="시뮬레이션 조건의 「좌표계」 칸이 이름으로 가리킵니다. 칸에 치수 식(=길이/2)을 쓰면 DOE 로 치수가 바뀔 때 같이 움직입니다."
+      description="시뮬레이션 조건의 ‘좌표계’ 필드에서 이름으로 참조합니다. 입력란에 치수 식(=길이/2)을 입력하면 DOE로 치수가 변경될 때 함께 이동합니다."
       onClose={onClose}
       footer={<Button onClick={onClose}>닫기</Button>}
     >
@@ -94,7 +94,7 @@ export function FramesDialog({
                   onPlacing={onPlacing}
                 />
                 {clash && (
-                  <p className="text-destructive text-xs">이름이 겹치거나 전역(global)의 이름입니다 — 다른 이름을 입력하세요.</p>
+                  <p className="text-destructive text-xs">이름이 중복되었거나 전역(global)의 이름입니다. 다른 이름을 입력하십시오.</p>
                 )}
                 <Button
                   size="sm"
@@ -108,7 +108,7 @@ export function FramesDialog({
                 </Button>
               </div>
             ) : (
-              <p className="text-muted-foreground text-sm">좌표계가 없습니다. 「좌표계 추가」 로 만듭니다.</p>
+              <p className="text-muted-foreground text-sm">좌표계가 없습니다. ‘좌표계 추가’로 생성하십시오.</p>
             )}
           </div>
         </div>

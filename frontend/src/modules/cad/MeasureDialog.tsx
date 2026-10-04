@@ -18,9 +18,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 export type PickKind = 'point' | 'edge' | 'face'
 
 export const PICK_KINDS: { kind: PickKind; label: string; hint: string; icon: typeof Ruler }[] = [
-  { kind: 'point', label: '점', hint: '켜면 3D 에 파란 점이 뜬다 — 꼭짓점 · 모서리 중점 · 원 중심', icon: CircleDot },
-  { kind: 'edge', label: '선', hint: '모서리 · 원(구멍 지름)', icon: Minus },
-  { kind: 'face', label: '면', hint: '평면 · 원통면', icon: Square },
+  { kind: 'point', label: '점', hint: '켜면 3D에 파란 점이 표시됩니다(꼭짓점, 모서리 중점, 원 중심).', icon: CircleDot },
+  { kind: 'edge', label: '선', hint: '모서리, 원(구멍 지름)', icon: Minus },
+  { kind: 'face', label: '면', hint: '평면, 원통면', icon: Square },
 ]
 
 /** 담아 둔 측정 하나. */
@@ -35,7 +35,7 @@ function RowLine({ row }: { row: Row }) {
     <div className="flex items-baseline justify-between gap-3">
       <span className="text-muted-foreground text-xs">{row.label}</span>
       <span className={`font-mono text-xs ${row.headline ? 'text-foreground text-sm font-semibold' : ''}`}>
-        {row.approx && <span title="곡면 · 곡선은 삼각형으로 근사합니다">≈ </span>}
+        {row.approx && <span title="곡면과 곡선은 삼각형으로 근사합니다.">≈ </span>}
         {row.text}
       </span>
     </div>
@@ -81,13 +81,13 @@ export function MeasureDialog({
           <DialogTitle className="flex items-center gap-2 text-base">
             <Ruler className="size-4" /> 측정
           </DialogTitle>
-          <DialogDescription>3D 에서 눌러 고릅니다. 둘을 고르면 거리 · 각도가 한꺼번에 나옵니다.</DialogDescription>
+          <DialogDescription>3D에서 눌러 선택합니다. 두 개를 선택하면 거리와 각도가 함께 표시됩니다.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
           {/* 무엇을 고를까 */}
           <div>
-            <p className="text-muted-foreground mb-1 text-xs">고를 것</p>
+            <p className="text-muted-foreground mb-1 text-xs">선택 대상</p>
             <div className="flex gap-1">
               {PICK_KINDS.map((one) => {
                 const on = kinds.has(one.kind)
@@ -119,27 +119,27 @@ export function MeasureDialog({
 
           {kinds.has('point') && (
             <p className="text-muted-foreground -mt-2 text-[11px]">
-              <span className="text-primary">●</span> 파란 점을 누르면 그 자리를 잽니다. 손을 올리면 커집니다.
+              <span className="text-primary">●</span> 파란 점을 누르면 해당 위치를 측정합니다. 마우스 포인터를 올리면 점이 커집니다.
             </p>
           )}
 
           {/* 지금 고른 것 */}
           <div>
             <div className="mb-1 flex items-center justify-between">
-              <p className="text-muted-foreground text-xs">고른 것 {picks.length > 0 && `(${picks.length})`}</p>
+              <p className="text-muted-foreground text-xs">선택 항목 {picks.length > 0 && `(${picks.length})`}</p>
               <div className="flex gap-1">
                 <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={onUndo} disabled={picks.length === 0}>
-                  하나 빼기
+                  마지막 항목 제거
                 </Button>
                 <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={onClear} disabled={picks.length === 0}>
-                  비우기
+                  초기화
                 </Button>
               </div>
             </div>
             {picks.length === 0 ? (
               <p className="text-muted-foreground flex items-center gap-1 rounded-md border border-dashed p-2 text-xs">
                 <MousePointerClick className="size-3.5 shrink-0" />
-                하나만 골라도 길이 · 넓이 · 지름이 나옵니다.
+                하나만 선택해도 길이, 면적, 지름이 표시됩니다.
               </p>
             ) : (
               <ol className="space-y-0.5">
@@ -167,20 +167,20 @@ export function MeasureDialog({
                 <RowLine key={row.label} row={row} />
               ))}
               <div className="flex justify-end pt-1">
-                <Button size="sm" className="h-7 text-xs" onClick={onKeep} disabled={picks.length === 0}>
-                  담기 — 3D 에 남깁니다
+                <Button size="sm" className="h-7 text-xs" onClick={onKeep} disabled={picks.length === 0} title="측정 결과를 3D에 계속 표시합니다.">
+                  측정 보관
                 </Button>
               </div>
             </div>
           )}
 
-          {picks.length === 1 && <p className="text-muted-foreground text-xs">하나 더 고르면 거리 · 각도가 나옵니다.</p>}
-          {full && <p className="text-muted-foreground text-xs">점을 셋 고르면 가운데 점의 각도를 잽니다.</p>}
+          {picks.length === 1 && <p className="text-muted-foreground text-xs">하나를 더 선택하면 거리와 각도가 표시됩니다.</p>}
+          {full && <p className="text-muted-foreground text-xs">점을 세 개 선택하면 가운데 점의 각도를 측정합니다.</p>}
 
           {/* 담아 둔 것 */}
           {kept.length > 0 && (
             <div>
-              <p className="text-muted-foreground mb-1 text-xs">담아 둔 측정 ({kept.length})</p>
+              <p className="text-muted-foreground mb-1 text-xs">보관한 측정 ({kept.length})</p>
               <ul className="space-y-0.5">
                 {kept.map((one) => (
                   <li key={one.id} className="flex items-center gap-1 text-xs">
@@ -188,7 +188,7 @@ export function MeasureDialog({
                     <button
                       type="button"
                       className="text-muted-foreground hover:text-destructive ml-auto rounded p-0.5"
-                      aria-label={`${one.label} 지우기`}
+                      aria-label={`${one.label} 삭제`}
                       onClick={() => onDropKept(one.id)}
                     >
                       <Trash2 className="size-3" />
@@ -202,7 +202,7 @@ export function MeasureDialog({
 
         <div className="flex justify-end">
           <Button size="sm" variant="outline" onClick={onClose}>
-            <X className="size-3.5" /> 측정 끝내기
+            <X className="size-3.5" /> 측정 종료
           </Button>
         </div>
       </DialogContent>

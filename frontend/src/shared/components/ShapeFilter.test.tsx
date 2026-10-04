@@ -52,7 +52,7 @@ test('고른 뒤 「적용」 을 눌러야 거른다', () => {
   fireEvent.click(screen.getByRole('button', { name: /형상/ }))
   fireEvent.click(screen.getByRole('button', { name: '판금' }))
   fireEvent.change(screen.getByLabelText('나사 호칭'), { target: { value: 'M6' } })
-  fireEvent.change(screen.getByLabelText('상자 크기'), { target: { value: '100x60x30' } })
+  fireEvent.change(screen.getByLabelText('외곽 치수 상한'), { target: { value: '100x60x30' } })
   expect(onChange).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: '적용' }))
   expect(onChange).toHaveBeenLastCalledWith({ has: ['sheet_metal'], thread: 'M6', fits: '100x60x30' })

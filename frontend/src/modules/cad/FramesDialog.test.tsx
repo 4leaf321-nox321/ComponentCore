@@ -27,9 +27,9 @@ test('방향은 **회전 또는 X · Y 방향** 중 고른다 — 바꾸면 지�
   let frames: RecipeFrame[] = [{ name: '끝', origin: [0, 0, 0], rotate: [0, 0, 90] }]
   const view = () => <FramesDialog open frames={frames} onChange={(next) => (frames = next)} onClose={() => {}} picked={0} onPicked={() => {}} />
   const { rerender } = render(view())
-  expect(screen.getByRole('button', { name: '원점 · 회전' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: '원점·회전' })).toHaveAttribute('aria-pressed', 'true')
 
-  fireEvent.click(screen.getByRole('button', { name: '원점 · X · Y 방향' }))
+  fireEvent.click(screen.getByRole('button', { name: '원점·X·Y 방향' }))
   expect(frames[0]).toMatchObject({ x_axis: [0, 1, 0], y_axis: [-1, 0, 0], rotate: undefined })
   rerender(view())
   expect(screen.queryByLabelText('회전 Z')).toBeNull()

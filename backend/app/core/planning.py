@@ -123,10 +123,10 @@ def _pick_supports(
             picked.append(moved)
             nudged = True
     if nudged:
-        notes.append("바닥면 모서리에 받침을 둘 수 없어 안쪽으로 들였습니다.")
+        notes.append("바닥면 모서리에 받침을 배치할 수 없어 안쪽으로 옮겼습니다.")
     if len(picked) < 3:
         raise PlanningError(
-            "바닥면에 받침 3 개를 둘 자리가 없습니다 — 바닥이 너무 좁거나 구멍이 많습니다."
+            "바닥면에 받침 3개를 배치할 공간이 없습니다. 바닥이 너무 좁거나 구멍이 많습니다."
         )
     return [
         SupportSpec(
@@ -234,17 +234,18 @@ def _pick_locators(
 ) -> list[LocatorSpec]:
     pins = _pin_locators(features, opts)
     if len(pins) >= 2:
-        notes.append(f"관통 구멍 {len(pins)} 개를 핀 로케이터로 씁니다.")
+        notes.append(f"관통 구멍 {len(pins)}개를 핀 로케이터로 사용합니다.")
         return pins
     rests = _rest_locators(geometry, opts)
     if pins:
-        notes.append("관통 구멍이 하나뿐이라 핀 하나와 옆면 레스트를 함께 씁니다.")
+        notes.append("관통 구멍이 하나뿐이므로 핀 1개와 옆면 레스트를 함께 사용합니다.")
         return [*pins, *rests[:1]]
     if rests:
-        notes.append("구멍이 없어 옆면 레스트(2-1)로 위치를 잡습니다.")
+        notes.append("구멍이 없어 옆면 레스트(2-1)로 위치를 결정합니다.")
     else:
         notes.append(
-            "옆면도 구멍도 없어 로케이터를 두지 못했습니다 — 받침과 클램프만 있습니다."
+            "옆면과 구멍이 모두 없어 로케이터를 배치하지 못했습니다. 받침과 클램프만 "
+            "배치합니다."
         )
     return rests
 
@@ -346,7 +347,7 @@ def _pick_clamps(
 ) -> list[ClampSpec]:
     tops = feat.upward_faces(geometry)
     if not tops or opts.clamp_count <= 0:
-        notes.append("윗면 평면이 없어 클램프를 두지 못했습니다.")
+        notes.append("윗면에 평면이 없어 클램프를 배치하지 못했습니다.")
         return []
     pad_r = opts.clamp_pad_diameter / 2
     size_x, size_y = geometry.bbox.size[0], geometry.bbox.size[1]
@@ -372,7 +373,7 @@ def _pick_clamps(
             if _on_face(face, x, y, pad_r) and (x, y, z) not in candidates:
                 candidates.append((x, y, z))
     if not candidates:
-        notes.append("클램프 패드가 온전히 놓일 윗면이 없습니다.")
+        notes.append("클램프 패드를 완전히 올릴 수 있는 윗면이 없습니다.")
         return []
 
     # 서로 가장 멀리 떨어진 것부터 고른다 — 한쪽만 누르면 반대쪽이 들린다.
@@ -385,14 +386,14 @@ def _pick_clamps(
         rest = [c for c in candidates if c not in chosen]
         best = max(rest, key=lambda c: min(math.dist(c[:2], k[:2]) for k in chosen))
         if min(math.dist(best[:2], k[:2]) for k in chosen) < apart:
-            notes.append(f"윗면이 좁아 클램프를 {len(chosen)} 개만 둡니다.")
+            notes.append(f"윗면이 좁아 클램프를 {len(chosen)}개만 배치합니다.")
             break
         chosen.append(best)
 
     if len(chosen) < opts.clamp_count and not any("클램프를" in n for n in notes):
         notes.append(
-            f"클램프를 {opts.clamp_count} 개 시켰지만 패드가 놓일 자리가 {len(chosen)} "
-            f"곳뿐입니다 — 구멍과 가장자리를 피한 자리가 그만큼입니다."
+            f"클램프 {opts.clamp_count}개를 지정했지만 패드를 놓을 수 있는 위치가 "
+            f"{len(chosen)}곳뿐입니다. 구멍과 가장자리를 피할 수 있는 위치가 그만큼입니다."
         )
     margin = opts.plate_margin
     post = opts.clamp_post_size
@@ -405,7 +406,8 @@ def _pick_clamps(
         placed = _place_post(geometry, (x, y, z), half_x, half_y, margin, opts, rests)
         if placed is None:
             notes.append(
-                f"({x:.0f}, {y:.0f}) 자리는 팔이 제품을 지나야 해서 클램프를 두지 않았습니다."
+                f"({x:.0f}, {y:.0f}) 위치는 클램프 팔이 제품을 통과해야 하므로 클램프를 "
+                "배치하지 않았습니다."
             )
             continue
         px, py = placed
@@ -500,12 +502,15 @@ def _plan_bolted(
     ]
     if not holes:
         raise PlanningError(
-            "볼트를 넣을 수직 관통 구멍이 없습니다 — 볼트 고정은 부품의 구멍으로 조입니다. "
-            "구멍을 뚫거나 「판 · 클램프 고정」 형식을 쓰세요."
+            "볼트를 체결할 수직 관통 구멍이 없습니다. 볼트 고정 형식은 부품의 구멍에 볼트를 "
+            "체결합니다. 구멍을 추가하거나 ‘판·클램프 고정’ 형식을 사용하십시오."
         )
     chosen = _spread(holes, max(1, opts.bolt_max_count))
     if len(chosen) < 2:
-        notes.append("관통 구멍이 하나뿐입니다 — 볼트 하나로는 돌아갑니다. 구멍을 더 두세요.")
+        notes.append(
+            "관통 구멍이 하나뿐입니다. 볼트 1개로는 부품이 회전할 수 있으므로 구멍을 "
+            "추가하십시오."
+        )
     lift = max(0.0, opts.bolt_spacer_height)
     bolts: list[BoltSpec] = []
     plate_holes: list[tuple[float, float, float]] = []
@@ -532,7 +537,7 @@ def _plan_bolted(
     plate.holes = plate_holes
     if any(bolt.engagement > plate.thickness for bolt in bolts):
         notes.append(
-            "판이 볼트 체결 깊이보다 얇습니다 — 판 두께를 키우거나 체결 깊이를 줄이세요."
+            "판이 볼트 체결 깊이보다 얇습니다. 판 두께를 늘리거나 체결 깊이를 줄이십시오."
         )
     return FixturePlan(
         kind="bolted",
@@ -562,8 +567,8 @@ def _plan_bending(geometry: ProductGeometry, opts: JigOptions) -> FixturePlan:
     span = opts.bending_span if opts.bending_span > 0 else length * opts.bending_span_ratio
     if span <= 0 or span >= length:
         raise PlanningError(
-            f"스팬 {span:.1f} 은 부품 길이 {length:.1f} 보다 작아야 합니다 — 비율이나 값을 "
-            "줄이세요."
+            f"스팬({span:.1f} mm)은 부품 길이({length:.1f} mm)보다 작아야 합니다. 스팬 "
+            "비율이나 값을 줄이십시오."
         )
     roller_d = opts.bending_roller_diameter
     roller_len = width + 2 * opts.bending_roller_margin
@@ -590,10 +595,10 @@ def _plan_bending(geometry: ProductGeometry, opts: JigOptions) -> FixturePlan:
     )
     if lift < roller_d:
         notes.append(
-            "받침 높이가 롤러 지름보다 작아 롤러가 판에 묻힙니다 — 받침 높이를 키우세요."
+            "받침 높이가 롤러 지름보다 작아 롤러가 판에 묻힙니다. 받침 높이를 늘리십시오."
         )
     plate = _plate(geometry, opts)
-    notes.append(f"스팬 {span:.1f} mm (부품 길이 {length:.1f} 의 {span / length:.0%}).")
+    notes.append(f"스팬 {span:.1f} mm(부품 길이 {length:.1f} mm의 {span / length:.0%}).")
     return FixturePlan(
         kind="bending",
         base_plate=plate,
@@ -626,7 +631,10 @@ def _plan_drop(geometry: ProductGeometry, opts: JigOptions) -> FixturePlan:
         )
     plate = _plate(geometry, opts)
     plate.mount_hole_diameter = 0.0  # 바닥에는 고정 구멍이 없다
-    notes.append(f"자세: {opts.drop_orientation} 이 아래. 바닥과 틈 {opts.drop_gap:g} mm.")
+    notes.append(
+        f"낙하 자세: {opts.drop_orientation}이(가) 아래를 향합니다. 바닥과의 간극은 "
+        f"{opts.drop_gap:g} mm입니다."
+    )
     return FixturePlan(
         kind="drop",
         base_plate=plate,
@@ -651,7 +659,7 @@ def plan(geometry: ProductGeometry, features: list[Feature], opts: JigOptions) -
     if opts.kind == "drop":
         return _plan_drop(geometry, opts)
     if opts.kind != "clamped":
-        raise PlanningError(f"모르는 지그 형식입니다: {opts.kind}")
+        raise PlanningError(f"알 수 없는 지그 형식입니다: {opts.kind}")
     return _plan_clamped(geometry, features, opts)
 
 

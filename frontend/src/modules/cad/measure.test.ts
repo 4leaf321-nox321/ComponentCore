@@ -38,7 +38,7 @@ test('점 ↔ 선 — 직선까지의 수직 거리와 그 발', () => {
 test('점 ↔ 면 — 평면은 정확히, 어느 쪽인지도', () => {
   const got = pair(point([0, 0, 12]), { kind: 'face', face: plane([0, 0, 2], [0, 0, 1]) })
   expect(got.rows[0].text).toBe('10 mm')
-  expect(got.rows[1].text).toContain('법선 쪽')
+  expect(got.rows[1].text).toContain('법선 방향')
   expect(got.to).toEqual([0, 0, 2])
 })
 
@@ -54,7 +54,7 @@ test('두 구멍 — 중심 사이 거리(도면이 쓰는 값)', () => {
   const b = edge([[43, 0, 0], [40, 3, 0], [37, 0, 0]], { kind: 'circle', radius: 3, center: [40, 0, 0] })
   const got = pair({ kind: 'edge', edge: a }, { kind: 'edge', edge: b })
   // 재려던 값은 피치다 — 가장자리 사이 틈이 아니라 중심 사이.
-  expect(got.rows[0].label).toBe('중심 사이')
+  expect(got.rows[0].label).toBe('중심 간 거리')
   expect(got.rows[0].text).toBe('40 mm')
   expect(headline(got.rows)).toBe('40 mm')
   expect(got.from).toEqual([0, 0, 0])
@@ -67,14 +67,14 @@ test('선 ↔ 선 — 나란한지 · 직각인지 말한다', () => {
   const across = { kind: 'edge' as const, edge: edge([[0, 0, 0], [0, 20, 0]]) }
   const parallel = pair(along, above).rows
   expect(parallel[0].text).toBe('10 mm')
-  expect(parallel.find((r) => r.label === '관계')!.text).toContain('나란')
+  expect(parallel.find((r) => r.label === '관계')!.text).toContain('평행')
   expect(pair(along, across).rows.find((r) => r.label === '관계')!.text).toContain('직각')
 })
 
 test('나란한 두 면 — 두께 · 간격', () => {
   const rows = pair({ kind: 'face', face: plane([0, 0, 0], [0, 0, 1]) }, { kind: 'face', face: plane([5, 5, 12], [0, 0, -1]) }).rows
   expect(rows[0].text).toBe('12 mm')
-  expect(rows[1].text).toContain('나란한 두 면')
+  expect(rows[1].text).toContain('평행한 두 면')
 })
 
 test('비스듬한 두 면 — 사잇각. 곡면이 끼면 근사라고 밝힌다', () => {

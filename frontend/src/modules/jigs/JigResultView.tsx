@@ -31,11 +31,11 @@ import { FullscreenButton, frameClass, useFullscreen } from '@/shared/viewer/Ful
 const ModelViewer = lazy(() => import('@/shared/viewer/ModelViewer'))
 
 const STAGES = [
-  ['load', '제품 읽기'],
+  ['load', '제품 불러오기'],
   ['geometry', 'Geometry Understanding'],
   ['features', 'Feature Recognition'],
   ['planning', 'Fixture Planning'],
-  ['elements', 'Support · Locator · Clamp'],
+  ['elements', 'Support·Locator·Clamp'],
   ['assembly', 'Jig 생성'],
   ['interference', '간섭 검사'],
   ['export', 'STEP 내보내기'],
@@ -77,7 +77,7 @@ function useModelUrls(job: Job) {
         setUrls(pair)
       })
       .catch((caught: unknown) => {
-        if (!cancelled) setError(caught instanceof Error ? caught : new Error('3D 를 읽지 못했습니다'))
+        if (!cancelled) setError(caught instanceof Error ? caught : new Error('3D 모델을 불러오지 못했습니다.'))
       })
     return () => {
       cancelled = true
@@ -95,9 +95,9 @@ function Progress({ job }: { job: Job }) {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          {job.status === 'queued' ? '대기 중' : '만드는 중'} <StatusBadge kind="run" value={runState(job)} />
+          {job.status === 'queued' ? '대기 중' : '생성 중'} <StatusBadge kind="run" value={runState(job)} />
           <span className="ml-auto">
-            <CancelJobButton job={job} what="지그 만들기" />
+            <CancelJobButton job={job} what="지그 생성" />
           </span>
         </CardTitle>
       </CardHeader>
@@ -126,8 +126,8 @@ function Progress({ job }: { job: Job }) {
         </ul>
         {job.status === 'queued' && (
           <p className="text-muted-foreground mt-3 text-xs">
-            워커가 집어 가기를 기다립니다. 오래 이 상태면 워커(`python -m app.worker`)가 안 떠 있는
-            것입니다.
+            워커가 작업을 처리하기를 기다리고 있습니다. 이 상태가 오래 지속되면 워커(`python -m app.worker`)가
+            실행 중인지 확인하십시오.
           </p>
         )}
       </CardContent>
@@ -163,11 +163,11 @@ export function JigResultView({
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            멈췄습니다 <StatusBadge kind="run" value="cancelled" />
+            중지됨 <StatusBadge kind="run" value="cancelled" />
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-muted-foreground text-sm">{job.error ?? '멈췄습니다.'} 다시 만들려면 지그 생성을 다시 겁니다.</p>
+          <p className="text-muted-foreground text-sm">{job.error ?? '작업이 중지되었습니다.'} 다시 생성하려면 지그 생성을 다시 실행하십시오.</p>
         </CardContent>
       </Card>
     )
@@ -232,7 +232,7 @@ export function JigResultView({
                 <span style={{ color: VIEWER_COLORS.product }}>■</span> 제품{' '}
               </>
             )}
-            <span style={{ color: VIEWER_COLORS.jig }}>■</span> 지그 — 끌어서 돌리고, 굴려서 확대합니다.
+            <span style={{ color: VIEWER_COLORS.jig }}>■</span> 지그 (드래그: 회전, 마우스 휠: 확대·축소)
           </p>
           <div className="flex-1" />
           {urls && <FullscreenButton active={full.active} onToggle={() => void full.toggle()} />}
@@ -275,7 +275,7 @@ export function JigResultView({
               {s.geometry.volume.toLocaleString()} mm³ · 면 {s.geometry.face_count}
             </p>
             <p className="text-muted-foreground text-xs">
-              특징:{' '}
+              피처:{' '}
               {Object.entries(s.feature_counts)
                 .map(([key, count]) => `${key} ${count}`)
                 .join(', ')}
@@ -307,8 +307,8 @@ export function JigResultView({
               <TableHeader>
                 <TableRow>
                   <TableHead>부품</TableHead>
-                  <TableHead>상대</TableHead>
-                  <TableHead className="text-right">겹침 부피 (mm³)</TableHead>
+                  <TableHead>상대 부품</TableHead>
+                  <TableHead className="text-right">간섭 부피 (mm³)</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

@@ -55,13 +55,13 @@ export function parseTable(text: string): ParsedTable {
   const header = splitLine(lines[0], delimiter)
   const problems: string[] = []
   const keep = header.map((name) => name !== '' && !INDEX_COLUMNS.has(name))
-  if (header.some((name) => name === '')) problems.push('이름 없는 열은 버렸습니다')
+  if (header.some((name) => name === '')) problems.push('이름이 없는 열은 제외했습니다.')
   const columns = header.filter((_, i) => keep[i])
   const rows: Record<string, string>[] = []
   lines.slice(1).forEach((line, index) => {
     const cells = splitLine(line, delimiter)
     if (cells.length !== header.length) {
-      problems.push(`${index + 2} 번째 줄은 칸이 ${cells.length} 개라 버렸습니다(머리는 ${header.length} 개)`)
+      problems.push(`${index + 2}번째 행은 열 수(${cells.length}개)가 머리글(${header.length}개)과 달라 제외했습니다.`)
       return
     }
     const row: Record<string, string> = {}

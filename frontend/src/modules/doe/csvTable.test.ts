@@ -9,7 +9,7 @@ test('엑셀에서 복사한 탭 표와 CSV 를 다 읽고, 번호 열은 버린
   ])
   const csv = parseTable('﻿두께,재료\n4,"SECC, 도금"\n5\n')
   expect(csv.rows).toEqual([{ 두께: '4', 재료: 'SECC, 도금' }])
-  expect(csv.problems[0]).toMatch(/3 번째 줄은 칸이 1 개라 버렸습니다/)
+  expect(csv.problems[0]).toMatch(/3번째 행은 열 수\(1개\)가 머리글\(2개\)과 달라 제외했습니다/)
   expect(parseTable('').rows).toEqual([])
 })
 

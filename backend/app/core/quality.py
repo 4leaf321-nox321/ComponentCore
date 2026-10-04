@@ -42,14 +42,14 @@ def thresholds(raw: dict[str, Any] | None) -> dict[str, Any]:
             continue
         if key not in DEFAULTS:
             raise QualityError(
-                f"모르는 점검 기준입니다: {key} — {', '.join(DEFAULTS)} 중 하나"
+                f"알 수 없는 점검 기준입니다: {key} (선택 가능: {', '.join(DEFAULTS)})"
             )
         try:
             number = float(value)
         except (TypeError, ValueError) as failure:
-            raise QualityError(f"점검 기준 {key} 는 수(mm)입니다") from failure
+            raise QualityError(f"점검 기준 {key} 값은 숫자(mm)여야 합니다.") from failure
         if number < 0:
-            raise QualityError(f"점검 기준 {key} 는 0 이상입니다")
+            raise QualityError(f"점검 기준 {key} 값은 0 이상이어야 합니다.")
         out[key] = number
     return out
 
@@ -161,23 +161,25 @@ def inspect(shape: Any, limits: dict[str, Any] | None = None) -> dict[str, Any]:
 def _warnings(found: dict[str, Any], limits: dict[str, Any]) -> list[str]:
     warnings: list[str] = []
     if not found["valid"]:
-        warnings.append("형상이 올바르지 않습니다(BRepCheck) — 해석이 읽지 못할 수 있습니다")
+        warnings.append(
+            "형상이 유효하지 않습니다(BRepCheck). 해석 프로그램에서 읽지 못할 수 있습니다."
+        )
     wall = found.get("min_wall")
     if wall is not None and wall < limits["min_wall"]:
         at = found.get("min_wall_at")
-        where = f" — ({', '.join(f'{v:g}' for v in at)}) 근처" if at else ""
+        where = f", 위치 ({', '.join(f'{v:g}' for v in at)}) 부근" if at else ""
         limit = limits["min_wall"]
         warnings.append(f"벽 두께 {wall:.3g} mm (기준 {limit:g}){where}")
     if found["short_edges"]:
         shortest = found["shortest_edge"]
         warnings.append(
-            f"짧은 모서리 {found['short_edges']} 개 (가장 짧은 {shortest:.3g} mm, "
+            f"짧은 모서리 {found['short_edges']}개 (최소 {shortest:.3g} mm, "
             f"기준 {limits['short_edge']:g})"
         )
     if found["narrow_faces"]:
         narrowest = found["narrowest_face"]
         warnings.append(
-            f"좁은 면 {found['narrow_faces']} 개 (가장 좁은 {narrowest:.3g} mm, "
+            f"좁은 면 {found['narrow_faces']}개 (최소 {narrowest:.3g} mm, "
             f"기준 {limits['narrow_face']:g})"
         )
     return warnings
@@ -191,7 +193,7 @@ def compare(found: dict[str, Any], reference: dict[str, Any] | None) -> dict[str
         return out
     if reference.get("solids") != found.get("solids"):
         out["warnings"].append(
-            f"바디 수가 기준과 다릅니다 ({reference.get('solids')} → {found.get('solids')})"
+            f"바디 수가 기준과 다릅니다({reference.get('solids')} → {found.get('solids')})."
         )
     if reference.get("faces") != found.get("faces"):
         out["notes"].append(f"면 수 {reference.get('faces')} → {found.get('faces')}")

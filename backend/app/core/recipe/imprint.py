@@ -36,7 +36,7 @@ def imprint(shape: Shape) -> tuple[Part, dict[str, dict[str, Any]]]:
     bodies = body_parts(shape)
     if len(bodies) < 2:
         raise ImprintError(
-            "조립(group)이어야 합니다 — 바디가 둘 이상이어야 닿는 자리가 있습니다"
+            "조립(group)이어야 합니다. 접촉 위치가 생기려면 바디가 2개 이상이어야 합니다."
         )
     builder = BOPAlgo_Builder()
     owners: list[tuple[str, Solid]] = []
@@ -48,15 +48,15 @@ def imprint(shape: Shape) -> tuple[Part, dict[str, dict[str, Any]]]:
     builder.SetNonDestructive(True)
     builder.Perform()
     if builder.HasErrors():
-        raise ImprintError("바디끼리 자르지 못했습니다 — 바디가 유효한지 보세요")
+        raise ImprintError("바디 간 분할에 실패했습니다. 바디가 유효한지 확인하십시오.")
 
     cut: dict[str, list[Solid]] = {name: [] for name in bodies}
     for name, solid in owners:
         pieces = [Solid(TopoDS.Solid_s(one)) for one in builder.Modified(solid.wrapped)]
         if len(pieces) > 1:
             raise ImprintError(
-                f"'{name}' 이 다른 바디와 겹칩니다(간섭) — 닿기만 하는 바디에 새깁니다. "
-                "겹침은 조립의 간섭 검사로 찾으세요"
+                f"‘{name}’이(가) 다른 바디와 겹칩니다(간섭). 임프린트는 접촉만 하는 바디에 "
+                "적용됩니다. 겹침은 조립의 간섭 검사로 확인하십시오."
             )
         cut[name].append(pieces[0] if pieces else solid)
 

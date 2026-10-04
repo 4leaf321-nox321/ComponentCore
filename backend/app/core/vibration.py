@@ -52,7 +52,7 @@ def _material(name: str) -> dict[str, float]:
     found = MATERIALS.get(name.lower())
     if found is None:
         known = ", ".join(sorted(MATERIALS))
-        raise VibrationError(f"모르는 재료입니다: {name} (아는 것: {known})")
+        raise VibrationError(f"알 수 없는 재료입니다: {name} (선택 가능: {known})")
     return found
 
 
@@ -67,11 +67,11 @@ def beam_frequency(
 ) -> dict[str, Any]:
     """1차 굽힘 공진의 **가늠값**(Hz)과 그 근거."""
     if min(length_mm, width_mm, thickness_mm) <= 0:
-        raise VibrationError("길이 · 폭 · 두께는 0 보다 커야 합니다")
+        raise VibrationError("길이, 폭, 두께는 0보다 커야 합니다.")
     if support not in SUPPORTS:
-        raise VibrationError(f"물림은 {', '.join(SUPPORTS)} 중 하나입니다")
+        raise VibrationError(f"지지 조건은 {', '.join(SUPPORTS)} 중 하나여야 합니다.")
     if added_mass_g < 0:
-        raise VibrationError("붙는 질량은 0 이상이어야 합니다")
+        raise VibrationError("부가 질량은 0 이상이어야 합니다.")
     spec = _material(material)
     youngs = spec["youngs_mpa"]  # N/mm²
     density = spec["density_g_per_cm3"] * 1e-9  # t/mm³ — mm · t · s · N 한 벌
@@ -82,11 +82,12 @@ def beam_frequency(
     slender = length_mm / thickness_mm
     if slender < 5:
         warnings.append(
-            f"길이/두께가 {slender:.1f} 로 짧고 두껍습니다 — 전단 때문에 실제는 더 낮습니다."
+            f"길이/두께 비({slender:.1f})가 작아 짧고 두꺼운 보입니다. 전단 변형의 영향으로 "
+            "실제 주파수는 더 낮습니다."
         )
     if width_mm > length_mm:
         warnings.append(
-            "폭이 길이보다 넓습니다 — 보가 아니라 판에 가깝습니다(가늠값이 더 엇갑니다)."
+            "폭이 길이보다 넓어 보보다 판에 가깝습니다. 추정값의 오차가 더 커집니다."
         )
 
     if added_mass_g > 0:
@@ -94,7 +95,7 @@ def beam_frequency(
         stiffness = _STIFFNESS[support] * youngs * second_moment / length_mm**3  # N/mm
         moving_t = _EFFECTIVE_MASS[support] * beam_mass_t + added_mass_g * 1e-6
         hertz = math.sqrt(stiffness / moving_t) / (2 * math.pi)
-        how = "단일 자유도(강성 + 움직이는 질량) — 끝에 질량이 붙었을 때"
+        how = "단일 자유도 모델(강성 + 유효 질량): 끝단에 부가 질량이 있는 경우"
     else:
         beta = SUPPORTS[support]
         hertz = (beta**2 / (2 * math.pi)) * math.sqrt(
@@ -111,8 +112,8 @@ def beam_frequency(
         "how": how,
         "warnings": warnings,
         "accuracy": (
-            "**가늠값**입니다(±10% 는 흔합니다). 물림이 무르면 실제는 더 낮습니다 — "
-            "목표 근처를 좁히는 데 쓰고 마지막은 재어서 맞추세요."
+            "**추정값**입니다(±10% 오차가 흔합니다). 지지 강성이 낮으면 실제 주파수는 더 "
+            "낮습니다. 목표 범위를 좁히는 데 사용하고, 최종값은 측정으로 확인하십시오."
         ),
     }
 
@@ -132,7 +133,7 @@ def thickness_for_frequency(
     두께가 두꺼워질수록 주파수는 단조롭게 오른다(강성은 h³, 질량은 h). 그래서 이분법으로
     확실히 잡힌다. 범위 밖이면 그 사실을 말한다 — 폭 · 길이를 바꿔야 한다는 뜻이다."""
     if target_hz <= 0:
-        raise VibrationError("목표 주파수는 0 보다 커야 합니다")
+        raise VibrationError("목표 주파수는 0보다 커야 합니다.")
     low, high = bounds_mm
 
     def at(thickness: float) -> float:
@@ -149,13 +150,13 @@ def thickness_for_frequency(
 
     if at(low) > target_hz:
         raise VibrationError(
-            f"{low} mm 로도 {at(low):.0f} Hz 라 목표 {target_hz:.0f} Hz 보다 높습니다 — "
-            f"보를 길게 하거나 끝에 질량을 더하세요."
+            f"두께 {low} mm에서도 {at(low):.0f} Hz로 목표 {target_hz:.0f} Hz보다 "
+            "높습니다. 보를 길게 하거나 끝단 질량을 추가하십시오."
         )
     if at(high) < target_hz:
         raise VibrationError(
-            f"{high} mm 로도 {at(high):.0f} Hz 라 목표 {target_hz:.0f} Hz 에 못 미칩니다 — "
-            f"보를 짧게 하거나 재료를 바꾸세요."
+            f"두께 {high} mm에서도 {at(high):.0f} Hz로 목표 {target_hz:.0f} Hz에 "
+            "미치지 못합니다. 보를 짧게 하거나 재료를 변경하십시오."
         )
     for _ in range(60):
         middle = (low + high) / 2
