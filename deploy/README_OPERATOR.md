@@ -522,9 +522,53 @@ DB VIP 가 있으면 A 의 첫 명령부터 `DB_VIP=<주소>` 를 함께 준다.
 | 없는 것 | 대신 |
 | --- | --- |
 | **DB VIP** | `DB_VIP` 를 안 주면 keepalived 도 자동 승격도 없다. 앱은 A 의 IP 로 DB 에 붙는다. 승격은 손으로(8.3 「DB VIP 없이」). guard 는 VIP 없이도 상대에게 물어 동작한다. 받으면 8.5 |
-| **`/data/<slug>`** | `DATA_DIR` 를 안 주면 각 서버 `~/apps/<slug>` 에 전부 둔다. **B 의 `.env` 와 복제 비밀번호는 A 의 것**이어야 한다 — `setup` 이 A 의 `~/apps/<slug>/handoff/` 에서 scp 로 받아 온다(손으로 하면 `scp <A>:~/apps/<slug>/handoff/.env ~/apps/<slug>/.env`, 복제 비밀번호는 `/etc/pg-ha.replpass` 에 root:postgres 640). 첨부는 서버마다 따로 쌓인다(리허설이면 그것으로 충분). 나중에 `/data` 가 오면 `~/apps/<slug>/{.env,filestore}` 를 옮기고 `sudo DATA_DIR=/data/<slug> ./deploy.sh update` — 양쪽 |
+| **`/data/<slug>`** | `DATA_DIR` 를 안 주면 각 서버 `~/apps/<slug>` 에 전부 둔다. **B 의 `.env` 와 복제 비밀번호는 A 의 것**이어야 한다 — `setup` 이 A 의 `~/apps/<slug>/handoff/` 에서 scp 로 받아 온다(손으로 하면 `scp <A>:~/apps/<slug>/handoff/.env ~/apps/<slug>/.env`, 복제 비밀번호는 `/etc/pg-ha.replpass` 에 root:postgres 640). 첨부는 서버마다 따로 쌓인다. **그래서 B 는 클론(대기)이다** — 메인 서버(포탈) 라우트는 A 하나, B 의 작업 워커 · 청소 타이머는 꺼 둔다(8.1c). 나중에 `/data` 가 오면 `~/apps/<slug>/{.env,filestore}` 를 옮기고 `sudo DATA_DIR=/data/<slug> ./deploy.sh update` — 양쪽, 그다음 B 에서 `sudo ./deploy.sh worker on` |
 
 리허설에서 볼 수 있는 것: 복제(`db-status` 의 지연), 손 승격 · demote · `db-standby` 재구성, guard(옛 주 부팅), 두 앱 동시 운영(동시 편집 · 타이머 한 대만 · 웹훅 한 번만), B→A 업데이트, 재부팅. 못 보는 것: 자동 승격, 공용 첨부, 백업 폴더, 메인 서버 경유.
+
+### 8.1c 공용 `/data` 가 없을 때 — B 는 클론, 작업 워커는 A 한 대만
+
+**지금 운영이 이 모양이다**(ReportArchive 와 같다): 포탈 라우트는 A 하나, B 는 같은 버전 · A 의 DB 를
+보며 대기한다. 이때 **B 의 작업 워커가 돌면 안 된다.** 워커는 DB 를 큐로 쓰므로 B 의 워커도 A 의 화면에서
+건 작업을 집는다 — 그런데 올린 STEP 은 A 의 filestore 에 있고, B 가 만든 STEP · glTF · 실험계획 폴더는
+B 의 filestore 에 남는다. 증상은 **「가끔」** 이다(2026-10-07 운영에서 실제로 났다):
+
+- 버전 평가 · 지그 생성 · DOE 가 `import_step … FileNotFoundError` 로 실패한다(B 가 집었을 때만)
+- 결과 3D 가 비고 STEP 다운로드가 「작업물 파일이 저장소에 존재하지 않습니다」(B 가 만든 것)
+- 실험계획에 「보관 기한 경과로 정리되었습니다」 가 거짓으로 뜨고, **A 에 옛 사본이 있으면 「내보내기」 가
+  옛 설계점을 해석으로 보낸다**
+
+그래서 `deploy.sh` 는 **대기(`HA_ROLE=backup`)인데 작업물 폴더를 상대와 함께 보지 않으면**(DATA_DIR 가 없거나
+네트워크 파일시스템이 아니면) 워커와 청소 타이머를 **끈 채로 깐다.** 한 번 정한 값은
+`/etc/platform-instances/<slug>.conf` 의 `WORKER_ENABLED` 로 기억해, `update` · `restart` 가 다시 켜지 않는다.
+유닛은 깔아 두므로 전환하는 날 한 줄로 켠다.
+
+```bash
+sudo ./deploy.sh worker          # 지금 값 (켬 / 끔)
+sudo ./deploy.sh worker off      # 이 서버의 워커 · 청소 타이머를 끄고 기억
+sudo ./deploy.sh worker on       # 켜고 기억 — 이 서버가 일을 받게 될 때
+sudo ./deploy.sh status          # 「작업 워커」 칸이 끔인데 돌고 있으면 ⚠ 로 말한다
+```
+
+**이 기능 전의 번들이 깔린 B** 는 `update` 한 번이면 꺼진다. 그 전에 급하면 손으로:
+`sudo systemctl disable --now <slug>-worker <slug>-cleanup.timer`.
+
+**이미 B 의 워커가 일을 집었다면 — 한 번만 되살린다:**
+
+```bash
+# 1) B 에서 — 먼저 끈다
+sudo ./deploy.sh worker off
+# 2) A 에서 — B 가 집은 작업이 무엇인가 (B 의 호스트명은 B 에서 `hostname`)
+sudo -u postgres psql <slug> -c "select kind, status, count(*) from jobs where worker_id like '<B 호스트명>:%' group by 1, 2"
+# 3) A 에서 — B 가 만든 결과 파일을 A 로. 작업마다 폴더가 따로라 겹치지 않는다(있는 것은 건드리지 않음)
+rsync -a --ignore-existing <계정>@<B>:<B 의 설치 폴더>/filestore/jobs/ <A 의 설치 폴더>/filestore/jobs/
+```
+
+- B 에서 **실패한** 작업(올린 STEP 을 못 찾음)은 A 에서 다시 건다 — 버전은 「이 버전으로 복원」, 지그는 다시
+  생성, 실험계획은 「남은 설계점 이어서 생성」.
+- **실험계획 폴더(`filestore/doe/`)는 옮기지 않는다.** A 와 B 에 서로 다른 때의 사본이 있을 수 있어 파일
+  단위로 섞으면 표와 STEP 이 어긋난다. B 가 만든 스터디는 A 에서 **「재생성」** — 스냅샷(레시피 · 인자 ·
+  시드 · 조건)으로 같은 설계점이 다시 선다. 해석으로 이미 보냈다면 재생성 뒤 다시 「내보내기」.
 
 ### 8.2 업데이트 — B 먼저, 그다음 A
 
@@ -535,7 +579,7 @@ sudo ./deploy.sh update            # B 앱 중지 → SIF 교체 → 마이그�
 sudo ./deploy.sh update
 ```
 
-한 대씩 하므로 **서비스는 끊기지 않는다** — 메인 서버의 nginx 가 멈춘 쪽을 빼고 보낸다(`max_fails=3`). 마이그레이션은 어느 서버에서 돌려도 주 DB 로 가고 두 번째는 할 일이 없다. 파괴적 마이그레이션(컬럼 삭제)은 옛 SIF 가 아직 도는 몇 분 동안 오류를 낼 수 있다 — 그런 릴리스는 두 대를 빠르게 잇달아 한다. 앱 포트 · MCP 포트 · slug 가 바뀌지 않는 한 메인 서버의 조각은 그대로다.
+B 의 작업 워커는 꺼 둔 채로 남는다(8.1c — `update` 가 기억한 값을 따른다). 한 대씩 하므로 **서비스는 끊기지 않는다** — 메인 서버의 nginx 가 멈춘 쪽을 빼고 보낸다(`max_fails=3`). 마이그레이션은 어느 서버에서 돌려도 주 DB 로 가고 두 번째는 할 일이 없다. 파괴적 마이그레이션(컬럼 삭제)은 옛 SIF 가 아직 도는 몇 분 동안 오류를 낼 수 있다 — 그런 릴리스는 두 대를 빠르게 잇달아 한다. 앱 포트 · MCP 포트 · slug 가 바뀌지 않는 한 메인 서버의 조각은 그대로다.
 
 ### 8.3 장애 — 무엇이 죽었나
 
@@ -543,9 +587,9 @@ sudo ./deploy.sh update
 | --- | --- | --- |
 | **앱 한 대** | 메인 서버 nginx 가 3번 실패 뒤 뺀다. 살아나면 다시 넣는다 | `journalctl -u <slug>` |
 | **서버 B(대기) 통째** | 아무 일도 없다. 복제만 멈춘다 | 살아나면 복제가 이어진다. `sudo ./deploy.sh db-status` 로 지연 확인. 오래 죽어 슬롯이 버려졌으면(`max_slot_wal_keep_size`) `db-standby` 로 다시 |
-| **서버 A(주) 통째** | **DB VIP 가 있으면** 약 15초 뒤 B 가 승격되고 DB VIP → B. 마지막 몇 초의 쓰기는 유실될 수 있다. 앱은 B 만 남는다 | A 가 살아나도 **주로 못 뜬다**(guard). 「8.4」 대로 A 를 대기로 |
+| **서버 A(주) 통째** | **DB VIP 가 있으면** 약 15초 뒤 B 가 승격되고 DB VIP → B. 마지막 몇 초의 쓰기는 유실될 수 있다. 앱은 B 만 남는다 | A 가 살아나도 **주로 못 뜬다**(guard). 「8.4」 대로 A 를 대기로. **B 의 워커가 꺼져 있으면(8.1c) 작업이 「대기」 에 머문다** — B 에서 `sudo ./deploy.sh worker on` |
 | **주 DB 만**(A 의 postgres) | 위와 같다(`pg-ha check` 가 3번 실패 → VIP 이동 → 승격) | 같다 |
-| **DB VIP 없이 A 통째** | 앱은 B 만 남지만 **DB 를 잃는다** | B 에서 `sudo ./deploy.sh db-promote` → `/data/…/.env` 의 `DATABASE_URL` 호스트를 B 로 → `sudo systemctl restart <slug>` |
+| **DB VIP 없이 A 통째** | 앱은 B 만 남지만 **DB 를 잃는다** | B 에서 `sudo ./deploy.sh db-promote` → `.env` 의 `DATABASE_URL` 호스트를 B 로 → `sudo ./deploy.sh restart` → `sudo ./deploy.sh worker on` → 포탈 라우트를 B 로. 공용 `/data` 가 없으면 **A 에 올린 파일 · 만든 결과는 B 에 없다** — A 가 살아나면 A 의 `filestore/imports` · `filestore/jobs` 를 B 로 `rsync -a --ignore-existing`(8.1c 와 방향만 반대), 실험계획은 B 에서 「재생성」 |
 | **메인 서버** | 아무도 못 들어온다 — 메인 서버 쪽 일 | A · B 는 그대로 돈다. 급하면 `http://<A>:8060/<slug>/` 로 직접(접두어를 붙여서. http 라 리프레시 쿠키는 안 산다 — 확인용으로만) |
 | **/data 가 안 보인다** | 작업물 · 백업이 멈춘다. 앱 재시작은 `.env` 를 못 읽어 실패한다(떠 있는 앱은 계속 돈다) | 마운트를 살린다. 그동안은 앱을 재시작하지 않는다 |
 
@@ -571,6 +615,10 @@ sudo ./deploy.sh db-standby --from <A의 IP>
 ```
 
 DB VIP 가 없을 때는 각 단계 사이에 `/data/…/.env` 의 `DATABASE_URL` 을 바꾸고 양쪽 앱을 재시작한다.
+
+**작업 워커는 주를 따라간다**(공용 `/data` 가 없을 때 — 8.1c). 대기가 된 쪽에서 `sudo ./deploy.sh worker off`,
+주가 된 쪽에서 `sudo ./deploy.sh worker on` — **끄는 쪽을 먼저.** 두 워커가 잠깐이라도 함께 돌면 그 사이에
+집힌 작업의 파일이 갈라진다.
 
 ### 8.5 DB VIP 를 나중에 받았을 때
 

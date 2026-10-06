@@ -102,6 +102,7 @@ INSTALL_DIR=$INSTALL_DIR
 DATA_DIR=${DATA_DIR:-}
 BACKUP_HOST_DIR=${BACKUP_HOST_DIR:-}
 DOE_HOST_DIR=${DOE_HOST_DIR:-}
+WORKER_ENABLED=${WORKER_ENABLED:-}
 EOF
     chmod 644 "$INSTANCES_DIR/$APP_SLUG.conf"
 }
@@ -141,6 +142,26 @@ LOG_HOST_DIR="$INSTALL_DIR/logs"
 # 공용 스토리지(DATA_DIR)를 쓰면 그 아래를 기본값으로 삼는다.
 DOE_HOST_DIR="${DOE_HOST_DIR:-$(instance_conf_get "$APP_SLUG" DOE_HOST_DIR)}"
 if [[ -z "$DOE_HOST_DIR" && -n "$DATA_DIR" ]]; then DOE_HOST_DIR="$DATA_DIR/doe-export"; fi
+
+# **작업 워커는 어느 서버에서 도나.** 워커는 DB 를 큐로 쓴다 — 어느 서버의 워커든 주 DB 의 작업을
+# 집는다. 그런데 작업의 파일(올린 STEP · 만든 STEP/glTF · 실험계획 서버 보관 폴더)은 그 서버의
+# filestore 에 있다. **두 서버가 filestore 를 함께 보지 않으면**(공용 DATA_DIR 가 없거나 로컬
+# 디스크면) 대기(클론) 서버의 워커가 주 서버 화면에서 건 작업을 집어, 올린 STEP 을 못 찾아 실패하고
+# 만든 결과는 주 서버 화면에서 안 보인다(2026-10-07 운영에서 실제로 났다 — 증상이 「가끔」 이다).
+# 그래서 그때 대기 서버는 워커 · 청소 타이머를 **끈 채로 둔다**(ReportArchive 와 같은 클론 운영 —
+# 포탈 라우트는 주 서버 하나). 전환하는 날 `sudo ./deploy.sh worker on`. 한 번 정하면 기억한다.
+shared_store() {  # 작업물 폴더를 두 서버가 함께 보는가 — 네트워크 파일시스템이면 그렇다고 본다
+    [[ -n "$DATA_DIR" ]] || return 1
+    local probe="$DATA_DIR" fstype
+    [[ -e "$probe" ]] || probe="$(dirname "$DATA_DIR")"
+    fstype="$(findmnt -n -o FSTYPE -T "$probe" 2>/dev/null || true)"
+    [[ "$fstype" =~ ^(nfs|nfs4|cifs|smb3|ceph|glusterfs|lustre|gpfs|fuse\.sshfs) ]]
+}
+WORKER_ENABLED="${WORKER_ENABLED:-$(instance_conf_get "$APP_SLUG" WORKER_ENABLED)}"
+if [[ -z "$WORKER_ENABLED" ]]; then
+    if [[ "$HA_ROLE" == "backup" ]] && ! shared_store; then WORKER_ENABLED=0; else WORKER_ENABLED=1; fi
+fi
+[[ "$WORKER_ENABLED" == "0" || "$WORKER_ENABLED" == "1" ]] || err "WORKER_ENABLED 는 0 또는 1 입니다: $WORKER_ENABLED"
 # 앱이 DB 를 찾는 주소 — DB VIP 가 있으면 그것, 이중화인데 아직 없으면 주(master) 서버, 아니면 로컬.
 if [[ -n "$DB_VIP" ]]; then DB_HOST="$DB_VIP"
 elif [[ "$HA_ROLE" == "backup" ]]; then DB_HOST="$PEER_IP"
@@ -524,6 +545,12 @@ setup_worker() {
     render_unit_paths "$HERE/worker.service.template" > "$WORKER_SERVICE_UNIT"
     chmod 644 "$WORKER_SERVICE_UNIT"
     systemctl daemon-reload
+    if [[ "$WORKER_ENABLED" != "1" ]]; then
+        # 유닛은 깔아 둔다 — 전환하는 날 `worker on` 한 줄로 뜨게.
+        systemctl disable --now "$WORKER_SERVICE_NAME" >/dev/null 2>&1 || true
+        info "작업 워커: 끔 — 대기(클론) 서버. 이 서버가 일을 받게 되면: sudo ./deploy.sh worker on"
+        return 0
+    fi
     systemctl enable "$WORKER_SERVICE_NAME" >/dev/null 2>&1 || true
     systemctl restart "$WORKER_SERVICE_NAME" \
         || warn "작업 워커 기동 실패 — 'journalctl -u $WORKER_SERVICE_NAME' 확인. 파일 가져오기가 「대기」 에 머뭅니다"
@@ -582,6 +609,13 @@ setup_cleanup_timer() {
     sed -e "s|@@APP_NAME@@|$APP_NAME|g" -e "s|@@AT@@|$at|g" "$HERE/cleanup.timer.template" > "$CLEANUP_TIMER_UNIT"
     chmod 644 "$CLEANUP_SERVICE_UNIT" "$CLEANUP_TIMER_UNIT"
     systemctl daemon-reload
+    if [[ "$WORKER_ENABLED" != "1" ]]; then
+        # 워커와 짝이다. 대기 서버의 청소는 자기 반쪽 filestore 를 보고 「공유 폴더를 치웠다」 를
+        # DB(주 서버의 것)에 적는다 — 해석이 아직 읽는 폴더의 기록이 지워진다.
+        systemctl disable --now "${CLEANUP_SERVICE_NAME}.timer" >/dev/null 2>&1 || true
+        info "청소 타이머: 끔 — 워커와 함께(대기 서버)"
+        return 0
+    fi
     systemctl enable --now "${CLEANUP_SERVICE_NAME}.timer" >/dev/null 2>&1 \
         || warn "청소 타이머 기동 실패 — 'systemctl status ${CLEANUP_SERVICE_NAME}.timer' 확인"
     info "청소 타이머: 매일 $at, 기한 지난 실험계획 폴더의 파일만 (journalctl -u $CLEANUP_SERVICE_NAME)"
@@ -626,9 +660,27 @@ units_of() {
     # `$ETC` 는 `render` 가 root 없이 결과를 보여 줄 때 쓰는 접두어다 — 운영에서는 비어
     # 있어 실제 경로다.
     local list=("$SERVICE_NAME")
-    [[ -f "$ETC$WORKER_SERVICE_UNIT" ]] && list+=("$WORKER_SERVICE_NAME")
+    # 꺼 둔 워커(대기 서버)는 넣지 않는다 — `restart` 한 번에 다시 살아나 주 서버의 작업을 집는다.
+    [[ -f "$ETC$WORKER_SERVICE_UNIT" && "$WORKER_ENABLED" == "1" ]] && list+=("$WORKER_SERVICE_NAME")
     [[ -f "$ETC$MCP_SERVICE_UNIT" ]] && list+=("$MCP_SERVICE_NAME")
     printf '%s\n' "${list[@]}"
+}
+
+cmd_worker() {  # $1 = on|off — 이 서버의 작업 워커 · 청소 타이머를 켜고 끈다. 기억한다.
+    case "${1:-}" in
+        on)  WORKER_ENABLED=1 ;;
+        off) WORKER_ENABLED=0 ;;
+        *)   echo "작업 워커: $( [[ "$WORKER_ENABLED" == "1" ]] && echo 켬 || echo '끔 (대기 서버)' )"
+             echo "  바꾸려면: sudo ./deploy.sh worker on|off"; return 0 ;;
+    esac
+    if [[ "$WORKER_ENABLED" == "1" && "$HA_ROLE" == "backup" ]] && ! shared_store; then
+        warn "이 서버는 대기(backup)이고 작업물 폴더를 상대 서버와 함께 보지 않습니다.
+      상대 서버의 워커가 아직 돌면 두 워커가 같은 DB 큐에서 집어 파일이 갈라집니다 — 상대 쪽을 먼저 끄세요:
+        (상대 서버에서) sudo ./deploy.sh worker off"
+    fi
+    instance_save
+    setup_worker
+    setup_cleanup_timer || warn "청소 타이머 건너뜀(비치명적)"
 }
 
 cmd_units() {
@@ -791,7 +843,9 @@ cmd_update() {
   롤백:
     sudo systemctl stop $SERVICE_NAME $WORKER_SERVICE_NAME
     sudo mv $INSTALL_DIR/app.sif.prev $INSTALL_DIR/app.sif
-    sudo systemctl start $SERVICE_NAME $WORKER_SERVICE_NAME
+    sudo systemctl start $SERVICE_NAME$( [[ "$WORKER_ENABLED" == "1" ]] && echo " $WORKER_SERVICE_NAME" )
+$( [[ "$WORKER_ENABLED" == "1" ]] || echo "
+  작업 워커는 꺼 둔 채입니다(대기 서버). 이 서버가 일을 받게 되면: sudo ./deploy.sh worker on" )
 MSG
 }
 
@@ -838,7 +892,12 @@ cmd_status() {
     health_check 3 || true
     echo
     echo "== 작업 워커 ($WORKER_SERVICE_NAME) =="
-    if [[ -f "$WORKER_SERVICE_UNIT" ]]; then
+    if [[ "$WORKER_ENABLED" != "1" ]]; then
+        echo "  끔 — 대기(클론) 서버. 주 서버의 워커만 작업을 집는다. 전환하면: sudo ./deploy.sh worker on"
+        if systemctl is-active --quiet "$WORKER_SERVICE_NAME" 2>/dev/null; then
+            echo "  ⚠ 그런데 지금 돌고 있습니다 — 주 서버의 작업을 집어 파일이 갈라집니다: sudo ./deploy.sh worker off"
+        fi
+    elif [[ -f "$WORKER_SERVICE_UNIT" ]]; then
         systemctl --no-pager --lines=3 status "$WORKER_SERVICE_NAME" || true
     else
         echo "  없음 — 파일 가져오기가 「대기」 에 머뭅니다. sudo ./deploy.sh update"
@@ -1141,6 +1200,7 @@ $APP_NAME 배포 스크립트 ($VERSION)
   restart   앱 · 작업 워커 · MCP 를 함께 재시작 — **「.env」 를 고쳤으면 이것**
   start|stop  같은 묶음을 켜고 끈다
   units     그 묶음에 무엇이 들어 있는지만 본다 (root 없이)
+  worker on|off  이 서버의 작업 워커 · 청소 타이머 — 이중화의 대기(클론) 서버는 끈다 (기억한다)
   reset     DB·첨부 초기화 (파괴적)
   remove    이 인스턴스를 지운다 — 유닛 · DB · 설치 폴더 (공용 폴더는 남김, 파괴적)
   status    서비스 상태 + health (+ 이중화 · DB 주/대기)
@@ -1176,11 +1236,14 @@ case "${1:-}" in
     start)          cmd_service start   ;;
     stop)           cmd_service stop    ;;
     units)          cmd_units   ;;
+    worker)         cmd_worker "${2:-}" ;;
     reset)          cmd_reset   ;;
     status)         cmd_status  ;;
     db-primary)     shift; ensure_dirs; cmd_db primary "$@" ;;
     db-standby)     shift; [[ "${1:-}" == "--from" ]] && shift; ensure_dirs; cmd_db standby "${1:-}" ;;
-    db-promote)     cmd_db promote ;;
+    db-promote)     cmd_db promote
+                    # 승격은 DB 만 옮긴다. 이 서버가 일을 받으려면 남은 셋이 사람 손에 있다.
+                    [[ "$WORKER_ENABLED" == "1" ]] || info "이 서버가 이제 주라면: .env 의 DB 주소를 이 서버로 → sudo ./deploy.sh restart → sudo ./deploy.sh worker on (상대 서버가 살아 있으면 거기서 worker off)" ;;
     db-demote)      cmd_db demote ;;
     db-status)      cmd_db status ;;
     lb)             ensure_dirs; setup_lb ;;
