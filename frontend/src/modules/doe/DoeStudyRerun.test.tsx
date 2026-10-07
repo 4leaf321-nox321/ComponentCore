@@ -82,7 +82,7 @@ test("파일이 치워졌으면 사정과 할 일을 말하고, 「보내기」 
   )
 
   expect(
-    screen.getByText(/보관 기한 경과로 정리되었습니다/),
+    screen.getByText(/서버 보관 폴더에 설계점 파일이 없습니다/),
   ).toBeInTheDocument()
   // **설정은 남아 있다** — 사람이 스터디를 다시 만들지 않게 그것부터 말한다.
   expect(

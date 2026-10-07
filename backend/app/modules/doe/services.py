@@ -1478,7 +1478,7 @@ def export_study(db: Session, study: DoeStudy) -> DoeStudy:
         made = any(one.status == "ok" for one in points(db, study))
         raise AppError(
             code("DOE", 10),
-            "서버 보관 폴더가 정리되었습니다. ‘재생성’을 먼저 실행하십시오."
+            "서버 보관 폴더에 설계점 파일이 없습니다. ‘재생성’을 먼저 실행하십시오."
             if made
             else "내보낼 파일이 없습니다. 생성된 설계점이 없습니다.",
         )

@@ -141,13 +141,16 @@ export function DoeStudyView({
         설계점 파일이 치워졌을 때. **이력이 남아 있다는 말이 헛말이 되지 않게** 여기서 길을 준다 —
         표와 3D 는 스냅샷으로 그대로 뜨지만(3D 는 레시피로 다시 만든다) STEP 은 없으므로
         「보내기」 가 막힌다. 그 사실과 할 일을 한자리에서 말한다.
+        **까닭을 단정하지 않는다** — 기한 청소만이 아니라 폴더를 옮기거나(예전 저장소 경로를 가리키던
+        스터디, 2026-10-07) 다른 서버의 워커가 만들어도(이중화) 없다. 「기한 경과」 라고 하면 원인을 엉뚱한
+        데서 찾는다.
       */}
       {editable && finished && study.done > 0 && !study.local_ready && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950/40">
           <RefreshCw className="size-4 shrink-0 text-amber-700 dark:text-amber-400" />
           <div className="min-w-0">
-            <p className="text-xs font-medium">설계점 파일이 보관 기한 경과로 정리되었습니다.</p>
-            <p className="text-muted-foreground text-xs">설정(레시피, 인자, 시드, 조건)은 보존되어 있습니다. ‘재생성’을 클릭하면 동일한 설계점이 다시 생성됩니다.</p>
+            <p className="text-xs font-medium">서버 보관 폴더에 설계점 파일이 없습니다.</p>
+            <p className="text-muted-foreground text-xs">보관 기한이 지나 정리되었거나 폴더가 옮겨졌을 수 있습니다. 설정(레시피, 인자, 시드, 조건)은 보존되어 있습니다. ‘재생성’을 클릭하면 동일한 설계점이 다시 생성됩니다.</p>
           </div>
           <Button size="sm" className="ml-auto" disabled={rerunning || running} onClick={() => void again('all')}>
             <RefreshCw className="size-3.5" />
