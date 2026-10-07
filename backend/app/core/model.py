@@ -100,7 +100,7 @@ class BasePlateSpec:
     thickness: float
     mount_hole_diameter: float
     holes: list[tuple[float, float, float]] = field(default_factory=list)
-    """판에 더 뚫을 구멍 (x, y, 지름) — 볼트 고정의 탭 구멍."""
+    """판에 더 뚫을 구멍 (x, y, 지름) — 볼트 고정 · 규격 클램프 고정 나사의 탭 구멍."""
 
 
 @dataclass
@@ -151,6 +151,11 @@ class ClampSpec:
     angle: float = 0.0
     riser: float = 0.0
     base_size: float = 0.0
+    mount_thread: str | None = None
+    """규격 클램프를 판에 고정하는 나사(`M5` …) — 사양에 적혀 있으면."""
+    mount_holes: list[tuple[float, float]] = field(default_factory=list)
+    """그 나사 자리(판 위 XY). 나사는 판의 탭 구멍에 박히고, 받침 블록이 있으면 블록의 여유
+    구멍을 지난다."""
 
 
 @dataclass
@@ -240,7 +245,8 @@ class FixturePlan:
         }
 
     def bom(self) -> list[dict[str, Any]]:
-        """**규격 부품표** — 품번마다 수량. 즉석 도형(제작품)은 들지 않는다."""
+        """**규격 부품표** — 품번마다 수량, 규격 클램프의 고정 나사까지. 즉석 도형(제작품)은
+        들지 않는다."""
         rows: dict[str, dict[str, Any]] = {}
         picked = [
             *(one.standard for one in self.supports),
@@ -255,6 +261,21 @@ class FixturePlan:
                 {"part_no": ref.part_no, "name": ref.name, "kind": ref.kind, "count": 0},
             )
             row["count"] += 1
+        for clamp in self.clamps:
+            if clamp.standard is None or not clamp.mount_thread:
+                continue
+            # 클램프를 판에 고정하는 나사 — 길이는 클램프 베이스 두께를 몰라 적지 않는다.
+            thread = clamp.mount_thread
+            row = rows.setdefault(
+                f"screw:{thread}",
+                {
+                    "part_no": f"ISO 4762 {thread}",
+                    "name": "육각 구멍붙이 볼트 (클램프 고정)",
+                    "kind": "screw",
+                    "count": 0,
+                },
+            )
+            row["count"] += len(clamp.mount_holes)
         return list(rows.values())
 
 

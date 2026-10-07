@@ -74,5 +74,43 @@ test('일반 사용자는 사양이 있을 때만 보고, 고치는 단추가 �
   )
   expect(screen.getByText('TC-60')).toBeInTheDocument()
   expect(screen.getByText(/도달 거리 60 · 누르는 높이 30/)).toBeInTheDocument()
+  expect(screen.getByText(/고정 나사 자리 없음/)).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /규격 사양/ })).toBeNull()
+})
+
+const CLAMP = { kind: 'clamp', part_no: 'TC-60', version: 1, reach: 60, pad_height: 30, pad_diameter: 10, base_length: 40, base_width: 30 } as const
+
+test('클램프는 고정 나사와 구멍 자리를 적는다 — 있던 자리가 글로 채워지고 목록으로 나간다', async () => {
+  const sent = serve()
+  const changed = vi.fn()
+  render(<StandardCard part={{ ...PART, standard: { ...CLAMP, mount_thread: 'M5', mount_holes: [[-15, -10], [15, 10]] } }} admin onChanged={changed} />)
+  expect(screen.getByText(/고정 나사 M5 × 2/)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '규격 사양 편집' }))
+  expect(screen.getByLabelText('고정 나사')).toHaveValue('M5')
+  expect(screen.getByLabelText(/고정 구멍 자리/)).toHaveValue('-15,-10; 15,10')
+  fireEvent.change(screen.getByLabelText('고정 나사'), { target: { value: 'M6' } })
+  fireEvent.change(screen.getByLabelText(/고정 구멍 자리/), { target: { value: '-15,-10; -15, 10; 15,-10; 15,10' } })
+  fireEvent.click(screen.getByRole('button', { name: '저장' }))
+  await waitFor(() => expect(changed).toHaveBeenCalled())
+  const put = sent.find((one) => one.method === 'PUT')!
+  expect(put.body).toMatchObject({
+    kind: 'clamp',
+    mount_thread: 'M6',
+    mount_holes: [
+      [-15, -10],
+      [-15, 10],
+      [15, -10],
+      [15, 10],
+    ],
+  })
+})
+
+test('구멍 자리를 잘못 적으면 보내지 않고 적는 법을 말한다', async () => {
+  const sent = serve()
+  render(<StandardCard part={{ ...PART, standard: CLAMP }} admin onChanged={() => {}} />)
+  fireEvent.click(screen.getByRole('button', { name: '규격 사양 편집' }))
+  fireEvent.change(screen.getByLabelText(/고정 구멍 자리/), { target: { value: '-15 -10' } })
+  fireEvent.click(screen.getByRole('button', { name: '저장' }))
+  expect(await screen.findByText(/처럼 적으십시오/)).toBeInTheDocument()
+  expect(sent.some((one) => one.method === 'PUT')).toBe(false)
 })

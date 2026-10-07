@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
+from typing import Any
 
 from build123d import Face, Vector
 from pydantic import ValidationError
 
+from app.core import fasteners, standard
 from app.core import features as feat
-from app.core import standard
 from app.core.model import (
     XYZ,
     BasePlateSpec,
@@ -592,6 +593,7 @@ def _standard_clamp(
                 continue
             if any(math.dist((bx, by), one.post_position[:2]) < size for one in taken):
                 continue
+            thread, holes = _mount_holes(spec, bx, by, angle)
             return replace(
                 clamp,
                 post_position=(round(bx, 3), round(by, 3), 0.0),
@@ -602,8 +604,25 @@ def _standard_clamp(
                 angle=round(math.degrees(angle), 3),
                 riser=round(max(riser, 0.0), 3),
                 base_size=round(size, 3),
+                mount_thread=thread,
+                mount_holes=holes,
             )
     return None
+
+
+def _mount_holes(
+    spec: dict[str, Any], bx: float, by: float, angle: float
+) -> tuple[str | None, list[tuple[float, float]]]:
+    """클램프 고정 나사 — (나사, 판 위 자리). 사양의 자리는 클램프 좌표(베이스 바닥 중심이
+    원점, 팔이 +X)라 베이스를 놓은 자리 · 방향으로 돌려 옮긴다. 사양에 없으면 (None, [])."""
+    thread = spec.get("mount_thread")
+    if not thread or thread not in fasteners.THREADS:
+        return None, []
+    c, s = math.cos(angle), math.sin(angle)
+    return str(thread), [
+        (round(bx + c * hx - s * hy, 3), round(by + s * hx + c * hy, 3))
+        for hx, hy in spec.get("mount_holes") or []
+    ]
 
 
 def _hole_at(features: list[Feature], x: float, y: float) -> Feature | None:
@@ -695,6 +714,28 @@ def _standardize(
             )
     if plate is not plan.base_plate:
         notes.append("규격 클램프의 베이스가 놓이도록 바닥판을 넓혔습니다.")
+    # 고정 나사의 탭 구멍 — 볼트 고정과 같이 호칭 지름으로 판을 뚫는다. 받침 블록에 올린
+    # 클램프도 나사가 블록의 여유 구멍을 지나 판에 박힌다(블록 구멍은 assembly · jig_recipe).
+    taps = [
+        (x, y, fasteners.nominal_of(clamp.mount_thread))
+        for clamp in clamps
+        if clamp.standard is not None and clamp.mount_thread
+        for x, y in clamp.mount_holes
+    ]
+    if taps:
+        plate = replace(plate, holes=[*plate.holes, *taps])
+    bare = sorted(
+        {
+            clamp.standard.part_no
+            for clamp in clamps
+            if clamp.standard is not None and not clamp.mount_holes
+        }
+    )
+    if bare:
+        notes.append(
+            f"규격 클램프({', '.join(bare)})의 사양에 고정 나사 자리가 없어 판에 탭 구멍을 "
+            "내지 않았습니다. 규격 사양에 고정 나사와 구멍 자리를 적으십시오."
+        )
     return replace(
         plan,
         supports=supports,

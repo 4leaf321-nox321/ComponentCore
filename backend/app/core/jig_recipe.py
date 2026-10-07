@@ -196,7 +196,7 @@ def _clamped(plan: FixturePlan, opts: JigOptions, params: dict[str, float]) -> l
             rise = f"=받침_높이 + {_r(clamp.riser - plan.product_lift)}"
             if clamp.riser > 0.5:
                 block, body = f"클램프_{i}_받침블록", f"클램프_{i}_본체"
-                nodes += [
+                nodes.append(
                     {
                         "id": block,
                         "op": "box",
@@ -205,7 +205,22 @@ def _clamped(plan: FixturePlan, opts: JigOptions, params: dict[str, float]) -> l
                         "height": rise,
                         "at": [_r(px), _r(py), 0],
                         "align": ["center", "center", "min"],
-                    },
+                    }
+                )
+                if clamp.mount_thread and clamp.mount_holes:
+                    # 고정 나사가 블록을 지나 판에 박힌다 — 블록에는 여유 구멍(표에서).
+                    drilled = f"{block}_구멍"
+                    nodes.append(
+                        {
+                            "id": drilled,
+                            "op": "hole",
+                            "target": block,
+                            "thread": clamp.mount_thread,
+                            "at": [[_r(x), _r(y)] for x, y in clamp.mount_holes],
+                        }
+                    )
+                    block = drilled
+                nodes += [
                     _component(body, clamp.standard, [_r(px), _r(py), rise], clamp.angle),
                     {"id": f"클램프_{i}", "op": "union", "targets": [block, body]},
                 ]

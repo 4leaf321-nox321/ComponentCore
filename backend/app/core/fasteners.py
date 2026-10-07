@@ -129,6 +129,11 @@ def name_of(nominal: float) -> str:
     return f"M{nominal:g}"
 
 
+def nominal_of(name: str) -> float:
+    """표의 이름 → 호칭 지름(`M6` → 6)."""
+    return float(name.removeprefix("M"))
+
+
 def head(nominal: float, kind: str) -> tuple[float, float, float]:
     """볼트 머리 — (바깥 치수, 높이, 육각 구멍 맞변).
 

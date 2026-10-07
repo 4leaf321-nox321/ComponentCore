@@ -6,6 +6,7 @@ from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.core import fasteners
 from app.modules.jobs.schemas import JobOut
 
 
@@ -121,6 +122,10 @@ class StandardSpec(BaseModel):
     pad_diameter: float | None = Field(default=None, gt=0)
     base_length: float | None = Field(default=None, gt=0)
     base_width: float | None = Field(default=None, gt=0)
+    mount_thread: str | None = Field(default=None, max_length=10)
+    """클램프: 베이스를 판에 고정하는 나사(M1.6 ~ M24) — 생성기가 판에 그 탭 구멍을 낸다."""
+    mount_holes: list[tuple[float, float]] | None = Field(default=None, max_length=12)
+    """클램프: 고정 구멍 자리 (x, y) — 클램프 좌표(베이스 바닥 중심이 원점, 팔이 +X)."""
 
     @model_validator(mode="after")
     def _filled(self) -> StandardSpec:
@@ -132,7 +137,32 @@ class StandardSpec(BaseModel):
             low, high = getattr(self, span[1]), getattr(self, span[2])
             if low is None or high is None or low >= high:
                 raise ValueError(f"{span[0]}를 주면 {span[1]} < {span[2]} 범위가 필요합니다.")
+        if self.kind == "clamp":
+            self._check_mount()
         return self
+
+    def _check_mount(self) -> None:
+        """고정 나사와 구멍 자리 — 둘 다 비거나 둘 다 있고, 구멍은 베이스 안에 든다. 비어도
+        된다(그 클램프를 고르면 판에 탭 구멍을 못 냈다고 생성기가 말한다)."""
+        if not self.mount_thread and not self.mount_holes:
+            return
+        if not self.mount_thread or not self.mount_holes:
+            raise ValueError("고정 나사와 고정 구멍 자리는 함께 적어야 합니다.")
+        if self.mount_thread not in fasteners.THREADS:
+            raise ValueError(
+                f"mount_thread: 지원하지 않는 나사입니다: {self.mount_thread} (M1.6 ~ M24)."
+            )
+        length, width = float(self.base_length or 0), float(self.base_width or 0)
+        outside = [
+            f"({x:g}, {y:g})"
+            for x, y in self.mount_holes
+            if abs(x) > length / 2 or abs(y) > width / 2
+        ]
+        if outside:
+            raise ValueError(
+                f"고정 구멍 자리가 베이스({length:g} x {width:g}) 밖입니다: "
+                + ", ".join(outside)
+            )
 
     def stored(self) -> dict[str, Any]:
         """저장할 모양 — 이 종류가 쓰는 칸만."""
@@ -147,7 +177,12 @@ class StandardSpec(BaseModel):
         span = STANDARD_RANGES.get(self.kind)
         if span is not None and getattr(self, span[0]):
             keep.update(span)
-        return {key: value for key, value in self.model_dump().items() if key in keep}
+        if self.kind == "clamp" and self.mount_thread:
+            keep.update(("mount_thread", "mount_holes"))
+        # json 모양으로 — 구멍 자리가 튜플이 아니라 목록이어야 DB 에서 읽은 것과 같다
+        # (가져오기의 「같음」 비교).
+        dumped = self.model_dump(mode="json")
+        return {key: value for key, value in dumped.items() if key in keep}
 
 
 #: 규격 부품 **묶음 파일**의 형식 — 개발 PC 에서 그린 규격품을 운영 서버로 옮긴다.

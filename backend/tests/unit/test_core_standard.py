@@ -5,7 +5,10 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
+
+import pytest
 
 from app.core import pipeline
 from app.core.jig_recipe import recipe_of
@@ -200,6 +203,8 @@ def test_받침_핀_클램프를_규격품으로_골라_놓고_부품표를_붙�
     assert {"클램프_1_받침블록", "클램프_1_본체", "클램프_1"} <= {
         one["id"] for one in recipe["nodes"]
     }
+    # 사양에 고정 나사 자리가 없으면 판에 탭 구멍을 못 낸다 — 그렇다고 말한다.
+    assert any("TC-60" in note and "고정 나사 자리가 없어" in note for note in plan.notes)
 
 
 def test_고정_높이_받침이면_받침_높이가_그_높이가_된다() -> None:
@@ -241,3 +246,58 @@ def test_끄면_즉석_도형이다() -> None:
     )
     assert made.plan.summary()["bom"] == []
     assert all(one.standard is None for one in made.plan.supports)
+
+
+#: 고정 나사 자리를 적은 토글 클램프 — 베이스 40 x 30 의 네 귀에 M5.
+MOUNTED = LibraryPart(
+    **{
+        **CLAMP.__dict__,
+        "source": "part:m@1",
+        "part_no": "TC-60M",
+        "spec": {
+            **CLAMP.spec,
+            "mount_thread": "M5",
+            "mount_holes": [[-15, -10], [-15, 10], [15, -10], [15, 10]],
+        },
+    }
+)
+
+
+@pytest.mark.parametrize(("lift", "riser"), [(25, 7.0), (18, 0.0)])
+def test_클램프_고정_나사_자리에_판은_탭_구멍_받침_블록은_여유_구멍(
+    lift: float, riser: float
+) -> None:
+    """받침 높이 25 면 받침 블록(25 + 12 - 30 = 7)에 올라 나사가 블록을 지나고, 18 이면 누르는
+    높이가 딱 맞아 판에 바로 선다."""
+    library = [SUPPORT, PIN, MOUNTED]
+    opts = JigOptions(kind="clamped", support_height=lift)
+    made = pipeline.analyze(PLATE, opts, library=library)
+    plan = made.plan
+    assert plan.clamps and all(one.standard is not None for one in plan.clamps)
+    taps: set[tuple[float, float, float]] = set()
+    for one in plan.clamps:
+        assert one.riser == riser and one.mount_thread == "M5"
+        # 판 위 자리를 베이스 자리 · 방향으로 되돌리면 사양의 클램프 좌표다.
+        bx, by, _ = one.post_position
+        c, s = math.cos(math.radians(one.angle)), math.sin(math.radians(one.angle))
+        local = {
+            (round(c * (x - bx) + s * (y - by), 2), round(-s * (x - bx) + c * (y - by), 2))
+            for x, y in one.mount_holes
+        }
+        assert local == {(-15, -10), (-15, 10), (15, -10), (15, 10)}
+        taps |= {(x, y, 5.0) for x, y in one.mount_holes}
+    assert taps <= set(plan.base_plate.holes)  # 탭 구멍 — 호칭 지름(볼트 고정과 같다)
+    assert not any("고정 나사 자리가 없어" in note for note in plan.notes)
+    assert made.interference.ok, [one for one in made.interference.items if not one.ok]
+
+    screws = next(row for row in plan.summary()["bom"] if row["kind"] == "screw")
+    assert screws["part_no"] == "ISO 4762 M5" and screws["count"] == 4 * len(plan.clamps)
+
+    recipe = _same_shape(made, opts, library)  # 블록의 여유 구멍까지 같은 형상
+    drilled = next(
+        (one for one in recipe["nodes"] if one["id"] == "클램프_1_받침블록_구멍"), None
+    )
+    if riser:
+        assert drilled is not None and drilled["thread"] == "M5"
+    else:
+        assert drilled is None

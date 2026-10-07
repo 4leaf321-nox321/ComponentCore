@@ -159,6 +159,32 @@ def test_지그_생성기가_규격품을_골라_놓고_부품표를_남긴다(
     assert report["available"] is True and report["ok"] is True, report["items"]
 
 
+def test_클램프_사양에_고정_나사와_구멍_자리를_적는다(
+    client: TestClient, member: Signed, admin: Signed
+) -> None:
+    part = _catalog(client, member, CLAMP.name, CLAMP.recipe)
+    spec = {"kind": "clamp", "part_no": "TC-60", "version": 1, **CLAMP.spec}
+    holes = [[-15, -10], [-15, 10], [15, -10], [15, 10]]
+    saved = _ok(
+        _register(client, admin, part, {**spec, "mount_thread": "M5", "mount_holes": holes})
+    )
+    assert saved["standard"]["mount_thread"] == "M5"
+    assert saved["standard"]["mount_holes"] == holes
+    # 비우면 칸이 남지 않는다(예전 사양과 같은 모양).
+    plain = _ok(_register(client, admin, part, spec))
+    assert "mount_thread" not in plain["standard"] and "mount_holes" not in plain["standard"]
+
+    # 나사만 · 자리만 · 표에 없는 나사 · 베이스(40 x 30) 밖 자리는 거절한다.
+    for bad in (
+        {"mount_thread": "M5"},
+        {"mount_holes": holes},
+        {"mount_thread": "M7", "mount_holes": holes},
+        {"mount_thread": "M5", "mount_holes": [[25, 0]]},
+    ):
+        refused = _register(client, admin, part, {**spec, **bad})
+        assert refused.status_code == 422, bad
+
+
 def _code(response: Any) -> str:
     return str(response.json()["error"]["code"])
 

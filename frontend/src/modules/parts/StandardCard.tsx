@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog'
 import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
+import { THREAD_SIZES } from '@/shared/threads'
 
 type Field = { key: keyof StandardSpec; label: string }
 
@@ -47,10 +48,25 @@ const RANGES: Partial<Record<StandardKind, { param: keyof StandardSpec; min: key
 
 const kindLabel = (kind: StandardKind) => STANDARD_KINDS.find((one) => one.value === kind)?.label ?? kind
 
+/** 고정 구멍 자리 ↔ 입력 칸의 글 — `-15,-10; 15,10`. */
+const holesText = (holes: [number, number][] | null | undefined) => (holes ?? []).map(([x, y]) => `${x},${y}`).join('; ')
+
+/** 입력 칸의 글 → 자리 목록. 비면 빈 목록, 틀리면 null. */
+function parseHoles(text: string): [number, number][] | null {
+  const parts = text
+    .split(';')
+    .map((one) => one.trim())
+    .filter(Boolean)
+  const holes = parts.map((one) => one.split(',').map((value) => Number(value.trim())))
+  if (holes.some((one) => one.length !== 2 || one.some((value) => !Number.isFinite(value)))) return null
+  return holes as [number, number][]
+}
+
 function dims(spec: StandardSpec): string {
   const shown = FIELDS[spec.kind].map((one) => `${one.label.replace(' (mm)', '')} ${spec[one.key] ?? '—'}`)
   const range = RANGES[spec.kind]
   if (range && spec[range.param]) shown.push(`${range.label} 변수 ‘${spec[range.param]}’ ${spec[range.min]}~${spec[range.max]}`)
+  if (spec.kind === 'clamp') shown.push(spec.mount_thread ? `고정 나사 ${spec.mount_thread} × ${spec.mount_holes?.length ?? 0}` : '고정 나사 자리 없음')
   return shown.join(' · ')
 }
 
@@ -125,7 +141,7 @@ function StandardDialog({ part, onClose, onSaved }: { part: Part; onClose: () =>
   const [kind, setKind] = useState<StandardKind>(start?.kind ?? 'support')
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(
-      Object.entries({ version: part.current_version, preference: 100, ...start })
+      Object.entries({ version: part.current_version, preference: 100, ...start, mount_holes: holesText(start?.mount_holes) })
         .filter(([, value]) => value !== null && value !== undefined)
         .map(([key, value]) => [key, String(value)]),
     ),
@@ -150,6 +166,15 @@ function StandardDialog({ part, onClose, onSaved }: { part: Part; onClose: () =>
     }
     if (range && values[range.param]?.trim()) {
       Object.assign(spec, { [range.param]: values[range.param].trim(), [range.min]: number(range.min), [range.max]: number(range.max) })
+    }
+    if (kind === 'clamp') {
+      const holes = parseHoles(values.mount_holes ?? '')
+      if (holes === null) {
+        setError(new Error('고정 구멍 자리는 「x,y; x,y」 처럼 적으십시오(클램프 좌표, mm).'))
+        setBusy(false)
+        return
+      }
+      Object.assign(spec, { mount_thread: values.mount_thread || null, mount_holes: holes.length ? holes : null })
     }
     try {
       await partsApi.setStandard(part.id, spec)
@@ -199,6 +224,33 @@ function StandardDialog({ part, onClose, onSaved }: { part: Part; onClose: () =>
             {FIELDS[kind].map((one) => input(one.key, one.label))}
             {input('preference', '선호 (작을수록 먼저)')}
           </div>
+          {kind === 'clamp' && (
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="std-mount_thread">고정 나사</Label>
+                <select
+                  id="std-mount_thread"
+                  className="bg-background h-9 w-full rounded-md border px-2 text-sm"
+                  value={values.mount_thread ?? ''}
+                  onChange={(e) => set('mount_thread', e.target.value)}
+                >
+                  <option value="">없음</option>
+                  {THREAD_SIZES.map((one) => (
+                    <option key={one} value={one}>
+                      {one}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="col-span-2 space-y-1">
+                <Label htmlFor="std-mount_holes">고정 구멍 자리 (x,y; x,y …)</Label>
+                <Input id="std-mount_holes" value={values.mount_holes ?? ''} placeholder="-15,-10; -15,10; 15,-10; 15,10" onChange={(e) => set('mount_holes', e.target.value)} />
+              </div>
+              <p className="text-muted-foreground col-span-3 text-xs">
+                베이스 바닥 중심이 원점, 팔이 +X 인 클램프 좌표입니다. 적으면 지그 생성기가 바닥판에 그 탭 구멍을 내고 부품표에 볼트 수를 남깁니다.
+              </p>
+            </div>
+          )}
           {range && (
             <div className="grid grid-cols-3 gap-3">
               {input(range.param, `${range.label} 변수 (선택)`, 'text')}

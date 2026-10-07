@@ -94,6 +94,10 @@ export interface StandardSpec {
   pad_diameter?: number | null
   base_length?: number | null
   base_width?: number | null
+  /** 클램프: 베이스를 판에 고정하는 나사(`M5` …) — 생성기가 판에 그 탭 구멍을 낸다. */
+  mount_thread?: string | null
+  /** 클램프: 고정 구멍 자리 [x, y] — 클램프 좌표(베이스 바닥 중심이 원점, 팔이 +X). */
+  mount_holes?: [number, number][] | null
 }
 
 export interface Part {

@@ -9,9 +9,9 @@
 
 from __future__ import annotations
 
-from build123d import Box, Compound, Location, Part, Pos, Shape
+from build123d import Box, Compound, Cylinder, Location, Part, Pos, Shape
 
-from app.core import elements, standard
+from app.core import elements, fasteners, standard
 from app.core.model import (
     ClampSpec,
     FixturePlan,
@@ -46,7 +46,8 @@ def _locator(spec: LocatorSpec, lift: float, shapes: standard.Shapes) -> Part:
 
 
 def _clamp(spec: ClampSpec, lift: float, opts: JigOptions, shapes: standard.Shapes) -> Part:
-    """규격 토글 클램프 — 받침 블록(누르는 높이가 모자란 만큼) 위에 베이스, 팔이 패드 쪽."""
+    """규격 토글 클램프 — 받침 블록(누르는 높이가 모자란 만큼) 위에 베이스, 팔이 패드 쪽.
+    고정 나사가 있으면 블록에 그 여유 구멍이 난다(나사는 블록을 지나 판의 탭 구멍에 박힌다)."""
     if spec.standard is None:
         return elements.build_clamp(spec, lift, opts)
     bx, by, _ = spec.post_position
@@ -55,6 +56,12 @@ def _clamp(spec: ClampSpec, lift: float, opts: JigOptions, shapes: standard.Shap
         riser: Part = Pos(bx, by, spec.riser / 2) * Box(
             spec.base_size, spec.base_size, spec.riser
         )
+        if spec.mount_thread:
+            clearance = fasteners.THREADS[spec.mount_thread][1]
+            for x, y in spec.mount_holes:
+                riser = riser - Pos(x, y, spec.riser / 2) * Cylinder(
+                    clearance / 2, spec.riser * 2
+                )
         body = riser + body
     return _labeled(body, spec.label)
 
