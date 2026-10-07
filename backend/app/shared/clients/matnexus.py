@@ -31,7 +31,9 @@ MatNexus 의 권한은 **부서 트리 + 소속**이다. 재료마다 `owner_wor
 
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -244,9 +246,43 @@ def property_dictionary() -> dict[str, Any]:
     """
     global _DICTIONARY
     if _DICTIONARY is None:
-        got = _get("/api/catalog/properties/dictionary")
+        try:
+            got = _get("/api/catalog/properties/dictionary")
+        except (MatNexusUnavailable, AppError):
+            # **못 닿으면 마지막으로 받은 사전.** 설계점 재생성은 그때 MatNexus 가 떠 있는지에
+            # 따라 결과가 달라지면 안 된다 — 꺼진 날 재생성한 스터디가 열쇠 없이 나가 해석
+            # 쪽이 물성을 거절했다(SimEngBay 보고, 2026-10-05). 사본이 없으면 그대로 실패한다.
+            saved = _saved_dictionary()
+            if saved is None:
+                raise
+            return saved  # 기억하지 않는다 — 다음 부를 때 다시 그쪽에 묻는다
         _DICTIONARY = got if isinstance(got, dict) else {}
+        _save_dictionary(_DICTIONARY)
     return _DICTIONARY
+
+
+def _dictionary_file() -> Path:
+    return Path(get_settings().filestore_dir) / "matnexus" / "property-dictionary.json"
+
+
+def _save_dictionary(said: dict[str, Any]) -> None:
+    """받은 사전을 작업물 폴더에 남긴다 — 못 남겨도 넘어간다(사본은 대비일 뿐이다)."""
+    if not said.get("properties"):
+        return
+    try:
+        target = _dictionary_file()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(said, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _saved_dictionary() -> dict[str, Any] | None:
+    try:
+        said = json.loads(_dictionary_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return said if isinstance(said, dict) else None
 
 
 def property_keys() -> dict[str, str]:

@@ -1825,8 +1825,15 @@ def _region_definitions(conditions: dict[str, Any] | None) -> list[dict[str, Any
     # **바디 이름표는 면으로 풀지 않는다.** 영역은 면의 지문이고 바디는 덩어리다 — 섞으면
     # 바디마다 「못 풀었다」 가 하나씩 쌓이고, 그 표가 「이 점을 해석에 쓸 수 있나」 를
     # 말하는 자리라 못 믿게 된다. 바디는 점 파일의 `bodies` 가 이름으로 들고 있다.
+    # **선언한 종류대로 푼다** — 규칙에 `what` 이 없으면 질의는 엣지를 고른다
+    # (`selection_query`).
     return [
-        {"name": one["name"], "select": one.get("select") or {}}
+        {
+            "name": one["name"],
+            "select": condition_model.selection_query(
+                str(one.get("entity", "face")), one.get("select") or {}
+            ),
+        }
         for one in names
         if one.get("name") and one.get("entity", "face") != "body"
     ]
@@ -2032,6 +2039,16 @@ def _measures(
         raise AppError(code("DOE", 28), str(failure)) from failure
 
 
+def _needs_dictionary(conditions: dict[str, Any] | None) -> bool:
+    """등록 재료가 있나 — 그 물성 줄은 한글 이름뿐이라 사전이 열쇠를 붙인다. 문헌 물성은
+    값마다 열쇠(`property_key`)가 있어 사전이 없어도 된다."""
+    for one in (conditions or {}).get("materials") or []:
+        payload = one.get("payload") if isinstance(one, dict) else None
+        if isinstance(payload, dict) and payload and not payload.get("values"):
+            return True
+    return False
+
+
 def _point_warnings(geometry: dict[str, Any] | None) -> list[str]:
     found = list(((geometry or {}).get("quality") or {}).get("warnings") or [])
     mid_error = (geometry or {}).get("mid_error")
@@ -2214,10 +2231,19 @@ def run_job(
         made = 0
         failed = 0
         # **물성 이름 사전은 한 번만 가져온다.** 설계점마다 부르면 MatNexus 가 우리 때문에
-        # 바쁘다. 못 가져와도 값은 나간다 — 표준 열쇠만 안 붙는다(덤이다).
+        # 바쁘다. 못 가져오면(사본도 없으면) 값은 나가지만 표준 열쇠가 안 붙는다 — 해석 쪽은
+        # 열쇠 없는 영률을 이름으로 짐작하지 않으므로 **점마다 경고로 남긴다**.
         from app.shared.clients import matnexus as _matnexus
 
         names = _matnexus.property_keys()
+        unkeyed = (
+            [
+                "물성 사전을 받지 못해 등록 재료에 표준 열쇠를 붙이지 못했습니다. "
+                "MatNexus 연결을 확인한 뒤 재생성하십시오."
+            ]
+            if not names and _needs_dictionary(study.conditions)
+            else []
+        )
         # **솔버 덱은 스터디마다 한 번.** 설계점이 달라도 물성은 같다 — 점마다 뽑으면 같은
         # 파일을 200번 만든다. 폴더 하나에 한 벌 두고 점 파일이 그것을 가리킨다.
         decks = _write_decks(folder, _deck_conditions(study.conditions, study.factors))
@@ -2279,7 +2305,7 @@ def run_job(
                     point_file=point.point_file,
                     unresolved=(point.geometry or {}).get("topology_unresolved"),
                     interference=(point.geometry or {}).get("interference"),
-                    warnings=_point_warnings(point.geometry),
+                    warnings=[*_point_warnings(point.geometry), *unkeyed],
                     measures=(point.geometry or {}).get("measures"),
                     mid_file=(point.geometry or {}).get("mid_file") or "",
                 )
@@ -2459,7 +2485,7 @@ def run_job(
                                 point_file=point.point_file,
                                 unresolved=topo["unresolved"],
                                 interference=point.geometry["interference"],
-                                warnings=_point_warnings(point.geometry),
+                                warnings=[*_point_warnings(point.geometry), *unkeyed],
                                 measures=measured,
                                 mid_file=mid_file,
                             )

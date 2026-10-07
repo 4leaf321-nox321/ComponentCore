@@ -223,7 +223,12 @@ def conditions_frames(
         str(one.get("on")) for one in resolved.get("coordinate_systems") or [] if one.get("on")
     }
     groups = [
-        {"name": one["name"], "select": one.get("select") or {}}
+        {
+            "name": one["name"],
+            "select": condition_model.selection_query(
+                str(one.get("entity", "face")), one.get("select") or {}
+            ),
+        }
         for one in resolved.get("named_selections") or []
         if one.get("name") in wanted
     ]

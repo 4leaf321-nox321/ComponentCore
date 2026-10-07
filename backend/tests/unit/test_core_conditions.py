@@ -1072,3 +1072,34 @@ def test_강체_파트에는_고정_지지와_원격_변위만_강체끼리는_�
             parse({**raw, **extra}, PARTS)
     # 모양이 틀린 파트별 설정은 쉘 파트가 없는 것으로(500 이 아니라 검증이 말한다).
     assert conditions.shell_parts({"body_settings": 5}) == []
+
+
+def test_규칙에_what_이_없으면_선언한_종류로_푼다() -> None:
+    """질의의 기본은 엣지다 — 면 그룹 `{"role": "bottom"}` 이 엣지 지문으로 나갔다(SimEngBay
+    보고, 2026-10-05). 풀 때 그룹의 종류로 채운다."""
+    query = conditions.selection_query
+    assert query("face", {"role": "bottom"}) == {"role": "bottom", "what": "faces"}
+    assert query("vertex", {"near": [0, 0, 0]})["what"] == "vertices"
+    many = query("face", {"any": [{"role": "top"}, {"what": "faces", "role": "bottom"}]})
+    assert [one["what"] for one in many["any"]] == ["faces", "faces"]
+    assert query("edge", {"what": "edges", "kind": "circle"}) == {
+        "what": "edges",
+        "kind": "circle",
+    }
+    assert query("face", {}) == {}  # 아직 안 고른 것을 「전부」 로 바꾸지 않는다
+    assert query("body", {"body": "판"}) == {"body": "판"}
+
+
+def test_선언한_종류와_규칙이_어긋나면_막는다() -> None:
+    raw = {
+        "named_selections": [{"name": "바닥", "entity": "face", "select": {"what": "edges"}}]
+    }
+    with pytest.raises(ConditionError, match="바닥"):
+        parse(raw)
+    parse(
+        {
+            "named_selections": [
+                {"name": "바닥", "entity": "face", "select": {"role": "bottom"}}
+            ]
+        }
+    )

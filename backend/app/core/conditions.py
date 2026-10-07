@@ -25,7 +25,14 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from app.core import units as unit_systems
 from app.core.recipe.params import ExpressionError, resolve_params
@@ -65,6 +72,33 @@ class Base(BaseModel):
 
 # ── 선택 그룹 ─────────────────────────────────────────────────────────────────
 
+#: 선택 그룹의 종류 → 질의(`query.select_features`)가 고르는 것. 바디 그룹은 면으로 풀지
+#: 않는다.
+ENTITY_WHAT: dict[str, str] = {"face": "faces", "edge": "edges", "vertex": "vertices"}
+
+
+def selection_query(entity: str, select: dict[str, Any]) -> dict[str, Any]:
+    """선택 그룹의 규칙을 **선언한 종류대로** 푸는 질의 — 규칙에 `what` 이 없으면 `entity`
+    로 채운다(`{"any": [...]}` 면 항목마다).
+
+    질의의 기본은 **엣지**다. 그래서 면으로 선언한 그룹(`entity: face`, `{"role": "bottom"}`)
+    이 내보낼 때 엣지 지문으로 나가 해석 쪽이 면 조건을 못 걸었다(SimEngBay 보고,
+    2026-10-05). 화면은 늘 `what` 을 적지만 MCP · API 로 쓴 규칙은 빠질 수 있다. 빈 규칙은
+    그대로 둔다 — 「아직 안 골랐다」 를 「전부」 로 바꾸지 않는다."""
+    what = ENTITY_WHAT.get(entity)
+    if what is None or not select:
+        return dict(select)
+
+    def filled(rule: Any) -> Any:
+        return (
+            {**rule, "what": what} if isinstance(rule, dict) and "what" not in rule else rule
+        )
+
+    members = select.get("any")
+    if isinstance(members, list):
+        return {**select, "any": [filled(one) for one in members]}
+    return dict(filled(select))
+
 
 class NamedSelection(Base):
     """선택 그룹 — 조건이 붙는 **유일한 창구**. 셀렉터로 적고 설계점마다 다시 푼다."""
@@ -98,6 +132,25 @@ class NamedSelection(Base):
                 f"select.any의 셀렉터는 한 종류여야 합니다(현재: {', '.join(sorted(kinds))})."
             )
         return value
+
+    @model_validator(mode="after")
+    def _same_kind(self) -> NamedSelection:
+        """선언한 종류와 규칙이 고르는 것이 어긋나면 막는다 — 면 그룹인데 `what: edges` 면
+        해석 쪽이 면 조건을 엣지에 걸려다 실패한다. `what` 이 없으면 종류에서 채운다
+        (`selection_query`)."""
+        want = ENTITY_WHAT.get(self.entity)
+        if want is None:
+            return self
+        members = self.select.get("any")
+        rules = members if isinstance(members, list) else [self.select]
+        given = {str(one["what"]) for one in rules if isinstance(one, dict) and "what" in one}
+        if given - {want}:
+            raise ValueError(
+                f"선택 그룹 ‘{self.name}’은(는) {self.entity} 그룹인데 규칙이 "
+                f"{', '.join(sorted(given))}을(를) 고릅니다. entity와 select.what을 "
+                "맞추십시오."
+            )
+        return self
 
 
 # ── 물성 ──────────────────────────────────────────────────────────────────────

@@ -109,7 +109,7 @@ class Settings(BaseSettings):
     doe_max_samples: int = 500
     """LHS 표본 수 상한의 .env 기본값. 설계점 상한이 먼저 걸리므로 그보다 크게 둘 뜻은 없다."""
 
-    doe_export_root: Path = Path("/mnt/f/data/0_Program/73_AutoJigGenerator")
+    doe_export_root: Path = Path("/mnt/f/data/0_Program/73_CompCore")
     r"""실험계획(DOE)이 STEP · manifest 를 쏟아 놓는 **공유 폴더**. 해석(ANSYS)을 도는 쪽이 이
     폴더를 그대로 읽는다. 서버가 WSL 이면 `/mnt/f/...`, 화면에는 `F:\...` 로 보여 준다.
     폴더가 없거나 못 쓰면 DOE 를 만들 때 그 사실을 말한다 — 조용히 로컬에 쓰지 않는다."""

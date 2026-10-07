@@ -1466,3 +1466,57 @@ def test_설계점마다_중간면도_내보낸다(
     assert topo["midsurface"]["bodies"][0]["thickness"] == 4
     assert topo["midsurface"]["area"] == pytest.approx(100 * 40)
     assert "_mid.step" in (folder / "README.txt").read_text(encoding="utf-8")
+
+
+def test_what_없이_면으로_선언한_그룹은_면_지문으로_나간다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    """`entity: face` 에 `{"role": "bottom"}` 만 적은 그룹 — MCP · API 로 쓴 조건에서 흔하다.
+    예전에는 질의의 기본(엣지)으로 풀려 해석 쪽이 면 조건을 못 걸었다(SimEngBay 보고,
+    2026-10-05)."""
+    conditions = {
+        "named_selections": [{"name": "바닥", "entity": "face", "select": {"role": "bottom"}}],
+        "constraints": [{"name": "고정", "type": "fixed_support", "on": "바닥"}],
+        "analysis": {"type": "modal", "modes": 6},
+    }
+    made = client.post(
+        "/api/doe",
+        json={"name": "면 그룹", "recipe": JIG, "conditions": conditions},
+        headers=member.headers,
+    )
+    assert made.status_code == 201, made.text
+    sent = client.post(f"/api/doe/{made.json()['id']}/export", headers=member.headers)
+    assert sent.status_code == 200, sent.text
+    folder = next(export_root.iterdir())
+    point = json.loads((folder / "points" / "p0001.json").read_text(encoding="utf-8"))
+    prints = point["regions"]["바닥"]
+    assert len(prints) == 1 and "centroid" in prints[0] and "midpoint" not in prints[0]
+
+
+def test_물성_사전을_못_받으면_등록_재료의_설계점에_경고가_남는다(
+    client: TestClient, member: Signed, export_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """등록 재료의 물성 줄은 한글 이름뿐이라 표준 열쇠를 사전이 붙인다. 사전이 없으면 해석
+    쪽이 영률을 못 읽는다 — 조용히 내보내지 않고 점마다 말한다(SimEngBay 보고, 2026-10-05)."""
+    from app.shared.clients import matnexus
+    from tests.api.test_fixture_export import _material
+
+    monkeypatch.setattr(matnexus, "property_keys", lambda: {})
+    conditions = {
+        "named_selections": [
+            {"name": "바닥", "entity": "face", "select": {"what": "faces", "role": "bottom"}}
+        ],
+        "constraints": [{"name": "고정", "type": "fixed_support", "on": "바닥"}],
+        "materials": [_material("M-000158", ["전체"])],
+        "analysis": {"type": "modal", "modes": 6},
+    }
+    made = client.post(
+        "/api/doe",
+        json={"name": "사전 없음", "recipe": JIG, "conditions": conditions},
+        headers=member.headers,
+    )
+    assert made.status_code == 201, made.text
+    sent = client.post(f"/api/doe/{made.json()['id']}/export", headers=member.headers)
+    assert sent.status_code == 200, sent.text
+    manifest = (next(export_root.iterdir()) / "manifest.csv").read_text(encoding="utf-8-sig")
+    assert "표준 열쇠를 붙이지 못했습니다" in manifest

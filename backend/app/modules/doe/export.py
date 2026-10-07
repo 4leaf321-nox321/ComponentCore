@@ -2,7 +2,7 @@
 
 폴더 하나가 곧 한 번의 DOE 다:
 
-    73_AutoJigGenerator/브래킷_튜닝-3f9a21/
+    73_CompCore/브래킷_튜닝-3f9a21/
     ├─ manifest.csv   설계점 · 바꾼 변수 값 · 파일 이름 · 상태
     ├─ study.json     기준 레시피 · 인자 정의 · 시드(같은 표를 다시 만들 때)
     ├─ README.txt     사람이 열어 볼 한 장
