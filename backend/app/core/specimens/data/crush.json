@@ -1,0 +1,25 @@
+[
+  {
+    "id": "iec-62133-2-crush",
+    "test": "crush",
+    "standard": "IEC 62133-2",
+    "name": "IEC 62133-2 전지 압착 13 kN",
+    "setup": {
+      "force": 13000
+    },
+    "source": "IEC 62133-2: 충전된 전지를 평판 둘 사이에서 13 ± 1 kN 으로 압착(everexceed.com 요약 — 규격서 대조 필요)",
+    "verified": false,
+    "note": "누르는 방향은 전지에 가장 불리한 쪽입니다. 3D에서 누를 면을 고르면 그 반대쪽 끝 면이 받침입니다."
+  },
+  {
+    "id": "un-38.3-t6-crush",
+    "test": "crush",
+    "standard": "UN 38.3",
+    "name": "UN 38.3 T.6 압착 13 kN",
+    "setup": {
+      "force": 13000
+    },
+    "source": "UN 38.3 T.6: 평판 둘 사이에서 13 ± 0.78 kN 까지 압착(또는 두께 50 % 변형) — 대조 필요",
+    "verified": false
+  }
+]

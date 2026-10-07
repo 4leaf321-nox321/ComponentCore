@@ -1,0 +1,53 @@
+[
+  {
+    "id": "iec-60068-2-6-150-1g",
+    "test": "vibration",
+    "standard": "IEC 60068-2-6",
+    "name": "IEC 60068-2-6 정현파 10~150 Hz, 1 g",
+    "setup": {
+      "freq_min": 10,
+      "freq_max": 150,
+      "acceleration_g": 1,
+      "damping_ratio": 0.02,
+      "modes": 20,
+      "points": 100
+    },
+    "source": "IEC 60068-2-6: 심각도 표의 주파수 범위 10~150 Hz와 가속도 진폭 10 m/s²(약 1 g) 조합",
+    "verified": false,
+    "note": "교차 주파수 아래의 변위 일정 구간은 나타내지 않고 가속도를 일정하게 둡니다."
+  },
+  {
+    "id": "iec-60068-2-6-500-2g",
+    "test": "vibration",
+    "standard": "IEC 60068-2-6",
+    "name": "IEC 60068-2-6 정현파 10~500 Hz, 2 g",
+    "setup": {
+      "freq_min": 10,
+      "freq_max": 500,
+      "acceleration_g": 2,
+      "damping_ratio": 0.02,
+      "modes": 30,
+      "points": 150
+    },
+    "source": "IEC 60068-2-6: 심각도 표의 주파수 범위 10~500 Hz와 가속도 진폭 20 m/s²(약 2 g) 조합",
+    "verified": false,
+    "note": "교차 주파수 아래의 변위 일정 구간은 나타내지 않고 가속도를 일정하게 둡니다."
+  },
+  {
+    "id": "iec-60068-2-6-2000-5g",
+    "test": "vibration",
+    "standard": "IEC 60068-2-6",
+    "name": "IEC 60068-2-6 정현파 10~2000 Hz, 5 g",
+    "setup": {
+      "freq_min": 10,
+      "freq_max": 2000,
+      "acceleration_g": 5,
+      "damping_ratio": 0.02,
+      "modes": 40,
+      "points": 200
+    },
+    "source": "IEC 60068-2-6: 심각도 표의 주파수 범위 10~2000 Hz와 가속도 진폭 50 m/s²(약 5 g) 조합",
+    "verified": false,
+    "note": "휴대·차량 기기처럼 가혹한 조건입니다. 교차 주파수 아래의 변위 일정 구간은 나타내지 않습니다."
+  }
+]

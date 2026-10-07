@@ -1,0 +1,39 @@
+[
+  {
+    "id": "astm-d5961-a",
+    "test": "fastener",
+    "standard": "ASTM D5961",
+    "name": "ASTM D5961 Procedure A 핀 베어링 (이중 전단)",
+    "family": "bearing",
+    "specimen": {
+      "length": 135,
+      "width": 36,
+      "thickness": 4,
+      "hole_diameter": 6,
+      "edge_distance": 18,
+      "grip_length": 50
+    },
+    "source": "ASTM D5961 Procedure A: 길이 135, 폭 36, 구멍 지름 6, 끝 거리/지름 3, 폭/지름 6",
+    "verified": false,
+    "note": "두께 4 · 그립 50 mm 는 예시입니다. 이중 전단 지그는 강체 핀으로 근사했습니다."
+  },
+  {
+    "id": "astm-d7332-example",
+    "test": "fastener",
+    "standard": "ASTM D7332",
+    "name": "ASTM D7332 체결구 뽑힘 (예시)",
+    "family": "pull_through",
+    "specimen": {
+      "length": 100,
+      "width": 100,
+      "thickness": 4,
+      "hole_diameter": 6.35,
+      "head_diameter": 12.7,
+      "head_height": 3,
+      "support_diameter": 50
+    },
+    "source": "ASTM D7332: 판에 수직으로 체결구를 당겨 뽑힘 저항을 잰다. 판 · 구멍 · 머리 · 받침 치수는 예시값 — 규격서로 대조",
+    "verified": false,
+    "note": "판 둘레를 위아래 고리로 물고 체결구를 아래로 당깁니다."
+  }
+]

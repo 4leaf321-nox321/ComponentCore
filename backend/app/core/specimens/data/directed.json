@@ -1,0 +1,63 @@
+[
+  {
+    "id": "iec-60335-1-cord-1kg",
+    "test": "directed",
+    "standard": "IEC 60335-1",
+    "name": "IEC 60335-1 코드 고정 — 1 kg 이하 (30 N, 0.1 N·m)",
+    "setup": {
+      "force": 30,
+      "torque": 0.1
+    },
+    "source": "IEC 60335-1 25.15 표: 기기 1 kg 이하 당김 30 N, 비틀림 0.1 N·m — 대조 필요",
+    "verified": false,
+    "note": "코드가 들어가는 자리(부싱 · 고정부)를 3D에서 고르고, 방향은 코드가 빠지는 쪽입니다."
+  },
+  {
+    "id": "iec-60335-1-cord-4kg",
+    "test": "directed",
+    "standard": "IEC 60335-1",
+    "name": "IEC 60335-1 코드 고정 — 1~4 kg (60 N, 0.25 N·m)",
+    "setup": {
+      "force": 60,
+      "torque": 0.25
+    },
+    "source": "IEC 60335-1 25.15 표: 기기 1 kg 초과 4 kg 이하 당김 60 N, 비틀림 0.25 N·m — 대조 필요",
+    "verified": false
+  },
+  {
+    "id": "iec-60335-1-cord-heavy",
+    "test": "directed",
+    "standard": "IEC 60335-1",
+    "name": "IEC 60335-1 코드 고정 — 4 kg 초과 (100 N, 0.35 N·m)",
+    "setup": {
+      "force": 100,
+      "torque": 0.35
+    },
+    "source": "IEC 60335-1 25.15 표: 기기 4 kg 초과 당김 100 N, 비틀림 0.35 N·m — 대조 필요",
+    "verified": false
+  },
+  {
+    "id": "usb-type-c-wrench-updown",
+    "test": "directed",
+    "standard": "USB Type-C",
+    "name": "USB Type-C 렌칭 — 위아래 2.0 N·m",
+    "setup": {
+      "torque": 2.0
+    },
+    "source": "USB Type-C 렌칭 시험(ECN): 리셉터클 끝에서 15 mm 자리에 수직 힘, 위아래 방향 모멘트 2.0 N·m — 대조 필요",
+    "verified": false,
+    "note": "리셉터클 면을 3D에서 고르고, 방향은 모멘트 축(플러그 축에 수직인 가로 축)입니다."
+  },
+  {
+    "id": "usb-type-c-wrench-side",
+    "test": "directed",
+    "standard": "USB Type-C",
+    "name": "USB Type-C 렌칭 — 좌우 3.5 N·m",
+    "setup": {
+      "torque": 3.5
+    },
+    "source": "USB Type-C 렌칭 시험(ECN): 좌우 방향 모멘트 3.5 N·m — 대조 필요",
+    "verified": false,
+    "note": "리셉터클 면을 3D에서 고르고, 방향은 모멘트 축(플러그 축에 수직인 세로 축)입니다."
+  }
+]

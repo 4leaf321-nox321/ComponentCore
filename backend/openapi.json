@@ -7867,6 +7867,92 @@
           }
         }
       }
+    },
+    "/api/specimens/product-tests": {
+      "post": {
+        "tags": [
+          "specimens"
+        ],
+        "summary": "Apply Product Test",
+        "description": "**제품에 시험 규격을 건다** — 정하중 · 손잡이·벽걸이 · 적층 압축 · 비틀림 · 정현파\n진동 · 고유진동수. 제품 레시피를 그대로 쓴 새 내 작업에 시험 변수 · 하중 자리 · 구속 ·\n하중 · 해석 설정을 붙인다. 제품의 물성 · 접촉 · 파트별 설정은 그대로 가져온다. 자리는\n기본이 아랫면 받침 · 윗면 하중이고, `faces` 로 3D 에서 고른 면을 준다.",
+        "operationId": "apply_product_test_api_specimens_product_tests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/specimens/product-mesh": {
+      "post": {
+        "tags": [
+          "specimens"
+        ],
+        "summary": "Product Mesh",
+        "description": "제품의 면 · 엣지 메시와 요약 — 「제품에 적용」 이 3D 에서 고정 면 · 누를 면을\n고르게. 내 부품 작업은 주인 · 관리자만, 공용 부품은 누구나.",
+        "operationId": "product_mesh_api_specimens_product_mesh_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductSourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Product Mesh Api Specimens Product Mesh Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -8479,6 +8565,58 @@
         "type": "object",
         "title": "ExtendRequest",
         "description": "이미 만든 DOE 에 **점을 더한다** — 번호를 이어서, 같은 폴더에."
+      },
+      "FacePickIn": {
+        "properties": {
+          "point": {
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array",
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Point"
+          },
+          "normal": {
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array",
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Normal"
+          },
+          "kind": {
+            "type": "string",
+            "maxLength": 20,
+            "minLength": 1,
+            "title": "Kind",
+            "default": "plane"
+          }
+        },
+        "type": "object",
+        "required": [
+          "point",
+          "normal"
+        ],
+        "title": "FacePickIn",
+        "description": "3D 에서 고른 면 — 누른 점, 그 자리의 법선, 면 종류(`plane` · `cylinder` …). 평면은\n「이 방향을 보는 면 중 이 점에서 가장 가까운 것」, 곡면은 「이 종류의 면 중 가장 가까운\n것」 으로 적힌다."
       },
       "FactorIn": {
         "properties": {
@@ -10732,6 +10870,164 @@
         "title": "ProbeRequest",
         "description": "「미리 만들어 보기」 — 만들 때와 같은 도면 · 인자 · 제약 · 조건으로 끝 점 몇 개만."
       },
+      "ProductSourceRequest": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "pattern": "^(work|part):[0-9a-fA-F-]{36}$",
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "title": "ProductSourceRequest",
+        "description": "제품의 형상을 본다 — 「제품에 적용」 이 3D 에서 면을 고르게."
+      },
+      "ProductTestRequest": {
+        "properties": {
+          "preset_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Preset Id"
+          },
+          "source": {
+            "type": "string",
+            "pattern": "^(work|part):[0-9a-fA-F-]{36}$",
+            "title": "Source"
+          },
+          "x": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "X"
+          },
+          "y": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Y"
+          },
+          "z": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Z"
+          },
+          "axis": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "x",
+                  "y",
+                  "z"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Axis"
+          },
+          "faces": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/FacePickIn"
+              },
+              "type": "array",
+              "maxItems": 20
+            },
+            "propertyNames": {
+              "enum": [
+                "support",
+                "load",
+                "twist"
+              ]
+            },
+            "type": "object",
+            "title": "Faces"
+          },
+          "mass": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mass"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array",
+                "maxItems": 3,
+                "minItems": 3
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "folder": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Folder",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "preset_id",
+          "source"
+        ],
+        "title": "ProductTestRequest",
+        "description": "제품에 시험 규격을 건다 — 정하중 · 방향 하중 · 손잡이·벽걸이 · 압착 · 적층 압축 · 수압 ·\n비틀림 · 등가 가속도 · 진동 · 고유진동수. 제품 레시피는 그대로 쓰고 시험만 더한 새 작업."
+      },
       "ProfileUpdateRequest": {
         "properties": {
           "display_name": {
@@ -11326,6 +11622,14 @@
             ],
             "title": "Thickness"
           },
+          "dimensions": {
+            "additionalProperties": {
+              "type": "number",
+              "exclusiveMinimum": 0.0
+            },
+            "type": "object",
+            "title": "Dimensions"
+          },
           "fixture": {
             "type": "boolean",
             "title": "Fixture",
@@ -11386,6 +11690,14 @@
               }
             ],
             "title": "Thickness"
+          },
+          "dimensions": {
+            "additionalProperties": {
+              "type": "number",
+              "exclusiveMinimum": 0.0
+            },
+            "type": "object",
+            "title": "Dimensions"
           },
           "fixture": {
             "type": "boolean",

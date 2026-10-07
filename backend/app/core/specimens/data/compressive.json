@@ -1,0 +1,158 @@
+[
+  {
+    "id": "astm-d695-prism",
+    "test": "compressive",
+    "standard": "ASTM D695",
+    "name": "ASTM D695 각기둥 (강도) 12.7 x 12.7 x 25.4",
+    "family": "prism",
+    "specimen": {
+      "length": 25.4,
+      "width": 12.7,
+      "thickness": 12.7
+    },
+    "source": "ASTM D695: 강도용 각기둥 12.7 x 12.7 x 25.4 mm",
+    "verified": false
+  },
+  {
+    "id": "astm-d695-modulus",
+    "test": "compressive",
+    "standard": "ASTM D695",
+    "name": "ASTM D695 각기둥 (탄성률) 12.7 x 12.7 x 50.8",
+    "family": "prism",
+    "specimen": {
+      "length": 50.8,
+      "width": 12.7,
+      "thickness": 12.7
+    },
+    "source": "ASTM D695: 탄성률용 각기둥 12.7 x 12.7 x 50.8 mm",
+    "verified": false
+  },
+  {
+    "id": "astm-d695-cylinder",
+    "test": "compressive",
+    "standard": "ASTM D695",
+    "name": "ASTM D695 원기둥 지름 12.7 x 25.4",
+    "family": "cylinder",
+    "specimen": {
+      "length": 25.4,
+      "width": 12.7
+    },
+    "source": "ASTM D695: 원기둥 지름 12.7, 길이 25.4 mm",
+    "verified": false
+  },
+  {
+    "id": "iso-604-strength",
+    "test": "compressive",
+    "standard": "ISO 604",
+    "name": "ISO 604 각기둥 (강도) 10 x 10 x 4",
+    "family": "prism",
+    "specimen": {
+      "length": 10,
+      "width": 10,
+      "thickness": 4
+    },
+    "source": "ISO 604: 강도용 시편 길이 10, 폭 10, 두께 4 mm",
+    "verified": false
+  },
+  {
+    "id": "iso-604-modulus",
+    "test": "compressive",
+    "standard": "ISO 604",
+    "name": "ISO 604 각기둥 (탄성률) 50 x 10 x 4",
+    "family": "prism",
+    "specimen": {
+      "length": 50,
+      "width": 10,
+      "thickness": 4
+    },
+    "source": "ISO 604: 탄성률용 시편 길이 50, 폭 10, 두께 4 mm",
+    "verified": false
+  },
+  {
+    "id": "astm-e9-short",
+    "test": "compressive",
+    "standard": "ASTM E9",
+    "name": "ASTM E9 짧은 원기둥 지름 30 x 25",
+    "family": "cylinder",
+    "specimen": {
+      "length": 25,
+      "width": 30
+    },
+    "source": "ASTM E9 표: 짧은 시편 지름 30, 길이 25 (L/D 약 0.8)",
+    "verified": false
+  },
+  {
+    "id": "astm-e9-medium",
+    "test": "compressive",
+    "standard": "ASTM E9",
+    "name": "ASTM E9 중간 원기둥 지름 13 x 38",
+    "family": "cylinder",
+    "specimen": {
+      "length": 38,
+      "width": 13
+    },
+    "source": "ASTM E9 표: 중간 시편 지름 13, 길이 38 (L/D 약 3)",
+    "verified": false
+  },
+  {
+    "id": "astm-e9-long",
+    "test": "compressive",
+    "standard": "ASTM E9",
+    "name": "ASTM E9 긴 원기둥 지름 20 x 160",
+    "family": "cylinder",
+    "specimen": {
+      "length": 160,
+      "width": 20
+    },
+    "source": "ASTM E9 표: 긴 시편 지름 20, 길이 160 (L/D 8)",
+    "verified": false,
+    "note": "긴 시편은 좌굴을 보는 시험입니다. 정적 해석은 좌굴을 보이지 않습니다."
+  },
+  {
+    "id": "astm-d6641",
+    "test": "compressive",
+    "standard": "ASTM D6641",
+    "name": "ASTM D6641 복합재 압축 (CLC) 140 x 12",
+    "family": "strip",
+    "specimen": {
+      "length": 140,
+      "width": 12,
+      "thickness": 3,
+      "grip_length": 63.5
+    },
+    "source": "ASTM D6641: 길이 140, 폭 12, 두께 2~4(예시 3), 자유 길이 13 mm (CLC 지그)",
+    "verified": false
+  },
+  {
+    "id": "iso-14126-a1",
+    "test": "compressive",
+    "standard": "ISO 14126",
+    "name": "ISO 14126 Type A1 복합재 압축 110 x 10",
+    "family": "strip",
+    "specimen": {
+      "length": 110,
+      "width": 10,
+      "thickness": 2,
+      "grip_length": 50
+    },
+    "source": "ISO 14126 Type A1: 110 x 10 x 2, 표점(자유) 길이 10 mm",
+    "verified": false
+  },
+  {
+    "id": "astm-d6484",
+    "test": "compressive",
+    "standard": "ASTM D6484",
+    "name": "ASTM D6484 오픈홀 압축 (36 x 300, 구멍 6)",
+    "family": "open_hole",
+    "specimen": {
+      "length": 300,
+      "width": 36,
+      "thickness": 4,
+      "grip_length": 75,
+      "hole_diameter": 6
+    },
+    "source": "ASTM D6484: 폭 36, 길이 300, 구멍 지름 6, 두께 3~5(예시 4)",
+    "verified": false,
+    "note": "규격의 지지 지그(좌굴 방지판)는 그리지 않고 양 끝을 그립으로 물었습니다(그립 75 mm 는 예시)."
+  }
+]

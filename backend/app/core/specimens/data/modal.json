@@ -1,0 +1,60 @@
+[
+  {
+    "id": "iec-60068-2-6-vri-150",
+    "test": "modal",
+    "standard": "IEC 60068-2-6",
+    "name": "IEC 60068-2-6 진동 응답 조사 10~150 Hz",
+    "setup": {
+      "modes": 20,
+      "freq_min": 10,
+      "freq_max": 150,
+      "support": "fixed"
+    },
+    "source": "IEC 60068-2-6 진동 응답 조사(공진 탐색): 시험 주파수 범위 10~150 Hz 안의 공진을 찾는다",
+    "verified": false,
+    "note": "공진 탐색 소인을 모달 해석으로 대신합니다."
+  },
+  {
+    "id": "iec-60068-2-6-vri-500",
+    "test": "modal",
+    "standard": "IEC 60068-2-6",
+    "name": "IEC 60068-2-6 진동 응답 조사 10~500 Hz",
+    "setup": {
+      "modes": 30,
+      "freq_min": 10,
+      "freq_max": 500,
+      "support": "fixed"
+    },
+    "source": "IEC 60068-2-6 진동 응답 조사(공진 탐색): 시험 주파수 범위 10~500 Hz",
+    "verified": false,
+    "note": "공진 탐색 소인을 모달 해석으로 대신합니다."
+  },
+  {
+    "id": "iec-60068-2-6-vri-2000",
+    "test": "modal",
+    "standard": "IEC 60068-2-6",
+    "name": "IEC 60068-2-6 진동 응답 조사 10~2000 Hz",
+    "setup": {
+      "modes": 50,
+      "freq_min": 10,
+      "freq_max": 2000,
+      "support": "fixed"
+    },
+    "source": "IEC 60068-2-6 진동 응답 조사(공진 탐색): 시험 주파수 범위 10~2000 Hz",
+    "verified": false,
+    "note": "공진 탐색 소인을 모달 해석으로 대신합니다."
+  },
+  {
+    "id": "astm-e1876-free",
+    "test": "modal",
+    "standard": "ASTM E1876",
+    "name": "ASTM E1876 자유-자유 공진 (충격 가진)",
+    "setup": {
+      "modes": 6,
+      "support": "free"
+    },
+    "source": "ASTM E1876: 자유-자유로 지지한 시편의 굽힘 · 비틀림 공진 주파수(충격 가진)",
+    "verified": false,
+    "note": "탄성 모드 6개와 강체 모드 6개를 구합니다."
+  }
+]

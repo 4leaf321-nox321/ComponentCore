@@ -1,0 +1,41 @@
+[
+  {
+    "id": "ista-stack-5x3",
+    "test": "compression",
+    "standard": "ISTA",
+    "name": "ISTA 적재 하중식 — 5단 · 계수 3 (예시)",
+    "setup": {
+      "layers": 5,
+      "factor": 3
+    },
+    "source": "ISTA 절차의 적재 하중식 Wt × (S − 1) × F(support.ista.org). 단수 S와 계수 F는 예시값 — 해당 절차서로 대조",
+    "verified": false,
+    "note": "제품 무게(kg)는 적용할 때 입력합니다."
+  },
+  {
+    "id": "astm-d642-2700x3",
+    "test": "compression",
+    "standard": "ASTM D642",
+    "name": "ASTM D642 적재 높이 2.7 m · 계수 3 (예시)",
+    "setup": {
+      "stack_height": 2700,
+      "factor": 3
+    },
+    "source": "ASTM D642(압축 시험 방법 — 하중은 정하지 않음). 적재 높이식 무게 × (H − h) / h × F, 높이와 계수는 예시값",
+    "verified": false,
+    "note": "제품 무게(kg)는 적용할 때 입력합니다. 제품 높이 h는 형상의 높이(Z)입니다."
+  },
+  {
+    "id": "iso-12048-2500x1.5",
+    "test": "compression",
+    "standard": "ISO 12048",
+    "name": "ISO 12048 적재 높이 2.5 m · 계수 1.5 (예시)",
+    "setup": {
+      "stack_height": 2500,
+      "factor": 1.5
+    },
+    "source": "ISO 12048(압축 · 적재 시험 방법 — 하중은 사용자가 정함). 높이와 계수는 예시값",
+    "verified": false,
+    "note": "제품 무게(kg)는 적용할 때 입력합니다."
+  }
+]

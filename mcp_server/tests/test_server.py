@@ -59,6 +59,7 @@ def test_사람이_손으로_하는_일이_도구로_다_있다() -> None:
         "import_standard_parts",  # 운영 서버로 — 미리 보기 먼저
         "list_test_presets",  # 시험 규격 — 공개 · 사내
         "create_specimen_work",  # 규격으로 시편 · 시험 지그 · 해석 조건
+        "apply_product_test",  # 제품에 정하중 · 방향 하중 · 압착 · 수압 · 가속도 · 진동 등
         "save_test_preset",  # 사내 규격 — 관리자
         "delete_test_preset",
         "jig_options",

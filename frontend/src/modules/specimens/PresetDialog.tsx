@@ -58,7 +58,7 @@ function radiusOf(form: RadiusForm): Radius {
   return [{ max_thickness: Number(form.upTo), radius: Number(form.thin) }, { radius }]
 }
 
-function formOf(row: PresetRow, mode: 'copy' | 'edit'): Form {
+function formOf(row: PresetRow<BendingPreset>, mode: 'copy' | 'edit'): Form {
   const preset = row.preset
   const setup = preset.setup
   return {
@@ -109,7 +109,7 @@ function presetOf(form: Form): Omit<BendingPreset, 'id'> {
 
 const SELECT = 'bg-background h-9 w-full rounded-md border px-2 text-sm'
 
-export function PresetDialog({ row, mode, onClose, onSaved }: { row: PresetRow; mode: 'copy' | 'edit'; onClose: () => void; onSaved: () => void }) {
+export function PresetDialog({ row, mode, onClose, onSaved }: { row: PresetRow<BendingPreset>; mode: 'copy' | 'edit'; onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState<Form>(() => formOf(row, mode))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<Error | null>(null)
@@ -138,7 +138,7 @@ export function PresetDialog({ row, mode, onClose, onSaved }: { row: PresetRow; 
     </div>
   )
   const radius = (key: 'support' | 'nose', label: string) => (
-    <div className="grid grid-cols-3 gap-2">
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
       {(['radius', 'thin', 'upTo'] as const).map((part) => (
         <div key={part} className="space-y-1">
           <Label htmlFor={`preset-${key}-${part}`}>{part === 'radius' ? `${label} (mm)` : part === 'thin' ? '얇은 시편 반지름 (선택)' : '적용 두께 이하 (mm)'}</Label>
@@ -174,7 +174,7 @@ export function PresetDialog({ row, mode, onClose, onSaved }: { row: PresetRow; 
             {input('standard', '규격 번호', 'text')}
             {input('name', '이름', 'text')}
           </div>
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="space-y-1">
               <Label htmlFor="preset-points">방식</Label>
               <select id="preset-points" className={SELECT} value={form.points} onChange={(event) => set('points', event.target.value as '3' | '4')}>
@@ -186,7 +186,7 @@ export function PresetDialog({ row, mode, onClose, onSaved }: { row: PresetRow; 
             {input('width', '시편 폭 (mm)')}
             {input('thickness', '시편 두께 (mm)')}
           </div>
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="space-y-1">
               <Label htmlFor="preset-spanMode">지지 간격</Label>
               <select id="preset-spanMode" className={SELECT} value={form.spanMode} onChange={(event) => set('spanMode', event.target.value as 'ratio' | 'value')}>
@@ -210,7 +210,7 @@ export function PresetDialog({ row, mode, onClose, onSaved }: { row: PresetRow; 
           </div>
           {radius('support', '지지 반지름')}
           {radius('nose', '노즈 반지름')}
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {input('overhangRatio', '최소 돌출 (지지 간격의 비)')}
             {input('overhangMin', '최소 돌출 (mm)')}
             {input('strain', '해석 변형률')}

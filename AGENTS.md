@@ -112,7 +112,10 @@
   (ADR 0006): 공개 규격(ASTM · ISO)은 `core/specimens/data/<시험>.json`, 사내 규격은 DB
   (`specimen_presets`, 관리자). **회사 · 고객 규격을 저장소에 넣지 않는다** — 저장소가 공개다.
 - 공개 규격의 값을 고치면 `source` 도 고치고, 규격서와 대조했으면 `verified: true`. 데이터 파일의
-  프리셋은 전부 `tests/unit/test_core_specimens.py` 가 그려 보고 조건까지 검증한다.
+  프리셋은 전부 테스트가 그려 보고 조건까지 검증한다(굽힘 `test_core_specimens.py`, 인장 · 전단 ·
+  이음 `test_core_coupons.py`, 제품 시험 `test_core_product_tests.py`).
+- 시험 종류를 더하면: 프리셋 모델(`presets.py` 의 `TESTS` · 합친 타입), `data/<시험>.json`, 생성기
+  (시편) 또는 `product.py` 의 갈래(제품), 화면의 종류 정의(`frontend/.../specimens/kinds.ts`) 한 벌.
 - 지그 생성기는 시편 템플릿과 **같은 규칙 함수**(`specimens.bending`)를 쓴다. 코어는 DB 를 모르므로
   서버가 고른 규격의 규칙을 `JigOptions.bending_setup` 에 값으로 채운다(`works._jig_options`).
 

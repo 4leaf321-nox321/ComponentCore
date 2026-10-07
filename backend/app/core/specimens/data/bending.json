@@ -214,5 +214,89 @@
     "source": "규격이 아닌 장비 예시(SpaceClaim 애드인 기본값): 100 x 10 x 4, 지지 간격 80, 하중 간격 40",
     "verified": false,
     "note": "DMA 치구는 장비마다 다릅니다. 사용하는 장비의 값으로 사내 규격을 만드십시오."
+  },
+  {
+    "id": "jesd22-b113",
+    "standard": "JESD22-B113",
+    "name": "JESD22-B113 보드 굽힘 (4점, 반복)",
+    "specimen": {"length": 132, "width": 77, "thickness": 1.0},
+    "setup": {
+      "points": 4,
+      "span": {"value": 110},
+      "load_span": {"value": 75},
+      "support_radius": 3.0,
+      "nose_radius": 3.0
+    },
+    "analysis": {"strain": 0.002, "friction": 0.1},
+    "source": "JESD22-B113: JEDEC 시험 보드 132 x 77 mm(두께 1.0 mm), 지지 간격 110 mm, 하중 간격 75 mm의 4점 굽힘. 앤빌 반지름 3 mm 는 근사값",
+    "verified": false,
+    "note": "보드 변형률은 마이크로스트레인으로 관리합니다. 해석 기본 변형률 0.2 %(2000 με)는 임의 값입니다."
+  },
+  {
+    "id": "ipc-jedec-9702",
+    "standard": "IPC/JEDEC-9702",
+    "name": "IPC/JEDEC-9702 보드 굽힘 (4점, 단조)",
+    "specimen": {"length": 132, "width": 77, "thickness": 1.0},
+    "setup": {
+      "points": 4,
+      "span": {"value": 110},
+      "load_span": {"value": 75},
+      "support_radius": 3.0,
+      "nose_radius": 3.0
+    },
+    "analysis": {"strain": 0.002, "friction": 0.1},
+    "source": "IPC/JEDEC-9702: 보드 단조 4점 굽힘. 보드 크기와 지지·하중 간격은 JESD22-B113 과 같은 값으로 둔 근사",
+    "verified": false,
+    "note": "보드 설계에 맞는 간격으로 사내 규격을 만드십시오."
+  },
+  {
+    "id": "phone-3pt-example",
+    "standard": "스마트폰 (예시)",
+    "name": "스마트폰 3점 굽힘 (예시, 공개 규격 아님)",
+    "specimen": {"length": 150, "width": 72, "thickness": 8},
+    "setup": {
+      "points": 3,
+      "span": {"value": 100},
+      "support_radius": 5.0,
+      "nose_radius": 5.0
+    },
+    "analysis": {"strain": 0.005, "friction": 0.1},
+    "source": "공개 규격이 아닌 예시: 일반적인 스마트폰 크기, 지지 간격 100 mm, 지지·노즈 반지름 5 mm",
+    "verified": false,
+    "note": "사내 규격으로 복사해 값을 맞추십시오. 실제 제품에는 지그 생성의 굽힘 픽스처에서 이 규격을 선택해 적용합니다."
+  },
+  {
+    "id": "astm-d2344",
+    "standard": "ASTM D2344",
+    "name": "ASTM D2344 숏빔 전단 (층간 전단, 4:1)",
+    "specimen": {"length": 24, "width": 8, "thickness": 4},
+    "setup": {
+      "points": 3,
+      "span": {"to_thickness": 4},
+      "support_radius": 1.5,
+      "nose_radius": 3.0,
+      "overhang": {"to_span": 0.25, "min": 0}
+    },
+    "analysis": {"strain": 0.02, "friction": 0.1},
+    "source": "ASTM D2344: 시편 길이 6 x 두께, 폭 2 x 두께, 지지 간격 4 x 두께, 노즈 지름 6 mm, 지지 지름 3 mm",
+    "verified": false,
+    "note": "처짐 식은 가는 보의 식이라 짧은 보에서는 근사입니다. 층간 전단 강도는 0.75 x 하중 / (폭 x 두께)로 구합니다."
+  },
+  {
+    "id": "iso-14130",
+    "standard": "ISO 14130",
+    "name": "ISO 14130 숏빔 전단 (층간 전단, 5:1)",
+    "specimen": {"length": 20, "width": 10, "thickness": 2},
+    "setup": {
+      "points": 3,
+      "span": {"to_thickness": 5},
+      "support_radius": 2.0,
+      "nose_radius": 5.0,
+      "overhang": {"to_span": 0.5, "min": 0}
+    },
+    "analysis": {"strain": 0.02, "friction": 0.1},
+    "source": "ISO 14130: 시편 20 x 10 x 2 (길이 10h, 폭 5h), 지지 간격 5h, 노즈 반지름 5 mm, 지지 반지름 2 mm",
+    "verified": false,
+    "note": "처짐 식은 가는 보의 식이라 짧은 보에서는 근사입니다."
   }
 ]

@@ -161,7 +161,7 @@ curl -X POST -H "Authorization: Bearer <PAT>" "http://<호스트>/api/doe/<id>/r
 | `cad` | 레시피 검증 · 평가 · 질의 · 셀렉터 후보 · 조건 사양표. **대부분 아무것도 저장하지 않는다** |
 | `doe` | 위 3장. 남의 공개 DOE 를 이어서 하려면 `POST /doe/{id}/clone` — 같은 설계점 · 조건으로 내 DOE 를 새로 만든다(원본은 그대로) |
 | `materials` | 물성 — MatNexus 중계, 못 닿으면 올려 둔 카탈로그(`fallback`) |
-| `specimens` | 시험 규격 — 공개(코드) · 사내(DB, 관리자) 프리셋 목록, `POST /specimens/works` 가 시편 · 시험 지그 · 해석 조건이 붙은 내 작업을 만든다(`시험-규격-설계.md`) |
+| `specimens` | 시험 규격 — 공개(코드) · 사내(DB, 관리자) 프리셋 목록, `POST /specimens/works` 가 시편(굽힘 · 인장 · 압축 · 전단 · 접착 이음 · 체결부 — 치수는 `dimensions`) · 시험 지그 · 해석 조건이 붙은 내 작업을 만든다. 제품 시험(정하중 · 방향 하중 · 손잡이 · 압착 · 적층 압축 · 수압 · 비틀림 · 등가 가속도 · 진동 · 고유진동수)은 `POST /specimens/product-tests` 가 제품(작업 · 공용 부품)에 건다 — 3D 에서 고른 면(`faces`, 방향 하중은 `direction` 도)은 `POST /specimens/product-mesh` 로 본 제품에서(`시험-규격-설계.md`) |
 | `jobs` | 작업 큐 |
 | `accounts` · `server` | 관리자용 |
 | `system` | `GET /health` — 살아 있나 · 버전 |

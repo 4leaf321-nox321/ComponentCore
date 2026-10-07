@@ -48,7 +48,7 @@ def test_공개_규격은_누구나_보고_검토_전임을_말한다(
 ) -> None:
     listed = _ok(client.get("/api/specimens/presets?test=bending", headers=member.headers))
     builtin = [one for one in listed if one["origin"] == "builtin"]
-    assert len(builtin) == 13
+    assert len(builtin) == 18  # 숏빔 전단(D2344 · ISO 14130) 포함
     assert {one["standard"] for one in builtin} >= {"ASTM D790", "ISO 178", "ASTM D6272"}
     assert all(
         one["preset"]["verified"] is False and one["preset"]["source"] for one in builtin
@@ -251,3 +251,368 @@ def test_규격_시편으로_DOE_를_돌리면_조건의_변수가_설계점마�
             assert point["regions"][name], f"{name}: 설계점 {number}에서 면을 못 찾았다"
         seen.add((thickness, friction))
     assert seen == {(3.2, 0.1), (3.2, 0.3), (4.0, 0.1), (4.0, 0.3)}
+
+
+def test_제품에_정하중을_걸면_물성은_남고_시험_조건이_붙은_새_작업이_생긴다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    from tests.api.test_fixture_export import _material
+    from tests.api.test_works import _plate
+
+    product = _work(client, member, _plate(client, member))
+    material = _material("M-000158", ["전체"])
+    _ok(
+        client.put(
+            f"/api/works/{product['id']}/versions/1/conditions",
+            json={"conditions": {"materials": [material]}},
+            headers=member.headers,
+        )
+    )
+    made = _ok(
+        client.post(
+            "/api/specimens/product-tests",
+            json={"preset_id": "iec-62368-1-t5", "source": f"work:{product['id']}", "x": 15},
+            headers=member.headers,
+        )
+    )
+    assert "IEC 62368-1 T.5" in made["name"] and set(made["tags"]) == {
+        "정하중 시험",
+        "IEC 62368-1",
+    }
+    first = _ok(client.get(f"/api/works/{made['id']}/versions/1", headers=member.headers))
+    assert first["job"]["status"] == "done", first["job"]
+    rules = first["conditions"]
+    assert [one["ref"]["code"] for one in rules["materials"]] == ["M-000158"]
+    assert rules["loads"][0]["magnitude"] == "=시험_하중"
+    params = first["recipe"]["params"]
+    assert (params["시험_X"], params["시험_Y"]) == (15, 0)  # 준 칸은 그대로, 빈 칸은 가운데
+    # 누르는 힘을 DOE 로 훑으면 설계점마다 풀린 값이 조건 파일로 나간다.
+    study = _ok(
+        client.post(
+            "/api/doe",
+            json={
+                "name": "정하중 훑기",
+                "recipe": first["recipe"],
+                "conditions": rules,
+                "factors": [{"name": "시험_하중", "mode": "list", "values": [100, 250]}],
+            },
+            headers=member.headers,
+        )
+    )
+    _ok(client.post(f"/api/doe/{study['id']}/export", headers=member.headers))
+    folder = next(export_root.iterdir())
+    forces = sorted(
+        json.loads((folder / "points" / f"p{n:04d}.json").read_text("utf-8"))["conditions"][
+            "loads"
+        ][0]["magnitude"]
+        for n in (1, 2)
+    )
+    assert forces == [100, 250]
+
+
+def test_제품_시험의_거절_사유(client: TestClient, member: Signed) -> None:
+    box = _work(client, member)  # 기본 상자
+    bend = client.post(
+        "/api/specimens/product-tests",
+        json={"preset_id": "astm-d790-16", "source": f"work:{box['id']}"},
+        headers=member.headers,
+    )
+    assert bend.status_code == 400 and _code(bend).endswith("SPECIMENS-0005")
+    # 아랫면이 평면이 아닌 제품(구) — 받침을 찾지 못한다고 말한다.
+    ball = _work(
+        client,
+        member,
+        {"version": 1, "nodes": [{"id": "구", "op": "sphere", "radius": 20}]},
+    )
+    refused = client.post(
+        "/api/specimens/product-tests",
+        json={"preset_id": "iec-60068-2-6-150-1g", "source": f"work:{ball['id']}"},
+        headers=member.headers,
+    )
+    assert refused.status_code == 400 and "시험 받침면" in refused.json()["error"]["message"]
+
+
+def test_정하중_진동도_사내_규격으로_복사해_쓴다(
+    client: TestClient, member: Signed, admin: Signed
+) -> None:
+    """굽힘만 시편을 그려 보고, 제품 시험은 기준 상자에 걸어 본다 — 그 전에는 「시편을 만들 수
+    없습니다」 로 사내 규격 저장이 막혔다(2026-10-05)."""
+    from tests.api.test_works import _plate
+
+    def copied(preset_id: str, **changes: Any) -> dict[str, Any]:
+        base = dict(
+            _ok(client.get(f"/api/specimens/presets/{preset_id}", headers=member.headers))[
+                "preset"
+            ]
+        )
+        base.pop("id")
+        return {**base, "name": f"{base['name']} (사내)", **changes}
+
+    force = copied("iec-62368-1-t5", setup={"force": 300, "probe_diameter": 20})
+    made = _ok(
+        client.post("/api/specimens/presets", json={"preset": force}, headers=admin.headers)
+    )
+    assert made["origin"] == "internal" and made["preset"]["setup"]["force"] == 300
+    sine = copied("iec-60068-2-6-150-1g")
+    _ok(client.post("/api/specimens/presets", json={"preset": sine}, headers=admin.headers))
+    reversed_range = copied(
+        "iec-60068-2-6-150-1g",
+        setup={"freq_min": 200, "freq_max": 100, "acceleration_g": 1},
+    )
+    bad = client.post(
+        "/api/specimens/presets", json={"preset": reversed_range}, headers=admin.headers
+    )
+    assert bad.status_code == 400 and "freq_min" in " ".join(
+        bad.json()["error"]["details"]["problems"]
+    )
+
+    # 사내 규격으로 제품에 건다.
+    product = _work(client, member, _plate(client, member))
+    work = _ok(
+        client.post(
+            "/api/specimens/product-tests",
+            json={"preset_id": made["id"], "source": f"work:{product['id']}"},
+            headers=member.headers,
+        )
+    )
+    first = _ok(client.get(f"/api/works/{work['id']}/versions/1", headers=member.headers))
+    assert first["recipe"]["params"]["시험_하중"] == 300
+
+
+def test_인장_전단_이음_시편은_치수를_바꿔_만든다(client: TestClient, member: Signed) -> None:
+    preview = _ok(
+        client.post(
+            "/api/specimens/build",
+            json={"preset_id": "astm-d638-type-i", "dimensions": {"gauge_width": 10}},
+            headers=member.headers,
+        )
+    )
+    assert preview["values"]["평행부_폭"] == 10 and preview["values"]["늘림"] > 0
+    assert [one["name"] for one in preview["conditions"]["named_selections"]] == [
+        "고정 그립",
+        "당김 그립",
+        "표점 구간",
+    ]
+    wide = client.post(
+        "/api/specimens/build",
+        json={"preset_id": "astm-d638-type-i", "dimensions": {"gauge_width": 30}},
+        headers=member.headers,
+    )
+    assert wide.status_code == 400 and _code(wide).endswith("SPECIMENS-0004")
+    assert "평행부 폭" in wide.json()["error"]["message"]
+    work = _ok(
+        client.post(
+            "/api/specimens/works",
+            json={"preset_id": "iso-4587", "name": "겹치기 이음"},
+            headers=member.headers,
+        )
+    )
+    assert set(work["tags"]) == {"접착 이음 시험", "ISO 4587"}
+    first = _ok(client.get(f"/api/works/{work['id']}/versions/1", headers=member.headers))
+    assert first["job"]["status"] == "done", first["job"]
+    assert {one["type"] for one in first["conditions"]["contacts"]} == {"bonded"}
+
+
+def test_제품에_3D_에서_고른_면으로_시험을_건다(client: TestClient, member: Signed) -> None:
+    from tests.api.test_works import _plate
+
+    product = _work(client, member, _plate(client, member))
+    source = f"work:{product['id']}"
+    seen = _ok(
+        client.post(
+            "/api/specimens/product-mesh", json={"source": source}, headers=member.headers
+        )
+    )
+    top = next(one for one in seen["mesh"]["faces"] if one["normal"] == [0, 0, 1])
+    pick = {"point": top["center"], "normal": top["normal"], "kind": top["kind"]}
+    handle = _ok(
+        client.post(
+            "/api/specimens/product-tests",
+            json={
+                "preset_id": "iec-62368-1-8.8-handle",
+                "source": source,
+                "faces": {"support": [pick]},
+            },
+            headers=member.headers,
+        )
+    )
+    rules = _ok(client.get(f"/api/works/{handle['id']}/versions/1", headers=member.headers))[
+        "conditions"
+    ]
+    assert rules["loads"][0]["type"] == "acceleration"
+    assert rules["named_selections"][-1]["select"]["normal"] == [0, 0, 1]
+    unpicked = client.post(
+        "/api/specimens/product-tests",
+        json={"preset_id": "iec-62368-1-8.8-handle", "source": source},
+        headers=member.headers,
+    )
+    assert unpicked.status_code == 400 and "3D에서" in unpicked.json()["error"]["message"]
+    weightless = client.post(
+        "/api/specimens/product-tests",
+        json={"preset_id": "ista-stack-5x3", "source": source},
+        headers=member.headers,
+    )
+    assert weightless.status_code == 400 and "무게" in weightless.json()["error"]["message"]
+    stacked = _ok(
+        client.post(
+            "/api/specimens/product-tests",
+            json={"preset_id": "ista-stack-5x3", "source": source, "mass": 1.5},
+            headers=member.headers,
+        )
+    )
+    params = _ok(client.get(f"/api/works/{stacked['id']}/versions/1", headers=member.headers))[
+        "recipe"
+    ]["params"]
+    assert params["시험_무게"] == 1.5 and params["시험_단수"] == 5
+    _ok(
+        client.post(
+            "/api/specimens/product-tests",
+            json={"preset_id": "twist-example-6deg", "source": source},
+            headers=member.headers,
+        )
+    )
+
+
+def test_끝이_둥근_제품은_비트는_끝을_고르라고_말한다(
+    client: TestClient, member: Signed
+) -> None:
+    """양 끝이 반원인 판 위에 상자 하나 — 「-X 를 보는 가장 가까운 평면」 은 상자의 옆면이라
+    끝이 아니다."""
+    rounded = _work(
+        client,
+        member,
+        {
+            "version": 1,
+            "nodes": [
+                {
+                    "id": "윤곽",
+                    "op": "sketch",
+                    "shapes": [{"type": "slot", "length": 100, "width": 30}],
+                },
+                {"id": "판", "op": "extrude", "sketch": "윤곽", "distance": 5},
+                {
+                    "id": "턱",
+                    "op": "box",
+                    "length": 20,
+                    "width": 10,
+                    "height": 5,
+                    "at": [0, 0, 5],
+                    "align": ["center", "center", "min"],
+                },
+                {"id": "제품", "op": "union", "targets": ["판", "턱"]},
+            ],
+        },
+    )
+    refused = client.post(
+        "/api/specimens/product-tests",
+        json={"preset_id": "twist-example-6deg", "source": f"work:{rounded['id']}"},
+        headers=member.headers,
+    )
+    assert (
+        refused.status_code == 400
+        and "끝에 평면이 없습니다" in refused.json()["error"]["message"]
+    )
+
+
+def test_새_시험도_사내_규격으로_복사해_쓴다(client: TestClient, admin: Signed) -> None:
+    def copied(preset_id: str, **changes: Any) -> dict[str, Any]:
+        base = dict(
+            _ok(client.get(f"/api/specimens/presets/{preset_id}", headers=admin.headers))[
+                "preset"
+            ]
+        )
+        base.pop("id")
+        return {**base, "name": f"{base['name']} (사내)", **changes}
+
+    for preset_id in (
+        "astm-d638-type-iv",
+        "astm-d5766",
+        "astm-d6484",
+        "astm-e9-short",
+        "astm-d5379",
+        "astm-d1002",
+        "astm-d5961-a",
+        "astm-d7332-example",
+        "iec-62368-1-8.7-mount",
+        "iec-60335-1-cord-4kg",
+        "un-38.3-t6-crush",
+        "astm-d642-2700x3",
+        "iec-60529-ipx8-1.5m",
+        "twist-example-10deg",
+        "iso-16750-3-shock-500",
+        "astm-e1876-free",
+    ):
+        made = _ok(
+            client.post(
+                "/api/specimens/presets",
+                json={"preset": copied(preset_id)},
+                headers=admin.headers,
+            )
+        )
+        assert made["origin"] == "internal"
+    narrow = copied(
+        "astm-d638-type-iv",
+        specimen={**copied("astm-d638-type-iv")["specimen"], "radius": 1},
+    )
+    bad = client.post("/api/specimens/presets", json={"preset": narrow}, headers=admin.headers)
+    assert bad.status_code == 400 and "반지름" in " ".join(
+        bad.json()["error"]["details"]["problems"]
+    )
+
+
+def test_방향_하중과_압착은_고른_면과_방향으로_건다(
+    client: TestClient, member: Signed
+) -> None:
+    from tests.api.test_works import _plate
+
+    product = _work(client, member, _plate(client, member))
+    source = f"work:{product['id']}"
+    seen = _ok(
+        client.post(
+            "/api/specimens/product-mesh", json={"source": source}, headers=member.headers
+        )
+    )
+    side = next(one for one in seen["mesh"]["faces"] if one["normal"] == [1, 0, 0])
+    pick = {"point": side["center"], "normal": side["normal"], "kind": side["kind"]}
+    pulled = _ok(
+        client.post(
+            "/api/specimens/product-tests",
+            json={
+                "preset_id": "iec-60335-1-cord-1kg",
+                "source": source,
+                "faces": {"load": [pick]},
+                "direction": [0, 0, 1],
+            },
+            headers=member.headers,
+        )
+    )
+    rules = _ok(client.get(f"/api/works/{pulled['id']}/versions/1", headers=member.headers))[
+        "conditions"
+    ]
+    assert [(one["type"], one["direction"]) for one in rules["loads"]] == [
+        ("force", [0.0, 0.0, 1.0]),
+        ("moment", [0.0, 0.0, 1.0]),
+    ]
+    crushed = _ok(
+        client.post(
+            "/api/specimens/product-tests",
+            json={
+                "preset_id": "iec-62133-2-crush",
+                "source": source,
+                "faces": {"load": [pick]},
+            },
+            headers=member.headers,
+        )
+    )
+    first = _ok(client.get(f"/api/works/{crushed['id']}/versions/1", headers=member.headers))
+    assert first["job"]["status"] == "done", first["job"]
+    support = next(
+        one for one in first["conditions"]["named_selections"] if one["name"] == "시험 받침면"
+    )
+    assert support["select"]["normal"] == [-1.0, 0.0, 0.0]
+    missing = client.post(
+        "/api/specimens/product-tests",
+        json={"preset_id": "usb-type-c-wrench-side", "source": source},
+        headers=member.headers,
+    )
+    assert missing.status_code == 400 and "3D에서" in missing.json()["error"]["message"]

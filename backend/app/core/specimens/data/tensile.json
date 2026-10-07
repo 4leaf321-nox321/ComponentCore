@@ -1,0 +1,260 @@
+[
+  {
+    "id": "astm-e8-sheet",
+    "test": "tensile",
+    "standard": "ASTM E8/E8M",
+    "name": "ASTM E8 판재형 12.5 mm 폭 (표점 50 mm)",
+    "family": "dogbone",
+    "specimen": {
+      "length": 200,
+      "width": 20,
+      "thickness": 2,
+      "gauge_length": 50,
+      "grip_length": 50,
+      "gauge_width": 12.5,
+      "parallel_length": 57,
+      "radius": 12.5
+    },
+    "source": "ASTM E8/E8M Fig. 1 판재형(sheet-type): G 50, W 12.5, R 12.5 이상, L 200, A 57 이상, B 50 이상, C 20",
+    "verified": false,
+    "note": "두께는 재료 두께입니다(예시 2 mm)."
+  },
+  {
+    "id": "astm-e8-subsize",
+    "test": "tensile",
+    "standard": "ASTM E8/E8M",
+    "name": "ASTM E8 소형 6 mm 폭 (표점 25 mm)",
+    "family": "dogbone",
+    "specimen": {
+      "length": 100,
+      "width": 10,
+      "thickness": 2,
+      "gauge_length": 25,
+      "grip_length": 29,
+      "gauge_width": 6,
+      "parallel_length": 32,
+      "radius": 6
+    },
+    "source": "ASTM E8/E8M Fig. 1 소형(subsize): G 25, W 6, R 6 이상, L 100, A 32 이상, B 30 이상, C 10",
+    "verified": false,
+    "note": "그립 길이는 전이부를 물지 않도록 29 mm로 두었습니다(규격 B 30 이상 — 전체 길이를 늘리면 맞출 수 있습니다)."
+  },
+  {
+    "id": "astm-d638-type-i",
+    "test": "tensile",
+    "standard": "ASTM D638",
+    "name": "ASTM D638 Type I",
+    "family": "dogbone",
+    "specimen": {
+      "length": 165,
+      "width": 19,
+      "thickness": 3.2,
+      "gauge_length": 50,
+      "grip_length": 25,
+      "gauge_width": 13,
+      "parallel_length": 57,
+      "radius": 76
+    },
+    "source": "ASTM D638 Fig. 1 Type I: LO 165, WO 19, W 13, L 57, G 50, R 76, D 115, T 3.2",
+    "verified": false
+  },
+  {
+    "id": "astm-d638-type-ii",
+    "test": "tensile",
+    "standard": "ASTM D638",
+    "name": "ASTM D638 Type II",
+    "family": "dogbone",
+    "specimen": {
+      "length": 183,
+      "width": 19,
+      "thickness": 3.2,
+      "gauge_length": 50,
+      "grip_length": 24,
+      "gauge_width": 6,
+      "parallel_length": 57,
+      "radius": 76
+    },
+    "source": "ASTM D638 Fig. 1 Type II: LO 183, WO 19, W 6, L 57, G 50, R 76, D 135, T 3.2",
+    "verified": false
+  },
+  {
+    "id": "astm-d638-type-iii",
+    "test": "tensile",
+    "standard": "ASTM D638",
+    "name": "ASTM D638 Type III",
+    "family": "dogbone",
+    "specimen": {
+      "length": 246,
+      "width": 29,
+      "thickness": 7,
+      "gauge_length": 50,
+      "grip_length": 65.5,
+      "gauge_width": 19,
+      "parallel_length": 57,
+      "radius": 76
+    },
+    "source": "ASTM D638 Fig. 1 Type III: LO 246, WO 29, W 19, L 57, G 50, R 76, D 115, T 7~14",
+    "verified": false
+  },
+  {
+    "id": "astm-d638-type-iv",
+    "test": "tensile",
+    "standard": "ASTM D638",
+    "name": "ASTM D638 Type IV",
+    "family": "dogbone",
+    "specimen": {
+      "length": 115,
+      "width": 19,
+      "thickness": 3.2,
+      "gauge_length": 25,
+      "grip_length": 25,
+      "gauge_width": 6,
+      "parallel_length": 33,
+      "radius": 14
+    },
+    "source": "ASTM D638 Fig. 1 Type IV: LO 115, WO 19, W 6, L 33, G 25, R 14, RO 25, D 65, T 3.2",
+    "verified": false,
+    "note": "바깥 반지름 RO 25는 그리지 않고 반지름 하나(R 14)로 근사했습니다."
+  },
+  {
+    "id": "astm-d638-type-v",
+    "test": "tensile",
+    "standard": "ASTM D638",
+    "name": "ASTM D638 Type V",
+    "family": "dogbone",
+    "specimen": {
+      "length": 63.5,
+      "width": 9.53,
+      "thickness": 3.2,
+      "gauge_length": 7.62,
+      "grip_length": 18,
+      "gauge_width": 3.18,
+      "parallel_length": 9.53,
+      "radius": 12.7
+    },
+    "source": "ASTM D638 Fig. 1 Type V: LO 63.5, WO 9.53, W 3.18, L 9.53, G 7.62, R 12.7, D 25.4, T 3.2",
+    "verified": false,
+    "note": "그립 길이는 전이부를 물지 않도록 18 mm로 두었습니다(규격의 그립 간격 D 25.4는 전이부까지 물립니다)."
+  },
+  {
+    "id": "iso-527-2-1a",
+    "test": "tensile",
+    "standard": "ISO 527-2",
+    "name": "ISO 527-2 Type 1A",
+    "family": "dogbone",
+    "specimen": {
+      "length": 170,
+      "width": 20,
+      "thickness": 4,
+      "gauge_length": 75,
+      "grip_length": 27.5,
+      "gauge_width": 10,
+      "parallel_length": 80,
+      "radius": 24
+    },
+    "source": "ISO 527-2 Fig. 1 Type 1A: l3 170 이상, l1 80, r 24, b2 20, b1 10, h 4, L0 75, L 115",
+    "verified": false
+  },
+  {
+    "id": "iso-527-2-1b",
+    "test": "tensile",
+    "standard": "ISO 527-2",
+    "name": "ISO 527-2 Type 1B",
+    "family": "dogbone",
+    "specimen": {
+      "length": 150,
+      "width": 20,
+      "thickness": 4,
+      "gauge_length": 50,
+      "grip_length": 17.5,
+      "gauge_width": 10,
+      "parallel_length": 60,
+      "radius": 60
+    },
+    "source": "ISO 527-2 Fig. 1 Type 1B: l3 150 이상, l1 60, r 60, b2 20, b1 10, h 4, L0 50, L 115",
+    "verified": false
+  },
+  {
+    "id": "astm-d3039-0deg",
+    "test": "tensile",
+    "standard": "ASTM D3039",
+    "name": "ASTM D3039 0° 일방향 250×15×1.0",
+    "family": "strip",
+    "specimen": {
+      "length": 250,
+      "width": 15,
+      "thickness": 1.0,
+      "gauge_length": 50,
+      "grip_length": 56
+    },
+    "source": "ASTM D3039 Table 3 0° 일방향: 250 × 15 × 1.0, 탭 길이 56, 탭 두께 1.5",
+    "verified": false,
+    "note": "탭은 그리지 않았습니다. 탭이 붙는 56 mm를 그립으로 봅니다."
+  },
+  {
+    "id": "astm-d3039-90deg",
+    "test": "tensile",
+    "standard": "ASTM D3039",
+    "name": "ASTM D3039 90° 일방향 175×25×2.0",
+    "family": "strip",
+    "specimen": {
+      "length": 175,
+      "width": 25,
+      "thickness": 2.0,
+      "gauge_length": 50,
+      "grip_length": 25
+    },
+    "source": "ASTM D3039 Table 3 90° 일방향: 175 × 25 × 2.0, 탭 길이 25, 탭 두께 1.5",
+    "verified": false
+  },
+  {
+    "id": "astm-d3039-balanced",
+    "test": "tensile",
+    "standard": "ASTM D3039",
+    "name": "ASTM D3039 균형·대칭 적층 250×25×2.5",
+    "family": "strip",
+    "specimen": {
+      "length": 250,
+      "width": 25,
+      "thickness": 2.5,
+      "gauge_length": 50,
+      "grip_length": 56
+    },
+    "source": "ASTM D3039 Table 3 균형·대칭 적층: 250 × 25 × 2.5, 탭은 선택(사포 그립 가능)",
+    "verified": false
+  },
+  {
+    "id": "iso-527-5-a",
+    "test": "tensile",
+    "standard": "ISO 527-5",
+    "name": "ISO 527-5 Type A 일방향 250×15×1",
+    "family": "strip",
+    "specimen": {
+      "length": 250,
+      "width": 15,
+      "thickness": 1.0,
+      "gauge_length": 50,
+      "grip_length": 50
+    },
+    "source": "ISO 527-5 Type A(0° 일방향): 250 × 15 × 1, 탭 길이 50 이상, L0 50",
+    "verified": false
+  },
+  {
+    "id": "astm-d5766",
+    "test": "tensile",
+    "standard": "ASTM D5766",
+    "name": "ASTM D5766 오픈홀 인장 (36 x 250, 구멍 6)",
+    "family": "open_hole",
+    "specimen": {
+      "length": 250,
+      "width": 36,
+      "thickness": 4,
+      "gauge_length": 50,
+      "grip_length": 50,
+      "hole_diameter": 6
+    },
+    "source": "ASTM D5766: 폭 36, 길이 200~300, 구멍 지름 6 (폭/지름 = 6), 두께 2.5~5",
+    "verified": false,
+    "note": "길이 250 · 두께 4 · 그립 50 mm 는 예시입니다. 표점 구간은 구멍을 감싸는 영역입니다."
+  }
+]

@@ -1,0 +1,55 @@
+[
+  {
+    "id": "astm-d1002",
+    "test": "lap",
+    "standard": "ASTM D1002",
+    "name": "ASTM D1002 금속 단일 겹치기 전단",
+    "family": "single_lap",
+    "specimen": {
+      "length": 101.6,
+      "width": 25.4,
+      "thickness": 1.62,
+      "overlap": 12.7,
+      "bondline": 0.2,
+      "grip_length": 25.4
+    },
+    "source": "ASTM D1002 Fig. 1: 피착재 101.6 × 25.4 × 1.62, 겹침 12.7, 그립 25.4",
+    "verified": false,
+    "note": "접착층 두께 0.2 mm는 해석 기본값입니다(규격이 정하지 않습니다)."
+  },
+  {
+    "id": "astm-d5868",
+    "test": "lap",
+    "standard": "ASTM D5868",
+    "name": "ASTM D5868 FRP 겹치기 전단",
+    "family": "single_lap",
+    "specimen": {
+      "length": 101.6,
+      "width": 25.4,
+      "thickness": 2.54,
+      "overlap": 25.4,
+      "bondline": 0.76,
+      "grip_length": 25.4
+    },
+    "source": "ASTM D5868 Fig. 1: 피착재 101.6 × 25.4 × 2.54, 겹침 25.4, 접착층 0.76",
+    "verified": false
+  },
+  {
+    "id": "iso-4587",
+    "test": "lap",
+    "standard": "ISO 4587",
+    "name": "ISO 4587 단일 겹치기 전단",
+    "family": "single_lap",
+    "specimen": {
+      "length": 100,
+      "width": 25,
+      "thickness": 1.6,
+      "overlap": 12.5,
+      "bondline": 0.2,
+      "grip_length": 25
+    },
+    "source": "ISO 4587: 피착재 100 × 25 × 1.6, 겹침 12.5",
+    "verified": false,
+    "note": "접착층 두께 0.2 mm와 그립 25 mm는 해석 기본값입니다."
+  }
+]

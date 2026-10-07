@@ -1,0 +1,26 @@
+[
+  {
+    "id": "iec-62368-1-8.8-handle",
+    "test": "handle",
+    "standard": "IEC 62368-1",
+    "name": "IEC 62368-1 8.8 손잡이 강도 (무게의 4배)",
+    "setup": {
+      "weight_factor": 4
+    },
+    "source": "IEC 62368-1 8.8 손잡이 강도: 휴대 기기의 손잡이에 무게의 4배, 손잡이가 여럿이면 나눠 받음(601help.com 요약 — 규격서 대조 필요)",
+    "verified": false,
+    "note": "손잡이를 잡는 면을 3D에서 고릅니다. 손잡이가 여럿이면 모두 고르십시오."
+  },
+  {
+    "id": "iec-62368-1-8.7-mount",
+    "test": "handle",
+    "standard": "IEC 62368-1",
+    "name": "IEC 62368-1 8.7 벽·천장 고정 (무게의 4배)",
+    "setup": {
+      "weight_factor": 4
+    },
+    "source": "IEC 62368-1 8.7 벽·천장 고정 하중: 제품 무게에 그 3배를 더해 총 4배(시험 보고서 요약 — 규격서 대조 필요)",
+    "verified": false,
+    "note": "벽걸이 브래킷이 닿는 면(나사 자리)을 3D에서 고릅니다."
+  }
+]

@@ -1,4 +1,4 @@
-<!-- version: 2026-10-04.16 -->
+<!-- version: 2026-10-05.3 -->
 # CompCore MCP 가이드
 
 ## overview
@@ -16,7 +16,7 @@
 | **제품을 기준으로 지그 그리기** | `part_geometry(part_id)` · `work_geometry(work_id)` — 치수표 + STEP id |
 | **해석 조건 붙이기** | `conditions_schema` → `recipe_find` · `recipe_selectors` → `set_conditions` — `get_guide("conditions")` |
 | **물성 붙이기** | `material_search` → `material_get`(→ `condition_item`) · `recipe_bodies` → `set_conditions` |
-| **규격 시험(굽힘) 해석 모델** | `list_test_presets(test="bending")` → `create_specimen_work(preset_id, thickness …)` — 시편 · 시험 지그 · 해석 조건이 붙은 내 작업. 물성만 붙이면 `doe_create` 로 훑는다. 아래 「jig」 의 시험 규격 |
+| **규격 시험 해석 모델** | 시편(굽힘 · 인장 · 압축 · 전단 · 접착 이음 · 체결부): `list_test_presets(test=…)` → `create_specimen_work(preset_id, thickness, dimensions …)`. 제품(정하중 · 방향 하중 · 손잡이 · 압착 · 적층 압축 · 수압 · 비틀림 · 등가 가속도 · 진동 · 고유진동수): `apply_product_test(preset_id, source, faces, direction …)`. 물성만 붙이면 `doe_create` 로 훑는다. 아래 「jig」 의 시험 규격 |
 | **형상 여러 벌 만들기(DOE)** | `doe_preview` → `doe_probe`(끝 점 미리) → `doe_create` → `doe_points` → `doe_export` — 공유 폴더에 STEP 이 쌓인다. 더 뽑을 때 `doe_extend` |
 | **다른 사람의 DOE 이어서 하기** | `doe_studies(scope="all")` → `doe_clone(study_id)` — 같은 설계점 · 조건으로 내 DOE 가 생긴다(원본은 그대로). 남의 것은 보내기 · 점 더하기가 안 된다 |
 | **2D 도면(가공 맡길 때)** | `recipe_drawing(recipe, title, material)` — 3각법 세 뷰 · 전체 치수 · 구멍표 · 표제란. 답은 요약 + 그림. PDF · DXF 는 화면의 「파일 › 도면」 |
@@ -358,19 +358,57 @@
 
 ## jig
 
-**시험 규격**(`list_test_presets`): 공개 규격(ASTM D790 · ISO 178 · D6272 · D7264 · C1161 …)은
-코드에, 사내 규격은 관리자가 DB 에(`save_test_preset`) 둔다 — 같은 모양이다. 프리셋은 시편 치수 ·
-배치 규칙(3점 · 4점, 지지 간격 = 간격비 x 두께, 두께에 따른 반지름, 4점의 하중 간격) · 해석
-기본값(노즈를 내리는 변형률 · 마찰계수) · 출처 · `verified`. 쓰는 길이 둘이다:
-- **규격 시편으로 해석 모델** — `create_specimen_work`. 바디 `시편` · `롤러_1` · `롤러_2` ·
-  `로딩_노즈`(4점이면 `로딩_노즈_1` · `_2`), 조건은 롤러 · 노즈 강체, 롤러 고정 지지, 노즈 원격
-  변위(`=-처짐`), 시편과 마찰 접촉(`=마찰계수`), 아랫면 한가운데 대칭점 구속, 정적 대변형. 변수
-  `두께` 를 훑으면 `지지_간격` · `처짐` 이 따라간다. `마찰계수` · `변형률` 도 인자로 훑는다(조건만
-  바뀐다). 식 변수(`지지_간격` · `처짐`)는 인자로 주지 않는다 — 주면 규칙을 숫자로 덮는다. 시편
-  물성은 비어 있다.
+**시험 규격**(`list_test_presets`): 공개 규격(ASTM · ISO · IEC …)은 코드에, 사내 규격은 관리자가
+DB 에(`save_test_preset`) 둔다 — 같은 모양이다. 프리셋은 시편 치수(`specimen`) 또는 시험
+설정(`setup`) · 해석 기본값(`analysis`) · 출처 · `verified`. 쓰는 길은 셋이다:
+- **규격 시편으로 해석 모델** — `create_specimen_work`. 시편 치수가 레시피 변수라 DOE 로 훑는다
+  (식 변수 — `지지_간격` · `처짐` · `전이_길이` · `노치_입구` · `늘림` — 는 인자로 주지 않는다. 주면
+  규칙을 숫자로 덮는다). 시편 물성은 비어 있다.
+  - 굽힘(`bending`): 바디 `시편` · `롤러_1` · `롤러_2` · `로딩_노즈`(4점이면 `_1` · `_2`). 롤러 ·
+    노즈 강체, 롤러 고정, 노즈 원격 변위(`=-처짐`), 마찰 접촉(`=마찰계수`), 대칭점 구속, 정적
+    대변형. `두께` 를 훑으면 `지지_간격` · `처짐` 이 따라간다.
+  - 인장(`tensile` — E8 · D638 · ISO 527-2 도그본, D3039 · ISO 527-5 띠): 그립은 바디가 아니라
+    양 끝 윗면 · 아랫면의 면 나누기(`고정 그립` · `당김 그립`), `표점 구간` 도 나눠 둔다. 한쪽 고정,
+    다른 쪽 X 로 `=늘림`(= 변형률 x 그립 간격). `dimensions` 로 `gauge_width` · `radius` 등을 바꾼다.
+  - 전단(`shear` — D5379 · D7078 V 노치): 노치 양쪽 반을 물어(`고정 물림` · `가압 물림`) 한쪽을
+    Y 로 `=전단_변위`.
+  - 접착 이음(`lap` — D1002 · D5868 · ISO 4587): 바디 `피착재_1` · `접착층` · `피착재_2`, 본드
+    접촉 둘, 그립 고정 · 당김(`=당김`), 대변형. 물성은 피착재와 접착층 따로.
+  - 숏빔 전단(D2344 · ISO 14130)은 굽힘 프리셋이다(지지 간격 4 · 5 x 두께).
+  - 인장 구멍 띠(D5766 오픈홀): 띠 + 가운데 구멍, `표점 구간` 이 구멍을 감싼다.
+  - 압축(`compressive`): 각기둥 · 원기둥(D695 · ISO 604 · E9)은 세워서 아랫면 고정 · 윗면을
+    `=-누름`(Z), 띠 · 구멍 띠(D6641 · ISO 14126 · D6484)는 그립으로 X 를 `=-누름`. 좌굴은 안
+    보인다(좌굴 해석이 필요).
+  - 체결부(`fastener`): 핀 베어링(D5961 — 강체 `핀` 을 가까운 끝 쪽 X 로, 마찰 접촉), 뽑힘(D7332
+    형식 — 판 둘레 위아래 고리 고정, `체결구` 끝면을 -Z 로, 머리와 판 마찰 접촉).
 - **사용자의 부품으로 굽힘 지그** — `run_jig(options={"kind": "bending", "bending_preset": id})`.
   두께 = 부품의 Z 높이.
-`verified=false` 인 값은 규격서와 대조하기 전이다 — 사용자에게 그렇다고 말한다.
+- **제품 시험(전자제품)** — `apply_product_test(preset_id, source, x, y, z, axis, faces, mass)`.
+  제품 레시피를 그대로 쓴 새 작업, 물성은 제품의 것. 기본 자리는 아랫면 받침 · 윗면 하중.
+  - 정하중(`force`, IEC 62368-1 T.2~T.5): 원형 접촉으로 누른다. `faces.load` 로 옆면 등 다른
+    평면을 누를 수 있다(그 면의 반대 방향으로, `z` 도 받는다).
+  - 손잡이·벽걸이(`handle`, IEC 62368-1 8.8 · 8.7): `faces.support` **필수** — 고른 자리를 고정하고
+    무게의 배수가 -Z 로 걸린다(위로 가속 — 밀도가 무게를 정한다). 곡면(손잡이 봉)도 고른다.
+  - 적층 압축(`compression`, ASTM D642 · ISO 12048 · ISTA): `mass`(kg) **필수**. 하중 = 무게 · g ·
+    (단수 - 1) · 계수 또는 무게 · g · (적재 높이 - 제품 높이) / 제품 높이 · 계수, 윗면 전체.
+  - 비틀림(`torsion`): 긴 축(또는 `axis`) 한쪽 끝 고정, 다른 끝을 `=시험_각도` 만큼 원격 변위
+    회전. 끝이 둥글면 거절하고 `faces.support` · `faces.twist` 로 고르라고 말한다.
+  - 방향 하중(`directed`, IEC 60335-1 코드 고정 · USB Type-C 렌칭): `faces.load` **필수**, 힘과
+    모멘트(N·m, 변수 `시험_토크`)를 `direction` 으로(힘의 방향 · 모멘트 축).
+  - 압착(`crush`, IEC 62133-2 · UN 38.3 — 13 kN): 윗면 전체(또는 고른 평면)를 평판으로, 받침은
+    반대쪽 끝 면.
+  - 수압(`pressure`, IEC 60529 IPX7 · IPX8): 수심 x 0.00980665 MPa 를 모든 면(또는 고른 바깥 면)에,
+    받침은 강체 운동만 막는다.
+  - 등가 가속도(`acceleration`, IEC 60068-2-27 · ISO 16750-3): 충격을 정적 가속도 g x 배율로
+    근사. 받침 고정, `axis` 로 방향.
+  - 정현파 진동(`vibration`, IEC 60068-2-6): 한 축(`axis`) 가속도 · 주파수 범위 · 감쇠비.
+  - 고유진동수(`modal`, IEC 60068-2-6 진동 응답 조사 · ASTM E1876 자유-자유): 받침 고정 또는
+    구속 없음(강체 모드 6개를 더해 구한다).
+  면을 고르는 말: `{"point": [x, y, z], "normal": [nx, ny, nz], "kind": "plane"}` — `recipe_find`
+  의 답 `center` · `normal` · `kind` 를 그대로 쓴다.
+  보드 굽힘(JESD22-B113 · IPC/JEDEC-9702)은 굽힘 규격(`create_specimen_work`)이다.
+`verified=false` 인 값은 규격서와 대조하기 전이다 — 사용자에게 그렇다고 말한다. 비틀림은
+공개 규격이 없어 「예시」 값이다.
 
 `run_jig` 옵션(`jig_options` 로 기본값): `plate_margin`(제품 둘레 판 여유) · `plate_thickness` ·
 `support_count`(3 또는 4) · `support_diameter` · `support_height` · `clamp_count` ·

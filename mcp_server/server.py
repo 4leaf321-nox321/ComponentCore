@@ -2088,11 +2088,20 @@ async def import_standard_parts(
 
 @mcp.tool()
 async def list_test_presets(ctx: Context, test: str = "") -> Any:
-    """**시험 규격** — 공개 규격(ASTM · ISO, `origin=builtin`)과 사내 규격(`internal`)의
-    프리셋. `test` 로 시험 종류(`bending` 굽힘)를 거른다. 프리셋마다 시편 치수(`specimen`),
-    배치 규칙(`setup` — 3점 · 4점, 지지 간격 = 간격비 x 두께 또는 고정, 롤러 · 노즈 반지름),
-    해석 기본값(`analysis` — 노즈를 내리는 변형률 · 마찰계수), 출처(`source`).
-    `verified=false` 면 규격서와 아직 대조하지 않은 값이다 — 사용자에게 그렇다고 말한다."""
+    """**시험 규격** — 공개 규격(ASTM · ISO · IEC, `origin=builtin`)과 사내 규격(`internal`)의
+    프리셋. `test` 로 시험 종류를 거른다:
+
+    - 시편을 그린다(`create_specimen_work`): `bending` 굽힘(숏빔 전단 포함) · `tensile` 인장
+      (도그본 · 띠 · 구멍 띠) · `compressive` 압축(각기둥 · 원기둥 · 띠 · 구멍 띠) · `shear`
+      V 노치 전단 · `lap` 접착 겹치기 이음 · `fastener` 체결부(핀 베어링 · 뽑힘)
+    - 제품에 건다(`apply_product_test`): `force` 정하중 · `directed` 방향 하중(코드 당김 ·
+      커넥터 렌칭) · `handle` 손잡이·벽걸이 · `crush` 압착 · `compression` 적층 압축 ·
+      `pressure` 수압 · `torsion` 비틀림 · `acceleration` 등가 정적 가속도(충격 근사) ·
+      `vibration` 정현파 진동 · `modal` 고유진동수
+
+    프리셋마다 시편 치수(`specimen`) 또는 시험 설정(`setup`), 해석 기본값(`analysis`),
+    출처(`source`). `verified=false` 면 규격서와 아직 대조하지 않은 값이다 — 사용자에게
+    그렇다고 말한다."""
     found = await _get(ctx, "/api/specimens/presets", {"test": test} if test else None)
     return {"presets": found} if isinstance(found, list) else found
 
@@ -2104,27 +2113,83 @@ async def create_specimen_work(
     length: float | None = None,
     width: float | None = None,
     thickness: float | None = None,
+    dimensions: dict[str, float] | None = None,
     fixture: bool = True,
     conditions: bool = True,
     name: str | None = None,
     folder: str = "",
 ) -> Any:
     """시험 규격으로 **내 작업**을 만든다 — 시편(치수는 비우면 프리셋 값), `fixture` 면 시험
-    지그(굽힘: 지지 롤러 둘 + 로딩 노즈), `conditions` 면 해석 조건(롤러 고정 · 노즈 원격
-    변위 · 마찰 접촉 · 대칭점 구속 · 정적 대변형)까지. 치수 · 지지 간격 · 처짐이 레시피
-    변수라 바로 `doe_create` 로 두께 등을 훑고, 조건이 설계점마다 따라간다. 시편의 **물성은
-    비어 있다** — `material_search` 로 골라 `set_conditions` 로 붙인다."""
+    지그(굽힘: 지지 롤러 둘 + 로딩 노즈, 인장 · 전단 · 이음: 그립이 무는 자리를 면 나누기로),
+    `conditions` 면 해석 조건(굽힘: 롤러 고정 · 노즈 원격 변위 · 마찰 접촉, 인장: 한쪽 그립
+    고정 · 다른 쪽 X 당김, 전단: 한쪽 물림 고정 · 다른 쪽 Y 이동, 이음: 본드 접촉 + 그립)
+    까지. `dimensions` 는 그 밖의 시편 치수(프리셋 `specimen` 의 칸 이름 → 값 — 인장의
+    `gauge_width` · `radius`, 전단의 `notch_depth` 등). 치수가 레시피 변수라 바로
+    `doe_create` 로 훑고, 조건이 설계점마다 따라간다. 시편의 **물성은 비어 있다** —
+    `material_search` 로 골라 `set_conditions` 로 붙인다(이음은 피착재와 접착층 따로)."""
     body = {
         "preset_id": preset_id,
         "length": length,
         "width": width,
         "thickness": thickness,
+        "dimensions": dimensions or {},
         "fixture": fixture,
         "conditions": conditions,
         "name": name,
         "folder": folder,
     }
     return await _post(ctx, "/api/specimens/works", body)
+
+
+@mcp.tool()
+async def apply_product_test(
+    ctx: Context,
+    preset_id: str,
+    source: str,
+    x: float | None = None,
+    y: float | None = None,
+    z: float | None = None,
+    axis: str | None = None,
+    faces: dict[str, list[dict[str, Any]]] | None = None,
+    mass: float | None = None,
+    direction: list[float] | None = None,
+    name: str | None = None,
+    folder: str = "",
+) -> Any:
+    """**제품에 시험 규격을 건다** — 정하중(`force`) · 방향 하중(`directed`) · 손잡이·
+    벽걸이(`handle`) · 압착(`crush`) · 적층 압축(`compression`) · 수압(`pressure`) ·
+    비틀림(`torsion`) · 등가 가속도(`acceleration`) · 정현파 진동(`vibration`) ·
+    고유진동수(`modal`). `source` 는 `work:<내 부품 작업 id>` 또는 `part:<공용 부품 id>`. 제품
+    레시피를 그대로 쓴 **새 내 작업**이 생기고, 제품의 물성 · 접촉 · 파트별 설정은 그대로,
+    구속 · 하중 · 해석 설정은 시험의 것이 붙는다.
+
+    기본 자리: 받침은 아랫면(-Z), 정하중은 윗면(+Z)의 (`x`, `y`)(비우면 가운데)를 원으로
+    누르고, 압축 · 압착은 윗면 전체, 수압은 모든 면, 비틀림은 `axis`(비우면 가장 긴 축)의
+    양 끝 면. 진동 · 등가 가속도는 `axis`(비우면 z) 한 축 — 다른 축은 다시 부른다.
+
+    `faces` 로 면을 고른다 — `{"support": [...], "load": [...], "twist": [...]}`, 한 면은
+    `{"point": [x, y, z], "normal": [nx, ny, nz], "kind": "plane"}`(면 위의 점 · 법선 ·
+    종류 — `recipe_find` 의 답 `center` · `normal` · `kind` 를 그대로). support 는 고정
+    면, load 는 하중 면(정하중 — 평면 하나, `z` 도 받는다 · 압착 — 평판, 반대쪽 끝 면이
+    받침 · 수압 — 바깥 면만 · 방향 하중), twist 는 비트는 끝(비틀림). **손잡이·벽걸이는
+    support, 방향 하중은 load 가 꼭 있어야 한다**. 방향 하중의 `direction`(`[x, y, z]`)은
+    힘의 방향이자 모멘트의 축 — 비우면 고른 평면에서 바깥으로(당김), 곡면이면 꼭 준다.
+    적층 압축은 `mass`(제품 무게 kg)가 꼭 있어야 한다. 시험 변수(`시험_하중` · `시험_X` ·
+    `시험_가속도_g` · `시험_각도` · `시험_무게` …)가 레시피 변수라 `doe_create` 로 훑는다."""
+    body = {
+        "preset_id": preset_id,
+        "source": source,
+        "x": x,
+        "y": y,
+        "z": z,
+        "axis": axis,
+        "faces": faces or {},
+        "mass": mass,
+        "direction": direction,
+        "name": name,
+        "folder": folder,
+    }
+    return await _post(ctx, "/api/specimens/product-tests", body)
 
 
 @mcp.tool()

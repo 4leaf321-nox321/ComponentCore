@@ -1,0 +1,40 @@
+[
+  {
+    "id": "astm-d5379",
+    "test": "shear",
+    "standard": "ASTM D5379",
+    "name": "ASTM D5379 V 노치 보 (이오시페스쿠)",
+    "family": "v_notch",
+    "specimen": {
+      "length": 76,
+      "width": 20,
+      "thickness": 4,
+      "notch_depth": 3.8,
+      "notch_angle": 90,
+      "notch_radius": 1.3,
+      "grip_gap": 12.7
+    },
+    "source": "ASTM D5379 Fig. 3: 76 × 20, 노치 깊이 3.8(폭의 20 %), 노치 각 90°, 뿌리 반지름 1.3",
+    "verified": false,
+    "note": "두께는 재료 두께입니다(예시 4 mm). 물림 간격 12.7 mm는 지그 치수에 따른 해석 기본값입니다."
+  },
+  {
+    "id": "astm-d7078",
+    "test": "shear",
+    "standard": "ASTM D7078",
+    "name": "ASTM D7078 V 노치 레일 전단",
+    "family": "v_notch",
+    "specimen": {
+      "length": 76,
+      "width": 56,
+      "thickness": 4,
+      "notch_depth": 12.7,
+      "notch_angle": 90,
+      "notch_radius": 1.3,
+      "grip_gap": 31.75
+    },
+    "source": "ASTM D7078 Fig. 1: 76 × 56, 노치 깊이 12.7, 노치 각 90°, 뿌리 반지름 1.3",
+    "verified": false,
+    "note": "두께는 재료 두께입니다(예시 4 mm). 물림 간격 31.75 mm는 레일 사이 간격의 해석 기본값입니다."
+  }
+]

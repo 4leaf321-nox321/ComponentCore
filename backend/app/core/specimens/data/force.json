@@ -1,0 +1,50 @@
+[
+  {
+    "id": "iec-62368-1-t2",
+    "test": "force",
+    "standard": "IEC 62368-1",
+    "name": "IEC 62368-1 T.2 정하중 10 N",
+    "setup": {
+      "force": 10,
+      "probe_diameter": 12
+    },
+    "source": "IEC 62368-1 부속서 T.2: 10 N 정하중(시험 손가락). 접촉 지름 12 mm 는 손가락 끝의 근사",
+    "verified": false
+  },
+  {
+    "id": "iec-62368-1-t3",
+    "test": "force",
+    "standard": "IEC 62368-1",
+    "name": "IEC 62368-1 T.3 정하중 30 N",
+    "setup": {
+      "force": 30,
+      "probe_diameter": 12
+    },
+    "source": "IEC 62368-1 부속서 T.3: 30 N 정하중(시험 탐침). 접촉 지름 12 mm 는 근사",
+    "verified": false
+  },
+  {
+    "id": "iec-62368-1-t4",
+    "test": "force",
+    "standard": "IEC 62368-1",
+    "name": "IEC 62368-1 T.4 정하중 100 N",
+    "setup": {
+      "force": 100,
+      "probe_diameter": 30
+    },
+    "source": "IEC 62368-1 부속서 T.4: 100 N 정하중. 접촉 지름 30 mm 는 근사",
+    "verified": false
+  },
+  {
+    "id": "iec-62368-1-t5",
+    "test": "force",
+    "standard": "IEC 62368-1",
+    "name": "IEC 62368-1 T.5 정하중 250 N",
+    "setup": {
+      "force": 250,
+      "probe_diameter": 30
+    },
+    "source": "IEC 62368-1 부속서 T.5: 250 N 정하중, 지름 30 mm 원형 평면으로 가압",
+    "verified": false
+  }
+]

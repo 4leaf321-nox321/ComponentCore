@@ -90,7 +90,7 @@ test('누구나 공개 규격과 그 출처를 보고, 검토 전인 값은 그�
   show()
   expect(await screen.findByText('ASTM D790 3점 굽힘 (16:1)')).toBeInTheDocument()
   expect(screen.getByText('ASTM D790: 간격비 16:1')).toBeInTheDocument()
-  expect(screen.getAllByText('검토 필요')).toHaveLength(2)
+  expect(screen.getAllByText('검토 필요', { selector: '[data-slot=badge]' })).toHaveLength(2)
   expect(screen.getAllByText('16 × 두께')).toHaveLength(2)
   expect(screen.getByText('2 (두께 3 이하) / 5 / 5')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '사내 규격으로 복사' })).not.toBeInTheDocument()

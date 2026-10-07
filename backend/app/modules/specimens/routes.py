@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -12,6 +14,8 @@ from app.modules.specimens import services
 from app.modules.specimens.schemas import (
     PresetIn,
     PresetOut,
+    ProductSourceRequest,
+    ProductTestRequest,
     SpecimenBuildOut,
     SpecimenRequest,
     SpecimenWorkRequest,
@@ -93,3 +97,27 @@ def create_work(
     """시험 규격으로 **내 작업**을 만든다 — 시편 치수가 레시피 변수라 바로 DOE 로 훑고, 해석
     조건이 함께 붙어 그대로 내보낸다."""
     return works.work_out(db, services.create_work(db, user, payload))
+
+
+@router.post("/product-tests", response_model=WorkOut, status_code=201)
+def apply_product_test(
+    payload: ProductTestRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> WorkOut:
+    """**제품에 시험 규격을 건다** — 정하중 · 손잡이·벽걸이 · 적층 압축 · 비틀림 · 정현파
+    진동 · 고유진동수. 제품 레시피를 그대로 쓴 새 내 작업에 시험 변수 · 하중 자리 · 구속 ·
+    하중 · 해석 설정을 붙인다. 제품의 물성 · 접촉 · 파트별 설정은 그대로 가져온다. 자리는
+    기본이 아랫면 받침 · 윗면 하중이고, `faces` 로 3D 에서 고른 면을 준다."""
+    return works.work_out(db, services.apply_product_test(db, user, payload))
+
+
+@router.post("/product-mesh")
+def product_mesh(
+    payload: ProductSourceRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """제품의 면 · 엣지 메시와 요약 — 「제품에 적용」 이 3D 에서 고정 면 · 누를 면을
+    고르게. 내 부품 작업은 주인 · 관리자만, 공용 부품은 누구나."""
+    return services.product_mesh(db, user, payload)

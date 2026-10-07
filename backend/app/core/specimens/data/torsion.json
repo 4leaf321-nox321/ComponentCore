@@ -1,0 +1,26 @@
+[
+  {
+    "id": "twist-example-6deg",
+    "test": "torsion",
+    "standard": "비틀림 (예시)",
+    "name": "휴대기기 끝단 6° 비틀림 (예시)",
+    "setup": {
+      "angle": 6
+    },
+    "source": "공개 규격 없음 — 휴대기기 비틀림은 제조사 사내 규격으로 정합니다. 각도는 예시값",
+    "verified": false,
+    "note": "사내 규격으로 복사해 값을 정하십시오."
+  },
+  {
+    "id": "twist-example-10deg",
+    "test": "torsion",
+    "standard": "비틀림 (예시)",
+    "name": "태블릿 끝단 10° 비틀림 (예시)",
+    "setup": {
+      "angle": 10
+    },
+    "source": "공개 규격 없음 — 각도는 예시값",
+    "verified": false,
+    "note": "사내 규격으로 복사해 값을 정하십시오."
+  }
+]

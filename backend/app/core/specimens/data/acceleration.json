@@ -1,0 +1,58 @@
+[
+  {
+    "id": "iec-60068-2-27-15g-11ms",
+    "test": "acceleration",
+    "standard": "IEC 60068-2-27",
+    "name": "IEC 60068-2-27 반정현파 15 g, 11 ms (정적 등가)",
+    "setup": {
+      "acceleration_g": 15,
+      "duration_ms": 11,
+      "factor": 1.0
+    },
+    "source": "IEC 60068-2-27: 심각도 표의 피크 가속도 · 지속 시간 조합(150 m/s², 11 ms)",
+    "verified": false,
+    "note": "실제 충격을 정적 가속도로 근사합니다. 반정현파의 응답 배율은 최대 약 1.7이니 보수적으로는 배율을 높이십시오."
+  },
+  {
+    "id": "iec-60068-2-27-50g-11ms",
+    "test": "acceleration",
+    "standard": "IEC 60068-2-27",
+    "name": "IEC 60068-2-27 반정현파 50 g, 11 ms (정적 등가)",
+    "setup": {
+      "acceleration_g": 50,
+      "duration_ms": 11,
+      "factor": 1.0
+    },
+    "source": "IEC 60068-2-27: 심각도 표의 조합(500 m/s², 11 ms)",
+    "verified": false,
+    "note": "실제 충격을 정적 가속도로 근사합니다. 반정현파의 응답 배율은 최대 약 1.7입니다."
+  },
+  {
+    "id": "iec-60068-2-27-100g-6ms",
+    "test": "acceleration",
+    "standard": "IEC 60068-2-27",
+    "name": "IEC 60068-2-27 반정현파 100 g, 6 ms (정적 등가)",
+    "setup": {
+      "acceleration_g": 100,
+      "duration_ms": 6,
+      "factor": 1.0
+    },
+    "source": "IEC 60068-2-27: 심각도 표의 조합(1000 m/s², 6 ms)",
+    "verified": false,
+    "note": "실제 충격을 정적 가속도로 근사합니다. 반정현파의 응답 배율은 최대 약 1.7입니다."
+  },
+  {
+    "id": "iso-16750-3-shock-500",
+    "test": "acceleration",
+    "standard": "ISO 16750-3",
+    "name": "ISO 16750-3 기계 충격 500 m/s² (정적 등가)",
+    "setup": {
+      "acceleration_g": 51,
+      "duration_ms": 11,
+      "factor": 1.0
+    },
+    "source": "ISO 16750-3: 차체 · 프레임의 단단한 자리에 붙는 장치, 반정현파 500 m/s²(판에 따라 6 ms 또는 11 ms — 대조 필요)",
+    "verified": false,
+    "note": "실제 충격을 정적 가속도로 근사합니다."
+  }
+]

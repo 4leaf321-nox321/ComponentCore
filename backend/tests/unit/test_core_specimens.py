@@ -19,14 +19,25 @@ from app.core.recipe import evaluate, parse
 from app.core.recipe.params import resolve, resolve_params
 from app.core.recipe.topology import bodies, regions
 from app.core.specimens import bending
+from app.core.specimens.presets import BendingPreset
 
 
 def _made(recipe: dict[str, Any]) -> Any:
     return evaluate(parse(recipe), resolve_file=None)
 
 
-@pytest.mark.parametrize("preset", specimens.builtin(), ids=lambda one: one.id)
-def test_공개_규격_프리셋은_시편_지그_조건이_모두_맞는다(preset: specimens.Preset) -> None:
+#: 굽힘 규격만 — 정하중 · 진동은 시편이 아니라 제품에 건다(`test_core_product_tests.py`).
+BENDING = [one for one in specimens.builtin() if isinstance(one, BendingPreset)]
+
+
+def _bend(preset_id: str) -> BendingPreset:
+    preset = specimens.find_builtin(preset_id)
+    assert isinstance(preset, BendingPreset)
+    return preset
+
+
+@pytest.mark.parametrize("preset", BENDING, ids=lambda one: one.id)
+def test_공개_규격_프리셋은_시편_지그_조건이_모두_맞는다(preset: BendingPreset) -> None:
     made = specimens.build(preset)
     shape = _made(made.recipe)
     names = [one["name"] for one in bodies(shape.shape)]
@@ -51,8 +62,7 @@ def test_공개_규격_프리셋은_시편_지그_조건이_모두_맞는다(pre
 
 
 def test_두께를_바꾸면_지지_간격과_처짐이_따라온다() -> None:
-    preset = specimens.find_builtin("astm-d790-16")
-    assert preset is not None
+    preset = _bend("astm-d790-16")
     made = specimens.build(preset)
     recipe = {**made.recipe, "params": {**made.recipe["params"], "두께": 4.0}}
     values = resolve_params(recipe)
@@ -66,8 +76,7 @@ def test_두께를_바꾸면_지지_간격과_처짐이_따라온다() -> None:
 
 
 def test_4점_굽힘의_처짐은_하중_간격을_안다() -> None:
-    preset = specimens.find_builtin("astm-d6272-16")
-    assert preset is not None
+    preset = _bend("astm-d6272-16")
     values = resolve_params(specimens.build(preset).recipe)
     span, inner = values["지지_간격"], values["하중_간격"]
     assert inner == pytest.approx(span * 0.3333)
@@ -76,8 +85,7 @@ def test_4점_굽힘의_처짐은_하중_간격을_안다() -> None:
 
 
 def test_두께에_따라_갈리는_반지름은_만들_때의_두께로_정하고_말한다() -> None:
-    preset = specimens.find_builtin("iso-178")
-    assert preset is not None
+    preset = _bend("iso-178")
     thin = specimens.build(preset, thickness=2.0)
     assert resolve_params(thin.recipe)["지지_반지름"] == 2.0
     assert any("두께를 바꾸면 반지름을 확인" in one for one in thin.notes)
@@ -85,7 +93,7 @@ def test_두께에_따라_갈리는_반지름은_만들_때의_두께로_정하�
 
 
 def test_지그나_조건_없이_시편만() -> None:
-    preset = specimens.builtin()[0]
+    preset = BENDING[0]
     alone = specimens.build(preset, fixture=False)
     assert alone.conditions is None
     assert [one["id"] for one in alone.recipe["nodes"]] == ["시편"]
@@ -95,8 +103,7 @@ def test_지그나_조건_없이_시편만() -> None:
 
 
 def test_틀린_프리셋은_어느_칸이_왜인지_말한다() -> None:
-    base = specimens.find_builtin("astm-d6272-16")
-    assert base is not None
+    base = _bend("astm-d6272-16")
     raw = base.model_dump()
     with pytest.raises(ValidationError, match="load_span"):
         specimens.parse_preset({**raw, "setup": {**raw["setup"], "load_span": None}})
@@ -111,8 +118,7 @@ BAR = {"kind": "box", "length": 127, "width": 12.7, "height": 3.2}
 
 
 def _setup(preset_id: str) -> dict[str, Any]:
-    preset = specimens.find_builtin(preset_id)
-    assert preset is not None
+    preset = _bend(preset_id)
     return preset.setup.model_dump()
 
 

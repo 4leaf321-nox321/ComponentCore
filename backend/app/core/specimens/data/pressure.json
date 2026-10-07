@@ -1,0 +1,39 @@
+[
+  {
+    "id": "iec-60529-ipx7",
+    "test": "pressure",
+    "standard": "IEC 60529",
+    "name": "IEC 60529 IPX7 일시 침수 (1 m)",
+    "setup": {
+      "depth": 1.0,
+      "factor": 1.0
+    },
+    "source": "IEC 60529 IPX7: 가장 낮은 곳이 수심 1 m(가장 높은 곳 0.15 m 이상), 30분",
+    "verified": false,
+    "note": "가장 낮은 곳의 수압을 바깥 면 전체에 고르게 겁니다(보수적)."
+  },
+  {
+    "id": "iec-60529-ipx8-1.5m",
+    "test": "pressure",
+    "standard": "IEC 60529",
+    "name": "IEC 60529 IPX8 연속 침수 1.5 m (예시)",
+    "setup": {
+      "depth": 1.5,
+      "factor": 1.0
+    },
+    "source": "IEC 60529 IPX8: 제조사와 합의한 조건(IPX7 보다 가혹). 1.5 m 는 휴대폰에서 흔한 예시값",
+    "verified": false
+  },
+  {
+    "id": "iec-60529-ipx8-6m",
+    "test": "pressure",
+    "standard": "IEC 60529",
+    "name": "IEC 60529 IPX8 연속 침수 6 m (예시)",
+    "setup": {
+      "depth": 6.0,
+      "factor": 1.0
+    },
+    "source": "IEC 60529 IPX8: 제조사와 합의한 조건. 6 m 는 예시값",
+    "verified": false
+  }
+]
