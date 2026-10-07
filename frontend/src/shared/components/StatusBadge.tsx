@@ -6,10 +6,12 @@
 
 import { cn } from '@/shared/lib/utils'
 
-type Tone = 'neutral' | 'good' | 'warn' | 'bad'
+type Tone = 'neutral' | 'info' | 'accent' | 'good' | 'warn' | 'bad'
 
 const TONE_CLASS: Record<Tone, string> = {
   neutral: 'bg-muted text-muted-foreground',
+  info: 'bg-sky-500/10 text-sky-700 dark:text-sky-400',
+  accent: 'bg-violet-500/10 text-violet-700 dark:text-violet-400',
   good: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
   warn: 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
   bad: 'bg-destructive/10 text-destructive',
@@ -34,7 +36,22 @@ const INTERFERENCE: Record<string, { label: string; tone: Tone }> = {
   bad: { label: '간섭 있음', tone: 'bad' },
 }
 
-const TABLES = { account: ACCOUNT, run: RUN, interference: INTERFERENCE } as const
+/** VOC 의 절차 — 서버 `voc.models.VOC_STATUS_LABELS` 와 같은 말. 지나온 곳(종료)은 흐리게. */
+const VOC: Record<string, { label: string; tone: Tone }> = {
+  open: { label: '등록', tone: 'info' },
+  accepted: { label: '접수', tone: 'accent' },
+  in_progress: { label: '처리 중', tone: 'warn' },
+  resolved: { label: '해결', tone: 'good' },
+  closed: { label: '종료', tone: 'neutral' },
+  rejected: { label: '반려', tone: 'bad' },
+}
+
+const TABLES = { account: ACCOUNT, run: RUN, interference: INTERFERENCE, voc: VOC } as const
+
+/** 배지 없이 말만 — 필터 칩 · 확인 창처럼 배지를 그리지 않는 자리. */
+export function statusLabel(kind: keyof typeof TABLES, value: string): string {
+  return TABLES[kind][value]?.label ?? value
+}
 
 export function StatusBadge({
   kind,

@@ -34,6 +34,7 @@ from app.modules.search import routes as search_routes
 from app.modules.server import routes as server_routes
 from app.modules.specimens import routes as specimens_routes
 from app.modules.templates import routes as templates_routes
+from app.modules.voc import routes as voc_routes
 from app.modules.works import routes as works_routes
 from app.schema_version import warn_if_behind
 from app.shared.access_log import AccessLogMiddleware
@@ -75,6 +76,7 @@ def _api_router(settings: Settings) -> APIRouter:
     router.include_router(search_routes.router)
     router.include_router(server_routes.router)
     router.include_router(specimens_routes.router)
+    router.include_router(voc_routes.router)
     return router
 
 

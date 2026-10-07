@@ -2,7 +2,7 @@
  * 사이드바 메뉴 정의 — **화면 목록의 정본이다.** `router.test.tsx` 가 라우터와 맞는지 검사한다.
  *
  * 순서가 곧 동선이다: 내 활동(새 작업 → 내 작업 → 실행 기록) → 공용 공간(템플릿 · 시험 규격 ·
- * 부품 · 지그) → 관리. 템플릿 · 시험 규격은 시작점, 부품 · 지그는 승격된 결과다.
+ * 부품 · 지그) → 지원(VOC) → 관리. 템플릿 · 시험 규격은 시작점, 부품 · 지그는 승격된 결과다.
  */
 
 import {
@@ -14,6 +14,7 @@ import {
   FolderSearch,
   Layers,
   ListChecks,
+  MessagesSquare,
   Ruler,
   Server,
   UserCog,
@@ -71,6 +72,17 @@ export const NAV_GROUPS: NavGroup[] = [
       },
       { label: '부품', icon: Layers, to: '/parts', summary: '등록된 부품입니다. 모든 사용자가 조회할 수 있으며, 내 작업 공간으로 복사하여 사용할 수 있습니다.' },
       { label: '지그', icon: Boxes, to: '/jigs', summary: '등록된 지그입니다. 대상 부품과 그 버전을 함께 표시합니다.' },
+    ],
+  },
+  {
+    title: '지원',
+    items: [
+      {
+        label: 'VOC',
+        icon: MessagesSquare,
+        to: '/voc',
+        summary: '불편한 점이나 필요한 기능을 등록합니다. 모든 사용자가 조회할 수 있으며, 처리 과정이 이력으로 남습니다.',
+      },
     ],
   },
   {

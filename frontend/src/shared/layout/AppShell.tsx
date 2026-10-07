@@ -1,12 +1,13 @@
 /** 앱 껍데기 — 사이드바 + 헤더 + 본문. **본문만 스크롤한다.** */
 
-import { Suspense, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 
 import { ErrorBoundary } from '@/shared/components/ErrorBoundary'
 import { Skeleton } from '@/shared/components/ui/skeleton'
 import { Header } from '@/shared/layout/Header'
 import { Sidebar, SidebarDrawer } from '@/shared/layout/Sidebar'
+import { rememberPage } from '@/shared/lib/lastPage'
 
 function PageSkeleton() {
   return (
@@ -22,6 +23,8 @@ export function AppShell() {
   const [collapsed, setCollapsed] = useState(false)
   const [drawer, setDrawer] = useState(false)
   const { pathname } = useLocation()
+  // 의견(VOC)에 「보던 화면」 을 담으려고 — 화면이 바뀔 때마다 적는다.
+  useEffect(() => rememberPage(pathname), [pathname])
 
   return (
     <div className="flex h-svh overflow-hidden">

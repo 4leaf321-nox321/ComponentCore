@@ -33,6 +33,8 @@ const ProfilePage = lazy(() => import('@/modules/auth/ProfilePage'))
 const AccountsAdminPage = lazy(() => import('@/modules/accounts/AccountsAdminPage'))
 const AllWorksPage = lazy(() => import('@/modules/works/AllWorksPage'))
 const ServerPage = lazy(() => import('@/modules/server/ServerPage'))
+const VocPage = lazy(() => import('@/modules/voc/VocPage'))
+const VocDetailPage = lazy(() => import('@/modules/voc/VocDetailPage'))
 
 export const router = createBrowserRouter(
   [
@@ -61,6 +63,8 @@ export const router = createBrowserRouter(
             { path: 'jigs/:id', element: <ById><JigPage /></ById> },
             { path: 'jobs', element: <JobsPage /> },
             { path: 'me', element: <ProfilePage /> },
+            { path: 'voc', element: <VocPage /> },
+            { path: 'voc/:id', element: <ById><VocDetailPage /></ById> },
             { path: 'admin/works', element: <AllWorksPage /> },
             { path: 'admin/accounts', element: <AccountsAdminPage /> },
             { path: 'admin/server', element: <ServerPage /> },

@@ -7953,6 +7953,640 @@
           }
         }
       }
+    },
+    "/api/voc": {
+      "get": {
+        "tags": [
+          "voc"
+        ],
+        "summary": "List Items",
+        "description": "게시판 — **누구나 전부 본다**, 최신이 위다. `q` 는 제목 · 본문 · 작성자.",
+        "operationId": "list_items_api_voc_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "default": "",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "mine",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Mine"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_VocOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "voc"
+        ],
+        "summary": "Create Item",
+        "description": "의견 등록 — 번호가 붙고 「등록」 상태로 시작한다. 보던 화면(`page_path`)도 담는다.",
+        "operationId": "create_item_api_voc_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VocCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VocDetailOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/voc/export": {
+      "post": {
+        "tags": [
+          "voc"
+        ],
+        "summary": "Export Items",
+        "description": "고른 건들을 zip 하나로 — 건마다 폴더(`item.json` · `attachments/`)와 `index.json`.",
+        "operationId": "export_items_api_voc_export_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VocExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/voc/{item_id}": {
+      "get": {
+        "tags": [
+          "voc"
+        ],
+        "summary": "Get Item",
+        "description": "본문 · 이력 · 첨부, 그리고 **이 사람이 지금 옮길 수 있는 상태**(`allowed`).",
+        "operationId": "get_item_api_voc__item_id__get",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VocDetailOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "voc"
+        ],
+        "summary": "Update Item",
+        "description": "제목 · 본문 수정 — 작성자는 다른 사용자가 말을 남기기 전까지, 관리자는 언제나.",
+        "operationId": "update_item_api_voc__item_id__patch",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VocUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VocDetailOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "voc"
+        ],
+        "summary": "Delete Item",
+        "description": "목록 · 상세에서 뺀다(`deleted_at`). 수정과 같은 사람만.",
+        "operationId": "delete_item_api_voc__item_id__delete",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/voc/{item_id}/events": {
+      "post": {
+        "tags": [
+          "voc"
+        ],
+        "summary": "Add Event",
+        "description": "상태를 옮기거나(`status`) 말만 보탠다(`status` 없이). 갈 수 있는 곳은 상세의\n`allowed`, 말이 꼭 필요한 곳은 `note_required`.",
+        "operationId": "add_event_api_voc__item_id__events_post",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VocEventRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VocDetailOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/voc/{item_id}/events/{event_id}": {
+      "patch": {
+        "tags": [
+          "voc"
+        ],
+        "summary": "Update Event",
+        "description": "이력 한 줄의 말을 고친다 — 시스템 관리자만. 상태 이동은 안 바뀐다.",
+        "operationId": "update_event_api_voc__item_id__events__event_id__patch",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          },
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Event Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VocEventUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VocDetailOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "voc"
+        ],
+        "summary": "Delete Event",
+        "description": "이력 한 줄을 지운다 — 시스템 관리자만. 상태는 남은 이력의 마지막 이동으로 돌아간다.",
+        "operationId": "delete_event_api_voc__item_id__events__event_id__delete",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          },
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Event Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VocDetailOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/voc/{item_id}/attachments": {
+      "post": {
+        "tags": [
+          "voc"
+        ],
+        "summary": "Upload Attachment",
+        "description": "파일 하나를 붙인다(한 파일 25 MB) — 작성자와 관리자.",
+        "operationId": "upload_attachment_api_voc__item_id__attachments_post",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_attachment_api_voc__item_id__attachments_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VocDetailOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/voc/{item_id}/attachments/{attachment_id}": {
+      "get": {
+        "tags": [
+          "voc"
+        ],
+        "summary": "Download Attachment",
+        "description": "**첨부로만 내린다.** 올린 파일은 무엇이든 될 수 있다 — HTML 을 문서로 열면 그 안의\n스크립트가 이 사이트의 권한으로 돈다.",
+        "operationId": "download_attachment_api_voc__item_id__attachments__attachment_id__get",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          },
+          {
+            "name": "attachment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Attachment Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "voc"
+        ],
+        "summary": "Delete Attachment",
+        "description": "첨부를 뗀다(파일도 지운다) — 작성자와 관리자.",
+        "operationId": "delete_attachment_api_voc__item_id__attachments__attachment_id__delete",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          },
+          {
+            "name": "attachment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Attachment Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VocDetailOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -8239,6 +8873,20 @@
           "file"
         ],
         "title": "Body_import_step_api_works__work_id__import_step_post"
+      },
+      "Body_upload_attachment_api_voc__item_id__attachments_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_attachment_api_voc__item_id__attachments_post"
       },
       "Body_upload_catalog_api_materials_catalog_post": {
         "properties": {
@@ -9922,6 +10570,37 @@
           "offset"
         ],
         "title": "Page[TemplateSummaryOut]"
+      },
+      "Page_VocOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/VocOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[VocOut]"
       },
       "Page_WorkSummaryOut_": {
         "properties": {
@@ -13378,6 +14057,519 @@
         ],
         "title": "ViewsRequest"
       },
+      "VocAttachmentOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "content_type": {
+            "type": "string",
+            "title": "Content Type"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "filename",
+          "content_type",
+          "size",
+          "created_at",
+          "created_by",
+          "url"
+        ],
+        "title": "VocAttachmentOut"
+      },
+      "VocCreateRequest": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Body"
+          },
+          "page_path": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Path"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "body"
+        ],
+        "title": "VocCreateRequest"
+      },
+      "VocDetailOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "status_label": {
+            "type": "string",
+            "title": "Status Label"
+          },
+          "page_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Path"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "status_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Status At"
+          },
+          "status_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status By"
+          },
+          "is_mine": {
+            "type": "boolean",
+            "title": "Is Mine"
+          },
+          "can_edit": {
+            "type": "boolean",
+            "title": "Can Edit"
+          },
+          "event_count": {
+            "type": "integer",
+            "title": "Event Count"
+          },
+          "attachment_count": {
+            "type": "integer",
+            "title": "Attachment Count",
+            "default": 0
+          },
+          "body": {
+            "type": "string",
+            "title": "Body"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/VocEventOut"
+            },
+            "type": "array",
+            "title": "Events"
+          },
+          "attachments": {
+            "items": {
+              "$ref": "#/components/schemas/VocAttachmentOut"
+            },
+            "type": "array",
+            "title": "Attachments"
+          },
+          "can_attach": {
+            "type": "boolean",
+            "title": "Can Attach",
+            "default": false
+          },
+          "allowed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Allowed"
+          },
+          "allowed_labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Allowed Labels"
+          },
+          "note_required": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Note Required"
+          },
+          "can_delete_events": {
+            "type": "boolean",
+            "title": "Can Delete Events",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "seq",
+          "title",
+          "status",
+          "status_label",
+          "page_path",
+          "created_at",
+          "created_by",
+          "status_at",
+          "status_by",
+          "is_mine",
+          "can_edit",
+          "event_count",
+          "body",
+          "events",
+          "allowed",
+          "allowed_labels",
+          "note_required"
+        ],
+        "title": "VocDetailOut"
+      },
+      "VocEventOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By"
+          },
+          "from_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Status"
+          },
+          "to_status": {
+            "type": "string",
+            "title": "To Status"
+          },
+          "to_status_label": {
+            "type": "string",
+            "title": "To Status Label"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "at",
+          "by",
+          "from_status",
+          "to_status",
+          "to_status_label",
+          "note"
+        ],
+        "title": "VocEventOut"
+      },
+      "VocEventRequest": {
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 5000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "title": "VocEventRequest",
+        "description": "상태를 옮기거나 말을 보탠다. **둘 중 하나는 있어야 한다.**\n\n`status` 를 비우면 댓글이다. 말 없이 상태만 옮기는 것은 상태에 따라 막힌다\n(`NOTE_REQUIRED`)."
+      },
+      "VocEventUpdateRequest": {
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 5000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "title": "VocEventUpdateRequest",
+        "description": "이력 한 줄의 말을 고친다 — **시스템 관리자만.** 상태 이동은 안 고친다(잘못 옮겼으면 줄을\n지운다)."
+      },
+      "VocExportRequest": {
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ids"
+        ],
+        "title": "VocExportRequest",
+        "description": "고른 건들을 zip 하나로 — 건마다 폴더, `item.json` + `attachments/`."
+      },
+      "VocOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "status_label": {
+            "type": "string",
+            "title": "Status Label"
+          },
+          "page_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Path"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "status_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Status At"
+          },
+          "status_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status By"
+          },
+          "is_mine": {
+            "type": "boolean",
+            "title": "Is Mine"
+          },
+          "can_edit": {
+            "type": "boolean",
+            "title": "Can Edit"
+          },
+          "event_count": {
+            "type": "integer",
+            "title": "Event Count"
+          },
+          "attachment_count": {
+            "type": "integer",
+            "title": "Attachment Count",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "seq",
+          "title",
+          "status",
+          "status_label",
+          "page_path",
+          "created_at",
+          "created_by",
+          "status_at",
+          "status_by",
+          "is_mine",
+          "can_edit",
+          "event_count"
+        ],
+        "title": "VocOut",
+        "description": "게시판 한 줄. **상세는 `VocDetailOut`** — 목록에 본문과 이력을 다 실으면 100건짜리\n화면이 느려지고, 그 느림은 목록에서만 보인다."
+      },
+      "VocUpdateRequest": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "body": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body"
+          }
+        },
+        "type": "object",
+        "title": "VocUpdateRequest",
+        "description": "낸 것을 고친다. **안 보낸 칸은 안 건드린다** — 제목 · 본문은 `min_length=1` 이라\n「비웠다」 는 애초에 못 보낸다."
+      },
       "WorkCreateRequest": {
         "properties": {
           "name": {
@@ -13981,6 +15173,10 @@
     {
       "name": "materials",
       "description": "**물성** — MatNexus 에서 골라 온다. 값을 해석하지 않고 payload 를 통째로 나른다 (「어느 것이 영률인가」 는 솔버를 아는 쪽의 일이다). 못 닿으면 관리자가 올려 둔 카탈로그로 넘어가고, **넘어갔다는 사실을 답이 말한다**(`fallback`)."
+    },
+    {
+      "name": "voc",
+      "description": "**VOC 게시판** — 불편한 점 · 필요한 기능을 앱 안에서 남긴다. 로그인한 누구나 보고, 한 건은 등록 → 접수 → 처리 중 → 해결 → 종료(또는 반려)를 거치며 누가 언제 무슨 말로 옮겼는지 이력에 남는다. 옮길 수 있는 곳은 상세의 `allowed` 가 말한다."
     },
     {
       "name": "accounts",

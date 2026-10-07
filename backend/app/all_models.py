@@ -18,6 +18,7 @@ from app.modules.parts.models import Part, PartVersion
 from app.modules.server.models import ServerSetting
 from app.modules.specimens.models import SpecimenPreset
 from app.modules.templates.models import RecipeTemplate
+from app.modules.voc.models import VocAttachment, VocEvent, VocItem
 from app.modules.works.models import Work, WorkVersion
 
 __all__ = [
@@ -39,6 +40,9 @@ __all__ = [
     "SpecimenPreset",
     "SsoUsedJti",
     "User",
+    "VocAttachment",
+    "VocEvent",
+    "VocItem",
     "Work",
     "WorkVersion",
     "WorkerBeat",

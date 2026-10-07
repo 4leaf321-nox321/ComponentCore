@@ -87,6 +87,14 @@ TAGS: list[dict[str, Any]] = [
             "카탈로그로 넘어가고, **넘어갔다는 사실을 답이 말한다**(`fallback`)."
         ),
     },
+    {
+        "name": "voc",
+        "description": (
+            "**VOC 게시판** — 불편한 점 · 필요한 기능을 앱 안에서 남긴다. 로그인한 누구나 "
+            "보고, 한 건은 등록 → 접수 → 처리 중 → 해결 → 종료(또는 반려)를 거치며 누가 언제 "
+            "무슨 말로 옮겼는지 이력에 남는다. 옮길 수 있는 곳은 상세의 `allowed` 가 말한다."
+        ),
+    },
     {"name": "accounts", "description": "계정과 가입 승인. 관리자용."},
     {"name": "server", "description": "서버 설정(상한 · 보관 기한)과 상태. 관리자용."},
     {"name": "system", "description": "살아 있나 · 버전."},
