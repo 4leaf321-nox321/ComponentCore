@@ -101,8 +101,8 @@
   axis, at) · `sphere`(radius, at) · `cone`(bottom_radius, top_radius, height, at) · `torus`
   (major_radius, minor_radius) · `wedge`(length, width, height, top_x_min/max, top_z_min/max —
   경사 블록) · **표준 부품** `bolt`(at=머리가 앉는 점, nominal, length, head hex|socket, washer,
-  down) · `pin`(at=밑면 중심, diameter, length, chamfer) · `standoff`(at=밑면 중심, outer, hole,
-  height) · `nut`(at, thread M3~M12, direction) · `washer`(at, thread, direction) ·
+  down — M1.6~M24 는 머리 · 와셔가 ISO 치수) · `pin`(at=밑면 중심, diameter, length, chamfer) · `standoff`(at=밑면 중심, outer, hole,
+  height) · `nut`(at, thread M1.6~M24, direction) · `washer`(at, thread, direction) ·
   `bearing`(at, designation 608 · 625 · 626 · 6000~6005 · 6200~6205, direction) ·
   `spring`(at, wire, diameter — 평균 지름, length — 자유 길이, coils, direction) ·
   `bracket`(at — 두 프로파일 면이 만나는 안쪽 모서리, size 20|30|40|45, legs [[다리1], [다리2]]
@@ -168,7 +168,7 @@
   비우면 두 면 중 위(+Z)를 보는 면) · `shell`(target, thickness, open top|bottom|none|{near}) · `offset`(target, amount,
   corners round|sharp — 전체를 두껍게/얇게. **제품에 여유를 주어 지그 포켓을 만들 때**) ·
   `draft`(target, faces sides|top|bottom|all|{near}, angle, neutral — 면을 기울여 구배) · `hole`(target, at [[x, y]…], kind simple|counterbore|
-  countersink|tap, thread M3~M12 — 주면 지름 · 카운터 치수를 표에서, diameter, depth — 비우면 관통,
+  countersink|tap, thread M1.6~M24 — 주면 지름 · 카운터 치수를 표에서, diameter, depth — 비우면 관통,
   counter_diameter, counter_depth, plane — 뚫을 면 {origin, normal}; 안 주면 윗면 +Z 에서 아래로)
   · `defeature`(target, faces {"near": [[x,y,z]…]}, holes_below, fillets_below — **면을 지우고
   메운다**: 지름이 holes_below 보다 작은 구멍(카운터보어 · 카운터싱크 포함), 반지름이

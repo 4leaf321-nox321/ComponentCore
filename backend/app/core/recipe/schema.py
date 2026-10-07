@@ -13,6 +13,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from app.core.fasteners import NUTS, THREADS, WASHERS
 from app.core.recipe.params import ExpressionError, resolve
 
 XY = tuple[float, float]
@@ -918,21 +919,12 @@ class ChamferNode(_Node):
         return self
 
 
-#: 미터 나사 — (탭 드릴, 여유 구멍, 카운터보어 지름, 카운터보어 깊이, 카운터싱크 지름). mm.
-THREADS: dict[str, tuple[float, float, float, float, float]] = {
-    "M3": (2.5, 3.4, 6.5, 3.4, 6.9),
-    "M4": (3.3, 4.5, 8.0, 4.6, 8.9),
-    "M5": (4.2, 5.5, 10.0, 5.7, 10.9),
-    "M6": (5.0, 6.6, 11.0, 6.8, 12.9),
-    "M8": (6.8, 9.0, 15.0, 9.0, 17.0),
-    "M10": (8.5, 11.0, 18.0, 11.0, 21.0),
-    "M12": (10.2, 13.5, 20.0, 13.0, 25.0),
-}
+#: 미터 나사 표(M1.6 ~ M24)는 `app.core.fasteners` 가 쥔다 — `THREADS` · `NUTS` · `WASHERS`.
 
 
 class HoleNode(_Node):
     """구멍 — 단순 · 카운터보어 · 카운터싱크 · 탭. `plane` 을 주면 그 면에서 안쪽으로, 안 주면
-    대상의 윗면(+Z)에서 아래로. `thread` 를 주면 지름을 표에서 채운다(M3~M12)."""
+    대상의 윗면(+Z)에서 아래로. `thread` 를 주면 지름을 표에서 채운다(M1.6~M24)."""
 
     op: Literal["hole"]
     target: str
@@ -940,7 +932,7 @@ class HoleNode(_Node):
     """평면 위의 위치들(plane 을 안 주면 XY)."""
     kind: Literal["simple", "counterbore", "countersink", "tap"] = "simple"
     thread: str | None = None
-    """M3 · M4 · M5 · M6 · M8 · M10 · M12. 주면 diameter 와 카운터 치수를 표에서 채운다."""
+    """M1.6 ~ M24(`fasteners.THREADS`). 주면 diameter 와 카운터 치수를 표에서 채운다."""
     diameter: Positive | None = None
     """thread 가 없으면 필수. simple 은 관통 지름, tap 은 탭 드릴 지름."""
     depth: Positive | None = None
@@ -1079,7 +1071,8 @@ class WedgeNode(_Node):
 
 class BoltNode(_Node):
     """볼트 — 머리(육각 · 소켓) + 와셔 + 몸통. `at` 은 **머리가 앉는 면의 점**, 몸통은 -Z 로
-    내려간다(`down=False` 면 +Z). 나사산은 없고 몸통은 호칭 지름 그대로. ISO 비례(머리 지름
+    내려간다(`down=False` 면 +Z). 나사산은 없고 몸통은 호칭 지름 그대로. 머리는 M1.6 ~ M24 면
+    규격 치수(소켓 ISO 4762 · 육각 ISO 4017), 와셔는 ISO 7089 — 표에 없는 호칭은 비례(머리 지름
     1.5d, 육각 높이 0.65d, 소켓 1.0d). 지그에 볼트를 손수 원통으로 그리지 않게."""
 
     op: Literal["bolt"]
@@ -1119,26 +1112,6 @@ class StandoffNode(_Node):
         return self
 
 
-#: ISO 4032 육각 너트 — 호칭 → (맞변 거리, 높이). mm.
-NUTS: dict[str, tuple[float, float]] = {
-    "M3": (5.5, 2.4),
-    "M4": (7.0, 3.2),
-    "M5": (8.0, 4.7),
-    "M6": (10.0, 5.2),
-    "M8": (13.0, 6.8),
-    "M10": (16.0, 8.4),
-    "M12": (18.0, 10.8),
-}
-#: ISO 7089 평와셔 — 호칭 → (안지름, 바깥지름, 두께). mm.
-WASHERS: dict[str, tuple[float, float, float]] = {
-    "M3": (3.2, 7.0, 0.5),
-    "M4": (4.3, 9.0, 0.8),
-    "M5": (5.3, 10.0, 1.0),
-    "M6": (6.4, 12.0, 1.6),
-    "M8": (8.4, 16.0, 1.6),
-    "M10": (10.5, 20.0, 2.0),
-    "M12": (13.0, 24.0, 2.5),
-}
 #: 깊은 홈 볼 베어링 — 호칭 → (안지름, 바깥지름, 폭). mm.
 BEARINGS: dict[str, tuple[float, float, float]] = {
     "625": (5, 16, 5),
@@ -1283,7 +1256,7 @@ class FastenNode(_Node):
     `{"kind": "cylinder", "radius": 3.3}`."""
     part: Literal["bolt", "nut", "washer", "pin"] = "bolt"
     thread: str | None = None
-    """M3 ~ M12. 비우면 구멍 지름으로 고른다."""
+    """M1.6 ~ M24. 비우면 구멍 지름으로 고른다."""
     length: Positive | None = None
     head: Literal["hex", "socket"] = "socket"
     washer: bool = False

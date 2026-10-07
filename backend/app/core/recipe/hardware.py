@@ -27,6 +27,7 @@ from build123d import (
     sweep,
 )
 
+from app.core import fasteners
 from app.core.recipe import defeature
 from app.core.recipe import schema as S
 from app.core.recipe.query import select_features
@@ -44,14 +45,14 @@ def placed(shape: Shape, at: Vector, direction: Vector) -> Shape:
 
 
 def nut(thread: str) -> Part:
-    across, height = S.NUTS[thread]
+    across, height = fasteners.NUTS[thread]
     major = float(thread[1:])
     body = extrude(RegularPolygon(across / 3**0.5, 6), height)
     return body - Pos(0, 0, height / 2) * Cylinder(major / 2, height * 2)
 
 
 def washer(thread: str) -> Part:
-    inner, outer, thickness = S.WASHERS[thread]
+    inner, outer, thickness = fasteners.WASHERS[thread]
     return extrude(Circle(outer / 2) - Circle(inner / 2), thickness)
 
 
@@ -137,13 +138,14 @@ def holes(part: Part, query: dict[str, object], side: str) -> list[Hole]:
 
 
 def thread_for(diameter: float) -> str:
-    """구멍 지름에 맞는 나사 — 여유 구멍(±0.3) 또는 탭 드릴(±0.2)."""
-    for name, (tap, clearance, *_rest) in S.THREADS.items():
-        if abs(diameter - clearance) <= 0.3 or abs(diameter - tap) <= 0.2:
-            return name
-    raise HardwareError(
-        f"지름 {diameter:g} 구멍에 맞는 나사(M3 ~ M12)가 없습니다. thread를 지정하십시오."
-    )
+    """구멍 지름에 맞는 나사 — 여유 구멍(±0.3) 또는 탭 드릴(±0.2) 중 가장 가까운 것."""
+    found = fasteners.thread_for(diameter)
+    if found is None:
+        raise HardwareError(
+            f"지름 {diameter:g} 구멍에 맞는 나사(M1.6 ~ M24)가 없습니다. "
+            "thread를 지정하십시오."
+        )
+    return found
 
 
 def fasten(part: Part, node: S.FastenNode, make_bolt: Callable[[S.BoltNode], Part]) -> Part:

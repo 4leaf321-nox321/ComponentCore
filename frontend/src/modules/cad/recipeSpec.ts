@@ -58,6 +58,7 @@ import type { LucideIcon } from 'lucide-react'
 
 import type { Recipe } from '@/modules/cad/api'
 import { defaultConstrained } from '@/modules/cad/ConstrainedSketch'
+import { THREAD_SIZES } from '@/shared/threads'
 
 export type RecipeNode = Record<string, unknown> & {
   id: string
@@ -128,7 +129,7 @@ const EDGE_OPTIONS = [
   { value: 'bottom', label: '바닥면 둘레' },
 ]
 const AXIS_OPTIONS = ['X', 'Y', 'Z'].map((a) => ({ value: a, label: a }))
-const THREAD_OPTIONS = ['M3', 'M4', 'M5', 'M6', 'M8', 'M10', 'M12'].map((one) => ({ value: one, label: one }))
+const THREAD_OPTIONS = THREAD_SIZES.map((one) => ({ value: one, label: one }))
 export const PLANE_OPTIONS = ['XY', 'XZ', 'YZ', 'YX', 'ZX', 'ZY'].map((p) => ({
   value: p,
   label: p,
@@ -915,7 +916,7 @@ export const OP_SPECS: OpSpec[] = [
     icon: CircleDot,
     label: '구멍',
     group: '마감',
-    help: '단순, 카운터보어, 카운터싱크, 탭 구멍을 생성합니다. 나사 규격(M3~M12)을 선택하면 치수가 규격표에서 자동으로 입력됩니다. 면을 지정하지 않으면 윗면(+Z)에서 아래 방향으로 가공합니다.',
+    help: '단순, 카운터보어, 카운터싱크, 탭 구멍을 생성합니다. 나사 규격(M1.6~M24)을 선택하면 치수가 규격표에서 자동으로 입력됩니다. 면을 지정하지 않으면 윗면(+Z)에서 아래 방향으로 가공합니다.',
     fields: [
       { key: 'target', label: '대상', kind: 'ref', refKind: 'solid' },
       {
@@ -935,7 +936,7 @@ export const OP_SPECS: OpSpec[] = [
         kind: 'select',
         options: [
           { value: '__none__', label: '(직접 입력)' },
-          ...['M3', 'M4', 'M5', 'M6', 'M8', 'M10', 'M12'].map((m) => ({
+          ...THREAD_SIZES.map((m) => ({
             value: m,
             label: m,
           })),

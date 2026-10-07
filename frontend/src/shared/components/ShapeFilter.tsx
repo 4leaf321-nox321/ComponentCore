@@ -12,6 +12,7 @@ import { useState } from 'react'
 import { Button } from '@/shared/components/ui/button'
 import { Input } from '@/shared/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/shared/components/ui/popover'
+import { THREAD_SIZES } from '@/shared/threads'
 
 /** 목록 한 줄에 붙는 형상 색인 — 서버 `core/shape_index.py`. */
 export interface ShapeIndex {
@@ -53,7 +54,6 @@ export const FEATURE_LABELS: { value: string; label: string }[] = [
   { value: 'step', label: 'STEP' },
 ]
 
-const THREADS = ['M3', 'M4', 'M5', 'M6', 'M8', 'M10', 'M12']
 
 /** 몇 가지 조건을 걸었나 — 단추에 적는다. */
 export function shapeConditionCount(shape: ShapeQuery | null | undefined): number {
@@ -146,7 +146,7 @@ export function ShapeFilter({ value, onChange }: { value: ShapeQuery; onChange: 
             <span className="text-muted-foreground">나사</span>
             <select aria-label="나사 호칭" className="bg-background mt-0.5 h-8 w-full rounded-md border px-1" value={draft.thread ?? ''} onChange={(e) => set({ thread: e.target.value })}>
               <option value="">—</option>
-              {THREADS.map((one) => (
+              {THREAD_SIZES.map((one) => (
                 <option key={one}>{one}</option>
               ))}
             </select>

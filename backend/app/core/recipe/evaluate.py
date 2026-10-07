@@ -85,6 +85,7 @@ from build123d import (
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.GeomAbs import GeomAbs_Cylinder
 
+from app.core import fasteners
 from app.core.recipe import blend, datums, defeature, deform, hardware, mates, surfaces
 from app.core.recipe import schema as S
 from app.core.recipe.bend import BendError, bend
@@ -694,25 +695,28 @@ def _copies(source: Shape, node: S.PatternNode, made: dict[str, Any]) -> list[Sh
 
 
 def _bolt(node: S.BoltNode) -> Part:
-    """머리 · 와셔 · 몸통 — 지그 생성기의 볼트와 같은 비례. `at` 이 머리가 앉는 면."""
+    """머리 · 와셔 · 몸통 — 지그 생성기의 볼트와 같은 표(`fasteners`). `at` 은 머리가 앉는
+    면."""
     d = node.nominal
     x, y, seat = node.at
     sign = -1.0 if node.down else 1.0
-    washer_t = 0.2 * d if node.washer else 0.0
-    head_h = d if node.head == "socket" else 0.65 * d
-    head_d = 1.5 * d
+    washer_d, washer_t = fasteners.washer(d) if node.washer else (0.0, 0.0)
+    head_w, head_h, key = fasteners.head(d, node.head)
     shank_len = node.length
     shank: Part = Pos(x, y, seat + sign * shank_len / 2) * Cylinder(d / 2, shank_len)
     parts: list[Part] = [shank]
     if node.washer:
-        parts.append(Pos(x, y, seat - sign * washer_t / 2) * Cylinder(d, washer_t))
+        parts.append(Pos(x, y, seat - sign * washer_t / 2) * Cylinder(washer_d / 2, washer_t))
     z_head = seat - sign * washer_t
     if node.head == "socket":
-        head: Part = Pos(x, y, z_head - sign * head_h / 2) * Cylinder(head_d / 2, head_h)
-        head = head - Pos(x, y, z_head - sign * head_h) * Cylinder(0.4 * d, head_h)
+        head: Part = Pos(x, y, z_head - sign * head_h / 2) * Cylinder(head_w / 2, head_h)
+        # 육각 구멍 — 머리 높이의 절반 깊이(ISO 4762 의 렌치 물림 깊이에 가깝다).
+        head = head - Pos(x, y, z_head - sign * head_h) * extrude(
+            RegularPolygon(key / 3**0.5, 6), head_h / 2, both=True
+        )
     else:
         head = Pos(x, y, z_head - sign * head_h / 2) * extrude(
-            RegularPolygon(head_d / 2, 6), head_h / 2, both=True
+            RegularPolygon(head_w / 3**0.5, 6), head_h / 2, both=True
         )
     bolt = parts[0]
     for one in [*parts[1:], head]:
@@ -762,7 +766,7 @@ def _cleaned(part: Part) -> Part:
 
 def _hole_dimensions(node: S.HoleNode) -> tuple[float, float | None, float | None]:
     """(구멍 지름, 카운터 지름, 카운터보어 깊이) — thread 표와 직접 준 값을 합친다."""
-    table = S.THREADS.get(node.thread or "")
+    table = fasteners.THREADS.get(node.thread or "")
     if table:
         tap_drill, clearance, cbore_d, cbore_depth, csink_d = table
         diameter = node.diameter or (tap_drill if node.kind == "tap" else clearance)
