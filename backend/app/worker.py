@@ -81,6 +81,7 @@ class Worker:
                     revived = services.requeue_stale(db)
                     if revived:
                         logger.warning("갇힌 작업 %d 건을 되살렸습니다.", revived)
+                    services.prune_workers(db)
                     last_stale = time.monotonic()
 
                 job = services.claim_next(db, self.worker_id)

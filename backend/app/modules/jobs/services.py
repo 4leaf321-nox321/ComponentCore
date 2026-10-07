@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -299,6 +299,21 @@ def beat(
 
 #: 서버 화면에 보이는 워커 — 이보다 오래 소식이 없고 멈춘 워커는 목록에서 뺀다.
 SHOWN_FOR = timedelta(days=1)
+#: 워커 줄을 이만큼 남긴다 — 그보다 오래 소식이 없는 줄은 지운다(`prune_workers`).
+KEPT_FOR = timedelta(days=7)
+
+
+def prune_workers(db: Session) -> int:
+    """오래 소식이 없는 워커 줄을 지운다 — **이 표는 이력이 아니라 신호판이다.**
+
+    워커는 뜰 때마다 `host:pid` 줄을 하나 만든다(재시작 · 배포 · 개발의 watchfiles 마다).
+    지우지 않으면 끝없이 는다 — 개발에서 4일에 280줄(2026-10-07). 화면은 하루치만
+    보이므로(`SHOWN_FOR`) 일주일 지난 줄은 아무도 안 본다. 작업을 쥔 채 끊긴 워커의 작업은
+    그보다 훨씬 먼저 `requeue_stale` 이 되살렸다(2분). 작업은 워커 줄을 가리키지 않는다
+    (`jobs.worker_id` 는 글자다)."""
+    gone = db.execute(delete(WorkerBeat).where(WorkerBeat.last_seen_at < _now() - KEPT_FOR))
+    db.commit()
+    return int(getattr(gone, "rowcount", 0) or 0)
 
 
 def workers_overview(db: Session) -> dict[str, Any]:

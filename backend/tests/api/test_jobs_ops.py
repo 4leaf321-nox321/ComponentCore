@@ -236,6 +236,21 @@ def test_워커_신호와_줄을_보여_주고_신호가_끊긴_워커의_작업
     assert claimed.status == "queued" and claimed.worker_id is None
 
 
+def test_오래_소식이_없는_워커_줄은_지운다(db: Session) -> None:
+    """워커는 뜰 때마다 줄을 만든다 — 일주일 넘게 조용한 줄은 지우고, 최근 것은 남긴다."""
+    services.beat(db, "옛워커:1", state="stopped", hostname="h", pid=1)
+    services.beat(db, "요즘워커:2", state="idle", hostname="h", pid=2)
+    old = db.get(WorkerBeat, "옛워커:1")
+    assert old is not None
+    old.last_seen_at = datetime.now(UTC) - services.KEPT_FOR - timedelta(hours=1)
+    db.commit()
+
+    assert services.prune_workers(db) >= 1
+    db.expire_all()
+    assert db.get(WorkerBeat, "옛워커:1") is None
+    assert db.get(WorkerBeat, "요즘워커:2") is not None
+
+
 def test_워커는_따로_도는_줄에서_신호를_적는다(db: Session) -> None:
     import threading
     import time
