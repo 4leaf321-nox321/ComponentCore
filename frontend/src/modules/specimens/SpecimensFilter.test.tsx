@@ -81,10 +81,11 @@ test('검색어 · 구분 · 시험 종류로 좁히고, 탭은 남은 개수를
   expect(screen.getByRole('tab', { name: '굽힘 1' })).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: '필터 초기화' }))
+  // 검색 칸은 0.3초 쉬었다가 묻는다 — 바쁜 CI 러너에서는 기본 1초 기다림이 모자랐다(2026-10-08).
   fireEvent.change(screen.getByLabelText('검색'), { target: { value: '62368' } })
-  await waitFor(() => expect(screen.queryByText('ASTM D790 3점 굽힘 (16:1)')).not.toBeInTheDocument())
+  await waitFor(() => expect(screen.queryByText('ASTM D790 3점 굽힘 (16:1)')).not.toBeInTheDocument(), { timeout: 5000 })
   expect(screen.getByText('IEC 62368-1 T.5 정하중 250 N')).toBeInTheDocument()
 
   fireEvent.change(screen.getByLabelText('검색'), { target: { value: '없는 규격' } })
-  expect(await screen.findByText('조건에 맞는 규격이 없습니다')).toBeInTheDocument()
+  expect(await screen.findByText('조건에 맞는 규격이 없습니다', undefined, { timeout: 5000 })).toBeInTheDocument()
 })
