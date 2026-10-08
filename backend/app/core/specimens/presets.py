@@ -145,7 +145,8 @@ class BendingAnalysis(_Base):
     """해석 조건의 기본값 — **규격의 판정 기준이 아니다.** 사용자가 고친다."""
 
     strain: float = Field(default=0.05, gt=0, le=0.2)
-    """노즈를 내리는 양 — 바깥 섬유 변형률이 이 값이 되는 중앙 처짐."""
+    """노즈를 내리는 양의 기준 — 바깥 섬유 변형률이 이 값이 되는 하중점 처짐
+    (`bending.deflection`)."""
     friction: float = Field(default=0.1, ge=0, le=1)
     """시편과 롤러 · 노즈 사이 마찰계수."""
 

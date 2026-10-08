@@ -6,9 +6,16 @@
 같은 규칙 함수를 쓴다 — 시편 템플릿과 지그가 같은 규격에서 다른 간격을 내면 안 된다.
 
 **두께를 훑으면 따라온다.** 간격비 규격(16:1)은 레시피 변수 `지지_간격 = 간격비 * 두께`,
-처짐은 `변형률 · (3L² - 4s²) / (12h)` 식이다 — DOE 가 두께를 바꾸면 간격 · 하중이 같이
-움직인다. 두께에 따라 갈리는 반지름(ISO 178)만은 식으로 쓸 수 없어(치수 식에 조건문이 없다)
-만들 때의 두께로 정하고 메모로 말한다.
+`처짐`(노즈가 내려가는 양)은 변형률 · 간격 · 두께의 식이다 — DOE 가 두께를 바꾸면 간격 · 하중이
+같이 움직인다.
+
+두께에 따라 갈리는 반지름(ISO 178)만은 식으로 쓸 수 없어(치수 식에 조건문이 없다) 만들 때의
+두께로 정하고 메모로 말한다.
+
+**4점 굽힘의 `처짐` 은 하중점의 처짐이다** — `ε(L - Li)(L + 2Li)/(6h)`. 전에는 가운데 처짐
+`ε(3L² - 4s²)/(12h)` 를 노즈에 걸어, 노즈가 그만큼 더 내려가 바깥 섬유 변형률이 목표를
+넘었다(JESD22-B113 의 L 110 · Li 75 에서 1.93 배, 하중 간격 1/3 이면 1.15 배 — 2026-10-08,
+SimEngBay 와 견준 손셈에서). 3점은 노즈가 가운데라 둘이 같다.
 """
 
 from __future__ import annotations
@@ -63,9 +70,19 @@ def overhang_at(setup: BendingSetup, span: float) -> float:
 
 
 def deflection(strain: float, span: float, load_span: float, thickness: float) -> float:
-    """바깥 섬유 변형률이 `strain` 이 되는 중앙 처짐 — 3점이면 εL²/(6h)(D790 의 식), 4점이면
-    εu(3L² - 4s²)/(12h), s = (L - 하중 간격)/2(하중 간격 1/3 이면 0.213εL²/h — D6272 의 식)."""
-    s = (span - load_span) / 2
+    """바깥 섬유 변형률이 `strain` 이 되도록 **노즈가 내려가는 양**(하중점 처짐).
+
+    3점이면 노즈가 가운데라 εL²/(6h)(D790 의 식). 4점이면 하중점(지지점에서 s = (L - Li)/2)의
+    처짐 εs(3L - 4s)/(3h) = ε(L - Li)(L + 2Li)/(6h) — 하중 간격 1/3 이면 0.185εL²/h."""
+    if load_span <= 0:
+        return strain * span**2 / (6 * thickness)
+    return strain * (span - load_span) * (span + 2 * load_span) / (6 * thickness)
+
+
+def center_deflection(strain: float, span: float, load_span: float, thickness: float) -> float:
+    """그때의 **가운데** 처짐 — 4점이면 ε(3L² - 4s²)/(12h)(하중 간격 1/3 이면 0.213εL²/h,
+    D6272 가 처짐계로 재는 값). 3점이면 노즈의 처짐과 같다."""
+    s = (span - load_span) / 2 if load_span > 0 else span / 2
     return strain * (3 * span**2 - 4 * s**2) / (12 * thickness)
 
 
@@ -221,13 +238,17 @@ def build(
     if setup.points == 3:
         params["처짐"] = "=변형률 * 지지_간격 ** 2 / (6 * 두께)"
     else:
+        # 하중점의 처짐 — 가운데 처짐을 걸면 변형률이 넘친다(모듈 독스트링).
         params["처짐"] = (
-            "=변형률 * (3 * 지지_간격 ** 2 - (지지_간격 - 하중_간격) ** 2) / (12 * 두께)"
+            "=변형률 * (지지_간격 - 하중_간격) * (지지_간격 + 2 * 하중_간격) / (6 * 두께)"
         )
+    travel = deflection(analysis.strain, span, load_span, thickness)
+    center = center_deflection(analysis.strain, span, load_span, thickness)
     notes.append(
-        f"노즈를 바깥 섬유 변형률 {analysis.strain:g}에 해당하는 처짐"
-        f"({deflection(analysis.strain, span, load_span, thickness):.3g} mm)만큼 내립니다"
-        "(해석 기본값이며 규격의 판정 기준이 아닙니다). 시편의 물성을 지정하십시오."
+        f"노즈를 바깥 섬유 변형률 {analysis.strain:g}에 해당하는 하중점 처짐"
+        f"({travel:.3g} mm)만큼 내립니다"
+        + (f"(가운데 처짐은 {center:.3g} mm)" if setup.points == 4 else "")
+        + ". 해석 기본값이며 규격의 판정 기준이 아닙니다. 시편의 물성을 지정하십시오."
     )
     recipe = {"version": 1, "params": params, "nodes": nodes}
     return SpecimenBuild(recipe=recipe, conditions=_conditions(nose_names), notes=notes)

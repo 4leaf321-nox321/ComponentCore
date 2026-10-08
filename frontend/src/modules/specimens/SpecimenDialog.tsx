@@ -130,7 +130,7 @@ export function SpecimenDialog({ row, onClose }: { row: PresetRow<BendingPreset>
               지지 간격 {shown(values['지지_간격'])}
               {four && ` · 하중 간격 ${shown(values['하중_간격'])}`}
               {fixture && ` · 지지 반지름 ${shown(values['지지_반지름'])} · 노즈 반지름 ${shown(values['노즈_반지름'])}`}
-              {values['처짐'] !== undefined && ` · 처짐 ${shown(values['처짐'])}`}
+              {values['처짐'] !== undefined && ` · 노즈 처짐 ${shown(values['처짐'])}`}
             </p>
             <ul className="text-muted-foreground list-disc pl-4">
               {preview.notes.map((one) => (

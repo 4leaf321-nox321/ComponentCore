@@ -75,13 +75,36 @@ def test_두께를_바꾸면_지지_간격과_처짐이_따라온다() -> None:
     assert press["z"] == pytest.approx(-values["처짐"])
 
 
-def test_4점_굽힘의_처짐은_하중_간격을_안다() -> None:
+def test_4점_굽힘의_처짐은_하중점의_처짐이다() -> None:
+    """노즈가 내려가는 양은 **하중점**의 처짐 — 가운데 처짐(D6272 의 0.21 rL²/d)을 걸면 노즈가
+    그만큼 더 내려가 변형률이 넘친다(하중 간격 1/3 이면 1.15 배)."""
     preset = _bend("astm-d6272-16")
     values = resolve_params(specimens.build(preset).recipe)
     span, inner = values["지지_간격"], values["하중_간격"]
     assert inner == pytest.approx(span * 0.3333)
-    # 하중 간격 1/3 이면 D6272 의 0.21 rL²/d 와 같다.
-    assert values["처짐"] == pytest.approx(0.2130 * 0.05 * span**2 / 3.2, rel=2e-3)
+    # 하중 간격 1/3 이면 하중점 처짐은 (10/54) εL²/h = 0.185 εL²/h.
+    assert values["처짐"] == pytest.approx(0.1852 * 0.05 * span**2 / 3.2, rel=2e-3)
+
+
+def test_보드_굽힘의_노즈는_하중점_처짐만큼_내려간다() -> None:
+    """JESD22-B113(132 x 77 x 1, 지지 110 · 하중 75, 변형률 0.2 %)를 보 이론으로 손셈한다.
+
+    하중점까지 a = 17.5 에서 하중 F 둘: 하중점 처짐 Fa²(3L - 4a)/(6EI), 가운데 처짐
+    Fa(3L² - 4a²)/(24EI), 안쪽 구간의 바깥 섬유 변형률 Fa(h/2)/(EI). 변형률 0.002 에서 하중점
+    3.033 mm, 가운데 5.846 mm — 전에는 5.846 을 노즈에 걸어 변형률이 0.39 % 였다."""
+    made = specimens.build(_bend("jesd22-b113"))
+    values = resolve_params(made.recipe)
+    span, inner, h, strain = 110.0, 75.0, 1.0, 0.002
+    a = (span - inner) / 2
+    # 변형률에서 Fa/(EI) 를 정하고 그 하중으로 두 처짐을 낸다(EI 는 지워진다).
+    fa_over_ei = 2 * strain / h
+    at_nose = fa_over_ei * a * (3 * span - 4 * a) / 6
+    at_center = fa_over_ei * (3 * span**2 - 4 * a**2) / 24
+    assert values["처짐"] == pytest.approx(at_nose) == pytest.approx(3.0333, abs=1e-3)
+    assert at_center == pytest.approx(5.8458, abs=1e-3)
+    assert any(
+        "하중점 처짐(3.03 mm)" in one and "가운데 처짐은 5.85 mm" in one for one in made.notes
+    )
 
 
 def test_두께에_따라_갈리는_반지름은_만들_때의_두께로_정하고_말한다() -> None:
