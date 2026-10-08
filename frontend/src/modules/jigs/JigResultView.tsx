@@ -6,7 +6,8 @@
 
 import { lazy, Suspense, useEffect, useState } from 'react'
 
-import { bomLine, featureLine, locatorLine } from '@/modules/jigs/featureLabels'
+import { BomLine } from '@/modules/jigs/BomLine'
+import { featureLine, locatorLine } from '@/modules/jigs/featureLabels'
 import type { JigSummary } from '@/modules/jigs/api'
 import { isFinished, jobsApi, runState } from '@/modules/jobs/api'
 import { CancelJobButton } from '@/modules/jobs/CancelJobButton'
@@ -284,7 +285,7 @@ export function JigResultView({
               {s.plan.locators.length} ({locatorLine(s.plan.locators) || '없음'}) ·
               클램프 {s.plan.clamps.length}
             </p>
-            {(s.plan.bom?.length ?? 0) > 0 && <p>규격 부품: {bomLine(s.plan.bom ?? [])}</p>}
+            <BomLine rows={s.plan.bom} name={job.work_name ?? '지그'} />
             {s.plan.notes.length > 0 && (
               <ul className="text-muted-foreground list-inside list-disc text-xs">
                 {s.plan.notes.map((note) => (

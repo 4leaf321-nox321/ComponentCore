@@ -10,7 +10,8 @@ import { Boxes, Layers } from 'lucide-react'
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { bomLine, featureLine, locatorLine } from '@/modules/jigs/featureLabels'
+import { BomLine } from '@/modules/jigs/BomLine'
+import { featureLine, locatorLine } from '@/modules/jigs/featureLabels'
 import { JigResultView } from '@/modules/jigs/JigResultView'
 import type { Job } from '@/modules/jobs/api'
 import { partsApi } from '@/modules/parts/api'
@@ -260,9 +261,7 @@ export default function JigFromPartPage() {
                         <span>{planLine(preview)}</span>
                         <StatusBadge kind="interference" value={preview.interference.ok ? 'ok' : 'bad'} />
                       </div>
-                      {(preview.plan.bom?.length ?? 0) > 0 && (
-                        <p className="text-xs">규격 부품: {bomLine(preview.plan.bom ?? [])}</p>
-                      )}
+                      <BomLine rows={preview.plan.bom} name={name.trim() || '지그'} className="text-xs" />
                       {preview.feature_counts && Object.keys(preview.feature_counts).length > 0 && (
                         <p className="text-muted-foreground text-xs">인식한 특징: {featureLine(preview.feature_counts)}</p>
                       )}
