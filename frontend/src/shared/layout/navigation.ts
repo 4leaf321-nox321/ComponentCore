@@ -22,6 +22,8 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
+import type { NavBadgeKey } from '@/shared/api/navBadges'
+
 export type NavAudience = 'everyone' | 'system_admin'
 
 export interface NavItem {
@@ -31,6 +33,8 @@ export interface NavItem {
   end?: boolean
   audience?: NavAudience
   summary?: string
+  /** 메뉴 옆에 셀 것 — 이 사용자가 손댈 차례인 건(`shared/api/navBadges`). */
+  badge?: NavBadgeKey
 }
 
 export interface NavGroup {
@@ -81,6 +85,7 @@ export const NAV_GROUPS: NavGroup[] = [
         label: 'VOC',
         icon: MessagesSquare,
         to: '/voc',
+        badge: 'voc',
         summary: '불편한 점이나 필요한 기능을 등록합니다. 모든 사용자가 조회할 수 있으며, 처리 과정이 이력으로 남습니다.',
       },
     ],

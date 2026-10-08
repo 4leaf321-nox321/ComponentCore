@@ -15,9 +15,10 @@ import type { ReactNode } from 'react'
 import { Download, MessageSquare, MessageSquarePlus, Paperclip, X } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 
-import { VOC_STATUSES, vocApi } from '@/modules/voc/api'
+import { VOC_STATUSES, fileSize, vocApi } from '@/modules/voc/api'
 import type { VocItem } from '@/modules/voc/api'
 import { useDisplay } from '@/shared/api/display'
+import { refreshNavBadges } from '@/shared/api/navBadges'
 import { EmptyState } from '@/shared/components/EmptyState'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { PageHeader } from '@/shared/components/PageHeader'
@@ -188,6 +189,7 @@ export default function VocPage() {
           onClose={() => setWriting(false)}
           onDone={(id, failedFiles) => {
             setWriting(false)
+            refreshNavBadges()
             navigate(`/voc/${id}`, { state: { failedFiles } satisfies VocArrival })
           }}
         />
@@ -336,7 +338,7 @@ function WriteDialog({ onClose, onDone }: { onClose: () => void; onDone: (id: st
                   <li key={`${file.name}-${at}`} className="flex items-center gap-1">
                     <Paperclip className="size-3" aria-hidden />
                     <span className="truncate">{file.name}</span>
-                    <span className="text-muted-foreground tabular-nums">{(file.size / 1024).toFixed(0)} KB</span>
+                    <span className="text-muted-foreground tabular-nums">{fileSize(file.size)}</span>
                     <button
                       type="button"
                       className="text-muted-foreground hover:text-foreground ml-auto"

@@ -60,6 +60,13 @@ export interface VocDetail extends VocItem {
   can_delete_events: boolean
 }
 
+/** 파일 크기 — 1 KB 아래는 바이트로(캡처 한 장이 「0 KB」 로 보이면 빈 파일로 읽힌다). */
+export function fileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
 export interface VocListParams {
   status?: string
   q?: string

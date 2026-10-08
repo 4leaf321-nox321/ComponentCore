@@ -60,6 +60,7 @@ test('본문 · 첨부 · 이력을 보이고, 서버가 허락한 상태로만 
   expect(screen.getByText('#12')).toBeInTheDocument()
   expect(screen.getByText('/draw')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /log\.txt/ })).toBeInTheDocument()
+  expect(screen.getByText('2 KB')).toBeInTheDocument()
   const timeline = within(screen.getByRole('list', { name: '이력' }))
   expect(timeline.getByText('확인했습니다.')).toBeInTheDocument()
   expect(timeline.getByText('댓글')).toBeInTheDocument()

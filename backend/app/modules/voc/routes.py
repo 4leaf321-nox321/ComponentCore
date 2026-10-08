@@ -19,6 +19,7 @@ from app.modules.voc.schemas import (
     VocEventUpdateRequest,
     VocExportRequest,
     VocOut,
+    VocSummaryOut,
     VocUpdateRequest,
 )
 from app.shared.auth import current_user
@@ -43,6 +44,14 @@ def list_items(
         db, user, status=status, query=q, mine=mine, limit=size, offset=offset
     )
     return Page(items=rows, total=total, limit=size, offset=offset)
+
+
+@router.get("/summary", response_model=VocSummaryOut)
+def summary(
+    user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> VocSummaryOut:
+    """사이드바의 숫자 — 관리자는 접수 대기, 작성자는 확인 대기(본인 건이 「해결」 된 것)."""
+    return services.summary(db, user)
 
 
 @router.post("", response_model=VocDetailOut, status_code=201)

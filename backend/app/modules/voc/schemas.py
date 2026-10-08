@@ -37,6 +37,16 @@ class VocOut(BaseModel):
     attachment_count: int = 0
 
 
+class VocSummaryOut(BaseModel):
+    """사이드바의 숫자 — **이 사용자가 손댈 차례인 건.** 알림 모듈이 없어 새 의견이 게시판에
+    묻히지 않게 메뉴 옆에 센다."""
+
+    waiting: int
+    """접수 대기 — 「등록」 상태로 남은 건. 시스템 관리자에게만 센다(다른 사용자는 0)."""
+    to_confirm: int
+    """확인 대기 — 본인이 등록한 건 중 「해결」 이 되어 확인 · 종료를 기다리는 것."""
+
+
 class VocEventOut(BaseModel):
     id: uuid.UUID
     at: datetime

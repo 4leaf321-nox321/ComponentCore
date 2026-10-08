@@ -100,3 +100,8 @@ test('고른 의견을 zip 하나로 다운로드한다', async () => {
   await waitFor(() => expect(clicked).toHaveBeenCalled())
   expect(sent.find((one) => one.url.includes('/voc/export'))!.body).toEqual({ ids: ['v1'] })
 })
+
+test('파일 크기는 1 KB 아래면 바이트로 적는다', async () => {
+  const { fileSize } = await import('@/modules/voc/api')
+  expect([fileSize(8), fileSize(2048), fileSize(3 * 1024 * 1024)]).toEqual(['8 B', '2 KB', '3.0 MB'])
+})

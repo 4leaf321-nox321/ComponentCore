@@ -13,9 +13,10 @@ import { useState } from 'react'
 import { Download, Paperclip, Pencil, Trash2, X } from 'lucide-react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
-import { vocApi } from '@/modules/voc/api'
+import { fileSize, vocApi } from '@/modules/voc/api'
 import type { VocAttachment, VocDetail, VocEvent } from '@/modules/voc/api'
 import type { VocArrival } from '@/modules/voc/VocPage'
+import { refreshNavBadges } from '@/shared/api/navBadges'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { PageHeader } from '@/shared/components/PageHeader'
@@ -47,6 +48,7 @@ export default function VocDetailPage() {
   const reload = () => {
     setError(null)
     item.reload()
+    refreshNavBadges() // 상태가 바뀌면 사이드바의 숫자도 바뀐다
   }
 
   return (
@@ -164,6 +166,7 @@ export default function VocDetailPage() {
             onClose={() => setDeleting(false)}
             onConfirm={async () => {
               await vocApi.remove(detail.id)
+              refreshNavBadges()
               navigate('/voc')
             }}
           />
@@ -431,7 +434,7 @@ function Attachments({ detail, onChanged, onError }: { detail: VocDetail; onChan
                 <Download className="size-3.5" aria-hidden />
                 {one.filename}
               </button>
-              <span className="text-muted-foreground tabular-nums">{(one.size / 1024).toFixed(0)} KB</span>
+              <span className="text-muted-foreground tabular-nums">{fileSize(one.size)}</span>
               <span className="text-muted-foreground ml-auto text-xs">
                 {one.created_by ?? '알 수 없음'} · {shownDateTime(one.created_at)}
               </span>

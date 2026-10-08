@@ -1,7 +1,8 @@
 /** 사이드바 — 접으면 폭 0 으로 줄어들고 본문이 전체 폭을 쓴다. */
 
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 
+import { useNavBadges } from '@/shared/api/navBadges'
 import { UNKNOWN_VERSION, systemApi } from '@/shared/api/system'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { isSystemAdmin } from '@/shared/auth/roles'
@@ -20,6 +21,7 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
     import.meta.env.DEV && !!release && release !== UNKNOWN_VERSION && release !== __APP_VERSION__
 
   const groups = visibleGroups({ isSystemAdmin: isSystemAdmin(user) })
+  const badges = useNavBadges(useLocation().pathname)
 
   return (
     <div className="flex h-full w-60 flex-col">
@@ -49,26 +51,38 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
               <p className="text-muted-foreground px-2 pb-1 text-xs font-medium">{group.title}</p>
             )}
             <ul className="space-y-0.5">
-              {group.items.map((item) => (
-                <li key={item.label}>
-                  <NavLink
-                    to={item.to}
-                    end={item.end}
-                    onClick={onNavigate}
-                    className={({ isActive }) =>
-                      cn(
-                        'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
-                        isActive
-                          ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
-                          : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground',
-                      )
-                    }
-                  >
-                    <item.icon className="size-4 shrink-0" />
-                    <span className="truncate">{item.label}</span>
-                  </NavLink>
-                </li>
-              ))}
+              {group.items.map((item) => {
+                const badge = item.badge ? badges[item.badge] : undefined
+                return (
+                  <li key={item.label}>
+                    <NavLink
+                      to={item.to}
+                      end={item.end}
+                      onClick={onNavigate}
+                      className={({ isActive }) =>
+                        cn(
+                          'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
+                          isActive
+                            ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
+                            : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground',
+                        )
+                      }
+                    >
+                      <item.icon className="size-4 shrink-0" />
+                      <span className="truncate">{item.label}</span>
+                      {badge && (
+                        <span
+                          className="bg-primary text-primary-foreground ml-auto rounded-full px-1.5 text-xs leading-5 font-medium tabular-nums"
+                          title={badge.title}
+                          aria-label={badge.title}
+                        >
+                          {badge.count}
+                        </span>
+                      )}
+                    </NavLink>
+                  </li>
+                )
+              })}
             </ul>
           </div>
         ))}

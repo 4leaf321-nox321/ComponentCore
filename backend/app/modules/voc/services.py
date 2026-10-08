@@ -36,6 +36,7 @@ from app.modules.voc.schemas import (
     VocDetailOut,
     VocEventOut,
     VocOut,
+    VocSummaryOut,
 )
 from app.shared import filestore, search
 from app.shared.errors import AppError, Forbidden, NotFound, code
@@ -309,6 +310,25 @@ def list_items(
         for one in items
     ]
     return rows, int(total)
+
+
+def summary(db: Session, user: User) -> VocSummaryOut:
+    """이 사용자가 손댈 차례인 건 — 관리자는 접수 대기, 작성자는 확인 대기."""
+
+    def count(*where: Any) -> int:
+        return int(
+            db.scalar(
+                select(func.count())
+                .select_from(VocItem)
+                .where(VocItem.deleted_at.is_(None), *where)
+            )
+            or 0
+        )
+
+    return VocSummaryOut(
+        waiting=count(VocItem.status == "open") if user.is_system_admin else 0,
+        to_confirm=count(VocItem.status == "resolved", VocItem.created_by_id == user.id),
+    )
 
 
 def editable_item(db: Session, item_id: uuid.UUID, user: User) -> VocItem:

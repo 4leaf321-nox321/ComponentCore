@@ -284,3 +284,22 @@ def test_고른_건을_zip_하나로_내려받는다(
         "/api/voc/export", json={"ids": [str(uuid.uuid4())]}, headers=member.headers
     )
     assert missing.status_code == 404 and _code(missing).endswith("VOC-0001")
+
+
+def test_사이드바의_숫자는_손댈_차례인_건이다(
+    client: TestClient, member: Signed, admin: Signed
+) -> None:
+    def summary(who: Signed) -> Any:
+        return _ok(client.get("/api/voc/summary", headers=who.headers))
+
+    # 시험 DB 는 공유된다 — 관리자의 접수 대기는 늘고 준 만큼만 본다.
+    before = summary(admin)["waiting"]
+    item = _write(client, member)["id"]
+    assert summary(admin)["waiting"] == before + 1
+    assert summary(member) == {"waiting": 0, "to_confirm": 0}  # 관리자가 아니면 접수 대기는 0
+    _ok(_move(client, admin, item, "accepted"))
+    assert summary(admin)["waiting"] == before
+    _ok(_move(client, admin, item, "resolved", "고쳤습니다."))
+    assert summary(member)["to_confirm"] == 1  # 본인 건이 해결되어 확인을 기다린다
+    _ok(_move(client, member, item, "closed"))
+    assert summary(member)["to_confirm"] == 0

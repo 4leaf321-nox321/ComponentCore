@@ -8094,6 +8094,28 @@
         }
       }
     },
+    "/api/voc/summary": {
+      "get": {
+        "tags": [
+          "voc"
+        ],
+        "summary": "Summary",
+        "description": "사이드바의 숫자 — 관리자는 접수 대기, 작성자는 확인 대기(본인 건이 「해결」 된 것).",
+        "operationId": "summary_api_voc_summary_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VocSummaryOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/voc/export": {
       "post": {
         "tags": [
@@ -14536,6 +14558,25 @@
         ],
         "title": "VocOut",
         "description": "게시판 한 줄. **상세는 `VocDetailOut`** — 목록에 본문과 이력을 다 실으면 100건짜리\n화면이 느려지고, 그 느림은 목록에서만 보인다."
+      },
+      "VocSummaryOut": {
+        "properties": {
+          "waiting": {
+            "type": "integer",
+            "title": "Waiting"
+          },
+          "to_confirm": {
+            "type": "integer",
+            "title": "To Confirm"
+          }
+        },
+        "type": "object",
+        "required": [
+          "waiting",
+          "to_confirm"
+        ],
+        "title": "VocSummaryOut",
+        "description": "사이드바의 숫자 — **이 사용자가 손댈 차례인 건.** 알림 모듈이 없어 새 의견이 게시판에\n묻히지 않게 메뉴 옆에 센다."
       },
       "VocUpdateRequest": {
         "properties": {
