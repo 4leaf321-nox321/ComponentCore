@@ -2055,7 +2055,8 @@ async def set_standard_part(
       `length_max`
     - 클램프: `reach` · `pad_height` · `pad_diameter` · `base_length` · `base_width`, 판에
       고정하는 나사를 적으면 `mount_thread`(`M5` …) · `mount_holes`(클램프 좌표 [[x, y], …],
-      둘 다 함께, 베이스 안) — 생성기가 판에 그 탭 구멍을 내고 부품표에 볼트 수를 남긴다
+      둘 다 함께, 베이스 안) — 생성기가 판에 그 탭 구멍을 내고 부품표에 볼트 수를 남긴다.
+      `mount_thickness`(나사가 지나는 베이스 두께)를 더하면 볼트 길이까지 골라 `ISO 4762 M5x25`
 
     형상의 기준: 받침 · 핀은 바닥 중심이 원점이고 위가 +Z, 클램프는 베이스 바닥 중심이 원점이고
     팔이 +X 로 뻗어 누른 상태의 패드 중심이 (reach, 0, pad_height). 레시피로만 그린다(STEP

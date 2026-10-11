@@ -98,6 +98,8 @@ export interface StandardSpec {
   mount_thread?: string | null
   /** 클램프: 고정 구멍 자리 [x, y] — 클램프 좌표(베이스 바닥 중심이 원점, 팔이 +X). */
   mount_holes?: [number, number][] | null
+  /** 클램프: 고정 나사가 지나는 베이스 두께 — 주면 생성기가 볼트 길이를 고른다. */
+  mount_thickness?: number | null
 }
 
 export interface Part {

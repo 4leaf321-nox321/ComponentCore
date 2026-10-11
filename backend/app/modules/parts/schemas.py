@@ -126,6 +126,9 @@ class StandardSpec(BaseModel):
     """클램프: 베이스를 판에 고정하는 나사(M1.6 ~ M24) — 생성기가 판에 그 탭 구멍을 낸다."""
     mount_holes: list[tuple[float, float]] | None = Field(default=None, max_length=12)
     """클램프: 고정 구멍 자리 (x, y) — 클램프 좌표(베이스 바닥 중심이 원점, 팔이 +X)."""
+    mount_thickness: float | None = Field(default=None, gt=0, le=200)
+    """클램프: 고정 나사가 지나는 베이스 두께(나사 머리 밑 ~ 베이스 바닥). 주면 생성기가 볼트
+    길이를 골라 부품표에 `ISO 4762 M5x20` 처럼 적는다."""
 
     @model_validator(mode="after")
     def _filled(self) -> StandardSpec:
@@ -145,6 +148,8 @@ class StandardSpec(BaseModel):
         """고정 나사와 구멍 자리 — 둘 다 비거나 둘 다 있고, 구멍은 베이스 안에 든다. 비어도
         된다(그 클램프를 고르면 판에 탭 구멍을 못 냈다고 생성기가 말한다)."""
         if not self.mount_thread and not self.mount_holes:
+            if self.mount_thickness is not None:
+                raise ValueError("고정부 두께는 고정 나사 · 구멍 자리와 함께 적어야 합니다.")
             return
         if not self.mount_thread or not self.mount_holes:
             raise ValueError("고정 나사와 고정 구멍 자리는 함께 적어야 합니다.")
@@ -179,6 +184,8 @@ class StandardSpec(BaseModel):
             keep.update(span)
         if self.kind == "clamp" and self.mount_thread:
             keep.update(("mount_thread", "mount_holes"))
+            if self.mount_thickness is not None:
+                keep.add("mount_thickness")
         # json 모양으로 — 구멍 자리가 튜플이 아니라 목록이어야 DB 에서 읽은 것과 같다
         # (가져오기의 「같음」 비교).
         dumped = self.model_dump(mode="json")

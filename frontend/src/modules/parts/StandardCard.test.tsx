@@ -83,12 +83,14 @@ const CLAMP = { kind: 'clamp', part_no: 'TC-60', version: 1, reach: 60, pad_heig
 test('클램프는 고정 나사와 구멍 자리를 적는다 — 있던 자리가 글로 채워지고 목록으로 나간다', async () => {
   const sent = serve()
   const changed = vi.fn()
-  render(<StandardCard part={{ ...PART, standard: { ...CLAMP, mount_thread: 'M5', mount_holes: [[-15, -10], [15, 10]] } }} admin onChanged={changed} />)
-  expect(screen.getByText(/고정 나사 M5 × 2/)).toBeInTheDocument()
+  render(<StandardCard part={{ ...PART, standard: { ...CLAMP, mount_thread: 'M5', mount_holes: [[-15, -10], [15, 10]], mount_thickness: 8 } }} admin onChanged={changed} />)
+  expect(screen.getByText(/고정 나사 M5 × 2 · 고정부 두께 8/)).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '규격 사양 편집' }))
   expect(screen.getByLabelText('고정 나사')).toHaveValue('M5')
   expect(screen.getByLabelText(/고정 구멍 자리/)).toHaveValue('-15,-10; 15,10')
+  expect(screen.getByLabelText('고정부 두께 (mm)')).toHaveValue(8)
   fireEvent.change(screen.getByLabelText('고정 나사'), { target: { value: 'M6' } })
+  fireEvent.change(screen.getByLabelText('고정부 두께 (mm)'), { target: { value: '10' } })
   fireEvent.change(screen.getByLabelText(/고정 구멍 자리/), { target: { value: '-15,-10; -15, 10; 15,-10; 15,10' } })
   fireEvent.click(screen.getByRole('button', { name: '저장' }))
   await waitFor(() => expect(changed).toHaveBeenCalled())
@@ -96,6 +98,7 @@ test('클램프는 고정 나사와 구멍 자리를 적는다 — 있던 자리
   expect(put.body).toMatchObject({
     kind: 'clamp',
     mount_thread: 'M6',
+    mount_thickness: 10,
     mount_holes: [
       [-15, -10],
       [-15, 10],

@@ -1,7 +1,8 @@
-"""미터 보통 나사 M1.6 ~ M24 의 표 — 구멍 · 볼트 머리 · 너트 · 와셔. 단위 mm.
+"""미터 보통 나사 M1.6 ~ M24 의 표 — 구멍 · 볼트 머리 · 볼트 길이 · 너트 · 와셔. 단위 mm.
 
-레시피의 구멍(`hole` 의 `thread`) · 체결(`fasten`) · 너트 · 와셔, 그리고 볼트 두 벌(레시피의
-`bolt` 노드와 지그 생성기의 볼트)이 **이 표 하나**를 본다. 전에는 볼트 머리를 비례(지름 1.5d ·
+레시피의 구멍(`hole` 의 `thread`) · 체결(`fasten`) · 너트 · 와셔 · 클램프 고정 볼트의 길이
+(`screw_length`), 그리고 볼트 두 벌(레시피의 `bolt` 노드와 지그 생성기의 볼트)이 **이 표
+하나**를 본다. 전에는 볼트 머리를 비례(지름 1.5d ·
 육각 높이 0.65d)로 그려, M6 육각 머리의 맞변이 7.8 mm(규격 10 mm)로 작게 나왔고 표도 M3 ~ M12
 뿐이었다(2026-10-08 — `docs/시험-규격-설계.md` 6장의 「나사 표」).
 
@@ -67,6 +68,30 @@ SOCKET_HEADS: dict[str, tuple[float, float, float]] = {
     "M16": (24.0, 16.0, 14.0),
     "M20": (30.0, 20.0, 17.0),
     "M24": (36.0, 24.0, 19.0),
+}
+
+#: ISO 4762 의 길이 계열(mm). 호칭마다 나오는 범위는 `SOCKET_LENGTH_RANGE`.
+SOCKET_LENGTHS: tuple[float, ...] = (
+    2.5, 3, 4, 5, 6, 8, 10, 12, 16, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70,
+    80, 90, 100, 110, 120, 130, 140, 150, 160, 180, 200,
+)  # fmt: skip
+
+#: ISO 4762 — 호칭마다 나오는 길이 범위(가장 짧은 것, 가장 긴 것).
+SOCKET_LENGTH_RANGE: dict[str, tuple[float, float]] = {
+    "M1.6": (2.5, 16),
+    "M2": (3, 20),
+    "M2.5": (4, 25),
+    "M3": (5, 30),
+    "M4": (6, 40),
+    "M5": (8, 50),
+    "M6": (10, 60),
+    "M8": (12, 80),
+    "M10": (16, 100),
+    "M12": (20, 120),
+    "M14": (25, 140),
+    "M16": (25, 160),
+    "M20": (30, 200),
+    "M24": (40, 200),
 }
 
 #: ISO 4017 육각 볼트 — 호칭 → (맞변 s, 머리 높이 k).
@@ -175,3 +200,20 @@ def thread_for(diameter: float) -> str | None:
             if gap <= limit + 1e-9 and (best is None or (gap, rank) < best[:2]):
                 best = (gap, rank, name)
     return best[2] if best else None
+
+
+def screw_length(thread: str, grip: float, engagement: float, limit: float) -> float | None:
+    """육각 구멍붙이 볼트(ISO 4762)의 길이 — 머리 밑에서 판 윗면까지(`grip`)에 판에 박힐
+    깊이(`engagement`)를 더한 것 이상인 **가장 짧은 규격 길이.**
+
+    `limit` (grip + 판 두께)를 넘는 길이는 고르지 않는다 — 탭 구멍이 판을 뚫어 끝이 판 밑으로
+    나온다. 그 안에 맞는 것이 없으면(판이 얇다) 그 안에서 가장 긴 것을, 그것도 없으면 None.
+    박히는 깊이가 모자란지는 부르는 쪽이 `길이 - grip` 으로 본다."""
+    low, high = SOCKET_LENGTH_RANGE.get(thread, (SOCKET_LENGTHS[0], SOCKET_LENGTHS[-1]))
+    series = [one for one in SOCKET_LENGTHS if low <= one <= high]
+    need = grip + engagement
+    for one in series:
+        if need - 1e-9 <= one <= limit + 1e-9:
+            return one
+    shorter = [one for one in series if grip < one <= limit + 1e-9]
+    return shorter[-1] if shorter else None

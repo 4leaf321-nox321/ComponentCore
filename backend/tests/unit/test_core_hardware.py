@@ -173,3 +173,15 @@ def test_나사_표는_M1_6_부터_M24_까지_같은_호칭을_든다() -> None:
         assert list(table) == names
     nut = _made({"id": "n", "op": "nut", "at": [0, 0, 0], "thread": "M20"})
     assert _box(nut)[4] - _box(nut)[1] == pytest.approx(30.0)  # 전에는 M20 을 거절했다
+
+
+def test_볼트_길이는_머리_밑에_박힐_깊이를_더한_것_이상인_가장_짧은_규격_길이() -> None:
+    from app.core.fasteners import screw_length
+
+    assert screw_length("M5", grip=8, engagement=7.5, limit=23) == 16
+    assert screw_length("M5", grip=15, engagement=7.5, limit=30) == 25
+    # 판 밑으로 나오면 안 된다 — 그 안에서 가장 긴 것(덜 박힌다).
+    assert screw_length("M5", grip=15, engagement=7.5, limit=20) == 20
+    # 호칭의 길이 범위(M5 는 8 ~ 50) 밖은 고르지 않는다.
+    assert screw_length("M5", grip=2, engagement=3, limit=10) == 8
+    assert screw_length("M5", grip=60, engagement=7.5, limit=80) is None

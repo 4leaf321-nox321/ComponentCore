@@ -165,21 +165,22 @@ def test_클램프_사양에_고정_나사와_구멍_자리를_적는다(
     part = _catalog(client, member, CLAMP.name, CLAMP.recipe)
     spec = {"kind": "clamp", "part_no": "TC-60", "version": 1, **CLAMP.spec}
     holes = [[-15, -10], [-15, 10], [15, -10], [15, 10]]
-    saved = _ok(
-        _register(client, admin, part, {**spec, "mount_thread": "M5", "mount_holes": holes})
-    )
+    mount = {"mount_thread": "M5", "mount_holes": holes, "mount_thickness": 8}
+    saved = _ok(_register(client, admin, part, {**spec, **mount}))
     assert saved["standard"]["mount_thread"] == "M5"
     assert saved["standard"]["mount_holes"] == holes
+    assert saved["standard"]["mount_thickness"] == 8  # 볼트 길이를 고르는 데 쓴다
     # 비우면 칸이 남지 않는다(예전 사양과 같은 모양).
     plain = _ok(_register(client, admin, part, spec))
-    assert "mount_thread" not in plain["standard"] and "mount_holes" not in plain["standard"]
+    assert not {"mount_thread", "mount_holes", "mount_thickness"} & set(plain["standard"])
 
-    # 나사만 · 자리만 · 표에 없는 나사 · 베이스(40 x 30) 밖 자리는 거절한다.
+    # 나사만 · 자리만 · 표에 없는 나사 · 베이스(40 x 30) 밖 자리 · 두께만은 거절한다.
     for bad in (
         {"mount_thread": "M5"},
         {"mount_holes": holes},
         {"mount_thread": "M7", "mount_holes": holes},
         {"mount_thread": "M5", "mount_holes": [[25, 0]]},
+        {"mount_thickness": 8},  # 고정부 두께만으로는 쓸 데가 없다
     ):
         refused = _register(client, admin, part, {**spec, **bad})
         assert refused.status_code == 422, bad

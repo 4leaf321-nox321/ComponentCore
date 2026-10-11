@@ -66,7 +66,10 @@ function dims(spec: StandardSpec): string {
   const shown = FIELDS[spec.kind].map((one) => `${one.label.replace(' (mm)', '')} ${spec[one.key] ?? '—'}`)
   const range = RANGES[spec.kind]
   if (range && spec[range.param]) shown.push(`${range.label} 변수 ‘${spec[range.param]}’ ${spec[range.min]}~${spec[range.max]}`)
-  if (spec.kind === 'clamp') shown.push(spec.mount_thread ? `고정 나사 ${spec.mount_thread} × ${spec.mount_holes?.length ?? 0}` : '고정 나사 자리 없음')
+  if (spec.kind === 'clamp') {
+    if (!spec.mount_thread) shown.push('고정 나사 자리 없음')
+    else shown.push(`고정 나사 ${spec.mount_thread} × ${spec.mount_holes?.length ?? 0}${spec.mount_thickness ? ` · 고정부 두께 ${spec.mount_thickness}` : ''}`)
+  }
   return shown.join(' · ')
 }
 
@@ -174,7 +177,7 @@ function StandardDialog({ part, onClose, onSaved }: { part: Part; onClose: () =>
         setBusy(false)
         return
       }
-      Object.assign(spec, { mount_thread: values.mount_thread || null, mount_holes: holes.length ? holes : null })
+      Object.assign(spec, { mount_thread: values.mount_thread || null, mount_holes: holes.length ? holes : null, mount_thickness: number('mount_thickness') })
     }
     try {
       await partsApi.setStandard(part.id, spec)
@@ -246,8 +249,9 @@ function StandardDialog({ part, onClose, onSaved }: { part: Part; onClose: () =>
                 <Label htmlFor="std-mount_holes">고정 구멍 자리 (x,y; x,y …)</Label>
                 <Input id="std-mount_holes" value={values.mount_holes ?? ''} placeholder="-15,-10; -15,10; 15,-10; 15,10" onChange={(e) => set('mount_holes', e.target.value)} />
               </div>
-              <p className="text-muted-foreground col-span-3 text-xs">
-                베이스 바닥 중심이 원점, 팔이 +X 인 클램프 좌표입니다. 적으면 지그 생성기가 바닥판에 그 탭 구멍을 내고 부품표에 볼트 수를 남깁니다.
+              {input('mount_thickness', '고정부 두께 (mm)')}
+              <p className="text-muted-foreground col-span-2 self-end text-xs">
+                베이스 바닥 중심이 원점, 팔이 +X 인 클램프 좌표입니다. 적으면 지그 생성기가 바닥판에 그 탭 구멍을 내고 부품표에 볼트 수를 남깁니다. 고정부 두께(볼트 머리 밑에서 베이스 바닥까지)를 적으면 볼트 길이도 고릅니다.
               </p>
             </div>
           )}

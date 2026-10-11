@@ -248,7 +248,7 @@ def test_끄면_즉석_도형이다() -> None:
     assert all(one.standard is None for one in made.plan.supports)
 
 
-#: 고정 나사 자리를 적은 토글 클램프 — 베이스 40 x 30 의 네 귀에 M5.
+#: 고정 나사 자리를 적은 토글 클램프 — 베이스 40 x 30 의 네 귀에 M5, 나사가 지나는 두께 8.
 MOUNTED = LibraryPart(
     **{
         **CLAMP.__dict__,
@@ -258,17 +258,19 @@ MOUNTED = LibraryPart(
             **CLAMP.spec,
             "mount_thread": "M5",
             "mount_holes": [[-15, -10], [-15, 10], [15, -10], [15, 10]],
+            "mount_thickness": 8,
         },
     }
 )
 
 
-@pytest.mark.parametrize(("lift", "riser"), [(25, 7.0), (18, 0.0)])
+@pytest.mark.parametrize(("lift", "riser", "length"), [(25, 7.0, 25), (18, 0.0, 16)])
 def test_클램프_고정_나사_자리에_판은_탭_구멍_받침_블록은_여유_구멍(
-    lift: float, riser: float
+    lift: float, riser: float, length: float
 ) -> None:
     """받침 높이 25 면 받침 블록(25 + 12 - 30 = 7)에 올라 나사가 블록을 지나고, 18 이면 누르는
-    높이가 딱 맞아 판에 바로 선다."""
+    높이가 딱 맞아 판에 바로 선다. 볼트 길이는 베이스 8 + 블록 + 판에 1.5d(7.5) 이상인 가장
+    짧은 규격 길이 — 22.5 → 25, 15.5 → 16."""
     library = [SUPPORT, PIN, MOUNTED]
     opts = JigOptions(kind="clamped", support_height=lift)
     made = pipeline.analyze(PLATE, opts, library=library)
@@ -290,8 +292,11 @@ def test_클램프_고정_나사_자리에_판은_탭_구멍_받침_블록은_�
     assert not any("고정 나사 자리가 없어" in note for note in plan.notes)
     assert made.interference.ok, [one for one in made.interference.items if not one.ok]
 
+    assert {one.mount_length for one in plan.clamps} == {length}
     screws = next(row for row in plan.summary()["bom"] if row["kind"] == "screw")
-    assert screws["part_no"] == "ISO 4762 M5" and screws["count"] == 4 * len(plan.clamps)
+    assert screws["part_no"] == f"ISO 4762 M5x{length}"
+    assert screws["count"] == 4 * len(plan.clamps)
+    assert not any("박힙니다" in note for note in plan.notes)  # 판 15 면 충분하다
 
     recipe = _same_shape(made, opts, library)  # 블록의 여유 구멍까지 같은 형상
     drilled = next(
@@ -301,3 +306,23 @@ def test_클램프_고정_나사_자리에_판은_탭_구멍_받침_블록은_�
         assert drilled is not None and drilled["thread"] == "M5"
     else:
         assert drilled is None
+
+
+def test_판이_얇으면_판_밑으로_나오지_않는_길이에서_덜_박힌다고_말한다() -> None:
+    """판 5 mm · 블록 7: 머리 밑 15 에 7.5 를 더한 22.5 이상은 판 밑으로 나온다(15 + 5 = 20) —
+    20 을 고르고 5 mm만 박힌다고 말한다. 베이스 두께가 없는 사양이면 부품표에 호칭만."""
+    opts = JigOptions(kind="clamped", plate_thickness=5)
+    made = pipeline.analyze(PLATE, opts, library=[SUPPORT, PIN, MOUNTED])
+    assert {one.mount_length for one in made.plan.clamps} == {20}
+    assert any("M5x20" in note and "5 mm만 박힙니다" in note for note in made.plan.notes)
+
+    bare = LibraryPart(
+        **{
+            **MOUNTED.__dict__,
+            "spec": {k: v for k, v in MOUNTED.spec.items() if k != "mount_thickness"},
+        }
+    )
+    plain = pipeline.analyze(PLATE, JigOptions(kind="clamped"), library=[SUPPORT, PIN, bare])
+    assert {one.mount_length for one in plain.plan.clamps} == {None}
+    rows = [one for one in plain.plan.summary()["bom"] if one["kind"] == "screw"]
+    assert [one["part_no"] for one in rows] == ["ISO 4762 M5"]

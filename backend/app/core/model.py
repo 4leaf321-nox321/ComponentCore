@@ -156,6 +156,10 @@ class ClampSpec:
     mount_holes: list[tuple[float, float]] = field(default_factory=list)
     """그 나사 자리(판 위 XY). 나사는 판의 탭 구멍에 박히고, 받침 블록이 있으면 블록의 여유
     구멍을 지난다."""
+    mount_thickness: float | None = None
+    """나사가 지나는 클램프 베이스의 두께(머리 밑 ~ 베이스 바닥) — 사양에 적혀 있으면."""
+    mount_length: float | None = None
+    """고른 나사 길이(ISO 4762 길이 계열) — 베이스 두께 + 받침 블록 + 판에 박히는 깊이."""
 
 
 @dataclass
@@ -264,12 +268,13 @@ class FixturePlan:
         for clamp in self.clamps:
             if clamp.standard is None or not clamp.mount_thread:
                 continue
-            # 클램프를 판에 고정하는 나사 — 길이는 클램프 베이스 두께를 몰라 적지 않는다.
-            thread = clamp.mount_thread
+            # 클램프를 판에 고정하는 나사 — 베이스 두께가 사양에 없으면 길이 없이 호칭만.
+            thread, length = clamp.mount_thread, clamp.mount_length
+            size = f"{thread}x{length:g}" if length else thread
             row = rows.setdefault(
-                f"screw:{thread}",
+                f"screw:{size}",
                 {
-                    "part_no": f"ISO 4762 {thread}",
+                    "part_no": f"ISO 4762 {size}",
                     "name": "육각 구멍붙이 볼트 (클램프 고정)",
                     "kind": "screw",
                     "count": 0,

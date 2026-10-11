@@ -606,6 +606,11 @@ def _standard_clamp(
                 base_size=round(size, 3),
                 mount_thread=thread,
                 mount_holes=holes,
+                mount_thickness=(
+                    float(spec["mount_thickness"])
+                    if thread and spec.get("mount_thickness")
+                    else None
+                ),
             )
     return None
 
@@ -623,6 +628,33 @@ def _mount_holes(
         (round(bx + c * hx - s * hy, 3), round(by + s * hx + c * hy, 3))
         for hx, hy in spec.get("mount_holes") or []
     ]
+
+
+def _mount_length(
+    clamp: ClampSpec, plate_thickness: float, opts: JigOptions, notes: list[str]
+) -> ClampSpec:
+    """클램프 고정 나사의 길이 — 베이스 두께 + 받침 블록(베이스가 판에서 뜬 높이) + 판에
+    박히는 깊이(호칭 x `bolt_plate_engagement`, 볼트 고정과 같다) 이상인 가장 짧은 규격 길이.
+    판 밑으로 나오는 길이는 고르지 않고, 판이 얇아 덜 박히면 메모로 말한다. 사양에 베이스
+    두께가 없으면 길이 없이 둔다(부품표에 호칭만)."""
+    if clamp.standard is None or not clamp.mount_thread or clamp.mount_thickness is None:
+        return clamp
+    thread = clamp.mount_thread
+    grip = clamp.mount_thickness + clamp.riser
+    wanted = fasteners.nominal_of(thread) * opts.bolt_plate_engagement
+    length = fasteners.screw_length(thread, grip, wanted, grip + plate_thickness)
+    if length is None:
+        notes.append(
+            f"클램프 고정 볼트({thread})의 규격 길이를 고르지 못했습니다"
+            f"(필요 {grip + wanted:.3g} mm). 부품표에는 호칭만 적습니다."
+        )
+        return clamp
+    if length - grip < wanted - 1e-9:
+        notes.append(
+            f"바닥판이 얇아 클램프 고정 볼트({thread}x{length:g})가 판에 "
+            f"{length - grip:.3g} mm만 박힙니다(권장 {wanted:.3g} mm). 판 두께를 늘리십시오."
+        )
+    return replace(clamp, mount_length=length)
 
 
 def _hole_at(features: list[Feature], x: float, y: float) -> Feature | None:
@@ -724,6 +756,7 @@ def _standardize(
     ]
     if taps:
         plate = replace(plate, holes=[*plate.holes, *taps])
+    clamps = [_mount_length(one, plate.thickness, opts, notes) for one in clamps]
     bare = sorted(
         {
             clamp.standard.part_no

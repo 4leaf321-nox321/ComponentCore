@@ -12905,6 +12905,19 @@
               }
             ],
             "title": "Mount Holes"
+          },
+          "mount_thickness": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 200.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mount Thickness"
           }
         },
         "type": "object",
