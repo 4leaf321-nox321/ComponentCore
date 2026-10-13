@@ -1,0 +1,571 @@
+"""조건 거르기 — **칸 안에서는 OR, 칸끼리는 AND.**
+
+「같음」 하나로는 「무게 10kg 넘고, 공급사가 비어 있고, 영남이거나 호남」 을 못 거른다.
+그래서 칸의 종류에 맞는 연산을 둔다:
+
+    숫자·날짜     gt · gte · lt · lte · eq · ne · in
+    글자·주소     eq · ne · contains · starts · in
+    선택·참조     eq · ne · in           (여러 값이면 「그 중 하나」)
+    예/아니오     eq
+    모두          empty · notempty
+
+전체를 OR 로 잇는 트리는 안 만든다 — 화면에 그릴 수 없고, 그려도 사람이 못 읽는다.
+「같은 칸 안 OR(`in`) + 칸끼리 AND」 가 대부분의 물음을 덮는다.
+
+## 주소에 남는 모양
+
+    ?f.weight.gte=10&f.region.in=영남|호남&f.vendor.empty=
+
+`f.<칸>.<연산>=<값>`. 붙여 넣으면 같은 목록이 선다. 값 여럿은 `|` 로 가른다.
+고정 칸은 `label` · `key` · `status`, 나머지는 속성 키다.
+
+## 제외 조건 — 묶음 하나를 부정한다
+
+    ?f.parts.notempty=&nf1.action.starts=SW&nf2.diag.in=C01|C02
+
+`nf<번호>.<칸>.<연산>=<값>` — 같은 번호끼리 AND 로 묶어 **그 묶음에 맞는 것을
+뺀다**(NOT). 묶음은 여럿이고 다른 조건 · 다른 묶음과는 AND 다. 지표의 규칙 기준(ADR
+0015)이 「규칙 k 의 조건 AND 앞 규칙들 어느 것에도 안 맞음」 을 이것으로 적는다 — 그래서
+건 보기의 수가 셀의 수와 **정확히** 같다(「≈」 로 넘기지 않는다, 2026-10-10).
+
+모양을 고른 까닭: 조건 하나의 꼴(`칸.연산=값`)은 그대로 두고 앞머리만 다르게 하면 옛
+주소 · 옛 저장된 뷰 · 옛 클라이언트가 하나도 안 깨진다. 트리(`not(and(...))`)를 JSON 으로
+받는 길은 주소에 붙여 넣을 수 없고 화면의 칩으로도 못 그린다. 저장된 뷰 · API 의 조건에는
+`exclude`(묶음 번호, 0 은 보통 조건) 한 칸이 붙는다.
+
+**비어 있는 칸은 「안 맞음」 이다.** `ILIKE` · 비교가 NULL 이면 그 기록은 묶음에 안
+맞으므로 남는다(`NOT coalesce(묶음, false)`). 지표의 `CASE WHEN` 이 NULL 을 「안 맞음」
+으로 넘기는 것과 같은 뜻이다 — 맨 `NOT` 이면 NULL 의 부정이 NULL 이라 그 기록이 양쪽에서
+다 빠진다.
+"""
+
+from __future__ import annotations
+
+import re
+import uuid
+from dataclasses import dataclass
+from datetime import date
+from typing import Any
+
+from sqlalchemy import (
+    Numeric,
+    String,
+    and_,
+    case,
+    cast,
+    false,
+    func,
+    literal,
+    not_,
+    or_,
+    select,
+    true,
+)
+from sqlalchemy.orm import aliased
+
+from app.modules.objects import axes, paths
+from app.modules.objects.models import ObjectInstance, ObjectRef
+from app.modules.objects.services import like_escape
+from app.modules.ontology import conversion
+from app.modules.ontology.models import PropertyDef
+from app.modules.ontology.services import InvalidValue
+from app.shared.errors import AppError, code
+
+OPS_ORDER: tuple[str, ...] = ("eq", "ne", "gt", "gte", "lt", "lte", "in")
+OPS_TEXT: tuple[str, ...] = ("eq", "ne", "contains", "starts", "in")
+OPS_CHOICE: tuple[str, ...] = ("eq", "ne", "in")
+OPS_BOOL: tuple[str, ...] = ("eq",)
+OPS_ANY: tuple[str, ...] = ("empty", "notempty")
+
+FIXED_FIELDS = ("label", "key", "status")
+MULTI_SEP = "|"
+PREFIX = "f."
+#: 제외 묶음의 앞머리 — `nf<번호>.<칸>.<연산>`.
+EXCLUDE_PREFIX = "nf"
+#: 제외 묶음 번호는 두 자리까지 — 규칙 기준의 「기타」 건 보기가 규칙마다 하나씩 쓴다
+#: (규칙 20개).
+MAX_EXCLUDE = 99
+_EXCLUDE_KEY = re.compile(r"^nf([0-9]{1,2})\.(.+)$")
+
+
+@dataclass(frozen=True)
+class Condition:
+    field: str
+    op: str
+    value: str
+    exclude: int = 0
+    """0 이면 보통 조건. 1 이상이면 그 번호의 **제외 묶음** — 같은 번호끼리 AND 로 묶어 그
+    묶음에 맞는 것을 뺀다."""
+
+
+def ops_for(data_type: str) -> tuple[str, ...]:
+    """이 종류의 칸에 걸 수 있는 연산. 화면도 같은 표를 쓴다(스키마로 내보낸다)."""
+    base: tuple[str, ...]
+    if data_type in ("number", "date", "datetime"):
+        base = OPS_ORDER
+    elif data_type in ("text", "text_long", "url"):
+        base = OPS_TEXT
+    elif data_type in ("enum", "object_ref"):
+        base = OPS_CHOICE
+    elif data_type == "bool":
+        base = OPS_BOOL
+    else:
+        base = ()
+    return (*base, *OPS_ANY)
+
+
+def parse(params: Any) -> list[Condition]:
+    """`f.<칸>.<연산>=<값>` · `nf<번호>.<칸>.<연산>=<값>`(제외 묶음) 쿼리 파라미터 전부. 같은
+    키가 여럿이면 전부(AND)."""
+    out: list[Condition] = []
+    for key, value in (
+        params.multi_items() if hasattr(params, "multi_items") else params.items()
+    ):
+        exclude = 0
+        if key.startswith(PREFIX):
+            rest = key[len(PREFIX) :]
+        else:
+            found = _EXCLUDE_KEY.match(key)
+            if found is None:
+                continue
+            exclude, rest = int(found.group(1)), found.group(2)
+            if exclude < 1:
+                raise InvalidValue(
+                    code("OBJECTS", 70),
+                    f"제외 묶음 번호는 1 부터입니다: {key} (nf<번호>.<칸>.<연산>)",
+                )
+        if "." not in rest:
+            raise InvalidValue(
+                code("OBJECTS", 70),
+                f"조건의 모양이 틀렸습니다: {key} "
+                f"({'nf<번호>' if exclude else 'f'}.<칸>.<연산>)",
+            )
+        field, op = rest.rsplit(".", 1)
+        out.append(Condition(field=field, op=op, value=value, exclude=exclude))
+    return out
+
+
+def key_of(condition: Condition) -> str:
+    """조건 하나의 쿼리 키 — `parse` 의 역. 제외 묶음이면 `nf<번호>.` 로 시작한다."""
+    head = f"{EXCLUDE_PREFIX}{condition.exclude}." if condition.exclude else PREFIX
+    return f"{head}{condition.field}.{condition.op}"
+
+
+def _column(field: str, entity: Any = ObjectInstance) -> Any:
+    if field == "label":
+        return entity.label
+    if field == "key":
+        return entity.key
+    if field == "status":
+        return entity.status
+    return entity.properties[field].astext
+
+
+def split_values(raw: str) -> list[str]:
+    """`in` 의 값 여럿(`A|B`) — 빈 것은 뺀다."""
+    return [one.strip() for one in raw.split(MULTI_SEP) if one.strip()]
+
+
+_values = split_values
+
+
+def _number(field: str, raw: str) -> float:
+    try:
+        return float(raw)
+    except ValueError:
+        raise InvalidValue(code("OBJECTS", 71), f"{field}: 숫자여야 합니다: {raw!r}") from None
+
+
+def _date(field: str, raw: str) -> date:
+    try:
+        return date.fromisoformat(raw.strip()[:10])
+    except ValueError:
+        raise InvalidValue(
+            code("OBJECTS", 71), f"{field}: 날짜는 YYYY-MM-DD 여야 합니다: {raw!r}"
+        ) from None
+
+
+def clause(
+    condition: Condition,
+    definition: PropertyDef | None,
+    entity: Any = ObjectInstance,
+    label: str | None = None,
+) -> Any:
+    """조건 하나 → SQL. `entity` 는 보통 목록의 객체이고, 이어진 것 너머의 칸이면 그
+    이어진 객체(별칭)다 — 같은 규칙을 두 벌로 적지 않는다. 지표의 규칙 기준(ADR 0015)도 이
+    식을 `CASE WHEN` 안에 넣는다(칸 · 연산 · 값을 따로 배우지 않는다) — 이어진 것 너머까지 한
+    번에 다루는 입구는 `clauses` · `matches` 다."""
+    field, op, raw = condition.field, condition.op, condition.value
+    is_fixed = field in FIXED_FIELDS
+    data_type = "text" if is_fixed else (definition.data_type if definition else "")
+    multi = bool(definition and definition.multi)
+    if field == "status":
+        data_type = "enum"
+    allowed = ops_for(data_type)
+    label = label or (definition.label if definition else field)
+    if op not in allowed:
+        raise InvalidValue(
+            code("OBJECTS", 72),
+            f"{label}: 「{op}」 는 이 칸에 못 겁니다. 되는 것: {', '.join(allowed)}",
+        )
+
+    if data_type == "object_ref":
+        return _ref_clause(entity, field, op, raw)
+
+    column = _column(field, entity)
+    json_col = entity.properties[field]
+
+    if op == "empty":
+        if is_fixed:
+            return or_(column.is_(None), column == "")
+        return or_(json_col.is_(None), column == "", column == "[]", column == "null")
+    if op == "notempty":
+        if is_fixed:
+            return and_(column.is_not(None), column != "")
+        return and_(json_col.is_not(None), column != "", column != "[]", column != "null")
+
+    if data_type == "number":
+        if multi:
+            # 여러 값 칸은 배열이라 숫자로 못 바꾼다 — 「담고 있나」 만 묻는다.
+            if op in ("gt", "gte", "lt", "lte"):
+                raise InvalidValue(
+                    code("OBJECTS", 72),
+                    f"{label}: 여러 값 칸에는 범위를 못 겁니다. 같음·그 중 하나·비어 있음만.",
+                )
+            numbers = [_number(label, one) for one in (_values(raw) if op == "in" else [raw])]
+            if not numbers:
+                return false()
+            has_any = or_(*[json_col.contains([one]) for one in numbers])
+            # 「다름」 은 칸이 비어 있는 것도 포함한다 — NULL 의 부정은 NULL 이라 따로 적는다.
+            return or_(json_col.is_(None), ~has_any) if op == "ne" else has_any
+        # **읽을 수 있는 값만 숫자로** — 맨 cast 는 숫자 아닌 글자(옛 데이터 · 손으로 고친 값)
+        # 하나에 질의 전체가 오류(500)였다. 통계의 숫자 가드(`axes.numeric`)와 같은 모양이고,
+        # 정밀도를 지키려 Numeric 으로 바꾼다.
+        numeric = case((column.op("~")(axes.NUMERIC_RE), cast(column, Numeric)), else_=None)
+        if op == "in":
+            picked = [_number(label, one) for one in _values(raw)]
+            return or_(*[numeric == one for one in picked]) if picked else false()
+        number = _number(label, raw)
+        return {
+            "eq": numeric == number,
+            # 「다름」 은 비어 있는 것(못 읽는 값 포함)도 든다 — 여러 값 숫자 · 참조 · 글자와
+            # 같은 뜻이다. 예전에는 단일 숫자 칸만 빈 것을 뺐다(2026-10-08).
+            "ne": or_(numeric.is_(None), numeric != number),
+            "gt": numeric > number,
+            "gte": numeric >= number,
+            "lt": numeric < number,
+            "lte": numeric <= number,
+        }[op]
+
+    if data_type == "bool":
+        # 참/거짓 어휘는 일괄 입력 · 종류 변경과 한 벌이다(`conversion.TRUE_WORDS`).
+        wanted = raw.strip().lower() in conversion.TRUE_WORDS
+        return column == ("true" if wanted else "false")
+
+    if multi:
+        # 여러 값 칸 — 「그 값을 담고 있나」. contains 는 JSONB 배열에 대한 포함이다.
+        if op == "eq":
+            return json_col.contains([raw])
+        if op == "ne":
+            return or_(json_col.is_(None), ~json_col.contains([raw]))
+        if op == "in":
+            values = _values(raw)
+            return or_(*[json_col.contains([one]) for one in values]) if values else false()
+        # 포함 · 시작은 **원소마다** 본다 — 배열을 통째 글자(`["가나", "다라"]`)로 견주면
+        # 「시작」 은 늘 `["` 로 시작해 0건이었고, 「포함」 은 원소 사이의 `", "` 에도 걸렸다
+        # (2026-10-08).
+        if op == "contains":
+            return _any_element(json_col, f"%{like_escape(raw)}%")
+        if op == "starts":
+            return _any_element(json_col, f"{like_escape(raw)}%")
+
+    if op == "in":
+        values = _values(raw)
+        return column.in_(values) if values else false()
+    if op == "contains":
+        return column.ilike(f"%{like_escape(raw)}%", escape="\\")
+    if op == "starts":
+        return column.ilike(f"{like_escape(raw)}%", escape="\\")
+    if op == "ne":
+        return or_(column != raw, column.is_(None))
+    if data_type == "date" and op in ("gt", "gte", "lt", "lte"):
+        # **날짜는 읽어서 견준다** — 통계 · 지표의 버킷과 같은 가드(`axes.date_or_null`)로.
+        # 글자로 견주면 `20260310`(정규형이 아닌 유효한 날짜)은 범위 밖이고 `2026-02-30`(못
+        # 읽는 값)은 안이라, 막대를 눌러 나온 목록의 수가 막대의 수와 어긋난다.
+        when = _date(label, raw)
+        normalized = axes.date_or_null(column)
+        return {
+            "gt": normalized > when,
+            "gte": normalized >= when,
+            "lt": normalized < when,
+            "lte": normalized <= when,
+        }[op]
+    if op in ("gt", "gte", "lt", "lte"):
+        # 시각은 ISO 문자열이라 사전순이 곧 시간순이다(날짜 경계 `< 2026-03-01` 도 맞는다).
+        return {
+            "gt": column > raw,
+            "gte": column >= raw,
+            "lt": column < raw,
+            "lte": column <= raw,
+        }[op]
+    return column == raw
+
+
+def _any_element(json_col: Any, pattern: str) -> Any:
+    """여러 값 칸의 **원소 중 하나라도** 그 모양(`ILIKE`, `\\` 이스케이프)에 맞나. 옛 데이터에
+    배열이 아닌 값 하나가 든 칸도 한 원소로 본다(통계의 여러 값 펼치기와 같은 가드)."""
+    shape = func.jsonb_typeof(json_col)
+    array = case((shape == "array", json_col), else_=func.jsonb_build_array(json_col))
+    items = func.jsonb_array_elements_text(array).table_valued("value")
+    return (
+        select(literal(1))
+        .select_from(items)
+        .where(items.c.value.ilike(pattern, escape="\\"))
+        .exists()
+    )
+
+
+def _ref_clause(entity: Any, field: str, op: str, raw: str) -> Any:
+    """참조 칸 — **참조 색인**으로 묻는다(ADR 0010). JSONB 를 펴서 견주면 그 타입을 통째로
+    읽는다(200만 건에서 1.3초, 실측) — 색인은 (누가 · 칸 · 누구를) 인덱스 하나다.
+
+    단일값 · 여러 값이 같은 모양이다(색인에는 원소마다 한 줄). 「다름」 은 비어 있는 것도
+    포함한다 — 화면의 다른 칸과 같은 뜻."""
+    linked = select(literal(1)).where(ObjectRef.src_id == entity.id, ObjectRef.key == field)
+    if op == "empty":
+        return ~linked.exists()
+    if op == "notempty":
+        return linked.exists()
+    wanted = _ids(_values(raw) if op == "in" else [raw])
+    if not wanted:
+        # 모양이 id 가 아닌 값은 아무것도 가리키지 않는다 — 같음은 없고 다름은 전부다.
+        return true() if op == "ne" else false()
+    hit = linked.where(ObjectRef.dst_id.in_(wanted)).exists()
+    return ~hit if op == "ne" else hit
+
+
+def _ids(raw: list[str]) -> list[uuid.UUID]:
+    out: list[uuid.UUID] = []
+    for one in raw:
+        try:
+            out.append(uuid.UUID(one.strip()))
+        except ValueError:
+            continue
+    return out
+
+
+def apply(
+    stmt: Any,
+    defs: list[PropertyDef],
+    conditions: list[Condition],
+    resolver: paths.Resolver | None = None,
+) -> Any:
+    """조건 전부를 AND 로 건다. 없는 칸은 거절.
+
+    이어진 것 너머의 칸(`ref.`·`out.`·`in.`)은 `resolver` 가 풀어 준다 — 없으면 그런 칸은
+    없는 칸이다.
+    """
+    if not conditions:
+        return stmt
+    return stmt.where(*clauses(defs, conditions, resolver))
+
+
+def clauses(
+    defs: list[PropertyDef],
+    conditions: list[Condition],
+    resolver: paths.Resolver | None = None,
+    *,
+    offset: int = 0,
+) -> list[Any]:
+    """조건마다 WHERE 식 하나, 제외 묶음마다 하나 — `apply` 가 문장에 걸고, 지표의 조건
+    비율 · 규칙 기준은 `CASE WHEN` 안에 넣는다(`matches`). 검사는 `apply` 와 같다.
+
+    `offset` 은 이어진 것 너머 조건의 별칭 번호를 어디서 시작하나 — 한 문장에 조건 묶음을 여럿
+    넣을 때(규칙 열 개) 별칭 이름이 겹치지 않게."""
+    by_key = {d.key: d for d in defs}
+    out: list[Any] = []
+    groups: dict[int, list[Any]] = {}
+    for index, condition in enumerate(conditions, offset):
+        if condition.exclude < 0 or condition.exclude > MAX_EXCLUDE:
+            raise InvalidValue(
+                code("OBJECTS", 70),
+                f"제외 묶음 번호는 1 ~ {MAX_EXCLUDE} 입니다: {condition.exclude}",
+            )
+        found = _one(by_key, resolver, condition, index)
+        if condition.exclude:
+            groups.setdefault(condition.exclude, []).append(found)
+        else:
+            out.append(found)
+    out.extend(excluded(groups[number]) for number in sorted(groups))
+    return out
+
+
+def matches(
+    defs: list[PropertyDef],
+    conditions: list[Condition],
+    resolver: paths.Resolver | None = None,
+    *,
+    offset: int = 0,
+) -> Any:
+    """조건 전부(AND)에 맞나 — 식 하나. 지표의 조건 비율 · 규칙 기준이 `CASE WHEN` 에 넣는다.
+    조건이 없으면 늘 참."""
+    found = clauses(defs, conditions, resolver, offset=offset)
+    return and_(*found) if found else true()
+
+
+def excluded(found: list[Any]) -> Any:
+    """제외 묶음 — 묶음 전부(AND)에 **맞는 것을 뺀다.** 비교가 NULL(칸이 비었다)이면 「안
+    맞음」 이라 남는다. 맨 `NOT` 이면 NULL 의 부정이 NULL 이라 그 기록이 묶음에 맞는 쪽 ·
+    안 맞는 쪽 어디에도 안 든다 — 규칙 기준의 셀(`CASE WHEN` 은 NULL 을 「안 맞음」 으로
+    넘긴다)과 건 보기의 수가 어긋난다."""
+    return not_(func.coalesce(and_(*found), false()))
+
+
+def _one(
+    by_key: dict[str, PropertyDef],
+    resolver: paths.Resolver | None,
+    condition: Condition,
+    index: int,
+) -> Any:
+    if paths.is_path(condition.field):
+        if resolver is None:
+            raise InvalidValue(code("OBJECTS", 73), f"없는 칸입니다: {condition.field}")
+        return _hop_clause(resolver, condition, index)
+    definition = by_key.get(condition.field)
+    if condition.field not in FIXED_FIELDS and definition is None:
+        raise InvalidValue(code("OBJECTS", 73), f"없는 칸입니다: {condition.field}")
+    if definition is not None and definition.data_type == "file":
+        raise InvalidValue(code("OBJECTS", 73), f"{definition.label}: 파일 칸은 못 겁니다.")
+    return clause(condition, definition)
+
+
+def _hop_clause(resolver: paths.Resolver, condition: Condition, index: int) -> Any:
+    """이어진 것 너머의 조건 — **「이어진 것 중 하나라도 맞으면」** (`EXISTS`).
+
+    조인으로 걸면 이어진 것이 여럿인 객체가 목록에 여러 번 선다. EXISTS 는 몇 개가
+    이어져 있든 한 번이다. 걸음이 여럿이면(`ref.model.ref.base.series`) EXISTS 안에서 걸음을
+    이어 붙인다 — 뜻은 그대로 「그 길로 닿는 것 중 하나라도」 다.
+    """
+    try:
+        chain = resolver.parse_chain(condition.field)
+    except AppError as caught:
+        raise InvalidValue(code("OBJECTS", 73), caught.message) from caught
+    op, raw = condition.op, condition.value
+    whole = chain.field is None
+
+    if whole:
+        # 관계로 이어진 것 자체 — 누구와 이어졌나, 또는 이어져 있기는 한가.
+        allowed = (*OPS_CHOICE, *OPS_ANY) if chain.data_type == "object_ref" else OPS_ANY
+        if op not in allowed:
+            raise InvalidValue(
+                code("OBJECTS", 72),
+                f"{chain.label}: 「{op}」 는 이 칸에 못 겁니다. 되는 것: {', '.join(allowed)}",
+            )
+    elif chain.definition is not None and chain.definition.data_type == "file":
+        raise InvalidValue(code("OBJECTS", 73), f"{chain.label}: 파일 칸은 못 겁니다.")
+
+    # 걸음을 잇는다 — 첫 걸음은 바깥(목록의 객체)과 상관 관계로 묶이고, 다음 걸음은 앞 걸음의
+    # 끝(이어진 객체)에서 나간다.
+    linked: Any = None
+    previous: Any = ObjectInstance
+    last_edges: Any = None
+    last_back: Any = None
+    last_target: Any = None
+    for depth, (hop, owner) in enumerate(zip(chain.hops, chain.owners, strict=True)):
+        name = f"hop{index}_{depth}"
+        final = depth == len(chain.hops) - 1
+        if hop.is_back:
+            # 나를 가리키는 것(ADR 0017) — 참조 색인을 거꾸로(`dst_id` 색인). 그 객체는 보는
+            # 사람이 볼 수 있는 것만 — 남의 부서 기록이 있다는 사실이 새지 않게.
+            link = aliased(ObjectRef, name=f"{name}_back")
+            target = aliased(ObjectInstance, name=f"{name}_obj")
+            step = and_(
+                link.dst_id == previous.id,
+                link.key == hop.back_key,
+                link.src_type_id == hop.back_type_id,
+            )
+            if linked is None:
+                linked = select(literal(1)).select_from(link).where(step)
+            else:
+                linked = linked.join(link, step)
+            seen = owner.seen(target)
+            linked = linked.join(
+                target, and_(target.id == link.src_id, target.deleted_at.is_(None), *seen)
+            )
+            last_target, last_back = target, link
+        elif hop.kind == "ref":
+            # 참조 색인으로 잇는다 — 예전의 JSONB 포함(`@>`) 조인은 타입 제한이 없는 비등가
+            # 조인이라 200만 건에서 2분을 넘겼다(실측).
+            link = aliased(ObjectRef, name=f"{name}_ref")
+            target = aliased(ObjectInstance, name=f"{name}_obj")
+            step = and_(link.src_id == previous.id, link.key == hop.name)
+            if linked is None:
+                linked = select(literal(1)).select_from(link).where(step)
+            else:
+                linked = linked.join(link, step)
+            # 가리키는 객체도 **보이는 것만** — 들어오는 참조와 같은 규칙(`Resolver.seen`).
+            linked = linked.join(
+                target,
+                and_(
+                    target.id == link.dst_id, target.deleted_at.is_(None), *owner.seen(target)
+                ),
+            )
+            last_target = target
+        else:
+            # 관계 걸음 — 저쪽 끝은 선(`edges`)에서 이미 보이는 것만 남는다. 관계로 이어진 것
+            # **자체**(있음 · 없음 · 특정 객체)도 그래서 못 보는 객체로는 안 걸린다.
+            edges = owner.edges(hop, f"{name}_edges")
+            step = edges.c.me == previous.id
+            if linked is None:
+                linked = select(literal(1)).select_from(edges).where(step)
+            else:
+                linked = linked.join(edges, step)
+            last_edges = edges
+            if final and whole:
+                last_target = None
+                break
+            target = aliased(ObjectInstance, name=f"{name}_obj")
+            linked = linked.join(
+                target,
+                and_(
+                    cast(target.id, String) == edges.c.other,
+                    target.deleted_at.is_(None),
+                    *owner.seen(target),
+                ),
+            )
+            last_target = target
+        previous = last_target
+
+    if whole and chain.hop.is_back:
+        # 나를 가리키는 것 자체(**마지막 걸음이** 그것일 때) — 있음 · 없음, 또는 특정 객체가
+        # 가리키나. 앞 걸음이 그것이고 끝이 관계면 아래 관계 길이다.
+        if op == "empty":
+            return ~linked.exists()
+        if op == "notempty":
+            return linked.exists()
+        picked = _ids(_values(raw) if op == "in" else [raw])
+        hit = linked.where(last_back.src_id.in_(picked)).exists() if picked else false()
+        return ~hit if op == "ne" else hit
+    if whole:
+        assert last_edges is not None
+        if op == "empty":
+            return ~linked.exists()
+        if op == "notempty":
+            return linked.exists()
+        if op == "eq":
+            return linked.where(last_edges.c.other == raw).exists()
+        if op == "ne":
+            return ~linked.where(last_edges.c.other == raw).exists()
+        values = _values(raw)
+        return linked.where(last_edges.c.other.in_(values)).exists() if values else false()
+
+    assert chain.field is not None and last_target is not None
+    inner = clause(
+        Condition(chain.field, op, raw), chain.definition, last_target, label=chain.label
+    )
+    return linked.where(inner).exists()
+
+
+def to_query(conditions: list[Condition]) -> dict[str, str]:
+    """저장된 뷰 → 쿼리 파라미터. `parse` 의 역."""
+    return {key_of(c): c.value for c in conditions}

@@ -1,0 +1,999 @@
+"""작업의 종류 — **이름 하나가 처리 함수 하나다.**
+
+새 종류는 여기 `register` 한 줄이다. 라우터 · 워커 · 화면은 종류를 모른다 — `needs_file` 과
+`two_step` 만 보고, 나머지는 `run(work)` 가 한다. 결과(`dict`)는 그대로 `jobs.result` 에
+들어가 화면이 그린다.
+
+일괄 입력 둘(`objects_import` · `relations_import`)은 `objects/bulk.py` 를 그대로 부른다 —
+요청 경로(`import-rows`)와 **같은 규칙**이어야 「화면으로는 되는데 파일로는 안 되는」 상태가
+안 생긴다. 다른 점은 행 상한(`job_max_rows`)과 진행률뿐이다.
+"""
+
+from __future__ import annotations
+
+import csv
+import hashlib
+import io
+import json
+import logging
+import uuid
+import zipfile
+from collections.abc import Callable
+from contextlib import AbstractContextManager
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from types import SimpleNamespace
+from typing import Any, BinaryIO
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.config import get_settings
+from app.modules.accounts.models import User
+from app.modules.bundles import export as bundle_export_service
+from app.modules.bundles import services as bundle_services
+from app.modules.bundles import undo as bundle_undo_service
+from app.modules.bundles.schemas import BundleIn
+from app.modules.objects import bulk
+from app.modules.objects.schemas import ImportPlanOut, ImportRowOut
+from app.modules.objects.services import apply_sort, properties_of
+from app.modules.ontology.models import ObjectType
+from app.modules.tasks import files
+from app.modules.tasks.models import Job, JobFile
+from app.shared import sheets
+from app.shared.errors import Conflict, Forbidden, NotFound, code
+from app.shared.permissions import resolve_owner_workspace
+
+log = logging.getLogger(__name__)
+
+
+@dataclass
+class Work:
+    db: Session
+    """본 트랜잭션. 처리 함수는 커밋하지 않는다 — 워커가 끝에서 한 번 한다. 스스로 커밋하는
+    것(일괄 입력 적용 · 동기화 · 지표)은 그 커밋마다 워커가 걸어 둔 검사(`services.hold`)가
+    「아직 이 작업을 쥐었나」 를 같은 트랜잭션에서 보고, 아니면 `Lost` 로 커밋을 막는다."""
+    job: Job
+    user: User | None
+    """시킨 사람. 타이머가 넣은 작업(`allow_system` 인 종류)은 None — 감사 기록의 actor 가
+    「타이머」 가 된다."""
+    params: dict[str, Any]
+    input_file: JobFile | None
+    progress: Callable[[str, int, int], None]
+    """(단계, 처리한 수, 전체). 취소 요청이 있으면 **여기서 `Cancelled` 가 난다** — 단계
+    사이에서만 멈추는 이유다."""
+    still_mine: Callable[[Session], None]
+    """처리 함수가 **따로 연 트랜잭션**을 커밋하기 바로 앞에, 그 트랜잭션의 세션으로 부른다 —
+    「아직 이 작업을 쥐었나」 를 그 안에서 보고 아니면 `Lost`(묶음 가져오기의 바깥 트랜잭션).
+    `db` 의 커밋에는 워커가 이미 걸어 두었다."""
+    output_file_id: uuid.UUID | None = None
+    """결과 파일을 만들었으면 `emit` 이 여기 적는다 — 워커가 끝에 작업 행에 옮긴다."""
+
+    def input_bytes(self) -> bytes:
+        """올린 파일의 내용을 **통째로** — 표 파일(일괄 입력 · 묶음)처럼 다 읽어야 푸는 것.
+        그 종류의 상한(`job_file_max_bytes`, 100MB)이 메모리의 상한이다. 큰 파일(사진 zip)은
+        `open_input` 으로 흘려 읽는다."""
+        assert self.input_file is not None  # needs_file — 넣을 때 · 돌릴 때 이미 봤다
+        return files.read_bytes(self.input_file)
+
+    def open_input(self) -> AbstractContextManager[BinaryIO]:
+        """올린 파일을 **파일로** 연다 — DB 에 든 작은 것이든 저장소(`_jobs/`)의 큰 것이든 같은
+        모양이다(`files.open_file`). zip 은 이것을 그대로 연다(통째로 메모리에 안 올린다)."""
+        assert self.input_file is not None
+        return files.open_file(self.input_file)
+
+    def emit(self, *, name: str, content_type: str, data: bytes) -> JobFile:
+        """결과 파일 — 사람은 `GET /api/jobs/{id}/download` 로 받는다."""
+        stored = files.store(
+            self.db, name=name, content_type=content_type, data=data, output=True
+        )
+        self.output_file_id = stored.id
+        return stored
+
+
+@dataclass(frozen=True)
+class Kind:
+    name: str
+    label: str
+    needs_file: bool
+    two_step: bool
+    """계획 → 사람 확정 → 적용의 두 단계인가. 그러면 `params["apply"]` 와 지문을 쓴다."""
+    run: Callable[[Work], dict[str, Any]]
+    owns_workspace: bool = False
+    """넣을 때 부서를 정하는 종류인가(객체 가져오기). 관계는 양끝의 것이라 부서가 없다."""
+    allow_system: bool = False
+    """시킨 사람 없이(타이머) 돌아도 되는 종류인가."""
+    public: bool = False
+    """일반 작업 API(`POST /api/jobs`)로 넣을 수 있나. **기본은 막힘** — 전용 경로가 있는
+    종류(동기화 · 지표 · 묶음 · 내보내기 …)는 그 경로가 권한 · 범위를 본다. 일반 API 로 열면
+    그 검사를 건너뛴다(2026-10-08 — 일반 멤버가 `bundle_export` 로 모든 부서의 객체를 받을 수
+    있었다)."""
+    admin_only: bool = False
+    """시킨 사람이 있으면 **시스템 관리자여야** 하는 종류 — 워커가 돌리기 전에 한 번 더 본다
+    (넣는 길이 몇이든)."""
+    max_file_setting: str = "job_file_max_bytes"
+    """올리는 파일의 상한을 읽는 **설정 이름** — 종류마다 다르다(2026-10-10). 표 파일(일괄
+    입력 · 묶음)은 통째로 메모리에 올려 풀므로 100MB(`job_file_max_bytes`), 사진 zip 은 파일로
+    열어 한 장씩 읽으므로 2GB(`job_photos_max_bytes`). 값은 설치가 `.env` 로 정한다."""
+
+
+_registry: dict[str, Kind] = {}
+
+
+def register(kind: Kind) -> None:
+    _registry[kind.name] = kind
+
+
+def get(name: str) -> Kind | None:
+    return _registry.get(name)
+
+
+def names() -> list[str]:
+    return sorted(_registry)
+
+
+def all_kinds() -> list[Kind]:
+    return [_registry[name] for name in names()]
+
+
+# --- 가져오기 둘 ---------------------------------------------------------------
+
+
+def fingerprint(plan: bulk.Plan) -> str:
+    """계획의 지문 — 미리 본 것과 적용하는 것이 **같은 계획**인지.
+
+    `object_id` 는 뺀다: 적용하면서 새로 만든 행에 id 가 붙어 지문이 달라지기 때문이다.
+    행 번호 · 무엇이 될지 · 무엇이 바뀔지가 같으면 같은 계획이다.
+    """
+    body = [
+        (one.row, one.action, one.label, one.key, sorted(one.changes), one.message)
+        for one in plan.rows
+    ]
+    raw = json.dumps({"rows": body, "errors": plan.errors}, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _plan_result(plan: bulk.Plan, *, applied: bool) -> dict[str, Any]:
+    out = ImportPlanOut(
+        applied=applied,
+        rows=[
+            ImportRowOut(
+                row=one.row,
+                action=one.action,
+                label=one.label,
+                key=one.key,
+                object_id=one.object_id,
+                changes=one.changes,
+                message=one.message,
+            )
+            for one in plan.rows
+        ],
+        errors=plan.errors,
+        counts=plan.counts,
+    ).model_dump(mode="json")
+    out["fingerprint"] = fingerprint(plan)
+    return out
+
+
+def _user(work: Work) -> User:
+    if work.user is None:
+        raise Conflict(code("JOBS", 14), "이 종류의 작업은 시킨 사람이 있어야 합니다.")
+    return work.user
+
+
+def _type(db: Session, slug: str) -> ObjectType:
+    row = db.scalar(select(ObjectType).where(ObjectType.slug == slug))
+    if row is None:
+        raise NotFound(code("OBJECTS", 10), f"타입을 찾을 수 없습니다: {slug}")
+    return row
+
+
+def _rows(work: Work) -> list[dict[str, Any]]:
+    assert work.input_file is not None
+    work.progress("읽기", 0, 0)
+    name = work.input_file.name
+    if not name.lower().endswith((".csv", ".json", ".tsv", ".txt")):
+        raise Conflict(code("OBJECTS", 48), "CSV 나 JSON 파일만 받습니다.")
+    return bulk.parse_file(name, work.input_bytes())
+
+
+def _fingerprint_guard(work: Work) -> Callable[[bulk.Plan], None]:
+    """적용 직전 — 미리 본 계획과 지금 계획이 다르면 **넣지 않는다.** 그 사이에 다른 사람이
+    바꾼 것이 있다는 뜻이고, 옛 계획대로 넣으면 그 변경이 조용히 덮인다.
+
+    `apply_*` 가 끝에서 커밋하므로 **쓰기 전**(`before_apply`)에 봐야 한다."""
+    wanted = work.params.get("fingerprint")
+
+    def check(plan: bulk.Plan) -> None:
+        if wanted and fingerprint(plan) != wanted:
+            raise Conflict(
+                code("JOBS", 20),
+                "미리 본 것과 달라졌습니다 — 그 사이에 누군가 바꿨습니다. 아무것도 넣지 "
+                "않았으니 다시 미리 보고 적용하세요.",
+            )
+
+    return check
+
+
+def objects_import(work: Work) -> dict[str, Any]:
+    object_type = _type(work.db, str(work.params.get("type_slug") or ""))
+    rows = _rows(work)
+    owner = resolve_owner_workspace(
+        work.db,
+        _user(work),
+        work.params.get("workspace_slug"),
+        what="객체",
+        code_value=code("OBJECTS", 15),
+    )
+    max_rows = get_settings().job_max_rows
+    aliases_mode = str(work.params.get("aliases_mode") or "add")
+    # **사람이 화면에서 고친 칸**을 덮을지. 기본은 비켜 가는 것이다(`keep`).
+    human_edits = str(work.params.get("human_edits") or "keep")
+    if work.params.get("apply"):
+        plan = bulk.apply_objects(
+            work.db,
+            _user(work),
+            object_type,
+            rows,
+            owner_workspace_id=owner,
+            aliases_mode=aliases_mode,
+            human_edits=human_edits,
+            max_rows=max_rows,
+            on_progress=work.progress,
+            before_apply=_fingerprint_guard(work),
+        )
+        if plan.ok and _changed(plan.counts):
+            _after_ingest(work.db, object_type.id, f"import:{object_type.slug}")
+        return _plan_result(plan, applied=plan.ok)
+    plan = bulk.plan_objects(
+        work.db,
+        _user(work),
+        object_type,
+        rows,
+        owner_workspace_id=owner,
+        aliases_mode=aliases_mode,
+        human_edits=human_edits,
+        max_rows=max_rows,
+        on_progress=work.progress,
+    )
+    return _plan_result(plan, applied=False)
+
+
+def relations_import(work: Work) -> dict[str, Any]:
+    object_type = _type(work.db, str(work.params.get("type_slug") or ""))
+    rows = _rows(work)
+    max_rows = get_settings().job_max_rows
+    mode = str(work.params.get("relations_mode") or "add")
+    if work.params.get("apply"):
+        plan = bulk.apply_relations(
+            work.db,
+            _user(work),
+            object_type,
+            rows,
+            mode=mode,
+            max_rows=max_rows,
+            on_progress=work.progress,
+            before_apply=_fingerprint_guard(work),
+        )
+        return _plan_result(plan, applied=plan.ok)
+    plan = bulk.plan_relations(
+        work.db,
+        _user(work),
+        object_type,
+        rows,
+        mode=mode,
+        max_rows=max_rows,
+        on_progress=work.progress,
+    )
+    return _plan_result(plan, applied=False)
+
+
+# --- 묶음 ------------------------------------------------------------------------
+
+
+def bundle_import(work: Work) -> dict[str, Any]:
+    """정의 · 객체 · 관계 한 묶음 — `bundles/services.run` 이 제 연결로 전부 아니면 무를
+    지킨다. `work.db` 는 안 쓴다."""
+    assert work.input_file is not None
+    try:
+        raw = json.loads(work.input_bytes().decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as caught:
+        raise Conflict(code("BUNDLES", 3), f"묶음 파일을 읽을 수 없습니다: {caught}") from None
+    bundle = BundleIn.model_validate({**raw, "apply": bool(work.params.get("apply"))})
+    wanted = work.params.get("fingerprint")
+
+    def guard(outcome: bundle_services.Outcome) -> None:
+        if wanted and bundle_services.fingerprint(outcome) != wanted:
+            raise Conflict(
+                code("JOBS", 20),
+                "미리 본 것과 달라졌습니다 — 그 사이에 누군가 바꿨습니다. 아무것도 넣지 "
+                "않았으니 다시 미리 보고 적용하세요.",
+            )
+
+    outcome = bundle_services.run(
+        _user(work),
+        bundle,
+        max_rows=get_settings().job_max_rows,
+        on_progress=work.progress,
+        before_commit=guard,
+        # 묶음은 제 연결의 바깥 트랜잭션으로 커밋한다 — 워커가 `work.db` 에 건 검사가 거기는
+        # 안 닿으므로 그 커밋 앞에서 직접 본다.
+        commit_check=work.still_mine,
+    )
+    out = bundle_services.outcome_out(outcome).model_dump(mode="json")
+    if bundle.apply or bundle.preview != "plan":
+        out["fingerprint"] = bundle_services.fingerprint(outcome)
+    else:
+        # **가벼운 미리 보기에는 지문을 붙이지 않는다.** 지문은 「미리 본 것과 같은가」 를
+        # 묻는 자리인데, 계획만 본 것은 판정 자체가 적용과 다르다(이 묶음이 만들 객체를
+        # 가리키는 칸은 계획에서 비워 두고 적용에서 푼다). 지문을 붙이면 **거의 항상**
+        # 「그 사이에 누군가 바꿨습니다」 가 되어 적용을 못 한다(실측).
+        out["preview"] = "plan"
+        out["note"] = (
+            "계획만 본 미리 보기입니다 — 적용은 그 시점에 **다시 판정합니다**"
+            "(전부 아니면 무는 그대로입니다). 판정까지 똑같이 보려면 preview 를 비우고"
+            " 다시 미리 보세요."
+        )
+    return out
+
+
+def bundle_undo(work: Work) -> dict[str, Any]:
+    """묶음 한 판을 **통째로 되돌린다** — 계획 → 사람 확정 → 적용, 다른 일괄 작업과 같다.
+
+    수만 줄짜리 판을 요청 안에서 되돌리면 클라이언트가 먼저 끊는다. 그래서 작업이다.
+    지문이 안 맞으면 여기서 오류를 내고, 그러면 워커(`services.run`)가 롤백한다. 오류 줄이 있는
+    적용은 `run_undo` 가 세이브포인트로 거둔다 — 워커는 결과가 무엇이든 커밋하므로, 거기서
+    안 거두면 앞 줄의 지우기만 남는다(`apply=true` 로 곧장 부를 때, 2026-10-08).
+    """
+    raw = str(work.params.get("run_id") or "")
+    try:
+        run_id = uuid.UUID(raw)
+    except ValueError:
+        raise Conflict(code("BUNDLES", 33), f"되돌릴 판의 번호가 아닙니다: {raw!r}") from None
+    user = _user(work)
+    run = bundle_undo_service.find(work.db, user, run_id)
+    outcome = bundle_undo_service.run_undo(
+        work.db, user, run, apply=bool(work.params.get("apply")), on_progress=work.progress
+    )
+    out = _plan_result(outcome.plan, applied=outcome.applied)
+    wanted = work.params.get("fingerprint")
+    if wanted and out["fingerprint"] != wanted:
+        raise Conflict(
+            code("JOBS", 20),
+            "미리 본 것과 달라졌습니다 — 그 사이에 누군가 바꿨습니다. 아무것도 되돌리지 "
+            "않았으니 다시 미리 보고 되돌리세요.",
+        )
+    out.update(
+        {
+            "ok": outcome.ok,
+            "run_id": str(run.id),
+            "ran_at": run.at.isoformat(),
+            "label": run.label,
+        }
+    )
+    return out
+
+
+def bundle_export(work: Work) -> dict[str, Any]:
+    wanted = [str(one) for one in (work.params.get("groups") or []) if str(one).strip()]
+    if not wanted:
+        wanted = [str(work.params.get("group") or "")]
+    work.progress("내보내기", 0, 0)
+    raw_since = str(work.params.get("since") or "").strip()
+    since = None
+    if raw_since:
+        try:
+            since = datetime.fromisoformat(raw_since.replace("Z", "+00:00"))
+        except ValueError:
+            raise Conflict(
+                code("BUNDLES", 23),
+                f"since 는 지난 봉투의 exported_at 을 그대로 넣습니다: {raw_since!r}",
+            ) from None
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=UTC)
+    body = bundle_export_service.export_group(
+        work.db,
+        wanted,
+        allow_outside_refs=bool(work.params.get("allow_outside_refs")),
+        since=since,
+    )
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M")
+    work.emit(
+        # 파일 이름이 묶음 이름 열 개로 길어지지 않게 — 셋까지만 적고 나머지는 수로.
+        name=f"bundle-{_short(wanted)}-{stamp}.json",
+        content_type="application/json",
+        data=json.dumps(body, ensure_ascii=False, indent=1).encode("utf-8"),
+    )
+    return {
+        "group": ",".join(wanted),
+        "counts": body.get("counts") or {},
+        "exported_at": body.get("exported_at"),
+    }
+
+
+def _short(slugs: list[str]) -> str:
+    return "-".join(slugs) if len(slugs) <= 3 else f"{slugs[0]}-외{len(slugs) - 1}"
+
+
+# --- 내보내기 — 목록 그대로 파일로 ---------------------------------------------------
+
+
+def _list_query(work: Work) -> tuple[ObjectType, Any]:
+    """목록과 **같은 거르기** — `objects/routes._filtered` 를 그대로 부른다. 그 함수는 요청의
+    쿼리 문자열을 읽으므로, 넣을 때 적어 둔 것을 요청 모양으로 되돌린다.
+
+    여기서 import 하는 이유: `objects/routes` 가 `jobs/routes` 를 부르므로 위에서 import 하면
+    돌고 돈다."""
+    from starlette.datastructures import QueryParams
+
+    from app.modules.objects import routes as objects_routes
+
+    object_type = _type(work.db, str(work.params.get("type_slug") or ""))
+    query = work.params.get("query") or {}
+    pairs = [(key, value) for key, values in query.items() for value in values]
+    request = SimpleNamespace(query_params=QueryParams(pairs))
+    params = QueryParams(pairs)
+    under = params.get("under")
+    year = params.get("year")
+    stmt = objects_routes._filtered(
+        work.db,
+        _user(work),
+        object_type,
+        request,  # type: ignore[arg-type]
+        q=params.get("q") or None,
+        status=params.get("status") or None,
+        year=int(year) if year else None,
+        under=uuid.UUID(under) if under else None,
+        deep=(params.get("deep") or "true").lower() != "false",
+    )
+    return object_type, stmt
+
+
+#: 내보내기가 한 번에 읽는 행 수 — 기록 200만 건을 한 목록으로 싣지 않는다.
+EXPORT_CHUNK = 2_000
+#: 이보다 많으면 zip 으로 묶어 낸다 — 작업 결과 파일은 DB 에 들고(Postgres 한 값은 1GB 까지),
+#: 기록 200만 건의 CSV 는 그것을 넘는다. 압축하면 열에 하나쯤이다.
+EXPORT_PLAIN_MAX = 100_000
+
+
+def objects_export(work: Work) -> dict[str, Any]:
+    """목록과 같은 거르기 · 정렬로 **덩어리마다 읽어 쓴다**(`yield_per`). 예전에는 타입 전체를
+    객체로 싣고 파일을 한 번에 만들어, 기록 200만 건이면 워커의 메모리가 먼저 바닥났다."""
+    object_type, stmt = _list_query(work)
+    defs = properties_of(work.db, object_type.id)
+    total = int(
+        work.db.scalar(select(func.count()).select_from(stmt.order_by(None).subquery())) or 0
+    )
+    work.progress("읽기", 0, total)
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M")
+    fmt = "json" if str(work.params.get("format") or "csv") == "json" else "csv"
+    name = f"{object_type.slug}-{stamp}.{fmt}"
+    zipped = total > EXPORT_PLAIN_MAX
+    columns = bulk.export_columns(defs)
+
+    buffer = io.BytesIO()
+    archive = zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) if zipped else None
+    out = archive.open(name, "w") if archive is not None else buffer
+    out.write(("﻿" + _csv_line(columns, None)).encode() if fmt == "csv" else b'{"rows": [\n')
+    done = 0
+    rows = work.db.scalars(
+        apply_sort(stmt, object_type.list_view or {}).execution_options(yield_per=EXPORT_CHUNK)
+    )
+    for part in rows.partitions():
+        records = bulk.export_rows(work.db, defs, list(part), viewer=work.user)
+        if fmt == "csv":
+            out.write("".join(_csv_line(columns, one) for one in records).encode("utf-8"))
+        else:
+            out.write(
+                ",\n".join(json.dumps(one, ensure_ascii=False) for one in records).encode()
+                if not done
+                else "".join(
+                    ",\n" + json.dumps(one, ensure_ascii=False) for one in records
+                ).encode()
+            )
+        done += len(records)
+        work.progress("변환", done, total)
+    if fmt == "json":
+        out.write(b"\n]}\n")
+    if archive is not None:
+        out.close()
+        archive.close()
+    work.emit(
+        name=f"{name}.zip" if zipped else name,
+        content_type="application/zip"
+        if zipped
+        else ("application/json" if fmt == "json" else "text/csv; charset=utf-8"),
+        data=buffer.getvalue(),
+    )
+    return {"type_slug": object_type.slug, "rows": done, "format": fmt, "zipped": zipped}
+
+
+def _csv_line(columns: list[str], record: dict[str, Any] | None) -> str:
+    """CSV 한 줄 — `record` 가 없으면 머리줄. 엑셀이 읽는 그대로(`bulk.to_csv` 와 같은 꼴)."""
+    line = io.StringIO()
+    writer = csv.DictWriter(line, fieldnames=columns, extrasaction="ignore")
+    if record is None:
+        writer.writeheader()
+    else:
+        writer.writerow(record)
+    return line.getvalue()
+
+
+def relations_export(work: Work) -> dict[str, Any]:
+    object_type = _type(work.db, str(work.params.get("type_slug") or ""))
+    work.progress("읽기", 0, 0)
+    records = bulk.export_relations(work.db, _user(work), object_type)
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M")
+    fmt = str(work.params.get("format") or "csv")
+    if fmt == "json":
+        payload = json.dumps({"rows": records}, ensure_ascii=False, indent=1).encode("utf-8")
+        work.emit(
+            name=f"{object_type.slug}-relations-{stamp}.json",
+            content_type="application/json",
+            data=payload,
+        )
+    else:
+        # **열은 나온 줄에서 모은다.** 고정 넷만 적으면 관계에 붙은 값(근거 건수 · 근거
+        # 종류 …)이 파일에서 조용히 빠지고, 그 파일을 다시 넣으면 그 값이 사라진다.
+        extra = sorted({key for one in records for key in one} - set(bulk.RELATION_COLUMNS))
+        work.emit(
+            name=f"{object_type.slug}-relations-{stamp}.csv",
+            content_type="text/csv; charset=utf-8",
+            data=bulk.to_csv([*bulk.RELATION_COLUMNS, *extra], records),
+        )
+    return {"type_slug": object_type.slug, "rows": len(records), "format": fmt}
+
+
+# --- 온톨로지 통째로 ------------------------------------------------------------
+
+
+def ontology_export(work: Work) -> dict[str, Any]:
+    """구조와 **그 안에 채워진 객체까지** 한 파일로.
+
+    작업인 이유: 구조만이면 순식간이지만 데이터가 붙으면 타입 수만큼 행을 읽는다. 요청 안에서
+    만들면 큰 설치에서 먼저 끊기고, 끊긴 자리에는 아무것도 안 남는다.
+    """
+    from app.modules.ontology import export as ontology_service
+
+    user = _user(work)
+    fmt = str(work.params.get("format") or "xlsx")
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M")
+    skipped: list[str] = []
+    if fmt == "json":
+        body = ontology_service.bundle(work.db, user, progress=work.progress, skipped=skipped)
+        work.emit(
+            name=f"ontology-full-{stamp}.json",
+            content_type="application/json",
+            data=json.dumps(body, ensure_ascii=False, indent=1).encode("utf-8"),
+        )
+        return {
+            "format": fmt,
+            "types": len(body["ontology"]["types"]),
+            "objects": sum(len(one["rows"]) for one in body["objects"]),
+            "relations": sum(len(one["rows"]) for one in body["relations"]),
+            # 건너뛴 것은 **작업 화면에 적힌다** — 조용히 빠지면
+            # 그 파일은 「관계가 없다」 로 읽힌다.
+            "skipped": skipped,
+        }
+
+    pages = ontology_service.data_pages(work.db, user, progress=work.progress)
+    work.progress("파일 만들기", 0, 0)
+    work.emit(
+        name=f"ontology-full-{stamp}.xlsx",
+        content_type=sheets.XLSX_TYPE,
+        data=sheets.to_workbook(pages),
+    )
+    return {
+        "format": fmt,
+        "sheets": len(pages),
+        "objects": sum(len(one.rows) for one in pages if one.name not in STRUCTURE_ONLY),
+    }
+
+
+#: 개요에 「내보낸 객체」 를 따로 세므로, 여기서는 구조 시트를 빼고 센다.
+STRUCTURE_ONLY = ("개요", "묶음", "타입", "속성", "관계 종류", "관계 속성", "참조 칸", "관계")
+
+
+# --- 데이터 소스 ----------------------------------------------------------------
+
+
+def datasource_sync(work: Work) -> dict[str, Any]:
+    """바깥 표를 읽어 그 타입의 객체로 — `datasources/services.sync` 가 스스로 커밋하고 기록을
+    남긴다. 타이머가 넣은 작업은 시킨 사람이 없다(actor 「타이머」)."""
+    from app.modules.datasources import services as datasource_services
+    from app.modules.datasources.models import DataSource
+
+    slug = str(work.params.get("slug") or "")
+    source = work.db.scalar(select(DataSource).where(DataSource.slug == slug))
+    if source is None:
+        raise NotFound(code("DATASOURCES", 1), f"데이터 소스를 찾을 수 없습니다: {slug}")
+    work.progress("읽기", 0, 0)
+    result = datasource_services.sync(
+        work.db, work.user, source, apply=bool(work.params.get("apply"))
+    )
+    if result.run.applied and _changed(result.run.counts or {}):
+        _after_ingest(work.db, source.type_id, f"datasource:{slug}")
+    return datasource_services.sync_out(result).model_dump(mode="json")
+
+
+def datasource_sync_round(work: Work) -> dict[str, Any]:
+    """타이머의 한 차례 — 차례가 된 소스들을 **가리키는 쪽부터 한 줄로** 돌린다.
+
+    예전에는 소스마다 작업을 따로 넣었다 — 워커가 둘이면 둘씩, 하나여도 넣은 순서(아무
+    순서)대로 돌아, 「고장 모드」 가 「메커니즘」 보다 먼저 돌면 그 선이 끝점을 못 찾았다.
+    순서는 `datasources/services.sync_order` 가 정의에서 읽는다. **한 소스가 실패해도 다음
+    소스로 간다** — 실패는 그 소스의 실행 기록 · 알림에 남는다(`services.sync` 가 무엇이 나도
+    기록을 닫는다).
+
+    **소스마다 커밋 경계를 맞춘다.** 지표 다시 세기 작업(`_after_ingest`)은 그 소스가 끝난
+    자리에서 커밋한다 — 예전에는 flush 만 해서, 다음 소스의 예외 · 취소가 부른 롤백이 앞
+    소스의 그 작업까지 버렸다(2026-10-08). 소스는 **돌기 직전에 다시 읽는다** — 세션이 커밋에
+    값을 버리지 않아(`expire_on_commit=False`), 차례가 도는 사이 관리자가 받은 자리를 비우거나
+    소스를 꺼도 처음 읽은 값으로 덮거나 그대로 돌았다.
+    """
+    from app.modules.datasources import services as datasource_services
+    from app.modules.datasources.models import DataSource
+    from app.modules.tasks.services import Cancelled, Lost
+    from app.shared.errors import AppError
+
+    slugs = [str(one) for one in work.params.get("slugs") or []]
+    apply = bool(work.params.get("apply"))
+    found = list(work.db.scalars(select(DataSource).where(DataSource.slug.in_(slugs))))
+    ordered = datasource_services.sync_order(work.db, found)
+    done: list[dict[str, Any]] = []
+    try:
+        for index, planned in enumerate(ordered):
+            work.progress(planned.slug, index, len(ordered))
+            source = work.db.get(DataSource, planned.id, populate_existing=True)
+            if source is None:  # 차례가 도는 사이 지워졌다
+                done.append(
+                    {"slug": planned.slug, "status": "skipped", "error": "지워졌습니다"}
+                )
+                continue
+            if not source.is_active:
+                done.append({"slug": source.slug, "status": "skipped"})
+                continue
+            try:
+                result = datasource_services.sync(work.db, work.user, source, apply=apply)
+            except Cancelled:
+                raise
+            except AppError as caught:
+                work.db.rollback()
+                # 다른 작업이 이 소스를 지금 넣고 있다 — 이 소스에는 아무 일도 안 했다.
+                busy = caught.code == datasource_services.BUSY
+                done.append(
+                    {
+                        "slug": source.slug,
+                        "status": "skipped" if busy else "failed",
+                        "error": caught.message[:500],
+                    }
+                )
+                continue
+            except Exception as caught:  # 한 소스의 실패가 차례 전체를 멈추지 않는다
+                work.db.rollback()
+                done.append(
+                    {"slug": source.slug, "status": "failed", "error": str(caught)[:500]}
+                )
+                continue
+            if result.run.applied and _changed(result.run.counts or {}):
+                _after_ingest(work.db, source.type_id, f"datasource:{source.slug}")
+            work.db.commit()
+            done.append(
+                {"slug": source.slug, "status": result.run.status, "counts": result.run.counts}
+            )
+    except Lost:
+        # **빼앗긴 차례**(박동이 멎어 되살려져 남이 다시 집었다) — 이 워커의 결과(`done`)는
+        # 작업 행에 안 적힌다. 앞에서 이미 커밋한 소스는 그 소스의 실행 기록 · 감사에 남고,
+        # 이어받은 워커가 차례를 처음부터 다시 돈다(바뀐 것이 없으면 「그대로」 로 끝난다). 이
+        # 차례가 무엇을 이미 넣었는지는 작업 행에 적을 수 없으니 로그에 남긴다.
+        ran = [one["slug"] for one in done if one["status"] != "skipped"]
+        if ran:
+            log.warning(
+                "작업 %s 을 빼앗겼습니다 — 이 차례에서 이미 돈 소스(커밋됨): %s",
+                work.job.id,
+                ", ".join(ran),
+            )
+        raise
+    work.progress("끝", len(ordered), len(ordered))
+    return {
+        "order": [one.slug for one in ordered],
+        "sources": done,
+        "failed": sum(1 for one in done if one["status"] == "failed"),
+        "missing": sorted(set(slugs) - {one.slug for one in found}),
+    }
+
+
+def filestore_gc(work: Work) -> dict[str, Any]:
+    """첨부 저장소의 **고아 파일 정리**(`files/gc.py`) — 계획은 세기만, 적용이 지운다.
+
+    시스템 관리자만(또는 시킨 사람 없는 워커). 적용은 계획을 믿지 않고 **다시 훑는다** — 그
+    사이 올라오거나 지워진 것이 있다.
+    """
+    from app.modules.files import gc
+
+    if work.user is not None and not work.user.is_system_admin:
+        raise Forbidden(code("JOBS", 23), "첨부 저장소 정리는 시스템 관리자만 합니다.")
+    found = gc.scan(work.db, progress=work.progress)
+    size = _megabytes(found.orphan_bytes + found.temp_bytes)
+    if not work.params.get("apply"):
+        return {
+            "applied": False,
+            "ok": bool(found.orphans or found.temp),
+            "orphans": len(found.orphans),
+            "orphan_bytes": found.orphan_bytes,
+            "temp": len(found.temp),
+            "recent": found.recent,
+            "scanned": found.scanned,
+            "sample": [relative for relative, _ in found.orphans[: gc.SAMPLE]],
+            "summary": (
+                f"지울 것 — 고아 파일 {len(found.orphans):,}개 · 임시 파일 "
+                f"{len(found.temp):,}개({size}) · 훑은 파일 {found.scanned:,}개 · 하루가 안 "
+                f"지나 남길 것 {found.recent:,}개"
+            ),
+        }
+    work.progress("지우기", 0, 0)
+    done = gc.clean(work.db, found)
+    return {
+        "applied": True,
+        "removed": done.files,
+        "removed_bytes": done.bytes,
+        "temp": done.temp,
+        "kept": done.kept,
+        "summary": (
+            f"지움 — 고아 파일 {done.files:,}개({_megabytes(done.bytes)}) · 임시 파일 "
+            f"{done.temp:,}개"
+            + (f" · 다시 보니 쓰여 남김 {done.kept:,}개" if done.kept else "")
+        ),
+    }
+
+
+def _megabytes(size: int) -> str:
+    return f"{size / 1024 / 1024:,.1f}MB"
+
+
+def _changed(counts: dict[str, Any]) -> bool:
+    """적재가 **무엇이라도 바꿨나** — 만듦 · 고침 · 사용 중지 · 선. 몇 분마다 도는 동기화가
+    바뀐 것 없이 끝날 때마다 지표를 다시 세면, 200만 건 지표 하나가 45초(실측, ADR 0013)라
+    DB 가 쉬지 못한다. 그대로인 줄 · 오류 줄은 세지 않는다."""
+    return any(
+        isinstance(value, int)
+        and value > 0
+        and not key.endswith(("unchanged", "error"))
+        and key not in _NOT_CHANGES
+        for key, value in counts.items()
+    )
+
+
+#: 바뀐 수가 아니라 **표시**인 수 — RA 보고서 소스가 「전량으로 읽었나」 · 「글자 태그로 남긴
+#: 축 태그 수」 · 「멈춘 내려감」 을 적는다(ADR 0018). 이것으로 지표를 다시 세지 않는다.
+_NOT_CHANGES = frozenset({"full_read", "tags_as_text", "gone_held_back"})
+
+
+def _after_ingest(db: Session, type_id: uuid.UUID, reason: str) -> None:
+    """적재가 끝난 타입을 원천으로 쓰는 지표를 다시 세는 작업을 넣는다 — **이벤트가 아니라 작업
+    본문에서**(ADR 0013). 워커 프로세스에는 이벤트 리스너가 없고(앱과 같은 조립을 하되 리스너는
+    비운다 — `worker._assemble`), 적재는 전부 워커에서 커밋된다. 같은 지표의 작업이 줄에 있으면
+    안 넣는다. 커밋은 이 작업과 함께."""
+    from app.modules.metrics import services as metrics_services
+
+    metrics_services.enqueue_for_type(db, type_id, reason=reason)
+
+
+# --- 지표 ------------------------------------------------------------------------
+
+
+def metrics_recompute(work: Work) -> dict[str, Any]:
+    """지표들을 다시 센다 — `metrics/services.run_recompute` 가 **지표마다 커밋**한다. 타이머 ·
+    적재 뒤 훅이 넣은 작업은 시킨 사람이 없다. 사람이 「다시 세기」 로 넣은 것(`manual`)이나
+    `full` 을 준 것은 전부, 나머지는 되면 바뀐 기간만."""
+    from app.modules.metrics import services as metrics_services
+
+    slugs = [str(one) for one in (work.params.get("slugs") or [])]
+    full = (
+        bool(work.params.get("full"))
+        or work.params.get("reason") in metrics_services.FULL_REASONS
+    )
+    return metrics_services.run_recompute(
+        work.db, slugs, job_id=work.job.id, progress=work.progress, full=full
+    )
+
+
+# --- 웹훅 ------------------------------------------------------------------------
+
+
+def webhook_dispatch(work: Work) -> dict[str, Any]:
+    """밀린 웹훅을 보낸다 — `webhooks/services.deliver_pending` 이 제 연결로 한 건씩 커밋한다.
+
+    남은 수(다시 보낼 것)를 결과에 적는다. 워커가 `RETRY_AFTER_SECONDS` 뒤에 남은 것을 보고
+    작업을 다시 넣는다 — 전에는 프로세스 안의 타이머였고, 그래서 재시작하면 사라졌다.
+    """
+    from app.modules.webhooks import services as webhook_services
+
+    work.progress("보내기", 0, 0)
+    left = webhook_services.dispatcher.deliver_pending()
+    return {"left": left}
+
+
+def ontology_retype(work: Work) -> dict[str, Any]:
+    """속성 종류 변경 — 값이 있는 객체가 많은 타입(기록 200만 건, ADR 0009). 계획 → 사람 확정
+    → 적용. 화면과 **같은 함수**(`ontology.routes.run_retype_job`)를 부른다."""
+    user = _user(work)
+    if not user.is_system_admin:
+        raise Forbidden(code("JOBS", 21), "종류 변경은 시스템 관리자만 합니다.")
+    # 온톨로지 라우터가 이 모듈을 거쳐 작업을 넣는다 — 서로 부르므로 여기서 늦게 읽는다.
+    from app.modules.ontology import routes as ontology_routes
+
+    return ontology_routes.run_retype_job(work.db, user, work.params, work.progress)
+
+
+def objects_rewrite(work: Work) -> dict[str, Any]:
+    """병합 · 참조 비우고 지우기 — 가리키는 기록이 많은 객체(인기 모델은 10만 건). 요청 경로와
+    같은 검사 · 같은 함수(`objects.routes.run_rewrite_job`)."""
+    # 객체 라우터가 이 모듈을 거쳐 작업을 넣는다 — 서로 부르므로 여기서 늦게 읽는다.
+    from app.modules.objects import routes as objects_routes
+
+    return objects_routes.run_rewrite_job(work.db, _user(work), work.params, work.progress)
+
+
+def objects_photos(work: Work) -> dict[str, Any]:
+    """사진 일괄 업로드 — zip 의 사진을 파일 이름으로 객체를 찾아 파일 속성에 붙인다
+    (`objects/photos.py`). 계획 → 사람 확정 → 적용. 권한은 객체마다 본다(못 고치는 객체는
+    계획에 「권한 없음」)."""
+    from app.modules.objects import photos
+
+    # **파일로 연다** — zip 은 2GB 까지라(`job_photos_max_bytes`) 통째로 메모리에 올리지
+    # 않는다. 저장소(`_jobs/`)의 큰 것은 그 파일을, DB 의 작은 것은 그 바이트를 같은 모양으로.
+    with work.open_input() as source:
+        return photos.run(work.db, _user(work), work.params, source, progress=work.progress)
+
+
+# --- 부서 통폐합 -----------------------------------------------------------------
+
+
+def workspace_reassign(work: Work) -> dict[str, Any]:
+    """부서 자료 이동(통폐합의 앞 단계) — 계획은 무엇이 몇 건 옮겨지나 · 무엇이 막히나만 세고,
+    적용이 **이 작업의 트랜잭션 하나에서** 옮긴다(`workspaces/services.reassign`).
+
+    **커밋하지 않는다** — 워커가 끝에서 한 번 하고, 그 커밋이 「아직 내 작업인가」 를 같은
+    조건으로 본다(`services.run` 의 `_owned`). 나눠 커밋하면 실패 · 취소한 통폐합이 반쯤 옮긴
+    부서를 남긴다 — 절반만 옮겨진 부서는 어디까지 됐는지 화면으로 알 수 없다. 대신 객체는
+    덩어리마다 진행률을 적고(`work.progress`) 거기서 취소 · 빼앗김이 난다 — 커밋 전이라
+    롤백이고 아무것도 안 옮겨진다.
+
+    **시스템 관리자만**(`admin_only` — 워커가 돌리기 전에 다시 본다). 일반 작업 API 로는 못
+    넣는다(`public` 아님) — 전용 경로(`POST /api/workspaces/{slug}/reassign`)가 부서 · 종류를
+    넣는 순간에 본다.
+
+    ⚠️ 옮길 종류는 `register_workspace_content` 로 등록된 것이다 — **워커도 앱과 같은 조립을
+       거친다**(`app/worker.py` 의 `_assemble`). 안 거치면 워커에는 등록이 하나도 없어 「멤버」
+       말고는 다 「옮길 수 없는 종류」 가 된다(시험은 앱을 띄운 프로세스에서 워커를 돌려 이것을
+       못 본다).
+    """
+    from app.modules.workspaces import services as workspace_services
+
+    slug = str(work.params.get("slug") or "")
+    target = str(work.params.get("target_slug") or "")
+    picked = [str(one) for one in work.params.get("kinds") or []]
+    if not work.params.get("apply"):
+        work.progress("계획", 0, 0)
+        return workspace_services.plan_reassign(
+            work.db, slug=slug, target_slug=target, kinds=picked
+        )
+    return workspace_services.reassign(
+        work.db,
+        slug=slug,
+        target_slug=target,
+        kinds=picked,
+        actor=_user(work),
+        progress=work.progress,
+        fingerprint=work.params.get("fingerprint"),
+    )
+
+
+# `public` — 일반 작업 API 로 넣는 것은 일괄 입력 둘(MCP · 정제 도구가 파일을 올린다)과 고아
+# 파일 정리(서버 화면 · MCP)뿐이다. 나머지는 전용 경로로만. 사진 일괄 업로드도 전용 경로
+# (`POST /api/objects/{type}/photos/import`)로만 — 그 경로가 타입 · 칸을 넣는 순간에 본다. 부서
+# 자료 이동도 전용 경로(`POST /api/workspaces/{slug}/reassign`, 시스템 관리자)로만.
+register(
+    Kind("objects_import", "객체 일괄 입력", True, True, objects_import, True, public=True)
+)
+register(
+    Kind(
+        "objects_photos",
+        "사진 일괄 업로드",
+        True,
+        True,
+        objects_photos,
+        max_file_setting="job_photos_max_bytes",
+    )
+)
+register(Kind("objects_rewrite", "병합 · 참조 비우고 지우기", False, False, objects_rewrite))
+register(
+    Kind("ontology_retype", "속성 종류 변경", False, True, ontology_retype, admin_only=True)
+)
+register(Kind("relations_import", "관계 일괄 입력", True, True, relations_import, public=True))
+register(Kind("bundle_import", "묶음 가져오기", True, True, bundle_import))
+register(Kind("bundle_undo", "묶음 되돌리기", False, True, bundle_undo))
+register(Kind("bundle_export", "묶음 내보내기", False, False, bundle_export, admin_only=True))
+register(Kind("objects_export", "객체 내보내기", False, False, objects_export))
+register(Kind("ontology_export", "온톨로지 통째로 내보내기", False, False, ontology_export))
+register(Kind("relations_export", "관계 내보내기", False, False, relations_export))
+register(
+    Kind(
+        "webhook_dispatch",
+        "웹훅 보내기",
+        False,
+        False,
+        webhook_dispatch,
+        allow_system=True,
+    )
+)
+register(
+    Kind(
+        "metrics_recompute",
+        "지표 다시 계산",
+        False,
+        False,
+        metrics_recompute,
+        allow_system=True,
+        admin_only=True,
+    )
+)
+register(
+    Kind(
+        "datasource_sync",
+        "데이터 소스 동기화",
+        False,
+        False,
+        datasource_sync,
+        allow_system=True,
+        admin_only=True,
+    )
+)
+register(
+    Kind(
+        "filestore_gc",
+        "고아 첨부 파일 정리",
+        False,
+        True,
+        filestore_gc,
+        allow_system=True,
+        admin_only=True,
+        public=True,
+    )
+)
+register(
+    Kind(
+        "workspace_reassign",
+        "부서 자료 이동",
+        False,
+        True,
+        workspace_reassign,
+        admin_only=True,
+    )
+)
+register(
+    Kind(
+        "datasource_sync_round",
+        "데이터 소스 동기화(차례대로)",
+        False,
+        False,
+        datasource_sync_round,
+        allow_system=True,
+        admin_only=True,
+    )
+)
+
+
+def review_apply(work: Work) -> dict[str, Any]:
+    """검토함의 큰 묶음(ADR 0027) — 요청 경로와 **같은 함수**(`review.services.apply`)를 같은
+    지문으로. 항목마다 원래 기능으로 처리하고 그 커밋마다 워커의 검사가 돈다(`work.db`). 멈추면
+    그때까지 한 것은 남고 결정 기록에 있다 — 묶음 복원으로 되돌린다."""
+    # 검토함이 이 모듈을 거쳐 작업을 넣는다 — 서로 부르므로 여기서 늦게 읽는다.
+    from app.modules.review import services as review_services
+
+    return review_services.run_job(work.db, _user(work), work.params, work.progress)
+
+
+# 검토함 — 계획(미리 보기)은 요청 안에서 사람이 이미 봤다. 적용만 작업이라 두 단계가 아니다.
+register(Kind("review_apply", "검토함 일괄 확인", False, False, review_apply))

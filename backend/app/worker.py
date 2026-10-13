@@ -21,12 +21,107 @@ from app import handlers, version
 from app.config import get_settings
 from app.database import SessionLocal
 from app.logging_setup import setup_logging
+from app.modules.audit import retention
 from app.modules.jobs import services
+from app.modules.tasks import services as tasks
+from app.modules.webhooks import services as webhooks
 
 logger = logging.getLogger("app.worker")
 
 POLL_SECONDS = 1.0
 STALE_CHECK_EVERY = 60
+
+
+class PlatformChores:
+    """StandardPlatform 에서 들인 **데이터 작업(tasks)의 살림** — SP `worker.py` 의
+    `_tick_housekeeping` 그대로(ADR 0008). 형상 작업(jobs)과 큐는 다르고 워커는 하나다: 루프가
+    형상 작업을 먼저 집고, 없으면 데이터 작업 하나를 돌린다(`tasks.process_one`).
+
+    빼 둔 것: 요청 시간 기록 지우기(그 화면 · 기록을 아직 안 들였다), 알림 연결로 바로 깨기
+    (CompCore 워커는 1초마다 묻는다)."""
+
+    HEARTBEAT_EVERY = 30.0
+    RECOVER_EVERY = 60.0
+    PURGE_EVERY = 3600.0
+    GC_FIRST_AFTER = 3600.0
+
+    def __init__(self, worker_id: str) -> None:
+        self.worker_id = worker_id
+        now = time.monotonic()
+        self._last_beat = 0.0
+        self._last_recover = 0.0
+        self._last_purge = 0.0
+        self._last_webhook = 0.0
+        hours = get_settings().filestore_gc_hours
+        self._gc_every = hours * 3600.0 if hours > 0 else 0.0
+        self._last_gc = now - max(self._gc_every - self.GC_FIRST_AFTER, 0.0)
+        self._gc_thread: threading.Thread | None = None
+
+    def tick(self) -> None:
+        now = time.monotonic()
+        if now - self._last_beat >= self.HEARTBEAT_EVERY:
+            tasks.heartbeat(self.worker_id, None)
+            self._last_beat = now
+        if now - self._last_recover >= self.RECOVER_EVERY:
+            with SessionLocal() as db:
+                revived = tasks.recover_stale(db)
+            if revived:
+                logger.warning("멎은 데이터 작업 %d개를 되살렸습니다", revived)
+            self._last_recover = now
+        if now - self._last_webhook >= webhooks.RETRY_AFTER_SECONDS:
+            # **밀린 웹훅은 여기서 다시 살아난다**(프로세스 안 타이머는 재시작에 사라진다).
+            with SessionLocal() as db:
+                if webhooks.pending_count(db):
+                    webhooks.enqueue_dispatch(db)
+            self._last_webhook = now
+        if now - self._last_purge >= self.PURGE_EVERY:
+            with SessionLocal() as db:
+                gone = tasks.purge_expired_files(db)
+                old_tasks = tasks.purge_old_jobs(db)
+                old_graves = tasks.purge_old_tombstones(db)
+                old_undo = tasks.purge_old_undo_journals(db)
+                # 접근 로그는 보관 기간이 지난 것만. 감사 기록은 안 지운다.
+                old_access = retention.purge_old_access_logs(db)
+            if gone or old_tasks or old_graves or old_undo or old_access:
+                logger.info(
+                    "정리: 작업 파일 %d개 · 끝난 데이터 작업 %d개 · 끊긴 선의 무덤 %d개 · "
+                    "되돌릴 기록 %d줄 · 접근 로그 %d줄",
+                    gone,
+                    old_tasks,
+                    old_graves,
+                    old_undo,
+                    old_access,
+                )
+            self._last_purge = now
+        if self._gc_every and now - self._last_gc >= self._gc_every:
+            # **따로 돈다** — 큰 저장소를 훑는 동안 바퀴(박동 · 작업)가 멎지 않게.
+            self._last_gc = now
+            if self._gc_thread is None or not self._gc_thread.is_alive():
+                self._gc_thread = threading.Thread(
+                    target=_clean_orphans, name="filestore-gc", daemon=True
+                )
+                self._gc_thread.start()
+
+    def run_one(self) -> bool:
+        """데이터 작업 하나 — 돌렸으면 True(박동은 `process_one` 이 끝에서 남긴다)."""
+        worked = tasks.process_one(self.worker_id)
+        if worked:
+            self._last_beat = time.monotonic()
+        return worked
+
+
+def _clean_orphans() -> None:
+    """고아 첨부 정리 한 차례 — 바퀴와 **다른 스레드**에서(제 세션으로)."""
+    from app.modules.files import gc
+
+    try:
+        with SessionLocal() as db:
+            done = gc.clean(db, gc.scan(db))
+    except Exception:
+        logger.exception("고아 첨부 정리 실패 — 다음 차례에 다시")
+        return
+    if done.files or done.temp:
+        logger.info("고아 첨부 정리: 파일 %d개 · 임시 파일 %d개", done.files, done.temp)
 
 
 class Worker:
@@ -67,6 +162,13 @@ class Worker:
 
     def run(self) -> None:
         handlers.register_all()
+        # **앱과 같은 조립** — 들인 모듈의 레지스트리(확장 지점 · 시스템 출처 · 이벤트)를
+        # 워커도 채운다. 비어 있으면 처리 함수가 등록을 부르는 자리에서 조용히 다른 길로
+        # 간다(SP 실측, 2026-10-10).
+        from app.main import register_platform
+
+        register_platform()
+        chores = PlatformChores(self.worker_id)
         signal.signal(signal.SIGTERM, self.stop)
         signal.signal(signal.SIGINT, self.stop)
         logger.info("워커 시작 (%s)", self.worker_id)
@@ -84,9 +186,12 @@ class Worker:
                     services.prune_workers(db)
                     last_stale = time.monotonic()
 
+                chores.tick()
                 job = services.claim_next(db, self.worker_id)
                 if job is None:
-                    time.sleep(POLL_SECONDS)
+                    # 형상 작업이 없으면 데이터 작업(가져오기 · 동기화 · 내보내기 …) 하나.
+                    if not chores.run_one():
+                        time.sleep(POLL_SECONDS)
                     continue
                 logger.info("작업 시작 %s (%s)", job.id, job.kind)
                 self.current_job_id = job.id

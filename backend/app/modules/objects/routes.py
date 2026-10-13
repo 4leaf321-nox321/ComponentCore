@@ -1,0 +1,3365 @@
+"""객체 라우터 — **보이는 것과 고칠 수 있는 것은 다른 축이다.**
+
+보기는 `visible_owner_clause`(전역 + 내 부서), 고치기는 `require_owner_edit`
+(소유 부서의 관리자 또는 시스템 관리자).
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime
+from typing import Any
+
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    Query,
+    Request,
+    UploadFile,
+)
+from fastapi.responses import Response
+from sqlalchemy import false, or_, select, true
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.modules.accounts.models import User
+from app.modules.files import services as files_services
+from app.modules.files.models import Attachment
+from app.modules.metrics.models import MetricDef
+from app.modules.objects import (
+    aliases,
+    bulk,
+    bulkedit,
+    conditions,
+    fill,
+    graph,
+    history,
+    home,
+    humanedits,
+    lifecycle,
+    links,
+    misses,
+    paths,
+    photos,
+    quality,
+    refedges,
+    resolve,
+    rollup,
+    similar,
+    system,
+    watches,
+)
+from app.modules.objects import attachments as object_attachments
+from app.modules.objects import keys as key_history
+from app.modules.objects import relations as rel
+from app.modules.objects import scope as scopes
+from app.modules.objects import summary as summary_service
+from app.modules.objects.models import (
+    OBJECT_STATUSES,
+    ObjectAlias,
+    ObjectInstance,
+    ObjectLink,
+    ObjectRelation,
+    ObjectWatch,
+    ObjectYear,
+    SavedView,
+)
+from app.modules.objects.schemas import (
+    AliasAttachObjectOut,
+    AliasAttachPlanOut,
+    AliasAttachRequest,
+    AliasCandidateDecision,
+    AliasCandidateDecisionOut,
+    AliasCandidateOut,
+    AliasCandidatePage,
+    AliasesRequest,
+    AliasReviewOut,
+    AliasReviewPage,
+    AliasReviewRequest,
+    AliasReviewResult,
+    AliasSuggestionOut,
+    AttachmentBrief,
+    BucketOut,
+    BulkDeletePlanOut,
+    BulkDeleteRequest,
+    BulkEditPlanOut,
+    BulkEditRequest,
+    BulkEditRow,
+    BulkUndoRequest,
+    DiagnosisOut,
+    FieldOptionOut,
+    FileCellOut,
+    FillReportOut,
+    GroupOptionOut,
+    HistoryBatchOut,
+    HistoryEntryOut,
+    HomeMetricOut,
+    HomeWidgetOut,
+    ImportPlanOut,
+    ImportRowOut,
+    ImportRowsRequest,
+    LogCountOut,
+    MergeRequest,
+    MergeResultOut,
+    ObjectCreateRequest,
+    ObjectOut,
+    ObjectPageOut,
+    ObjectPatchRequest,
+    ObjectProfileOut,
+    PartOut,
+    PointOut,
+    PointsOut,
+    QualityFindingOut,
+    QualityHitOut,
+    QualityReportOut,
+    RangeOut,
+    ReferencesOut,
+    RefHitOut,
+    RelatedObjectOut,
+    RelationCreateRequest,
+    RelationHitOut,
+    RelationPatchRequest,
+    ResolveManyIn,
+    ResolveManyOut,
+    ResolveOneOut,
+    ResolveOut,
+    RestoreRequest,
+    RollupOut,
+    SavedViewOut,
+    SavedViewPatchRequest,
+    SavedViewQuery,
+    SavedViewSummary,
+    SavedViewWriteRequest,
+    SimilarAskRequest,
+    SimilarItemOut,
+    SimilarOut,
+    SimilarTagOut,
+    SnapshotOut,
+    SummaryOut,
+    TreeNodeOut,
+    TreeOut,
+    WatchedOut,
+    WatchOut,
+    WatchRequest,
+)
+from app.modules.objects.scope import Scope
+from app.modules.objects.services import (
+    apply_property_filters,
+    apply_search,
+    apply_year,
+    audit_state,
+    count_of,
+    normalize_key,
+    page_rows,
+    properties_of,
+    require_key_free,
+    require_refs_exist,
+    require_unique_properties,
+)
+from app.modules.ontology import managed
+from app.modules.ontology.models import ObjectInterface, ObjectType, PropertyDef, RelationType
+from app.modules.ontology.schemas import PropertyDefOut
+from app.modules.ontology.services import (
+    merge_properties,
+    require_choice,
+    validate_properties,
+)
+from app.modules.tasks import routes as jobs_routes
+from app.modules.tasks import services as job_services
+from app.modules.tasks.schemas import JobOut
+from app.modules.workspaces.models import Workspace
+from app.shared import audit, sheets
+from app.shared.auth import current_user
+from app.shared.errors import AppError, Conflict, Forbidden, NotFound, code
+from app.shared.pagination import clamp_limit
+from app.shared.permissions import (
+    my_workspace_ids,
+    require_owner_edit,
+    resolve_owner_workspace,
+    visible_owner_clause,
+    workspace_by_slug,
+)
+
+router = APIRouter(prefix="/objects", tags=["objects"])
+
+
+# --- 공통 -------------------------------------------------------------------
+
+
+def _type(db: Session, slug: str) -> ObjectType:
+    row = db.scalar(select(ObjectType).where(ObjectType.slug == slug))
+    if row is None:
+        iface = db.scalar(select(ObjectInterface).where(ObjectInterface.slug == slug))
+        if iface is not None:
+            # **인터페이스 목록은 읽기만 한다**(ADR 0006) — 만들기 · 고치기 · 가져오기 · 트리 ·
+            # 저장된 뷰는 타입의 일이다. 어느 타입에 넣을지 모르는 채로 받으면 짐작이 된다.
+            raise Conflict(
+                code("OBJECTS", 92),
+                f"{iface.label}은(는) 인터페이스라 여기서는 읽기만 합니다 — 만들기 · 수정 · "
+                "가져오기 · 트리 · 저장된 뷰는 구현 타입의 목록에서 하세요.",
+                details={"interface": slug},
+            )
+        raise NotFound(code("OBJECTS", 10), f"타입을 찾을 수 없습니다: {slug}")
+    return row
+
+
+def _scope(db: Session, slug: str) -> Scope:
+    """읽기의 범위 — 타입이면 그 타입, 인터페이스면 구현 타입 전부(ADR 0006)."""
+    found = scopes.find(db, slug)
+    if found is None:
+        raise NotFound(code("OBJECTS", 10), f"타입을 찾을 수 없습니다: {slug}")
+    return found
+
+
+def _projection(scope: Scope) -> ObjectType | None:
+    """원 표를 비추는 타입이면 그 타입 — 행이 없어 목록 · 통계를 원 표에 묻는다."""
+    if scope.object_type is not None and system.is_system(scope.object_type):
+        return scope.object_type
+    return None
+
+
+#: 상세의 「관련 객체」 에 참조 칸으로 실을 상한 — 프로젝트 하나를 5천 개 과제가 가리키면 그
+#: 목록은 읽을 수 없다. 넘치면 목록 화면에서 조건으로 본다.
+REF_RELATED_LIMIT = 200
+
+
+def _not_system(object_type: ObjectType, what: str) -> None:
+    """system 축은 **원 표를 투영**한다. 여기에 행을 만들면 두 벌이 되고, 두 벌은
+    반드시 갈린다. 원 표의 화면(부서 관리·계정 관리)에서 한다."""
+    if system.is_system(object_type):
+        raise Forbidden(
+            code("OBJECTS", 14),
+            f"{object_type.label}은 다른 표를 비추는 타입이라 여기서 {what} 않습니다.",
+        )
+
+
+def _workspace_slugs(db: Session) -> dict[uuid.UUID, Workspace]:
+    """부서 id → 부서. **이름도 실어야 한다** — slug(hq)는 주소지 부서 이름이 아니고,
+    사람은 자기 부서를 「본사」 로 안다."""
+    return {row.id: row for row in db.scalars(select(Workspace))}
+
+
+def _ref_labels(
+    db: Session, user: User, defs: list[PropertyDef], rows: list[ObjectInstance]
+) -> dict[uuid.UUID, str]:
+    """이 목록이 가리키는 객체들의 이름을 **한 번에** 읽는다.
+
+    행마다 물으면 목록 한 쪽에 질의가 수십 개 붙는다. 어느 키가 참조인지는
+    속성 정의가 알므로, 아무 문자열이나 uuid 로 넘겨짚지 않는다. 상대가 system
+    타입이면 원 표에서 읽는다 — `system.ref_labels` 가 가른다. 보는 사람이 못 보는
+    객체는 이름을 가린다(`system.HIDDEN_LABEL`).
+    """
+    return system.ref_labels(db, defs, [row.properties or {} for row in rows], viewer=user)
+
+
+def _out(
+    row: ObjectInstance,
+    type_slug: str,
+    workspaces: dict[uuid.UUID, Workspace],
+    ref_labels: dict[uuid.UUID, str] | None = None,
+    alias_rows: list[ObjectAlias] | None = None,
+) -> ObjectOut:
+    names = [one.value for one in (alias_rows or []) if one.kind == aliases.HUMAN]
+    external = {
+        one.kind.split(":", 1)[1]: one.value
+        for one in (alias_rows or [])
+        if one.kind.startswith("source:")
+    }
+    owner_workspace = (
+        workspaces.get(row.owner_workspace_id) if row.owner_workspace_id else None
+    )
+    return ObjectOut(
+        id=row.id,
+        type_slug=type_slug,
+        key=row.key,
+        label=row.label,
+        description=row.description,
+        properties=row.properties or {},
+        ref_labels={str(k): v for k, v in (ref_labels or {}).items()},
+        aliases=names,
+        external_ids=external,
+        status=row.status,
+        owner_workspace_slug=(owner_workspace.slug if owner_workspace else None),
+        owner_workspace_name=(owner_workspace.name if owner_workspace else None),
+        valid_from_year=row.valid_from_year,
+        valid_to_year=row.valid_to_year,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _visible(
+    db: Session, user: User, object_type: ObjectType, object_id: uuid.UUID
+) -> ObjectInstance:
+    row = db.scalar(
+        select(ObjectInstance).where(
+            ObjectInstance.id == object_id,
+            ObjectInstance.type_id == object_type.id,
+            ObjectInstance.deleted_at.is_(None),
+            visible_owner_clause(user, ObjectInstance.owner_workspace_id),
+        )
+    )
+    if row is None:
+        # **없는 것과 안 보이는 것을 같은 말로 답한다.** 구별해 주면 남의 부서에
+        # 무엇이 있는지 id 를 바꿔 가며 알아낼 수 있다.
+        raise NotFound(code("OBJECTS", 11), "객체를 찾을 수 없습니다.")
+    return row
+
+
+def _can_edit(db: Session, user: User, row: ObjectInstance) -> bool:
+    try:
+        require_owner_edit(
+            db, user, row.owner_workspace_id, what="객체", code_value=code("OBJECTS", 12)
+        )
+    except Exception:
+        return False
+    return True
+
+
+def _tree_spec(object_type: ObjectType) -> tuple[str | None, graph.ParentEnd]:
+    """`list_view.tree` 가 정한 트리 관계와 부모 쪽 끝.
+
+    안 정했으면 트리를 안 그린다 — **`transitive` 인 관계가 둘 이상일 수 있어서**
+    아무거나 골라 그리면 그 트리는 무엇을 보여 주는지 말할 수 없다.
+    """
+    spec = (object_type.list_view or {}).get("tree") or {}
+    relation = spec.get("relation")
+    parent_end: graph.ParentEnd = "src" if spec.get("parent") == "src" else "dst"
+    return (relation if isinstance(relation, str) and relation else None, parent_end)
+
+
+# --- 품질 -------------------------------------------------------------------
+#
+# `/{type_slug}` 보다 **앞에** 선다 — 뒤에 두면 `quality` 를 타입 slug 로 읽고 404 를 낸다.
+
+
+@router.get("/quality/report", response_model=QualityReportOut)
+def quality_report(
+    kind: str | None = Query(default=None, description="한 종류만"),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> QualityReportOut:
+    """필수값 빈 것 · 고아 · 깨진 참조 · 이름 같은 것. **볼 수 있는 것만 센다.**"""
+    kinds = (kind,) if kind in quality.KINDS else quality.KINDS
+    skipped: list[str] = []
+    return QualityReportOut(
+        findings=[
+            QualityFindingOut(
+                kind=one.kind,
+                kind_label=quality.LABELS[one.kind],
+                type_slug=one.type_slug,
+                type_label=one.type_label,
+                count=one.count,
+                hits=[QualityHitOut(**vars(hit)) for hit in one.hits],
+            )
+            for one in quality.report(db, user, kinds=kinds, skipped=skipped)
+        ],
+        sample_limit=quality.SAMPLE,
+        skipped=skipped,
+    )
+
+
+# --- 채울 곳 · 별칭 후보 ----------------------------------------------------------
+#
+# 이것도 `/{type_slug}` 보다 **앞에** 선다 — 이름의 `-` 는 타입 slug(영소문자 · 숫자 ·
+# `_`)에 없어 겹치지 않지만, 두 마디 주소(`/alias-candidates/{id}`)를
+# `/{type_slug}/{object_id}` 가 먼저 집으면 「객체를 찾을 수 없습니다」 가 된다.
+
+
+@router.get("/fill-priorities", response_model=FillReportOut)
+def fill_priorities(
+    type_slug: str | None = Query(
+        default=None, alias="type", description="타입 · 인터페이스 하나만 — 그러면 칸 전부"
+    ),
+    limit: int = Query(default=fill.LIMIT_DEFAULT, ge=1, le=fill.LIMIT_MAX),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> FillReportOut:
+    """**어디부터 채우나** — 타입마다 비어 있는 것(필수 칸 · 칸별 채움률 · 선이 없는 관계 ·
+    지워진 것을 가리키는 칸 · 별칭 없는 객체 · 객체 없는 타입)을 세고, **쓰는 곳**(필수 ·
+    지표 · 코어 공개 · 뷰)으로 가중해 줄을 세운다 — 줄마다 「이것을 채우면 무엇이
+    좋아지나」(`gain`).
+
+    데이터 품질(`/quality/report`)이 「무엇이 나쁜가」 라면 이것은 「어디부터 채우나」 다.
+    **볼 수 있는 것만 센다.** 큰 타입은 표본에서 센 어림이고 `notes` 가 그렇다고 말한다.
+    """
+    if type_slug:
+        # 없는 타입이면 404 — 빈 보고를 「다 찼다」 로 읽지 않게.
+        _scope(db, type_slug)
+    found = fill.report(db, user, only=type_slug, limit=limit)
+    return FillReportOut.model_validate(found, from_attributes=True)
+
+
+#: 별칭 후보 한 쪽의 상한 — 줄마다 「이것 아닐까」 를 찾는 질의가 붙는다.
+CANDIDATE_PAGE_MAX = 50
+
+
+def _candidate_out(found: misses.Candidate) -> AliasCandidateOut:
+    row = found.row
+    return AliasCandidateOut(
+        id=row.id,
+        text=row.text,
+        scope=row.scope,
+        scope_label=found.scope_label,
+        scope_kind=found.scope_kind,
+        hits=row.hits,
+        people=len(row.askers or []),
+        vias=list(row.vias or []),
+        status=row.status,
+        object_id=row.object_id,
+        object_label=found.object_label,
+        object_type_slug=found.object_type_slug,
+        first_at=row.first_at,
+        last_at=row.last_at,
+        decided_at=row.decided_at,
+        suggestions=[AliasSuggestionOut(**vars(one)) for one in found.suggestions],
+        suggest_note=found.suggest_note,
+    )
+
+
+@router.get("/alias-candidates", response_model=AliasCandidatePage)
+def alias_candidates(
+    type_slug: str | None = Query(
+        default=None,
+        alias="type",
+        description="못 찾은 자리(타입 · 인터페이스). 빈 글자면 통합 검색에서 못 찾은 것",
+    ),
+    status: str = Query(default="pending", pattern="^(pending|attached|ignored|all)$"),
+    suggest: bool = Query(default=True, description="줄마다 「이것 아닐까」 를 함께"),
+    limit: int | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> AliasCandidatePage:
+    """**못 찾은 말** — 검색 · 이름 풀이가 아무것도 못 찾은 글자, 많이 · 여럿이 찾은 것부터.
+
+    어떤 객체의 다른 이름이면 `…/attach` 로 그 객체의 별칭으로 붙인다 — 다음부터 찾힌다.
+    아니면 `…/decide` 로 무시. 부서 관리자 이상(붙이는 것은 객체를 고치는 일이다).
+    """
+    misses.require_reviewer(db, user)
+    capped = min(clamp_limit(limit), CANDIDATE_PAGE_MAX)
+    found, total = misses.page(
+        db,
+        user,
+        scope=type_slug,
+        status=status,
+        limit=capped,
+        offset=offset,
+        suggest=suggest,
+    )
+    return AliasCandidatePage(
+        items=[_candidate_out(one) for one in found], total=total, limit=capped, offset=offset
+    )
+
+
+@router.get("/alias-candidates/{candidate_id}", response_model=AliasCandidateOut)
+def alias_candidate(
+    candidate_id: uuid.UUID,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> AliasCandidateOut:
+    """후보 하나 — 「이것 아닐까」 와 함께."""
+    misses.require_reviewer(db, user)
+    found = misses.describe(db, user, misses.get(db, candidate_id), suggest=True)
+    return _candidate_out(found)
+
+
+@router.post("/alias-candidates/{candidate_id}/attach", response_model=AliasAttachPlanOut)
+def attach_alias_candidate(
+    candidate_id: uuid.UUID,
+    payload: AliasAttachRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> AliasAttachPlanOut:
+    """못 찾은 말을 객체의 **별칭으로** — `apply=false`(기본)면 아무것도 안 바꾸고 계획만.
+
+    별칭을 붙이는 길은 객체 화면의 것과 같다(`aliases.set_human` · 감사 기록 · 확인한 것으로).
+    다른 객체가 이미 그 별칭을 쓰면 `blocking` 에 서고 적용하지 않는다. 같은 말을 통합 검색 ·
+    인터페이스에서 못 찾은 줄도 함께 닫는다(`closed`) — 이제 거기서도 찾힌다.
+    """
+    misses.require_reviewer(db, user)
+    miss = misses.get(db, candidate_id)
+    plan = misses.plan_attach(db, user, miss, payload.object_id, payload.value)
+    target, object_type = plan.target, plan.object_type
+    brief = AliasAttachObjectOut(
+        id=target.id,
+        type_slug=object_type.slug,
+        type_label=object_type.label,
+        label=target.label,
+        key=target.key,
+    )
+    closed = 0
+    if payload.apply:
+        closed = misses.attach(db, user, plan)
+        db.commit()
+    return AliasAttachPlanOut(
+        applied=payload.apply,
+        candidate=_candidate_out(misses.describe(db, user, miss, suggest=False)),
+        object=brief,
+        value=plan.value,
+        aliases_before=plan.before,
+        aliases_after=plan.after,
+        warnings=plan.warnings,
+        blocking=plan.blocking,
+        closed=closed,
+    )
+
+
+@router.post("/alias-candidates/decide", response_model=AliasCandidateDecisionOut)
+def decide_alias_candidates(
+    payload: AliasCandidateDecision,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> AliasCandidateDecisionOut:
+    """고른 후보를 **무시**(`ignore` — 별칭으로 붙일 말이 아니다)하거나 대기로 되돌린다
+    (`restore`). 무시한 말은 또 찾아도 다시 안 뜨고, 90일 아무도 안 찾으면 지워진다."""
+    misses.require_reviewer(db, user)
+    done, refused = misses.decide(db, user, payload.ids, payload.action)
+    db.commit()
+    return AliasCandidateDecisionOut(done=done, refused=refused)
+
+
+# --- 트리 -------------------------------------------------------------------
+
+
+@router.get("/{type_slug}/summary", response_model=SummaryOut)
+def summary(
+    type_slug: str,
+    request: Request,
+    group_by: str = Query(
+        default="status", description="기준 — status·workspace·created_year·properties.<칸>"
+    ),
+    split_by: str | None = Query(
+        default=None, description="세부 기준 — 같은 규칙. 주면 계열이 여럿이 된다"
+    ),
+    metric: str = Query(default="count", description="count·sum·avg·min·max"),
+    order: str = Query(
+        default="desc",
+        description="desc(큰 값부터)·asc(작은 값부터)·key(키 순 — 날짜는 시간순)",
+    ),
+    metric_field: str | None = Query(default=None, description="합·평균을 낼 숫자 칸"),
+    grain: str | None = Query(
+        default=None, description="날짜 축의 기간 단위 — day·week·month·quarter·year(기본)"
+    ),
+    q: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    under: uuid.UUID | None = Query(default=None),
+    deep: bool = Query(default=True),
+    year: int | None = Query(default=None, ge=1900, le=2999),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> SummaryOut:
+    """통계 — **목록과 같은 거르기 위에서 센다.**
+
+    거르기는 목록과 똑같이 온다(`?p.<칸>=`, `?f.<칸>.<연산>=`, q·status·year·under).
+    따로 세면 「목록에는 12건인데 묶어 보면 15건」 이 되고, 그때 어느 쪽이 맞는지
+    아무도 모른다.
+
+    투영(system) 타입은 행이 없어 못 센다 — 원 표에 물어야 하는 일이고, 그 표의 축을
+    이 틀은 모른다.
+    """
+    scope = _scope(db, type_slug)
+    if _projection(scope) is not None:
+        raise Conflict(
+            code("OBJECTS", 47),
+            f"{scope.label}은(는) 다른 표를 비추는 타입이라 여기서 세지 않습니다.",
+        )
+    stmt = _filtered(
+        db, user, scope, request, q=q, status=status, year=year, under=under, deep=deep
+    )
+    summary_service.check_grain(grain)
+    found = summary_service.summarize(
+        db,
+        scope,
+        stmt,
+        group_by=group_by,
+        split_by=split_by,
+        metric=metric,
+        metric_field=metric_field,
+        order=order,
+        grain=grain,
+        viewer=user,
+    )
+    defs = scope.defs
+    return SummaryOut(
+        group_field=found.group_field,
+        group_label=found.group_label,
+        order=found.order,
+        grain=found.grain,
+        split_field=found.split_field,
+        split_label=found.split_label,
+        splits=found.splits,
+        other_splits=found.other_splits,
+        metric=found.metric,
+        metric_field=found.metric_field,
+        metric_label=found.metric_label,
+        total=found.total,
+        buckets=[
+            BucketOut(
+                key=one.key,
+                label=one.label,
+                count=one.count,
+                value=one.value,
+                range=(
+                    RangeOut(gte=one.range[0], lt=one.range[1])
+                    if one.range is not None
+                    else None
+                ),
+                parts=[
+                    PartOut(key=part.key, label=part.label, count=part.count, value=part.value)
+                    for part in one.parts
+                ],
+            )
+            for one in found.buckets
+        ],
+        other_groups=found.other_groups,
+        other_count=found.other_count,
+        overlap=found.group_multi or found.split_multi,
+        group_options=[
+            GroupOptionOut(
+                field=one.field,
+                label=one.label,
+                kind=one.kind,
+                multi=one.multi,
+                heading=one.heading,
+            )
+            for one in summary_service.group_options(scope, defs, paths.Resolver(db, scope))
+        ],
+        metric_options=[
+            GroupOptionOut(field=one.field, label=one.label, kind=one.kind)
+            for one in summary_service.metric_options(defs)
+        ],
+    )
+
+
+@router.get("/{type_slug}/points", response_model=PointsOut)
+def points(
+    type_slug: str,
+    request: Request,
+    x: str = Query(description="숫자 칸 — properties.<칸>"),
+    y: str | None = Query(default=None, description="두 번째 숫자 칸(산점도)"),
+    group_by: str | None = Query(default=None, description="상자를 나눌 기준 · 점의 색"),
+    grain: str | None = Query(default=None, description="기준이 날짜면 그 기간 단위"),
+    q: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    under: uuid.UUID | None = Query(default=None),
+    deep: bool = Query(default=True),
+    year: int | None = Query(default=None, ge=1900, le=2999),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> PointsOut:
+    """**안 센 값들** — 상자 그림과 산점도가 쓴다.
+
+    집계는 「몇 건인가」 에 답하지만 **분포는 집계로 안 보인다.** 평균이 같은 두 공정이
+    전혀 다른 모양일 수 있고, 그 차이가 대개 문제의 자리다.
+
+    거르기는 목록과 똑같이 온다. 값이 없는 행은 빠진다 — 0 으로 채우면 없는 점이
+    원점에 모여 그림이 거짓말을 한다.
+    """
+    scope = _scope(db, type_slug)
+    if _projection(scope) is not None:
+        raise Conflict(
+            code("OBJECTS", 58),
+            f"{scope.label}은(는) 다른 표를 비추는 타입이라 여기서 못 그립니다.",
+        )
+    stmt = _filtered(
+        db, user, scope, request, q=q, status=status, year=year, under=under, deep=deep
+    )
+    found = summary_service.points(
+        db, scope, stmt, x=x, y=y, group_by=group_by, grain=grain, viewer=user
+    )
+    defs = scope.defs
+    return PointsOut(
+        x_label=found.x_label,
+        y_label=found.y_label,
+        group_label=found.group_label,
+        rows=[
+            PointOut(id=one.id, label=one.label, group=one.group, x=one.x, y=one.y)
+            for one in found.rows
+        ],
+        total=found.total,
+        truncated=found.truncated,
+        number_fields=[
+            GroupOptionOut(field=one.field, label=one.label, kind=one.kind)
+            for one in summary_service.metric_options(defs)
+        ],
+        group_options=[
+            GroupOptionOut(
+                field=one.field,
+                label=one.label,
+                kind=one.kind,
+                multi=one.multi,
+                heading=one.heading,
+            )
+            for one in summary_service.group_options(scope, defs, paths.Resolver(db, scope))
+        ],
+    )
+
+
+@router.get("/{type_slug}/summary/export")
+def summary_export(
+    type_slug: str,
+    request: Request,
+    format: str = Query(default="xlsx", pattern="^(csv|xlsx)$"),
+    group_by: str = Query(default="status"),
+    split_by: str | None = Query(default=None),
+    metric: str = Query(default="count"),
+    order: str = Query(default="desc"),
+    metric_field: str | None = Query(default=None),
+    grain: str | None = Query(default=None),
+    q: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    under: uuid.UUID | None = Query(default=None),
+    deep: bool = Query(default=True),
+    year: int | None = Query(default=None, ge=1900, le=2999),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    """통계 표를 **파일로** — 화면의 그림과 같은 숫자.
+
+    묶어 본 숫자는 결국 보고서로 옮겨진다. 막대를 보고 손으로 옮겨 적으면 그 사이에
+    틀리고, 틀린 숫자가 회의에 들어간다. 거르기·축은 `/summary` 와 똑같이 받는다.
+    """
+    scope = _scope(db, type_slug)
+    if _projection(scope) is not None:
+        raise Conflict(
+            code("OBJECTS", 47),
+            f"{scope.label}은(는) 다른 표를 비추는 타입이라 여기서 세지 않습니다.",
+        )
+    stmt = _filtered(
+        db, user, scope, request, q=q, status=status, year=year, under=under, deep=deep
+    )
+    found = summary_service.summarize(
+        db,
+        scope,
+        stmt,
+        group_by=group_by,
+        split_by=split_by,
+        metric=metric,
+        metric_field=metric_field,
+        order=order,
+        grain=grain,
+        viewer=user,
+    )
+    header, rows = summary_service.summary_table(found)
+    return sheets.file_response(
+        header, rows, fmt=format, stem=f"{type_slug}-summary", sheet="통계"
+    )
+
+
+@router.get("/{type_slug}/points/export")
+def points_export(
+    type_slug: str,
+    request: Request,
+    format: str = Query(default="xlsx", pattern="^(csv|xlsx)$"),
+    x: str = Query(),
+    y: str | None = Query(default=None),
+    group_by: str | None = Query(default=None),
+    grain: str | None = Query(default=None),
+    q: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    under: uuid.UUID | None = Query(default=None),
+    deep: bool = Query(default=True),
+    year: int | None = Query(default=None, ge=1900, le=2999),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    """상자·산점도에 그린 **원값**을 파일로 — 행 하나가 객체 하나.
+
+    그림과 같은 상한(`MAX_POINTS`)을 쓴다. 잘렸으면 파일 맨 끝에 그렇다고 적는다 —
+    안 적으면 파일은 「이게 전부」 로 읽힌다.
+    """
+    scope = _scope(db, type_slug)
+    if _projection(scope) is not None:
+        raise Conflict(
+            code("OBJECTS", 58),
+            f"{scope.label}은(는) 다른 표를 비추는 타입이라 여기서 못 그립니다.",
+        )
+    stmt = _filtered(
+        db, user, scope, request, q=q, status=status, year=year, under=under, deep=deep
+    )
+    found = summary_service.points(
+        db, scope, stmt, x=x, y=y, group_by=group_by, grain=grain, viewer=user
+    )
+    header, rows = summary_service.points_table(found)
+    return sheets.file_response(
+        header, rows, fmt=format, stem=f"{type_slug}-points", sheet="값"
+    )
+
+
+@router.get("/{type_slug}/fields", response_model=list[FieldOptionOut])
+def linked_fields(
+    type_slug: str,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> list[FieldOptionOut]:
+    """**이어진 것 너머의 칸** — 참조 칸이 가리키는 타입의 칸, 관계로 이어진 것과 그 칸.
+
+    조건 고르개가 이 타입 자신의 칸 아래에 제목별로 붙인다. 통계 기준은 `/summary` 의
+    `group_options` 에 같은 주소로 실린다. 두 걸음까지 늘어놓는다(「모델 › 과제 › 프로젝트」) —
+    같은 관계를 되짚는 걸음은 뺀다. 주소로는 셋까지 받는다.
+    """
+    scope = _scope(db, type_slug)
+    if _projection(scope) is not None:
+        return []
+    return [
+        FieldOptionOut(**vars(one))
+        for one in paths.Resolver(db, scope).options(for_group=False)
+    ]
+
+
+@router.get("/{type_slug}/tree", response_model=TreeOut)
+def object_tree(
+    type_slug: str,
+    parent: uuid.UUID | None = Query(default=None, description="펼칠 노드. 없으면 뿌리"),
+    orphans: bool = Query(default=False, description="어디에도 연결되지 않은 것만"),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> TreeOut:
+    """트리 한 단계.
+
+    **통째로 안 불러온다.** 펼칠 때 그 단계만 읽는다 — 안 그러면 부품 5천 개짜리
+    트리에서 첫 화면이 안 뜬다.
+    """
+    object_type = _type(db, type_slug)
+    relation, parent_end = _tree_spec(object_type)
+    if relation is None:
+        return TreeOut(nodes=[], orphan_count=0)
+
+    if parent is not None:
+        ids = graph.child_ids(db, relation=relation, parent_id=parent, parent_end=parent_end)
+        orphan_count = 0
+    else:
+        # 뿌리 · 외톨이 · 자식 수 모두 **보이는 것만** 센다 — 남의 부서 것까지 세면 「어디에도
+        # 안 걸린 것 12」 를 눌러 9개만 나오고, 그 차이가 남의 부서에 무엇이 있는지 말한다.
+        parentless = graph.parentless_ids(
+            db, relation=relation, type_id=object_type.id, parent_end=parent_end, user=user
+        )
+        counts = graph.child_counts(
+            db, relation=relation, parent_ids=parentless, parent_end=parent_end, user=user
+        )
+        roots = [one for one in parentless if counts.get(one, 0) > 0]
+        orphan_ids = [one for one in parentless if counts.get(one, 0) == 0]
+        ids = orphan_ids if orphans else roots
+        orphan_count = len(orphan_ids)
+
+    if not ids:
+        return TreeOut(nodes=[], orphan_count=orphan_count)
+
+    # **볼 수 있는 것만 준다.** 남의 부서 것은 트리에도 안 나온다.
+    rows = list(
+        db.scalars(
+            select(ObjectInstance)
+            .where(
+                ObjectInstance.id.in_(ids),
+                ObjectInstance.deleted_at.is_(None),
+                visible_owner_clause(user, ObjectInstance.owner_workspace_id),
+            )
+            .order_by(ObjectInstance.label)
+        )
+    )
+    counts = graph.child_counts(
+        db,
+        relation=relation,
+        parent_ids=[row.id for row in rows],
+        parent_end=parent_end,
+        user=user,
+    )
+    return TreeOut(
+        nodes=[
+            TreeNodeOut(
+                id=row.id,
+                label=row.label,
+                key=row.key,
+                status=row.status,
+                child_count=counts.get(row.id, 0),
+            )
+            for row in rows
+        ],
+        orphan_count=orphan_count,
+    )
+
+
+def _filtered(
+    db: Session,
+    user: User,
+    target: ObjectType | Scope,
+    request: Request,
+    *,
+    q: str | None,
+    status: str | None,
+    year: int | None,
+    under: uuid.UUID | None = None,
+    deep: bool = True,
+    omit: str | None = None,
+) -> Any:
+    """목록과 내보내기가 **같은 거르기**를 쓴다. 따로 적으면 「화면에는 있는데 파일에는
+    없는」 줄이 생기고, 어느 쪽이 맞는지 아무도 모른다.
+
+    `omit` 은 **조건 하나만 빼고** 같은 질의를 세우는 자리다 — 0건일 때 「어느 조건을
+    빼면 몇 건인지」 를 말해 주려면 그 조건만 뺀 수를 세야 하고, 그 수를 여기 말고 다른
+    데서 세면 진단이 목록과 어긋난다(`resolve.diagnose`).
+
+    인터페이스 목록이면 구현 타입 전부가 범위다(ADR 0006) — `types=a|b` 로 그중 몇 타입만
+    본다. 트리는 타입의 것이라 인터페이스에서는 거절한다.
+    """
+    scope = scopes.as_scope(db, target)
+    stmt = select(ObjectInstance).where(
+        scope.clause(),
+        ObjectInstance.deleted_at.is_(None),
+        visible_owner_clause(user, ObjectInstance.owner_workspace_id),
+    )
+    narrow = request.query_params.get("types")
+    if narrow and omit != "types":
+        wanted_types = [one for one in narrow.split("|") if one]
+        strangers = sorted(set(wanted_types) - set(scope.type_slugs))
+        if strangers:
+            raise AppError(
+                code("OBJECTS", 93),
+                f"{scope.label}의 타입이 아닙니다: {', '.join(strangers)}. "
+                f"고를 수 있는 것: {', '.join(scope.type_slugs) or '(없음)'}",
+                status=422,
+            )
+        stmt = stmt.where(
+            ObjectInstance.type_id.in_(
+                [one.id for one in scope.types if one.slug in wanted_types]
+            )
+        )
+    if status and omit != "status":
+        stmt = stmt.where(ObjectInstance.status == status)
+    if q and omit != "q":
+        stmt = apply_search(db, stmt, scope, q)
+    if year is not None and omit != "year":
+        stmt = apply_year(db, stmt, scope, year)
+    if under is not None and omit == "under":
+        under = None
+    if under is not None:
+        # **기본은 「아래 것까지 포함」 이다.** 안 그러면 상위 노드를 눌렀을 때
+        # 목록이 비고, 그 빈 목록은 「없다」 로 읽힌다.
+        if scope.object_type is None:
+            raise Conflict(
+                code("OBJECTS", 92),
+                f"{scope.label}은(는) 인터페이스라 트리가 없습니다 — 트리는 타입의 것입니다.",
+            )
+        relation, parent_end = _tree_spec(scope.object_type)
+        if relation is None:
+            raise Conflict(
+                code("OBJECTS", 33),
+                f"{scope.label}에는 트리가 정의돼 있지 않습니다. "
+                "타입의 「목록 화면」 에서 트리로 사용할 관계를 선택하세요.",
+            )
+        wanted = [under]
+        if deep:
+            wanted += graph.descendant_ids(
+                db, relation=relation, root_id=under, parent_end=parent_end
+            )
+        stmt = stmt.where(ObjectInstance.id.in_(wanted))
+    filters = {
+        key[2:]: value
+        for key, value in request.query_params.items()
+        if key.startswith("p.") and key != omit
+    }
+    if filters:
+        stmt = apply_property_filters(stmt, filters)
+    # 조건 거르기 — `f.<칸>.<연산>=<값>`. 칸 안 OR, 칸끼리 AND.
+    asked = [
+        one
+        for index, one in enumerate(conditions.parse(request.query_params))
+        if _condition_name(one, index) != omit
+    ]
+    if asked:
+        stmt = conditions.apply(
+            stmt, scope.defs, asked, paths.Resolver(db, scope, viewer=user)
+        )
+    return stmt
+
+
+def _condition_name(one: conditions.Condition, index: int) -> str:
+    """조건 하나를 가리키는 이름. 같은 칸·같은 연산이 둘일 수 있어 차례를 붙인다. 제외 묶음은
+    **묶음 하나가 한 이름**이다 — 묶음의 조건 하나만 빼면 뜻이 다른 묶음이 된다."""
+    if one.exclude:
+        return f"{conditions.EXCLUDE_PREFIX}{one.exclude}"
+    return f"f.{one.field}.{one.op}#{index}"
+
+
+def _filter_parts(
+    request: Request,
+    *,
+    q: str | None,
+    status: str | None,
+    year: int | None,
+    under: uuid.UUID | None,
+) -> list[tuple[str, str]]:
+    """걸린 거르기 전부 — (이름, 사람이 읽을 설명). 진단이 하나씩 떼어 본다."""
+    parts: list[tuple[str, str]] = []
+    if request.query_params.get("types"):
+        parts.append(("types", f"타입 = {request.query_params['types']}"))
+    if q:
+        parts.append(("q", f"검색어 「{q}」"))
+    if status:
+        parts.append(("status", f"상태 = {status}"))
+    if year is not None:
+        parts.append(("year", f"연도 = {year}"))
+    if under is not None:
+        parts.append(("under", "트리에서 고른 가지 아래"))
+    for key, value in request.query_params.items():
+        if key.startswith("p."):
+            parts.append((key, f"{key[2:]} = {value}"))
+    groups: dict[str, list[str]] = {}
+    for index, one in enumerate(conditions.parse(request.query_params)):
+        said = f"{one.field} {one.op} {one.value}"
+        if one.exclude:
+            groups.setdefault(_condition_name(one, index), []).append(said)
+        else:
+            parts.append((_condition_name(one, index), said))
+    for name, said_all in groups.items():
+        parts.append((name, f"제외: ({' 그리고 '.join(said_all)})"))
+    return parts
+
+
+# --- 저장된 뷰 ----------------------------------------------------------------
+
+
+def _view_out(db: Session, user: User, row: SavedView, type_slug: str) -> SavedViewOut:
+    owner = db.get(User, row.owner_user_id)
+    workspaces = _workspace_slugs(db)
+    return SavedViewOut(
+        id=row.id,
+        type_slug=type_slug,
+        name=row.name,
+        query=SavedViewQuery.model_validate(row.query or {}),
+        owner_user_id=row.owner_user_id,
+        owner_label=owner.display_name if owner else "",
+        workspace_slug=(
+            workspaces[row.workspace_id].slug
+            if row.workspace_id and row.workspace_id in workspaces
+            else None
+        ),
+        summary=SavedViewSummary.model_validate(row.summary or {}),
+        home_order=row.home_order,
+        can_edit=_can_edit_view(db, user, row),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _can_edit_view(db: Session, user: User, row: SavedView) -> bool:
+    """내 것은 내가, 부서 것은 그 부서 관리자(또는 시스템 관리자)가."""
+    if row.owner_user_id == user.id or user.is_system_admin:
+        return True
+    if row.workspace_id is None:
+        return False
+    try:
+        require_owner_edit(
+            db, user, row.workspace_id, what="뷰", code_value=code("OBJECTS", 80)
+        )
+    except Exception:
+        return False
+    return True
+
+
+def _view(db: Session, user: User, object_type: ObjectType, view_id: uuid.UUID) -> SavedView:
+    row = db.get(SavedView, view_id)
+    if row is None or row.type_id != object_type.id:
+        raise NotFound(code("OBJECTS", 81), "뷰를 찾을 수 없습니다.")
+    mine = row.owner_user_id == user.id
+    shared_with_me = row.workspace_id is not None and (
+        user.is_system_admin or row.workspace_id in set(my_workspace_ids(db, user))
+    )
+    if not (mine or shared_with_me):
+        raise NotFound(code("OBJECTS", 81), "뷰를 찾을 수 없습니다.")
+    return row
+
+
+def _checked_summary(
+    db: Session, object_type: ObjectType, asked: SavedViewSummary | None
+) -> dict[str, Any]:
+    """**저장할 때 검사한다.** 안 하면 열었을 때 422 가 나는 뷰가 남고, 그때는 무엇이
+    잘못됐는지 화면이 말해 줄 자리가 없다(그림이 안 뜰 뿐이다)."""
+    if asked is None or not asked.group_by:
+        return {}
+    defs = properties_of(db, object_type.id)
+    resolver = paths.Resolver(db, object_type)
+    grain = asked.grain or None
+    summary_service.check_grain(grain)
+    summary_service.check_group(defs, asked.group_by, resolver, grain)
+    if asked.order not in summary_service.ORDERS:
+        raise Conflict(
+            code("OBJECTS", 52),
+            f"차례는 {', '.join(summary_service.ORDERS)} 중 하나여야 합니다: {asked.order}",
+        )
+    if asked.split_by:
+        summary_service.check_group(defs, asked.split_by, resolver, grain)
+    summary_service.check_metric(defs, asked.metric, asked.metric_field)
+    if asked.chart not in summary_service.CHART_KINDS:
+        raise Conflict(
+            code("OBJECTS", 48),
+            f"그림 모양은 {', '.join(summary_service.CHART_KINDS)} 중 "
+            f"하나여야 합니다: {asked.chart}",
+        )
+    return asked.model_dump()
+
+
+def _set_home(db: Session, user: User, row: SavedView, *, on_home: bool) -> None:
+    """부서 홈에 올리거나 내린다.
+
+    **부서 뷰만 올린다.** 개인 뷰를 부서 홈에 붙이면 같은 화면을 보는 사람마다 다른
+    것이 뜨고, 그때 「내 홈에는 왜 그게 없지」 를 아무도 설명하지 못한다.
+    """
+    if not on_home:
+        row.home_order = None
+        return
+    if row.workspace_id is None:
+        raise Conflict(
+            code("OBJECTS", 49),
+            "부서와 함께 쓰는 뷰만 부서 홈에 올릴 수 있습니다. 먼저 부서 뷰로 저장하세요.",
+        )
+    require_owner_edit(
+        db, user, row.workspace_id, what="부서 홈", code_value=code("OBJECTS", 50)
+    )
+    if row.home_order is not None:
+        return
+    # **지표와 같은 줄의 끝** — 홈에는 뷰와 지표가 함께 선다(`objects/home.py`).
+    row.home_order = home.next_order(db, row.workspace_id)
+
+
+def _move_home(db: Session, user: User, row: SavedView, position: int) -> None:
+    """홈에서의 자리. **그 부서의 홈 뷰를 통째로 다시 매긴다.**
+
+    두 값만 맞바꾸면 옛 데이터에 같은 자리 값이 여럿일 때 순서가 안 바뀐 것처럼 보인다
+    (부서 트리에서 같은 이유로 같은 선택을 했다).
+    """
+    if row.home_order is None or row.workspace_id is None:
+        raise Conflict(code("OBJECTS", 51), "홈에 올라가 있지 않은 뷰입니다.")
+    require_owner_edit(
+        db, user, row.workspace_id, what="부서 홈", code_value=code("OBJECTS", 50)
+    )
+    home.place(db, row.workspace_id, row, position)
+
+
+@router.get("/home", response_model=list[HomeWidgetOut])
+def home_widgets(
+    workspace: str | None = Query(
+        default=None, description="부서 slug. 안 주면 **내 부서 전부**"
+    ),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> list[HomeWidgetOut]:
+    """부서 홈에 올라간 뷰들 — **홈은 타입을 모르므로 여기서 다 실어 준다.**
+
+    부서를 안 주면 내가 속한 부서 전부의 것을 준다. 사람은 대개 여러 부서에 속하고,
+    그때 「저 부서 홈에 뭐가 있더라」 를 보려고 부서를 갈아 가며 도는 일이 생긴다.
+
+    부서가 함께 보는 자리라 개인 뷰는 안 온다. 그 부서 멤버가 아니면 빈 목록이다 —
+    403 이 아니라 빈 목록인 이유는, 남의 부서 홈을 열어 본 것 자체가 흔한 실수라서다.
+    """
+    mine = set(my_workspace_ids(db, user))
+    if workspace:
+        target = workspace_by_slug(db, workspace)
+        if not user.is_system_admin and target.id not in mine:
+            return []
+        wanted = [target.id]
+    else:
+        wanted = list(mine)
+    if not wanted:
+        return []
+    types = {row.id: row for row in db.scalars(select(ObjectType))}
+    spaces = sorted(
+        db.scalars(select(Workspace).where(Workspace.id.in_(wanted))),
+        key=lambda one: one.name,
+    )
+    metrics = {row.id: row for row in db.scalars(select(MetricDef))}
+    out: list[HomeWidgetOut] = []
+    for space in spaces:
+        # **뷰와 지표가 한 줄**이다 — 자리 값을 함께 매긴다(`objects/home.py`).
+        for row in home.items(db, space.id):
+            if isinstance(row, SavedView):
+                object_type = types.get(row.type_id)
+                if object_type is None:
+                    continue
+                out.append(
+                    HomeWidgetOut(
+                        kind="view",
+                        view=_view_out(db, user, row, object_type.slug),
+                        type_label=object_type.label,
+                        icon=object_type.icon,
+                        workspace_slug=space.slug,
+                        workspace_name=space.name,
+                    )
+                )
+                continue
+            metric = metrics.get(row.metric_id)
+            source = types.get(metric.source_type_id) if metric is not None else None
+            if metric is None or source is None:
+                continue
+            out.append(
+                HomeWidgetOut(
+                    kind="metric",
+                    metric=HomeMetricOut(
+                        id=row.id,
+                        metric_slug=metric.slug,
+                        metric_label=metric.label,
+                        split=row.split,
+                        home_order=row.home_order,
+                    ),
+                    type_label=source.label,
+                    icon=source.icon,
+                    workspace_slug=space.slug,
+                    workspace_name=space.name,
+                )
+            )
+    return out
+
+
+@router.get("/watching", response_model=list[WatchedOut])
+def watching(
+    limit: int | None = Query(default=None),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> list[WatchedOut]:
+    """내가 지켜보는 것 — **최근 바뀐 것부터.**
+
+    지켜보기를 켜 두고도 그것을 한자리에 모아 볼 곳이 없으면, 사람은 알림이 올 때만
+    그것을 떠올린다. 그리고 알림은 읽고 나면 사라진다.
+    """
+    capped = clamp_limit(limit)
+    types = {row.id: row for row in db.scalars(select(ObjectType))}
+    rows = db.scalars(
+        select(ObjectInstance)
+        .join(ObjectWatch, ObjectWatch.object_id == ObjectInstance.id)
+        .where(
+            ObjectWatch.user_id == user.id,
+            ObjectInstance.deleted_at.is_(None),
+            # 지켜보기를 켠 뒤에 부서가 바뀌어 못 보게 됐을 수 있다.
+            visible_owner_clause(user, ObjectInstance.owner_workspace_id),
+        )
+        .order_by(ObjectInstance.updated_at.desc())
+        .limit(capped)
+    )
+    out: list[WatchedOut] = []
+    for row in rows:
+        object_type = types.get(row.type_id)
+        if object_type is None:
+            continue
+        out.append(
+            WatchedOut(
+                id=row.id,
+                type_slug=object_type.slug,
+                type_label=object_type.label,
+                icon=object_type.icon,
+                label=row.label,
+                key=row.key,
+                status=row.status,
+                updated_at=row.updated_at,
+            )
+        )
+    return out
+
+
+@router.get("/{type_slug}/views", response_model=list[SavedViewOut])
+def list_views(
+    type_slug: str,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> list[SavedViewOut]:
+    """내 뷰 + 내 부서와 함께 쓰는 뷰. 부서 것이 먼저, 그 안에서는 이름순."""
+    object_type = _type(db, type_slug)
+    mine = my_workspace_ids(db, user)
+    stmt = select(SavedView).where(
+        SavedView.type_id == object_type.id,
+        or_(
+            SavedView.owner_user_id == user.id,
+            SavedView.workspace_id.in_(mine) if mine else false(),
+            true() if user.is_system_admin else false(),
+        ),
+    )
+    rows = sorted(
+        db.scalars(stmt),
+        key=lambda one: (one.workspace_id is None, one.name),
+    )
+    return [_view_out(db, user, one, type_slug) for one in rows]
+
+
+@router.post("/{type_slug}/views", response_model=SavedViewOut, status_code=201)
+def create_view(
+    type_slug: str,
+    payload: SavedViewWriteRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> SavedViewOut:
+    """뷰를 저장한다. 부서와 함께 쓰려면 그 부서의 관리자여야 한다 — 아무나 부서
+    뷰를 만들면 목록이 곧 개인 취향으로 가득 찬다."""
+    object_type = _type(db, type_slug)
+    workspace_id: uuid.UUID | None = None
+    if payload.workspace_slug:
+        workspace_id = resolve_owner_workspace(
+            db, user, payload.workspace_slug, what="뷰", code_value=code("OBJECTS", 82)
+        )
+    # 조건이 실제로 걸리는지 지금 검사한다 — 저장은 됐는데 열면 422 인 뷰는 아무도 못 고친다.
+    conditions.apply(
+        select(ObjectInstance),
+        properties_of(db, object_type.id),
+        [
+            conditions.Condition(c.field, c.op, c.value, c.exclude)
+            for c in payload.query.conditions
+        ],
+        paths.Resolver(db, object_type),
+    )
+    row = SavedView(
+        type_id=object_type.id,
+        name=payload.name.strip(),
+        owner_user_id=user.id,
+        workspace_id=workspace_id,
+        query=payload.query.model_dump(),
+        summary=_checked_summary(db, object_type, payload.summary),
+    )
+    db.add(row)
+    db.flush()
+    if payload.on_home:
+        _set_home(db, user, row, on_home=True)
+    audit.record(
+        db,
+        action="object.view.create",
+        actor=user,
+        target_table="saved_views",
+        target_id=row.id,
+        target_label=f"{type_slug}:{row.name}",
+        workspace_id=workspace_id,
+    )
+    db.commit()
+    db.refresh(row)
+    return _view_out(db, user, row, type_slug)
+
+
+@router.patch("/{type_slug}/views/{view_id}", response_model=SavedViewOut)
+def update_view(
+    type_slug: str,
+    view_id: uuid.UUID,
+    payload: SavedViewPatchRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> SavedViewOut:
+    object_type = _type(db, type_slug)
+    row = _view(db, user, object_type, view_id)
+    if not _can_edit_view(db, user, row):
+        raise Forbidden(code("OBJECTS", 83), "이 뷰를 고칠 수 없습니다.")
+    if payload.name is not None:
+        row.name = payload.name.strip()
+    if payload.query is not None:
+        conditions.apply(
+            select(ObjectInstance),
+            properties_of(db, object_type.id),
+            [
+                conditions.Condition(c.field, c.op, c.value, c.exclude)
+                for c in payload.query.conditions
+            ],
+            paths.Resolver(db, object_type),
+        )
+        row.query = payload.query.model_dump()
+    if payload.summary is not None:
+        row.summary = _checked_summary(db, object_type, payload.summary)
+    if payload.on_home is not None:
+        _set_home(db, user, row, on_home=payload.on_home)
+    if payload.home_position is not None:
+        _move_home(db, user, row, payload.home_position)
+    audit.record(
+        db,
+        action="object.view.update",
+        actor=user,
+        target_table="saved_views",
+        target_id=row.id,
+        target_label=f"{type_slug}:{row.name}",
+        workspace_id=row.workspace_id,
+    )
+    db.commit()
+    db.refresh(row)
+    return _view_out(db, user, row, type_slug)
+
+
+@router.delete("/{type_slug}/views/{view_id}", status_code=204)
+def delete_view(
+    type_slug: str,
+    view_id: uuid.UUID,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    """뷰는 진짜로 지운다 — 데이터가 아니라 거르기 조건이라, 남겨 둘 이유가 없다."""
+    object_type = _type(db, type_slug)
+    row = _view(db, user, object_type, view_id)
+    if not _can_edit_view(db, user, row):
+        raise Forbidden(code("OBJECTS", 83), "이 뷰를 지울 수 없습니다.")
+    audit.record(
+        db,
+        action="object.view.delete",
+        actor=user,
+        target_table="saved_views",
+        target_id=row.id,
+        target_label=f"{type_slug}:{row.name}",
+        workspace_id=row.workspace_id,
+    )
+    db.delete(row)
+    db.commit()
+
+
+# --- 일괄 -------------------------------------------------------------------
+
+
+def _plan_out(plan: bulk.Plan, applied: bool) -> ImportPlanOut:
+    return ImportPlanOut(
+        applied=applied,
+        rows=[
+            ImportRowOut(
+                row=one.row,
+                action=one.action,
+                label=one.label,
+                key=one.key,
+                object_id=one.object_id,
+                changes=one.changes,
+                message=one.message,
+            )
+            for one in plan.rows
+        ],
+        errors=plan.errors,
+        counts=plan.counts,
+    )
+
+
+def _import_objects(
+    db: Session,
+    user: User,
+    object_type: ObjectType,
+    rows: list[dict[str, Any]],
+    *,
+    workspace_slug: str | None,
+    apply: bool,
+    aliases_mode: str = "add",
+    human_edits: str = "keep",
+) -> ImportPlanOut:
+    owner_workspace_id = resolve_owner_workspace(
+        db, user, workspace_slug, what="객체", code_value=code("OBJECTS", 15)
+    )
+    if apply:
+        plan = bulk.apply_objects(
+            db,
+            user,
+            object_type,
+            rows,
+            owner_workspace_id=owner_workspace_id,
+            aliases_mode=aliases_mode,
+            human_edits=human_edits,
+        )
+        return _plan_out(plan, applied=plan.ok)
+    plan = bulk.plan_objects(
+        db,
+        user,
+        object_type,
+        rows,
+        owner_workspace_id=owner_workspace_id,
+        aliases_mode=aliases_mode,
+        human_edits=human_edits,
+    )
+    return _plan_out(plan, applied=False)
+
+
+def _editable_rows(
+    db: Session, user: User, object_type: ObjectType, ids: list[uuid.UUID]
+) -> list[ObjectInstance]:
+    """**볼 수 있는 것만 손댄다.** 목록과 같은 가시성 규칙이다."""
+    return list(
+        db.scalars(
+            select(ObjectInstance).where(
+                ObjectInstance.id.in_(ids),
+                ObjectInstance.type_id == object_type.id,
+                ObjectInstance.deleted_at.is_(None),
+                visible_owner_clause(user, ObjectInstance.owner_workspace_id),
+            )
+        )
+    )
+
+
+def _bulk_out(
+    db: Session,
+    object_type: ObjectType,
+    planned: bulkedit.EditPlan,
+    field: str,
+    batch_id: uuid.UUID | None,
+) -> BulkEditPlanOut:
+    return BulkEditPlanOut(
+        applied=planned.applied,
+        batch_id=batch_id,
+        field=field,
+        field_label=planned.field_label,
+        rows=[
+            BulkEditRow(
+                id=one.id,
+                label=one.label,
+                action=one.action,
+                before=one.before,
+                after=one.after,
+                message=one.message,
+                job_path=one.job_path,
+            )
+            for one in planned.rows
+        ],
+        counts=planned.counts,
+        fields=bulkedit.selectable(object_type, properties_of(db, object_type.id)),
+    )
+
+
+@router.post("/{type_slug}/bulk-edit", response_model=BulkEditPlanOut)
+def bulk_edit(
+    type_slug: str,
+    payload: BulkEditRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> BulkEditPlanOut:
+    """고른 것들의 **한 칸**을 바꾼다 — `apply=false`(기본)면 계획만.
+
+    한 칸씩인 이유: 여러 칸을 동시에 바꾸게 하면 이 화면은 곧 「폼」 이 되고, 그때
+    실수 한 번의 크기가 수백 배가 된다.
+
+    못 고치는 것(남의 부서 것)이 섞여 있으면 **조용히 건너뛰지 않고** 행마다 이유를
+    적는다 — 건너뛴 것은 「바꿨다」 고 믿은 사람에게 나중에 다른 값으로 나타난다.
+
+    적용하면 `batch_id` 가 온다 — 그것으로 같이 바뀐 것을 한 번에 되돌린다.
+    """
+    object_type = _type(db, type_slug)
+    _not_bulk_editable(object_type)
+    managed.require_objects_editable(object_type)
+    ids = bulkedit.ids_of(payload.ids)
+    rows = _editable_rows(db, user, object_type, ids)
+    planned = bulkedit.plan(
+        db,
+        user,
+        object_type,
+        ids=ids,
+        field_name=payload.field,
+        value=payload.value,
+        rows=rows,
+    )
+    batch_id: uuid.UUID | None = None
+    if payload.apply and planned.ok:
+        before_state = {row.id: bulkedit.state_of(row) for row in rows}
+        before_raw = {row.id: bulkedit.raw_value(row, payload.field) for row in rows}
+        bulkedit.apply_to(
+            db,
+            user,
+            object_type,
+            field_name=payload.field,
+            value=payload.value,
+            rows=rows,
+            planned=planned,
+        )
+        db.flush()
+        batch_id = uuid.uuid4()
+        bulkedit.record(
+            db,
+            user,
+            object_type,
+            rows=rows,
+            before_state=before_state,
+            before_raw=before_raw,
+            changed={one.id for one in planned.rows if one.action == "change"},
+            field_name=payload.field,
+            field_label=planned.field_label,
+            batch_id=batch_id,
+            reason=f"일괄 수정 — {planned.field_label}",
+        )
+        db.commit()
+        planned.applied = True
+    return _bulk_out(db, object_type, planned, payload.field, batch_id)
+
+
+@router.post("/{type_slug}/bulk-edit/{batch_id}/undo", response_model=BulkEditPlanOut)
+def bulk_edit_undo(
+    type_slug: str,
+    batch_id: uuid.UUID,
+    payload: BulkUndoRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> BulkEditPlanOut:
+    """같이 바뀐 것을 **한 번에** 그때 값으로 — `apply=false`(기본)면 계획만.
+
+    한 번에 수백 건을 바꾸는 길이 있는데 되돌리는 길이 한 건씩뿐이면, 실수 한 번은
+    사실상 되돌릴 수 없다.
+
+    **그 뒤에 누가 또 고친 행은 덮어쓰지 않는다** — 묶음이 넣은 값이 아직 그대로인
+    행만 되돌리고, 나머지는 이유를 적는다. 되돌리기 자체도 새 묶음으로 기록되므로
+    그것을 다시 되돌릴 수 있다.
+    """
+    object_type = _type(db, type_slug)
+    _not_bulk_editable(object_type)
+    managed.require_objects_editable(object_type)
+    entries = bulkedit.batch_entries(db, batch_id)
+    rows = _editable_rows(
+        db, user, object_type, [one.target_id for one in entries if one.target_id]
+    )
+    undo = bulkedit.undo_plan(db, user, object_type, entries=entries, rows=rows)
+    planned = undo.plan
+    new_batch: uuid.UUID | None = None
+    if payload.apply and planned.ok:
+        before_state = {row.id: bulkedit.state_of(row) for row in rows}
+        before_raw = {row.id: bulkedit.raw_value(row, undo.field_name) for row in rows}
+        bulkedit.apply_undo(db, user, object_type, rows=rows, undo=undo)
+        db.flush()
+        new_batch = uuid.uuid4()
+        bulkedit.record(
+            db,
+            user,
+            object_type,
+            rows=rows,
+            before_state=before_state,
+            before_raw=before_raw,
+            changed={one.id for one in planned.rows if one.action == "change"},
+            field_name=undo.field_name,
+            field_label=planned.field_label,
+            batch_id=new_batch,
+            reason=f"일괄 수정 복원 — {planned.field_label}",
+        )
+        db.commit()
+        planned.applied = True
+    return _bulk_out(db, object_type, planned, undo.field_name, new_batch)
+
+
+@router.post("/{type_slug}/bulk-delete", response_model=BulkDeletePlanOut)
+def bulk_delete(
+    type_slug: str,
+    payload: BulkDeleteRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> BulkDeletePlanOut:
+    """고른 것들을 지운다 — `apply=false`(기본)면 계획만.
+
+    「속성 변경」 의 짝이다. 고른 것을 한 번에 고칠 수 있는데 지우는 것만 한 건씩 열어야 하면,
+    사람은 목록을 앞에 두고 창을 스무 번 연다.
+
+    가리키는 것이 있는 객체는 기본(`block`)으로 **거절하고 몇 개가 걸렸는지 말한다** —
+    조용히 지우면 다른 화면의 칸이 빈 채로 남는다. 그래도 지우려면 `detach` 로 부른다.
+    한 건씩 지우는 길과 같은 규칙·같은 함수다.
+    """
+    object_type = _type(db, type_slug)
+    _not_system(object_type, "지우지")
+    managed.require_objects_editable(object_type, what="삭제하지")
+    ids = bulkedit.ids_of(payload.ids)
+    rows = _editable_rows(db, user, object_type, ids)
+    planned = bulkedit.delete_plan(
+        db, user, object_type, ids=ids, rows=rows, mode=payload.mode
+    )
+    if payload.apply and planned.ok:
+        bulkedit.apply_delete(db, user, object_type, rows=rows, planned=planned)
+        planned.applied = True
+    return BulkDeletePlanOut(
+        applied=planned.applied,
+        mode=planned.mode,
+        rows=[
+            BulkEditRow(
+                id=one.id,
+                label=one.label,
+                action=one.action,
+                before=one.before,
+                after=one.after,
+                message=one.message,
+                job_path=one.job_path,
+            )
+            for one in planned.rows
+        ],
+        counts=planned.counts,
+    )
+
+
+def _not_bulk_editable(object_type: ObjectType) -> None:
+    if system.is_system(object_type):
+        raise Conflict(
+            code("OBJECTS", 56),
+            f"{object_type.label}은(는) 다른 표를 비추는 타입이라 여기서 못 고칩니다.",
+        )
+
+
+@router.get("/{type_slug}/template")
+def object_template(
+    type_slug: str,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    """빈 CSV — 헤더가 「무엇을 채워야 하는지」 를 말한다."""
+    object_type = _type(db, type_slug)
+    _not_system(object_type, "파일로 넣지")
+    defs = properties_of(db, object_type.id)
+    body = bulk.to_csv(bulk.export_columns(defs), [])
+    return Response(
+        body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{type_slug}-template.csv"'},
+    )
+
+
+@router.post("/{type_slug}/export", response_model=JobOut, status_code=202)
+def export_objects(
+    type_slug: str,
+    request: Request,
+    format: str = Query(default="csv", pattern="^(csv|json)$"),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> JobOut:
+    """지금 거른 목록 **그대로** 파일로 — 작업이 된다(202). 쪽 상한 없이 전부 — 목록의 상한은
+    화면을 위한 것이고, 파일은 그 상한을 넘어서기 위해 있다. 그래서 요청 안에서 만들면 큰
+    타입에서 끊긴다. 워커가 만든 파일은 `GET /api/jobs/{id}/download`.
+
+    거르기(`q` · `status` · `year` · `under` · `p.*` · `f.*`)는 목록과 같은 쿼리 문자열로
+    온다 — 그대로 적어 두고 워커가 같은 `_filtered` 로 되돌린다.
+    """
+    object_type = _type(db, type_slug)
+    _not_system(object_type, "내보내지")
+    query: dict[str, list[str]] = {}
+    for key, value in request.query_params.multi_items():
+        if key != "format":
+            query.setdefault(key, []).append(value)
+    job = jobs_routes.submit(
+        db,
+        user,
+        kind="objects_export",
+        params={"type_slug": object_type.slug, "format": format, "query": query},
+        upload=None,
+        workspace_slug=None,
+    )
+    return jobs_routes._out(db, job)
+
+
+@router.post("/{type_slug}/import", response_model=JobOut, status_code=202)
+def import_objects(
+    type_slug: str,
+    upload: UploadFile = File(alias="file"),
+    workspace_slug: str | None = Form(default=None),
+    aliases_mode: str = Form(default="add", pattern="^(add|replace)$"),
+    human_edits: str = Form(default="keep", pattern="^(keep|overwrite)$"),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> JobOut:
+    """파일로 넣기 — **작업이 된다**(202). 워커가 계획을 세우고, 사람이 보고,
+    `POST /api/jobs/{id}/apply` 로 적용한다. 파일은 한 번만 올린다.
+
+    요청 안에서 처리하던 때는 5,000행 상한이 있었고 계획과 적용에 같은 파일을 두 번 올려야
+    했다 — 그 둘을 없애려고 작업으로 옮겼다(`docs/작업-워커-설계.md`).
+    """
+    object_type = _type(db, type_slug)
+    _require_file_name(upload)
+    job = jobs_routes.submit(
+        db,
+        user,
+        kind="objects_import",
+        params={
+            "type_slug": object_type.slug,
+            "aliases_mode": aliases_mode,
+            "human_edits": human_edits,
+        },
+        upload=upload,
+        workspace_slug=workspace_slug,
+    )
+    return jobs_routes._out(db, job)
+
+
+@router.post("/{type_slug}/photos/import", response_model=JobOut, status_code=202)
+def import_photos(
+    type_slug: str,
+    upload: UploadFile = File(alias="file"),
+    field: str = Form(max_length=48, description="사진을 붙일 파일 속성의 키"),
+    existing: str = Form(
+        default="skip",
+        pattern="^(skip|replace|add)$",
+        description="칸에 이미 사진이 있으면 — skip(건너뜀) · replace(교체) · add(추가)",
+    ),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> JobOut:
+    """사진 일괄 업로드 — zip 하나(202, 작업). 워커가 **파일 이름으로 객체를 찾아** 계획을
+    세우고(어느 파일이 어느 객체에 · 못 찾음 · 여럿에 맞음 · 이미지 아님 · 너무 큼 · 권한
+    없음), 사람이 보고 `POST /api/jobs/{id}/apply` 로 적용한다(`objects/photos.py`).
+
+    타입 · 칸은 **넣는 순간에** 본다 — 몇 분 뒤 「실패」 로 알게 하지 않는다. 객체마다의 권한은
+    계획이 본다(그 객체를 고칠 수 있는 사람만 붙는다).
+    """
+    object_type = _type(db, type_slug)
+    photos.require_target(db, object_type, field)
+    if not (upload.filename or "").lower().endswith(".zip"):
+        raise Conflict(
+            code("OBJECTS", 125),
+            "zip 파일만 업로드할 수 있습니다 — 사진을 선택한 뒤 「압축(zip) 폴더로 보내기」"
+            " 로 묶으세요.",
+        )
+    job = jobs_routes.submit(
+        db,
+        user,
+        kind="objects_photos",
+        params={"type_slug": object_type.slug, "field": field, "existing": existing},
+        upload=upload,
+        workspace_slug=None,
+    )
+    return jobs_routes._out(db, job)
+
+
+def _require_file_name(upload: UploadFile) -> None:
+    name = upload.filename or ""
+    if not name.lower().endswith((".csv", ".json", ".tsv", ".txt")):
+        raise Conflict(code("OBJECTS", 48), "CSV 나 JSON 파일만 받습니다.")
+
+
+@router.post("/{type_slug}/import-rows", response_model=ImportPlanOut)
+def import_object_rows(
+    type_slug: str,
+    payload: ImportRowsRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> ImportPlanOut:
+    """JSON 행으로 넣기 — 파일과 같은 규칙. MCP 가 쓴다."""
+    object_type = _type(db, type_slug)
+    return _import_objects(
+        db,
+        user,
+        object_type,
+        payload.rows,
+        workspace_slug=payload.workspace_slug,
+        apply=payload.apply,
+        aliases_mode=payload.aliases_mode,
+        human_edits=payload.human_edits,
+    )
+
+
+@router.post("/{type_slug}/relations/export", response_model=JobOut, status_code=202)
+def export_relations(
+    type_slug: str,
+    format: str = Query(default="csv", pattern="^(csv|json)$"),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> JobOut:
+    """이 타입에서 **출발하는** 관계 전부 — `src, relation, dst, evidence_note`. 작업이
+    된다."""
+    object_type = _type(db, type_slug)
+    job = jobs_routes.submit(
+        db,
+        user,
+        kind="relations_export",
+        params={"type_slug": object_type.slug, "format": format},
+        upload=None,
+        workspace_slug=None,
+    )
+    return jobs_routes._out(db, job)
+
+
+@router.post("/{type_slug}/relations/import", response_model=JobOut, status_code=202)
+def import_relations(
+    type_slug: str,
+    upload: UploadFile = File(alias="file"),
+    relations_mode: str = Form(default="add", pattern="^(add|replace|replace_type)$"),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> JobOut:
+    """관계 파일로 잇기 — 객체 파일과 같이 **작업이 된다.** 부서는 안 묻는다(관계는 양끝의
+    것이다) — 고칠 권한은 워커가 행마다 본다."""
+    object_type = _type(db, type_slug)
+    _require_file_name(upload)
+    job = jobs_routes.submit(
+        db,
+        user,
+        kind="relations_import",
+        params={"type_slug": object_type.slug, "relations_mode": relations_mode},
+        upload=upload,
+        workspace_slug=None,
+    )
+    return jobs_routes._out(db, job)
+
+
+@router.post("/{type_slug}/relations/import-rows", response_model=ImportPlanOut)
+def import_relation_rows(
+    type_slug: str,
+    payload: ImportRowsRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> ImportPlanOut:
+    object_type = _type(db, type_slug)
+    if payload.apply:
+        plan = bulk.apply_relations(
+            db, user, object_type, payload.rows, mode=payload.relations_mode
+        )
+        return _plan_out(plan, applied=plan.ok)
+    return _plan_out(
+        bulk.plan_relations(db, user, object_type, payload.rows, mode=payload.relations_mode),
+        applied=False,
+    )
+
+
+# --- 목록 -------------------------------------------------------------------
+
+
+@router.get("/{type_slug}", response_model=ObjectPageOut)
+def list_objects(
+    type_slug: str,
+    request: Request,
+    background: BackgroundTasks,
+    q: str | None = Query(default=None, description="이름·식별자·검색 속성"),
+    status: str | None = Query(default=None),
+    under: uuid.UUID | None = Query(default=None, description="트리에서 고른 노드"),
+    deep: bool = Query(default=True, description="아래 것까지 포함"),
+    year: int | None = Query(
+        default=None, ge=1900, le=2999, description="그 해에 해당하는 것만"
+    ),
+    limit: int | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> ObjectPageOut:
+    """이 타입의 객체 목록.
+
+    거르기는 `?p.<속성키>=<값>` 으로 온다. `list_view` 가 열·정렬·검색 자리를
+    정하고, 안 정해 뒀으면 기본형으로 떨어진다 — **빈 화면이 되지는 않는다.**
+
+    목록 화면의 열에 파일 속성이 있으면 그 칸들(첫 장 · 수)이 `files` 로 함께 온다.
+    """
+    scope = _scope(db, type_slug)
+    capped = clamp_limit(limit)
+
+    projected = _projection(scope)
+    if projected is not None:
+        # 행이 없다 — 원 표를 그대로 투영한다. 거르기는 검색어뿐이다(속성이 없으므로).
+        refs, total = system.source_of(projected).search(db, user, q, capped, offset)
+        now = datetime.now(UTC)
+        return ObjectPageOut(
+            items=[system.projected(ref, projected.slug, now) for ref in refs],
+            total=total,
+            limit=capped,
+            offset=offset,
+        )
+
+    stmt = _filtered(
+        db, user, scope, request, q=q, status=status, year=year, under=under, deep=deep
+    )
+
+    total = count_of(db, stmt)
+    if total == 0 and offset == 0 and q:
+        _note_miss(
+            background, user, scope, request, q=q, status=status, year=year, under=under
+        )
+    found = page_rows(db, stmt, scope.list_view, total=total, limit=capped, offset=offset)
+    workspaces = _workspace_slugs(db)
+    labels = _ref_labels(db, user, scope.defs, found)
+    names = aliases.of(db, [row.id for row in found])
+    # **줄마다 제 타입** — 인터페이스 목록은 여러 타입이 섞인다(링크가 그 타입의 상세로 간다).
+    slug_of = {one.id: one.slug for one in scope.types}
+    return ObjectPageOut(
+        items=[
+            _out(
+                row,
+                slug_of.get(row.type_id, scope.slug),
+                workspaces,
+                labels,
+                names.get(row.id),
+            )
+            for row in found
+        ],
+        total=total,
+        limit=capped,
+        offset=offset,
+        files=_file_cells(db, user, scope, found),
+    )
+
+
+def _file_cells(
+    db: Session, user: User, scope: Scope, rows: list[ObjectInstance]
+) -> dict[str, dict[str, FileCellOut]]:
+    """목록 화면의 열에 선 파일 속성의 칸들 — 열에 없으면 묻지 않는다(대부분의 목록)."""
+    file_keys = {one.key for one in scope.defs if one.data_type == "file"}
+    wanted = [
+        column.split(".", 1)[1]
+        for column in scope.list_view.get("columns") or []
+        if isinstance(column, str)
+        and column.startswith("properties.")
+        and column.split(".", 1)[1] in file_keys
+    ]
+    cells = object_attachments.file_cells(db, user, [row.id for row in rows], wanted)
+    return {
+        str(object_id): {
+            field: FileCellOut(
+                count=cell.count, first=AttachmentBrief.model_validate(cell.first)
+            )
+            for field, cell in fields.items()
+        }
+        for object_id, fields in cells.items()
+    }
+
+
+def _note_miss(
+    background: BackgroundTasks,
+    user: User,
+    scope: Scope,
+    request: Request,
+    *,
+    q: str,
+    status: str | None,
+    year: int | None,
+    under: uuid.UUID | None,
+) -> None:
+    """목록이 검색어로 0건 — **검색어만 걸렸을 때만** 못 찾은 말로 남긴다. 다른 조건이 함께
+    걸렸으면 0건의 까닭이 그 조건일 수 있다(그것은 진단의 몫이다)."""
+    parts = _filter_parts(request, q=q, status=status, year=year, under=under)
+    if [name for name, _label in parts] == ["q"]:
+        misses.note(background, user, scope.slug, q, "list")
+
+
+# --- 해소 · 진단 --------------------------------------------------------------
+
+
+@router.get("/{type_slug}/resolve", response_model=ResolveOut)
+def resolve_name(
+    type_slug: str,
+    background: BackgroundTasks,
+    name: str = Query(description="이름·식별자·별칭 — 하나로 정해지는지 본다"),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> ResolveOut:
+    """이름 하나가 **어느 객체인지 정해지는가.**
+
+    목록이 아니라 판정을 준다 — `exact` 면 그 id 로 쓰고, `candidates` 면 쓰지 말고
+    사람에게 묻고, `none` 이면 없다. 이름으로 참조를 걸거나 관계를 잇기 **전에** 여기를
+    거치라고 두는 자리다(`resolve` 모듈의 설명).
+    """
+    scope = _scope(db, type_slug)
+    found = resolve.by_name(db, user, scope, name)
+    if found.match == "none" and _projection(scope) is None:
+        # **못 찾은 말은 별칭 후보로 남는다** — 응답 뒤에, 실패해도 이 답과 무관하게(`misses`).
+        misses.note(background, user, scope.slug, name, "resolve")
+    return ResolveOut.model_validate(found)
+
+
+@router.post("/{type_slug}/resolve-many", response_model=ResolveManyOut)
+def resolve_names(
+    type_slug: str,
+    payload: ResolveManyIn,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> ResolveManyOut:
+    """이름 여럿을 **한 번에** 푼다 — 정제 도구가 파일 하나의 끝점을 미리 맞춰 보는 자리.
+
+    한 줄에 한 번 물으면 이천 줄짜리 파일에 왕복이 이천 번이다(실측으로 그것이 가장 느린
+    구간이었다). 판정 규칙은 `GET …/resolve` 와 **같다** — 한 벌로 두어야 「낱개로는 되는데
+    묶음으로는 안 되는」 상태가 안 생긴다.
+
+    답은 **보낸 차례대로** 오고 줄마다 물은 이름(`name`)이 붙는다 — 차례로만 맞추면 중간에
+    빈 이름 하나가 섞였을 때 전부 한 칸씩 어긋난다.
+    """
+    scope = _scope(db, type_slug)
+    items = [
+        ResolveOneOut(name=one, **resolve.by_name(db, user, scope, one).__dict__)
+        for one in payload.names
+    ]
+    counts: dict[str, int] = {"exact": 0, "candidates": 0, "none": 0}
+    for one in items:
+        counts[one.match] = counts.get(one.match, 0) + 1
+    return ResolveManyOut(items=items, counts=counts)
+
+
+@router.get("/{type_slug}/diagnose", response_model=DiagnosisOut)
+def diagnose_list(
+    type_slug: str,
+    request: Request,
+    q: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    under: uuid.UUID | None = Query(default=None),
+    deep: bool = Query(default=True),
+    year: int | None = Query(default=None, ge=1900, le=2999),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> DiagnosisOut:
+    """목록이 0건일 때 **왜 0건인지.** 목록과 **같은 조건**을 그대로 넘긴다.
+
+    「없다」 와 「안 보인다」 와 「조건이 좁다」 를 가른다. 조건 때문이면 어느 조건을
+    빼면 몇 건인지, 그리고 그 중 **값이 비어 있어서** 빠진 것이 몇 건인지까지 말한다.
+    """
+    scope = _scope(db, type_slug)
+
+    def build(omit: str | None) -> Any:
+        return _filtered(
+            db,
+            user,
+            scope,
+            request,
+            q=q,
+            status=status,
+            year=year,
+            under=under,
+            deep=deep,
+            omit=omit,
+        )
+
+    defs = scope.defs
+
+    def unknown(name: str) -> int | None:
+        """그 조건이 거는 칸에 **값이 없어서** 빠진 수. 셀 수 없으면 None.
+
+        `empty` 로 세지 않고 「`notempty` 가 아닌 것」 으로 센다. 다른 타입의 칸
+        (`ref.vendor.country`)은 **이어진 것이 아예 없는 객체**가 `empty` 에도 안
+        걸리기 때문이다 — 그것까지 「값 있음」 으로 치면 「아무도 안 채웠다」 를
+        놓친다.
+        """
+        if name.startswith("p."):
+            field = name[2:]
+        elif name.startswith("f."):
+            field = name[2:].rsplit("#", 1)[0].rsplit(".", 1)[0]
+        else:
+            return None
+        try:
+            rest = build(name)
+            known = conditions.apply(
+                rest,
+                defs,
+                [conditions.Condition(field=field, op="notempty", value="")],
+                paths.Resolver(db, scope, viewer=user),
+            )
+            return max(count_of(db, rest) - count_of(db, known), 0)
+        except AppError:
+            return None
+
+    projected = _projection(scope)
+    total = (
+        system.source_of(projected).search(db, user, q, 1, 0)[1]
+        if projected is not None
+        else count_of(db, build(None))
+    )
+    found = resolve.diagnose(
+        db,
+        user,
+        scope,
+        total=total,
+        parts=_filter_parts(request, q=q, status=status, year=year, under=under),
+        without=build,
+        unknown=unknown,
+        count=lambda stmt: count_of(db, stmt),
+    )
+    return DiagnosisOut.model_validate(found)
+
+
+# --- 하나 -------------------------------------------------------------------
+
+
+def _profile_type(db: Session, slug: str, object_id: uuid.UUID) -> ObjectType:
+    """상세의 타입 — 인터페이스 slug 로 열었으면 **그 객체의 실제 타입**(구현 타입이어야 한다).
+    인터페이스 목록 · 참조가 객체를 인터페이스로 가리킬 수 있어서다(응답의 `type_slug` 가
+    실제 타입을 말한다)."""
+    found = _scope(db, slug)
+    if found.object_type is not None:
+        return found.object_type
+    row = db.get(ObjectInstance, object_id)
+    kind = found.type_of(row.type_id) if row is not None else None
+    if kind is None:
+        raise NotFound(code("OBJECTS", 11), "객체를 찾을 수 없습니다.")
+    return kind
+
+
+@router.get("/{type_slug}/{object_id}", response_model=ObjectProfileOut)
+def object_profile(
+    type_slug: str,
+    object_id: uuid.UUID,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> ObjectProfileOut:
+    object_type = _profile_type(db, type_slug, object_id)
+    if system.is_system(object_type):
+        ref = system.find(db, object_type, object_id)
+        if ref is None:
+            raise NotFound(code("OBJECTS", 11), "객체를 찾을 수 없습니다.")
+        return ObjectProfileOut(
+            object=system.projected(ref, object_type.slug, datetime.now(UTC)),
+            type_label=object_type.label,
+            properties_schema=[],
+            attachments=[],
+            related=_related_links(db, user, object_id),
+            # 원 표의 화면에서 고친다. 관계도 객체 쪽 끝에서 맺는다.
+            can_edit=False,
+            # 행이 없으니 지켜볼 것도 없다 — 그 표의 화면이 알릴 일이다.
+            watching=False,
+        )
+    try:
+        row = _visible(db, user, object_type, object_id)
+    except NotFound:
+        # 합쳐져서 지워진 것이면 **어디로 갔는지 말한다** — 옛 링크가 새 것으로 간다. 지는
+        # 쪽도 **보이는 것이어야** 한다 — 메시지가 그 이름을 싣는다(남의 부서 것이면 샌다).
+        merged = db.scalar(
+            select(ObjectInstance).where(
+                ObjectInstance.id == object_id,
+                ObjectInstance.type_id == object_type.id,
+                ObjectInstance.merged_into_id.is_not(None),
+                visible_owner_clause(user, ObjectInstance.owner_workspace_id),
+            )
+        )
+        if merged is not None and merged.merged_into_id is not None:
+            target = db.scalar(
+                select(ObjectInstance).where(
+                    ObjectInstance.id == merged.merged_into_id,
+                    ObjectInstance.deleted_at.is_(None),
+                    visible_owner_clause(user, ObjectInstance.owner_workspace_id),
+                )
+            )
+            if target is not None:
+                raise NotFound(
+                    code("OBJECTS", 54),
+                    f"{merged.label}은 {target.label}에 합쳐졌습니다.",
+                    details={"merged_into": str(target.id), "type_slug": object_type.slug},
+                ) from None
+        raise
+
+    attachments = list(
+        db.scalars(
+            select(Attachment)
+            .where(
+                Attachment.owner_table == "objects",
+                Attachment.owner_id == row.id,
+                Attachment.deleted_at.is_(None),
+            )
+            .order_by(Attachment.created_at.desc())
+        )
+    )
+    files_services.inspect_pending(db, attachments)
+
+    defs = properties_of(db, object_type.id)
+    return ObjectProfileOut(
+        object=_out(
+            row,
+            object_type.slug,
+            _workspace_slugs(db),
+            _ref_labels(db, user, defs, [row]),
+            aliases.of(db, [row.id]).get(row.id),
+        ),
+        type_label=object_type.label,
+        properties_schema=[PropertyDefOut.model_validate(p) for p in defs],
+        attachments=[AttachmentBrief.model_validate(a) for a in attachments],
+        related=_related(db, user, row),
+        log_counts=[
+            LogCountOut(
+                type_slug=one.kind.src_type.slug,
+                type_label=one.kind.src_type.label,
+                key=one.kind.key,
+                label=one.kind.label,
+                inverse_label=one.kind.inverse_label,
+                count=one.count,
+            )
+            for one in refedges.log_counts(db, target=row.id, user=user)
+        ],
+        can_edit=_can_edit(db, user, row) and not managed.owner_of(object_type),
+        can_link=_can_edit(db, user, row),
+        watching=watches.watching(db, object_id=row.id, user_id=user.id),
+        watcher_count=watches.counts(db, [row.id]).get(row.id, 0),
+    )
+
+
+@router.post("/{type_slug}", response_model=ObjectOut, status_code=201)
+def create_object(
+    type_slug: str,
+    payload: ObjectCreateRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> ObjectOut:
+    object_type = _type(db, type_slug)
+    if not object_type.is_active:
+        raise Forbidden(
+            code("OBJECTS", 13), f"{object_type.label}은 지금 쓰지 않는 타입입니다."
+        )
+    _not_system(object_type, "만들지")
+    managed.require_objects_editable(object_type, what="만들지")
+
+    owner_workspace_id = resolve_owner_workspace(
+        db, user, payload.workspace_slug, what="객체", code_value=code("OBJECTS", 15)
+    )
+    key = normalize_key(object_type, payload.key)
+    require_key_free(db, object_type, key, owner_workspace_id=owner_workspace_id)
+
+    defs = properties_of(db, object_type.id)
+    properties = validate_properties(defs, payload.properties, apply_defaults=True)
+    require_refs_exist(db, defs, properties, user=user)
+    require_unique_properties(
+        db, object_type, defs, properties, owner_workspace_id=owner_workspace_id
+    )
+
+    row = ObjectInstance(
+        type_id=object_type.id,
+        key=key,
+        label=payload.label,
+        description=payload.description,
+        properties=properties,
+        owner_workspace_id=owner_workspace_id,
+        valid_from_year=payload.valid_from_year,
+        valid_to_year=payload.valid_to_year,
+        created_by_id=user.id,
+    )
+    db.add(row)
+    db.flush()
+    audit.record(
+        db,
+        action="object.create",
+        actor=user,
+        target_table="objects",
+        target_id=row.id,
+        target_label=f"{object_type.slug}:{row.label}",
+        workspace_id=owner_workspace_id,
+    )
+    # **만든 사람은 자동으로 지켜본다.** 스스로 켜야만 하는 기능은 켜는 법을 아는
+    # 사람만 쓰고, 그 사람은 대개 이미 알고 있는 사람이다.
+    watches.watch_own(db, object_id=row.id, user_id=user.id)
+    db.commit()
+    db.refresh(row)
+    return _out(row, object_type.slug, _workspace_slugs(db))
+
+
+@router.patch("/{type_slug}/{object_id}", response_model=ObjectOut)
+def update_object(
+    type_slug: str,
+    object_id: uuid.UUID,
+    payload: ObjectPatchRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> ObjectOut:
+    object_type = _type(db, type_slug)
+    row = _visible(db, user, object_type, object_id)
+    require_owner_edit(
+        db, user, row.owner_workspace_id, what="객체", code_value=code("OBJECTS", 16)
+    )
+
+    managed.require_objects_editable(object_type)
+    before = audit_state(row)
+
+    if payload.key is not None:
+        key = normalize_key(object_type, payload.key)
+        require_key_free(
+            db, object_type, key, owner_workspace_id=row.owner_workspace_id, exclude_id=row.id
+        )
+        if row.key and key and row.key != key:
+            # **화면에서 고쳐도 옛 식별자를 남긴다.** 파일로 바꿀 때만 남기던 때는, 화면에서
+            # 고친 키가 밖에서는 처음 보는 것이라 **같은 객체가 둘**이 됐다(실측).
+            key_history.remember(row, row.key, key)
+        row.key = key
+    if payload.label is not None:
+        row.label = payload.label
+    if payload.description is not None:
+        row.description = payload.description
+    if payload.status is not None:
+        row.status = require_choice(payload.status, OBJECT_STATUSES, what="상태")
+    if payload.valid_from_year is not None:
+        row.valid_from_year = payload.valid_from_year
+    if payload.valid_to_year is not None:
+        row.valid_to_year = payload.valid_to_year
+
+    if payload.properties is not None:
+        defs = properties_of(db, object_type.id)
+        merged = merge_properties(row.properties or {}, payload.properties)
+        cleaned = validate_properties(defs, merged)
+        require_refs_exist(db, defs, cleaned, row.properties or {}, user=user)
+        require_unique_properties(
+            db,
+            object_type,
+            defs,
+            cleaned,
+            owner_workspace_id=row.owner_workspace_id,
+            exclude_id=row.id,
+        )
+        row.properties = cleaned
+
+    after = audit_state(row)
+    # **사람이 고친 칸을 표시한다** — 다음 적재가 조용히 되돌리지 않게. 기계 자격(PAT)으로
+    # 같은 경로를 부르면 아무 일도 안 한다(그 값은 덮어도 되는 값이다).
+    humanedits.record(row, before, after)
+    audit.record(
+        db,
+        action="object.update",
+        actor=user,
+        target_table="objects",
+        target_id=row.id,
+        target_label=f"{object_type.slug}:{row.label}",
+        workspace_id=row.owner_workspace_id,
+        changes=audit.diff(before, after),
+    )
+    db.commit()
+    db.refresh(row)
+    return _out(row, object_type.slug, _workspace_slugs(db))
+
+
+@router.put("/{type_slug}/{object_id}/aliases", response_model=ObjectOut)
+def set_aliases(
+    type_slug: str,
+    object_id: uuid.UUID,
+    payload: AliasesRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> ObjectOut:
+    """사람이 붙인 다른 이름을 통째로 바꾼다. **같은 타입의 다른 객체가 쓰는 별칭이면
+    거절한다** — 어느 객체인지 말하며."""
+    object_type = _type(db, type_slug)
+    _not_system(object_type, "별칭을 붙이지")
+    managed.require_objects_editable(object_type, what="별칭을 붙이지")
+    row = _visible(db, user, object_type, object_id)
+    require_owner_edit(
+        db, user, row.owner_workspace_id, what="객체", code_value=code("OBJECTS", 12)
+    )
+    # **화면에서 사람이 붙인 것은 곧 확인한 것이다** — 검수 대기로 남는 것은 기계가 붙인
+    # 것뿐이어야 한다. 안 그러면 그 목록은 곧 수천 줄이 되어 아무도 안 읽는다.
+    before, after = aliases.set_human(db, row, object_type, payload.aliases, verified=user)
+    if before != after:
+        audit.record(
+            db,
+            action="object.update",
+            actor=user,
+            target_table="objects",
+            target_id=row.id,
+            target_label=f"{object_type.slug}:{row.label}",
+            workspace_id=row.owner_workspace_id,
+            changes={"aliases": {"before": before, "after": after}},
+        )
+    db.commit()
+    return _out(
+        row,
+        object_type.slug,
+        _workspace_slugs(db),
+        _ref_labels(db, user, properties_of(db, object_type.id), [row]),
+        aliases.of(db, [row.id]).get(row.id),
+    )
+
+
+@router.get("/{type_slug}/aliases/pending", response_model=AliasReviewPage)
+def pending_aliases(
+    type_slug: str,
+    limit: int | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> AliasReviewPage:
+    """**사람이 아직 안 본 별칭** — 기계가 붙인 것이 그대로 정본처럼 쓰이지 않게.
+
+    적재는 별칭을 수천 개 붙인다. 그 안에는 오타 표기와 남의 이름이 섞이는데, 가르는 칸이
+    없으면 전부 정본처럼 쓰인다. 화면에서 사람이 붙인 것은 붙이는 순간 확인한 것으로 두고,
+    여기 남는 것은 **기계가 붙인 것**뿐이다.
+    """
+    object_type = _type(db, type_slug)
+    rows, total = aliases.pending(
+        db, user, object_type, limit=clamp_limit(limit), offset=offset
+    )
+    return AliasReviewPage(
+        items=[
+            AliasReviewOut(
+                id=one.id,
+                object_id=one.object_id,
+                object_label=label,
+                object_key=key,
+                value=one.value,
+                kind=one.kind,
+                source=one.source,
+                note=one.note,
+                created_at=one.created_at,
+            )
+            for one, label, key in rows
+        ],
+        total=total,
+    )
+
+
+@router.post("/{type_slug}/aliases/review", response_model=AliasReviewResult)
+def review_aliases(
+    type_slug: str,
+    payload: AliasReviewRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> AliasReviewResult:
+    """고른 별칭을 **한 번에** 확인하거나 지운다.
+
+    한 줄씩 누르게 하면 수백 줄을 끝까지 보는 사람이 없다 — 그러면 검수는 안 한 것과 같다.
+    지우기도 여기 둔다: 확인만 되면 「아니다」 를 말할 자리가 없어 사람은 둘 다 안 한다.
+    """
+    object_type = _type(db, type_slug)
+    _not_system(object_type, "별칭을 검수하지")
+    managed.require_objects_editable(object_type, what="별칭을 고치지")
+    done, refused = aliases.review(
+        db, user, object_type, payload.ids, approve=payload.action == "approve"
+    )
+    db.commit()
+    return AliasReviewResult(done=done, refused=refused)
+
+
+@router.put("/{type_slug}/{object_id}/watch", response_model=WatchOut)
+def set_watch(
+    type_slug: str,
+    object_id: uuid.UUID,
+    payload: WatchRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> WatchOut:
+    """이것이 바뀌면 알려 달라(또는 그만).
+
+    **볼 수 있는 것만 지켜본다** — `_visible` 이 그것을 판정한다. 못 보는 것을 지켜보면
+    알림 제목으로 그 이름이 새어 나간다.
+    """
+    object_type = _type(db, type_slug)
+    if system.is_system(object_type):
+        raise Conflict(
+            code("OBJECTS", 53),
+            f"{object_type.label}은(는) 다른 표를 비추는 타입이라 여기서 지켜볼 수 없습니다.",
+        )
+    row = _visible(db, user, object_type, object_id)
+    watching = watches.set_watching(db, object_id=row.id, user_id=user.id, on=payload.on)
+    db.commit()
+    return WatchOut(
+        watching=watching, watcher_count=watches.counts(db, [row.id]).get(row.id, 0)
+    )
+
+
+@router.get("/{type_slug}/{object_id}/rollup", response_model=list[RollupOut])
+def object_rollup(
+    type_slug: str,
+    object_id: uuid.UUID,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> list[RollupOut]:
+    """이 객체 「아래 전부」 의 숫자를 모은 것 — `list_view.rollups` 가 정한 대로.
+
+    저장하지 않고 볼 때마다 센다. 값이 빈 것이 몇 개인지 함께 준다 — 안 주면 합계가
+    「전부의 합」 으로 읽히고, 그것은 틀린 수다."""
+    object_type = _type(db, type_slug)
+    row = _visible(db, user, object_type, object_id)
+    relation, parent_end = _tree_spec(object_type)
+    if relation is None:
+        return []
+    defs = properties_of(db, object_type.id)
+    return [
+        RollupOut(**one.__dict__)
+        for one in rollup.compute(
+            db, user, object_type, row, defs, relation=relation, parent_end=parent_end
+        )
+    ]
+
+
+@router.get("/{type_slug}/{object_id}/similar", response_model=SimilarOut)
+def object_similar(
+    type_slug: str,
+    object_id: uuid.UUID,
+    fields: str | None = Query(
+        default=None, description="태그로 볼 참조 칸, 쉼표로(비우면 참조 칸 전부)"
+    ),
+    limit: int = Query(default=10, ge=1, le=50),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> SimilarOut:
+    """비슷한 기록(ADR 0022) — 이 기록의 축 태그(참조 칸)와 많이 겹치는 같은 타입의 기록.
+    드문 태그가 겹칠수록 비슷하다(무게 ln(N/df)), 겹친 태그를 함께."""
+    object_type = _type(db, type_slug)
+    row = _visible(db, user, object_type, object_id)
+    chosen = similar.axis_fields(db, object_type, _keys(fields))
+    found = similar.similar(
+        db,
+        user,
+        object_type,
+        query=similar.tags_of(db, row.id, chosen),
+        fields=chosen,
+        exclude=row.id,
+        limit=limit,
+    )
+    return _similar_out(object_type, found)
+
+
+@router.post("/{type_slug}/similar", response_model=SimilarOut)
+def tags_similar(
+    type_slug: str,
+    payload: SimilarAskRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> SimilarOut:
+    """태그 묶음과 비슷한 기록 — 아직 기록이 없는 새 이슈에서 「전에 비슷한 것」 을 찾을 때."""
+    object_type = _type(db, type_slug)
+    chosen = similar.axis_fields(db, object_type, payload.fields)
+    allowed = {one.key for one in chosen}
+    unknown = sorted(set(payload.tags) - allowed)
+    if unknown:
+        raise AppError(
+            code("OBJECTS", 110),
+            f"태그로 볼 참조 칸이 아닙니다: {', '.join(unknown)} — 있는 것: "
+            f"{', '.join(sorted(allowed)) or '(없음)'}",
+            status=422,
+        )
+    query = {
+        similar.Tag(key, str(value))
+        for key, values in payload.tags.items()
+        for value in values
+    }
+    found = similar.similar(
+        db, user, object_type, query=query, fields=chosen, limit=payload.limit
+    )
+    return _similar_out(object_type, found)
+
+
+def _keys(raw: str | None) -> list[str] | None:
+    if raw is None:
+        return None
+    return [one.strip() for one in raw.split(",") if one.strip()]
+
+
+def _similar_out(object_type: ObjectType, found: similar.Found) -> SimilarOut:
+    labels = {one.key: one.label for one in found.fields}
+
+    def tag(one: similar.Tag) -> SimilarTagOut:
+        return SimilarTagOut(
+            field=one.key,
+            field_label=labels.get(one.key, one.key),
+            value=one.value,
+            value_label=found.names.get(one.value),
+            weight=found.weight.get(one, 0.0),
+            records=found.df.get(one, 0),
+        )
+
+    return SimilarOut(
+        type_slug=object_type.slug,
+        total=found.total,
+        fields=[one.key for one in found.fields],
+        query=[
+            tag(one) for one in sorted(found.query, key=lambda t: -found.weight.get(t, 0.0))
+        ],
+        items=[
+            SimilarItemOut(
+                id=item.row.id,
+                key=item.row.key,
+                label=item.row.label,
+                status=item.row.status,
+                score=item.score,
+                shared=[tag(one) for one in item.shared],
+                extra=item.extra,
+            )
+            for item in found.items
+        ],
+    )
+
+
+@router.get("/{type_slug}/{object_id}/references", response_model=ReferencesOut)
+def object_references(
+    type_slug: str,
+    object_id: uuid.UUID,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> ReferencesOut:
+    """이 객체를 가리키는 것 — **누르기 전에 아는 자리.** 지우기 확인 창이 쓴다."""
+    object_type = _type(db, type_slug)
+    row = _visible(db, user, object_type, object_id)
+    refs = lifecycle.references_of(db, user, row, object_type)
+    return ReferencesOut(
+        property_refs=[RefHitOut(**vars(one)) for one in refs.property_refs],
+        relations=[RelationHitOut(**vars(one)) for one in refs.relations],
+        hidden_property_refs=refs.hidden_property_refs,
+        hidden_relations=refs.hidden_relations,
+        more_property_refs=refs.more_property_refs,
+        total=refs.total,
+    )
+
+
+@router.get("/{type_slug}/{object_id}/history", response_model=list[HistoryEntryOut])
+def object_history(
+    type_slug: str,
+    object_id: uuid.UUID,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> list[HistoryEntryOut]:
+    """이 객체의 이력 — 최근 것이 앞. **볼 수 있는 사람은 누구나** — 「이 값이 어디서
+    왔나」 는 그 값을 쓰는 사람의 물음이지 관리자의 물음이 아니다."""
+    object_type = _type(db, type_slug)
+    row = _visible(db, user, object_type, object_id)
+    return [
+        HistoryEntryOut(
+            id=one.id,
+            at=one.at,
+            actor_label=one.actor_label,
+            action=one.action,
+            reason=one.reason,
+            kind=one.kind,
+            changes=one.changes,
+            relation=one.relation,
+            snapshot=SnapshotOut(**vars(one.snapshot)) if one.snapshot else None,
+            batch=HistoryBatchOut(**one.batch) if one.batch else None,
+        )
+        for one in history.history_of(db, row, viewer=user)
+    ]
+
+
+@router.post("/{type_slug}/{object_id}/restore", response_model=ObjectOut)
+def restore_object(
+    type_slug: str,
+    object_id: uuid.UUID,
+    payload: RestoreRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> ObjectOut:
+    """그 시점의 값으로 **고친다** — 저장과 같은 검증을 거쳐서. 그때 가리키던 것이
+    지워졌거나 규칙이 바뀌었으면 막고 이유를 말한다."""
+    object_type = _type(db, type_slug)
+    row = _visible(db, user, object_type, object_id)
+    require_owner_edit(
+        db, user, row.owner_workspace_id, what="객체", code_value=code("OBJECTS", 16)
+    )
+    managed.require_objects_editable(object_type, what="되돌리지")
+    history.restore(db, user, row, object_type, payload.entry_id)
+    db.refresh(row)
+    defs = properties_of(db, object_type.id)
+    return _out(
+        row, object_type.slug, _workspace_slugs(db), _ref_labels(db, user, defs, [row])
+    )
+
+
+@router.delete("/{type_slug}/{object_id}", status_code=204)
+def delete_object(
+    type_slug: str,
+    object_id: uuid.UUID,
+    mode: str = Query(default="block", pattern="^(block|detach)$"),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    """**지우지 않는다.** `deleted_at` 만 채운다 — 첨부가 밖에 남아 있고, 몇 년 뒤에도
+    그것이 무엇이었는지는 물어질 수 있다.
+
+    가리키는 것이 있으면 `block`(기본)은 **막고 무엇이 걸렸는지 말한다.** `detach` 는
+    참조를 비우고 관계를 끊고 지운다 — 사람이 확인 창에서 고른 뒤에만 온다. 합치기는
+    `POST .../merge` 다.
+    """
+    object_type = _type(db, type_slug)
+    row = _visible(db, user, object_type, object_id)
+    require_owner_edit(
+        db, user, row.owner_workspace_id, what="객체", code_value=code("OBJECTS", 17)
+    )
+    managed.require_objects_editable(object_type, what="삭제하지")
+    if mode == "detach":
+        lifecycle.delete_detaching(db, user, row, object_type)
+    else:
+        lifecycle.delete_blocking(db, user, row, object_type)
+
+
+@router.post("/{type_slug}/{object_id}/merge", response_model=MergeResultOut)
+def merge_object(
+    type_slug: str,
+    object_id: uuid.UUID,
+    payload: MergeRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> MergeResultOut:
+    """이 객체를 다른 객체에 **합치고** 지운다 — 참조·관계가 이긴 쪽으로 옮겨 가고,
+    지는 쪽은 `merged_into` 로 남아 옛 링크가 새 것으로 간다."""
+    object_type = _type(db, type_slug)
+    row = _visible(db, user, object_type, object_id)
+    require_owner_edit(
+        db, user, row.owner_workspace_id, what="객체", code_value=code("OBJECTS", 17)
+    )
+    managed.require_objects_editable(object_type, what="합치지")
+    target = _visible(db, user, object_type, payload.into)
+    result = lifecycle.merge_into(db, user, row, object_type, target)
+    return MergeResultOut(into=target.id, **result)
+
+
+@router.post("/{type_slug}/{object_id}/merge/job", response_model=JobOut, status_code=202)
+def merge_object_job(
+    type_slug: str,
+    object_id: uuid.UUID,
+    payload: MergeRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> JobOut:
+    """합치기를 **작업으로** — 가리키는 기록이 많은 객체(OBJECTS-96). 같은 검사를 먼저 하고,
+    워커가 같은 함수(`lifecycle.merge_into`)를 부른다."""
+    object_type, row = _rewritable(db, user, type_slug, object_id, what="합치지")
+    _visible(db, user, object_type, payload.into)
+    return _rewrite_job(db, user, "merge", object_type, row.id, into=payload.into)
+
+
+@router.post("/{type_slug}/{object_id}/detach/job", response_model=JobOut, status_code=202)
+def detach_object_job(
+    type_slug: str,
+    object_id: uuid.UUID,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> JobOut:
+    """참조를 비우고 지우기를 **작업으로** — 가리키는 기록이 많은 객체(OBJECTS-96)."""
+    object_type, row = _rewritable(db, user, type_slug, object_id, what="삭제하지")
+    return _rewrite_job(db, user, "detach", object_type, row.id)
+
+
+def _rewritable(
+    db: Session, user: User, type_slug: str, object_id: uuid.UUID, *, what: str
+) -> tuple[ObjectType, ObjectInstance]:
+    object_type = _type(db, type_slug)
+    row = _visible(db, user, object_type, object_id)
+    require_owner_edit(
+        db, user, row.owner_workspace_id, what="객체", code_value=code("OBJECTS", 17)
+    )
+    managed.require_objects_editable(object_type, what=what)
+    return object_type, row
+
+
+def _rewrite_job(
+    db: Session,
+    user: User,
+    op: str,
+    object_type: ObjectType,
+    object_id: uuid.UUID,
+    *,
+    into: uuid.UUID | None = None,
+) -> JobOut:
+    params: dict[str, Any] = {
+        "op": op,
+        "type_slug": object_type.slug,
+        "object_id": str(object_id),
+    }
+    if into is not None:
+        params["into"] = str(into)
+    job = job_services.enqueue(
+        db,
+        kind="objects_rewrite",
+        params=params,
+        user=user,
+        workspace_id=None,
+        input_file=None,
+    )
+    db.commit()
+    db.refresh(job)
+    return jobs_routes._out(db, job)
+
+
+def run_rewrite_job(
+    db: Session, user: User, params: dict[str, Any], progress: Any
+) -> dict[str, Any]:
+    """작업(`objects_rewrite`)의 몸 — 요청 경로와 **같은 검사 · 같은 함수**다."""
+    op = str(params.get("op") or "")
+    object_type, row = _rewritable(
+        db,
+        user,
+        str(params.get("type_slug") or ""),
+        uuid.UUID(str(params.get("object_id"))),
+        what="합치지" if op == "merge" else "삭제하지",
+    )
+    progress("고치는 중", 0, 0)
+    if op == "merge":
+        target = _visible(db, user, object_type, uuid.UUID(str(params.get("into"))))
+        merged = lifecycle.merge_into(db, user, row, object_type, target, inline=False)
+        return {"op": op, "into": str(target.id), **merged}
+    detached = lifecycle.delete_detaching(db, user, row, object_type, inline=False)
+    return {"op": "detach", **detached}
+
+
+# --- 관련 객체 --------------------------------------------------------------
+
+
+def _related(db: Session, user: User, row: ObjectInstance) -> list[RelatedObjectOut]:
+    """이 객체에 걸린 관계들 — **양방향 다.**
+
+    「이것이 가리키는 것」 만 주면 「이것을 가리키는 것」 을 물을 자리가 없어진다.
+    부품에서 그 부품을 쓰는 어셈블리를 못 보면, 그 부품을 지워도 되는지 알 수 없다.
+
+    **볼 수 있는 것만 준다.** 저쪽 끝이 남의 부서 것이면 그 줄은 안 나온다 —
+    없는 것과 안 보이는 것을 같은 말로 답하는 이 틀의 규칙 그대로다.
+    """
+    edges = list(
+        db.scalars(
+            select(ObjectRelation)
+            .where(
+                (ObjectRelation.src_object_id == row.id)
+                | (ObjectRelation.dst_object_id == row.id)
+            )
+            .order_by(ObjectRelation.created_at)
+        )
+    )
+    if not edges:
+        return _related_refs(db, user, row) + _related_links(db, user, row.id)
+
+    other_ids = {
+        (edge.dst_object_id if edge.src_object_id == row.id else edge.src_object_id)
+        for edge in edges
+    }
+    others = {
+        one.id: one
+        for one in db.scalars(
+            select(ObjectInstance).where(
+                ObjectInstance.id.in_(other_ids),
+                ObjectInstance.deleted_at.is_(None),
+                visible_owner_clause(user, ObjectInstance.owner_workspace_id),
+            )
+        )
+    }
+    kinds = {one.slug: one for one in db.scalars(select(RelationType))}
+    types = {one.id: one for one in db.scalars(select(ObjectType))}
+
+    out: list[RelatedObjectOut] = []
+    for edge in edges:
+        outgoing = edge.src_object_id == row.id
+        other = others.get(edge.dst_object_id if outgoing else edge.src_object_id)
+        if other is None:
+            continue
+        kind = kinds.get(edge.relation)
+        object_type = types.get(other.type_id)
+
+        # **방향에 맞는 말을 고른다.** 없으면 slug 를 보여 준다 — 빈 칸으로 두면
+        # 그 줄이 무슨 관계인지 알 방법이 없다.
+        if kind is None:
+            label = edge.relation
+        elif outgoing or not kind.directed:
+            label = kind.label
+        else:
+            label = kind.inverse_label or f"{kind.label}의 반대"
+
+        out.append(
+            RelatedObjectOut(
+                relation_id=edge.id,
+                relation=edge.relation,
+                label=label,
+                outgoing=outgoing,
+                object_id=other.id,
+                object_label=other.label,
+                object_key=other.key,
+                object_type_slug=object_type.slug if object_type else "",
+                object_type_label=object_type.label if object_type else "알 수 없음",
+                properties=edge.properties or {},
+                evidence_note=edge.evidence_note,
+                created_at=edge.created_at,
+            )
+        )
+    return out + _related_refs(db, user, row) + _related_links(db, user, row.id)
+
+
+def _related_refs(db: Session, user: User, row: ObjectInstance) -> list[RelatedObjectOut]:
+    """참조 칸으로 이어진 것 — **칸에 저장한 관계도 관련 객체다.** 가리키는 것(칸 값)과 나를
+    가리키는 것(다른 객체의 칸 값) 둘 다. 이 줄은 관계 줄이 아니라 끊는 단추가 없다 — 칸을
+    비우거나 상대 객체의 칸을 고친다."""
+    kinds = refedges.kinds(db)
+    # 나를 가리키는 기록은 줄로 안 싣는다 — `log_counts` 가 수로 보인다(ADR 0011).
+    found = refedges.neighbor_edges(
+        db, frontier=[row.id], user=user, fanout=REF_RELATED_LIMIT, skip_logs=True
+    )
+    if not found:
+        return []
+    other_ids = {edge.dst if edge.src == row.id else edge.src for edge in found}
+    others = {
+        one.id: one
+        for one in db.scalars(select(ObjectInstance).where(ObjectInstance.id.in_(other_ids)))
+    }
+    types = {one.id: one for one in db.scalars(select(ObjectType))}
+    out: list[RelatedObjectOut] = []
+    for edge in found:
+        outgoing = edge.src == row.id
+        other = others.get(edge.dst if outgoing else edge.src)
+        kind = kinds.get(edge.relation)
+        if other is None or kind is None:
+            continue
+        object_type = types.get(other.type_id)
+        out.append(
+            RelatedObjectOut(
+                relation_id=edge.id,
+                relation=edge.relation,
+                label=kind.label if outgoing else kind.inverse_label,
+                outgoing=outgoing,
+                object_id=other.id,
+                object_label=other.label,
+                object_key=other.key,
+                object_type_slug=object_type.slug if object_type else "",
+                object_type_label=object_type.label if object_type else "알 수 없음",
+                properties={},
+                evidence_note="",
+                created_at=other.created_at,
+                stored_as="field",
+                field_key=kind.key,
+            )
+        )
+    return out
+
+
+def _related_links(db: Session, user: User, mine: uuid.UUID) -> list[RelatedObjectOut]:
+    """한쪽 끝이 원 표(system)인 선들 — 「관련 객체」 에 같은 줄로 선다."""
+    found = system.links_of(db, mine)
+    if not found:
+        return []
+    kinds = {one.slug: one for one in db.scalars(select(RelationType))}
+    types = system.types_by_slug(db)
+    out: list[RelatedObjectOut] = []
+    for link in found:
+        other = system.other_end(db, user, link, mine, types)
+        if other is None:
+            continue
+        outgoing = link.src_id == mine
+        kind = kinds.get(link.relation)
+        if kind is None:
+            label = link.relation
+        elif outgoing or not kind.directed:
+            label = kind.label
+        else:
+            label = kind.inverse_label or f"{kind.label}의 반대"
+        other_type = types.get(other.type_slug)
+        out.append(
+            RelatedObjectOut(
+                relation_id=link.id,
+                relation=link.relation,
+                label=label,
+                outgoing=outgoing,
+                object_id=other.id,
+                object_label=other.label,
+                object_key=None,
+                object_type_slug=other.type_slug,
+                object_type_label=other_type.label if other_type else "알 수 없음",
+                properties=link.properties or {},
+                evidence_note=link.evidence_note,
+                created_at=link.created_at,
+            )
+        )
+    return out
+
+
+@router.post(
+    "/{type_slug}/{object_id}/relations", response_model=RelatedObjectOut, status_code=201
+)
+def add_relation(
+    type_slug: str,
+    object_id: uuid.UUID,
+    payload: RelationCreateRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> RelatedObjectOut:
+    """관계를 맺는다 — **출발점을 고칠 수 있는 사람만.**
+
+    도착점은 볼 수만 있으면 된다. 양쪽 다 고칠 수 있어야 한다고 하면 부서를
+    가로지르는 연결을 아무도 못 만들고, 그러면 **연결하려고 만든 것이 칸막이가
+    된다.** 대신 맺은 사람과 근거가 남는다.
+    """
+    object_type = _type(db, type_slug)
+    src = _visible(db, user, object_type, object_id)
+    require_owner_edit(
+        db, user, src.owner_workspace_id, what="객체", code_value=code("OBJECTS", 27)
+    )
+
+    kind = rel.relation_type(db, payload.relation)
+    managed.require_relation_editable(kind)
+    dst_end = system.find_end(db, user, payload.dst_object_id, allowed=kind.dst_type_slugs)
+    if dst_end is None:
+        raise NotFound(code("OBJECTS", 28), "이을 객체를 찾을 수 없습니다.")
+    if dst_end.is_system:
+        # 도착점이 원 표(부서·계정)면 선은 `object_links` 에 — 규칙은 같다.
+        defs = list(
+            db.scalars(
+                select(PropertyDef).where(
+                    PropertyDef.owner_kind == "relation", PropertyDef.owner_id == kind.id
+                )
+            )
+        )
+        link = links.add(
+            db,
+            user,
+            kind,
+            system.end_of(src, object_type),
+            dst_end,
+            properties=validate_properties(defs, payload.properties, apply_defaults=True),
+            evidence_note=payload.evidence_note,
+        )
+        db.commit()
+        return _link_out(db, user, src.id, link.id)
+
+    dst = db.get(ObjectInstance, dst_end.id)
+    assert dst is not None
+    rel.require_endpoints_allowed(db, kind, src, dst)
+    rel.require_cardinality(db, kind, src.id, dst.id)
+    rel.require_no_cycle(db, kind, src.id, dst.id)
+
+    existing = db.scalar(
+        select(ObjectRelation).where(
+            ObjectRelation.src_object_id == src.id,
+            ObjectRelation.dst_object_id == dst.id,
+            ObjectRelation.relation == kind.slug,
+        )
+    )
+    if existing is not None:
+        raise Conflict(code("OBJECTS", 29), "이미 이어져 있습니다.")
+
+    # 관계 종류가 정한 속성 모양대로 검증한다 — **타입의 속성과 같은 규칙**이다.
+    defs = list(
+        db.scalars(
+            select(PropertyDef).where(
+                PropertyDef.owner_kind == "relation", PropertyDef.owner_id == kind.id
+            )
+        )
+    )
+    properties = validate_properties(defs, payload.properties, apply_defaults=True)
+
+    edge = ObjectRelation(
+        src_object_id=src.id,
+        dst_object_id=dst.id,
+        relation=kind.slug,
+        properties=properties,
+        evidence_note=payload.evidence_note,
+        created_by_id=user.id,
+    )
+    db.add(edge)
+    db.flush()
+    audit.record(
+        db,
+        action="object.relation.add",
+        actor=user,
+        target_table="object_relations",
+        target_id=edge.id,
+        target_label=f"{src.label} -{kind.slug}-> {dst.label}",
+        workspace_id=src.owner_workspace_id,
+        # 양 끝을 id 로 남긴다 — 객체의 이력이 「이 관계가 나에게 걸린 것」 을 찾는 근거.
+        changes=audit.relation_endpoints(edge, src.label, dst.label),
+    )
+    db.commit()
+
+    found = [one for one in _related(db, user, src) if one.relation_id == edge.id]
+    return found[0]
+
+
+@router.patch(
+    "/{type_slug}/{object_id}/relations/{relation_id}", response_model=RelatedObjectOut
+)
+def update_relation(
+    type_slug: str,
+    object_id: uuid.UUID,
+    relation_id: uuid.UUID,
+    payload: RelationPatchRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> RelatedObjectOut:
+    """관계의 속성과 근거를 고친다. **양끝과 종류는 못 바꾼다** — 그건 다른 관계다."""
+    object_type = _type(db, type_slug)
+    row = _visible(db, user, object_type, object_id)
+    require_owner_edit(
+        db, user, row.owner_workspace_id, what="객체", code_value=code("OBJECTS", 30)
+    )
+    link = _link(db, relation_id, row)
+    if link is not None:
+        managed.require_relation_editable(rel.relation_type(db, link.relation))
+        if payload.evidence_note is not None:
+            link.evidence_note = payload.evidence_note
+        if payload.properties is not None:
+            kind = rel.relation_type(db, link.relation)
+            defs = list(
+                db.scalars(
+                    select(PropertyDef).where(
+                        PropertyDef.owner_kind == "relation", PropertyDef.owner_id == kind.id
+                    )
+                )
+            )
+            link.properties = validate_properties(
+                defs, merge_properties(link.properties or {}, payload.properties)
+            )
+        audit.record(
+            db,
+            action="object.relation.update",
+            actor=user,
+            target_table=links.TABLE,
+            target_id=link.id,
+            target_label=f"{row.label} · {link.relation}",
+            workspace_id=row.owner_workspace_id,
+            changes=links.endpoints(link, *_link_labels(db, user, link)),
+        )
+        db.commit()
+        return _link_out(db, user, row.id, link.id)
+    edge = _edge(db, relation_id, row)
+    _require_other_end_visible(db, user, edge, row)
+    managed.require_relation_editable(rel.relation_type(db, edge.relation))
+
+    if payload.evidence_note is not None:
+        edge.evidence_note = payload.evidence_note
+    if payload.properties is not None:
+        kind = rel.relation_type(db, edge.relation)
+        defs = list(
+            db.scalars(
+                select(PropertyDef).where(
+                    PropertyDef.owner_kind == "relation", PropertyDef.owner_id == kind.id
+                )
+            )
+        )
+        merged = merge_properties(edge.properties or {}, payload.properties)
+        edge.properties = validate_properties(defs, merged)
+
+    audit.record(
+        db,
+        action="object.relation.update",
+        actor=user,
+        target_table="object_relations",
+        target_id=edge.id,
+        target_label=f"{row.label} · {edge.relation}",
+        workspace_id=row.owner_workspace_id,
+        changes=audit.relation_endpoints(edge, *_edge_labels(db, edge)),
+    )
+    db.commit()
+    found = [one for one in _related(db, user, row) if one.relation_id == edge.id]
+    return found[0]
+
+
+@router.delete("/{type_slug}/{object_id}/relations/{relation_id}", status_code=204)
+def remove_relation(
+    type_slug: str,
+    object_id: uuid.UUID,
+    relation_id: uuid.UUID,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    """관계를 끊는다.
+
+    **엣지는 진짜로 지운다.** 객체와 달리 관계는 그 자체로 기록이 아니라 두 기록
+    사이의 말이고, 끊긴 관계를 남겨 두면 「지금 이어져 있나」 를 묻는 모든 질의가
+    그 상태를 걸러야 한다. 대신 **감사 로그에 남는다.**
+    """
+    object_type = _type(db, type_slug)
+    row = _visible(db, user, object_type, object_id)
+    require_owner_edit(
+        db, user, row.owner_workspace_id, what="객체", code_value=code("OBJECTS", 31)
+    )
+    link = _link(db, relation_id, row)
+    if link is not None:
+        managed.require_relation_editable(rel.relation_type(db, link.relation))
+        src_label, dst_label = _link_labels(db, user, link)
+        links.remove(
+            db,
+            user,
+            link,
+            src_label=src_label,
+            dst_label=dst_label,
+            workspace_id=row.owner_workspace_id,
+        )
+        db.commit()
+        return
+    edge = _edge(db, relation_id, row)
+    managed.require_relation_editable(rel.relation_type(db, edge.relation))
+
+    audit.record(
+        db,
+        action="object.relation.remove",
+        actor=user,
+        target_table="object_relations",
+        target_id=edge.id,
+        target_label=f"{row.label} · {edge.relation}",
+        workspace_id=row.owner_workspace_id,
+        changes=audit.relation_endpoints(edge, *_edge_labels(db, edge)),
+    )
+    db.delete(edge)
+    db.commit()
+
+
+def _require_other_end_visible(
+    db: Session, user: User, edge: ObjectRelation, row: ObjectInstance
+) -> None:
+    """관계의 저쪽 끝이 **지금 보이고 살아 있나** — 「관련 객체」 가 그 줄을 숨기는 관계다.
+
+    안 보면 고치기가 커밋된 뒤 돌려줄 줄을 못 찾아 500 이었다(`found[0]`, 2026-10-08) —
+    저장은 됐는데 화면은 실패로 읽는다. 없는 것과 안 보이는 것을 같은 말로 고치기 전에 막는다.
+    """
+    other = edge.dst_object_id if edge.src_object_id == row.id else edge.src_object_id
+    seen = db.scalar(
+        select(ObjectInstance.id).where(
+            ObjectInstance.id == other,
+            ObjectInstance.deleted_at.is_(None),
+            visible_owner_clause(user, ObjectInstance.owner_workspace_id),
+        )
+    )
+    if seen is None:
+        raise NotFound(code("OBJECTS", 32), "관계를 찾을 수 없습니다.")
+
+
+def _edge_labels(db: Session, edge: ObjectRelation) -> tuple[str, str]:
+    src = db.get(ObjectInstance, edge.src_object_id)
+    dst = db.get(ObjectInstance, edge.dst_object_id)
+    return (src.label if src else "", dst.label if dst else "")
+
+
+def _link_out(
+    db: Session, user: User, mine: uuid.UUID, link_id: uuid.UUID
+) -> RelatedObjectOut:
+    found = next(
+        (one for one in _related_links(db, user, mine) if one.relation_id == link_id), None
+    )
+    if found is None:
+        # 저쪽 끝(원 표의 행)이 사라졌다 — `next` 가 그대로 터지면 500 이다.
+        raise NotFound(code("OBJECTS", 32), "관계를 찾을 수 없습니다.")
+    return found
+
+
+def _link(db: Session, relation_id: uuid.UUID, row: ObjectInstance) -> ObjectLink | None:
+    """그 id 가 **이 객체에 걸린 링크**인가. 관계 id 와 링크 id 는 한 자리(`relation_id`)로
+    온다 — 화면은 둘을 구별할 이유가 없고, 구별하게 하면 지우는 단추가 둘이 된다."""
+    link = db.get(ObjectLink, relation_id)
+    if link is None or row.id not in (link.src_id, link.dst_id):
+        return None
+    return link
+
+
+def _link_labels(db: Session, user: User, link: ObjectLink) -> tuple[str, str]:
+    types = system.types_by_slug(db)
+    src = system.other_end(db, user, link, link.dst_id, types)
+    dst = system.other_end(db, user, link, link.src_id, types)
+    return (src.label if src else "", dst.label if dst else "")
+
+
+def _edge(db: Session, relation_id: uuid.UUID, row: ObjectInstance) -> ObjectRelation:
+    """그 관계가 **이 객체에 걸린 것인가.** 아니면 남의 관계를 남의 화면에서
+    끊을 수 있게 된다."""
+    edge = db.get(ObjectRelation, relation_id)
+    if edge is None or row.id not in (edge.src_object_id, edge.dst_object_id):
+        raise NotFound(code("OBJECTS", 32), "관계를 찾을 수 없습니다.")
+    return edge
+
+
+# --- 연도 배정 --------------------------------------------------------------
+
+
+@router.get("/{type_slug}/{object_id}/years", response_model=list[int])
+def list_years(
+    type_slug: str,
+    object_id: uuid.UUID,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> list[int]:
+    """이 객체가 **명시적으로 배정된** 연도들(`temporal_kind='yearly'`)."""
+    object_type = _type(db, type_slug)
+    row = _visible(db, user, object_type, object_id)
+    return sorted(db.scalars(select(ObjectYear.year).where(ObjectYear.object_id == row.id)))
+
+
+@router.put("/{type_slug}/{object_id}/years", response_model=list[int])
+def set_years(
+    type_slug: str,
+    object_id: uuid.UUID,
+    years: list[int],
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> list[int]:
+    """연도 배정을 **통째로** 정한다.
+
+    부분 수정이 아닌 이유: 배정은 「이 해들」 이라는 하나의 답이고, 한 해를 빼는
+    일이 한 해를 더하는 일만큼 흔하다. 통째로 받으면 **화면이 보여 준 것과
+    저장되는 것이 같다.**
+    """
+    object_type = _type(db, type_slug)
+    row = _visible(db, user, object_type, object_id)
+    require_owner_edit(
+        db, user, row.owner_workspace_id, what="객체", code_value=code("OBJECTS", 34)
+    )
+    managed.require_objects_editable(object_type, what="연도를 배정하지")
+    if object_type.temporal_kind != "yearly":
+        raise Conflict(
+            code("OBJECTS", 35),
+            f"{object_type.label}은 연도를 배정하는 축이 아닙니다"
+            f"(지금 정책: {object_type.temporal_kind}).",
+        )
+
+    wanted = sorted({one for one in years if 1900 <= one <= 2999})
+    db.query(ObjectYear).filter(ObjectYear.object_id == row.id).delete(
+        synchronize_session=False
+    )
+    for one in wanted:
+        db.add(ObjectYear(object_id=row.id, year=one))
+
+    audit.record(
+        db,
+        action="object.years.set",
+        actor=user,
+        target_table="objects",
+        target_id=row.id,
+        target_label=f"{object_type.slug}:{row.label}",
+        workspace_id=row.owner_workspace_id,
+        changes={"years": wanted},
+    )
+    db.commit()
+    return wanted

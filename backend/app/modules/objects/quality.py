@@ -1,0 +1,516 @@
+"""데이터 품질 — **나빠지고 있으면 어딘가에 떠야 한다.**
+
+검증은 넣을 때만 걸린다. 그 뒤에 필수 속성이 생기고, 가리키던 것이 지워지고, 같은
+것이 둘로 만들어진다 — 그리고 그 사실은 아무 데도 안 뜬다. 여기서는 넷을 센다:
+
+    missing_required   필수값이 빈 객체 — 필수가 된 뒤에도 안 채운 옛 것
+    orphan             관계가 하나도 없는 객체 — 관계가 정의된 타입에서만.
+                       관계가 아예 없는 타입에서는 전부가 고아라 세지 않는다
+    broken_ref         지워진(또는 없는) 객체를 가리키는 칸
+    duplicate          같은 타입에서 이름을 정규화하면 같은 것들 — 「합치기」 로 이어진다
+
+홈 「남은 일」 에 수가 뜨고, 누르면 목록으로 온다. **볼 수 있는 것만 센다** — 남의
+부서 것을 세어 주면 수가 새고, 그 수를 고칠 수도 없다.
+"""
+
+from __future__ import annotations
+
+import time
+import uuid
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
+
+from sqlalchemy import String, case, cast, func, literal, or_, select, union, union_all
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Session, aliased
+
+from app.modules.accounts.models import User
+from app.modules.objects import aliases, system
+from app.modules.objects.models import ObjectInstance, ObjectLink, ObjectRef, ObjectRelation
+from app.modules.ontology import interfaces
+from app.modules.ontology.models import ObjectType, PropertyDef, RelationType
+from app.shared import extensions
+from app.shared.batches import chunks
+from app.shared.permissions import is_any_manager, visible_owner_clause
+from app.shared.text import compare_key
+
+KINDS = (
+    "missing_required",
+    "orphan",
+    "broken_ref",
+    "duplicate",
+    "alias_clash",
+    "alias_pending",
+)
+LABELS = {
+    "missing_required": "필수값이 빈 객체",
+    "orphan": "관계 없는 객체",
+    "broken_ref": "지워진 것을 가리키는 칸",
+    "duplicate": "이름이 같은 객체",
+    "alias_clash": "별칭이 다른 객체의 이름과 같음",
+    "alias_pending": "사람이 아직 안 본 별칭",
+}
+#: 종류·타입마다 목록에 싣는 상한. 수는 전부 세고, 목록만 자른다.
+SAMPLE = 50
+
+#: 이 수를 넘는 타입은 **행을 파이썬으로 훑지 않는다.**
+#:
+#: 검사 다섯 중 셋(중복 · 별칭 충돌 · 깨진 참조)은 값을 정규화해 견주므로 SQL 로 옮길 수
+#: 없다 — 그 규칙이 파이썬 함수(`compare_key`)에 있다. 그래서 큰 타입에서는 그 셋을 건너뛰고
+#: **건너뛴 사실을 말한다.** 백필로 객체가 몇십만이 되면 홈 「남은 일」 이 그것 때문에
+#: 멎는데, 멎은 이유는 화면 어디에도 안 적힌다 — 그것이 더 나쁘다.
+SCAN_MAX_ROWS = 50_000
+
+
+@dataclass
+class Hit:
+    id: uuid.UUID
+    label: str
+    key: str | None
+    detail: str
+    """왜 걸렸나 — 「무게 비어 있음」 「공급사 → 지워진 ACME」 「같은 이름: 볼트 (3)」."""
+
+
+@dataclass
+class Finding:
+    kind: str
+    type_slug: str
+    type_label: str
+    count: int
+    hits: list[Hit] = field(default_factory=list)
+
+
+def _visible_objects(db: Session, user: User, object_type: ObjectType) -> Any:
+    return select(ObjectInstance).where(
+        ObjectInstance.type_id == object_type.id,
+        ObjectInstance.deleted_at.is_(None),
+        visible_owner_clause(user, ObjectInstance.owner_workspace_id),
+    )
+
+
+#: 그 타입의 볼 수 있는 객체를 돌려주는 함수 — **처음 필요할 때 한 번만 읽는다.**
+Rows = Callable[[], list[ObjectInstance]]
+
+
+def _rows_once(db: Session, user: User, object_type: ObjectType) -> Rows:
+    """검사 넷이 **같은 행**을 본다(필수값 · 깨진 참조 · 중복 · 별칭 충돌).
+
+    각자 읽으면 한 타입을 네 번 읽는다 — 6천 건 타입에서 홈 「남은 일」 이 2초였고, 그
+    대부분이 같은 행을 다시 만드는 비용이었다(실측 2026-09-24). 그리고 **필요 없으면 읽지
+    않는다**: 필수 속성이 없는 타입에 필수값 검사를 위해 행을 읽을 이유가 없다.
+    """
+    holder: list[list[ObjectInstance]] = []
+
+    def get() -> list[ObjectInstance]:
+        if not holder:
+            holder.append(list(db.scalars(_visible_objects(db, user, object_type))))
+        return holder[0]
+
+    return get
+
+
+def _empty(raw: Any) -> bool:
+    return raw is None or raw == "" or raw == []
+
+
+def _missing_required(
+    db: Session, user: User, object_type: ObjectType, defs: list[PropertyDef]
+) -> Finding | None:
+    """필수인데 빈 칸 — **세는 것은 SQL 이 한다.**
+
+    이 검사는 값을 정규화하지 않으니 옮길 수 있었다. 전량을 파이썬으로 읽던 때는 객체가
+    몇십만이 되면 홈 「남은 일」 이 이것 하나 때문에 멎었다.
+    """
+    required = [d for d in defs if d.required and d.data_type != "file"]
+    if not required:
+        return None
+    blank = or_(
+        *[
+            or_(
+                ~ObjectInstance.properties.has_key(one.key),
+                ObjectInstance.properties[one.key].astext == "",
+                ObjectInstance.properties[one.key] == cast("[]", JSONB),
+                ObjectInstance.properties[one.key] == cast("null", JSONB),
+            )
+            for one in required
+        ]
+    )
+    base = _visible_objects(db, user, object_type).where(blank)
+    count = db.scalar(select(func.count()).select_from(base.subquery())) or 0
+    if not count:
+        return None
+    hits = [
+        Hit(
+            id=row.id,
+            label=row.label,
+            key=row.key,
+            detail="비어 있음: "
+            + ", ".join(
+                one.label for one in required if _empty((row.properties or {}).get(one.key))
+            ),
+        )
+        for row in db.scalars(base.limit(SAMPLE))
+    ]
+    return _finding("missing_required", object_type, count, hits)
+
+
+def _orphans(
+    db: Session,
+    user: User,
+    object_type: ObjectType,
+    kinds: list[RelationType],
+    ends: interfaces.Ends,
+) -> Finding | None:
+    # 이 타입이 끝점이 될 수 있는 관계 종류가 하나라도 있어야 「고아」 가 뜻을 갖는다. 끝에
+    # 인터페이스가 적혔으면 그것을 구현한 타입도 끝점이 된다.
+    applies = any(
+        one.is_active
+        and (
+            ends.allows(one.src_type_slugs, object_type.slug)
+            or ends.allows(one.dst_type_slugs, object_type.slug)
+        )
+        for one in kinds
+    )
+    if not applies:
+        return None
+    # 원 표(부서·계정)와 이은 선도 관계다 — 안 세면 「담당 부서」 만 걸린 객체가 고아로 뜬다.
+    linked = union(
+        select(ObjectRelation.src_object_id),
+        select(ObjectRelation.dst_object_id),
+        select(ObjectLink.src_id),
+        select(ObjectLink.dst_id),
+    )
+    stmt = _visible_objects(db, user, object_type).where(ObjectInstance.id.not_in(linked))
+    count = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    if not count:
+        return None
+    rows = db.scalars(stmt.order_by(ObjectInstance.label).limit(SAMPLE))
+    hits = [Hit(id=r.id, label=r.label, key=r.key, detail="걸린 관계 없음") for r in rows]
+    return _finding("orphan", object_type, int(count), hits)
+
+
+def _broken_refs(
+    db: Session, user: User, object_type: ObjectType, defs: list[PropertyDef]
+) -> Finding | None:
+    """참조 칸이 지워졌거나 없는 것을 가리키는 객체 — **참조 색인으로** 센다(ADR 0010).
+
+    예전에는 설치의 객체 전부를 파이썬으로 읽었다 — 기록 200만 건에서 품질 보고가 10초였고, 큰
+    타입은 아예 건너뛰었다. 색인은 (누가 · 칸 · 누구를) 한 줄씩이라 「가리키는 상대가 살아
+    있나」 가 조인 하나다. 원 표(부서 · 계정)를 가리키는 칸은 그 표에 묻는다 — 객체 표에는 없는
+    id 라서. 원 표가 등록 안 된 칸은 **안 본다**: 물을 곳이 없는데 객체 표에서 찾으면 그 값
+    전부가 「깨진 참조」 로 뜬다.
+    """
+    ref_defs = [d for d in defs if d.data_type == "object_ref"]
+    if not ref_defs:
+        return None
+    types = system.types_by_slug(db)
+    labels = {d.key: d.label for d in ref_defs}
+    object_keys: list[str] = []
+    system_keys: dict[str, ObjectType] = {}
+    for d in ref_defs:
+        target = types.get(d.ref_type_slug or "")
+        if target is not None and system.is_system(target):
+            if system.source_or_none(target) is not None:
+                system_keys[d.key] = target
+            continue
+        object_keys.append(d.key)
+
+    source = aliased(ObjectInstance, name="broken_src")
+    seen = visible_owner_clause(user, source.owner_workspace_id)
+    mine = (ObjectRef.src_type_id == object_type.id,)
+    parts: list[Any] = []
+    if object_keys:
+        dst = aliased(ObjectInstance, name="broken_dst")
+        parts.append(
+            select(
+                ObjectRef.src_id.label("src"),
+                ObjectRef.key.label("key"),
+                # 지워진 상대의 이름 — **보는 사람이 볼 수 있던 것만.** 남의 부서 것이
+                # 지워졌으면 그 이름 대신 가린 말을 싣는다(2026-10-08).
+                case(
+                    (visible_owner_clause(user, dst.owner_workspace_id), dst.label),
+                    else_=literal(system.HIDDEN_LABEL, String),
+                ).label("dst_label"),
+            )
+            .join(source, source.id == ObjectRef.src_id)
+            .outerjoin(dst, dst.id == ObjectRef.dst_id)
+            .where(
+                *mine,
+                ObjectRef.key.in_(object_keys),
+                seen,
+                or_(dst.id.is_(None), dst.deleted_at.is_not(None)),
+            )
+        )
+    for key, target in system_keys.items():
+        pointed = list(
+            db.scalars(select(ObjectRef.dst_id).where(*mine, ObjectRef.key == key).distinct())
+        )
+        alive = system.source_of(target).lookup(db, pointed) if pointed else {}
+        dead = [one for one in pointed if one not in alive]
+        for batch in chunks(dead):
+            parts.append(
+                select(
+                    ObjectRef.src_id.label("src"),
+                    ObjectRef.key.label("key"),
+                    literal(None, String).label("dst_label"),
+                )
+                .join(source, source.id == ObjectRef.src_id)
+                .where(*mine, ObjectRef.key == key, ObjectRef.dst_id.in_(batch), seen)
+            )
+    if not parts:
+        return None
+    broken = union_all(*parts).subquery("broken")
+    count = int(db.scalar(select(func.count(func.distinct(broken.c.src)))) or 0)
+    if not count:
+        return None
+    first = db.execute(
+        select(
+            broken.c.src,
+            broken.c.key,
+            broken.c.dst_label,
+            ObjectInstance.label,
+            ObjectInstance.key,
+        )
+        .join(ObjectInstance, ObjectInstance.id == broken.c.src)
+        .order_by(ObjectInstance.label, broken.c.src)
+        .limit(SAMPLE * 5)
+    )
+    details: dict[uuid.UUID, list[str]] = {}
+    names: dict[uuid.UUID, tuple[str, str | None]] = {}
+    for src, key, dst_label, label, object_key in first:
+        if src not in details and len(details) >= SAMPLE:
+            break
+        names[src] = (label, object_key)
+        details.setdefault(src, []).append(
+            f"{labels.get(key, key)} → {dst_label + ' (지워짐)' if dst_label else '없는 객체'}"
+        )
+    hits = [
+        Hit(id=src, label=names[src][0], key=names[src][1], detail="; ".join(found))
+        for src, found in details.items()
+    ]
+    return _finding("broken_ref", object_type, count, hits)
+
+
+def duplicate_key(label: str) -> str:
+    """「이름이 같다」 의 기준 — 여기 한 곳. 품질의 「이름이 같은 객체」 와 검토함의 병합 후보
+    (`objects/review.py`)가 같은 것을 본다. 둘이 따로 정하면 품질에는 뜨는데 검토함에는 안
+    뜨는(또는 그 반대) 묶음이 생기고, 그때 어느 쪽이 맞는지 아무도 모른다(2026-10-10)."""
+    return compare_key(label)
+
+
+def _duplicates(object_type: ObjectType, rows: Rows) -> Finding | None:
+    groups: dict[str, list[ObjectInstance]] = {}
+    for row in rows():
+        groups.setdefault(duplicate_key(row.label), []).append(row)
+    dupes = [members for members in groups.values() if len(members) > 1]
+    if not dupes:
+        return None
+    hits: list[Hit] = []
+    count = 0
+    for members in sorted(dupes, key=lambda ones: -len(ones)):
+        for row in members:
+            count += 1
+            if len(hits) < SAMPLE:
+                hits.append(
+                    Hit(
+                        id=row.id,
+                        label=row.label,
+                        key=row.key,
+                        detail=f"같은 이름 {len(members)}개",
+                    )
+                )
+    return _finding("duplicate", object_type, count, hits)
+
+
+def _alias_clashes(db: Session, object_type: ObjectType, rows_of: Rows) -> Finding | None:
+    """한 객체의 별칭이 **다른 객체의 이름·식별자**와 같다 — 같은 별칭끼리는 표가 막지만,
+    이름과 별칭이 겹치는 것은 막을 자리가 없어서 여기서 센다. 그 표기로 찾으면 둘이 나오고,
+    파일은 「여럿에 맞는다」 로 거절된다."""
+    rows = rows_of()
+    by_norm: dict[str, list[ObjectInstance]] = {}
+    for row in rows:
+        by_norm.setdefault(compare_key(row.label), []).append(row)
+        if row.key:
+            by_norm.setdefault(compare_key(row.key), []).append(row)
+    hits: list[Hit] = []
+    count = 0
+    names = aliases.of(db, [row.id for row in rows])
+    for row in rows:
+        for one in names.get(row.id, []):
+            if one.kind != aliases.HUMAN:
+                continue
+            others = [other for other in by_norm.get(one.norm, []) if other.id != row.id]
+            if not others:
+                continue
+            count += 1
+            if len(hits) < SAMPLE:
+                hits.append(
+                    Hit(
+                        id=row.id,
+                        label=row.label,
+                        key=row.key,
+                        detail=f"별칭 「{one.value}」 = {others[0].label}의 이름",
+                    )
+                )
+    return _finding("alias_clash", object_type, count, hits)
+
+
+def _alias_pending(db: Session, user: User, object_type: ObjectType) -> Finding | None:
+    """**기계가 붙였고 사람이 아직 안 본 별칭.**
+
+    적재는 별칭을 수천 개 붙인다. 그 안에는 오타 표기와 남의 이름이 섞이는데, 본 것과 안 본
+    것을 가르는 칸이 없으면 전부 정본처럼 쓰인다. 화면에서 사람이 붙인 것은 붙이는 순간
+    확인한 것이라 여기 안 뜬다 — 그래야 이 수가 읽을 만한 크기로 남는다.
+    """
+    rows, count = aliases.pending(db, user, object_type, limit=SAMPLE, offset=0)
+    hits = [
+        Hit(
+            id=one.object_id,
+            label=label,
+            key=key,
+            detail=f"별칭 「{one.value}」" + (f" · 출처 {one.source}" if one.source else ""),
+        )
+        for one, label, key in rows
+    ]
+    return _finding("alias_pending", object_type, count, hits)
+
+
+def _finding(
+    kind: str, object_type: ObjectType, count: int, hits: list[Hit]
+) -> Finding | None:
+    if not count:
+        return None
+    return Finding(
+        kind=kind,
+        type_slug=object_type.slug,
+        type_label=object_type.label,
+        count=count,
+        hits=hits,
+    )
+
+
+def report(
+    db: Session,
+    user: User,
+    *,
+    kinds: tuple[str, ...] = KINDS,
+    skipped: list[str] | None = None,
+) -> list[Finding]:
+    """전부 — 타입마다, 종류마다. 화면과 홈 「남은 일」 이 같은 것을 읽는다.
+
+    `skipped` 를 주면 **너무 커서 훑지 않은 타입**을 거기 적는다 — 화면이 그것을 말해야
+    사람이 「이 타입은 안 세고 있다」 를 안다.
+    """
+    skipped = skipped if skipped is not None else []
+    types = list(
+        db.scalars(
+            select(ObjectType)
+            .where(ObjectType.is_active.is_(True))
+            .order_by(ObjectType.sort_order)
+        )
+    )
+    relation_kinds = list(db.scalars(select(RelationType)))
+    ends = interfaces.load_ends(db)
+    defs_by_type: dict[uuid.UUID, list[PropertyDef]] = {}
+    for d in db.scalars(select(PropertyDef).where(PropertyDef.owner_kind == "type")):
+        defs_by_type.setdefault(d.owner_id, []).append(d)
+
+    out: list[Finding] = []
+    for object_type in types:
+        if object_type.kind_class == "system":
+            continue
+        defs = defs_by_type.get(object_type.id, [])
+        # **큰 타입은 행을 훑지 않는다** — 훑는 검사 셋은 값을 정규화해 견주므로 SQL 로
+        # 옮길 수 없다. 건너뛴 사실은 아래에서 말한다.
+        total = (
+            db.scalar(
+                select(func.count()).select_from(
+                    _visible_objects(db, user, object_type).subquery()
+                )
+            )
+            or 0
+        )
+        big = total > SCAN_MAX_ROWS
+        # **이 타입의 행은 한 번만 읽는다** — 훑는 검사들이 같은 것을 본다.
+        rows = _rows_once(db, user, object_type)
+        found = [
+            _missing_required(db, user, object_type, defs)
+            if "missing_required" in kinds
+            else None,
+            _orphans(db, user, object_type, relation_kinds, ends)
+            if "orphan" in kinds
+            else None,
+            # 깨진 참조는 색인으로 세므로 **큰 타입도 본다**.
+            _broken_refs(db, user, object_type, defs) if "broken_ref" in kinds else None,
+            _duplicates(object_type, rows) if "duplicate" in kinds and not big else None,
+            _alias_clashes(db, object_type, rows)
+            if "alias_clash" in kinds and not big
+            else None,
+            _alias_pending(db, user, object_type) if "alias_pending" in kinds else None,
+        ]
+        out.extend(one for one in found if one is not None)
+        if big:
+            skipped.append(f"{object_type.label}({total:,}건)")
+    return out
+
+
+# --- 홈과 서버 화면에 등록하는 것 ------------------------------------------------
+
+
+#: 홈의 수를 이만큼 기억한다. 검사는 볼 수 있는 객체를 파이썬으로 훑는다 — 홈은 사람마다
+#: 하루에 수십 번 열리고, 그때마다 표 전체를 훑으면 객체가 몇만을 넘는 날 홈이 느려지고
+#: **느려진 이유는 홈 어디에도 안 적힌다.** 품질 화면(`/quality`)은 늘 새로 센다 — 거기가
+#: 고치러 가는 자리라서, 거기서 숫자가 안 맞으면 고친 것이 반영 안 된 줄 안다.
+MAINTENANCE_CACHE_SECONDS = 60.0
+_maintenance_cache: dict[uuid.UUID, tuple[float, list[extensions.MaintenanceItem]]] = {}
+
+
+def forget_maintenance() -> None:
+    """기억한 수를 버린다 — 시험이나 대량 작업 뒤에."""
+    _maintenance_cache.clear()
+
+
+def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
+    """홈 「남은 일」 — 종류마다 한 줄. **고칠 수 있는 사람(부서 관리자)에게만.**
+    처리할 수 없는 사람에게 띄우면 그 자리는 못 지우는 숫자가 된다.
+
+    **최대 60초 묵은 수다**(`MAINTENANCE_CACHE_SECONDS`). 누르면 오는 품질 화면은 새로 센다.
+    """
+    if not is_any_manager(db, viewer):
+        return []
+    now = time.monotonic()
+    cached = _maintenance_cache.get(viewer.id)
+    if cached is not None and cached[0] > now:
+        return cached[1]
+    totals: dict[str, int] = {}
+    for one in report(db, viewer):
+        totals[one.kind] = totals.get(one.kind, 0) + one.count
+    items = [
+        extensions.MaintenanceItem(
+            key=f"quality_{kind}",
+            label=LABELS[kind],
+            count=totals[kind],
+            link=f"/quality#{kind}",
+            # 깨진 참조만 경고 — 화면에 뜻 모를 값이 뜨는 것이라. 나머지는 알림.
+            severity="warning" if kind == "broken_ref" else "info",
+        )
+        for kind in KINDS
+        if totals.get(kind)
+    ]
+    _maintenance_cache[viewer.id] = (now + MAINTENANCE_CACHE_SECONDS, items)
+    return items
+
+
+def stats(db: Session) -> list[extensions.StatItem]:
+    def count(stmt: Any) -> int:
+        return int(db.scalar(select(func.count()).select_from(stmt.subquery())) or 0)
+
+    return [
+        extensions.StatItem(label="타입", count=count(select(ObjectType))),
+        extensions.StatItem(
+            label="객체",
+            count=count(select(ObjectInstance).where(ObjectInstance.deleted_at.is_(None))),
+        ),
+        extensions.StatItem(label="관계", count=count(select(ObjectRelation))),
+    ]

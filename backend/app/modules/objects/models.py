@@ -1,0 +1,725 @@
+"""객체 — 타입이 정의한 모양대로 쌓이는 실제 데이터.
+
+메타모델(`ontology`)이 「무엇이 있을 수 있나」 를 정하고, 여기가 「실제로 무엇이
+있나」 를 담는다. 배경은 [ADR 0005](../../../../docs/adr/0005-온톨로지-메타모델.md).
+
+## 객체는 부서가 소유한다
+
+타입은 전역이지만 객체는 `owner_workspace_id` 를 갖는다(NULL = 전역).
+그러면 `visible_owner_clause` · `resolve_owner_workspace` · `require_owner_edit`
+가 그대로 붙는다 — 이 틀이 그렇게 만들어져 있다.
+
+## 트리는 관계로 만든다
+
+`parent_id` 칸이 여기 **없는 것이 의도다.** 트리는 `transitive` + `acyclic` 인
+관계(`part_of` 같은)로 만든다. 칸을 두면 트리 관계와 일반 관계가 두 벌이 되고,
+트래버설 코드도 두 벌이 된다 — 그리고 두 벌은 반드시 갈린다.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    event,
+    func,
+    insert,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PgUUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.database import Base
+from app.modules.objects import attachment_sync, refindex
+from app.modules.ontology.models import SLUG_MAX
+
+#: 식별자의 비교키를 DB 에서 — `shared.text.compare_key`(NFKC · 공백 정리 · 소문자)와 같게.
+#: 인덱스와 질의가 **같은 글자**를 써야 인덱스를 탄다(`objects.resolve`).
+NORMALIZED_KEY_SQL = "lower(normalize(regexp_replace(btrim(key), '\\s+', ' ', 'g'), NFKC))"
+
+#: 글자의 **두 글자 조각** — 「발열 소음」 → {발열, 열 , 소, 소음}. 두 글자 검색이 인덱스를
+#: 타는 자리다(trigram 은 세 글자부터). 소문자로 — `ILIKE` 와 같은 대소문자 무시. 바꾸면
+#: 인덱스를 다시 세워야 하므로 새 이름으로 만든다(0054 가 운영의 사본이다).
+BIGRAMS_SQL = """
+CREATE OR REPLACE FUNCTION sp_bigrams(t text) RETURNS text[]
+LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$
+  SELECT coalesce(array_agg(DISTINCT substr(lower(t), i, 2)), '{}'::text[])
+  FROM generate_series(1, char_length(t) - 1) AS i
+$$
+"""
+
+#: 글자 칸을 날짜로 — **못 읽는 값은 NULL**(`axes.date_or_null`). 앞 열 글자에서 대시를 떼고
+#: 여덟 자리 숫자인지, 달의 날수 안인지 본 뒤에만 바꾼다(`to_date` 는 `2024-02-30` 에 오류를
+#: 내 질의 하나를 통째로 죽인다). **식으로 적으면 같은 문자열 가공을 행마다 십수 번
+#: 되풀이한다** — 함수 안에서는 한 번이다(200만 건 날짜 조건 세기 3.6초 → 1.5초, 병렬 없이).
+#: 뜻을 바꾸면 통계 · 지표의 기간 묶기와 날짜 조건이 함께 바뀐다(0061 이 운영의 사본이다).
+DATE_SQL = """
+CREATE OR REPLACE FUNCTION sp_date(raw text) RETURNS date
+LANGUAGE plpgsql IMMUTABLE STRICT PARALLEL SAFE AS $$
+DECLARE
+  d text := substr(translate(substr(raw, 1, 10), '-', ''), 1, 8);
+  y int;
+  m int;
+  dd int;
+BEGIN
+  IF length(d) <> 8 OR translate(d, '0123456789', '') <> '' THEN
+    RETURN NULL;
+  END IF;
+  y := substr(d, 1, 4)::int;
+  m := substr(d, 5, 2)::int;
+  dd := substr(d, 7, 2)::int;
+  IF y < 1 OR m < 1 OR m > 12 OR dd < 1 OR dd > (
+    CASE
+      WHEN m = 2 THEN
+        CASE WHEN (mod(y, 4) = 0 AND mod(y, 100) <> 0) OR mod(y, 400) = 0 THEN 29 ELSE 28 END
+      WHEN m IN (4, 6, 9, 11) THEN 30
+      ELSE 31
+    END
+  ) THEN
+    RETURN NULL;
+  END IF;
+  RETURN make_date(y, m, dd);
+END
+$$
+"""
+
+#: 객체의 상태.
+#:   active      picker 와 목록에 나온다
+#:   deprecated  picker 에서 숨되 **이미 걸린 관계와 값은 그대로 남는다**
+#:
+#: 지우지 않는 이유는 이 틀의 다른 표와 같다 — 그것으로 만든 자료가 밖에 남아
+#: 있고, 몇 년 뒤에도 그것이 무엇이었는지는 물어질 수 있다.
+OBJECT_STATUSES = ("active", "deprecated")
+
+
+class ObjectInstance(Base):
+    """타입 하나에 속하는 객체 하나."""
+
+    __tablename__ = "objects"
+    __table_args__ = (
+        # 목록은 거의 항상 「이 타입의 것」 으로 시작한다.
+        Index("ix_objects_type_status", "type_id", "status"),
+        # **`properties` 통째 GIN 인덱스는 두지 않는다**(0052, ADR 0010). 거르기는 칸 하나씩
+        # (`properties->>'k'`)이라 그것을 못 타고, 「값 있음」(`?`)은 늘 타입으로 먼저 좁힌다
+        # — 실측 사용이 거의 0 이었다. 그런데 속성을 고칠 때마다 행의 모든 칸을 다시 넣어,
+        # 기록 200만 건 종류 변경 시간의 87% 가 이 인덱스였다(크기 1.3GB).
+        # **「지난번 이후 바뀐 것」 이 이 인덱스를 탄다.** 바깥 시스템이 새벽마다 증분으로
+        # 물으므로, 없으면 그 질의가 타입 전체를 훑는다.
+        Index("ix_objects_type_updated", "type_id", "updated_at"),
+        # 식별자로 찾기 — 일괄 입력 · 중복 확인 · 이름 풀이 · 참조 후보. 없으면 기록 200만 건
+        # 타입에서 식별자 하나를 찾을 때마다 타입을 통째로 읽는다(ADR 0010).
+        Index("ix_objects_key_type", "key", "type_id"),
+        # 비교키(`compare_key` 와 같은 정규화)로 찾기 — 전각 · 대소문자 · 겹친 공백이
+        # 달라도 같다.
+        # 예전에는 키 있는 행을 전부 파이썬으로 읽어 견줬다(200만 건에서 107초, 실측).
+        Index(
+            "ix_objects_type_key_norm",
+            "type_id",
+            text(NORMALIZED_KEY_SQL),
+            postgresql_where=text("key IS NOT NULL"),
+        ),
+        # 이름이 그대로 같은 것 — 대소문자 무시.
+        Index("ix_objects_type_label_lower", "type_id", text("lower(label)")),
+        # 「이 글자가 들어간 것」(`ILIKE '%q%'`) — 검색 · 목록 글 검색 · 이름 풀이의 포함 단계.
+        # trigram 이라 **세 글자 이상**에서 탄다(두 글자는 조각이 없어 못 탄다). 기록 200만
+        # 건에서 검색이 2.7초였다(실측, ADR 0010).
+        Index(
+            "ix_objects_label_trgm",
+            "label",
+            postgresql_using="gin",
+            postgresql_ops={"label": "gin_trgm_ops"},
+        ),
+        Index(
+            "ix_objects_key_trgm",
+            "key",
+            postgresql_using="gin",
+            postgresql_ops={"key": "gin_trgm_ops"},
+        ),
+        # **두 글자** 「들어간 것」 — 「소음」 「볼트」 처럼 두 글자 낱말이 흔하다(한글).
+        # trigram 은 조각이 없어 못 탄다 — 두 글자 조각 배열로 거른 뒤 `ILIKE` 로 다시
+        # 본다(0054).
+        Index("ix_objects_label_bigram", text("sp_bigrams(label)"), postgresql_using="gin"),
+        Index("ix_objects_key_bigram", text("sp_bigrams(key)"), postgresql_using="gin"),
+        # **합친 객체 참조(자기 외래키, SET NULL).** 없으면 객체 하나를 지울 때마다 표 전체를
+        # 훑는다 — 255만 행에서 33만 건 영구 삭제가 끝나지 않았다(0059). 값 있는 행만.
+        Index(
+            "ix_objects_merged_into",
+            "merged_into_id",
+            postgresql_where=text("merged_into_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    type_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("object_types.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    """**RESTRICT 다.** 타입을 지우면 그 객체가 통째로 사라지는데, 그것은
+    화면의 실수 한 번으로 일어날 일이 아니다. 지우기 전에 무엇이 걸렸는지
+    보여 주는 자리가 먼저 있어야 한다."""
+
+    key: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    """사람이 정하는 식별자(부품번호·과제코드). 타입의 `key_policy` 가 필수인지
+    정하고 `key_scope` 가 유니크 범위를 정한다.
+
+    **유니크를 DB 제약으로 걸지 않는다** — 범위가 타입마다 다르기(전사/부서)
+    때문이다. 서비스 레이어가 지키고, 아래 부분 인덱스가 전사 범위를 돕는다."""
+
+    label: Mapped[str] = mapped_column(String(200), index=True)
+    """화면에 보이는 이름. `key` 가 없는 축은 이것만으로 산다."""
+
+    description: Mapped[str] = mapped_column(Text, default="", server_default="")
+
+    properties: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default="{}"
+    )
+    """타입이 정의한 속성의 값들.
+
+    **유연함을 이 한 칸에 가둔다.** 나머지는 정규화된 칼럼이다 — 순수 EAV
+    (`entity, attribute, value` 세 칸)로 가면 값의 타입이 행마다 달라져 정렬·집계·
+    조인이 전부 캐스팅이 되고, 목록 하나에 self-join 이 속성 수만큼 붙는다.
+
+    대가는 분명하다: 여기에는 유니크·FK·CHECK 를 못 건다. 그래서 검증이
+    `services.validate_properties()` 한 곳에 있고, 그 대가를 감당 못 할 타입은
+    전용 표로 **승격**한다(설계 문서 §9 4단계)."""
+
+    status: Mapped[str] = mapped_column(String(20), default="active", server_default="active")
+
+    owner_workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    """어느 부서의 것인가. **NULL 은 전역**이고, 여러 부서가 함께 쓰므로 고치는
+    것은 시스템 관리자뿐이다."""
+
+    valid_from_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    valid_to_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    """`temporal_kind='lifecycle'` 인 축의 유효 구간. NULL 끝 = 진행 중.
+
+    **동작은 2단계에서 붙지만 칸은 지금 둔다.** 나중에 더하면 그때는 모든 타입에
+    데이터가 쌓여 있고, 그 상태에서 뒤로 채우는 일은 아무도 정확히 못 한다."""
+
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    human_edits: Mapped[dict[str, str]] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
+    """**사람이 화면에서 고친 칸** — 칸 이름 → 고친 시각.
+
+    파일로 넣기는 같은 식별자면 덮는다. 그래서 원천을 다시 정제해 넣으면 **사람이 화면에서
+    고친 값이 사라지고**, 고친 사람은 그 사실을 모른다 — 다음 적재가 조용히 되돌린다.
+    이 칸이 그 자리를 표시해 두면 적재가 그 칸만 비켜 간다(계획에 「그대로 둡니다」 로 적는다).
+
+    칸 이름은 고정 칸은 그대로(`label` · `status` …), 속성은 `properties.<키>` 다 — 목록 열
+    (`list_view.columns`)이 쓰는 표기와 같은 것이다. 이름이 겹치지 않게 하려는 것이기도 하다
+    (`label` 이라는 속성이 있을 수 있다).
+
+    **식별자(`key`)는 표시하지 않는다** — 파일이 그 값으로 이 객체를 찾기 때문이다. 못 바꾸게
+    두면 파일과 플랫폼이 영영 다른 식별자를 들고 간다.
+    """
+    previous_keys: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default="[]", nullable=False
+    )
+    """**옛 식별자들** — 키를 고칠 때마다 앞의 값을 뒤에 붙인다(오래된 것부터).
+
+    이것이 없으면 밖(쌍둥이 · 코어 API)에서는 새 식별자가 **처음 보는 것**이라 같은 것이
+    둘이 된다. 받는 쪽은 이 값으로 제가 가진 행을 찾아 식별자를 옮긴다 — 합쳐져 사라진
+    것에 `merged_into` 를 주는 것과 같은 이유다.
+
+    ⚠️ **하나가 아니라 목록이다.** 동기화 사이에 키가 두 번 바뀌면(A→B→C) 받는 쪽이 가진
+       것은 A 인데 마지막 값만 보내면 B 밖에 말하지 못해 따라오지 못한다."""
+
+    merged_into_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("objects.id", ondelete="SET NULL"), nullable=True
+    )
+    """다른 객체에 **합쳐져서** 지워졌으면 그 객체. 옛 링크가 이것을 따라 새 것으로 간다 —
+    안 남기면 「ACME」 와 「ACME Inc.」 를 합친 뒤 옛 주소가 전부 404 가 된다."""
+
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    """지우지 않는다. 이 객체를 가리키는 관계와 첨부가 밖에 남아 있다."""
+
+
+class ObjectRelation(Base):
+    """객체와 객체를 잇는 엣지 하나.
+
+    **관계 종류(`relation_types`)에 FK 를 걸지 않는다.** 종류의 추가·삭제가
+    마이그레이션이 아니라 설정 변경이어야 하기 때문이다 — 도메인을 데이터로
+    정의한다는 이 설계의 전제가 그것이다. 정합은 서비스 레이어가 지킨다.
+    """
+
+    __tablename__ = "object_relations"
+    __table_args__ = (
+        # 같은 것을 두 번 맺지 않는다. **막지 않으면 「관련 객체」 에 같은 줄이
+        # 둘 서고, 사람은 그것을 데이터가 이상한 것으로 읽는다.**
+        UniqueConstraint(
+            "src_object_id", "dst_object_id", "relation", name="uq_object_relations_edge"
+        ),
+        # 양방향으로 훑는다 — 「이것이 가리키는 것」 과 「이것을 가리키는 것」.
+        Index("ix_object_relations_src", "src_object_id", "relation"),
+        Index("ix_object_relations_dst", "dst_object_id", "relation"),
+        # 코어 API 의 「지난번 이후」 — 종류로 좁히고 시각으로 훑는다.
+        Index("ix_object_relations_updated", "relation", "updated_at"),
+        # 데이터 소스가 이은 선만 — 사람이 이은 선(대부분)은 색인에 안 든다.
+        Index(
+            "ix_object_relations_datasource",
+            "datasource_id",
+            postgresql_where=text("datasource_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    src_object_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("objects.id", ondelete="CASCADE"), index=True
+    )
+    dst_object_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("objects.id", ondelete="CASCADE"), index=True
+    )
+    """**CASCADE 다.** 객체는 `deleted_at` 으로만 지우므로 이 길로 사라지는 일은
+    거의 없다. 정말 행을 지우는 날(초기화·정리)에는 엣지가 남아 **가리키는 것이
+    없는 관계**가 되는데, 그것은 화면에서 빈 줄로만 드러난다."""
+
+    relation: Mapped[str] = mapped_column(String(SLUG_MAX), index=True)
+    """관계 종류의 slug. 그 종류가 지워져도 이 값은 남는다 — 그래서 종류를 지울 때
+    맺힌 관계가 있으면 막는다."""
+
+    properties: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default="{}"
+    )
+    """관계 자체의 속성. `property_defs.owner_kind='relation'` 이 모양을 정한다 —
+    **타입의 속성 폼과 같은 컴포넌트를 쓴다.**"""
+
+    evidence_note: Mapped[str] = mapped_column(String(500), default="", server_default="")
+    """**왜 이렇게 이었는가.** 근거 없는 연결은 시간이 지나면 아무도 못 믿는다 —
+    맞는지 확인하려면 처음부터 다시 조사해야 하기 때문이다."""
+
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    """**언제 바뀌었나.** 코어 API 가 「지난번 이후」 를 이 칸으로 가른다 — 없을 때는 선에
+    붙은 근거·속성을 고쳐도 받는 쪽이 영영 몰랐다."""
+
+    datasource_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("data_sources.id", ondelete="SET NULL"), nullable=True
+    )
+    """**이 선을 이은 데이터 소스** — 사람이 화면 · 파일로 이은 선은 비어 있다.
+
+    소스가 「처음부터 다시」 받을 때 상대에서 끊긴 선을 이쪽에서도 끊는데, 그때 **이 소스가
+    이은 선만** 끊는다(사람이 이은 선은 그 소스의 목록에 없어도 남는다). 처음 이은 쪽이
+    주인이다 — 사람이 먼저 이은 선을 소스가 나중에 받아도(「그대로」) 주인은 안 바뀐다. 소스를
+    지우면 비워진다(선은 남는다). 2026-10-08 전에 소스가 이은 선은 비어 있다 — 누가 이었는지
+    가를 기록이 없다."""
+
+    datasource_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    """그 소스가 **마지막으로 보낸 때** — 여러 차례에 걸친 「처음부터 다시」 에서 「이번 세대에
+    봤다」 의 표시(`datasources/services._touch_seen`). `updated_at` 을 쓰지 않는 까닭: 그것을
+    밀면 안 바뀐 선이 이 설치의 코어 창구로 다시 나가고, 지표 증분이 「관계가 바뀌었다」 로
+    읽어 전량을 센다."""
+
+
+class ObjectRelationTombstone(Base):
+    """**끊어진 선의 무덤.**
+
+    선은 행을 정말 지운다(객체와 달리 `deleted_at` 이 없다). 그러면 받는 쪽은 **끊긴 것을
+    영영 모른다** — 허브에서 끊은 선이 쌍둥이에 남고, 둘은 그때부터 갈린다. 지울 때 여기에
+    한 줄을 남겨 「그 선은 사라졌다」 를 말한다.
+
+    끝점은 **id 로** 남긴다(식별자는 그 뒤에 바뀔 수 있다). 읽는 자리에서 식별자로 바꾸고,
+    객체까지 사라져 못 바꾸는 줄은 뺀다 — 그 객체의 무덤이 이미 그것을 말한다.
+    """
+
+    __tablename__ = "object_relation_tombstones"
+    __table_args__ = (Index("ix_relation_tombstones_removed", "removed_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    src_object_id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), index=True)
+    dst_object_id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True))
+    relation: Mapped[str] = mapped_column(String(SLUG_MAX), index=True)
+    removed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp(), nullable=False
+    )
+    """**`clock_timestamp()` 다** — `now()` 는 트랜잭션이 **시작한** 시각이라, 한 요청에서
+    선을 여럿 끊으면 전부 같은 시각이 되고 순서가 질의마다 달라진다(0032 · 0036 과 같은
+    이유)."""
+
+
+@event.listens_for(ObjectRelation, "after_delete")
+def _leave_tombstone(_mapper: Any, connection: Any, target: ObjectRelation) -> None:
+    """선을 지울 때 **무덤을 남긴다** — 여기 하나에 둔 이유는 끊는 길이 여럿이라서다
+    (화면 · 일괄 「맞춤」 · 합치기 · 지우기 · 사용 중지). 부르는 쪽에 맡기면 한 길이 빠지고,
+    그 길로 끊긴 선만 받는 쪽에 영영 남는다.
+
+    통째로 지우는 자리(정의 초기화)는 ORM 을 안 거치므로 여기가 안 돈다 — 그쪽은 무덤도
+    함께 비운다(`ontology/reset.py`).
+    """
+    connection.execute(
+        insert(ObjectRelationTombstone).values(
+            id=uuid.uuid4(),
+            src_object_id=target.src_object_id,
+            dst_object_id=target.dst_object_id,
+            relation=target.relation,
+        )
+    )
+
+
+class ObjectRef(Base):
+    """참조 칸의 색인 — **누가(src) · 어느 칸으로(key) · 누구를(dst)**. DB 트리거가 유지한다.
+
+    값의 정본은 여전히 `objects.properties` 다. 이 표는 「이것을 가리키는 것」 을 인덱스로 묻게
+    하려고 둔 **사본**이고, 쓰는 길이 열 곳이 넘어 코드가 아니라 트리거가 맞춘다
+    (`refindex.py`, ADR 0010). 그래서 앱 코드는 이 표에 **쓰지 않는다** — 읽기만 한다.
+    """
+
+    __tablename__ = "object_refs"
+    __table_args__ = (
+        # 「이것을 가리키는 것」 — 개발모델 상세 · 삭제 전 확인 · 그래프 이웃.
+        Index("ix_object_refs_dst", "dst_id", "key"),
+        # 「이 타입의 이 칸이 가리키는 것 전부」 — 참조 너머 칸 · 그래프 개요.
+        Index("ix_object_refs_src_type", "src_type_id", "key"),
+    )
+
+    src_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("objects.id", ondelete="CASCADE"), primary_key=True
+    )
+    key: Mapped[str] = mapped_column(String(48), primary_key=True)
+    dst_id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True)
+    """**FK 가 없다** — 원 표를 비추는 타입(부서 · 계정)의 id 도 들고, 지운 상대를 가리키는
+    줄도 남아야 「지워진 것을 가리키는 칸」 을 찾는다."""
+    src_type_id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True))
+
+
+refindex.attach(Base.metadata)
+attachment_sync.attach(Base.metadata)
+
+
+def _need_trigram(_target: Any, connection: Any, **_kw: Any) -> None:
+    """`gin_trgm_ops` 인덱스가 서려면 확장이 **표보다 먼저** 있어야 한다(모델로 세우는 길 —
+    시험은 스키마를 통째로 지우고 다시 세우므로 확장도 함께 사라진다). 운영은 0051 이 건다."""
+    connection.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+    # 두 글자 조각 함수도 인덱스보다 먼저(운영은 0054). 날짜 읽기 함수도(운영은 0061).
+    connection.exec_driver_sql(BIGRAMS_SQL)
+    connection.exec_driver_sql(DATE_SQL)
+
+
+event.listen(Base.metadata, "before_create", _need_trigram)
+
+
+class ObjectLink(Base):
+    """한쪽 끝이 `objects` 밖인 관계 — **`system` 객체(부서·계정·승격한 표)와 잇는 선.**
+
+    `object_relations` 는 양끝이 `objects` 행이라 FK 로 묶인다. system 객체는 행이
+    없으므로(원 표를 투영한다) 그 선은 여기 담는다. 끝은 **타입 slug + id** 로
+    적는다 — 어느 끝이 원 표인지는 그 타입의 `kind_class` 가 말한다.
+
+    FK 가 없는 대가: 객체가 진짜로 지워지는 날 이 선이 남는다. 객체는 `deleted_at`
+    으로만 지우고, 지우기 전 확인(`lifecycle.references_of`)이 이 선도 세므로
+    그 날은 사실상 오지 않는다.
+    """
+
+    __tablename__ = "object_links"
+    __table_args__ = (
+        UniqueConstraint("src_id", "dst_id", "relation", name="uq_object_links_edge"),
+        Index("ix_object_links_src", "src_id", "relation"),
+        Index("ix_object_links_dst", "dst_id", "relation"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    src_type: Mapped[str] = mapped_column(String(SLUG_MAX))
+    src_id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True))
+    dst_type: Mapped[str] = mapped_column(String(SLUG_MAX))
+    dst_id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True))
+    relation: Mapped[str] = mapped_column(String(SLUG_MAX), index=True)
+    properties: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default="{}"
+    )
+    evidence_note: Mapped[str] = mapped_column(String(500), default="", server_default="")
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ObjectAlias(Base):
+    """객체의 **다른 이름** — 사람이 붙인 별칭과, 바깥 시스템이 부르는 식별자.
+
+    같은 것을 다르게 부르는 일은 늘 있다(「Ansys」 「ANSYS Inc.」 「앤시스」). 이름 풀이가
+    식별자와 이름만 보면 표기가 하나라도 다른 순간 못 찾고, **못 찾은 사람은 새로 만든다**
+    — 그러면 같은 것이 둘이 된다. 별칭을 두면 찾기·참조 풀이·파일·동기화가 전부 그것을
+    본다. 합치기는 지는 쪽 이름을 이긴 쪽 별칭으로 남겨 **같은 중복이 다시 안 생기게** 한다.
+
+    `kind`:
+        alias            사람이 붙인 다른 이름
+        source:<slug>    그 데이터 소스의 외부 식별자 — 동기화가 남기고, 다음 동기화가 이것으로
+                         같은 객체를 다시 찾는다(우리 쪽 이름·식별자를 고쳐도 안 끊긴다)
+
+    **같은 타입 안에서 (kind, 값) 은 하나뿐이다.** 「ANSYS」 가 두 객체의 별칭이면 어느
+    쪽인지 아무도 모른다. 비교는 `norm`(전각·대소문자·공백을 모은 것)으로 한다.
+    """
+
+    __tablename__ = "object_aliases"
+    __table_args__ = (
+        UniqueConstraint("type_id", "kind", "norm", name="uq_object_aliases_value"),
+        Index("ix_object_aliases_object", "object_id"),
+        Index("ix_object_aliases_lookup", "type_id", "norm"),
+        # 검수 대기 목록 — 타입 안에서 「아직 안 본 것」 을 훑는다.
+        Index("ix_object_aliases_verified", "type_id", "verified_at"),
+        # 「이 글자가 들어간 별칭」 — 검색이 별칭에도 걸린다(trigram, 세 글자 이상).
+        Index(
+            "ix_object_aliases_value_trgm",
+            "value",
+            postgresql_using="gin",
+            postgresql_ops={"value": "gin_trgm_ops"},
+        ),
+        Index(
+            "ix_object_aliases_value_bigram",
+            text("sp_bigrams(value)"),
+            postgresql_using="gin",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    object_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("objects.id", ondelete="CASCADE")
+    )
+    type_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("object_types.id", ondelete="CASCADE")
+    )
+    """객체의 타입을 여기도 둔다 — 유일성이 타입 안에서 서기 때문이다."""
+    kind: Mapped[str] = mapped_column(String(80), default="alias", server_default="alias")
+    value: Mapped[str] = mapped_column(String(200))
+    norm: Mapped[str] = mapped_column(String(200))
+
+    source: Mapped[str] = mapped_column(String(80), default="", server_default="")
+    """**어디서 온 이름인가** — 「고장모드 리스트 v3」 「표준어집」 처럼. `kind` 와 다르다:
+    `kind` 는 그 이름이 무엇인지(사람 별칭 · 외부 식별자)를 말하고, 이것은 출처다.
+
+    적재가 수천 개를 붙이면 「이건 어디서 온 이름이냐」 를 물을 자리가 없다 — 그때 사람은
+    지워도 되는지 판단할 수 없어서 아무것도 안 지운다."""
+
+    note: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    """사람이 남기는 한 줄 — 「오타 표기」 「구 사내 코드」."""
+
+    verified_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    """**사람이 확인했나.** 비어 있으면 검수 대기다 — 기계가 붙인 이름과 사람이 본 이름을
+    가르는 칸이 없으면, 자동으로 붙은 오타까지 정본처럼 쓰인다."""
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp(), nullable=False
+    )
+    """**`clock_timestamp()` 다** — 별칭은 **적은 차례**로 보여야 하는데, `now()`(트랜잭션
+    시작 시각)로 찍으면 한 번에 붙인 것이 전부 같은 값이라 차례가 질의마다 달라진다."""
+
+
+class ObjectYear(Base):
+    """`temporal_kind='yearly'` 인 축의 **연도 배정.**
+
+    모델명처럼 **연도가 불연속인** 값을 위한 표다 — 2024·2026 에는 쓰고 2025 에는
+    안 쓰는 일이 실제로 있다. 구간(`valid_from_year`~`valid_to_year`)으로는 그것을
+    표현할 수 없다.
+    """
+
+    __tablename__ = "object_years"
+    __table_args__ = (
+        UniqueConstraint("object_id", "year", name="uq_object_years_object_year"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    object_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("objects.id", ondelete="CASCADE"), index=True
+    )
+    year: Mapped[int] = mapped_column(Integer, index=True)
+
+
+class SavedView(Base):
+    """저장된 뷰 — **조건·정렬을 이름 붙여 둔다.**
+
+    「영남 공급사 중 심사 점수 80 미만」 을 매번 다시 거르면 사람은 곧 안 거른다.
+    `workspace_id` 가 있으면 그 부서가 함께 쓰고, 없으면 만든 사람 것이다. 전사 뷰는
+    따로 없다 — 타입 정의의 `list_view` 가 그 자리다.
+    """
+
+    __tablename__ = "saved_views"
+    __table_args__ = (Index("ix_saved_views_type_owner", "type_id", "owner_user_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    type_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("object_types.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(100))
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE")
+    )
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    """있으면 그 부서가 함께 쓴다. NULL 은 만든 사람 것."""
+    query: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
+    """`{"q": ..., "conditions": [{"field","op","value"}], "sort": {...}}`."""
+    summary: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
+    """통계 설정 — `{"group_by", "metric", "metric_field", "chart"}`. 비어 있으면
+    이 뷰는 목록일 뿐이다.
+
+    뷰에 함께 담는 이유: 조건과 축은 **같은 물음의 두 쪽**이다(「영남 공급사를 등급별로」).
+    따로 두면 뷰를 불러올 때마다 축을 다시 고르게 되고, 그 수고가 몇 번 반복되면
+    사람은 그 화면을 CSV 로 내려받아 엑셀에서 본다."""
+
+    home_order: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    """부서 홈에 올린 자리(0부터). NULL 이면 홈에 없다.
+
+    **부서 뷰만 올릴 수 있다.** 개인 뷰를 부서 홈에 붙이면 같은 화면을 보는 사람마다
+    다른 것이 뜨고, 그때 「내 홈에는 왜 그게 없지」 를 아무도 설명하지 못한다."""
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class ObjectWatch(Base):
+    """**이 객체가 바뀌면 나에게 알려 달라.**
+
+    데이터를 함께 쓰는 플랫폼에서 가장 자주 나오는 물음은 「내가 보던 그게 아직 그대로
+    인가」 다. 그것을 알 방법이 목록을 다시 여는 것뿐이면, 사람은 안 열고 옛 값을 들고
+    회의에 들어간다.
+
+    **만든 사람은 자동으로 지켜본다.** 스스로 켜야만 하는 기능은 켜는 법을 아는 사람만
+    쓰게 되고, 그 사람은 대개 이미 알고 있는 사람이다.
+
+    관계는 이 표가 안 담는다 — 「무엇을」 지켜보는지는 객체 하나로 충분하고, 관계가
+    바뀌면 양 끝 객체의 감사 기록에 남는다.
+    """
+
+    __tablename__ = "object_watches"
+    __table_args__ = (UniqueConstraint("object_id", "user_id", name="uq_object_watches_pair"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    object_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("objects.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+#: 못 찾은 말의 처리 상태.
+#:   pending   대기 — 사람이 아직 안 봤다
+#:   attached  별칭으로 붙임 — 다음부터 찾힌다
+#:   ignored   무시 — 별칭으로 붙일 말이 아니다(오타 · 엉뚱한 말)
+SEARCH_MISS_STATUSES = ("pending", "attached", "ignored")
+
+
+class SearchMiss(Base):
+    """**못 찾은 말** — 검색 · 이름 풀이가 아무것도 못 찾은 글자(별칭 후보).
+
+    사람과 AI 가 이름으로 찾다가 못 찾으면 **없는 줄 알고 새로 만든다** — 그러면 같은 것이
+    둘이 된다. 그 말이 어떤 객체의 다른 이름이었다면, 그것을 별칭으로 붙이는 순간 다음부터
+    찾힌다. 그 말을 모으는 자리가 여기다(`objects/misses.py`).
+
+    **같은 말은 한 줄이다**(범위 · 비교키) — 수만 번 찾아도 횟수만 오른다. **누가 찾았는지는
+    남기지 않는다** — 몇 사람인지만 센다(`askers` 는 사람마다 짧은 지문이고, 스무 개까지).
+    """
+
+    __tablename__ = "search_misses"
+    __table_args__ = (
+        # 같은 범위의 같은 말은 한 줄 — 동시에 여럿이 못 찾아도 upsert 가 횟수만 올린다.
+        UniqueConstraint("scope", "norm", name="uq_search_misses_scope_norm"),
+        # 대기 목록(많이 찾은 것부터)과 홈 「남은 일」 의 수.
+        Index("ix_search_misses_status_hits", "status", "hits"),
+        # 오래된 것 정리.
+        Index("ix_search_misses_last_at", "last_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    scope: Mapped[str] = mapped_column(String(SLUG_MAX), default="", server_default="")
+    """**어디서 찾았나** — 타입이나 인터페이스의 slug. 빈 값이면 타입을 가리지 않은 찾기
+    (통합 검색)다. FK 를 걸지 않는다: 인터페이스도 담고, slug 는 바뀌지 않는다. 지운 타입의
+    줄은 정리가 치운다(`misses.purge`)."""
+    norm: Mapped[str] = mapped_column(String(200))
+    """비교키(`compare_key`) — 전각 · 대소문자 · 겹친 공백이 달라도 같은 말."""
+    text: Mapped[str] = mapped_column(String(200))
+    """처음 친 표기 그대로 — 별칭으로 붙일 때 이 글자를 쓴다."""
+    hits: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    askers: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
+    """찾은 사람의 **지문**(이름 · id 가 아니다) — 몇 사람이 찾았나만 센다. 한 사람이 백 번
+    찾은 말과 열 사람이 찾은 말은 무게가 다르다."""
+    vias: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
+    """어느 자리에서 못 찾았나 — `resolve`(이름 풀이) · `search`(통합 검색) ·
+    `list`(목록 검색)."""
+    status: Mapped[str] = mapped_column(
+        String(12), default="pending", server_default="pending"
+    )
+    object_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("objects.id", ondelete="SET NULL"), nullable=True
+    )
+    """별칭으로 붙인 객체."""
+    decided_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    first_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    last_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

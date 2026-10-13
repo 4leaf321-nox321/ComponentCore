@@ -1,0 +1,1366 @@
+"""읽기 — **셀 위에서** 비율 · 누적 · 비교 · 건 보기.
+
+저장된 것은 기초 집계뿐이다. 분모 결합 · 경과 누적 · 전기 · 전년 동기는 상한 안의 셀을 받은 뒤
+Python 에서 낸다 — 셀은 기록보다 수백 배 적고, 동적 창 함수 SQL 보다 단순하며 시험이 쉽다.
+상한은 둘이다: 화면에 돌려주는 읽기(`metrics_max_read_cells`)와 분석이 계산하려고 받는 읽기
+(`metrics_max_frame_cells`, `frame`).
+
+## 한 문장 = 한 스냅샷
+
+`run_id = (SELECT current_run_id …)` 를 같은 문장에 넣는다. 바꿔 끼우는 트랜잭션과 겹쳐도
+문장 하나는 한 스냅샷을 보므로 옛 실행과 새 실행이 섞이지 않는다.
+
+## 보이는 것만 더한다
+
+셀은 기록의 소유 부서별 부분합이라 `visible_owner_clause` 로 거른 뒤 더한다 — 목록 · 통계와
+같은 규칙. `count` · `sum` · `min` · `max` 는 더해지고, 평균은 `sum / value_count` 로 다시
+낸다.
+
+## 숫자마다 근거로 돌아간다
+
+셀마다 `drill`(그 수를 이룬 기록의 목록 조건)을 붙인다 — 기간은 버킷 시작일의 범위, 기준은
+같은 주소의 `eq`. 조건으로 못 적는 축(부서 · 못 읽은 날짜)은 `partial` 에 적는다. 규칙
+기준(ADR 0015)의 셀은 「그 규칙의 조건 + 앞 규칙마다 제외 묶음(`nf<번호>.`)」 으로 **정확히**
+적는다 — 「기타」 는 모든 규칙의 제외 묶음이다.
+
+## 구성비
+
+`composition` 을 주면 셀마다 그 기준의 값들 사이의 몫(%)을 붙인다 — 나머지 칸(기간 · 코호트 ·
+다른 기준)이 같은 셀끼리 합이 100 이다. **건수 · 합계의 몫**이다: 평균 · 최소 · 최대는 더할
+수 없어 몫이 뜻이 없고(거절), 비율(분모로 나눈 값)의 몫은 내지 않는다 — 분모가 그 기준과
+짝이면 값마다 분모가 달라 비율끼리의 몫은 뜻이 없고, 짝이 아니면 분모가 같아 분자의 몫과
+같다.
+"""
+
+from __future__ import annotations
+
+import calendar
+import re
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
+from datetime import UTC, date, datetime, timedelta
+from typing import Any
+
+from sqlalchemy import Select, and_, func, or_, select, text
+from sqlalchemy.orm import Session
+
+from app.config import get_settings
+from app.modules.accounts.models import User
+from app.modules.metrics import schemas
+from app.modules.metrics import spec as spec_module
+from app.modules.metrics import stay as stay_module
+from app.modules.metrics import visits as visits_module
+from app.modules.metrics.models import MetricDef, MetricRun, MetricValue
+from app.modules.objects import axes, conditions, paths
+from app.modules.objects.summary import METRIC_LABELS
+from app.shared.errors import AppError, code
+from app.shared.permissions import visible_owner_clause
+
+#: 추이에서 세부 기준의 선 수 상한 — 그보다 많으면 색이 겹쳐 못 읽는다.
+MAX_LINES = 24
+#: 기준 값의 이름을 한 번에 푸는 상한 — 분석이 받는 셀(20만)의 값이 다 이름을 갖게.
+MAX_LABELS = 50_000
+#: 기준 값 목록(`/dims`)의 상한.
+MAX_DIM_VALUES = 200
+#: 셀의 진짜 칸 — 요청의 `by` 가 고른다.
+BY_KEYS = ("period", "cohort", "age")
+#: 구성비를 낼 수 있는 집계 — 더해지는 값(건수 · 합계 · 조건 건수)만.
+COMPOSABLE = ("count", "sum", spec_module.SHARE)
+_GROUP_KEY = re.compile(r"^nf([0-9]+)\.")
+
+
+@dataclass
+class Ask:
+    """읽기 한 번의 요청."""
+
+    dims: list[str] = field(default_factory=list)
+    """묶을 기준 이름들(정의의 부분집합)."""
+    by: tuple[str, ...] = ()
+    """셀의 진짜 칸 중 묶을 것 — `period` · `cohort` · `age`."""
+    filters: dict[str, str | None] = field(default_factory=dict)
+    """기준 값으로 거르기. None 은 「(비어 있음)」."""
+    period_from: date | None = None
+    period_to: date | None = None
+    cohort_from: date | None = None
+    cohort_to: date | None = None
+    age_from: int | None = None
+    age_to: int | None = None
+    """경과 범위 — 「앞까지」. 관리도 · 순차 검정은 K 경과 앞까지만 본다(셀 상한 안에 들게)."""
+
+
+@dataclass
+class Cell:
+    dims: dict[str, str | None]
+    period: date | None
+    cohort: date | None
+    age: int | None
+    count: int
+    value_count: int
+    sum: float | None
+    min: float | None
+    max: float | None
+
+    @property
+    def avg(self) -> float | None:
+        if self.sum is None or not self.value_count:
+            return None
+        return self.sum / self.value_count
+
+    def measure(self, name: str) -> float | None:
+        if name == "count":
+            return float(self.count)
+        if name == spec_module.SHARE:
+            # 조건 비율의 값은 조건 건수(`sum`) — 비율은 분모(`OwnTotal`)가 낸다.
+            return float(self.sum or 0.0)
+        if name == "sum":
+            return self.sum
+        if name == "avg":
+            return self.avg
+        if name == "min":
+            return self.min
+        return self.max
+
+
+def _bad(number: int, message: str) -> AppError:
+    return AppError(code("METRICS", number), message, status=422)
+
+
+# --- 기간 셈 -----------------------------------------------------------------------
+
+
+def _add_months(start: date, months: int) -> date:
+    total = start.year * 12 + (start.month - 1) + months
+    year, month = divmod(total, 12)
+    day = min(start.day, calendar.monthrange(year, month + 1)[1])
+    return date(year, month + 1, day)
+
+
+def advance(start: date, steps: int, grain: str) -> date:
+    """코호트 시작일에서 `steps` 기간 뒤 — 코호트 x 경과 셀의 기간."""
+    if grain == "day":
+        return start + timedelta(days=steps)
+    if grain == "week":
+        return start + timedelta(days=7 * steps)
+    return _add_months(start, steps * {"month": 1, "quarter": 3, "year": 12}[grain])
+
+
+def year_before(start: date, grain: str) -> date:
+    """한 해 전 같은 기간의 시작일 — 전년 동기. 주는 52주 전(요일이 맞는다)."""
+    if grain == "week":
+        return start - timedelta(days=364)
+    if grain == "year":
+        return date(start.year - 1, 1, 1)
+    return _add_months(start, -12)
+
+
+def dense(start: date, stop: date, grain: str) -> list[date]:
+    """`start` 부터 `stop` **직전**까지의 기간 시작일 — 빈 기간을 0 으로 채우려고."""
+    out: list[date] = []
+    current = start
+    while current < stop and len(out) < 10_000:
+        out.append(current)
+        current = axes.next_period(current, grain)
+    return out
+
+
+def _iso(when: date | None) -> str | None:
+    return when.isoformat() if when is not None else None
+
+
+# --- 셀 읽기 ---------------------------------------------------------------------
+
+
+def cells_run_of() -> Any:
+    """**셀이 든 실행** — 증분 계산은 새 실행을 남기되 셀은 전량 실행의 칸을 고친다
+    (`MetricDef.cells_run_id`). 비었으면 지금 실행이 곧 셀의 실행이다."""
+    return func.coalesce(MetricDef.cells_run_id, MetricDef.current_run_id)
+
+
+def _statement(user: User, metric: MetricDef, ask: Ask) -> Select[Any]:
+    """보이는 셀을 요청한 축으로 묶는 문장 — `read` 가 받고, `paired_totals` 는 짝지어 더한다.
+    칸 이름: 기준 `d_<이름>`, 축 `period` · `cohort` · `age`, 집계 `n` · `vn` · `vs` · `vmin` ·
+    `vmax`."""
+    current = select(cells_run_of()).where(MetricDef.id == metric.id).scalar_subquery()
+    columns: list[Any] = []
+    group: list[Any] = []
+    # 같은 기준을 두 번 주면(`dims=a,a` · `factors=a,a`) 같은 이름의 칸이 둘이 되어 읽을 때
+    # 「모호한 칸」 으로 500 이었다(2026-10-08) — 한 번만 묶는다(뜻이 같다).
+    for name in dict.fromkeys(ask.dims):
+        expr = MetricValue.dims[name].astext
+        columns.append(expr.label(f"d_{name}"))
+        group.append(expr)
+    for key in ask.by:
+        column = getattr(MetricValue, key)
+        columns.append(column.label(key))
+        group.append(column)
+    stmt = select(
+        *columns,
+        func.sum(MetricValue.count).label("n"),
+        func.sum(MetricValue.value_count).label("vn"),
+        func.sum(MetricValue.sum).label("vs"),
+        func.min(MetricValue.min).label("vmin"),
+        func.max(MetricValue.max).label("vmax"),
+    ).where(
+        MetricValue.metric_id == metric.id,
+        MetricValue.run_id == current,
+        visible_owner_clause(user, MetricValue.workspace_id),
+    )
+    for name, value in ask.filters.items():
+        if value is None:
+            stmt = stmt.where(MetricValue.dims[name].astext.is_(None))
+        else:
+            stmt = stmt.where(MetricValue.dims.contains({name: value}))
+    if ask.period_from is not None:
+        stmt = stmt.where(MetricValue.period >= ask.period_from)
+    if ask.period_to is not None:
+        stmt = stmt.where(MetricValue.period < ask.period_to)
+    if ask.cohort_from is not None:
+        stmt = stmt.where(MetricValue.cohort >= ask.cohort_from)
+    if ask.cohort_to is not None:
+        stmt = stmt.where(MetricValue.cohort < ask.cohort_to)
+    if ask.age_from is not None:
+        stmt = stmt.where(MetricValue.age >= ask.age_from)
+    if ask.age_to is not None:
+        stmt = stmt.where(MetricValue.age < ask.age_to)
+    if group:
+        stmt = stmt.group_by(*group)
+    return stmt
+
+
+def frame_limit() -> int:
+    """분석이 계산하려고 받는 셀 상한 — 화면 읽기의 것보다 크다(`metrics_max_frame_cells`)."""
+    return get_settings().metrics_max_frame_cells
+
+
+def read(
+    db: Session, user: User, metric: MetricDef, ask: Ask, *, limit: int | None = None
+) -> tuple[list[Cell], bool]:
+    """보이는 셀을 요청한 축으로 묶어 — (셀들, 잘렸나). 상한은 화면 읽기의 것, 분석은 `frame`
+    이 더 큰 것을 준다."""
+    if limit is None:
+        limit = get_settings().metrics_max_read_cells
+    rows = db.execute(_statement(user, metric, ask).limit(limit + 1)).all()
+    truncated = len(rows) > limit
+    cells: list[Cell] = []
+    for row in rows[:limit]:
+        if row.n is None:
+            # 묶는 축이 없고 셀도 없으면 집계가 NULL 한 줄로 온다 — 셀이 아니다.
+            continue
+        found = row._mapping
+        cells.append(
+            Cell(
+                dims={name: found[f"d_{name}"] for name in ask.dims},
+                period=found["period"] if "period" in ask.by else None,
+                cohort=found["cohort"] if "cohort" in ask.by else None,
+                age=found["age"] if "age" in ask.by else None,
+                count=int(row.n),
+                value_count=int(row.vn or 0),
+                sum=float(row.vs) if row.vs is not None else None,
+                min=float(row.vmin) if row.vmin is not None else None,
+                max=float(row.vmax) if row.vmax is not None else None,
+            )
+        )
+    return cells, truncated
+
+
+def floor_period(day: date, grain: str) -> date:
+    """그 날이 든 기간의 시작일 — 셀의 기간과 같은 자리(`axes.bucket`, 주는 월요일)."""
+    if grain == "week":
+        return day - timedelta(days=day.weekday())
+    if grain == "month":
+        return day.replace(day=1)
+    if grain == "quarter":
+        return date(day.year, (day.month - 1) // 3 * 3 + 1, 1)
+    if grain == "year":
+        return date(day.year, 1, 1)
+    return day
+
+
+def _ceil_period(day: date, grain: str) -> date:
+    """「앞까지」 의 끝을 기간 경계로 올린다 — 그 날이 든 기간까지 넣는다."""
+    start = floor_period(day, grain)
+    return day if start == day else axes.next_period(start, grain)
+
+
+def check_ask(built: spec_module.Built, ask: Ask) -> None:
+    """모르는 기준 · 없는 축은 422 — 조용히 무시하면 거르기가 안 걸린 수가 「전부」 로
+    읽힌다. 그리고 **기간 범위를 그 지표의 기간 경계로 맞춘다**(시작은 내림, 끝은 올림) —
+    화면의 날짜 칸은 아무 날이나 받는데, 셀의 기간은 기간의 시작일이다. 맞추지 않으면 월
+    단위 지표에 `2026-01-15` 부터를 주면 추이의 점(01-15, 02-15 …)이 셀(02-01 …)과 하나도
+    안 맞아 전부 0 이 됐다(2026-10-08)."""
+    for name in [*ask.dims, *ask.filters]:
+        if built.dim(name) is None:
+            raise _bad(
+                8,
+                f"이 지표에 없는 기준입니다: {name}. 있는 것: "
+                f"{', '.join(one.name for one in built.dims) or '(없음)'}",
+            )
+    for key in ask.by:
+        if key not in BY_KEYS:
+            raise _bad(9, f"묶을 수 있는 축은 {', '.join(BY_KEYS)} 입니다: {key}")
+    if ("period" in ask.by or ask.period_from or ask.period_to) and built.time is None:
+        raise _bad(7, "이 지표에는 시간 칸이 없습니다 — 기간으로 묶거나 거를 수 없습니다.")
+    if (
+        "cohort" in ask.by or "age" in ask.by or ask.cohort_from or ask.cohort_to
+    ) and built.cohort is None:
+        raise _bad(7, "이 지표에는 코호트 칸이 없습니다.")
+    if built.time is not None:
+        grain = built.time.grain
+        if ask.period_from is not None:
+            ask.period_from = floor_period(ask.period_from, grain)
+        if ask.period_to is not None:
+            ask.period_to = _ceil_period(ask.period_to, grain)
+    if built.cohort is not None:
+        grain = built.cohort.grain
+        if ask.cohort_from is not None:
+            ask.cohort_from = floor_period(ask.cohort_from, grain)
+        if ask.cohort_to is not None:
+            ask.cohort_to = _ceil_period(ask.cohort_to, grain)
+
+
+# --- 분모 ----------------------------------------------------------------------
+
+
+@dataclass
+class Denominator:
+    metric: MetricDef
+    spec: spec_module.MetricSpec
+    on: list[str]
+    time: str | None
+    """`period` · `cohort` · None — 이번 요청에서 실제로 짝지은 시간축."""
+    per: float
+    values: dict[tuple[tuple[str | None, ...], date | None], float | None]
+    truncated: bool
+    missing: int = 0
+    run: MetricRun | None = None
+    """분모 지표의 지금 실행 — 분석이 분모 쪽 기간도 닫혔는지 본다(판매가 덜 들어온 달)."""
+    before: date | None = None
+
+    def lookup(self, cell: Cell, grain: str | None) -> float | None:
+        when: date | None = None
+        if self.time == "period":
+            when = cell.period
+            if when is None and cell.cohort is not None and cell.age is not None and grain:
+                when = advance(cell.cohort, cell.age, grain)
+        elif self.time == "cohort":
+            when = cell.cohort
+        key = (tuple(cell.dims.get(name) for name in self.on), when)
+        return self.values.get(key)
+
+    def ratio(self, numerator: float | None, cell: Cell, grain: str | None) -> float | None:
+        found = self.lookup(cell, grain)
+        if numerator is None or not found:
+            self.missing += 1
+            return None
+        return numerator / found * self.per
+
+    def out(self) -> schemas.DenominatorOut:
+        return schemas.DenominatorOut(
+            metric=self.metric.slug,
+            label=self.metric.label,
+            measure=self.spec.measure,
+            measure_label=spec_module.MEASURE_LABELS[self.spec.measure],
+            time=self.time,
+            per=self.per,
+            missing=self.missing,
+            truncated=self.truncated,
+        )
+
+
+def read_denominator(
+    db: Session,
+    user: User,
+    metric: MetricDef,
+    built: spec_module.Built,
+    ask: Ask,
+    *,
+    limit: int | None = None,
+) -> Denominator | None:
+    """분모 지표를 **같은 함수로 두 번째 질의** — 묶음은 `on` 중 이번에 요청한 기준과
+    시간축 규칙으로. 분자에만 있는 기준은 펼쳐진다(키에 없으므로 같은 값이 든다)."""
+    if built.spec.measure == spec_module.SHARE:
+        return own_total(db, metric, built, ask)
+    den = built.denominator
+    den_in = built.spec.denominator
+    if den is None or den_in is None:
+        return None
+    den_spec = spec_module.MetricSpec.model_validate(den.spec)
+    on = [name for name in den_in.on if name in ask.dims]
+    time: str | None = None
+    period_from = period_to = None
+    if den_in.time == "period" and "period" in ask.by:
+        time = "period"
+        period_from, period_to = ask.period_from, ask.period_to
+    elif den_in.time == "period" and "cohort" in ask.by and "age" in ask.by:
+        time = "period"
+    elif den_in.time == "cohort" and "cohort" in ask.by:
+        time = "cohort"
+        period_from, period_to = ask.cohort_from, ask.cohort_to
+    elif den_in.time == "period":
+        # **기간으로 안 묶어도 범위는 맞춘다** — 분자가 7 ~ 9월로 걸렸는데 분모가 판매 전
+        # 기간의 합이면 비율이 몇 배 작게 나왔다(2026-10-08). 같은 범위의 합끼리 나눈다.
+        period_from, period_to = ask.period_from, ask.period_to
+    elif den_in.time == "cohort":
+        # 분모의 기간 = 분자의 코호트 — 코호트 범위가 곧 분모의 기간 범위다.
+        period_from, period_to = ask.cohort_from, ask.cohort_to
+    # 거르기는 **묶지 않아도** 건넨다 — 분자를 S 모델로 걸렀으면 분모도 S 의 판매 대수다.
+    den_ask = Ask(
+        dims=on,
+        by=("period",) if time else (),
+        filters={name: value for name, value in ask.filters.items() if name in den_in.on},
+        period_from=period_from,
+        period_to=period_to,
+    )
+    cells, truncated = read(db, user, den, den_ask, limit=limit)
+    values: dict[tuple[tuple[str | None, ...], date | None], float | None] = {}
+    for cell in cells:
+        key = (tuple(cell.dims.get(name) for name in on), cell.period if time else None)
+        values[key] = cell.measure(den_spec.measure)
+    den_run = current_run(db, den)
+    return Denominator(
+        den,
+        den_spec,
+        on,
+        time,
+        den_in.per,
+        values,
+        truncated,
+        run=den_run,
+        before=closed_before(den_run, den_spec.settle_days),
+    )
+
+
+@dataclass
+class OwnTotal(Denominator):
+    """조건 비율의 분모 — **같은 셀의 전체 건수**(`count`). 다른 지표를 읽지 않는다. 기록이
+    없는 칸은 비율이 없을 뿐 「분모 없음」 이 아니다(세지 않는다)."""
+
+    def lookup(self, cell: Cell, grain: str | None) -> float | None:
+        return float(cell.count) if cell.count else None
+
+    def ratio(self, numerator: float | None, cell: Cell, grain: str | None) -> float | None:
+        if numerator is None or not cell.count:
+            return None
+        return numerator / cell.count * self.per
+
+    def out(self) -> schemas.DenominatorOut:
+        return schemas.DenominatorOut(
+            metric=self.metric.slug,
+            label=f"{self.metric.label} — 같은 기록 전체",
+            measure="count",
+            measure_label=METRIC_LABELS["count"],
+            time=self.time,
+            per=self.per,
+            missing=0,
+            truncated=False,
+        )
+
+
+#: 조건 비율은 % 로 읽는다.
+SHARE_PER = 100.0
+
+
+def own_total(db: Session, metric: MetricDef, built: spec_module.Built, ask: Ask) -> OwnTotal:
+    run = current_run(db, metric)
+    return OwnTotal(
+        metric,
+        built.spec,
+        list(ask.dims),
+        "period" if "period" in ask.by else ("cohort" if "cohort" in ask.by else None),
+        SHARE_PER,
+        {},
+        False,
+        run=run,
+        before=closed_before(run, built.spec.settle_days),
+    )
+
+
+@dataclass
+class Paired:
+    """기준 값 하나의 합 — 대수가 있는 부분군만 비율에 든다."""
+
+    key: str | None
+    count: int
+    """닫히고 대수가 있는 부분군의 건수."""
+    exposure: float
+    missing: int
+    """대수가 없는 부분군의 건수 — 비율에서 뺀다."""
+    open: int
+    """대수는 있으나 아직 닫히지 않은 부분군의 건수."""
+
+
+def _units(rows: Any, measure: str) -> Any:
+    """분모 셀의 값 — `Cell.measure` 의 SQL 짝."""
+    if measure == "count":
+        return rows.c.n
+    if measure == "sum":
+        return rows.c.vs
+    if measure == "avg":
+        return rows.c.vs / func.nullif(rows.c.vn, 0)
+    return rows.c.vmin if measure == "min" else rows.c.vmax
+
+
+def paired_totals(
+    db: Session,
+    user: User,
+    metric: MetricDef,
+    built: spec_module.Built,
+    ask: Ask,
+    *,
+    dim: str,
+    when: str,
+    closed_to: date,
+) -> tuple[list[Paired], bool]:
+    """기준 값마다 부분군(값 x `when`)의 건수 · 대수를 **DB 안에서 짝지어** 더한다 — 집단이
+    수천이면 부분군 셀이 읽기 상한을 넘는데, 집단 비교에는 값마다의 합만 있으면 된다(돌아오는
+    줄 = 값의 수). 짝의 규칙은 셀을 받아 짝짓는 길(`read_denominator` · `Denominator.lookup`)과
+    같다: 분모의 `period` 를 분자의 `when`(`period` · `cohort`)과 맞추고, 거르기는 분모 짝에
+    있는 기준만, 범위는 `when` 의 범위를 그대로.
+
+    `closed_to` 앞의 부분군만 닫혔다. 분자에 없는 부분군(그 기간에 기록이 없음)도 대수가 있으면
+    0 건의 관측이다 — 기록이 하나도 없는 값도 한 줄로 온다."""
+    den = built.denominator
+    den_in = built.spec.denominator
+    assert den is not None and den_in is not None
+    den_spec = spec_module.MetricSpec.model_validate(den.spec)
+    start, stop = (
+        (ask.period_from, ask.period_to)
+        if when == "period"
+        else (ask.cohort_from, ask.cohort_to)
+    )
+    num = _statement(user, metric, replace(ask, dims=[dim], by=(when,))).subquery("num")
+    paired = _statement(
+        user,
+        den,
+        Ask(
+            dims=[dim],
+            by=("period",),
+            filters={name: value for name, value in ask.filters.items() if name in den_in.on},
+            period_from=start,
+            period_to=stop,
+        ),
+    ).subquery("den")
+    num_key, den_key = num.c[f"d_{dim}"], paired.c[f"d_{dim}"]
+    units = _units(paired, den_spec.measure)
+    has = units > 0
+    lacks = or_(units.is_(None), units <= 0)
+    closed = func.coalesce(num.c[when], paired.c.period) < closed_to
+    key = func.coalesce(num_key, den_key)
+    # 「(비어 있음)」 은 「(비어 있음)」 끼리만 — `IS NOT DISTINCT FROM` 은 해시 조인이 못 써서
+    # 기간만으로 붙인 뒤 기준 값을 줄마다 견준다(기본 모델 2천 x 44달이면 7,600만 번, 7초).
+    # 비었나 · 값(빈 것은 '') 둘의 같음으로 적으면 셋 다 해시 키다.
+    same = and_(
+        num_key.is_(None) == den_key.is_(None),
+        func.coalesce(num_key, "") == func.coalesce(den_key, ""),
+        num.c[when] == paired.c.period,
+    )
+    stmt = (
+        select(
+            key.label("k"),
+            func.sum(num.c.n).filter(and_(closed, has)).label("n"),
+            func.sum(units).filter(and_(closed, has)).label("u"),
+            func.sum(num.c.n).filter(lacks).label("miss"),
+            func.sum(num.c.n).filter(and_(has, ~closed)).label("open"),
+        )
+        .select_from(num.join(paired, same, full=True))
+        .group_by(key)
+    )
+    limit = frame_limit()
+    rows = db.execute(stmt.limit(limit + 1)).all()
+    out = [
+        Paired(
+            key=row.k,
+            count=int(row.n or 0),
+            exposure=float(row.u or 0),
+            missing=int(row.miss or 0),
+            open=int(row.open or 0),
+        )
+        for row in rows[:limit]
+    ]
+    return out, len(rows) > limit
+
+
+# --- 분석이 쓰는 묶음 읽기 ---------------------------------------------------------------
+
+
+@dataclass
+class Frame:
+    """셀 · 분모 · 실행 · 닫힘 — 분석 하나가 셀 위에서 추론하는 데 드는 것 전부(ADR 0014)."""
+
+    cells: list[Cell]
+    truncated: bool
+    denominator: Denominator | None
+    run: MetricRun | None
+    before: date | None
+    """이 날 앞에 끝나는 기간은 닫혔다 — 계산 시각 - 닫힘 일수."""
+
+
+def frame(
+    db: Session,
+    user: User,
+    metric: MetricDef,
+    built: spec_module.Built,
+    ask: Ask,
+    *,
+    with_denominator: bool = True,
+) -> Frame:
+    check_ask(built, ask)
+    limit = frame_limit()
+    cells, truncated = read(db, user, metric, ask, limit=limit)
+    den = (
+        read_denominator(db, user, metric, built, ask, limit=limit)
+        if with_denominator
+        else None
+    )
+    run = current_run(db, metric)
+    return Frame(cells, truncated, den, run, closed_before(run, built.spec.settle_days))
+
+
+def snapshot(db: Session) -> None:
+    """이 요청의 읽기를 **한 스냅샷**으로 — 분석은 주체 · 기준 · 분모를 여러 번 읽는데, 그
+    사이 재계산이 `current_run_id` 를 바꿔 끼우면 옛 실행과 새 실행이 섞인다. 실행 번호를
+    붙잡아 두는 것으로는 안 된다 — 바꿔 끼우는 트랜잭션이 옛 실행의 셀을 지운다.
+
+    인증이 이미 연 트랜잭션은 닫고, 새 트랜잭션의 첫 문장으로 격리 수준을 정한다."""
+    db.rollback()
+    db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
+
+
+def visible_share(db: Session, user: User, metric: MetricDef) -> float | None:
+    """지금 실행의 기록 중 이 사람에게 보이는 몫 — 1 보다 작으면 분자는 줄었는데 분모(판매
+    대수)는 전사일 수 있어 비율이 낮게 나온다. 시스템 관리자는 다 본다."""
+    if user.is_system_admin:
+        return 1.0
+    current = select(cells_run_of()).where(MetricDef.id == metric.id).scalar_subquery()
+    seen = visible_owner_clause(user, MetricValue.workspace_id)
+    total, visible = db.execute(
+        select(
+            func.coalesce(func.sum(MetricValue.count), 0),
+            func.coalesce(func.sum(MetricValue.count).filter(seen), 0),
+        ).where(MetricValue.metric_id == metric.id, MetricValue.run_id == current)
+    ).one()
+    return float(visible) / float(total) if total else None
+
+
+# --- 건 보기 · 이름 · 닫힘 --------------------------------------------------------------
+
+
+def drill(
+    built: spec_module.Built,
+    cell: Cell,
+    *,
+    by: tuple[str, ...],
+    ask: Ask | None = None,
+    period: date | None = None,
+    numerator: bool = False,
+) -> schemas.DrillOut:
+    """셀 → 목록 조건. 정의의 거르기도 덧붙인다 — 같은 칸 · 같은 연산이 이미 있으면 **둘 다
+    맞는** 하나로 합친다(`_Conds.put`). `by` 에 없는 축은 그 축의 전부다.
+
+    **읽을 때 건 거르기(`ask`)도 조건이 된다** — 기본 모델로 거른 코호트의 셀은 그 기본 모델의
+    기록이다. 셀이 묶지 않은 기준의 거르기 값, 묶지 않은 기간 · 코호트의 범위를 덧붙인다.
+    빠뜨리면 「N건 보기」 가 전체 기본 모델의 기록을 열면서 정확하다고 말한다(0.4.32 의
+    버그 — 거른 화면에서만 드러났다)."""
+    conds = _Conds(_single_of(built))
+    for name, value in cell.dims.items():
+        dim = built.dim(name)
+        if dim is not None:
+            _dim_condition(conds, dim, value)
+    if ask is not None:
+        for name, value in ask.filters.items():
+            dim = built.dim(name)
+            if dim is not None and name not in cell.dims:
+                _dim_condition(conds, dim, value)
+    if built.time is not None and period is not None:
+        _range_condition(conds, "period", built.time, period, built.stay)
+    elif built.time is not None and "period" in by:
+        _range_condition(conds, "period", built.time, cell.period, built.stay)
+    elif built.time is not None and ask is not None:
+        _bounds(conds, built.time, ask.period_from, ask.period_to, built.stay)
+        if built.stay is not None and built.stay.varies and ask.period_from is not None:
+            conds.miss("stay")
+    if built.cohort is not None and "cohort" in by:
+        _range_condition(conds, "cohort", built.cohort, cell.cohort)
+    elif built.cohort is not None and ask is not None:
+        _bounds(conds, built.cohort, ask.cohort_from, ask.cohort_to)
+    if numerator and built.spec.measure == spec_module.SHARE:
+        # 조건 비율의 분자 — 「조건에 맞는 N건」 이 그 목록이다(분석의 건수는 이것이다).
+        for one in built.spec.share_when:
+            conds.put(f"f.{one.field}.{one.op}", one.value, "share_when")
+    for cond in built.conds:
+        conds.put(f"f.{cond.field}.{cond.op}", cond.value, "filters")
+    return schemas.DrillOut(
+        type_slug=built.source.slug, params=conds.params, partial=conds.partial
+    )
+
+
+def _single_of(built: spec_module.Built) -> Callable[[str], bool]:
+    """그 칸이 **기록마다 값 하나**인가 — 고정 칸과 자기의 단일 값 칸. 같은 칸의 조건 둘을
+    하나로 합쳐도 되는 자리다(여러 값 칸 · 이어진 것 너머는 「하나라도」 라 합치면 뜻이
+    바뀐다)."""
+    by_key = {one.key: one for one in built.scope.defs}
+
+    def single(name: str) -> bool:
+        if name in conditions.FIXED_FIELDS:
+            return True
+        if paths.is_path(name):
+            return False
+        found = by_key.get(name)
+        return found is not None and not found.multi
+
+    return single
+
+
+def _ordered(raw: str) -> tuple[int, float, str]:
+    """범위의 끝끼리 견줄 열쇠 — 숫자로 읽히면 숫자, 아니면 글자(ISO 날짜는 글자 차례가 곧
+    시간 차례)."""
+    try:
+        return (0, float(raw), "")
+    except ValueError:
+        return (1, 0.0, raw)
+
+
+@dataclass
+class _Conds:
+    """건 보기의 목록 조건을 모으는 자리.
+
+    목록 조건은 `{키: 값}` 이라 같은 칸 · 같은 연산이 둘이면 하나가 덮인다 — 규칙의 조건
+    (`f.cost.gte=10`)과 정의의 거르기(`f.cost.gte=20`)가 같은 키면 덮인 쪽만큼 목록이 셀보다
+    많아진다. 그래서 **둘 다 맞는 하나**로 합친다: 범위는 좁은 쪽, `in` 은 겹치는 값, `ne`
+    둘은 제외 묶음 하나(`nf<번호>.<칸>.in=A|B` — 「A 도 B 도 아님」 과 같은 뜻). 합칠 수 없으면
+    (여러 값 칸 · 이어진 것 너머 · 「포함」 둘) `partial` 에 적는다 — 「≈」 다."""
+
+    single: Callable[[str], bool]
+    params: dict[str, str] = field(default_factory=dict)
+    partial: list[str] = field(default_factory=list)
+
+    def miss(self, what: str) -> None:
+        if what not in self.partial:
+            self.partial.append(what)
+
+    def group(self) -> int:
+        """다음 제외 묶음 번호."""
+        used = [int(found.group(1)) for key in self.params if (found := _GROUP_KEY.match(key))]
+        return max(used, default=0) + 1
+
+    def put(self, key: str, value: str, why: str) -> None:
+        have = self.params.get(key)
+        if have is None:
+            self.params[key] = value
+            return
+        if have == value:
+            return
+        name, op = key[len(conditions.PREFIX) :].rsplit(".", 1)
+        if op in ("empty", "notempty"):
+            return  # 값과 상관없는 연산이다
+        if not self.single(name):
+            self.miss(why)
+            return
+        if op in ("gt", "gte"):
+            self.params[key] = max(have, value, key=_ordered)
+        elif op in ("lt", "lte"):
+            self.params[key] = min(have, value, key=_ordered)
+        elif op == "in":
+            theirs = set(conditions.split_values(value))
+            self.params[key] = conditions.MULTI_SEP.join(
+                one for one in conditions.split_values(have) if one in theirs
+            )
+        elif op == "ne":
+            del self.params[key]
+            self.params[f"{conditions.EXCLUDE_PREFIX}{self.group()}.{name}.in"] = (
+                f"{have}{conditions.MULTI_SEP}{value}"
+            )
+        elif op == "starts" and value.casefold().startswith(have.casefold()):
+            self.params[key] = value
+        elif op in ("eq", "starts"):
+            return  # 둘 다 맞는 기록이 없다 — 그런 셀은 서지 않는다
+        else:
+            self.miss(why)
+
+
+def _bounds(
+    conds: _Conds,
+    axis: spec_module.TimeAxis,
+    start: date | None,
+    stop: date | None,
+    stay: stay_module.Stay | None = None,
+) -> None:
+    """묶지 않은 축의 읽기 범위 — 날짜 칸의 `gte` · `lt`. 범위의 끝은 「앞까지」 다. 머무는
+    기간이면 첫 기간에 든 기록은 N-1 기간 앞부터다."""
+    if start is not None:
+        if stay is not None:
+            start = stay_module.earliest(start, stay.periods, axis.grain)
+        conds.put(f"f.{axis.key}.gte", start.isoformat(), "period")
+    if stop is not None:
+        conds.put(f"f.{axis.key}.lt", stop.isoformat(), "period")
+
+
+def _range_condition(
+    conds: _Conds,
+    what: str,
+    axis: spec_module.TimeAxis,
+    when: date | None,
+    stay: stay_module.Stay | None = None,
+) -> None:
+    """기간 하나의 범위. 머무는 기간이면 그 기간의 값에 든 기록 — N-1 기간 앞부터 그 기간까지.
+    기록마다 기간 수가 다르면(`periods_from`) 앞쪽에 안 든 기록이 섞여 「≈」 다."""
+    if when is None:
+        conds.miss(what)
+        return
+    start = when
+    if stay is not None:
+        start = stay_module.earliest(when, stay.periods, axis.grain)
+        if stay.varies:
+            conds.miss("stay")
+    conds.put(f"f.{axis.key}.gte", start.isoformat(), what)
+    conds.put(f"f.{axis.key}.lt", axes.next_period(when, axis.grain).isoformat(), what)
+
+
+def _dim_condition(conds: _Conds, dim: spec_module.Dim, value: str | None) -> None:
+    if dim.rules is not None:
+        _rule_condition(conds, dim, value)
+        return
+    address = dim.address
+    if address in visits_module.ADDRESSES:
+        # 방문 차례 · 재방문은 같은 시리얼의 다른 기록에 달린 값이라 목록 조건이 없다.
+        conds.miss(dim.name)
+        return
+    own = address.startswith("properties.")
+    field_name = address.split(".", 1)[1] if own else address
+    if value is None:
+        if own or address in ("label", "key"):
+            conds.put(f"f.{field_name}.empty", "1", dim.name)
+        else:
+            # 걸음 너머의 빈 값은 「이어진 것이 없다」 와 「이어진 것의 칸이 비었다」 가 섞여
+            # 조건 하나로 못 적는다. 부서는 조건이 없다.
+            conds.miss(dim.name)
+        return
+    if dim.grain is not None and dim.axis.kind in axes.DATE_KINDS:
+        found = axes.period_range(value, dim.grain)
+        if found is None:
+            conds.miss(dim.name)
+            return
+        conds.put(f"f.{field_name}.gte", found[0], dim.name)
+        conds.put(f"f.{field_name}.lt", found[1], dim.name)
+        return
+    if address == "status":
+        conds.params["status"] = value
+    elif address in ("created_year", "workspace"):
+        # 만든 해는 목록 조건이 없다 — 목록의 `year` 는 「만든 해」 가 아니라 시간 정책의
+        # 연도라, 그것으로 적으면 다른 기록을 열면서 정확하다고 말했다(2026-10-08). 부서도
+        # 조건이 없다.
+        conds.miss(dim.name)
+    else:
+        conds.put(f"f.{field_name}.eq", value, dim.name)
+
+
+def _rule_condition(conds: _Conds, dim: spec_module.Dim, value: str | None) -> None:
+    """규칙 기준의 셀 — 「규칙 k 의 조건 AND NOT(규칙 1) AND … AND NOT(규칙 k-1)」, 「기타」 는
+    「NOT(모든 규칙)」. 앞 규칙마다 제외 묶음 하나(`nf<번호>.`) — 계산의 `CASE WHEN`(첫 일치)과
+    글자 그대로 같은 뜻이라 목록의 수가 셀의 수와 **정확히** 같다(ADR 0015). 지금 규칙에 없는
+    이름(규칙을 바꾼 뒤 다시 세기 전의 셀)은 조건으로 못 적는다 — `partial`."""
+    rules = dim.rules
+    assert rules is not None
+    index = rules.index_of(value) if value is not None else None
+    if value is None or (index is None and value != rules.other):
+        conds.miss(dim.name)
+        return
+    before = rules.conds if index is None else rules.conds[:index]
+    for one in before:
+        number = conds.group()
+        for cond in one:
+            conds.params[f"{conditions.EXCLUDE_PREFIX}{number}.{cond.field}.{cond.op}"] = (
+                cond.value
+            )
+    if index is not None:
+        for cond in rules.conds[index]:
+            conds.put(f"f.{cond.field}.{cond.op}", cond.value, dim.name)
+
+
+def labels_for(
+    db: Session, built: spec_module.Built, names: list[str], cells: list[Cell]
+) -> dict[str, dict[str, str]]:
+    out: dict[str, dict[str, str]] = {}
+    for name in names:
+        dim = built.dim(name)
+        if dim is None:
+            continue
+        distinct: set[str] = set()
+        for one in cells:
+            value = one.dims.get(name)
+            if value is not None:
+                distinct.add(value)
+        keys = sorted(distinct)[:MAX_LABELS]
+        found = axes.labels(db, dim.axis, keys)
+        out[name] = {key: found.get(key, key) for key in keys}
+    return out
+
+
+def label_of(labels: dict[str, dict[str, str]], name: str, value: str | None) -> str:
+    if value is None:
+        return axes.EMPTY_LABEL
+    return labels.get(name, {}).get(value, value)
+
+
+def current_run(db: Session, metric: MetricDef) -> MetricRun | None:
+    if metric.current_run_id is None:
+        return None
+    return db.get(MetricRun, metric.current_run_id)
+
+
+def is_stale(metric: MetricDef, now: datetime | None = None) -> bool:
+    """세 주기가 지나도록 안 셌거나, 아직 한 번도 안 셌다."""
+    if metric.last_run_at is None:
+        return True
+    if metric.interval_hours <= 0:
+        return False
+    now = now or datetime.now(UTC)
+    return metric.last_run_at + timedelta(hours=metric.interval_hours * 3) < now
+
+
+def closed_before(run: MetricRun | None, settle_days: int) -> date | None:
+    if run is None or run.watermark is None:
+        return None
+    return run.watermark.astimezone(UTC).date() - timedelta(days=settle_days)
+
+
+def is_closed(period: date | None, grain: str | None, before: date | None) -> bool:
+    if period is None or grain is None or before is None:
+        return False
+    return axes.next_period(period, grain) <= before
+
+
+def header_of(
+    metric: MetricDef,
+    built: spec_module.Built,
+    run: MetricRun | None,
+    *,
+    truncated: bool,
+    denominator: Denominator | None,
+) -> dict[str, Any]:
+    stats = run.stats if run is not None else {}
+    return {
+        "slug": metric.slug,
+        "label": metric.label,
+        "measure": built.spec.measure,
+        "measure_label": spec_module.MEASURE_LABELS[built.spec.measure],
+        "grain": built.grain,
+        "cohort_grain": built.cohort.grain if built.cohort is not None else None,
+        "settle_days": built.spec.settle_days,
+        "computed_at": run.finished_at if run is not None else None,
+        "watermark": run.watermark if run is not None else None,
+        "stale": is_stale(metric),
+        "overlap": built.overlap,
+        "unbucketed": int(stats.get("unbucketed", 0)),
+        "unbucketed_cohort": int(stats.get("unbucketed_cohort", 0)),
+        "negative_age": int(stats.get("negative_age", 0)),
+        "truncated": truncated or (denominator.truncated if denominator else False),
+        "denominator": denominator.out() if denominator is not None else None,
+        "stay": _stay_out(built),
+    }
+
+
+def _stay_out(built: spec_module.Built) -> schemas.StayOut | None:
+    stay, stay_in = built.stay, built.spec.stay
+    if stay is None or stay_in is None:
+        return None
+    return schemas.StayOut(
+        periods=stay.periods,
+        periods_from=stay_in.periods_from,
+        periods_from_label=stay.source.label if stay.source is not None else None,
+    )
+
+
+def _sort_key(cell: Cell, dims: list[str]) -> tuple[Any, ...]:
+    def dated(when: date | None) -> tuple[int, date]:
+        return (1, date.min) if when is None else (0, when)
+
+    return (
+        dated(cell.period),
+        dated(cell.cohort),
+        (1, 0) if cell.age is None else (0, cell.age),
+        *[(1, "") if cell.dims.get(name) is None else (0, cell.dims[name]) for name in dims],
+    )
+
+
+# --- 세 모양 ---------------------------------------------------------------------
+
+
+def check_composition(built: spec_module.Built, name: str) -> None:
+    """구성비를 낼 수 있나 — 더해지는 집계만(모듈 머리의 「구성비」)."""
+    measure = built.spec.measure
+    if measure not in COMPOSABLE:
+        raise _bad(
+            60,
+            f"구성비는 건수 · 합계로만 냅니다 — {spec_module.MEASURE_LABELS[measure]}은(는) "
+            "더할 수 없는 값이라 몫이 뜻이 없습니다.",
+        )
+    if built.dim(name) is None:
+        raise _bad(8, f"이 지표에 없는 기준입니다: {name}")
+
+
+def shares(values: list[float | None], keys: list[Any]) -> list[float | None]:
+    """같은 열쇠끼리 값의 몫(%) — 합이 100. 합이 0 이면 몫이 없다(None)."""
+    totals: dict[Any, float] = {}
+    for value, key in zip(values, keys, strict=True):
+        totals[key] = totals.get(key, 0.0) + (value or 0.0)
+    out: list[float | None] = []
+    for value, key in zip(values, keys, strict=True):
+        total = totals[key]
+        out.append((value or 0.0) / total * 100 if total else None)
+    return out
+
+
+def table(
+    db: Session,
+    user: User,
+    metric: MetricDef,
+    built: spec_module.Built,
+    ask: Ask,
+    *,
+    composition: str | None = None,
+) -> schemas.TableOut:
+    """요청한 기준(과 기간 · 코호트)별 셀 — 비율 · 건 보기 포함. `composition` 을 주면 셀마다
+    그 기준의 값들 사이의 몫(%) — 나머지 칸이 같은 셀끼리 합이 100."""
+    check_ask(built, ask)
+    if composition is not None:
+        check_composition(built, composition)
+        if composition not in ask.dims:
+            raise _bad(
+                61,
+                f"구성비는 묶은 기준의 몫입니다 — 「{composition}」 을(를) 묶을 기준(dims)에 "
+                "넣습니다.",
+            )
+    cells, truncated = read(db, user, metric, ask)
+    denominator = read_denominator(db, user, metric, built, ask)
+    labels = labels_for(db, built, ask.dims, cells)
+    run = current_run(db, metric)
+    before = closed_before(run, built.spec.settle_days)
+    measure = built.spec.measure
+    out: list[schemas.CellOut] = []
+    total_value = 0.0 if measure in ("count", "sum", spec_module.SHARE) else None
+    ordered = sorted(cells, key=lambda one: _sort_key(one, ask.dims))
+    parts: list[float | None] = [None] * len(ordered)
+    if composition is not None:
+        others = [name for name in ask.dims if name != composition]
+        parts = shares(
+            [one.measure(measure) for one in ordered],
+            [
+                (one.period, one.cohort, one.age, *(one.dims.get(name) for name in others))
+                for one in ordered
+            ],
+        )
+    for cell, part in zip(ordered, parts, strict=True):
+        value = cell.measure(measure)
+        if total_value is not None and value is not None:
+            total_value += value
+        ratio = denominator.ratio(value, cell, built.grain) if denominator else None
+        out.append(
+            schemas.CellOut(
+                dims=cell.dims,
+                labels={
+                    name: label_of(labels, name, value) for name, value in cell.dims.items()
+                },
+                period=_iso(cell.period),
+                period_label=(
+                    axes.period_label(cell.period.isoformat(), built.grain or "day")
+                    if cell.period is not None
+                    else (axes.EMPTY_LABEL if "period" in ask.by else None)
+                ),
+                cohort=_iso(cell.cohort),
+                cohort_label=(
+                    axes.period_label(cell.cohort.isoformat(), built.cohort.grain)
+                    if cell.cohort is not None and built.cohort is not None
+                    else (axes.EMPTY_LABEL if "cohort" in ask.by else None)
+                ),
+                age=cell.age,
+                count=cell.count,
+                value_count=cell.value_count,
+                sum=cell.sum,
+                min=cell.min,
+                max=cell.max,
+                avg=cell.avg,
+                value=value,
+                ratio=ratio,
+                denominator=denominator.lookup(cell, built.grain) if denominator else None,
+                closed=(
+                    is_closed(cell.period, built.grain, before) if "period" in ask.by else None
+                ),
+                drill=drill(built, cell, by=ask.by, ask=ask),
+                value_drill=(
+                    drill(built, cell, by=ask.by, ask=ask, numerator=True)
+                    if measure == spec_module.SHARE
+                    else None
+                ),
+                composition=part,
+            )
+        )
+    header = header_of(metric, built, run, truncated=truncated, denominator=denominator)
+    return schemas.TableOut(
+        **header,
+        dims=list(ask.dims),
+        by=list(ask.by),
+        cells=out,
+        total_count=sum(one.count for one in cells),
+        total_value=total_value,
+        composition=composition,
+    )
+
+
+def series(
+    db: Session,
+    user: User,
+    metric: MetricDef,
+    built: spec_module.Built,
+    ask: Ask,
+    *,
+    split: str | None,
+    composition: bool = False,
+) -> schemas.SeriesOut:
+    """기간순 추이 — 빈 기간은 0, 전기 · 전년 동기 · 닫힘. 세부 기준이 있으면 선이 여럿.
+    `composition` 이면 점마다 그 기간의 선들 사이의 몫(%) — 그린 선만이 아니라 **모든 값**의
+    합이 분모다(선이 상한에서 잘려도 몫은 맞다)."""
+    if built.time is None:
+        raise _bad(7, "이 지표에는 시간 칸이 없어 추이를 낼 수 없습니다.")
+    if composition:
+        if not split:
+            raise _bad(
+                61, "구성비는 선을 나눌 기준(split)의 값들 사이의 몫입니다 — split 을 줍니다."
+            )
+        check_composition(built, split)
+    ask.dims = [split] if split else []
+    ask.by = ("period",)
+    check_ask(built, ask)
+    grain = built.time.grain
+    cells, truncated = read(db, user, metric, ask)
+    denominator = read_denominator(db, user, metric, built, ask)
+    labels = labels_for(db, built, ask.dims, cells)
+    run = current_run(db, metric)
+    before = closed_before(run, built.spec.settle_days)
+    measure = built.spec.measure
+
+    dated = [one for one in cells if one.period is not None]
+    by_line: dict[str | None, dict[date, Cell]] = {}
+    for cell in dated:
+        key = cell.dims.get(split) if split else None
+        assert cell.period is not None
+        by_line.setdefault(key, {})[cell.period] = cell
+    start = ask.period_from or (
+        min(one.period for one in dated if one.period) if dated else None
+    )
+    stop = ask.period_to or (
+        axes.next_period(max(one.period for one in dated if one.period), grain)
+        if dated
+        else None
+    )
+    periods = dense(start, stop, grain) if start is not None and stop is not None else []
+
+    totals: dict[date, float] = {}
+    if composition:
+        for found_cells in by_line.values():
+            for when, cell in found_cells.items():
+                totals[when] = totals.get(when, 0.0) + (cell.measure(measure) or 0.0)
+    order = sorted(
+        by_line,
+        key=lambda key: (-sum(one.count for one in by_line[key].values()), key or ""),
+    )
+    lines_truncated = len(order) > MAX_LINES
+    lines: list[schemas.LineOut] = []
+    for key in order[:MAX_LINES]:
+        found = by_line[key]
+        values: dict[date, float | None] = {}
+        points: list[schemas.PointOut] = []
+        previous: float | None = None
+        for when in periods:
+            cell = found.get(when) or Cell(
+                {split: key} if split else {}, when, None, None, 0, 0, None, None, None
+            )
+            value = cell.measure(measure)
+            values[when] = value
+            points.append(
+                schemas.PointOut(
+                    period=when.isoformat(),
+                    label=axes.period_label(when.isoformat(), grain),
+                    count=cell.count,
+                    value=value,
+                    ratio=denominator.ratio(value, cell, grain) if denominator else None,
+                    prev=previous,
+                    yoy=values.get(year_before(when, grain)),
+                    closed=is_closed(when, grain, before),
+                    drill=drill(built, cell, by=("period",), ask=ask),
+                    composition=(
+                        (value or 0.0) / totals[when] * 100
+                        if composition and totals.get(when)
+                        else None
+                    ),
+                )
+            )
+            previous = value
+        lines.append(
+            schemas.LineOut(
+                key=key,
+                label=label_of(labels, split, key) if split else metric.label,
+                points=points,
+            )
+        )
+    header = header_of(metric, built, run, truncated=truncated, denominator=denominator)
+    return schemas.SeriesOut(
+        **header,
+        split=split,
+        lines=lines,
+        lines_truncated=lines_truncated,
+        composition=composition,
+    )
+
+
+def cohort(
+    db: Session,
+    user: User,
+    metric: MetricDef,
+    built: spec_module.Built,
+    ask: Ask,
+    *,
+    cumulative: bool,
+) -> schemas.CohortOut:
+    """코호트 x 경과 행렬 — `age >= 0` 만, 빈 칸은 0, 누적이면 코호트마다 경과순 누적(분자만
+    누적 ÷ 분모)."""
+    if built.cohort is None:
+        raise _bad(7, "이 지표에는 코호트 칸이 없어 코호트 행렬을 낼 수 없습니다.")
+    ask.dims = []
+    ask.by = ("cohort", "age")
+    check_ask(built, ask)
+    grain = built.cohort.grain
+    cells, truncated = read(db, user, metric, ask)
+    denominator = read_denominator(db, user, metric, built, ask)
+    run = current_run(db, metric)
+    before = closed_before(run, built.spec.settle_days)
+    measure = built.spec.measure
+
+    matrix: dict[date, dict[int, Cell]] = {}
+    for cell in cells:
+        if cell.cohort is None or cell.age is None or cell.age < 0:
+            continue
+        matrix.setdefault(cell.cohort, {})[cell.age] = cell
+    cohorts: list[date] = []
+    if matrix:
+        start = ask.cohort_from or min(matrix)
+        stop = ask.cohort_to or axes.next_period(max(matrix), grain)
+        cohorts = dense(start, stop, grain)
+    max_age = max((age for ages in matrix.values() for age in ages), default=-1)
+    ages = list(range(max_age + 1))
+
+    rows: list[schemas.CohortRowOut] = []
+    for when in cohorts:
+        found = matrix.get(when, {})
+        # **누적은 집계마다 다르다** — 건수 · 합은 더하고, 평균은 (누적 합 / 누적 값 수),
+        # 최소 · 최대는 지금까지의 최소 · 최대다. 값을 그대로 더하면 평균 지표의 누적이
+        # 「평균의 합」 이었다(2026-10-08). 기초 집계를 누적한 셀 하나로 같은 `measure` 를
+        # 낸다.
+        running_count = running_vn = 0
+        running_sum: float | None = None
+        running_min: float | None = None
+        running_max: float | None = None
+        out_cells: list[schemas.CohortCellOut] = []
+        row_cell = Cell({}, None, when, 0, 0, 0, None, None, None)
+        for age in ages:
+            cell = found.get(age) or Cell({}, None, when, age, 0, 0, None, None, None)
+            value = cell.measure(measure)
+            running_count += cell.count
+            running_vn += cell.value_count
+            if cell.sum is not None:
+                running_sum = (running_sum or 0.0) + cell.sum
+            if cell.min is not None:
+                running_min = cell.min if running_min is None else min(running_min, cell.min)
+            if cell.max is not None:
+                running_max = cell.max if running_max is None else max(running_max, cell.max)
+            so_far = Cell(
+                {},
+                None,
+                when,
+                age,
+                running_count,
+                running_vn,
+                running_sum,
+                running_min,
+                running_max,
+            )
+            running = so_far.measure(measure)
+            total = running if cumulative else value
+            if cumulative and isinstance(denominator, OwnTotal):
+                # 조건 비율의 누적은 분모도 누적이다 — 그 경과까지의 조건 건수 / 전체 건수.
+                cell = replace(cell, count=running_count)
+            period = advance(when, age, grain)
+            out_cells.append(
+                schemas.CohortCellOut(
+                    age=age,
+                    count=cell.count,
+                    value=value,
+                    cumulative=running,
+                    ratio=denominator.ratio(total, cell, grain) if denominator else None,
+                    closed=is_closed(period, grain, before),
+                    drill=drill(built, cell, by=("cohort",), ask=ask, period=period),
+                )
+            )
+        rows.append(
+            schemas.CohortRowOut(
+                cohort=when.isoformat(),
+                label=axes.period_label(when.isoformat(), grain),
+                denominator=(
+                    denominator.lookup(row_cell, grain)
+                    if denominator is not None and denominator.time == "cohort"
+                    else None
+                ),
+                cells=out_cells,
+            )
+        )
+    header = header_of(metric, built, run, truncated=truncated, denominator=denominator)
+    return schemas.CohortOut(**header, cumulative=cumulative, ages=ages, rows=rows)
+
+
+def dim_values(
+    db: Session,
+    user: User,
+    metric: MetricDef,
+    built: spec_module.Built,
+    name: str,
+    *,
+    q: str | None,
+) -> schemas.DimValuesOut:
+    """기준 하나의 값들 — 화면 고르개. 많은 순, 상한 안에서."""
+    dim = built.dim(name)
+    if dim is None:
+        raise _bad(8, f"이 지표에 없는 기준입니다: {name}")
+    current = select(cells_run_of()).where(MetricDef.id == metric.id).scalar_subquery()
+    expr = MetricValue.dims[name].astext
+    stmt = (
+        select(expr.label("v"), func.sum(MetricValue.count).label("n"))
+        .where(
+            MetricValue.metric_id == metric.id,
+            MetricValue.run_id == current,
+            visible_owner_clause(user, MetricValue.workspace_id),
+        )
+        .group_by(expr)
+        .order_by(func.sum(MetricValue.count).desc(), expr)
+        .limit(MAX_DIM_VALUES + 1)
+    )
+    rows = db.execute(stmt).all()
+    keys = [str(row.v) for row in rows if row.v is not None]
+    labels = axes.labels(db, dim.axis, keys[:MAX_LABELS])
+    values = [
+        schemas.DimValueOut(
+            value=row.v,
+            label=axes.EMPTY_LABEL if row.v is None else labels.get(str(row.v), str(row.v)),
+            count=int(row.n or 0),
+        )
+        for row in rows[:MAX_DIM_VALUES]
+    ]
+    if q:
+        needle = q.casefold()
+        values = [one for one in values if needle in one.label.casefold()]
+    return schemas.DimValuesOut(
+        name=name,
+        label=dim.axis.label,
+        kind=dim.axis.kind,
+        values=values,
+        truncated=len(rows) > MAX_DIM_VALUES,
+    )

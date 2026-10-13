@@ -1,0 +1,438 @@
+"""속성 값 검증 — **JSONB 에는 제약을 못 건다. 그래서 여기가 유일한 자리다.**
+
+`objects.properties` 는 JSONB 한 칸이라 유니크·FK·CHECK 가 없다. 그 대가를 알고
+고른 것이고([ADR 0005](../../../../docs/adr/0005-온톨로지-메타모델.md)), 대신
+**검증을 한 곳에 모은다.** 라우트마다 흩뿌리면 「목록에는 보이는데 저장은 안 되는」
+값이 생기고, 그때 어느 쪽이 맞는지 알 방법이 없다.
+"""
+
+from __future__ import annotations
+
+import re
+import uuid
+from datetime import date, datetime
+from typing import Any
+
+from app.modules.ontology.models import (
+    DATA_TYPES,
+    PropertyDef,
+)
+from app.shared import system_sources
+from app.shared.errors import AppError, code
+
+#: slug 는 **바뀌면 안 되는 식별자**다. URL·관계의 허용 타입·MCP 도구 이름이
+#: 여기 물리므로, 나중에 이스케이프가 필요해지는 문자를 처음부터 막는다.
+SLUG_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+
+#: 속성 키도 같은 규칙이다. `properties` 의 키이자 `list_view` 가
+#: `properties.<key>` 로 가리키는 이름이라, 점이나 공백이 들어가면 그 표기가 깨진다.
+KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
+
+#: 타입 · 인터페이스 slug 로 **못 쓰는 이름** — 객체 API 에서 `/{type_slug}` 보다 앞에 선 고정
+#: 경로의 첫 마디(`/api/objects/home` · `/watching` · `/quality/report`). 그 slug 의 타입은
+#: 목록이 고정 경로로 빠져 안 열린다(2026-10-08). 객체 라우터에 고정 경로를 더하면 여기에도
+#: 더한다 — `tests/api/test_ontology_guards.py` 가 둘이 어긋나면 잡는다. 이미 있는 타입은
+#: 그대로 두고 새로 만드는 것만 막는다. **`-` 가 든 고정 경로**(`fill-priorities` ·
+#: `alias-candidates`)는 slug 규칙(`SLUG_RE`)이 이미 막아 여기 적지 않는다 — 적으면
+#: 「예약이라 거절」 보다 「slug 모양이 틀림」 이 먼저 나서 예약 목록이 거짓말을 한다. 새 고정
+#: 경로는 되도록 그렇게(`-` 를 넣어) 짓는다 — 그러면 어떤 타입 이름도 막지 않는다.
+RESERVED_SLUGS: frozenset[str] = frozenset({"home", "quality", "watching"})
+
+
+def reserved_slug_error(slug: str, *, what: str) -> str | None:
+    """못 쓰는 slug 면 사람이 읽을 까닭, 아니면 None."""
+    if slug in RESERVED_SLUGS:
+        return (
+            f"{what} {slug}: 화면 · API 의 고정 주소(/api/objects/{slug})와 겹쳐 쓸 수 없는 "
+            "이름입니다 — 다른 slug 를 고르세요"
+            f"(못 쓰는 것: {', '.join(sorted(RESERVED_SLUGS))})."
+        )
+    return None
+
+
+class InvalidValue(AppError):
+    """속성 값이 정의와 안 맞는다.
+
+    422 인 이유: 형식은 맞는데 **의미가 안 맞는** 것이다. 400 으로 내면 「본문이
+    깨졌다」 와 구별이 안 되고, 그러면 화면이 무엇을 고쳐야 할지 못 정한다.
+    """
+
+    def __init__(self, code: str, message: str, **kw: Any) -> None:
+        super().__init__(code, message, status=422, **kw)
+
+
+def require_slug(value: str, *, what: str) -> str:
+    """소문자로 시작하는 영숫자·밑줄. **바꿀 수 없는 값이므로 들어올 때 막는다.**
+
+    정의 파일은 JSON 이라 숫자 · 목록이 올 수 있다 — 글자가 아니면 같은 말로 거절한다(예전에는
+    `.strip()` 에서 터져 500 이었다, 2026-10-08)."""
+    value = (value or "").strip() if isinstance(value, str) or not value else str(value)
+    if not SLUG_RE.match(value):
+        raise InvalidValue(
+            code("ONTOLOGY", 1),
+            f"{what}는 소문자로 시작하는 영문·숫자·밑줄 32자 이내여야 합니다: {value!r}",
+        )
+    return value
+
+
+def require_key(value: str) -> str:
+    # 글자가 아니면(숫자 · 목록) `KEY_RE` 에 안 맞게 둔다 — 소문자로 시작해야 하니 숫자를
+    # 글자로 바꿔도 통과하지 못한다.
+    value = (value or "").strip() if isinstance(value, str) or not value else str(value)
+    if not KEY_RE.match(value):
+        raise InvalidValue(
+            code("ONTOLOGY", 2),
+            f"속성 키는 소문자로 시작하는 영문·숫자·밑줄 48자 이내여야 합니다: {value!r}",
+        )
+    return value
+
+
+def require_choice(value: str, allowed: tuple[str, ...], *, what: str) -> str:
+    if value not in allowed:
+        raise InvalidValue(
+            code("ONTOLOGY", 3),
+            f"{what}는 {', '.join(allowed)} 중 하나여야 합니다: {value!r}",
+        )
+    return value
+
+
+def system_source_error(kind_class: str, source: str) -> str | None:
+    """`kind_class` 와 `system_source` 가 짝이 맞는가 — 틀리면 **무엇을 고쳐야 하는지**.
+
+    투영 타입은 비출 표가 있어야 하고, 그 표는 `shared/system_sources.py` 에 등록된
+    것이어야 한다(안 그러면 목록이 빈 채로 뜨고 그것은 「없다」 로 읽힌다). 반대로
+    보통 타입에 표를 적으면 아무 일도 안 일어나는데, 적은 사람은 일어난 줄 안다.
+    """
+    known = ", ".join(system_sources.known_source_keys()) or "(없음)"
+    if kind_class == "system":
+        if not source:
+            return (
+                "투영 타입은 어느 표를 비추는지(system_source)를 적어야 합니다. "
+                f"등록된 것: {known}"
+            )
+        if system_sources.system_source(source) is None:
+            return f"등록되지 않은 원 표입니다: {source}. 등록된 것: {known}"
+    elif source:
+        return "원 표(system_source)는 투영(system) 타입에서만 씁니다."
+    return None
+
+
+def require_system_source(kind_class: str, source: str) -> None:
+    message = system_source_error(kind_class, source)
+    if message:
+        raise InvalidValue(code("ONTOLOGY", 3), message)
+
+
+def group_parent_error(
+    *,
+    slug: str,
+    parent: str,
+    known: set[str],
+    parents_of: dict[str, str | None],
+    children_of: dict[str, list[str]],
+) -> str | None:
+    """묶음의 상위 묶음이 **될 수 있는 값인가** — 아니면 무엇이 틀렸는지.
+
+    화면(그룹 관리)과 파일(정의 가져오기)이 **같은 규칙**을 써야 한다. 두 벌로 두면 한쪽으로만
+    3단계가 들어오고, 그 상태를 만든 사람은 다른 쪽에서 왜 막히는지 모른다.
+
+    `known` 은 있는(또는 같은 파일에 함께 오는) 묶음 slug, `parents_of` 는 그것들의 상위,
+    `children_of` 는 그것들의 하위다 — 부르는 쪽이 표에서 읽어 넘긴다.
+    """
+    if not parent:
+        return None
+    if parent == slug:
+        return f"묶음 {slug}: 자기 자신을 상위 묶음으로 가리킵니다"
+    if parent not in known:
+        return f"묶음 {slug}: 없는 상위 묶음을 가리킵니다: {parent}"
+    # **한 단계만.** 부모가 이미 부모를 가졌으면 3단계가 된다.
+    if parents_of.get(parent):
+        return (
+            f"묶음 {slug}: 상위 묶음 {parent} 에 이미 상위가 있습니다 — "
+            "묶음은 두 단계까지입니다(상위 묶음 › 묶음 › 타입)."
+        )
+    # 내 아래에 이미 묶음이 있으면 나는 상위가 될 수 없다(역시 3단계).
+    if children_of.get(slug):
+        kids = ", ".join(sorted(children_of[slug])[:3])
+        return (
+            f"묶음 {slug}: 이 묶음 아래에 이미 묶음이 있습니다({kids}) — "
+            "묶음은 두 단계까지입니다."
+        )
+    return None
+
+
+#: 묶음의 색 — `#rrggbb` 만. 화면이 이 값을 그대로 캔버스에 넘긴다.
+COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def group_color_error(slug: str, value: object) -> str | None:
+    """묶음의 색이 **쓸 수 있는 값인가** — 아니면 무엇이 틀렸는지.
+
+    **아무 글자나 받으면 캔버스가 조용히 검정으로 그린다** — 그때는 색을 정한 사람도 왜 안
+    되는지 모른다. 화면과 파일이 같은 규칙을 써야 한다(상위 묶음과 같은 이유다).
+    """
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if not COLOR_RE.match(text):
+        return f"묶음 {slug}: 색은 `#rrggbb` 로 적습니다: {value!r}"
+    return None
+
+
+def group_color(slug: str, value: object) -> str:
+    """빈 값(순서대로 받기) 또는 소문자 `#rrggbb`. 틀리면 거절한다.
+
+    대소문자는 하나로 모은다 — 같은 색이 두 글자로 저장되면 비교가 안 된다.
+    """
+    wrong = group_color_error(slug, value)
+    if wrong:
+        raise InvalidValue(code("ONTOLOGY", 34), wrong)
+    return str(value or "").strip().lower()
+
+
+# --- 값 하나 ----------------------------------------------------------------
+
+
+def _coerce_one(definition: PropertyDef, raw: Any) -> Any:
+    """값 하나를 그 `data_type` 으로 받아들이거나 거절한다.
+
+    **받아들일 때 모양을 고정한다.** 숫자를 문자열로 받아 두면 정렬이 사전순이
+    되고, 그 목록은 틀렸다는 말을 하지 않는다.
+    """
+    label = definition.label
+    kind = definition.data_type
+
+    if kind in ("text", "text_long"):
+        if not isinstance(raw, str):
+            raise InvalidValue(code("ONTOLOGY", 10), f"{label}: 글자여야 합니다.")
+        _check_pattern(definition, raw)
+        return raw
+
+    if kind == "url":
+        if not isinstance(raw, str) or not raw.startswith(("http://", "https://")):
+            raise InvalidValue(
+                code("ONTOLOGY", 18),
+                f"{label}: 주소는 http:// 나 https:// 로 시작해야 합니다. "
+                "그래야 화면이 링크로 열 수 있습니다.",
+            )
+        if any(ch.isspace() for ch in raw):
+            raise InvalidValue(code("ONTOLOGY", 18), f"{label}: 주소에 공백이 있습니다.")
+        _check_pattern(definition, raw)
+        return raw
+
+    if kind == "number":
+        # bool 은 파이썬에서 int 의 하위형이다. 걸러 내지 않으면 True 가 1 로
+        # 저장되고, 그 값은 나중에 아무도 설명할 수 없다.
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            raise InvalidValue(code("ONTOLOGY", 11), f"{label}: 숫자여야 합니다.")
+        unit = f" {definition.unit}" if definition.unit else ""
+        if definition.min_value is not None and raw < definition.min_value:
+            raise InvalidValue(
+                code("ONTOLOGY", 30),
+                f"{label}: {definition.min_value}{unit} 보다 작을 수 없습니다"
+                f" (넣은 값 {raw}).",
+            )
+        if definition.max_value is not None and raw > definition.max_value:
+            raise InvalidValue(
+                code("ONTOLOGY", 31),
+                f"{label}: {definition.max_value}{unit} 보다 클 수 없습니다 (넣은 값 {raw}).",
+            )
+        if definition.decimals is not None:
+            # **반올림해서 저장하지 않는다.** 조용히 바꾸면 사람이 넣은 값과
+            # 저장된 값이 달라지고, 그 차이는 아무 데도 안 뜬다.
+            quantized = round(float(raw), definition.decimals)
+            if abs(quantized - float(raw)) > 1e-12:
+                places = definition.decimals
+                raise InvalidValue(
+                    code("ONTOLOGY", 32),
+                    f"{label}: 소수점 {places}자리까지만 넣습니다 (넣은 값 {raw}).",
+                )
+        return raw
+
+    if kind == "bool":
+        if not isinstance(raw, bool):
+            raise InvalidValue(code("ONTOLOGY", 12), f"{label}: 예/아니오 값이어야 합니다.")
+        return raw
+
+    if kind == "date":
+        if not isinstance(raw, str):
+            raise InvalidValue(code("ONTOLOGY", 13), f"{label}: 날짜(YYYY-MM-DD)여야 합니다.")
+        try:
+            date.fromisoformat(raw)
+        except ValueError:
+            raise InvalidValue(
+                code("ONTOLOGY", 13), f"{label}: 날짜(YYYY-MM-DD)여야 합니다: {raw!r}"
+            ) from None
+        return raw
+
+    if kind == "datetime":
+        # **날짜만으로는 시각을 못 담는다** — 측정·기록 시각이 그런 자리다.
+        if not isinstance(raw, str):
+            raise InvalidValue(code("ONTOLOGY", 19), f"{label}: 날짜와 시각이어야 합니다.")
+        try:
+            datetime.fromisoformat(raw)
+        except ValueError:
+            raise InvalidValue(
+                code("ONTOLOGY", 19),
+                f"{label}: 날짜와 시각(2026-09-11T13:05)이어야 합니다: {raw!r}",
+            ) from None
+        return raw
+
+    if kind == "enum":
+        options = definition.enum_options or []
+        if raw not in options:
+            raise InvalidValue(
+                code("ONTOLOGY", 14),
+                f"{label}: {', '.join(options) or '(정의된 값 없음)'} 중에서 선택하세요.",
+            )
+        return raw
+
+    if kind == "object_ref":
+        if not isinstance(raw, str):
+            raise InvalidValue(code("ONTOLOGY", 15), f"{label}: 객체를 선택하세요.")
+        try:
+            uuid.UUID(raw)
+        except ValueError:
+            raise InvalidValue(code("ONTOLOGY", 15), f"{label}: 객체를 선택하세요.") from None
+        # **가리키는 객체가 실제로 있는지는 여기서 안 본다.** DB 를 알아야 하는
+        # 일이라 objects 쪽 서비스가 본다 — 이 모듈은 세션을 모른다.
+        return raw
+
+    if kind == "file":
+        # 첨부는 `properties` 에 안 들어간다(`attachments.owner_field`). 여기로
+        # 값이 왔다는 것은 화면이나 API 사용자가 잘못 알고 있다는 뜻이라,
+        # **조용히 버리지 않고 말해 준다.**
+        raise InvalidValue(
+            code("ONTOLOGY", 16),
+            f"{label}: 파일 속성은 첨부로 올립니다. properties 에 넣지 않습니다.",
+        )
+
+    raise InvalidValue(code("ONTOLOGY", 17), f"{label}: 모르는 속성 종류입니다: {kind}")
+
+
+#: 값 하나의 검사 — 종류 변경(`conversion`)이 변환한 값을 **저장할 때와 같은 검사**에 건다.
+check_value = _coerce_one
+
+
+def _check_pattern(definition: PropertyDef, raw: str) -> None:
+    """모양이 정해진 값(사번·도번)을 지킨다.
+
+    **정규식이 깨져 있으면 그 속성은 아무 값도 못 받는다.** 그래서 여기서
+    「식이 잘못됐다」 와 「값이 안 맞는다」 를 갈라 말한다 — 고칠 곳이 다르다.
+    """
+    if not definition.pattern:
+        return
+    try:
+        matched = re.match(definition.pattern, raw)
+    except re.error as caught:
+        raise InvalidValue(
+            code("ONTOLOGY", 33),
+            f"{definition.label}: 속성 정의의 모양 규칙이 잘못됐습니다 ({caught}). "
+            "온톨로지 관리에서 수정하세요.",
+        ) from None
+    if matched is None:
+        raise InvalidValue(
+            code("ONTOLOGY", 34),
+            f"{definition.label}: 정해진 모양이 아닙니다 (규칙 {definition.pattern}).",
+        )
+
+
+def _is_empty(value: Any) -> bool:
+    return value is None or value == "" or value == []
+
+
+# --- 값 묶음 ----------------------------------------------------------------
+
+
+def merge_properties(current: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+    """부분 수정 — **「안 보낸 것」 과 「비운 것」 을 구별한다.**
+
+    통째로 덮으면 이름 하나 바꿀 때마다 다른 속성이 함께 날아가고, **그 손실은
+    저장한 사람 눈에 안 보인다.** 보낸 키만 병합하고, 지우려면 `null` 을 명시한다.
+    """
+    merged = dict(current)
+    for key, value in patch.items():
+        if value is None:
+            merged.pop(key, None)
+        else:
+            merged[key] = value
+    return merged
+
+
+def validate_properties(
+    defs: list[PropertyDef], values: dict[str, Any], *, apply_defaults: bool = False
+) -> dict[str, Any]:
+    """정의에 비추어 값 묶음 전체를 검증하고, 저장할 모양으로 돌려준다.
+
+    **모르는 키는 거절한다.** 조용히 저장하면 어느 화면에도 안 나오는 데이터가
+    쌓이고, 그것이 있다는 사실은 아무도 모른다.
+
+    `apply_defaults` 는 **만들 때만 참**이다. 고칠 때도 채우면 **사람이 방금 지운
+    값이 기본값으로 되살아나고**, 그 되살아남은 저장한 사람 눈에 안 보인다 —
+    실측으로 확인했다(시험이 그것을 잡았다).
+    """
+    by_key = {d.key: d for d in defs}
+
+    unknown = sorted(set(values) - set(by_key))
+    if unknown:
+        raise InvalidValue(
+            code("ONTOLOGY", 20),
+            f"정의되지 않은 속성입니다: {', '.join(unknown)}. "
+            "속성을 먼저 정의하거나 키를 확인하세요.",
+        )
+
+    cleaned: dict[str, Any] = {}
+    for key, definition in by_key.items():
+        raw = values.get(key)
+
+        # **기본값은 만들 때만 들어간다.** 고칠 때도 채우면 사람이 방금 지운
+        # 값이 되살아난다.
+        if apply_defaults and _is_empty(raw) and definition.default_value is not None:
+            raw = definition.default_value
+
+        if _is_empty(raw):
+            if definition.required and definition.data_type != "file":
+                raise InvalidValue(
+                    code("ONTOLOGY", 21), f"{definition.label}: 값이 필요합니다."
+                )
+            continue
+
+        if definition.multi:
+            if not isinstance(raw, list):
+                raise InvalidValue(
+                    code("ONTOLOGY", 22), f"{definition.label}: 여러 값의 목록이어야 합니다."
+                )
+            cleaned[key] = [_coerce_one(definition, item) for item in raw]
+        else:
+            if isinstance(raw, list):
+                raise InvalidValue(
+                    code("ONTOLOGY", 23), f"{definition.label}: 값 하나만 넣습니다."
+                )
+            cleaned[key] = _coerce_one(definition, raw)
+
+    return cleaned
+
+
+def object_ref_ids(defs: list[PropertyDef], values: dict[str, Any]) -> list[uuid.UUID]:
+    """값 묶음이 가리키는 객체 id 들. **존재 확인은 부르는 쪽이 한다.**
+
+    가리키는 객체가 없는 참조를 저장하면 화면에는 빈 칸으로 나오고, 그것이
+    「값이 없는 것」 인지 「가리키는 것이 사라진 것」 인지 구별할 수 없다.
+    """
+    out: list[uuid.UUID] = []
+    by_key = {d.key: d for d in defs}
+    for key, raw in values.items():
+        definition = by_key.get(key)
+        if definition is None or definition.data_type != "object_ref":
+            continue
+        items = raw if isinstance(raw, list) else [raw]
+        for item in items:
+            try:
+                out.append(uuid.UUID(str(item)))
+            except ValueError:  # pragma: no cover - _coerce_one 이 이미 막는다
+                continue
+    return out
+
+
+def known_data_types() -> tuple[str, ...]:
+    return DATA_TYPES

@@ -14,8 +14,10 @@ from sqlalchemy.orm.attributes import set_committed_value
 from app.database import get_db
 from app.modules.accounts.models import User
 from app.modules.auth import security, services
+from app.shared import scopes
 from app.shared.access_log import USER_ID_SCOPE_KEY
 from app.shared.errors import AppError, Forbidden, code
+from app.shared.request_context import set_actor_token
 
 _UNAUTHENTICATED = "로그인이 필요합니다."
 
@@ -31,15 +33,37 @@ def _bearer(request: Request) -> str | None:
     return header[7:].strip() or None
 
 
-#: POST 지만 아무것도 안 바꾸는 경로 — 레시피 검증 · 미리보기. 읽기 토큰으로 되어야 AI 가
-#: 그려 본다.
-_READ_ONLY_POSTS = ("/api/cad/recipe/",)
-
-
 def _is_write(request: Request) -> bool:
-    if request.method in ("GET", "HEAD", "OPTIONS"):
-        return False
-    return not request.url.path.startswith(_READ_ONLY_POSTS)
+    """쓰기인가. POST 지만 아무것도 안 바꾸는 경로(레시피 검증 · 미리보기 · 내보내기 ·
+    SPARQL …)는 조립 지점(`main.register_platform`)이 `shared/scopes` 에 읽기로 등록한다 —
+    읽기 토큰으로 되어야 AI 가 그려 보고 물어본다."""
+    return not scopes.is_reading(request.method, request.url.path)
+
+
+def _enforce_token_scope(request: Request, token_scopes: list[str]) -> None:
+    """**기계 자격만 범위로 막는다** — 사람 세션에는 안 건다(그 사람의 권한이 이미 한계다).
+
+    CompCore 의 `read` · `write` 는 그대로 전부를 열고, StandardPlatform 에서 들인 좁은 범위
+    (`ontology:write` · `objects:write` · `core:read`)는 등록된 경로만 연다(`shared/scopes`,
+    ADR 0008). 좁은 범위만 든 토큰(바깥 시스템의 `core:read`)은 그 자리 밖을 못 읽는다."""
+    path = request.url.path
+    if _is_write(request):
+        needed = scopes.needed_scope(path)
+        if "write" in token_scopes or (needed is not None and needed in token_scopes):
+            return
+        raise Forbidden(
+            code("AUTH", 106),
+            "이 토큰에는 write 범위가 없습니다."
+            + (f" 이 경로는 {needed} 범위로도 고칠 수 있습니다." if needed else ""),
+            details={"granted": token_scopes, "needed": needed},
+        )
+    if "write" in token_scopes or scopes.may_read(path, token_scopes):
+        return
+    raise Forbidden(
+        code("AUTH", 104),
+        "이 토큰에는 이 경로를 읽을 범위가 없습니다(read 또는 그 자리의 좁은 범위).",
+        details={"path": path, "granted": token_scopes},
+    )
 
 
 def current_user(request: Request, db: Session = Depends(get_db)) -> User:
@@ -52,18 +76,14 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
         if found is None:
             raise AppError(code("AUTH", 101), "토큰이 유효하지 않습니다.", status=401)
         user, pat = found
-        # **기계 자격의 쓰기는 범위로 막는다.** 사람 세션에는 안 건다 — 그 사람의 권한이 이미
-        # 한계다.
-        if _is_write(request) and "write" not in (pat.scopes or []):
-            raise Forbidden(
-                code("AUTH", 106),
-                "이 토큰에는 write 범위가 없습니다.",
-                details={"granted": list(pat.scopes or [])},
-            )
+        _enforce_token_scope(request, list(pat.scopes or []))
         if PORTAL_SCOPE in (pat.scopes or []):
             _portal_limits(request, user)
         request.state.token_name = pat.name
         request.state.token_scopes = list(pat.scopes or [])
+        # **감사에 토큰 이름을 남긴다**(StandardPlatform 과 같다) — 소유자만 남기면 사람이 넣은
+        # 것과 기계가 넣은 것이 구별되지 않는다.
+        set_actor_token(pat.name)
         request.scope[USER_ID_SCOPE_KEY] = user.id
         return user
 

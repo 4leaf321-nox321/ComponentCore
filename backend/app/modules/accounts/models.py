@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -45,6 +45,14 @@ class User(Base):
         Boolean, default=False, server_default="false"
     )
     """관리자가 만든 계정의 임시 비밀번호. 첫 로그인 때 변경을 강제한다."""
+
+    home_workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    """대표 소속 부서 — 로그인해서 처음 서는 부서(StandardPlatform 과 같다, ADR 0008). 비어
+    있으면 소속 중 첫 부서로 떨어진다."""
 
     failed_logins: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     last_failed_login_at: Mapped[datetime | None] = mapped_column(

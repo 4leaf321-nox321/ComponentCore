@@ -95,6 +95,75 @@ TAGS: list[dict[str, Any]] = [
             "무슨 말로 옮겼는지 이력에 남는다. 옮길 수 있는 곳은 상세의 `allowed` 가 말한다."
         ),
     },
+    # --- StandardPlatform 에서 들인 것(ADR 0008) ---
+    {
+        "name": "ontology",
+        "description": (
+            "**온톨로지 정의** — 묶음 · 타입 · 속성 · 관계 종류 · 인터페이스를 데이터로 "
+            "정의한다. 정의하면 목록 · 상세 · 트리 화면이 생긴다. "
+            "`GET /ontology/schema` 하나가 전부를 돌려준다."
+        ),
+    },
+    {
+        "name": "objects",
+        "description": (
+            "**온톨로지 객체** — 타입의 행. 만들기 · 고치기 · 관계 · 별칭 · 이력 · 일괄 "
+            "입력(계획을 보고 적용) · 내보내기. 부서가 소유하고, 고치는 것은 소유 부서의 "
+            "관리자다."
+        ),
+    },
+    {"name": "graph", "description": "객체 · 관계를 그래프로 — 이웃 · 경로 · 개요."},
+    {"name": "rdf", "description": "온톨로지 · 객체의 RDF 내보내기와 SPARQL 묻기(읽기만)."},
+    {"name": "objectsearch", "description": "온톨로지 객체 전체 찾기 — 타입을 가로질러."},
+    {
+        "name": "core",
+        "description": (
+            "**코어 API** — 바깥 시스템이 공개된 기준정보를 당겨 가는 창구(`core:read`). "
+            "지난번 이후 바뀐 것 · 사라진 것 · 관계를 `since` · `next` · `as_of` 로."
+        ),
+    },
+    {
+        "name": "datasources",
+        "description": (
+            "**데이터 소스** — 바깥 시스템(OData · REST · 파일)에서 읽어 온톨로지를 채운다."
+        ),
+    },
+    {
+        "name": "tasks",
+        "description": (
+            "**데이터 작업** — 일괄 입력 · 내보내기 · 묶음 · 동기화처럼 오래 걸리는 일. "
+            "계획 → 사람 확정 → 적용. 형상 작업(`jobs`)과 큐가 다르다."
+        ),
+    },
+    {
+        "name": "bundles",
+        "description": "정의와 객체를 한 묶음 파일로 내보내고 들인다(계획 먼저).",
+    },
+    {
+        "name": "review",
+        "description": "**검토함** — 사람의 판단을 기다리는 일을 한 곳에 모은다.",
+    },
+    {
+        "name": "metrics",
+        "description": "**지표 · 분석 · 경보** — 기록을 미리 세어 두고 묻는다.",
+    },
+    {
+        "name": "webhooks",
+        "description": "커밋된 변경을 바깥에 알린다 — 서명 · 재시도 · 보낸 기록.",
+    },
+    {
+        "name": "workspaces",
+        "description": "**부서** — 트리형 조직도, 멤버와 역할. 객체의 소유 단위.",
+    },
+    {
+        "name": "files",
+        "description": "첨부 — 내용 해시로 중복을 없애고 부서 단위로 권한을 본다.",
+    },
+    {
+        "name": "notifications",
+        "description": "알림 — 지켜보는 객체가 바뀌거나 작업이 끝났을 때.",
+    },
+    {"name": "audit", "description": "감사 기록과 접근 로그 — 무엇이 바뀌었고 누가 했나."},
     {"name": "accounts", "description": "계정과 가입 승인. 관리자용."},
     {"name": "server", "description": "서버 설정(상한 · 보관 기한)과 상태. 관리자용."},
     {"name": "system", "description": "살아 있나 · 버전."},

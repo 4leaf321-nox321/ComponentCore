@@ -1,0 +1,1049 @@
+"""객체 API 형태."""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.modules.ontology.schemas import PropertyDefOut
+from app.shared.pagination import Page
+
+
+class ObjectOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    type_slug: str
+    key: str | None
+    label: str
+    description: str
+    properties: dict[str, Any]
+    ref_labels: dict[str, str] = Field(default_factory=dict)
+    aliases: list[str] = Field(default_factory=list)
+    """사람이 붙인 다른 이름. 찾기·참조 풀이·파일이 이것으로도 찾는다."""
+    external_ids: dict[str, str] = Field(default_factory=dict)
+    """{데이터 소스 slug: 그쪽 식별자}. 동기화가 남긴다 — 화면에서는 보기만."""
+    """`object_ref` 속성이 가리키는 객체의 **이름**(id -> 이름).
+
+    **값에는 id 만 있다.** 그대로 그리면 목록에 UUID 가 뜨고, 그 열은 아무것도
+    말해 주지 못한다 — 그러면 「참조를 열로 보이기」 기능 자체가 쓸모없어진다.
+    화면이 객체마다 이름을 물으러 가면 목록 한 쪽에 요청이 수십 개 붙으므로,
+    **서버가 한 번에 모아 실어 준다.**"""
+
+    status: str
+    owner_workspace_slug: str | None
+    """NULL 은 전역이다 — 여러 부서가 함께 쓰므로 고치는 것은 시스템 관리자뿐이다."""
+    owner_workspace_name: str | None = None
+    """부서 이름. **화면은 이것을 쓴다** — slug 만 주면 「hq 부서」 라고 쓰게 된다."""
+    valid_from_year: int | None
+    valid_to_year: int | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ObjectCreateRequest(BaseModel):
+    key: str | None = None
+    label: str = Field(min_length=1, max_length=200)
+    description: str = ""
+    properties: dict[str, Any] = Field(default_factory=dict)
+    workspace_slug: str | None = None
+    """어느 부서 것으로 만들 것인가. **NULL 이면 전역이고 시스템 관리자만** 만든다."""
+    valid_from_year: int | None = None
+    valid_to_year: int | None = None
+
+
+class ObjectPatchRequest(BaseModel):
+    """**「안 보낸 것」 과 「비운 것」 을 구별한다.**
+
+    안 보낸 필드는 그대로 둔다. `properties` 는 보낸 키만 병합하고, 값을
+    지우려면 그 키에 `null` 을 명시한다 — 통째로 덮으면 이름 하나 바꿀 때마다
+    다른 속성이 함께 날아가고 **그 손실은 저장한 사람 눈에 안 보인다.**
+    """
+
+    key: str | None = None
+    label: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = None
+    properties: dict[str, Any] | None = None
+    status: str | None = None
+    valid_from_year: int | None = None
+    valid_to_year: int | None = None
+
+
+class AttachmentBrief(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    owner_field: str | None
+    original_name: str
+    content_type: str
+    size_bytes: int
+    created_at: datetime
+    is_image: bool = False
+    """서버가 열어 보고 이미지로 읽은 것(ADR 0012). **바이트는 여기 없다** — 화면은
+    `/api/attachments/{id}/thumbnail` 을 받고, MCP 는 이름 · 크기만 본다."""
+    width: int | None = None
+    height: int | None = None
+
+
+class FileCellOut(BaseModel):
+    """목록의 파일 칸 한 칸(2026-10-08). 화면은 `first` 가 이미지면 미리보기를, 아니면 아이콘 ·
+    이름을 보이고, 여럿이면 수를 곁에 적는다."""
+
+    count: int
+    """이 칸에 붙은 첨부의 수."""
+    first: AttachmentBrief
+    """사진이 있으면 가장 먼저 올라온 사진, 없으면 가장 먼저 올라온 파일."""
+
+
+class ObjectPageOut(Page[ObjectOut]):
+    """객체 목록 한 쪽. 목록 화면(`list_view.columns`)에 파일 속성이 있으면 그 칸들이
+    `files` 로 함께 온다 — 줄마다 첨부를 물으러 가면 한 쪽에 요청이 수십 개 붙는다.
+
+    줄(`ObjectOut`)이 아니라 쪽에 싣는다 — 파일 칸이 없는 목록(대부분이다)에서 줄마다 빈
+    칸을 싣지 않게."""
+
+    files: dict[str, dict[str, FileCellOut]] = Field(default_factory=dict)
+    """{객체 id: {속성 키: 칸}}. 첨부가 없는 칸은 없다(빈 칸)."""
+
+
+class RelatedObjectOut(BaseModel):
+    """「관련 객체」 한 줄.
+
+    **방향을 함께 준다.** 어느 쪽으로 읽느냐에 따라 말이 달라지는데(속함 <-> 포함),
+    화면이 그것을 스스로 알 방법이 없다.
+    """
+
+    relation_id: uuid.UUID
+    relation: str
+    """관계 종류의 slug."""
+    label: str
+    """이 줄에 적을 말. 방향에 맞는 쪽(정방향이면 label, 역방향이면 inverse_label)."""
+    outgoing: bool
+    """내가 출발점인가. 거짓이면 저쪽이 나를 가리킨다."""
+
+    object_id: uuid.UUID
+    object_label: str
+    object_key: str | None
+    object_type_slug: str
+    object_type_label: str
+
+    properties: dict[str, Any]
+    evidence_note: str
+    created_at: datetime
+    stored_as: str = "relation"
+    """`relation`(관계 줄) · `field`(참조 칸 — 칸에 저장한 관계). 칸이면 끊는 단추 대신 그 칸을
+    고치라고 화면이 안내한다."""
+    field_key: str | None = None
+    """`stored_as='field'` 일 때 어느 칸인가(가리키는 쪽 객체의 속성 키)."""
+
+
+class TreeNodeOut(BaseModel):
+    """트리 한 줄."""
+
+    id: uuid.UUID
+    label: str
+    key: str | None
+    status: str
+    child_count: int
+    """**자식 수를 미리 준다.** 없는데 펼침 화살표가 보이면 눌러 보고서야 빈 것을
+    안다 — 그 한 번이 매 노드마다 반복된다."""
+
+
+class TreeOut(BaseModel):
+    nodes: list[TreeNodeOut]
+    orphan_count: int
+    """부모도 자식도 없는 것의 수.
+
+    **트리에 안 보이는 채로 남으면 눈에서 사라진다.** 뿌리와 가르는 이유는,
+    트리를 아직 안 만든 타입에서는 거의 모두가 부모가 없어 안 가르면 뿌리
+    목록이 곧 전체 목록이 되기 때문이다."""
+
+
+class RelationCreateRequest(BaseModel):
+    relation: str
+    dst_object_id: uuid.UUID
+    properties: dict[str, Any] = Field(default_factory=dict)
+    evidence_note: str = Field(default="", max_length=500)
+
+
+class RelationPatchRequest(BaseModel):
+    """**보낸 것만 바꾼다.** 양끝과 종류는 못 바꾼다 — 그건 다른 관계다."""
+
+    properties: dict[str, Any] | None = None
+    evidence_note: str | None = Field(default=None, max_length=500)
+
+
+class LogCountOut(BaseModel):
+    """이 객체를 가리키는 **기록**(ADR 0011) — 타입 · 칸 하나의 수. 축의 상세는 기록을 줄로
+    싣지 않는다(인기 모델은 10만 건). 화면은 그 칸으로 걸러진 목록으로 잇는다."""
+
+    type_slug: str
+    type_label: str
+    key: str
+    """가리키는 칸 — 목록 거르기 `f.<key>.eq=<이 객체 id>`."""
+    label: str
+    """칸 이름(「모델」)."""
+    inverse_label: str
+    """상대 쪽에서 읽는 말(「시장 서비스」) — 비어 있을 수 있다."""
+    count: int
+
+
+class ObjectProfileOut(BaseModel):
+    """객체 하나에 착지하면 **연결된 것이 모인다.**
+
+    타입 정의를 함께 주는 이유: 화면이 폼을 그리려면 속성 정의가 필요한데, 따로
+    받게 하면 두 번 왕복하고 그 사이에 정의가 바뀔 수 있다.
+    """
+
+    object: ObjectOut
+    type_label: str
+    properties_schema: list[PropertyDefOut]
+    attachments: list[AttachmentBrief]
+    related: list[RelatedObjectOut]
+    """이 객체에 걸린 관계들. **양방향 다 온다** — 「이것이 가리키는 것」 만 주면
+    「이것을 가리키는 것」 을 물을 자리가 없어진다. 나를 가리키는 **기록**은 여기 없고
+    `log_counts` 에 수로 온다."""
+    log_counts: list[LogCountOut] = []
+    """이 객체를 가리키는 기록 — 타입 · 칸마다의 수(ADR 0011)."""
+
+    can_edit: bool
+    can_link: bool = False
+    """관계를 맺고 끊을 수 있나 — 보통 `can_edit` 와 같다. 허브가 관리하는 객체는 값을 못
+    고쳐도(`can_edit` 거짓) 이 설치의 관계로 가리키는 것은 된다(과제의 산출 문서 등)."""
+    """**서버가 판정한 것을 화면에 알려 준다.** 화면이 스스로 정하면 어떤 화면은
+    단추를 보이고 어떤 화면은 안 보이는 상태가 되고, 그 차이는 설명할 수 없다."""
+
+    watching: bool = False
+    """내가 이것을 지켜보고 있나 — 바뀌면 알림이 온다."""
+    watcher_count: int = 0
+    """몇 사람이 지켜보나. **혼자가 아니라는 것을 아는 것**이 고칠 때의 조심을 만든다."""
+
+
+class AliasesRequest(BaseModel):
+    """사람이 붙인 별칭을 통째로 — 빈 목록이면 전부 지운다."""
+
+    aliases: list[str] = Field(max_length=50)
+
+
+class RollupOut(BaseModel):
+    """「아래 전부」 를 모은 수 하나 — 볼 때마다 센다(저장하지 않는다)."""
+
+    property: str
+    label: str
+    fn: str
+    value: float | None
+    """값이 하나도 없으면 null. 0 으로 두면 「합이 0」 으로 읽힌다."""
+    count: int
+    missing: int
+    """아래에 있지만 값이 빈 객체 수. **이것이 붙어야 합계가 「전부의 합」 으로 안 읽힌다.**"""
+    descendants: int
+
+
+# --- 일괄 -------------------------------------------------------------------
+
+
+class ImportRowOut(BaseModel):
+    row: int
+    """파일의 몇 번째 행인가(헤더 다음이 1). 오류를 고치러 갈 자리."""
+    action: str
+    """`create` · `update` · `unchanged` · `error`."""
+    label: str
+    key: str | None
+    object_id: uuid.UUID | None
+    changes: list[str]
+    """바뀌는 칸. 「고침」 이 무엇을 고치는지 보여 준다 — 안 보여 주면 사람은 안 누른다."""
+    message: str
+
+
+class ImportPlanOut(BaseModel):
+    applied: bool
+    rows: list[ImportRowOut]
+    errors: list[str]
+    """행과 무관한 오류(모르는 열, 상한). 하나라도 있으면 **아무것도 안 넣는다.**"""
+    counts: dict[str, int]
+
+
+class ImportRowsRequest(BaseModel):
+    """파일 대신 JSON 으로 — MCP 가 쓴다. 규칙은 파일과 같다."""
+
+    rows: list[dict[str, Any]]
+    workspace_slug: str | None = None
+    apply: bool = False
+    aliases_mode: Literal["add", "replace"] = "add"
+    """별칭 칸을 **더할지 맞출지.** 기본은 더하기 — 다시 적재할 때 사람이 화면에서 붙인
+    별칭이 사라지지 않게. `replace` 는 파일을 정본으로 볼 때만(허브 → 쌍둥이)."""
+    human_edits: Literal["keep", "overwrite"] = "keep"
+    """**사람이 화면에서 고친 칸**을 비켜 갈지 덮을지. 기본은 비켜 가고 줄에 적는다 —
+    적재가 사람의 수정을 조용히 되돌리면, 사람은 고치기를 그만둔다."""
+    relations_mode: Literal["add", "replace", "replace_type"] = "add"
+    """관계 파일을 **더할지 맞출지.** `replace` 는 파일에 나온 (출발 객체 · 관계 종류)
+    범위에서, `replace_type` 은 (출발 타입 · 관계 종류) **전체**에서 파일에 없는 선을
+    계획에 「끊음」 으로 올린다. 넓은 쪽은 파일이 그 타입의 전부일 때만 쓴다."""
+
+
+# --- 별칭 검수 ---------------------------------------------------------------
+
+
+class AliasReviewOut(BaseModel):
+    """검수 대기 별칭 한 줄 — **어느 객체의 무엇이고 어디서 왔나.**"""
+
+    id: uuid.UUID
+    object_id: uuid.UUID
+    object_label: str
+    object_key: str | None
+    value: str
+    kind: str
+    source: str = ""
+    """어디서 온 이름인가 — 적재가 적어 둔다(「고장모드 리스트 v3」)."""
+    note: str = ""
+    created_at: datetime
+
+
+class AliasReviewPage(BaseModel):
+    items: list[AliasReviewOut]
+    total: int
+
+
+class AliasReviewRequest(BaseModel):
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    action: Literal["approve", "remove"] = "approve"
+    """확인하거나 지운다. **둘 다 둔다** — 확인만 되면 「아니다」 를 말할 자리가 없어
+    사람은 둘 다 안 한다."""
+
+
+class AliasReviewResult(BaseModel):
+    done: int
+    refused: list[str] = Field(default_factory=list)
+    """못 한 줄과 이유 — 하나가 막혀도 나머지는 간다."""
+
+
+# --- 지우기 전에 -------------------------------------------------------------
+
+
+class RefHitOut(BaseModel):
+    """이 객체를 **속성으로** 가리키는 객체 하나."""
+
+    object_id: uuid.UUID
+    label: str
+    key: str | None
+    type_slug: str
+    type_label: str
+    property_key: str
+    property_label: str
+
+
+class RelationHitOut(BaseModel):
+    relation_id: uuid.UUID
+    relation: str
+    outgoing: bool
+    other_id: uuid.UUID
+    other_label: str
+    other_type_slug: str
+
+
+class ReferencesOut(BaseModel):
+    property_refs: list[RefHitOut]
+    relations: list[RelationHitOut]
+    hidden_property_refs: int
+    """볼 수 없는 부서의 참조 수. **수만 말한다** — 안 말하면 「아무것도 안 걸렸다」 로
+    읽는다."""
+    hidden_relations: int
+    more_property_refs: int = 0
+    """보이지만 목록에 다 싣지 않은 참조 수 — 인기 객체는 수만 건이 가리킨다. 「외 N개」 로
+    말한다."""
+    total: int
+
+
+class MergeRequest(BaseModel):
+    into: uuid.UUID
+    """이긴 쪽. 같은 타입이어야 한다."""
+
+
+class MergeResultOut(BaseModel):
+    into: uuid.UUID
+    property_refs: int
+    relations_moved: int
+    relations_dropped: int
+    """겹쳐서 버린 관계 — 두 겹으로 남기면 병합이 아니라 복제다."""
+
+
+# --- 이력 -------------------------------------------------------------------
+
+
+class SnapshotOut(BaseModel):
+    """그 시점의 값 전체 — 지금 값에서 기록을 거꾸로 대어 재구성한 것."""
+
+    key: str | None
+    label: str
+    status: str
+    properties: dict[str, Any]
+    description: str = ""
+    valid_from_year: int | None = None
+    valid_to_year: int | None = None
+
+
+class HistoryBatchOut(BaseModel):
+    id: uuid.UUID
+    field_label: str
+    size: int
+    """그때 같이 바뀐 행 수."""
+
+
+class HistoryEntryOut(BaseModel):
+    id: uuid.UUID
+    at: datetime
+    actor_label: str
+    action: str
+    reason: str | None
+    kind: str
+    """`object` 는 값이 바뀐 기록, `relation` 은 관계가 걸리거나 끊긴 기록."""
+    changes: dict[str, Any]
+    """칸별 `{before, after}`. 속성은 `properties.<키>` 로 풀어서."""
+    relation: dict[str, Any] | None
+    snapshot: SnapshotOut | None
+    """값 기록에만 있다. 되돌리기의 목표."""
+    batch: HistoryBatchOut | None = None
+    """여럿 골라 고치기로 **같이 바뀐** 기록이면 그 묶음. 한 번에 되돌리는 입구다."""
+
+
+class RestoreRequest(BaseModel):
+    entry_id: uuid.UUID
+
+
+# --- 저장된 뷰 --------------------------------------------------------------
+
+
+class ConditionOut(BaseModel):
+    field: str
+    op: str
+    value: str = ""
+    exclude: int = Field(default=0, ge=0, le=99)
+    """0 이면 보통 조건, 1 이상이면 그 번호의 **제외 묶음**(같은 번호끼리 AND 로 묶어 뺀다 —
+    주소의 `nf<번호>.<칸>.<연산>`, ADR 0015)."""
+
+
+class SavedViewQuery(BaseModel):
+    """뷰가 담는 것. 열·정렬은 안 담는다 — 그것은 타입 정의(`list_view`)의 몫이고,
+    뷰마다 갈리면 「왜 이 뷰만 열이 다르지」 를 아무도 설명 못 한다."""
+
+    q: str = ""
+    conditions: list[ConditionOut] = Field(default_factory=list)
+    status: str | None = None
+
+
+class SavedViewSummary(BaseModel):
+    """이 뷰를 **그림으로** 볼 때의 설정. 비어 있으면(group_by 가 없으면) 목록일 뿐이다.
+
+    조건과 축은 같은 물음의 두 쪽이다(「영남 공급사를 등급별로」). 따로 두면 뷰를
+    불러올 때마다 축을 다시 고르게 되고, 그 수고가 반복되면 사람은 CSV 로 내려받는다.
+    """
+
+    group_by: str = ""
+    split_by: str = ""
+    """세부 기준. 있으면 계열이 여럿이 되고, 쌓은 막대·나란한 막대·히트맵이 뜻을 갖는다."""
+    metric: str = "count"
+    metric_field: str | None = None
+    chart: str = "bar"
+    """bar · line · area · pie · heatmap. 그림 모양까지 담는다 — 「원으로 보던 것」 이
+    막대로 뜨면 같은 뷰로 안 읽힌다. `heatmap` 은 두 축일 때만 뜻이 있다."""
+
+    stacked: bool = False
+    """막대를 쌓을지. 여럿을 나란히 두면 「전체가 얼마인지」 를 못 읽는 물음이 있다."""
+    order: str = "desc"
+    """desc(큰 값부터) · asc(작은 값부터) · key(키 순 — 날짜 축을 시간순으로). 작은 값부터는
+    「가장 낮은 것」 을 찾을 때 쓴다."""
+    grain: str = ""
+    """날짜 축의 기간 단위(day · week · month · quarter · year). 비우면 해."""
+
+
+class SavedViewOut(BaseModel):
+    id: uuid.UUID
+    type_slug: str
+    name: str
+    query: SavedViewQuery
+    owner_user_id: uuid.UUID
+    owner_label: str
+    workspace_slug: str | None
+    """있으면 그 부서가 함께 쓴다. 없으면 내 것."""
+    summary: SavedViewSummary
+    home_order: int | None
+    """부서 홈에 올린 자리. NULL 이면 홈에 없다."""
+    can_edit: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class SavedViewWriteRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    query: SavedViewQuery
+    workspace_slug: str | None = None
+    """부서와 함께 쓸지. 그 부서의 관리자여야 한다."""
+    summary: SavedViewSummary | None = None
+    on_home: bool = False
+    """저장하면서 **바로 부서 홈에 올릴지.**
+
+    한 번에 받는 이유: 화면에서 「홈에 올리기」 는 한 동작인데 요청 둘로 나누면 저장은
+    됐는데 안 올라간 상태가 생기고, 그때 사람은 자기가 무엇을 빠뜨렸는지 모른다.
+    """
+
+
+class SavedViewPatchRequest(BaseModel):
+    """**안 보낸 것은 그대로다.** `home_order` 만 보내 홈에 올리거나 내린다."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    query: SavedViewQuery | None = None
+    summary: SavedViewSummary | None = None
+    on_home: bool | None = None
+    """true 면 부서 홈 맨 끝에 올리고, false 면 내린다."""
+    home_position: int | None = Field(default=None, ge=0)
+    """부서 홈에서 몇 번째 자리로. 서버가 그 부서의 홈 뷰들을 **통째로 다시 매긴다** —
+    화면이 자리를 제 손으로 매겨 여러 번 저장하면 중간 실패가 순서를 뒤섞는다."""
+
+
+class HomeMetricOut(BaseModel):
+    """부서 홈에 올린 지표 하나 — 값은 화면이 지표의 추이(`/metrics/<slug>/series`)로
+    읽는다."""
+
+    id: uuid.UUID
+    metric_slug: str
+    metric_label: str
+    split: str | None
+    """선을 나눌 기준 이름 — 없으면 합계 한 줄."""
+    home_order: int
+
+
+class HomeWidgetOut(BaseModel):
+    """부서 홈에 올라간 것 하나 — **저장된 뷰이거나 지표다**(`kind`). 홈 화면은 타입을 모르므로
+    여기서 다 실어 준다. 둘은 한 줄에 선다(자리 값을 함께 매긴다)."""
+
+    kind: str = "view"
+    """`view` · `metric`."""
+    view: SavedViewOut | None = None
+    metric: HomeMetricOut | None = None
+    type_label: str
+    """뷰는 그 타입, 지표는 원천 기록 타입의 이름."""
+    icon: str
+    workspace_slug: str
+    workspace_name: str
+    """어느 부서의 것인가. 여러 부서를 한 화면에 놓을 때 **어디 것인지 안 적으면
+    같은 이름의 위젯 둘이 나란히 서고 아무도 구별 못 한다.**"""
+
+
+class WatchedOut(BaseModel):
+    """내가 지켜보는 것 한 줄 — **최근 바뀐 것부터.**"""
+
+    id: uuid.UUID
+    type_slug: str
+    type_label: str
+    icon: str
+    label: str
+    key: str | None
+    status: str
+    updated_at: datetime
+
+
+# --- 품질 -------------------------------------------------------------------
+
+
+class QualityHitOut(BaseModel):
+    id: uuid.UUID
+    label: str
+    key: str | None
+    detail: str
+    """왜 걸렸나."""
+
+
+class QualityFindingOut(BaseModel):
+    kind: str
+    kind_label: str
+    type_slug: str
+    type_label: str
+    count: int
+    """전부 센 수. 아래 목록은 상한까지만."""
+    hits: list[QualityHitOut]
+
+
+class QualityReportOut(BaseModel):
+    findings: list[QualityFindingOut]
+    sample_limit: int
+    skipped: list[str] = Field(default_factory=list)
+    """**너무 커서 훑지 않은 타입**(이름과 건수). 검사 셋(중복 · 별칭 충돌 · 깨진 참조)은
+    값을 정규화해 견주므로 행을 파이썬으로 읽어야 한다 — 몇십만이면 화면이 멎는다.
+    안 센 것을 말하지 않으면 사람은 「걸린 것이 없다」 로 읽는다."""
+
+
+# --- 통계 ----------------------------------------------------------------
+
+
+class FieldOptionOut(BaseModel):
+    """이어진 것 너머의 칸 하나 — 조건 고르개와 통계 기준이 **같은 주소**를 쓴다."""
+
+    field: str
+    """`ref.<참조 칸>.<칸>` · `out.<관계>` · `out.<관계>.<칸>` · `in.<관계>[.<칸>]`."""
+    label: str
+    """「개발사 › 국가」."""
+    heading: str
+    """고르개에서 묶어 보여 줄 제목 — 「개발사 (시뮬레이션 기업)」 · 「관계 · 사용 부서」."""
+    data_type: str
+    """`relation` 이면 상대 타입이 하나로 정해지지 않아 있음/없음만 걸 수 있다."""
+    multi: bool = False
+    enum_options: list[str] | None = None
+    ref_type_slug: str | None = None
+
+
+class GroupOptionOut(BaseModel):
+    """기준으로 쓸 수 있는(또는 집계할 수 있는) 칸 하나. 화면의 고르개가 이것만 보여 준다."""
+
+    field: str
+    label: str
+    kind: str
+    multi: bool = False
+    """여러 값 칸 — 한 행이 여러 막대에 든다."""
+    heading: str = ""
+    """이어진 것 너머의 기준이면 그 제목. 자기 칸은 비어 있다."""
+
+
+class PartOut(BaseModel):
+    """세부 기준으로 나눈 조각 하나 — 세부 기준의 값별로. 합은 그 칸의 `count` 와 맞는다."""
+
+    key: str | None
+    label: str
+    count: int
+    value: float | None = None
+
+
+class RangeOut(BaseModel):
+    """날짜 칸의 범위 조건 — `f.<칸>.gte` · `f.<칸>.lt` 로 그대로 쓴다."""
+
+    gte: str
+    lt: str
+
+
+class BucketOut(BaseModel):
+    key: str | None
+    """거르기에 그대로 넣을 수 있는 값. 빈 칸이면 null. 날짜 축이면 **기간의 시작일**이다."""
+    label: str
+    count: int
+    value: float | None = None
+    range: RangeOut | None = None
+    """날짜 축이면 이 칸의 범위 — 막대를 누르면 `gte` · `lt` 두 조건이 된다. 키 하나를 `eq` 로
+    걸면 0건이다(저장값은 날짜 하나하나다)."""
+    parts: list[PartOut] = Field(default_factory=list)
+
+
+class SummaryOut(BaseModel):
+    """묶어 센 결과. **막대의 합이 total 과 다르면 그 차이가 「그 밖에」 다** —
+    숨기면 사람은 그 차이를 오류로 읽는다."""
+
+    group_field: str
+    group_label: str
+    order: str
+    grain: str | None = None
+    """날짜 축이면 묶은 기간 단위."""
+    split_field: str
+    split_label: str
+    splits: list[str]
+    """세부 기준 값들의 차례. 화면이 계열 순서를 여기서 가져간다 — 칸마다 나오는 대로
+    만들면 첫 칸에 없던 값이 뒤에서 튀어나와 색이 밀린다."""
+    other_splits: int
+    metric: str
+    metric_field: str | None
+    metric_label: str
+    total: int
+    buckets: list[BucketOut]
+    other_groups: int
+    other_count: int
+    overlap: bool = False
+    """기준·세부 기준이 여러 값 칸이면 True — **막대의 합이 total 보다 클 수 있다.**
+    한 행이 여러 막대에 들기 때문이다. 화면이 그 사실을 적는다."""
+    group_options: list[GroupOptionOut]
+    metric_options: list[GroupOptionOut]
+
+
+class WatchRequest(BaseModel):
+    """지켜보기 켜고 끄기. **여러 번 눌러도 같은 결과다.**"""
+
+    on: bool
+
+
+class WatchOut(BaseModel):
+    watching: bool
+    watcher_count: int
+
+
+# --- 여럿 골라 한 칸 바꾸기 ----------------------------------------------------
+
+
+class BulkEditRow(BaseModel):
+    id: uuid.UUID
+    label: str
+    action: str
+    """change · unchanged · error."""
+    before: str
+    after: str
+    message: str
+    job_path: str | None = None
+    """여기서 못 하고 작업으로 해야 하는 행 — 그 주소(가리키는 기록이 많은 객체의 지우기)."""
+
+
+class BulkEditPlanOut(BaseModel):
+    """**계획 먼저.** 몇 건이 바뀌고, 몇 건이 이미 그 값이고, 몇 건은 왜 안 되나."""
+
+    applied: bool
+    batch_id: uuid.UUID | None = None
+    """적용했을 때만 — 같이 바뀐 것을 한 번에 되돌릴 때 이 번호를 쓴다."""
+    field: str
+    field_label: str
+    rows: list[BulkEditRow]
+    counts: dict[str, int]
+    fields: list[dict[str, str]]
+    """고를 수 있는 칸 — 화면의 고르개가 이것만 보여 준다."""
+
+
+class BulkEditRequest(BaseModel):
+    ids: list[uuid.UUID] = Field(min_length=1)
+    field: str
+    """status · description · workspace · properties.<칸>."""
+    value: Any = None
+    apply: bool = False
+
+
+class BulkUndoRequest(BaseModel):
+    apply: bool = False
+
+
+# --- 여럿 골라 지우기 ---------------------------------------------------------
+
+
+class BulkDeletePlanOut(BaseModel):
+    """**계획 먼저.** 몇 건이 지워지고, 몇 건은 왜 안 되나."""
+
+    applied: bool
+    mode: str
+    """block · detach."""
+    rows: list[BulkEditRow]
+    counts: dict[str, int]
+
+
+class BulkDeleteRequest(BaseModel):
+    ids: list[uuid.UUID] = Field(min_length=1)
+    mode: Literal["block", "detach"] = "block"
+    """`block` — 가리키는 것이 있으면 그 행은 거절.
+    `detach` — 참조를 비우고 관계를 끊고 지운다. 한 건씩 지우는 길과 같은 두 갈래다."""
+    apply: bool = False
+
+
+class PointOut(BaseModel):
+    """점 하나 — 상자 그림의 값, 산점도의 좌표."""
+
+    id: uuid.UUID
+    label: str
+    group: str
+    x: float | None
+    y: float | None = None
+
+
+class PointsOut(BaseModel):
+    """**안 센 값들.** 분포는 집계로 안 보인다 — 평균이 같은 두 공정이 전혀 다른
+    모양일 수 있고, 그 차이가 대개 문제의 자리다."""
+
+    x_label: str
+    y_label: str
+    group_label: str
+    rows: list[PointOut]
+    total: int
+    truncated: bool
+    """상한을 넘어 잘렸나. **잘렸는데 말 안 하면 그 그림은 「이게 전부」 로 읽힌다.**"""
+    number_fields: list[GroupOptionOut]
+    """숫자 칸 — 화면의 고르개가 이것만 보여 준다."""
+    group_options: list[GroupOptionOut]
+
+
+# --- 해소 · 진단 --------------------------------------------------------------
+
+
+class ResolveHit(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    key: str | None
+    label: str
+    aliases: list[str] = Field(default_factory=list)
+    status: str
+    matched_by: str
+    """무엇으로 맞았나 — `id` · `key` · `alias` · `label` · `contains`."""
+    hint: str = ""
+    type_slug: str = ""
+    """어느 타입의 객체인가 — 인터페이스로 물으면 후보가 여러 타입에서 온다."""
+
+
+class ResolveOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    match: str
+    """`exact` 면 `object` 를 쓴다. `candidates` 면 **쓰지 말고 사람에게 묻는다.**
+    `none` 이면 없다."""
+    object: ResolveHit | None = None
+    candidates: list[ResolveHit] = Field(default_factory=list)
+    hint: str = ""
+    truncated: bool = False
+
+
+class ResolveManyIn(BaseModel):
+    """이름 여럿을 **한 번에** — 한 줄에 한 번 물으면 왕복이 줄 수만큼 늘어난다."""
+
+    names: list[str] = Field(min_length=1, max_length=500)
+
+
+class ResolveOneOut(ResolveOut):
+    """`ResolveOut` 에 **무엇을 물었는지**를 붙인다 — 차례로만 맞추면 어긋난다."""
+
+    name: str
+
+
+class ResolveManyOut(BaseModel):
+    items: list[ResolveOneOut]
+    counts: dict[str, int]
+    """`exact` · `candidates` · `none` 이 각각 몇 개인가 — 「몇 개가 안 풀렸나」 가
+    한 줄로 보여야 한다."""
+
+
+class FilterEffectOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    name: str
+    label: str
+    remaining: int
+    """이 조건 하나만 빼면 몇 건."""
+    unknown: int | None = None
+    """그 칸에 **값이 없어서** 빠진 수 — 조건에 안 맞아 빠진 것과 다르다.
+    `null` 은 0 이 아니라 **못 셌다**는 뜻이다."""
+
+
+class DiagnosisOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    total: int
+    reason: str
+    """`has_rows` · `empty_type` · `not_visible` · `filters` · `no_implementers`(인터페이스를
+    구현한 타입이 없다)."""
+    message: str
+    type_total: int
+    hidden: int
+    filters: list[FilterEffectOut] = Field(default_factory=list)
+    next_steps: list[str] = Field(default_factory=list)
+
+
+# --- 비슷한 기록(ADR 0022) -------------------------------------------------------------
+
+
+class SimilarTagOut(BaseModel):
+    """태그 하나 — 참조 칸과 가리키는 객체, 그 무게(ln(N / 그 태그를 가진 기록 수))."""
+
+    field: str
+    field_label: str
+    value: str
+    value_label: str | None
+    """안 보이는 객체면 이름이 없다."""
+    weight: float
+    records: int
+
+
+class SimilarItemOut(BaseModel):
+    id: uuid.UUID
+    key: str | None
+    label: str
+    status: str
+    score: float
+    """무게를 단 자카드 — 겹친 무게 / 합친 무게(0 ~ 1)."""
+    shared: list[SimilarTagOut]
+    """겹친 태그 — 무게 큰 것부터. 「왜 비슷한가」."""
+    extra: int
+    """이 기록에만 있는 태그 수."""
+
+
+class SimilarOut(BaseModel):
+    """비슷한 기록 — 축 태그가 많이 겹치는 기록(드문 태그가 겹칠수록 비슷하다)."""
+
+    type_slug: str
+    total: int
+    """보이는 기록 수(무게의 N)."""
+    fields: list[str]
+    query: list[SimilarTagOut]
+    items: list[SimilarItemOut]
+
+
+class SimilarAskRequest(BaseModel):
+    """태그 묶음으로 묻기 — {참조 칸: [객체 id, …]}. 기록이 아직 없는 이슈에서 찾을 때."""
+
+    tags: dict[str, list[uuid.UUID]]
+    fields: list[str] | None = None
+    limit: int = Field(default=10, ge=1, le=50)
+
+
+# --- 채울 곳 -------------------------------------------------------------------
+
+
+class FillFieldOut(BaseModel):
+    key: str
+    label: str
+    data_type: str
+    required: bool
+    filled: int
+    missing: int
+    rate: float
+    """채움률 0 ~ 1."""
+    uses: list[str]
+    """쓰는 곳 — 「필수」 「지표 「월별 인입률」」 「코어 공개」 「뷰 2개」."""
+
+
+class FillRelationOut(BaseModel):
+    relation: str
+    label: str
+    side: str
+    """`out`(이 타입이 출발) · `in`(도착) · `both`(방향 없음)."""
+    one: bool
+    """개수 제약으로 이 쪽은 「하나」 — 하나씩은 있어야 할 자리."""
+    missing: int
+    uses: list[str]
+
+
+class FillTypeOut(BaseModel):
+    type_slug: str
+    type_label: str
+    usage: str
+    core: bool
+    objects: int
+    estimated: bool
+    """표본에서 세어 늘린 어림인가."""
+    sample_rows: int | None
+    required_missing: int
+    fields: list[FillFieldOut]
+    """채움률이 낮은 칸부터 — 타입을 좁히지 않으면 몇 개까지만(`fields_more`)."""
+    fields_more: int
+    relations: list[FillRelationOut]
+    unresolved_refs: int
+    waiting_relations: int
+    no_alias: int | None
+    """별칭 없는 객체 — 축만(기록은 null)."""
+    alias_candidates: int
+    uses: list[str]
+
+
+class FillPriorityOut(BaseModel):
+    kind: str
+    """`empty_type` · `field` · `relation` · `refs` · `waiting` · `aliases`."""
+    type_slug: str
+    type_label: str
+    target: str
+    target_label: str
+    missing: int
+    total: int
+    score: float
+    weight: int
+    uses: list[str]
+    gain: str
+    """**이것을 채우면 무엇이 좋아지나.**"""
+    link: str
+    """화면 주소 — 빈 것만 거른 목록 등."""
+    estimated: bool
+
+
+class FillReportOut(BaseModel):
+    """채울 곳 — 타입마다 비어 있는 것과, 쓰는 곳으로 가중해 줄 세운 것."""
+
+    priorities: list[FillPriorityOut]
+    types: list[FillTypeOut]
+    notes: list[str]
+    """표본 · 안 보이는 타입 · 셈의 규칙 — **어림이면 어림이라고 말한다.**"""
+
+
+# --- 별칭 후보(못 찾은 말) -------------------------------------------------------
+
+
+class AliasSuggestionOut(BaseModel):
+    id: uuid.UUID
+    type_slug: str
+    type_label: str
+    label: str
+    key: str | None
+    matched: str
+    """label · key · alias — 어디가 비슷했나."""
+    matched_text: str
+    score: float
+
+
+class AliasCandidateOut(BaseModel):
+    id: uuid.UUID
+    text: str
+    """못 찾은 말 — 처음 친 표기 그대로."""
+    scope: str
+    """찾은 타입 · 인터페이스 slug. 비면 통합 검색."""
+    scope_label: str
+    scope_kind: str
+    hits: int
+    people: int
+    """몇 사람이 찾았나(스물까지 센다)."""
+    vias: list[str]
+    """`resolve` · `search` · `list`."""
+    status: str
+    """`pending` · `attached` · `ignored`."""
+    object_id: uuid.UUID | None
+    object_label: str | None
+    object_type_slug: str | None
+    first_at: datetime
+    last_at: datetime
+    decided_at: datetime | None
+    suggestions: list[AliasSuggestionOut]
+    """「이것 아닐까」 — 짐작이다. 사람이 고른 것만 붙인다."""
+    suggest_note: str
+
+
+class AliasCandidatePage(BaseModel):
+    items: list[AliasCandidateOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class AliasAttachRequest(BaseModel):
+    object_id: uuid.UUID
+    value: str | None = Field(default=None, max_length=200)
+    """붙일 글자 — 비우면 못 찾은 말 그대로."""
+    apply: bool = False
+    """거짓이면 **아무것도 안 바꾸고** 계획만."""
+
+
+class AliasAttachObjectOut(BaseModel):
+    id: uuid.UUID
+    type_slug: str
+    type_label: str
+    label: str
+    key: str | None
+
+
+class AliasAttachPlanOut(BaseModel):
+    applied: bool
+    candidate: AliasCandidateOut
+    object: AliasAttachObjectOut
+    value: str
+    aliases_before: list[str]
+    aliases_after: list[str]
+    warnings: list[str]
+    blocking: list[str]
+    """이것이 있으면 붙이지 않는다 — 사람이 먼저 할 일."""
+    closed: int = 0
+    """함께 닫은 줄 — 같은 말을 통합 검색 · 인터페이스에서 못 찾은 것."""
+
+
+class AliasCandidateDecision(BaseModel):
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    action: Literal["ignore", "restore"] = "ignore"
+
+
+class AliasCandidateDecisionOut(BaseModel):
+    done: int
+    refused: list[str]

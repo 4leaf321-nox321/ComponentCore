@@ -1,0 +1,129 @@
+"""코어 API — **바깥 시스템이 당겨 가는 창구.**
+
+주소를 `/api/core` 로 따로 낸 이유: 여기가 **약속의 경계**다. `/api/objects/...` 는 이
+플랫폼의 화면이 쓰는 길이라 사정에 따라 바뀌지만, 이 아래는 남의 시스템 코드에 박히므로
+함부로 못 바꾼다. 경계를 주소로 그어 두면 그 차이가 코드에서도 보인다.
+
+    GET /api/core                        무엇이 열려 있나 — 처음 붙는 쪽은 이것만 읽는다
+    GET /api/core/{type}                 지난번 이후 바뀐 것(+ 사라진 것)
+    GET /api/core/{type}/relations       그 타입에서 출발하는 선(+ 끊긴 선)
+
+읽기다. 좁은 범위(`core:read`)로도 열리므로, 바깥에 주는 토큰에 사내 전부를 읽는 `read` 를
+줄 필요가 없다.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+from fastapi import APIRouter, Depends, Query, Request
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.modules.accounts.models import User
+from app.modules.coreapi import services
+from app.modules.coreapi.schemas import CoreCatalogOut, CorePageOut, CoreRelationPageOut
+from app.shared.auth import current_user
+from app.shared.errors import AppError, code
+
+router = APIRouter(prefix="/core", tags=["core"])
+
+#: 이 아래는 이 범위로도 읽는다. `main.py` 가 등록한다.
+SCOPE = "core:read"
+
+
+@router.get("", response_model=CoreCatalogOut)
+# **끝 슬래시도 받는다.** FastAPI 의 기본 동작은 `/api/core/` 를 `/api/core` 로 307 보내는
+# 것인데, 받는 쪽 HTTP 클라이언트가 리다이렉트를 안 따라가게 해 두면(흔하다) 거기서 막힌다.
+# 그 하나로 남의 팀이 「창구가 없다」 를 보게 할 이유가 없다 — 여기서 받는다. 실측: RA 가
+# 첫 연결에서 이것으로 걸렸다.
+@router.get("/", response_model=CoreCatalogOut, include_in_schema=False)
+def core_catalog(
+    request: Request,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> CoreCatalogOut:
+    """**무엇이 열려 있나** — 코어 타입 목록과 각 타입의 칸.
+
+    받는 쪽은 이것을 읽고 필요한 칸만 집어 간다. 타입 slug 나 칸 이름을 문서에서 옮겨
+    적게 하면 우리가 칸을 하나 더하는 날 그 문서가 틀린 것이 된다.
+
+    `revision` 은 **열린 정의의 판**이다. 칸이 바뀌면 값이 바뀌므로, 받는 쪽이 「구조가
+    달라졌네」 를 코드로 알아챌 수 있다.
+    """
+    return services.catalog(db, user, base=str(request.url).split("?")[0].rstrip("/"))
+
+
+def _moment(since: str | None) -> datetime | None:
+    """`since` 를 시각으로 — **지난 응답의 `as_of` 를 그대로** 넣게 한다."""
+    if not since:
+        return None
+    try:
+        moment = datetime.fromisoformat(since.replace("Z", "+00:00"))
+    except ValueError:
+        raise AppError(
+            code("CORE", 3),
+            f"`since` 는 지난 응답의 `as_of` 를 그대로 넣습니다: {since!r}",
+            status=422,
+        ) from None
+    return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment
+
+
+@router.get("/{type_slug}/relations", response_model=CoreRelationPageOut)
+def core_relations(
+    type_slug: str,
+    since: str | None = Query(
+        default=None, description="지난 응답의 `as_of` 를 그대로. 비우면 지금 있는 선 전부"
+    ),
+    cursor: str | None = Query(default=None, description="지난 응답의 `next`"),
+    limit: int = Query(default=services.DEFAULT_LIMIT, ge=1, le=services.MAX_LIMIT),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> CoreRelationPageOut:
+    """이 타입에서 **출발하는 선** — 바뀐 것과 **끊긴 것**을 함께.
+
+    객체만 받아 가면 받는 쪽은 점만 있고 선이 없다. 그것을 자기 쪽에서 다시 만들려면 우리가
+    이미 쥔 관계를 추측해야 한다.
+
+    끝점은 `key` 로 온다. `dst_type` 은 도착점의 타입 slug 다 — 어느 표에서 찾을지 알려
+    준다. `deleted: true` 인 줄은 **끊긴 선**이다(받는 쪽도 끊는다).
+
+    **양끝 객체의 타입이 모두 열린 선만** 온다 — 한쪽이 안 열렸으면 받는 쪽이 못 찾는 끝점을
+    쥐게 된다. 끝에 인터페이스를 적은 관계 종류는 그것을 구현한 타입 중 열린 것의 객체를 잇는
+    선만 온다(`dst_type` 이 선마다 다르다). 무엇이 오는지는 카탈로그의 `relations` ·
+    `relation_kinds` 가 말한다.
+    """
+    object_type = services.find_core_type(db, type_slug)
+    return services.relations(
+        db, user, object_type, since=_moment(since), cursor=cursor, limit=limit
+    )
+
+
+@router.get("/{type_slug}", response_model=CorePageOut)
+def core_rows(
+    type_slug: str,
+    since: str | None = Query(
+        default=None,
+        description="지난 응답의 `as_of` 를 그대로. 비우면 처음부터(지워진 것은 빼고)",
+    ),
+    cursor: str | None = Query(default=None, description="지난 응답의 `next`"),
+    limit: int = Query(default=services.DEFAULT_LIMIT, ge=1, le=services.MAX_LIMIT),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> CorePageOut:
+    """지난번 이후 **바뀐 것과 사라진 것.**
+
+    받는 쪽의 반복문은 이렇다: `since` 없이 시작 → `next` 가 빌 때까지 이어 받기 →
+    응답의 `as_of` 를 적어 두었다가 다음 주기에 `since` 로 넣기.
+
+    **시각은 우리가 준다.** 받는 쪽 시계를 쓰면 몇 초 차이로 그 사이 행이 새고, 샌 줄은
+    아무도 모른다. 쪽이 남아 있으면(`next` 가 있으면) `as_of` 를 옮기지 않는다 — 거기서
+    멈춘 쪽이 남은 쪽을 영영 안 받게 되기 때문이다.
+
+    `deleted: true` 인 행은 이 시스템에서 사라진 것이다. 합쳐져서 사라졌으면
+    `merged_into` 에 이긴 쪽의 `key` 가 온다 — 받는 쪽이 제 참조를 옮길 수 있다.
+    """
+    object_type = services.find_core_type(db, type_slug)
+    return services.page(
+        db, user, object_type, since=_moment(since), cursor=cursor, limit=limit
+    )

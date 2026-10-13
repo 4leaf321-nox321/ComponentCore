@@ -21,22 +21,55 @@ from app.config import Settings, get_settings
 from app.database import SessionLocal, engine
 from app.logging_setup import setup_logging
 from app.modules.accounts import routes as accounts_routes
+from app.modules.accounts import system as accounts_system
+from app.modules.audit import routes as audit_routes
 from app.modules.auth import routes as auth_routes
 from app.modules.auth import sso as sso_routes
 from app.modules.auth.cookies import url_prefix
+from app.modules.bundles import routes as bundles_routes
 from app.modules.cad import routes as cad_routes
+from app.modules.coreapi import routes as coreapi_routes
+from app.modules.datasources import routes as datasources_routes
+from app.modules.datasources import services as datasources_services
 from app.modules.doe import routes as doe_routes
+from app.modules.files import routes as files_routes
+from app.modules.files import services as files_services
+from app.modules.graph import routes as graph_routes
 from app.modules.jigs import routes as jigs_routes
 from app.modules.jobs import routes as jobs_routes
 from app.modules.materials import routes as materials_routes
+from app.modules.metrics import routes as metrics_routes
+from app.modules.metrics import services as metrics_services
+from app.modules.notifications import routes as notifications_routes
+from app.modules.objects import attachments as objects_attachments
+from app.modules.objects import misses as objects_misses
+from app.modules.objects import quality as objects_quality
+from app.modules.objects import review as objects_review
+from app.modules.objects import routes as objects_routes
+from app.modules.objects import services as objects_services
+from app.modules.objects import watches as objects_watches
+from app.modules.objectsearch import routes as objectsearch_routes
+from app.modules.ontology import profile as ontology_profile
+from app.modules.ontology import routes as ontology_routes
 from app.modules.parts import routes as parts_routes
+from app.modules.rdf import routes as rdf_routes
+from app.modules.review import links as review_links
+from app.modules.review import registry as review_registry
+from app.modules.review import routes as review_routes
 from app.modules.search import routes as search_routes
 from app.modules.server import routes as server_routes
 from app.modules.specimens import routes as specimens_routes
+from app.modules.tasks import routes as tasks_routes
+from app.modules.tasks import services as tasks_services
 from app.modules.templates import routes as templates_routes
 from app.modules.voc import routes as voc_routes
+from app.modules.webhooks import routes as webhooks_routes
+from app.modules.webhooks import services as webhooks_services
 from app.modules.works import routes as works_routes
+from app.modules.workspaces import routes as workspaces_routes
+from app.modules.workspaces import services as workspaces_services
 from app.schema_version import warn_if_behind
+from app.shared import events, extensions, scopes, system_sources
 from app.shared.access_log import AccessLogMiddleware
 from app.shared.errors import NotFound, code, register_error_handlers
 from app.shared.request_context import RequestIdMiddleware
@@ -77,7 +110,90 @@ def _api_router(settings: Settings) -> APIRouter:
     router.include_router(server_routes.router)
     router.include_router(specimens_routes.router)
     router.include_router(voc_routes.router)
+    # StandardPlatform 에서 들인 것(ADR 0008) — 부서 · 알림 · 첨부 · 감사 · 데이터 작업 ·
+    # 온톨로지 ·
+    # 객체 · 그래프 · RDF · 찾기 · 지표 · 묶음 · 검토함 · 데이터 소스 · 코어 API · 웹훅.
+    router.include_router(workspaces_routes.router)
+    router.include_router(notifications_routes.router)
+    router.include_router(files_routes.router)
+    router.include_router(audit_routes.router)
+    router.include_router(tasks_routes.router)
+    router.include_router(coreapi_routes.router)
+    router.include_router(ontology_routes.router)
+    router.include_router(objects_routes.router)
+    router.include_router(metrics_routes.router)
+    router.include_router(bundles_routes.router)
+    router.include_router(graph_routes.router)
+    router.include_router(rdf_routes.router)
+    router.include_router(objectsearch_routes.router)
+    router.include_router(review_routes.router)
+    router.include_router(datasources_routes.router)
+    router.include_router(webhooks_routes.router)
     return router
+
+
+def register_platform() -> None:
+    """StandardPlatform 에서 들인 것의 **등록** — SP `main.py` 의 `_register_extensions` 그대로
+    (ADR 0008). 서버 화면 · 홈에만 쓰이던 등록(백업 경고 · 느린 요청 · 자기소개)은 그 화면을
+    들일 때 더한다. 여러 번 불러도 안전하다(같은 것을 두 번 넣지 않는다) — 워커도 부른다."""
+    extensions.register_stats(accounts_system.stats)
+    extensions.register_stats(files_services.stats)
+    # **부서를 지울 때 첨부 · 객체가 목록에 뜬다.** 안 걸면 FK 가 RESTRICT 라 500 이 난다.
+    extensions.register_workspace_reference(files_services.workspace_reference)
+    extensions.register_workspace_reference(objects_services.workspace_reference)
+    # **부서를 통폐합할 때 자료를 넘기는 길.**
+    extensions.register_workspace_content(objects_services.workspace_content)
+    extensions.register_workspace_content(files_services.workspace_content)
+    extensions.register_workspace_content(datasources_services.workspace_content)
+    extensions.register_workspace_content(metrics_services.workspace_content)
+    extensions.register_attachment_owner("objects", objects_attachments.owner)
+    extensions.register_maintenance(objects_quality.maintenance)
+    extensions.register_stats(objects_quality.stats)
+    extensions.register_maintenance(objects_misses.maintenance)
+    for provider in (*objects_review.PROVIDERS, *review_links.PROVIDERS):
+        review_registry.register(provider)
+    # `system` 타입이 비추는 원 표 — 부서 · 계정.
+    system_sources.register_system_source(workspaces_services.SYSTEM_SOURCE)
+    system_sources.register_system_source(accounts_system.SYSTEM_SOURCE)
+    # 변경 이벤트(감사 기록이 커밋된 뒤)를 웹훅 · 지켜보기가 듣는다.
+    events.register_listener(webhooks_services.on_events, in_jobs="summary")
+    events.register_listener(objects_watches.on_events)
+    extensions.register_stats(webhooks_services.stats)
+    extensions.register_maintenance(datasources_services.maintenance)
+    extensions.register_stats(datasources_services.stats)
+    extensions.register_maintenance(webhooks_services.maintenance)
+    extensions.register_maintenance(tasks_services.maintenance)
+    extensions.register_stats(tasks_services.stats)
+    extensions.register_maintenance(metrics_services.maintenance)
+    extensions.register_stats(metrics_services.stats)
+    extensions.register_profile_facts(ontology_profile.facts)
+    extensions.register_profile_facts(datasources_services.profile_facts)
+    extensions.register_profile_facts(metrics_services.profile_facts)
+
+    # **기계 자격(PAT)의 범위** — SP 와 같다. 정의와 데이터를 가른다. CompCore 의 `write`
+    # 범위는 여전히 모든 쓰기를 연다(`shared/auth.py`).
+    scopes.register_write_scope("/api/ontology", "ontology:write")
+    scopes.register_write_scope("/api/objects", "objects:write")
+    scopes.register_write_scope("/api/bundles", "objects:write")
+    scopes.register_write_scope("/api/tasks", "objects:write")
+    scopes.register_write_scope("/api/attachments", "objects:write")
+    for pattern in (
+        "/api/ontology/export",
+        "/api/bundles/export",
+        "/api/objects/*/export",
+        "/api/objects/*/relations/export",
+    ):
+        scopes.register_read_only_post_pattern(pattern)
+    scopes.register_read_only_post_pattern("/api/objects/*/resolve-many")
+    scopes.register_read_only_post("/api/rdf/query")
+    scopes.register_read_scope("/api/core", coreapi_routes.SCOPE)
+    scopes.register_write_scope("/api/datasources", "objects:write")
+    scopes.register_write_scope("/api/metrics", "ontology:write")
+    scopes.register_read_only_post("/api/metrics/plan")
+    scopes.register_write_scope("/api/review", "objects:write")
+    scopes.register_read_only_post("/api/review/plan")
+    # CompCore 의 것 — 레시피 검증 · 미리보기는 POST 지만 아무것도 안 바꾼다.
+    scopes.register_read_only_post("/api/cad/recipe/")
 
 
 def _mount_spa(app: FastAPI, settings: Settings) -> None:
@@ -220,6 +336,7 @@ def create_app() -> FastAPI:
     # 작업 종류 — 워커와 같은 함수로 등록한다. 여기서 등록해야 API 가 「모르는 종류」 를 걸 때
     # 거절한다.
     handlers.register_all()
+    register_platform()
     app.include_router(_api_router(settings))
     _mount_spa(app, settings)  # SPA catch-all 은 반드시 API 라우터 뒤
 

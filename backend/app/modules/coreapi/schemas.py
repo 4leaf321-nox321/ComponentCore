@@ -1,0 +1,238 @@
+"""코어 API 의 모양 — **봉투는 고정, 알맹이는 온톨로지가 정한다.**
+
+바깥 시스템이 코드를 짜는 자리라, 여기서 정한 이름은 그쪽 코드에 박힌다. 그래서 두 층으로
+가른다:
+
+    봉투    `as_of` · `next` · `items`, 행의 `key` · `label` · `status` · `updated_at` ·
+            `deleted` · `merged_into`. **어느 타입이든 같다.** 받는 쪽의 반복문은 이것만 안다.
+    알맹이  `properties` 안. 타입이 정한 칸이라 설치마다 다르고, 온톨로지가 자라면 늘어난다.
+            무엇이 있는지는 카탈로그(`/api/core`)가 스스로 설명한다.
+
+**속성을 행에 펼치지 않는 이유**가 여기 있다. 펼치면(`{key, label, density}`) 누가 속성 키를
+`label` 이나 `deleted` 로 만드는 날 봉투와 부딪힌다. 한 겹 넣어 두면 온톨로지가 무엇을 하든
+봉투는 안전하다.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+
+class CorePropertyOut(BaseModel):
+    """칸 하나의 설명 — 받는 쪽이 **하드코딩하지 않게** 하는 자리."""
+
+    key: str
+    label: str
+    data_type: str
+    """text · text_long · number · date · datetime · bool · enum · url · object_ref."""
+    unit: str = ""
+    required: bool = False
+    multi: bool = False
+    """참이면 `properties` 의 그 칸은 **배열**이다."""
+    enum_options: list[str] = Field(default_factory=list)
+    ref_type_slug: str | None = None
+    """`object_ref` 면 가리키는 코어 타입. 값은 그 타입의 **`key`** 로 나간다 — id 로 주면
+    받는 쪽에서 아무것도 못 가리킨다."""
+    help: str = ""
+
+
+class CoreRelationEndOut(BaseModel):
+    """관계 종류의 끝에 적힌 것 하나 — **타입이거나 인터페이스**(ADR 0006).
+
+    인터페이스는 여러 타입이 따르는 공통 모양이라 객체를 갖지 않는다. 끝에 인터페이스를 적은
+    종류의 선은 **그것을 구현한 타입의 객체**를 잇는다 — 그래서 받는 쪽은 「이 끝에 무엇이
+    올 수 있나」 를 slug 하나로는 모른다. `types` 가 그것을 말한다."""
+
+    slug: str
+    interface: bool = False
+    """참이면 `slug` 는 인터페이스다 — 그 끝에는 그것을 구현한 타입 중 **열린 것**만 선다."""
+    types: list[str] = Field(default_factory=list)
+    """이 끝에 설 수 있는 **열린** 타입 slug. 타입이면 자기 하나다. 선의 `dst_type` 은 늘 이
+    가운데 하나다 — 구현했어도 안 열린 타입의 객체를 가리키는 선은 안 나간다(받는 쪽이 못
+    찾는 끝점을 쥐게 된다). 인터페이스를 구현한 타입이 새로 열리면 여기에 늘고 판이 바뀐다."""
+
+
+class CoreRelationKindOut(BaseModel):
+    """이 타입에서 출발하는 관계 종류 하나의 **약속** — 양끝에 무엇이 서나."""
+
+    slug: str
+    label: str
+    src: list[CoreRelationEndOut]
+    dst: list[CoreRelationEndOut]
+
+
+class CoreTypeOut(BaseModel):
+    slug: str
+    label: str
+    description: str = ""
+    count: int
+    """지금 볼 수 있는 건수 — 처음 붙는 쪽이 규모를 가늠하는 자리."""
+    updated_at: str | None = None
+    """이 타입에서 **가장 최근에 바뀐 때.** 이 값이 그대로면 받아 갈 것이 없다."""
+    properties: list[CorePropertyOut]
+    endpoint: str
+    """이 타입의 행을 가져가는 자리. 주소를 짐작하지 않게 **우리가 적어 준다.**"""
+    relations_endpoint: str | None = None
+    """이 타입에서 **출발하는 선**을 가져가는 자리 — 열린 관계 종류가 있을 때만."""
+    relations: list[str] = Field(default_factory=list)
+    """그 창구에 오는 관계 종류의 slug 들. **선의 양끝 객체가 모두 열린 타입인 것만 온다** —
+    한쪽이 안 열린 선을 보내면 받는 쪽이 못 찾는 끝점을 쥔다. 끝에 타입을 적은 종류는 적힌
+    타입이 모두 열려야 열리고, 끝에 인터페이스를 적은 종류는 구현한 타입 중 열린 것이 있으면
+    열린다(선마다 끝 객체의 타입을 본다) — 자세한 것은 `relation_kinds`."""
+    relation_kinds: list[CoreRelationKindOut] = Field(default_factory=list)
+    """`relations` 를 풀어 쓴 것 — 종류마다 양끝에 적힌 타입 · 인터페이스와 **그 끝에 설 수
+    있는 열린 타입**. 끝이 인터페이스인 선을 받는 쪽은 `dst_type` 으로 어느 표에서 찾을지
+    가른다(같은 `key` 가 두 구현 타입에 있을 수 있다)."""
+
+
+class CoreCatalogOut(BaseModel):
+    """**무엇이 열려 있나.** 처음 붙는 쪽은 이것 하나만 읽으면 된다."""
+
+    system: str
+    """이 설치의 이름(`app_slug`) — 받는 쪽이 어디서 온 것인지 적어 두게."""
+    revision: str
+    """열린 정의의 판. **구조가 바뀌면 이 값이 바뀐다** — 받는 쪽이 「칸이 달라졌네」 를
+    코드로 알아챌 수 있다."""
+    as_of: str
+    types: list[CoreTypeOut]
+
+
+class CoreConsumerOut(BaseModel):
+    """이 창구를 쓰는 자격 하나 — **누가 무엇을 가져가는지 사람이 볼 자리.**
+
+    바깥에 연 이름은 남의 코드에 박힌다. 그것을 지우거나 바꾸려 할 때 「누가 쓰는가」 가
+    화면에 없으면, 사람은 아무도 안 쓴다고 여기고 누른다.
+    """
+
+    id: uuid.UUID
+    """토큰의 id — 관리자가 이 화면에서 폐기할 때 쓴다
+    (`POST /api/accounts/{owner_id}/tokens/{id}/revoke`)."""
+    name: str
+    """토큰 이름 — 발급할 때 적은 용도(「MatNexus 야간 동기화」)."""
+    owner: str
+    """토큰이 붙은 계정."""
+    owner_id: uuid.UUID
+    last_used_at: datetime | None = None
+    """**한 번도 안 쓴 토큰은 여기가 비어 있다** — 아직 안 붙은 연동이라는 뜻이다."""
+    expires_at: datetime | None = None
+    """없으면 만료가 없다 — 연동이 끝난 뒤에도 살아 있는 자격이 가장 오래 남는 구멍이다."""
+    narrow: bool = False
+    """`core:read` 만 가진 좁은 자격인가. 거짓이면 `read` 라 **코어 밖도 읽는다.**"""
+    created_at: datetime
+
+
+class CoreRowOut(BaseModel):
+    """행 하나 — **봉투는 고정.**"""
+
+    key: str
+    """이 시스템에서 이 객체를 가리키는 값. **받는 쪽은 이것을 저장해 둔다** — 그래야 다음
+    동기화가 「고침」 이 되지 「새로 만들기」 가 안 된다. 식별자가 없는 객체는 이름이 온다."""
+    label: str
+    status: str = "active"
+    """active · deprecated. **지운 것이 아니라 그만 쓰는 것**은 이 값으로 온다."""
+    updated_at: str
+    deleted: bool = False
+    """참이면 이 시스템에서 사라졌다 — 받는 쪽은 자기 것을 비활성으로 둔다."""
+    hidden: bool = False
+    """참이면 지운 것이 아니라 **이 자격으로는 더 이상 안 보인다**(소유 부서가 보는 범위
+    밖으로 옮겨 갔다). `deleted` 도 참이다 — 받는 쪽은 사라진 것처럼 다룬다. 이름 · 칸은 싣지
+    않는다(식별자만)."""
+    merged_into: str | None = None
+    """다른 것에 합쳐져서 사라졌으면 이긴 쪽의 `key`. **받는 쪽이 제 참조를 옮길 수 있다.**"""
+    renamed_from: str | None = None
+    """식별자가 바뀌었으면 **가장 마지막 옛 식별자**. 받는 쪽은 이 값으로 제가 가진 행을
+    찾아 키를 옮긴다 — 없으면 새 식별자가 처음 보는 것이라 같은 것이 둘이 된다."""
+    previous_keys: list[str] = Field(default_factory=list)
+    """옛 식별자 **전부**(오래된 것부터). 받는 쪽이 오래 잠들어 있었으면 가진 것이 마지막
+    것이 아니다 — 두 번 바뀌었으면(A→B→C) 이 목록으로만 A 를 따라갈 수 있다."""
+    properties: dict[str, Any] = Field(default_factory=dict)
+    """타입이 정한 칸. 참조는 상대의 `key`, 여러 값은 배열, 날짜는 `YYYY-MM-DD`,
+    일시는 `...Z`. **빈 값은 키를 뺀다.**"""
+
+
+class CorePageOut(BaseModel):
+    """한 쪽 — `next` 가 빌 때까지 부른다."""
+
+    type_slug: str
+    as_of: str | None = None
+    """**다음 호출에 이 값을 `since` 로 그대로 넣는다.** 받는 쪽 시계를 쓰면 시계가 몇 초만
+    달라도 그 사이 행이 샌다.
+
+    **쪽이 남아 있으면(`next` 가 있으면) `null` 이다** — 끝까지 받은 뒤에만 시계를 옮긴다.
+    안 그러면 중간에서 멈춘 쪽이 남은 쪽을 영영 안 받는다. 쪽을 넘겨 받았으면 **첫 쪽을 부른
+    때의 시계**다 — 쪽을 넘기는 사이에 커밋된 긴 적재를 다음 주기에 받게."""
+    since: str | None = None
+    next: str | None = None
+    """다음 쪽의 커서 — **그대로 돌려준다**(모양은 약속이 아니다). 없으면 끝이다."""
+    items: list[CoreRowOut]
+
+
+class CoreRelationOut(BaseModel):
+    """선 하나 — **끝점은 `key` 로.** 받는 쪽의 uuid 는 우리 것과 다르다."""
+
+    src: str
+    relation: str
+    """관계 종류의 slug."""
+    dst: str
+    dst_type: str
+    """도착점의 타입 slug — 받는 쪽이 어느 표에서 찾을지 안다. 끝이 인터페이스인 종류면
+    선마다 다르다(구현한 타입 중 열린 것). **`key` 는 타입 안에서만 하나**라, 받는 쪽은 선을
+    `(src, relation, dst, dst_type)` 으로 가린다."""
+    evidence_note: str = ""
+    properties: dict[str, Any] = Field(default_factory=dict)
+    """선 자체에 붙은 값(근거 건수처럼). **빈 값은 키를 뺀다.**"""
+    updated_at: str
+    deleted: bool = False
+    """참이면 **끊긴 선**이다 — 받는 쪽은 자기 쪽에서도 끊는다."""
+
+
+class CoreRelationPageOut(BaseModel):
+    """한 쪽 — 객체 쪽과 같은 규칙(`since` · `next` · `as_of`)."""
+
+    type_slug: str
+    as_of: str | None = None
+    since: str | None = None
+    next: str | None = None
+    items: list[CoreRelationOut]
+    reset: bool = False
+    """**처음부터 다시 받아야 한다.** 끊긴 선의 기록(무덤)은 한동안만 들고 있으므로, 그보다
+    오래 안 받아 간 쪽에는 「그 사이에 무엇이 끊겼나」 를 말해 줄 수 없다. 그때 빈 쪽을
+    주면 받는 쪽은 「바뀐 것 없음」 으로 읽고 **끊긴 선을 영영 들고 있는다.**"""
+    reset_reason: str = ""
+    """왜 다시 받아야 하나 — 사람이 읽는 한 줄."""
+
+
+class CorePullOut(BaseModel):
+    """누가 언제 무엇을 받아 갔나 — 감사 기록의 `core.pull` 한 줄."""
+
+    at: datetime
+    actor: str
+    token: str | None = None
+    """통로(토큰 이름). 사람이 화면에서 본 것과 기계가 받아 간 것을 가른다."""
+    type_slug: str
+    rows: int
+    since: str = ""
+
+
+class CoreStatusOut(BaseModel):
+    """**무엇이 열려 있고, 누가 읽을 수 있고, 누가 받아 갔나** — 한 화면.
+
+    셋이 흩어져 있으면(타입 목록 · 토큰 목록 · 감사 기록) 「지금 바깥에 뭐가 나가고 있지」 를
+    아무도 한눈에 답할 수 없고, 그러면 열어 둔 것을 잊는다.
+    """
+
+    types: list[CoreTypeOut]
+    consumers: list[CoreConsumerOut]
+    recent: list[CorePullOut]
+    base: str
+    """이 설치의 코어 창구 주소 — 상대에게 그대로 건넨다."""
+    watermark_lag_seconds: int = 0
+    """**받아 가는 쪽이 지금 어디까지 볼 수 있나** — 지금과 `as_of` 의 차이(초).
+
+    `as_of` 는 도는 적재보다 앞서지 않는다(그래야 그 적재분을 안 잃는다). 그래서 긴 백필
+    동안 이 값이 커지고, 백필이 끝나면 0 으로 돌아온다. **줄지 않고 계속 커지면** 열어 두고
+    잊은 세션이 있다는 뜻이다 — 그때는 받아 가는 쪽이 새 값을 못 본다."""

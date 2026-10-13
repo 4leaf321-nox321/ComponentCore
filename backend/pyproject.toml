@@ -8,6 +8,9 @@ requires-python = ">=3.12,<3.13"
 
 [tool.ruff]
 line-length = 95
+# SP 코어 연동 키트(`coreapi/kit`)는 **상대 시스템에서 도는 코드**다 — 이 저장소의 규칙이 아니라
+# 「의존성 하나로 복사해 쓰는 한 파일」 이 기준이라 검사에서 뺀다(StandardPlatform 과 같다).
+extend-exclude = ["app/modules/coreapi/kit"]
 target-version = "py312"
 src = [".", "scripts"]
 
@@ -43,6 +46,7 @@ extend-immutable-calls = [
 python_version = "3.12"
 strict = true
 files = ["app", "tests"]
+exclude = "app/modules/coreapi/kit/"
 
 [[tool.mypy.overrides]]
 module = ["uvicorn.*", "cairosvg.*"]
@@ -52,6 +56,12 @@ ignore_missing_imports = true
 # 한 자리라 여기서만 모르는 것으로 둔다(StandardPlatform 과 같다 — ADR 0008).
 [[tool.mypy.overrides]]
 module = ["openpyxl.*"]
+ignore_missing_imports = true
+
+# scipy 는 타입 표시(`py.typed`)가 없다. 지표(`metrics/recipes/_numeric.py`) 한 자리에서만 부르고
+# 결과를 거기서 float · ndarray 로 바꿔 내보낸다(StandardPlatform 과 같다 — ADR 0008).
+[[tool.mypy.overrides]]
+module = ["scipy.*"]
 ignore_missing_imports = true
 
 # build123d 는 타입 정보가 부분적이라(OCP 바인딩) strict 로 보면 Any 가 흘러넘친다.
