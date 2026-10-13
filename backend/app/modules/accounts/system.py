@@ -2,7 +2,8 @@
 비추는 길」 그대로(ADR 0008). `kind_class='system'` 타입이 `system_source='user'` 로 가리킨다.
 
 CompCore 의 계정 서비스(`services.py`)는 손대지 않고 여기 따로 둔다 — 들인 것과 원래 것을
-가른다.
+가른다. 서버 화면의 「계정」 수는 CompCore 의 서버 모듈이 이미 센다(SP 의 `stats` 는 안
+들인다).
 """
 
 from __future__ import annotations
@@ -14,15 +15,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
-from app.shared import extensions, system_sources
+from app.shared import system_sources
 from app.shared.text import clean
-
-
-def stats(db: Session) -> list[extensions.StatItem]:
-    total = (
-        db.scalar(select(func.count()).select_from(User).where(User.deleted_at.is_(None))) or 0
-    )
-    return [extensions.StatItem(label="계정", count=total)]
 
 
 def _system_ref(row: User) -> system_sources.SystemRef:

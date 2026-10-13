@@ -36,6 +36,7 @@ from app.modules.files import routes as files_routes
 from app.modules.files import services as files_services
 from app.modules.graph import routes as graph_routes
 from app.modules.jigs import routes as jigs_routes
+from app.modules.jigs import system as jigs_system
 from app.modules.jobs import routes as jobs_routes
 from app.modules.materials import routes as materials_routes
 from app.modules.metrics import routes as metrics_routes
@@ -52,6 +53,7 @@ from app.modules.objectsearch import routes as objectsearch_routes
 from app.modules.ontology import profile as ontology_profile
 from app.modules.ontology import routes as ontology_routes
 from app.modules.parts import routes as parts_routes
+from app.modules.parts import system as parts_system
 from app.modules.rdf import routes as rdf_routes
 from app.modules.review import links as review_links
 from app.modules.review import registry as review_registry
@@ -136,7 +138,6 @@ def register_platform() -> None:
     """StandardPlatform 에서 들인 것의 **등록** — SP `main.py` 의 `_register_extensions` 그대로
     (ADR 0008). 서버 화면 · 홈에만 쓰이던 등록(백업 경고 · 느린 요청 · 자기소개)은 그 화면을
     들일 때 더한다. 여러 번 불러도 안전하다(같은 것을 두 번 넣지 않는다) — 워커도 부른다."""
-    extensions.register_stats(accounts_system.stats)
     extensions.register_stats(files_services.stats)
     # **부서를 지울 때 첨부 · 객체가 목록에 뜬다.** 안 걸면 FK 가 RESTRICT 라 500 이 난다.
     extensions.register_workspace_reference(files_services.workspace_reference)
@@ -155,6 +156,9 @@ def register_platform() -> None:
     # `system` 타입이 비추는 원 표 — 부서 · 계정.
     system_sources.register_system_source(workspaces_services.SYSTEM_SOURCE)
     system_sources.register_system_source(accounts_system.SYSTEM_SOURCE)
+    # CompCore 의 부품 · 지그 — 기준정보(SP 에서 받은 제품 · 프로젝트 …)가 이것을 가리킨다.
+    system_sources.register_system_source(parts_system.SYSTEM_SOURCE)
+    system_sources.register_system_source(jigs_system.SYSTEM_SOURCE)
     # 변경 이벤트(감사 기록이 커밋된 뒤)를 웹훅 · 지켜보기가 듣는다.
     events.register_listener(webhooks_services.on_events, in_jobs="summary")
     events.register_listener(objects_watches.on_events)

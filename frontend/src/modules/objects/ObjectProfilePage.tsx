@@ -18,6 +18,7 @@ import { RelatedObjects } from '@/modules/objects/RelatedObjects'
 import { SimilarRecords } from '@/modules/objects/SimilarRecords'
 import { LogCounts } from '@/modules/objects/LogCounts'
 import { RollupPanel } from '@/modules/objects/RollupPanel'
+import { sourceScreen } from '@/modules/objects/SourceLinksCard'
 import type { PropertyDef, SectionView } from '@/modules/ontology/api'
 import { objectApi } from '@/modules/objects/api'
 import { PropertyFields, groupBySection, propertyText } from '@/modules/objects/PropertyFields'
@@ -266,6 +267,15 @@ export default function ObjectProfilePage() {
         <p className="text-muted-foreground text-sm">
           이 객체는 다른 표(원 표)를 비춥니다. 이름과 내용은 그 표의 화면에서 수정합니다 — 여기서는
           이것을 가리키는 관계만 봅니다.
+          {/* CompCore 의 부품 · 지그는 그 화면으로 보낸다(ADR 0008). */}
+          {objectType && sourceScreen(objectType.system_source, objectId) && (
+            <>
+              {' '}
+              <Link to={sourceScreen(objectType.system_source, objectId)!} className="underline">
+                {objectType.system_source === 'jig' ? '지그' : '부품'} 화면으로
+              </Link>
+            </>
+          )}
         </p>
       )}
 

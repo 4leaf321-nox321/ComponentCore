@@ -9,9 +9,16 @@
 변수를 훑어(DOE) 해석으로 넘기는 독립 플랫폼.**
 
 [StandardPlatform](../StandardPlatform) 에서 로그인 · 설정 · 오류 규약 · 배포 형태 같은
-**제반 구조만 가져왔다.** StandardPlatform 의 인스턴스(확장 모듈 · 온톨로지 · 부서)가 아니다 —
-그쪽의 `EXTENSIONS` 나 `app/extensions` 같은 기제는 여기 없고, 앞으로도 넣지 않는다.
-지그 생성은 이 저장소의 **코어**(`backend/app/core`)가 한다.
+**제반 구조를 가져왔고**, 온톨로지 · 부서와 그 기반(객체 · 그래프 · 데이터 소스 · 코어 API · 지표
+…)은 **SP 의 것을 거의 그대로 들였다**([ADR 0008](docs/adr/0008-온톨로지와-그-기반을-StandardPlatform-에서-들인다.md)).
+그래도 SP 의 인스턴스는 아니다 — 그쪽의 확장 모듈 기제(`EXTENSIONS` · `app/extensions`)는 여기
+없고, 앞으로도 넣지 않는다. 지그 생성은 이 저장소의 **코어**(`backend/app/core`)가 한다.
+
+- **들인 모듈은 SP `6e5a773` 과 견줄 수 있게 둔다** — 모듈 · 표 · 경로 이름이 같다. 다른 것은
+  `jobs` → `tasks`(데이터 작업, `/tasks`) · `search` → `objectsearch`(`/api/object-search`) ·
+  저장소 뿌리 `filestore/blobs/` 셋이고, 고친 자리에는 왜인지 적는다.
+- **pytest 는 한 번에 하나만 돌린다.** 시험은 시작할 때 `<db>_test` 의 스키마를 지우고 다시
+  세운다(`tests/conftest.py`) — 긴 실행 중에 다른 pytest 를 띄우면 앞 실행의 표가 사라진다.
 
     제품 STEP ─▶ Geometry Understanding ─▶ Feature Recognition ─▶ Fixture Planning
              ─▶ Support · Locator · Clamp ─▶ Jig 자동 생성 ─▶ 간섭 검사 ─▶ STEP

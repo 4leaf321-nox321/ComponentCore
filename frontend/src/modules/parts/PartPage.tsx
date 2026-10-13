@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { GeometryJobView } from '@/modules/cad/GeometryJobView'
 import { ConditionsCard } from '@/modules/conditions/ConditionsCard'
+import { SourceLinksCard } from '@/modules/objects/SourceLinksCard'
 import { jigsApi } from '@/modules/jigs/api'
 import { partsApi } from '@/modules/parts/api'
 import type { PartVersion } from '@/modules/parts/api'
@@ -139,6 +140,7 @@ export default function PartPage() {
               )}
             </CardContent>
           </Card>
+          <SourceLinksCard source="part" id={id} />
           <StandardCard part={p} admin={isSystemAdmin(user)} onChanged={part.reload} />
           {selected && <ConditionsCard conditions={selected.conditions} />}
           {p.current_version > 0 && <SimilarCard source={`part:${id}`} />}

@@ -7,6 +7,7 @@ import { ConditionsCard } from '@/modules/conditions/ConditionsCard'
 import { jigsApi } from '@/modules/jigs/api'
 import type { JigVersion } from '@/modules/jigs/api'
 import { JigResultView } from '@/modules/jigs/JigResultView'
+import { SourceLinksCard } from '@/modules/objects/SourceLinksCard'
 import { SimilarCard } from '@/modules/search/SimilarCard'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { canEditProject } from '@/shared/auth/roles'
@@ -144,6 +145,7 @@ export default function JigPage() {
               </ul>
             </CardContent>
           </Card>
+          <SourceLinksCard source="jig" id={id} />
           {selected && <ConditionsCard conditions={selected.conditions} />}
           {j.current_version > 0 && <SimilarCard source={`jig:${id}`} />}
         </div>
