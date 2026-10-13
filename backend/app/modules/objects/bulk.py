@@ -1756,6 +1756,7 @@ def apply_objects(
     owner_workspace_id: uuid.UUID | None,
     source: str = "",
     aliases_mode: str = "add",
+    pending: dict[str, set[str]] | None = None,
     blank_missing: bool = False,
     human_edits: str = "keep",
     max_rows: int = MAX_ROWS,
@@ -1763,6 +1764,10 @@ def apply_objects(
     before_apply: Callable[[Plan], None] | None = None,
 ) -> Plan:
     """계획을 다시 세우고, 오류가 없을 때만 **한 트랜잭션으로** 넣는다.
+
+    `pending` 은 계획과 같다 — 이 묶음이 만드는 것을 가리키는 칸은 **비켜 두고** 넣는다(값을
+    지어내지 않는다). 그 칸은 부르는 쪽이 다음 바퀴에 채운다(CompCore — 데이터 소스의
+    자기 참조, 2026-10-13).
 
     계획을 다시 세우는 이유: 미리 보기와 적용 사이에 다른 사람이 무엇을 바꿨을 수
     있다. 그때 옛 계획대로 넣으면 그 사람의 변경이 조용히 덮인다. `before_apply` 는
@@ -1777,6 +1782,7 @@ def apply_objects(
         owner_workspace_id=owner_workspace_id,
         source=source,
         aliases_mode=aliases_mode,
+        pending=pending,
         blank_missing=blank_missing,
         human_edits=human_edits,
         max_rows=max_rows,

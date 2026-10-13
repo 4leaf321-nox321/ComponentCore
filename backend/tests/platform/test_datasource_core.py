@@ -331,6 +331,8 @@ def test_카탈로그를_읽어_대응을_제안한다(
     assert body["system"] == "sibling" and body["type_label"] == "공급사"
     assert body["mapping"]["external_key"] == "key"
     targets = {one["source"]: one["target"] for one in body["mapping"]["columns"]}
+    # 이쪽 타입에 식별자 칸이 있으면 상대의 키를 그대로 받는다(CompCore).
+    assert targets["key"] == "key"
     assert targets["country"] == "properties.country"
     assert targets["rating"] == "properties.rating"
     # **못 이은 것은 까닭과 함께 돌려준다** — 조용히 빼면 사람은 그 칸이 온 줄 안다.
@@ -862,3 +864,66 @@ def test_같은_소스의_적용은_한_곳에서만_돈다(
         planned = services.sync(db, None, row, apply=False)
         assert planned.run.status == "planned"
     assert _rows(client, admin, vendor) == {}
+
+
+def test_같은_묶음_안의_다른_줄을_가리키는_칸은_다_넣은_뒤에_채운다(
+    client: TestClient, admin: Signed, sibling: FakeCore
+) -> None:
+    """기본 모델의 「전작」 처럼 **자기 타입을 가리키는 칸**(CompCore, 2026-10-13).
+
+    처음 받을 때는 가리키는 것이 아직 없다 — 예전에는 「찾을 수 없습니다」 한 줄이 묶음 전체를
+    막았고, 다음 차례에도 같은 줄이 와서 영영 못 받았다(실제 SP 코어에서 기본 모델 14개 중
+    10개가 그랬다). 가리키는 줄이 **뒤에** 와도 된다."""
+    model = _make_type(
+        client, admin, label=f"기본모델{uuid.uuid4().hex[:6]}", key_policy="required"
+    )
+    _make_property(
+        client,
+        admin,
+        model,
+        key="predecessor",
+        label="전작",
+        data_type="object_ref",
+        ref_type_slug=model,
+    )
+    sibling.items = [
+        {
+            "key": "M-2",
+            "label": "둘째",
+            "status": "active",
+            "updated_at": "2026-09-01T00:00:00.000000Z",
+            "deleted": False,
+            "properties": {"predecessor": "M-1"},
+        },
+        {
+            "key": "M-1",
+            "label": "첫째",
+            "status": "active",
+            "updated_at": "2026-09-01T00:00:00.000000Z",
+            "deleted": False,
+            "properties": {"predecessor": None},
+        },
+    ]
+    source = _source(
+        client,
+        admin,
+        model,
+        mapping={
+            "external_key": "key",
+            "columns": [
+                {"source": "key", "target": "key"},
+                {"source": "label", "target": "label"},
+                {"source": "predecessor", "target": "properties.predecessor"},
+            ],
+        },
+    )
+
+    planned = _sync(client, admin, source["slug"], apply=False)
+    assert planned["counts"]["error"] == 0 and planned["counts"]["create"] == 2, planned
+
+    _sync(client, admin, source["slug"])
+    listed = client.get(f"/api/objects/{model}?limit=10", headers=admin.headers).json()
+    by_key = {one["key"]: one for one in listed["items"]}
+    assert set(by_key) == {"M-1", "M-2"}
+    assert by_key["M-2"]["properties"]["predecessor"] == by_key["M-1"]["id"]
+    assert by_key["M-1"]["properties"].get("predecessor") in (None, "")

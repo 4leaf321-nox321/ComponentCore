@@ -628,6 +628,7 @@ def _apply_chunk(
     *,
     owner: uuid.UUID | None,
     aliases_mode: str = "add",
+    pending: dict[str, set[str]] | None = None,
     blank_missing: bool = False,
 ) -> bulk.Plan:
     """조각 하나를 넣고 — **같은 커밋에** 외부 식별자를 남긴다.
@@ -659,6 +660,7 @@ def _apply_chunk(
             owner_workspace_id=owner,
             source=source_name(source),
             aliases_mode=aliases_mode,
+            pending=pending,
             blank_missing=blank_missing,
             before_apply=captured.append,
         )
@@ -760,6 +762,35 @@ def preview(db: Session, source: DataSource, *, limit: int = 5) -> dict[str, Any
         one = map_row(mapping, raw, source.slug, mirror=mirrors(source), keep=keep)
         mapped.append({"external_id": one.external_id, "row": one.row, "error": one.error})
     return {"columns": columns, "rows": fetched.rows, "mapped": mapped, "mapping_error": None}
+
+
+def _same_batch(
+    object_type: ObjectType, defs: list[PropertyDef], rows: list[Mapped]
+) -> tuple[dict[str, set[str]] | None, set[str]]:
+    """**자기 타입을 가리키는 참조 칸**(전작 · 상위 …)과 이번 묶음의 식별자들(CompCore).
+
+    그 칸이 같은 묶음의 다른 줄을 가리키면 계획 때는 아직 없다 — 그대로 두면 「찾을 수
+    없습니다」 한 줄이 묶음 전체를 막고, 다음 차례에도 같은 줄이 와서 **영영 못 받는다**
+    (SP 코어의 기본 모델 · 전작, 2026-10-13). 그래서 이 묶음의 식별자를 `pending` 으로 넘겨
+    첫 바퀴에는 비켜 두고, 다 넣은 뒤 그 칸이 있는 줄만 다시 넣는다.
+
+    **다른 타입을 가리키는 칸은 그대로 엄격하다** — 비우고 넘기면 증분 동기화는 그 줄을 다시
+    보내지 않아 칸이 영영 빈다. 그쪽 소스를 먼저 받으면 풀린다.
+    """
+    own = {
+        one.key
+        for one in defs
+        if one.data_type == "object_ref" and one.ref_type_slug == object_type.slug
+    }
+    if not own:
+        return None, set()
+    keys = {str(one.row.get("key") or "").strip() for one in rows} - {""}
+    return ({object_type.slug: keys} if keys else None), own
+
+
+def _names_value(value: Any) -> bool:
+    """칸에 가리킬 것이 적혀 있나 — 빈 값과 「비움」 표시는 아니다."""
+    return not _empty(value) and value != bulk.NULL_MARK
 
 
 def sync(db: Session, user: User | None, source: DataSource, *, apply: bool) -> SyncResult:
@@ -1076,6 +1107,7 @@ def _sync_body(
     good = [one for one in mapped if not one.error and not one.merged_into]
     # bulk 의 상한(한 번에 5,000행)은 조각으로 넘는다 — 계획은 전부 세운 뒤에 적용한다.
     pieces = [good[i : i + bulk.MAX_ROWS] for i in range(0, len(good), bulk.MAX_ROWS)]
+    pending, own_refs = _same_batch(object_type, defs, good)
     actor = _actor(db, user)
     plans = [
         bulk.plan_objects(
@@ -1088,6 +1120,7 @@ def _sync_body(
             # 허브가 내려준 타입은 받기까지 막힌다(잠근 뜻은 그것이 아니다).
             source=source_name(source),
             aliases_mode=aliases_mode,
+            pending=pending,
         )
         for piece in pieces
     ]
@@ -1158,6 +1191,7 @@ def _sync_body(
             known,
             owner=source.workspace_id,
             aliases_mode=aliases_mode,
+            pending=pending,
         )
         if not done.ok:
             run.status = "failed"
@@ -1176,6 +1210,39 @@ def _sync_body(
             db.commit()
             return SyncResult(run=run, plan_rows=plan_rows, truncated=truncated)
         applied_rows.extend(done.rows)
+
+    # **두 번째 바퀴 — 같은 묶음 안을 가리키던 칸을 채운다.** 첫 바퀴는 그 칸을 비켜 두었다
+    # (`pending`). 이제 가리키는 것이 다 섰으므로 그 칸이 있는 줄만 다시 넣는다(나머지 값은
+    # 같으므로 바뀌는 것은 그 칸뿐이다).
+    linked_later = [one for one in good if any(_names_value(one.row.get(k)) for k in own_refs)]
+    for start in range(0, len(linked_later), bulk.MAX_ROWS):
+        again = _apply_chunk(
+            db,
+            actor,
+            object_type,
+            source,
+            run,
+            linked_later[start : start + bulk.MAX_ROWS],
+            known,
+            owner=source.workspace_id,
+            aliases_mode=aliases_mode,
+        )
+        if not again.ok:
+            run.status = "failed"
+            run.errors = (
+                again.errors
+                + [
+                    f"{one.label}: {one.message}"
+                    for one in again.rows
+                    if one.action == "error"
+                ][:ERROR_SAMPLE]
+                + [PARTIAL]
+            )
+            run.finished_at = datetime.now(UTC)
+            source.last_run_at = run.finished_at
+            source.last_status = "failed"
+            db.commit()
+            return SyncResult(run=run, plan_rows=plan_rows, truncated=truncated)
 
     # 이번에 온 것 — 바깥 식별자로도, 객체로도(합친 객체는 식별자 하나만 와도 온 것이다).
     seen_norms = {compare_key(one.external_id) for one in mapped if not one.error}
@@ -2464,6 +2531,11 @@ def suggest_core_mapping(
     by_key = {one.key: one for one in defs}
     by_label = {one.label.strip(): one for one in defs}
     columns: list[dict[str, Any]] = [{"source": "label", "target": "label"}]
+    # **이쪽 타입에 식별자 칸이 있으면 상대의 키를 그대로 받는다**(CompCore, 2026-10-13). 빼면
+    # 「식별자 필수」 타입은 첫 동기화가 전부 거절되고, 식별자가 선택인 타입도 사람이 상대의
+    # 키(`SM-N110`)로 찾지 못하며, 그 키로 가리키는 참조 칸이 풀리지 않는다.
+    if object_type.key_policy != "none":
+        columns.insert(0, {"source": "key", "target": "key"})
     shown: list[CoreSuggestProperty] = []
     notes: list[str] = []
     for one in remote.get("properties") or []:
