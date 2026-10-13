@@ -46,7 +46,55 @@ const VOC: Record<string, { label: string; tone: Tone }> = {
   rejected: { label: '반려', tone: 'bad' },
 }
 
-const TABLES = { account: ACCOUNT, run: RUN, interference: INTERFERENCE, voc: VOC } as const
+// --- StandardPlatform 에서 들인 표(ADR 0008) ---------------------------------------------------
+
+const NOTICE: Record<string, { label: string; tone: Tone }> = {
+  info: { label: '안내', tone: 'neutral' },
+  warning: { label: '주의', tone: 'warn' },
+  urgent: { label: '긴급', tone: 'bad' },
+}
+
+const WORKSPACE: Record<string, { label: string; tone: Tone }> = {
+  // **보관은 나쁨이 아니라 중립이다** — 사고가 아니라 조직의 생애다.
+  active: { label: '사용', tone: 'good' },
+  archived: { label: '보관', tone: 'neutral' },
+}
+
+const OBJECT: Record<string, { label: string; tone: Tone }> = {
+  active: { label: '사용', tone: 'good' },
+  // **더 이상 쓰지 않음은 나쁨이 아니다.** picker 에서 숨을 뿐, 이미 걸린 값과
+  // 관계는 그대로 남는다 — 지운 것이 아니다.
+  deprecated: { label: '안 씀', tone: 'neutral' },
+}
+
+const TOKEN: Record<string, { label: string; tone: Tone }> = {
+  active: { label: '사용', tone: 'good' },
+  // **만료는 주의다** — 그 토큰을 아직 넣어 둔 연동이 있으면 지금 인증에 실패하고 있다.
+  expired: { label: '만료', tone: 'warn' },
+  // 폐기는 사고가 아니라 끝낸 일이다.
+  revoked: { label: '폐기', tone: 'neutral' },
+}
+
+/** 느린 요청 · 큰 응답(ADR 0026) — 경로 틀 한 줄의 표시. */
+const PERFORMANCE: Record<string, { label: string; tone: Tone }> = {
+  // **느린 것은 고장이 아니라 주의다** — 빨강은 멎은 것(실패 · 오류)의 색이다.
+  slow: { label: '느림', tone: 'warn' },
+  large: { label: '큼', tone: 'warn' },
+  // 파일 응답은 크고 받는 쪽 속도를 타는 것이 정상이다 — 문턱 판정에서 뺀다는 표시.
+  file: { label: '파일', tone: 'neutral' },
+}
+
+const TABLES = {
+  account: ACCOUNT,
+  run: RUN,
+  interference: INTERFERENCE,
+  voc: VOC,
+  object: OBJECT,
+  notice: NOTICE,
+  performance: PERFORMANCE,
+  token: TOKEN,
+  workspace: WORKSPACE,
+} as const
 
 /** 배지 없이 말만 — 필터 칩 · 확인 창처럼 배지를 그리지 않는 자리. */
 export function statusLabel(kind: keyof typeof TABLES, value: string): string {

@@ -62,7 +62,7 @@ def collect_plans(db: Session, user: User, flt: Filters) -> Collected:
         type_label="",
         workspace_id=None,
         rows=found.count,
-        link="/jobs",
+        link="/tasks",
         ignorable=False,
         priority=float(found.count),
     )
@@ -119,7 +119,7 @@ JOB_PLAN = registry.Provider(
     label="적용을 기다리는 계획",
     description="미리 보고 아직 적용하지 않은 일괄 입력 · 묶음의 계획 — 작업 화면에서 읽고 "
     "적용합니다.",
-    link="/jobs",
+    link="/tasks",
     can_view=_manager,
     collect=collect_plans,
     maintenance_keys=("job_awaiting_apply",),

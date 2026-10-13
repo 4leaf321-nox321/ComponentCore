@@ -1,0 +1,540 @@
+/**
+ * 통계가 지키는 것 — **목록과 같은 필터를 넘기고, 합이 안 맞으면 그 차이를 적고,
+ * 막대를 누르면 원래 값으로 거른다.**
+ *
+ * 그림 자체는 `shared/charts` 의 몫이라 여기서는 **무엇을 넘기나**만 본다. 그래서
+ * 차트를 가짜로 바꿔 끼우고, 넘어온 행과 `onPick` 을 들여다본다.
+ */
+
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
+import { describe, expect, it, vi } from 'vitest'
+
+const objectApi = vi.hoisted(() => ({
+  summary: vi.fn(),
+  exportSummary: vi.fn(),
+  points: vi.fn(),
+  exportPoints: vi.fn(),
+}))
+const viewApi = vi.hoisted(() => ({ create: vi.fn() }))
+vi.mock('@/modules/objects/api', () => ({ objectApi, viewApi }))
+// 시스템 관리자의 부서 고르개는 전체 부서를 받는다.
+const workspaceApi = vi.hoisted(() => ({
+  options: vi.fn(async () => [
+    { slug: 'hq', name: '본사', path: '본사', depth: 0 },
+    { slug: 'sales', name: '영업팀', path: '본사 / 영업팀', depth: 1 },
+  ]),
+}))
+vi.mock('@/modules/workspaces/api', () => ({ workspaceApi }))
+
+// 「홈에 올리기」 는 부서 관리자에게만 보인다 — 누구로 로그인했는지가 이 시험의 조건이다.
+const auth = vi.hoisted(() => ({
+  user: {
+    home_workspace_slug: 'cae',
+    memberships: [{ slug: 'cae', role: 'manager', name: '해석팀', path: '해석팀' }],
+  } as Record<string, unknown>,
+}))
+vi.mock('@/shared/auth/AuthContext', () => ({ useAuth: () => auth }))
+
+/** 가짜 차트 — 행마다 단추 하나. 누르면 진짜 차트가 하듯 **행 그대로** 넘긴다. */
+const charts = vi.hoisted(() => ({
+  rows: [] as Record<string, unknown>[],
+  series: [] as { key: string; label?: string }[],
+}))
+vi.mock('@/shared/charts', () => ({
+  colorFor: () => '#2563eb',
+  LazyPlot: ({ title }: { title?: string }) => <div data-testid="plot">{title}</div>,
+  Chart: ({
+    data,
+    x,
+    series,
+    onPick,
+    title,
+  }: {
+    data: Record<string, unknown>[]
+    x: string
+    series: { key: string; label?: string }[]
+    onPick?: (row: Record<string, unknown>) => void
+    title?: string
+  }) => {
+    charts.rows = data
+    charts.series = series
+    return (
+      <div aria-label={title}>
+        {data.map((row) => (
+          <button
+            key={String(row[x])}
+            type="button"
+            disabled={!onPick}
+            onClick={() => onPick?.(row)}
+          >
+            {String(row[x])}
+          </button>
+        ))}
+      </div>
+    )
+  },
+}))
+
+const BASE = {
+  group_field: 'properties.grade',
+  group_label: '등급',
+  order: 'desc',
+  split_field: '',
+  split_label: '',
+  splits: [],
+  other_splits: 0,
+  metric: 'count',
+  metric_field: null,
+  metric_label: '건수',
+  total: 5,
+  buckets: [
+    { key: 'A', label: 'A', count: 2, value: null, parts: [] },
+    { key: 'B', label: 'B', count: 1, value: null, parts: [] },
+    { key: null, label: '(비어 있음)', count: 2, value: null, parts: [] },
+  ],
+  other_groups: 0,
+  other_count: 0,
+  group_options: [
+    { field: 'status', label: '상태', kind: 'fixed' },
+    { field: 'properties.grade', label: '등급', kind: 'enum' },
+  ],
+  metric_options: [{ field: 'properties.weight', label: '무게', kind: 'number' }],
+}
+
+async function panel(
+  data: object,
+  settings: Record<string, unknown> = {},
+  { homeWorkspace = null as string | null } = {},
+) {
+  objectApi.summary.mockResolvedValue(data)
+  const { SummaryPanel, DEFAULT_SUMMARY } = await import('@/modules/objects/SummaryPanel')
+  const onPick = vi.fn()
+  const onSettings = vi.fn()
+  // 설정은 **화면이 들고 있다** — 여기서는 호스트 노릇만 한다.
+  render(
+    // 올린 뒤의 「홈에서 보기」 가 링크라 라우터가 필요하다.
+    <MemoryRouter>
+      <SummaryPanel
+        typeSlug="part"
+        query={{ q: '볼트' }}
+        settings={{ ...DEFAULT_SUMMARY, ...settings }}
+        onSettings={onSettings}
+        onPick={onPick}
+        onClose={vi.fn()}
+        homeWorkspace={homeWorkspace}
+      />
+    </MemoryRouter>,
+  )
+  await screen.findByText(/조건에 맞는 전체/)
+  return { onPick, onSettings }
+}
+
+describe('통계', () => {
+  it('목록과 같은 필터를 넘기고, 빈 값도 한 칸으로 그린다', async () => {
+    await panel(BASE)
+    expect(objectApi.summary).toHaveBeenCalledWith(
+      'part',
+      { q: '볼트' },
+      {
+        groupBy: 'status',
+        splitBy: null,
+        metric: 'count',
+        metricField: null,
+        order: 'desc',
+        grain: null,
+      },
+    )
+    // **빈 값을 숨기면 막대의 합이 전체와 안 맞고, 그 차이는 화면 어디에도 안 적힌다.**
+    expect(charts.rows.map((one) => one.name)).toEqual(['A', 'B', '(비어 있음)'])
+    expect(screen.getByText(/조건에 맞는 전체 5건/)).toBeInTheDocument()
+  })
+
+  it('날짜가 아닌 기준이면 남아 있던 기간 단위를 안 보낸다', async () => {
+    // 날짜 기준에서 「월」 을 고른 뒤 등급으로 바꾼 상태 — 단위를 보내면 서버가 거절했다.
+    objectApi.summary.mockClear()
+    await panel(BASE, { groupBy: 'properties.grade', grain: 'month' })
+    await waitFor(() => expect(objectApi.summary).toHaveBeenCalled())
+    for (const call of objectApi.summary.mock.calls) {
+      expect(call[2]).toMatchObject({ groupBy: 'properties.grade', grain: null })
+    }
+  })
+
+  it('날짜 기준이면 고른 기간 단위를 보낸다', async () => {
+    objectApi.summary.mockClear()
+    const dated = {
+      ...BASE,
+      group_field: 'properties.made',
+      group_options: [...BASE.group_options, { field: 'properties.made', label: '만든 날', kind: 'date' }],
+    }
+    await panel(dated, { groupBy: 'properties.made', grain: 'month' })
+    await waitFor(() =>
+      expect(objectApi.summary.mock.calls.at(-1)?.[2]).toMatchObject({ grain: 'month' }),
+    )
+  })
+
+  it('접힌 그룹이 있으면 몇 종류 몇 건이 빠졌는지 적는다', async () => {
+    await panel({ ...BASE, total: 40, other_groups: 7, other_count: 35 })
+    expect(screen.getByText(/7종류 35건은 접혔습니다/)).toBeInTheDocument()
+  })
+
+  it('막대를 클릭하면 **원래 값**으로 거른다 — 빈 칸은 거를 값이 없다', async () => {
+    const { onPick } = await panel(BASE)
+    await userEvent.click(screen.getByRole('button', { name: 'A' }))
+    expect(onPick).toHaveBeenCalledWith('properties.grade', 'A', null)
+
+    onPick.mockClear()
+    await userEvent.click(screen.getByRole('button', { name: '(비어 있음)' }))
+    expect(onPick).not.toHaveBeenCalled()
+  })
+
+  it('거를 수 없는 기준이면 아예 안 누르게 한다', async () => {
+    await panel({ ...BASE, group_field: 'workspace', group_label: '소유 부서' })
+    expect(screen.getByRole('button', { name: 'A' })).toBeDisabled()
+  })
+
+  it('셀 숫자 칸이 없으면 합계·평균을 못 고른다', async () => {
+    await panel({ ...BASE, metric_options: [] })
+    await userEvent.click(screen.getByRole('combobox', { name: '집계 방식' }))
+    expect(await screen.findByRole('option', { name: '합계' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    )
+  })
+
+  it('그림 모양을 바꾸면 **호스트에게 알린다** — 그래야 뷰에 담긴다', async () => {
+    const { onSettings } = await panel(BASE)
+    const pie = screen.getByRole('button', { name: '원' })
+    expect(pie).toHaveAttribute('aria-pressed', 'false')
+    await userEvent.click(pie)
+    expect(onSettings).toHaveBeenCalledWith(expect.objectContaining({ chart: 'pie' }))
+  })
+})
+
+describe('홈 게시', () => {
+  it('부서 관리자에게는 단추가, 아닌 사람에게는 누가 올리는지가 보인다', async () => {
+    // **단추만 없으면 그 기능이 있는 줄도 모른다.**
+    await panel(BASE)
+    expect(screen.getByRole('button', { name: '홈 게시' })).toBeInTheDocument()
+
+    cleanup()
+    auth.user = {
+      home_workspace_slug: 'cae',
+      memberships: [{ slug: 'cae', role: 'member', name: '해석팀', path: '해석팀' }],
+    }
+    await panel(BASE)
+    expect(screen.queryByRole('button', { name: '홈 게시' })).not.toBeInTheDocument()
+    expect(screen.getByText('부서 관리자가 홈에 게시합니다')).toBeInTheDocument()
+  })
+
+  it('한 번에 부서 뷰로 저장하고 홈에 올린다', async () => {
+    // 요청 둘로 나누면 저장은 됐는데 안 올라간 상태가 생기고, 그때 사람은 자기가
+    // 무엇을 빠뜨렸는지 모른다.
+    auth.user = {
+      home_workspace_slug: 'cae',
+      memberships: [{ slug: 'cae', role: 'manager', name: '해석팀', path: '해석팀' }],
+    }
+    viewApi.create.mockResolvedValue({ id: 'v9' })
+    await panel(BASE)
+    await userEvent.click(screen.getByRole('button', { name: '홈 게시' }))
+
+    // 이름이 미리 채워진다 — 무엇을 올리는지 사람이 이미 안다.
+    const name = await screen.findByPlaceholderText(/홈에 뜰 이름/)
+    expect(name).toHaveValue('등급별 건수')
+    await userEvent.click(screen.getByRole('button', { name: /홈 게시/ }))
+
+    await waitFor(() =>
+      expect(viewApi.create).toHaveBeenCalledWith(
+        'part',
+        expect.objectContaining({
+          name: '등급별 건수',
+          workspace_slug: 'cae',
+          on_home: true,
+          summary: expect.objectContaining({ group_by: 'status' }),
+        }),
+      ),
+    )
+    expect(await screen.findByRole('link', { name: '홈에서 보기' })).toBeInTheDocument()
+  })
+
+  it('홈의 「위젯 추가」 로 온 부서에 올린다 — 대표 소속이 아니라', async () => {
+    // 시스템 관리자(대표 hq)가 /w/sales 에서 추가하면 hq 홈에 섰다 — 창의 「여기에 표시됩니다」
+    // 가 거짓이었다(2026-10-08).
+    auth.user = {
+      home_workspace_slug: 'hq',
+      is_system_admin: true,
+      memberships: [{ slug: 'hq', role: 'manager', name: '본사', path: '본사' }],
+    }
+    viewApi.create.mockClear()
+    viewApi.create.mockResolvedValue({ id: 'v10' })
+    await panel(BASE, {}, { homeWorkspace: 'sales' })
+    await userEvent.click(screen.getByRole('button', { name: '홈 게시' }))
+    await screen.findByPlaceholderText(/홈에 뜰 이름/)
+    await userEvent.click(screen.getByRole('button', { name: /^홈 게시$/ }))
+    await waitFor(() =>
+      expect(viewApi.create).toHaveBeenCalledWith(
+        'part',
+        expect.objectContaining({ workspace_slug: 'sales', on_home: true }),
+      ),
+    )
+    expect(await screen.findByRole('link', { name: '홈에서 보기' })).toHaveAttribute(
+      'href',
+      '/w/sales',
+    )
+  })
+
+  it('대표 소속에서는 멤버뿐인 다른 부서의 관리자에게도 서고, 그 부서로 간다', async () => {
+    // 대표 소속만 보던 때는 이 사람에게 단추가 아예 안 섰다(2026-10-08).
+    auth.user = {
+      home_workspace_slug: 'cae',
+      memberships: [
+        { slug: 'cae', role: 'member', name: '해석팀', path: '해석팀' },
+        { slug: 'lab', role: 'manager', name: '시험팀', path: '시험팀' },
+      ],
+    }
+    viewApi.create.mockClear()
+    viewApi.create.mockResolvedValue({ id: 'v11' })
+    await panel(BASE)
+    await userEvent.click(screen.getByRole('button', { name: '홈 게시' }))
+    expect(await screen.findByRole('combobox', { name: '소유 부서' })).toHaveTextContent('시험팀')
+    await userEvent.click(screen.getByRole('button', { name: /^홈 게시$/ }))
+    await waitFor(() =>
+      expect(viewApi.create).toHaveBeenCalledWith(
+        'part',
+        expect.objectContaining({ workspace_slug: 'lab' }),
+      ),
+    )
+  })
+})
+
+describe('세부 기준', () => {
+  const SPLIT = {
+    ...BASE,
+    split_field: 'properties.area',
+    split_label: '지역',
+    splits: ['영남', '수도권'],
+    buckets: [
+      {
+        key: 'A',
+        label: 'A',
+        count: 3,
+        value: null,
+        parts: [
+          { key: '영남', label: '영남', count: 2, value: null },
+          { key: '수도권', label: '수도권', count: 1, value: null },
+        ],
+      },
+      // 이 칸에는 영남이 없다 — **0 으로 채워져야** 쌓은 막대의 자리가 안 빈다.
+      {
+        key: 'B',
+        label: 'B',
+        count: 1,
+        value: null,
+        parts: [{ key: '수도권', label: '수도권', count: 1, value: null }],
+      },
+    ],
+  }
+
+  it('계열의 차례를 서버에서 받고, 없는 계열은 0 으로 채운다', async () => {
+    await panel(SPLIT)
+    expect(charts.series.map((one) => one.key)).toEqual(['영남', '수도권'])
+    expect(charts.rows[1]).toMatchObject({ name: 'B', 영남: 0, 수도권: 1 })
+  })
+
+  it('세부 기준 값이 잘렸으면 그렇다고 적는다', async () => {
+    await panel({ ...SPLIT, other_splits: 4 })
+    expect(screen.getByText(/세부 기준 값 4가지는 빠졌습니다/)).toBeInTheDocument()
+  })
+
+  it('세부 기준 없이 히트맵을 선택하면 세부 기준이 필요하다고 말한다', async () => {
+    // 세부 기준 없는 히트맵은 색칠한 막대 하나일 뿐이다.
+    const { onSettings } = await panel(BASE)
+    await userEvent.click(screen.getByRole('button', { name: '히트맵' }))
+    expect(onSettings).toHaveBeenCalledWith(expect.objectContaining({ chart: 'heatmap' }))
+  })
+})
+
+describe('개별 순위', () => {
+  it('이름을 기준으로 건수를 세면 그것이 순위가 아님을 말한다', async () => {
+    // 막대가 전부 1 인 그림을 주고 아무 말도 안 하면, 사람은 기능이 고장난 줄 안다.
+    await panel({ ...BASE, group_field: 'label', group_label: '이름' })
+    expect(screen.getByText(/숫자 칸의 합·평균으로/)).toBeInTheDocument()
+  })
+
+  it('차례를 뒤집으면 「가장 낮은 것」 을 찾는다', async () => {
+    const { onSettings } = await panel(BASE)
+    await userEvent.click(screen.getByRole('button', { name: '순서 변경' }))
+    expect(onSettings).toHaveBeenCalledWith(expect.objectContaining({ order: 'asc' }))
+  })
+
+  it('내보내기는 그림과 같은 조건·기준으로 파일을 받는다', async () => {
+    // **화면과 같은 숫자여야 한다** — 따로 만들면 「화면에는 12 인데 파일에는 15」.
+    objectApi.exportSummary.mockResolvedValue(undefined)
+    await panel(BASE)
+    await userEvent.click(screen.getByRole('button', { name: /내보내기/ }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: /Excel/ }))
+    await waitFor(() =>
+      expect(objectApi.exportSummary).toHaveBeenCalledWith(
+        'part',
+        { q: '볼트' },
+        {
+          groupBy: 'status',
+          splitBy: null,
+          metric: 'count',
+          metricField: null,
+          order: 'desc',
+          grain: null,
+        },
+        'xlsx',
+        'part-등급별.xlsx',
+      ),
+    )
+  })
+
+  it('여러 값 기준이면 막대의 합이 전체보다 클 수 있다고 적고, 고르개에 표시한다', async () => {
+    await panel({
+      ...BASE,
+      overlap: true,
+      group_options: [
+        ...BASE.group_options,
+        { field: 'properties.field', label: '해석 분야', kind: 'enum', multi: true },
+      ],
+    })
+    expect(screen.getByText(/한 행이 여러 막대에 들어갑니다/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('combobox', { name: '기준' }))
+    expect(await screen.findByRole('button', { name: '해석 분야 (여러 값)' })).toBeInTheDocument()
+  })
+
+  it('이어진 것 너머의 기준은 제목 아래로 서서 같은 이름이어도 갈린다', async () => {
+    await panel({
+      ...BASE,
+      group_options: [
+        ...BASE.group_options,
+        {
+          field: 'ref.vendor.country',
+          label: '개발사 › 국가',
+          kind: 'enum',
+          heading: '개발사 (시뮬레이션 기업)',
+        },
+        {
+          field: 'out.developed_by.country',
+          label: '개발사 › 국가',
+          kind: 'enum',
+          heading: '관계 · 개발사 (시뮬레이션 기업)',
+        },
+      ],
+    })
+    await userEvent.click(screen.getByRole('combobox', { name: '기준' }))
+    expect(await screen.findByText('개발사 (시뮬레이션 기업)')).toBeInTheDocument()
+    expect(screen.getByText('관계 · 개발사 (시뮬레이션 기업)')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: '개발사 › 국가' })).toHaveLength(2)
+  })
+
+  it('이어진 것 너머의 기준도 막대를 클릭하면 그 주소로 거른다', async () => {
+    const { onPick } = await panel({ ...BASE, group_field: 'ref.vendor.country' })
+    await userEvent.click(screen.getByRole('button', { name: 'A' }))
+    expect(onPick).toHaveBeenCalledWith('ref.vendor.country', 'A', null)
+  })
+})
+
+describe('기간 단위', () => {
+  const DATED = {
+    ...BASE,
+    group_field: 'properties.made',
+    group_label: '만든 날 (월)',
+    order: 'key',
+    grain: 'month',
+    buckets: [
+      {
+        key: '2026-01-01',
+        label: '2026-01',
+        count: 2,
+        value: null,
+        parts: [],
+        range: { gte: '2026-01-01', lt: '2026-02-01' },
+      },
+      {
+        key: '2026-02-01',
+        label: '2026-02',
+        count: 1,
+        value: null,
+        parts: [],
+        range: { gte: '2026-02-01', lt: '2026-03-01' },
+      },
+    ],
+    group_options: [
+      { field: 'status', label: '상태', kind: 'fixed' },
+      { field: 'properties.made', label: '만든 날', kind: 'date' },
+    ],
+  }
+
+  it('날짜 기준이면 기간 단위를 고를 수 있고, 막대를 누르면 **범위**로 거른다', async () => {
+    const { onPick, onSettings } = await panel(DATED, { groupBy: 'properties.made' })
+    expect(screen.getByLabelText('기간 단위')).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: '2026-01' }))
+    expect(onPick).toHaveBeenCalledWith('properties.made', '2026-01-01', {
+      gte: '2026-01-01',
+      lt: '2026-02-01',
+    })
+    // 차례 단추는 큰 값부터 → 작은 값부터 → 시간순으로 돈다 — 날짜가 아닌 기준에는 없는 자리다.
+    await userEvent.click(screen.getByRole('button', { name: '순서 변경' }))
+    expect(onSettings).toHaveBeenLastCalledWith(expect.objectContaining({ order: 'asc' }))
+  })
+
+  it('날짜가 아닌 기준에는 기간 단위 고르개가 없다', async () => {
+    await panel(BASE)
+    expect(screen.queryByLabelText('기간 단위')).toBeNull()
+  })
+
+  it('원값 파일도 그림과 같은 기간 단위로 묶는다', async () => {
+    // 상자 그림은 월별로 묶어 그리는데 파일은 grain 없이 받아 해별이었다(2026-10-08).
+    objectApi.points.mockResolvedValue({
+      x_label: '무게',
+      y_label: '',
+      group_label: '만든 날 (월)',
+      rows: [{ x: 1, y: null, group: '2026-01', label: '볼트', id: 'o1' }],
+      total: 1,
+      truncated: false,
+    })
+    objectApi.exportPoints.mockResolvedValue(undefined)
+    objectApi.summary.mockResolvedValue(DATED)
+    const settings = { groupBy: 'properties.made', grain: 'month' }
+    // 숫자 칸 목록은 집계 응답이 알려 준다 — 그것을 받은 뒤 상자로 바꾼다(화면이 하듯).
+    const { SummaryPanel, DEFAULT_SUMMARY } = await import('@/modules/objects/SummaryPanel')
+    const { rerender } = render(
+      <MemoryRouter>
+        <SummaryPanel
+          typeSlug="part"
+          query={{ q: '볼트' }}
+          settings={{ ...DEFAULT_SUMMARY, ...settings }}
+          onSettings={vi.fn()}
+          onPick={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </MemoryRouter>,
+    )
+    await screen.findByText(/조건에 맞는 전체/)
+    rerender(
+      <MemoryRouter>
+        <SummaryPanel
+          typeSlug="part"
+          query={{ q: '볼트' }}
+          settings={{ ...DEFAULT_SUMMARY, ...settings, chart: 'box' }}
+          onSettings={vi.fn()}
+          onPick={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(objectApi.points).toHaveBeenCalled())
+    expect(objectApi.points.mock.calls.at(-1)?.[2]).toMatchObject({ grain: 'month' })
+    await userEvent.click(await screen.findByRole('button', { name: /내보내기/ }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: /Excel/ }))
+    await waitFor(() => expect(objectApi.exportPoints).toHaveBeenCalled())
+    expect(objectApi.exportPoints.mock.calls.at(-1)?.[2]).toMatchObject({
+      x: 'properties.weight',
+      grain: 'month',
+    })
+  })
+})

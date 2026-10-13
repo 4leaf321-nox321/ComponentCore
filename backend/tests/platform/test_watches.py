@@ -1,0 +1,153 @@
+"""지켜보기 — **내가 보던 그것이 바뀌면 알려 준다.**
+
+여기서 지키는 것 셋: 만든 사람은 자동으로 지켜보나, 바뀌면 알림이 오나, 그리고
+**내가 한 일은 나에게 안 오나.** 마지막이 가장 중요하다 — 자기 행동을 돌려받으면
+그 종은 곧 잡음이 되고, 잡음이 된 종은 진짜 하나가 울려도 안 읽힌다.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi.testclient import TestClient
+
+from tests.platform.conftest import Signed, notifications_of
+from tests.platform.test_ontology import _make_object, _make_property, _make_type
+
+
+def _profile(client: TestClient, who: Signed, slug: str, object_id: str) -> dict[str, Any]:
+    got = client.get(f"/api/objects/{slug}/{object_id}", headers=who.headers)
+    assert got.status_code == 200, got.text
+    return dict(got.json())
+
+
+def _watch(client: TestClient, who: Signed, slug: str, object_id: str, on: bool) -> Any:
+    return client.put(
+        f"/api/objects/{slug}/{object_id}/watch", json={"on": on}, headers=who.headers
+    )
+
+
+def test_만든_사람은_자동으로_지켜본다(client: TestClient, admin: Signed) -> None:
+    """스스로 켜야만 하는 기능은 켜는 법을 아는 사람만 쓴다."""
+    part = _make_type(client, admin, label="부품")
+    bolt = _make_object(client, admin, part, label="볼트")
+    found = _profile(client, admin, part, bolt["id"])
+    assert found["watching"] is True
+    assert found["watcher_count"] == 1
+
+
+def test_바뀌면_지켜보는_사람에게_알림이_온다(
+    client: TestClient, admin: Signed, manager: Signed
+) -> None:
+    part = _make_type(client, admin, label="부품")
+    bolt = _make_object(client, admin, part, label="볼트")
+
+    assert _watch(client, manager, part, bolt["id"], True).json()["watching"] is True
+    before = len(notifications_of(client, manager, "object.changed"))
+
+    edited = client.patch(
+        f"/api/objects/{part}/{bolt['id']}",
+        json={"label": "육각 볼트"},
+        headers=admin.headers,
+    )
+    assert edited.status_code == 200, edited.text
+
+    after = notifications_of(client, manager, "object.changed")
+    assert len(after) == before + 1
+    assert "육각 볼트" in after[0]["title"] or "볼트" in after[0]["title"]
+    assert after[0]["link"] == f"/o/{part}/{bolt['id']}"
+
+
+def test_내가_한_일은_나에게_안_온다(client: TestClient, admin: Signed) -> None:
+    """**이것이 이 기능의 값을 지킨다.** 자기 행동을 알림으로 돌려받으면 그 종은 곧
+    잡음이 되고, 그때 진짜 하나가 울려도 안 읽힌다."""
+    part = _make_type(client, admin, label="부품")
+    bolt = _make_object(client, admin, part, label="너트")  # 만든 사람 = admin, 자동 지켜보기
+    before = len(notifications_of(client, admin, "object.changed"))
+
+    client.patch(
+        f"/api/objects/{part}/{bolt['id']}",
+        json={"description": "내가 고침"},
+        headers=admin.headers,
+    )
+    assert len(notifications_of(client, admin, "object.changed")) == before
+
+
+def test_그만두면_안_온다(client: TestClient, admin: Signed, manager: Signed) -> None:
+    part = _make_type(client, admin, label="부품")
+    bolt = _make_object(client, admin, part, label="와셔")
+    _watch(client, manager, part, bolt["id"], True)
+    assert _watch(client, manager, part, bolt["id"], False).json()["watching"] is False
+    before = len(notifications_of(client, manager, "object.changed"))
+
+    client.patch(
+        f"/api/objects/{part}/{bolt['id']}",
+        json={"description": "그만둔 뒤"},
+        headers=admin.headers,
+    )
+    assert len(notifications_of(client, manager, "object.changed")) == before
+
+    # 두 번 눌러도 같은 결과 — 두 번 켠 사람이 두 통을 받지 않는다.
+    _watch(client, manager, part, bolt["id"], True)
+    _watch(client, manager, part, bolt["id"], True)
+    assert _profile(client, admin, part, bolt["id"])["watcher_count"] == 2
+
+
+def test_투영_타입은_여기서_안_지켜본다(client: TestClient, admin: Signed) -> None:
+    projected = _make_type(
+        client, admin, label="부서(투영)", kind_class="system", system_source="workspace"
+    )
+    listed = client.get(f"/api/objects/{projected}", headers=admin.headers).json()
+    if not listed["items"]:
+        return
+    denied = _watch(client, admin, projected, listed["items"][0]["id"], True)
+    assert denied.status_code == 409
+
+
+def test_알림이_사람의_말로_적힌다(client: TestClient, admin: Signed, manager: Signed) -> None:
+    """**내부 키를 그대로 내보내면 알림이 하려던 일이 안 된다.**
+
+    `properties.weight` 를 받은 사람은 그것이 화면의 어느 칸인지 모르고, 그러면 열어
+    보는 수밖에 없다 — 열지 말지를 정하라고 보낸 알림인데.
+    """
+    part = _make_type(client, admin, label="부품")
+    _make_property(client, admin, part, key="weight", label="무게", data_type="number")
+    bolt = _make_object(client, admin, part, label="볼트", properties={"weight": 10})
+    _watch(client, manager, part, bolt["id"], True)
+
+    client.patch(
+        f"/api/objects/{part}/{bolt['id']}",
+        json={"label": "육각 볼트", "properties": {"weight": 12}},
+        headers=admin.headers,
+    )
+    got = notifications_of(client, manager, "object.changed")[0]
+    # 제목에 타입 slug 가 새면 안 된다 — 사람이 화면에서 본 적 없는 글자다.
+    assert got["title"].startswith("육각 볼트")
+    assert f"{part}:" not in got["title"]
+    # 바뀐 칸은 정의에 적힌 이름으로.
+    assert "이름" in got["body"] and "무게" in got["body"]
+    assert "properties.weight" not in got["body"]
+    # 어느 타입의 것인지도 한 줄에.
+    assert "부품" in got["body"]
+
+
+def test_종류_변경은_객체마다_알리지_않고_이력에만_남긴다(
+    client: TestClient, admin: Signed, manager: Signed
+) -> None:
+    """정의 하나가 객체 수백만 개를 고치는 일이다 — 줄마다 알리면 아무도 못 읽고, 그 알림이
+    커밋까지 메모리에 쌓였다(실측: 기록 200만 건 4.6GB). 이력에는 객체마다 남는다(ADR 0009)."""
+    part = _make_type(client, admin, label="부품")
+    _make_property(client, admin, part, key="qty", label="수량", data_type="text")
+    bolt = _make_object(client, admin, part, label="볼트", properties={"qty": "3"})
+    _watch(client, manager, part, bolt["id"], True)
+    before = len(notifications_of(client, manager, "object.changed"))
+
+    done = client.post(
+        f"/api/ontology/types/{part}/properties/qty/retype",
+        json={"data_type": "number", "apply": True},
+        headers=admin.headers,
+    )
+    assert done.status_code == 200 and done.json()["applied"] is True, done.text
+    assert len(notifications_of(client, manager, "object.changed")) == before
+    history = client.get(f"/api/objects/{part}/{bolt['id']}/history", headers=admin.headers)
+    assert history.json()[0]["changes"]["properties.qty"] == {"before": "3", "after": 3}

@@ -1,0 +1,221 @@
+/**
+ * 데이터 품질 — **나빠지고 있으면 여기 뜬다.**
+ *
+ * 넷을 센다: 필수값이 빈 객체 · 관계 없는 객체 · 지워진 것을 가리키는 칸 · 이름이 같은
+ * 객체. 홈 「남은 일」 의 수가 여기로 온다(`#kind`). 종류마다, 타입마다 묶고, 줄을
+ * 누르면 그 객체로 간다 — 고치는 것은 상세 화면의 몫이다(이름 같은 것은 「병합」).
+ *
+ * **볼 수 있는 것만 센다.** 남의 부서 것을 세어 주면 수가 새고, 고칠 수도 없다.
+ *
+ * 위에는 「채울 곳」(어디부터 채우나 — `FillPriorities`)이, 아래에는 「못 찾은 이름」(검색 ·
+ * 이름 풀이가 못 찾은 말 — 별칭으로 추가하면 다음부터 찾힌다)이 선다(ADR 0025). 셋 다 「데이터를
+ * 손볼 자리」 라 한 화면에 둔다 — 화면을 따로 두면 관리자가 여는 화면이 하나 더 는다.
+ */
+
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
+import { AlertTriangle, SearchX, ShieldCheck } from 'lucide-react'
+
+import { AliasCandidatesDialog } from '@/modules/objects/AliasCandidatesDialog'
+import { AliasReviewDialog } from '@/modules/objects/AliasReviewDialog'
+import { aliasCandidateApi, qualityApi } from '@/modules/objects/api'
+import type { QualityFinding } from '@/modules/objects/api'
+import { FillPriorities } from '@/modules/objects/FillPriorities'
+import { ApiError } from '@/shared/api/client'
+import { EmptyState } from '@/shared/components/EmptyState'
+import { ErrorNotice } from '@/shared/components/ErrorNotice'
+import { PageHeader } from '@/shared/components/PageHeader'
+import { Badge } from '@/shared/components/ui/badge'
+import { Button } from '@/shared/components/ui/button'
+import { useResource } from '@/shared/hooks/useResource'
+
+const KIND_ORDER: QualityFinding['kind'][] = [
+  'broken_ref',
+  'missing_required',
+  'duplicate',
+  'alias_clash',
+  'alias_pending',
+  'orphan',
+]
+
+const KIND_HINT: Record<QualityFinding['kind'], string> = {
+  broken_ref:
+    '가리키던 객체가 지워졌습니다. 그 칸을 비우거나 다른 것으로 바꾸세요 — 화면에는 뜻 모를 값으로 표시됩니다.',
+  missing_required: '필수가 된 뒤에도 안 채운 옛 객체입니다. 수정할 때 거절되니 먼저 채우세요.',
+  duplicate:
+    '이름을 정규화(공백·대소문자·전각)하면 같은 것들입니다. 같은 것이면 한쪽 상세에서 「병합」 로 하나로.',
+  orphan:
+    '관계가 하나도 안 걸린 객체입니다. 관계가 정의된 타입에서만 셉니다 — 정말 홀로 있는 것인지 보세요.',
+  alias_clash:
+    '한 객체의 별칭이 다른 객체의 이름·식별자와 같습니다. 그 표기로 찾으면 둘이 나옵니다 — 같은 것이면 합치고, 다른 것이면 별칭을 지우세요.',
+  alias_pending:
+    '적재가 붙였고 사람이 아직 안 본 이름입니다. 「검수」 로 한 번에 확인하거나 지우세요 — 확인한 것만 정본으로 씁니다.',
+}
+
+export default function QualityPage() {
+  const report = useResource(() => qualityApi.report(), [])
+  const location = useLocation()
+  /** 검수 창을 연 타입 — 「검수 대기 별칭」 줄에서만 연다. */
+  const [reviewing, setReviewing] = useState<{ slug: string; label: string } | null>(null)
+  /** 못 찾은 이름(별칭 후보) — 위의 몇 줄만, 처리는 창에서. */
+  const misses = useResource(() => aliasCandidateApi.list({ limit: 5, suggest: false }), [])
+  const [missing, setMissing] = useState(false)
+  // 부서 관리자 이상만 본다 — 못 보는 사람에게는 자리를 안 띄운다(오류로 읽히지 않게).
+  const missesDenied = misses.error instanceof ApiError && misses.error.status === 403
+
+  // 홈에서 `#kind` 로 들어오면 그 묶음으로 내려간다.
+  useEffect(() => {
+    if (!report.data || !location.hash) return
+    document.getElementById(location.hash.slice(1))?.scrollIntoView({ block: 'start' })
+  }, [report.data, misses.data, location.hash])
+
+  const grouped = useMemo(() => {
+    const out = new Map<QualityFinding['kind'], QualityFinding[]>()
+    for (const one of report.data?.findings ?? []) {
+      if (!out.has(one.kind)) out.set(one.kind, [])
+      out.get(one.kind)!.push(one)
+    }
+    return out
+  }, [report.data])
+
+  const total = (report.data?.findings ?? []).reduce((sum, one) => sum + one.count, 0)
+
+  return (
+    <div className="mx-auto max-w-4xl space-y-6">
+      <PageHeader
+        title="데이터 품질"
+        description="검증은 넣을 때만 걸립니다. 그 뒤에 나빠진 것을 여기서 셉니다 — 내가 볼 수 있는 것만."
+        actions={
+          // 판단할 것(별칭 후보 · 검수 대기 별칭 · 이름이 같은 것 · 지워진 것을 가리키는 칸)은
+          // 검토함이 한꺼번에 처리한다(ADR 0027) — 여기는 세고 보여 주는 자리.
+          <Button asChild size="sm" variant="outline">
+            <Link to="/review">검토함</Link>
+          </Button>
+        }
+      />
+      <FillPriorities />
+      {report.error && <ErrorNotice error={report.error} />}
+      {(report.data?.skipped?.length ?? 0) > 0 && (
+        <p className="text-muted-foreground text-sm">
+          너무 큰 타입은 <strong>훑지 않았습니다</strong> — {report.data?.skipped?.join(' · ')}.
+          값을 맞춰 보는 검사(중복 · 별칭 충돌 · 깨진 참조)는 행을 하나씩 읽어야 해서, 그
+          타입에서는 필수값과 검수 대기만 셉니다.
+        </p>
+      )}
+      {report.data && total === 0 && (
+        <EmptyState
+          title="해당 항목이 없습니다"
+          hint="필수값이 빈 것, 관계 없는 것, 지워진 것을 가리키는 칸, 이름이 같은 것 — 넷 다 없습니다."
+        />
+      )}
+      {KIND_ORDER.map((kind) => {
+        const findings = grouped.get(kind)
+        if (!findings?.length) return null
+        const label = findings[0].kind_label
+        const count = findings.reduce((sum, one) => sum + one.count, 0)
+        return (
+          <section key={kind} id={kind} className="scroll-mt-4 space-y-3">
+            <h2 className="flex items-center gap-2 text-base font-medium">
+              {kind === 'broken_ref' ? (
+                <AlertTriangle className="size-4 text-amber-500" />
+              ) : (
+                <ShieldCheck className="text-muted-foreground size-4" />
+              )}
+              {label}
+              <Badge variant={kind === 'broken_ref' ? 'destructive' : 'secondary'}>{count}</Badge>
+            </h2>
+            <p className="text-muted-foreground text-sm">{KIND_HINT[kind]}</p>
+            {findings.map((one) => (
+              <div key={`${one.kind}:${one.type_slug}`} className="rounded-md border">
+                <div className="flex items-center justify-between border-b px-3 py-2 text-sm">
+                  <Link to={`/o/${one.type_slug}`} className="font-medium hover:underline">
+                    {one.type_label}
+                  </Link>
+                  <span className="text-muted-foreground flex items-center gap-2">
+                    {one.count}개
+                    {one.count > one.hits.length && ` · 아래는 ${one.hits.length}개까지`}
+                    {kind === 'alias_pending' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setReviewing({ slug: one.type_slug, label: one.type_label })}
+                      >
+                        검수
+                      </Button>
+                    )}
+                  </span>
+                </div>
+                <ul className="divide-y text-sm">
+                  {one.hits.map((hit) => (
+                    <li key={hit.id}>
+                      <Link
+                        to={`/o/${one.type_slug}/${hit.id}`}
+                        className="hover:bg-muted/60 flex items-baseline justify-between gap-3 px-3 py-1.5"
+                      >
+                        <span className="min-w-0 truncate">
+                          {hit.label}
+                          {hit.key && (
+                            <span className="text-muted-foreground ml-1 font-mono text-xs">
+                              {hit.key}
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-muted-foreground shrink-0 text-xs">{hit.detail}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </section>
+        )
+      })}
+      {misses.error && !missesDenied && <ErrorNotice error={misses.error} />}
+      {misses.data && misses.data.total > 0 && (
+        <section id="alias_candidates" className="scroll-mt-4 space-y-3">
+          <h2 className="flex items-center gap-2 text-base font-medium">
+            <SearchX className="text-muted-foreground size-4" />
+            못 찾은 이름(별칭 후보)
+            <Badge variant="secondary">{misses.data.total}</Badge>
+          </h2>
+          <p className="text-muted-foreground text-sm">
+            검색 · 이름 풀이에서 아무것도 못 찾은 말입니다. 어떤 객체의 다른 이름이면 그 객체의
+            별칭으로 추가하세요 — 다음부터 찾힙니다. 누가 찾았는지는 남기지 않습니다.
+          </p>
+          <div className="rounded-md border">
+            <div className="flex items-center justify-between border-b px-3 py-2 text-sm">
+              <span className="text-muted-foreground">많이 찾은 것부터</span>
+              <Button size="sm" variant="outline" onClick={() => setMissing(true)}>
+                검토
+              </Button>
+            </div>
+            <ul className="divide-y text-sm">
+              {misses.data.items.map((one) => (
+                <li
+                  key={one.id}
+                  className="flex items-baseline justify-between gap-3 px-3 py-1.5"
+                >
+                  <span className="min-w-0 truncate">{one.text}</span>
+                  <span className="text-muted-foreground shrink-0 text-xs">
+                    {one.scope_label} · {one.hits}번 · {one.people}명
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
+      {missing && (
+        <AliasCandidatesDialog onClose={() => setMissing(false)} onDone={() => misses.reload()} />
+      )}
+      {reviewing && (
+        <AliasReviewDialog
+          typeSlug={reviewing.slug}
+          typeLabel={reviewing.label}
+          onClose={() => setReviewing(null)}
+          onDone={() => report.reload()}
+        />
+      )}
+    </div>
+  )
+}

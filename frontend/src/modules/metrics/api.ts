@@ -1,0 +1,559 @@
+/**
+ * 지표 API — 기록을 미리 세어 둔 값(ADR 0013).
+ *
+ * 정의는 시스템 관리자가 만들고, 값은 로그인한 누구나 **보이는 것만** 더해 읽는다. 응답마다
+ * 계산 시각 · 겹침 · 못 묶은 수 · 잘림이 실려 있다 — 화면은 그것을 숨기지 않는다.
+ */
+
+import type { Job } from '@/modules/tasks/api'
+import { api } from '@/shared/api/client'
+
+export type Grain = 'day' | 'week' | 'month' | 'quarter' | 'year'
+/** `share` — 조건 비율: `share_when` 에 맞는 기록의 몫(분모는 같은 기록 전체, %). */
+export type Measure = 'count' | 'sum' | 'avg' | 'min' | 'max' | 'share'
+
+export interface TimeAxis {
+  /** `properties.<날짜 칸>` — 자기 타입의 날짜 칸만. */
+  address: string
+  grain: Grain
+}
+
+export interface MetricFilter {
+  field: string
+  op: string
+  value: string
+}
+
+/** 규칙 하나 — 조건 전부(AND)에 맞으면 이 이름(ADR 0015). */
+export interface MetricRule {
+  label: string
+  when: MetricFilter[]
+}
+
+/**
+ * 기준 하나 — **주소**(칸)거나 **규칙**(ADR 0015)이다. 규칙 기준은 주소 · 기간 단위 없이 `rules`
+ * (위에서부터 처음 맞는 규칙이 이긴다) · `else`(어느 규칙에도 안 맞을 때의 이름, 기본 「기타」) ·
+ * `label`(기준의 이름, 비우면 `name`).
+ */
+export interface Dimension {
+  name: string
+  /** 통계 · 조건과 같은 주소 — `properties.<칸>` · `ref.<칸>.<칸>` · `out.<관계>` … 걸음 셋까지. */
+  address?: string | null
+  grain?: Grain | null
+  rules?: MetricRule[] | null
+  else?: string | null
+  label?: string | null
+}
+
+export interface Denominator {
+  metric: string
+  /** 양쪽에 같은 이름으로 있는 기준 — 그 값끼리 짝짓는다. */
+  on: string[]
+  /** `period`(기간끼리) · `cohort`(분모의 기간 = 분자의 코호트) · null(기간 없이 전부 합). */
+  time: 'period' | 'cohort' | null
+  /** 비율에 곱할 수 — 100 이면 %. */
+  per: number
+}
+
+export interface MetricSpec {
+  measure: Measure
+  measure_field?: string | null
+  /** 조건 비율의 조건 — 전부 맞아야(AND) 그 몫이다. */
+  share_when?: MetricFilter[]
+  time?: TimeAxis | null
+  cohort?: TimeAxis | null
+  dimensions: Dimension[]
+  filters: MetricFilter[]
+  denominator?: Denominator | null
+  settle_days: number
+  /**
+   * 같은 제품의 방문 — 있으면 기준 주소 `visit.number`(차례) · `visit.repeat`(정한 일수 안
+   * 재방문)를 쓸 수 있다(ADR 0014).
+   */
+  visits?: { key: string; within_days: number } | null
+  /**
+   * 머무는 기간 — 기록을 그 기간부터 `periods` 기간 동안 센다(기간마다 최근 N기간의 합,
+   * ADR 0023). `periods_from` 은 기록마다 기간 수를 읽을 숫자 칸(최대는 `periods`).
+   */
+  stay?: { periods: number; periods_from?: string | null } | null
+}
+
+export interface MetricDim {
+  name: string
+  address: string
+  label: string
+  kind: string
+  multi: boolean
+  grain: string | null
+  /** 계획에서만 — 서로 다른 값의 수. */
+  distinct?: number | null
+  /** 축(다른 타입을 가리키는 참조 · 관계)이면 그 타입 — 축 객체의 상세가 자기를 기준으로 가진 지표를 찾는다. */
+  target?: string | null
+}
+
+/** 이 지표에 되는 분석 — 안 되면 그 이유(ADR 0014). */
+export interface AnalysisAvail {
+  recipe: string
+  label: string
+  ok: boolean
+  reason: string | null
+}
+
+/** 이 지표가 올라간 부서 홈 하나. */
+export interface HomePin {
+  id: string
+  workspace_slug: string
+  workspace_name: string
+  split: string | null
+  home_order: number
+}
+
+export interface Metric {
+  id: string
+  slug: string
+  label: string
+  description: string
+  source_type_slug: string
+  source_type_label: string
+  spec: MetricSpec
+  interval_hours: number
+  is_active: boolean
+  /** 한 기록이 여러 셀에 든다 — 셀의 합이 기록 수보다 크다. */
+  overlap: boolean
+  measure_label: string
+  grain: string | null
+  cohort_grain: string | null
+  dims: MetricDim[]
+  /** 정의가 지금 안 지어지는 이유 — 있으면 계산이 실패한다. */
+  broken: string | null
+  current_run_id: string | null
+  last_run_at: string | null
+  last_status: string | null
+  last_error: string | null
+  cells: number
+  stale: boolean
+  /** 되는 분석과 안 되는 이유 — 서버가 정의를 보고 판단한다. */
+  analyses: AnalysisAvail[]
+  created_at: string
+  updated_at: string
+}
+
+export interface MetricWrite {
+  slug: string
+  label: string
+  description?: string
+  source_type_slug: string
+  spec: MetricSpec
+  interval_hours?: number
+  is_active?: boolean
+}
+
+export interface MetricPatch {
+  label?: string
+  description?: string
+  spec?: MetricSpec
+  interval_hours?: number
+  is_active?: boolean
+}
+
+/** 계획의 규칙 하나 — 맞는 기록(앞 규칙과 상관없이)과 이 규칙이 붙인 기록(첫 일치). */
+export interface RuleCount {
+  label: string
+  matched: number
+  won: number
+  /** 맞는데 앞 규칙이 가져간 것 — 규칙 차례(1 부터)마다. */
+  taken_by: { rule: number; count: number }[]
+  /** 맞는 기록은 있는데 한 건도 안 남는다(막힌 규칙). */
+  blocked: boolean
+}
+
+/** 계획의 규칙 기준 하나 — 표본이면 `sampled`, 몫의 분모는 `seen`. */
+export interface RulePlan {
+  name: string
+  label: string
+  fingerprint: string
+  rules: RuleCount[]
+  other: string
+  other_count: number
+  seen: number
+  sampled: boolean
+}
+
+export interface MetricPlan {
+  ok: boolean
+  errors: string[]
+  warnings: string[]
+  rows: number | null
+  estimated_cells: number | null
+  overlap: boolean
+  dims: MetricDim[]
+  period_from: string | null
+  period_to: string | null
+  /** 규칙 기준마다 규칙별 수 · 막힌 규칙 · 기타의 몫. */
+  rules?: RulePlan[]
+}
+
+/** 규칙 판 — 그 계산이 쓴 규칙(차례 포함)의 지문과 그 규칙을 저장한 사람 · 때. */
+export interface RulesVersion {
+  name: string
+  fingerprint: string
+  rules: number
+  changed_at: string | null
+  changed_by: string | null
+}
+
+export interface MetricSaved {
+  metric: Metric
+  job: Job | null
+}
+
+export interface MetricRun {
+  id: string
+  job_id: string | null
+  status: 'running' | 'ok' | 'failed'
+  watermark: string | null
+  started_at: string
+  finished_at: string | null
+  rows: number
+  cells: number
+  error: string | null
+  stats: Record<string, number>
+  /** `full` 전부 다시 셌다 · `incremental` 바뀐 기간만. 옛 판의 기록에는 없다. */
+  mode?: 'full' | 'incremental'
+  /** 증분이 다시 센 기간(시작일, 날짜 없는 칸은 null). */
+  periods?: (string | null)[] | null
+  /** 전량이면 왜 전량이었나, 증분이면 바뀐 기록 수. */
+  note?: string
+  /** 이 계산이 쓴 규칙 판(규칙 기준마다). */
+  rules?: RulesVersion[]
+}
+
+/** 셀을 이룬 기록의 목록 조건 — `/o/<타입>?<params>` 에 그대로. */
+export interface Drill {
+  type_slug: string
+  params: Record<string, string>
+  /** 조건으로 못 적은 축 — 비어 있지 않으면 목록의 수가 셀의 수보다 클 수 있다. */
+  partial: string[]
+}
+
+export interface DenominatorInfo {
+  metric: string
+  label: string
+  measure: Measure
+  measure_label: string
+  time: 'period' | 'cohort' | null
+  per: number
+  /** 분모가 없거나 0 이라 비율을 못 낸 셀 수. */
+  missing: number
+  truncated: boolean
+}
+
+/** 모든 읽기 응답의 머리 — 계산 시각 · 겹침 · 못 묶은 수 · 잘림. */
+export interface ReadHeader {
+  slug: string
+  label: string
+  measure: Measure
+  measure_label: string
+  grain: string | null
+  cohort_grain: string | null
+  settle_days: number
+  computed_at: string | null
+  watermark: string | null
+  stale: boolean
+  overlap: boolean
+  unbucketed: number
+  unbucketed_cohort: number
+  negative_age: number
+  truncated: boolean
+  denominator: DenominatorInfo | null
+  /** 머무는 기간 — 기간마다의 값이 최근 `periods` 기간의 합(ADR 0023). */
+  stay?: { periods: number; periods_from: string | null; periods_from_label: string | null } | null
+}
+
+export interface MetricCell {
+  dims: Record<string, string | null>
+  labels: Record<string, string>
+  period: string | null
+  period_label: string | null
+  cohort: string | null
+  cohort_label: string | null
+  age: number | null
+  count: number
+  value_count: number
+  sum: number | null
+  min: number | null
+  max: number | null
+  avg: number | null
+  value: number | null
+  ratio: number | null
+  denominator: number | null
+  closed: boolean | null
+  drill: Drill
+  /** 조건 비율이면 조건에 맞는 기록(값)의 목록 — `drill` 은 셀의 기록 전부. */
+  value_drill?: Drill | null
+  /** 구성비를 물었으면 그 기준의 값들 사이의 몫(%) — 나머지 칸이 같은 셀끼리 합이 100. */
+  composition?: number | null
+}
+
+export interface MetricTable extends ReadHeader {
+  dims: string[]
+  by: string[]
+  cells: MetricCell[]
+  total_count: number
+  total_value: number | null
+  /** 구성비를 낸 기준. */
+  composition?: string | null
+}
+
+export interface MetricPoint {
+  period: string
+  label: string
+  count: number
+  value: number | null
+  ratio: number | null
+  prev: number | null
+  yoy: number | null
+  closed: boolean
+  drill: Drill
+  /** 구성비를 물었으면 그 기간의 선들(모든 값) 사이의 몫(%). */
+  composition?: number | null
+}
+
+export interface MetricLine {
+  key: string | null
+  label: string
+  points: MetricPoint[]
+}
+
+export interface MetricSeries extends ReadHeader {
+  split: string | null
+  lines: MetricLine[]
+  lines_truncated: boolean
+  composition?: boolean
+}
+
+export interface CohortCell {
+  age: number
+  count: number
+  value: number | null
+  cumulative: number | null
+  ratio: number | null
+  closed: boolean
+  drill: Drill
+}
+
+export interface CohortRow {
+  cohort: string
+  label: string
+  denominator: number | null
+  cells: CohortCell[]
+}
+
+export interface MetricCohort extends ReadHeader {
+  cumulative: boolean
+  ages: number[]
+  rows: CohortRow[]
+}
+
+export interface DimValue {
+  value: string | null
+  label: string
+  count: number
+}
+
+export interface DimValues {
+  name: string
+  label: string
+  kind: string
+  values: DimValue[]
+  truncated: boolean
+}
+
+export interface ReadOptions {
+  /** 묶을 기준 이름들. */
+  dims?: string[]
+  /** `period` · `cohort` · `age` 중 묶을 것. */
+  by?: ('period' | 'cohort' | 'age')[]
+  /** 기준 값으로 거르기 — null 은 「(비어 있음)」. */
+  filters?: Record<string, string | null>
+  period_from?: string
+  /** 이 날 **앞까지**. */
+  period_to?: string
+  cohort_from?: string
+  cohort_to?: string
+}
+
+function searchOf(opts: ReadOptions, extra: Record<string, string | undefined> = {}) {
+  const params = new URLSearchParams()
+  if (opts.dims?.length) params.set('dims', opts.dims.join(','))
+  if (opts.by?.length) params.set('by', opts.by.join(','))
+  for (const key of ['period_from', 'period_to', 'cohort_from', 'cohort_to'] as const) {
+    const value = opts[key]
+    if (value) params.set(key, value)
+  }
+  for (const [name, value] of Object.entries(opts.filters ?? {})) {
+    params.set(`d.${name}`, value ?? '')
+  }
+  for (const [key, value] of Object.entries(extra)) {
+    if (value !== undefined && value !== '') params.set(key, value)
+  }
+  return params
+}
+
+function readParams(opts: ReadOptions, extra: Record<string, string | undefined> = {}) {
+  const text = searchOf(opts, extra).toString()
+  return text ? `?${text}` : ''
+}
+
+type AnalysisOptions = Record<string, string | number | boolean | null | undefined>
+
+function analysisExtra(options: AnalysisOptions): Record<string, string | undefined> {
+  const extra: Record<string, string | undefined> = {}
+  for (const [key, value] of Object.entries(options)) {
+    if (value === null || value === undefined || value === '') continue
+    extra[key] = typeof value === 'boolean' ? (value ? 'true' : 'false') : String(value)
+  }
+  return extra
+}
+
+/**
+ * 분석 요청의 쿼리를 그대로 — 경보(ADR 0016)가 이것을 인자로 저장한다. 화면이 보낸 것과 저장한
+ * 것이 같아야 알림을 눌러 연 화면이 알림이 말한 것과 같다.
+ */
+export function analysisQuery(options: AnalysisOptions, opts: ReadOptions = {}) {
+  const out: Record<string, string> = {}
+  searchOf(opts, analysisExtra(options)).forEach((value, key) => {
+    out[key] = value
+  })
+  return out
+}
+
+export type AlertRecipe = 'sprt' | 'control' | 'changes'
+
+export interface MetricAlert {
+  id: string
+  metric: string
+  metric_label: string
+  name: string
+  recipe: AlertRecipe
+  recipe_label: string
+  params: Record<string, string>
+  is_active: boolean
+  last_checked_at: string | null
+  last_status: 'ok' | 'failed' | null
+  last_error: string | null
+  events: number
+  created_at: string
+  /** 분석 탭을 이 인자로 연다. */
+  link: string
+}
+
+export interface AlertFinding {
+  key: string
+  title: string
+  detail: Record<string, unknown>
+  /** 이 경보가 아직 안 본 것 — 다음 계산 뒤 알림이 된다. */
+  new: boolean
+}
+
+export interface AlertCheck {
+  run_id: string | null
+  findings: AlertFinding[]
+  notes: string[]
+}
+
+export interface AlertSaved extends MetricAlert {
+  /** 만들 때 지금 있던 것 — 알리지 않았다. */
+  baseline: AlertCheck | null
+}
+
+export interface AlertEvent {
+  id: string
+  alert_id: string
+  alert_name: string
+  metric: string
+  metric_label: string
+  recipe: AlertRecipe
+  key: string
+  title: string
+  detail: Record<string, unknown>
+  /** 처음 확인에서 본 것 — 알리지 않았다. */
+  baseline: boolean
+  run_id: string | null
+  created_at: string
+  link: string
+}
+
+export const metricsApi = {
+  list: () => api.get<Metric[]>('/metrics'),
+  get: (slug: string) => api.get<Metric>(`/metrics/${slug}`),
+  /** 저장하지 않고 지어만 본다 — 오류 전부 · 경고 · 어림한 셀 수. */
+  plan: (body: { slug?: string | null; source_type_slug: string; spec: MetricSpec }) =>
+    api.post<MetricPlan>('/metrics/plan', body),
+  create: (body: MetricWrite, recompute = false) =>
+    api.post<MetricSaved>(`/metrics${recompute ? '?recompute=true' : ''}`, body),
+  update: (slug: string, body: MetricPatch, recompute = false) =>
+    api.patch<MetricSaved>(`/metrics/${slug}${recompute ? '?recompute=true' : ''}`, body),
+  remove: (slug: string) => api.delete<void>(`/metrics/${slug}`),
+  /** 다시 센다 — 작업이 된다. 같은 지표의 작업이 줄에 있으면 그것을 돌려준다. */
+  recompute: (slug: string) => api.post<Job>(`/metrics/${slug}/recompute`),
+  /** 이 지표가 올라간 부서 홈들. */
+  homePins: (slug: string) => api.get<HomePin[]>(`/metrics/${slug}/home`),
+  /** 부서 홈에 올린다(이미 있으면 나눌 기준 · 자리만 고친다) — 그 부서의 관리자만. */
+  pinHome: (
+    slug: string,
+    body: {
+      workspace_slug: string
+      split?: string | null
+      position?: number | null
+    },
+  ) => api.put<HomePin>(`/metrics/${slug}/home`, body),
+  unpinHome: (slug: string, workspace: string) =>
+    api.delete<void>(`/metrics/${slug}/home?workspace=${encodeURIComponent(workspace)}`),
+  runs: (slug: string) => api.get<MetricRun[]>(`/metrics/${slug}/runs`),
+  /** 표 — `composition` 을 주면 셀마다 그 기준의 구성비(%). */
+  values: (slug: string, opts: ReadOptions & { composition?: string } = {}) =>
+    api.get<MetricTable>(
+      `/metrics/${slug}/values${readParams(opts, { composition: opts.composition })}`,
+    ),
+  /** 추이 — `composition` 이면 점마다 그 기간의 선들 사이의 몫(%). */
+  series: (slug: string, opts: ReadOptions & { split?: string; composition?: boolean } = {}) =>
+    api.get<MetricSeries>(
+      `/metrics/${slug}/series${readParams(opts, {
+        split: opts.split,
+        composition: opts.composition ? 'true' : undefined,
+      })}`,
+    ),
+  cohort: (slug: string, opts: ReadOptions & { cumulative?: boolean } = {}) =>
+    api.get<MetricCohort>(
+      `/metrics/${slug}/cohort${readParams(opts, { cumulative: opts.cumulative ? 'true' : undefined })}`,
+    ),
+  dims: (slug: string, name: string, q?: string) =>
+    api.get<DimValues>(`/metrics/${slug}/dims${readParams({}, { name, q })}`),
+  /**
+   * 분석 — 세어 둔 셀 위의 통계(ADR 0014). `options` 는 레시피마다의 질의, 기준 거르기는
+   * 읽기와 같은 `filters`. 빈 값은 보내지 않는다.
+   */
+  analysis: <T>(slug: string, recipe: string, options: AnalysisOptions, opts: ReadOptions = {}) =>
+    api.get<T>(`/metrics/${slug}/analysis/${recipe}${readParams(opts, analysisExtra(options))}`),
+  /** 두 기준의 축 타입 사이의 한 걸음 길 후보 — 커버리지의 길 고르개(ADR 0022). */
+  coverageWays: (slug: string, from: string, to: string) =>
+    api.get<{ address: string; label: string }[]>(
+      `/metrics/${slug}/analysis/coverage/ways?${new URLSearchParams({ from, to })}`,
+    ),
+  /** 이 지표에 건 내 경보(ADR 0016). */
+  alerts: (slug: string) => api.get<MetricAlert[]>(`/metrics/${slug}/alerts`),
+  /** 한 번 돌려 지금 있는 것을 「처음부터 있던 것」 으로 적는다 — 알리지 않는다. */
+  createAlert: (
+    slug: string,
+    body: { name: string; recipe: AlertRecipe; params: Record<string, string> },
+  ) => api.post<AlertSaved>(`/metrics/${slug}/alerts`, body),
+  updateAlert: (slug: string, id: string, body: { name?: string; is_active?: boolean }) =>
+    api.patch<MetricAlert>(`/metrics/${slug}/alerts/${id}`, body),
+  removeAlert: (slug: string, id: string) => api.delete<void>(`/metrics/${slug}/alerts/${id}`),
+  /** 지금 확인 — 적지도 알리지도 않는다. */
+  checkAlert: (slug: string, id: string) =>
+    api.post<AlertCheck>(`/metrics/${slug}/alerts/${id}/check`),
+  alertEvents: (slug: string, id: string) =>
+    api.get<AlertEvent[]>(`/metrics/${slug}/alerts/${id}/events`),
+}

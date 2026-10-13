@@ -169,13 +169,17 @@ elif [[ "$HA_ROLE" == "master" ]]; then DB_HOST="$SELF_IP"
 else DB_HOST="localhost"; fi
 DB_HOST="${DB_HOST_OVERRIDE:-$DB_HOST}"
 
-# 데이터 소스 동기화 타이머 — **이 플랫폼에는 없다**(주기로 돌 것이 없다. 부품 평가 · 지그
-# 생성 · 실험계획은 사람이 걸고 워커가 집는다). 틀에서 온 자리만 남겨 둔다 — 템플릿이 없으니
-# 켜도 건너뛴다.
+# 데이터 소스 동기화 · 지표 다시 계산 타이머 — StandardPlatform 에서 들인 온톨로지의 것(ADR 0008).
+# 둘 다 「차례가 된 것」 을 데이터 작업(tasks)으로 넣기만 하고 돌리는 것은 워커다. 소스 · 지표가
+# 없으면 목록만 보고 끝난다.
 SYNC_SERVICE_NAME="${APP_SLUG}-sync"
 SYNC_SERVICE_UNIT="/etc/systemd/system/${SYNC_SERVICE_NAME}.service"
 SYNC_TIMER_UNIT="/etc/systemd/system/${SYNC_SERVICE_NAME}.timer"
-SYNC_ENABLED="${SYNC_ENABLED:-0}"
+SYNC_ENABLED="${SYNC_ENABLED:-1}"                      # 0 으로 두면 타이머 안 설치
+METRICS_SERVICE_NAME="${APP_SLUG}-metrics"
+METRICS_SERVICE_UNIT="/etc/systemd/system/${METRICS_SERVICE_NAME}.service"
+METRICS_TIMER_UNIT="/etc/systemd/system/${METRICS_SERVICE_NAME}.timer"
+METRICS_ENABLED="${METRICS_ENABLED:-1}"                # 0 으로 두면 타이머 안 설치
 
 # 작업 워커 — 파일 가져오기처럼 오래 걸리는 일을 요청 밖에서 돌린다. 앱과 같은 SIF.
 # **없으면 파일 가져오기가 영영 「대기」 다.** 두 서버에 하나씩 뜬다(docs/작업-워커-설계.md).
@@ -571,6 +575,21 @@ setup_sync_timer() {
     info "동기화 타이머: 5분마다 차례가 된 데이터 소스를 돌립니다 (journalctl -u $SYNC_SERVICE_NAME)"
 }
 
+# ── 지표 타이머 — 같은 SIF 재사용. 매시간 차례가 된 지표를 작업으로 넣는다. 비치명적. ──
+setup_metrics_timer() {
+    [[ "$METRICS_ENABLED" == "1" ]] || { info "지표 타이머 비활성(METRICS_ENABLED=0) — 건너뜀"; return 0; }
+    [[ -f "$HERE/metrics.service.template" && -f "$HERE/metrics.timer.template" ]] \
+        || { warn "metrics.*.template 없음 — 지표 타이머 건너뜀"; return 0; }
+    info "지표 타이머 렌더 → $METRICS_TIMER_UNIT"
+    render_unit_paths "$HERE/metrics.service.template" > "$METRICS_SERVICE_UNIT"
+    sed -e "s|@@APP_NAME@@|$APP_NAME|g" "$HERE/metrics.timer.template" > "$METRICS_TIMER_UNIT"
+    chmod 644 "$METRICS_SERVICE_UNIT" "$METRICS_TIMER_UNIT"
+    systemctl daemon-reload
+    systemctl enable --now "${METRICS_SERVICE_NAME}.timer" >/dev/null 2>&1 \
+        || warn "지표 타이머 기동 실패 — 'systemctl status ${METRICS_SERVICE_NAME}.timer' 확인"
+    info "지표 타이머: 매시간 차례가 된 지표를 다시 셉니다 — 「매일 밤」 은 2시대 (journalctl -u $METRICS_SERVICE_NAME)"
+}
+
 # ── 백업 타이머 — 백업 폴더를 알 때만. 이중화면 두 서버 모두 걸리고, backup.sh 가 「오늘
 # 것이 이미 있으면」 건너뛴다(한 대가 죽어도 다른 대가 받는다). ──
 BACKUP_SERVICE_NAME="${APP_SLUG}-backup"
@@ -779,6 +798,7 @@ cmd_install() {
     setup_worker
     setup_mcp || warn "MCP 설정 건너뜀(비치명적)"
     setup_sync_timer || warn "동기화 타이머 건너뜀(비치명적)"
+    setup_metrics_timer || warn "지표 타이머 건너뜀(비치명적)"
     setup_backup_timer || warn "백업 타이머 건너뜀(비치명적)"
     setup_cleanup_timer || warn "청소 타이머 건너뜀(비치명적)"
     setup_lb
@@ -830,6 +850,7 @@ cmd_update() {
     # MCP 도 함께 갱신(소스 교체 + 유닛 재렌더 + 재기동). 비치명적.
     setup_mcp || warn "MCP 설정 건너뜀(비치명적)"
     setup_sync_timer || warn "동기화 타이머 건너뜀(비치명적)"
+    setup_metrics_timer || warn "지표 타이머 건너뜀(비치명적)"
     setup_backup_timer || warn "백업 타이머 건너뜀(비치명적)"
     setup_cleanup_timer || warn "청소 타이머 건너뜀(비치명적)"
     setup_lb
@@ -935,6 +956,11 @@ cmd_status() {
         systemctl --no-pager list-timers "${BACKUP_SERVICE_NAME}.timer" || true
         [[ -f "$BACKUP_HOST_DIR/LAST_BACKUP.txt" ]] && head -n1 "$BACKUP_HOST_DIR/LAST_BACKUP.txt"
     fi
+    if [[ -f "$SYNC_TIMER_UNIT" || -f "$METRICS_TIMER_UNIT" ]]; then
+        echo
+        echo "== 데이터 소스 동기화 · 지표 타이머 =="
+        systemctl --no-pager list-timers "${SYNC_SERVICE_NAME}.timer" "${METRICS_SERVICE_NAME}.timer" || true
+    fi
     if [[ -f "$CLEANUP_TIMER_UNIT" ]]; then
         echo
         echo "== 실험계획 폴더 청소 타이머 ($CLEANUP_SERVICE_NAME.timer) =="
@@ -996,6 +1022,8 @@ cmd_setup() {
     SERVICE_NAME="$APP_SLUG"; SERVICE_UNIT="/etc/systemd/system/${SERVICE_NAME}.service"
     SYNC_SERVICE_NAME="${APP_SLUG}-sync"; SYNC_SERVICE_UNIT="/etc/systemd/system/${SYNC_SERVICE_NAME}.service"
     SYNC_TIMER_UNIT="/etc/systemd/system/${SYNC_SERVICE_NAME}.timer"
+    METRICS_SERVICE_NAME="${APP_SLUG}-metrics"; METRICS_SERVICE_UNIT="/etc/systemd/system/${METRICS_SERVICE_NAME}.service"
+    METRICS_TIMER_UNIT="/etc/systemd/system/${METRICS_SERVICE_NAME}.timer"
     MCP_SERVICE_NAME="${APP_SLUG}-mcp"; MCP_SERVICE_UNIT="/etc/systemd/system/${MCP_SERVICE_NAME}.service"
     BACKUP_SERVICE_NAME="${APP_SLUG}-backup"; BACKUP_SERVICE_UNIT="/etc/systemd/system/${BACKUP_SERVICE_NAME}.service"
     BACKUP_TIMER_UNIT="/etc/systemd/system/${BACKUP_SERVICE_NAME}.timer"
@@ -1108,7 +1136,7 @@ cmd_remove() {
     cat <<MSG
 
   ⚠ 인스턴스 삭제 — $APP_NAME ($APP_SLUG). 다음이 **전부 사라집니다**:
-      유닛     : $SERVICE_NAME · $WORKER_SERVICE_NAME · $MCP_SERVICE_NAME · $SYNC_SERVICE_NAME.timer · $BACKUP_SERVICE_NAME.timer · $CLEANUP_SERVICE_NAME.timer
+      유닛     : $SERVICE_NAME · $WORKER_SERVICE_NAME · $MCP_SERVICE_NAME · $SYNC_SERVICE_NAME.timer · $METRICS_SERVICE_NAME.timer · $BACKUP_SERVICE_NAME.timer · $CLEANUP_SERVICE_NAME.timer
       DB       : $DB_NAME 과 역할 $DB_USER (이 서버의 PostgreSQL 이 주일 때)
       설치 폴더: $INSTALL_DIR (SIF · .env · 로그$( [[ -z "$DATA_DIR" ]] && echo ' · 첨부' ))
       기록     : $INSTANCES_DIR/$APP_SLUG.conf
@@ -1120,7 +1148,8 @@ MSG
 
     local unit
     for unit in "$SERVICE_NAME.service" "$WORKER_SERVICE_NAME.service" "$MCP_SERVICE_NAME.service" "$SYNC_SERVICE_NAME.timer" \
-                "$SYNC_SERVICE_NAME.service" "$BACKUP_SERVICE_NAME.timer" "$BACKUP_SERVICE_NAME.service" \
+                "$SYNC_SERVICE_NAME.service" "$METRICS_SERVICE_NAME.timer" "$METRICS_SERVICE_NAME.service" \
+                "$BACKUP_SERVICE_NAME.timer" "$BACKUP_SERVICE_NAME.service" \
                 "$CLEANUP_SERVICE_NAME.timer" "$CLEANUP_SERVICE_NAME.service"; do
         systemctl disable --now "$unit" >/dev/null 2>&1 || true
         rm -f "/etc/systemd/system/$unit"
@@ -1158,12 +1187,13 @@ cmd_render() {
     mkdir -p "$ETC/etc/systemd/system"
     # 설정 파일도 그 아래에 — 실제 배포가 남길 것과 같은 모양을 본다.
     instance_save; ha_save
-    for tpl in app.service worker.service sync.service backup.service cleanup.service; do
+    for tpl in app.service worker.service sync.service metrics.service backup.service cleanup.service; do
         [[ -f "$HERE/$tpl.template" ]] || continue
         case "$tpl" in
             app.service)     unit="$SERVICE_NAME.service" ;;
             worker.service)  unit="$WORKER_SERVICE_NAME.service" ;;
             sync.service)    unit="$SYNC_SERVICE_NAME.service" ;;
+            metrics.service) unit="$METRICS_SERVICE_NAME.service" ;;
             cleanup.service) unit="$CLEANUP_SERVICE_NAME.service" ;;
             *)               unit="$BACKUP_SERVICE_NAME.service" ;;
         esac

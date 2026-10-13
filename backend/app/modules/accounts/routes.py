@@ -8,14 +8,16 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.modules.accounts import services
+from app.modules.accounts import services, tokens
 from app.modules.accounts.models import User
 from app.modules.accounts.schemas import (
     AccountOut,
     CreateAccountRequest,
     SystemAdminRequest,
     TemporaryPasswordResponse,
+    TokenRevokeRequest,
 )
+from app.modules.auth.schemas import PatOut
 from app.shared.auth import require_system_admin
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
@@ -106,3 +108,29 @@ def delete_account(
     db: Session = Depends(get_db),
 ) -> AccountOut:
     return services.account_out(services.delete_account(db, user_id=account_id, actor=admin))
+
+
+@router.get("/{account_id}/tokens", response_model=list[PatOut])
+def account_tokens(
+    account_id: uuid.UUID,
+    _: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> list[PatOut]:
+    """그 사람의 액세스 토큰 — 이름 · 범위 · 만료 · 최종 사용, **폐기된 것까지.**
+    평문은 없다."""
+    return tokens.account_tokens(db, account_id)
+
+
+@router.post("/{account_id}/tokens/{token_id}/revoke", response_model=PatOut)
+def revoke_account_token(
+    account_id: uuid.UUID,
+    token_id: uuid.UUID,
+    payload: TokenRevokeRequest,
+    admin: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> PatOut:
+    """남의 토큰 하나를 폐기한다 — 계정은 그대로 두고 그 연동만 끊는다(감사 기록 ·
+    주인 알림)."""
+    return tokens.revoke_token(
+        db, user_id=account_id, token_id=token_id, actor=admin, reason=payload.reason
+    )

@@ -1,7 +1,9 @@
 /** 앱 껍데기 — 사이드바 + 헤더 + 본문. **본문만 스크롤한다.** */
 
 import { Suspense, useEffect, useState } from 'react'
-import { Outlet, useLocation } from 'react-router-dom'
+import { Outlet, useLocation, useParams } from 'react-router-dom'
+
+import { useAuth } from '@/shared/auth/AuthContext'
 
 import { ErrorBoundary } from '@/shared/components/ErrorBoundary'
 import { Skeleton } from '@/shared/components/ui/skeleton'
@@ -23,16 +25,22 @@ export function AppShell() {
   const [collapsed, setCollapsed] = useState(false)
   const [drawer, setDrawer] = useState(false)
   const { pathname } = useLocation()
+  const { slug } = useParams<{ slug?: string }>()
+  const { user } = useAuth()
+  // 부서 스코프가 아닌 화면에서도 사이드바의 「부서 홈」 · 「부서 멤버」 는 **어느 부서인지**
+  // 정해야 한다 — 보던 부서, 없으면 소속 부서. 소속이 없으면 그 항목이 안 선다.
+  const workspaceSlug = slug ?? user?.home_workspace_slug ?? user?.memberships?.[0]?.slug ?? null
   // 의견(VOC)에 「보던 화면」 을 담으려고 — 화면이 바뀔 때마다 적는다.
   useEffect(() => rememberPage(pathname), [pathname])
 
   return (
     <div className="flex h-svh overflow-hidden">
-      <Sidebar collapsed={collapsed} />
-      <SidebarDrawer open={drawer} onOpenChange={setDrawer} />
+      <Sidebar collapsed={collapsed} workspaceSlug={workspaceSlug} />
+      <SidebarDrawer open={drawer} onOpenChange={setDrawer} workspaceSlug={workspaceSlug} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <Header
+          workspaceSlug={workspaceSlug}
           onToggleSidebar={() => {
             if (window.matchMedia('(min-width: 768px)').matches) setCollapsed((v) => !v)
             else setDrawer(true)

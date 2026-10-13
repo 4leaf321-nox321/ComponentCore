@@ -1,0 +1,150 @@
+/**
+ * 온톨로지 관리의 **두 번째 사이드바.**
+ *
+ * 한 화면에 쌓으면 스크롤이 길어지고, 「지금 어디를 보고 있나」 를 화면이 말해
+ * 주지 못한다. 왼쪽에 줄을 하나씩 두고 각각을 제 화면에서 본다 — 지금 자리가
+ * 굵게 서 있으므로 물을 일이 없다.
+ *
+ * **스키마는 여기서 한 번 받는다.** 화면마다 받으면 묶음을 만들고 타입 화면으로
+ * 옮겼을 때 방금 만든 것이 안 보이는 순간이 생기고, 그것은 저장이 안 된 것과
+ * 구별되지 않는다.
+ */
+
+import { useState } from 'react'
+import { NavLink, Outlet, useOutletContext } from 'react-router-dom'
+import { Boxes, LayoutList, Radio, Shapes, Share2, Upload } from 'lucide-react'
+
+import { OntologyExportButton } from '@/modules/ontology/OntologyExportButton'
+import { ontologyApi } from '@/modules/ontology/api'
+import type { OntologySchema } from '@/modules/ontology/api'
+import { ErrorNotice } from '@/shared/components/ErrorNotice'
+import { PageHeader } from '@/shared/components/PageHeader'
+import { useResource } from '@/shared/hooks/useResource'
+import { navChanged } from '@/shared/layout/navSignal'
+import { cn } from '@/shared/lib/utils'
+
+export interface OntologyContext {
+  schema: OntologySchema | null
+  reload: () => void
+  /** 화면들이 같은 자리에 오류를 세우도록 위로 올린다. */
+  setError: (error: Error | null) => void
+}
+
+export function useOntology(): OntologyContext {
+  return useOutletContext<OntologyContext>()
+}
+
+/** 두 번째 사이드바의 줄. **묶음이 먼저다** — 타입은 묶음 안에 들어간다. */
+const SECTIONS = [
+  {
+    to: 'groups',
+    label: '사이드바 묶음',
+    icon: Boxes,
+    count: (schema: OntologySchema | null) => schema?.groups.length,
+  },
+  {
+    to: 'types',
+    label: '타입',
+    icon: LayoutList,
+    count: (schema: OntologySchema | null) => schema?.types.length,
+  },
+  {
+    // 타입 다음이다 — **여러 타입이 따르는 공통 모양**(ADR 0006). 따를 타입이 먼저 있다.
+    to: 'interfaces',
+    label: '인터페이스',
+    icon: Shapes,
+    count: (schema: OntologySchema | null) => schema?.interfaces?.length,
+  },
+  {
+    // 타입 다음이다 — **관계는 타입과 타입을 잇는다.** 이을 것이 없으면 먼저
+    // 만들 것이 타입이다.
+    to: 'relations',
+    label: '관계 종류',
+    icon: Share2,
+    count: (schema: OntologySchema | null) => schema?.relation_types.length,
+  },
+  {
+    // **기계가 정의를 만드는 자리.** 사람이 한 칸씩 만드는 길과 나란히 둔다.
+    to: 'import',
+    label: '가져오기·이력',
+    icon: Upload,
+    count: () => undefined,
+  },
+  {
+    // **외부로 나가는 자료.** 무엇을 공개했는지 확인할 자리가 없으면 공개 사실이 잊힌다.
+    to: 'core',
+    label: '코어 (외부 공개)',
+    icon: Radio,
+    count: (schema: OntologySchema | null) =>
+      schema?.types.filter((one) => one.core).length || undefined,
+  },
+]
+
+export default function OntologyLayout() {
+  const resource = useResource(() => ontologyApi.schema(), [])
+  const [error, setError] = useState<Error | null>(null)
+
+  const context: OntologyContext = {
+    schema: resource.data,
+    // **사이드바에도 알린다.** 정의를 고치면 메뉴가 그 자리에서 따라와야 한다 — 관리 화면들이
+    // 무엇을 바꾸든 이 `reload` 를 부르므로, 신호를 여기 한 곳에 둔다.
+    reload: () => {
+      resource.reload()
+      navChanged()
+    },
+    setError,
+  }
+
+  return (
+    // **두 번째 사이드바는 고정하고 내용만 굴린다.** 바깥(AppShell 의 main)이 통째로
+    // 굴리면 목록을 내려 보는 동안 「지금 어느 화면인가」 를 말해 주던 줄이 화면 밖으로
+    // 사라진다 — 그러면 돌아가려고 매번 위로 올려야 한다.
+    <div className="flex h-full gap-6 overflow-hidden">
+      <aside className="w-48 shrink-0 overflow-y-auto border-r pr-3">
+        <nav className="space-y-0.5">
+          {SECTIONS.map((section) => {
+            const count = section.count(resource.data)
+            return (
+              <NavLink
+                key={section.to}
+                to={section.to}
+                className={({ isActive }) =>
+                  cn(
+                    'flex items-center gap-2 rounded-md px-2.5 py-2 text-sm',
+                    isActive
+                      ? 'bg-accent text-accent-foreground font-medium'
+                      : 'text-muted-foreground hover:bg-accent/50',
+                  )
+                }
+              >
+                <section.icon className="size-4 shrink-0" />
+                <span className="flex-1">{section.label}</span>
+                {/* **숫자를 함께 둔다.** 비어 있는 자리를 눌러 보고 알게 하지 않는다. */}
+                {count !== undefined && (
+                  <span className="text-muted-foreground text-xs tabular-nums">{count}</span>
+                )}
+              </NavLink>
+            )
+          })}
+        </nav>
+      </aside>
+
+      {/* 제목 줄과 오류는 붙박이다 — 오류가 화면 밖으로 밀려 나가면 무엇이 잘못됐는지
+          모른 채 같은 동작을 반복한다. */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <PageHeader
+          title="온톨로지"
+          description="타입을 정의하면 사이드바와 화면이 생깁니다. 코드를 수정하지 않습니다."
+          actions={<OntologyExportButton onError={setError} />}
+        />
+
+        {resource.error && <ErrorNotice error={resource.error} />}
+        {error && <ErrorNotice error={error} />}
+
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+          <Outlet context={context} />
+        </div>
+      </div>
+    </div>
+  )
+}

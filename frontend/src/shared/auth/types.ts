@@ -1,1 +1,1 @@
-export type { CurrentUser, LoginResponse } from '@/shared/api/types'
+export type { CurrentUser, LoginResponse, WorkspaceMembership } from '@/shared/api/types'

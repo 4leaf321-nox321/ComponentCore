@@ -39,3 +39,9 @@ class TemporaryPasswordResponse(BaseModel):
     account: AccountOut
     temporary_password: str
     """이 응답에서 한 번만 나온다. 다시 볼 수 없다."""
+
+
+class TokenRevokeRequest(BaseModel):
+    """남의 토큰 폐기 — 사유는 감사 기록과 토큰 주인에게 가는 알림에 그대로 실린다."""
+
+    reason: str | None = Field(default=None, max_length=500)

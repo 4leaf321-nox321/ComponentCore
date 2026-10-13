@@ -32,6 +32,18 @@ class ServerStatusOut(BaseModel):
     started_at: datetime
 
 
+class MaintenanceItemOut(BaseModel):
+    """남은 일 하나 — 부서 홈이 보여 준다(StandardPlatform 그대로). 관리 화면에 들어가야만
+    보이면 아무도 안 본다."""
+
+    key: str
+    label: str
+    count: int
+    link: str | None
+    severity: str
+    """info · warning. 경고는 색이 붙는다."""
+
+
 class DisplayOut(BaseModel):
     """화면이 읽는 설정 — 관리자가 아닌 사람도 본다(목록 줄 수 · 형상 보기 수)."""
 

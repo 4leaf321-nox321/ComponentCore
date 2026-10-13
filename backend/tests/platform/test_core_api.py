@@ -1,0 +1,931 @@
+"""코어 API — **바깥 시스템이 당겨 가는 창구.**
+
+여기서 지키는 것: 연 것만 나가나, 지난번 이후만 오나, **사라진 것을 알려 주나**,
+참조가 상대의 식별자로 나가나, 그리고 **좁은 토큰이 코어 밖을 못 읽나.**
+"""
+
+from __future__ import annotations
+
+import uuid
+from typing import Any
+
+from fastapi.testclient import TestClient
+from sqlalchemy import func, select, text
+from sqlalchemy.orm import Session
+
+from tests.platform.conftest import Signed
+from tests.platform.test_ontology import _make_object, _make_property, _make_type
+
+
+def _open(client: TestClient, admin: Signed, slug: str, on: bool = True) -> None:
+    got = client.patch(f"/api/ontology/types/{slug}", json={"core": on}, headers=admin.headers)
+    assert got.status_code == 200, got.text
+
+
+def _world(client: TestClient, admin: Signed) -> tuple[str, str]:
+    """공급사(코어) 와 부품(코어) — 부품이 공급사를 참조로 가리킨다."""
+    tag = uuid.uuid4().hex[:6]
+    vendor = _make_type(client, admin, label=f"공급사{tag}", key_policy="optional")
+    part = _make_type(client, admin, label=f"부품{tag}", key_policy="optional")
+    _make_property(
+        client,
+        admin,
+        part,
+        key="grade",
+        label="등급",
+        data_type="enum",
+        enum_options=["A", "B"],
+    )
+    _make_property(
+        client,
+        admin,
+        part,
+        key="vendor",
+        label="공급사",
+        data_type="object_ref",
+        ref_type_slug=vendor,
+    )
+    _make_property(
+        client, admin, part, key="tags", label="꼬리표", data_type="text", multi=True
+    )
+    _open(client, admin, vendor)
+    _open(client, admin, part)
+    return vendor, part
+
+
+def _rows(client: TestClient, who: Signed, slug: str, **params: Any) -> dict[str, Any]:
+    got = client.get(f"/api/core/{slug}", params=params, headers=who.headers)
+    assert got.status_code == 200, got.text
+    return dict(got.json())
+
+
+def test_연_타입만_카탈로그에_선다(client: TestClient, admin: Signed) -> None:
+    """목록 API 는 볼 수 있는 전부를 연다 — 여기는 **연 것만.**"""
+    vendor, part = _world(client, admin)
+    closed = _make_type(client, admin, label=f"비공개{uuid.uuid4().hex[:6]}")
+
+    body = client.get("/api/core", headers=admin.headers).json()
+    slugs = {one["slug"] for one in body["types"]}
+    assert {vendor, part} <= slugs
+    assert closed not in slugs
+
+    # 받는 쪽이 하드코딩하지 않게 **칸과 주소를 우리가 적어 준다.**
+    one = next(row for row in body["types"] if row["slug"] == part)
+    keys = {p["key"]: p for p in one["properties"]}
+    assert keys["grade"]["enum_options"] == ["A", "B"]
+    assert keys["vendor"]["ref_type_slug"] == vendor
+    assert keys["tags"]["multi"] is True
+    assert one["endpoint"].endswith(f"/core/{part}")
+    assert body["revision"] and body["system"]
+
+    # 닫으면 사라진다.
+    _open(client, admin, part, on=False)
+    after = client.get("/api/core", headers=admin.headers).json()
+    assert part not in {row["slug"] for row in after["types"]}
+    assert client.get(f"/api/core/{part}", headers=admin.headers).status_code == 404
+
+
+def test_끝_슬래시도_받는다(client: TestClient, admin: Signed) -> None:
+    """받는 쪽 클라이언트가 리다이렉트를 안 따라가게 해 두면(흔하다) 슬래시 하나로 막힌다 —
+    그 하나로 남의 팀이 「창구가 없다」 를 보게 할 이유가 없다. 실측(RA 첫 연결)."""
+    _world(client, admin)
+    plain = client.get("/api/core", headers=admin.headers)
+    slashed = client.get("/api/core/", headers=admin.headers, follow_redirects=False)
+    assert plain.status_code == 200 and slashed.status_code == 200, slashed.text
+    assert {one["slug"] for one in slashed.json()["types"]} == {
+        one["slug"] for one in plain.json()["types"]
+    }
+    # 주소도 같아야 한다 — 끝 슬래시가 endpoint 에 묻어 나가면 받는 쪽이 이어 붙일 때 깨진다.
+    assert slashed.json()["types"][0]["endpoint"] == plain.json()["types"][0]["endpoint"]
+
+
+def test_판은_구조가_바뀔_때만_바뀐다(client: TestClient, admin: Signed) -> None:
+    """받는 쪽은 판이 바뀌면 「구조 변경」 을 통지한다 — 표시 문구가 바뀐 날 울리면 곧
+    아무도 안 읽고, 고를 값이 는 날 안 울리면 새 코드를 모른 채 받는다."""
+    _, part = _world(client, admin)
+
+    def revision() -> str:
+        return str(client.get("/api/core", headers=admin.headers).json()["revision"])
+
+    def patch_grade(label: str, options: list[str]) -> None:
+        got = client.patch(
+            f"/api/ontology/types/{part}/properties/grade",
+            json={
+                "key": "grade",
+                "label": label,
+                "data_type": "enum",
+                "enum_options": options,
+            },
+            headers=admin.headers,
+        )
+        assert got.status_code == 200, got.text
+
+    first = revision()
+    assert revision() == first
+
+    patch_grade("품질 등급", ["A", "B"])
+    assert revision() == first
+
+    patch_grade("품질 등급", ["A", "B", "C"])
+    assert revision() != first
+
+
+def test_판은_칸과_타입의_표시_차례와_상관없다(client: TestClient, admin: Signed) -> None:
+    """**차례는 표시다** — 이름순 · `sort_order` 가 판의 재료에 차례로 새어 들면 안 된다.
+
+    판의 재료를 받은 차례대로 이었더니, 칸 이름만 바꿔도 이름순 차례가 바뀌어 판이 바뀌었다.
+    이름의 정렬은 DB 의 정렬 규칙마다 달라 CI(`en_US.utf8`)에서만 깨졌다(로컬 `C.UTF-8` 통과).
+    여기서는 **어느 정렬 규칙에서도 맨 앞에 서는 이름**(「가…」)으로 바꿔 그 차례를 확실히
+    흔든다.
+    """
+    vendor, part = _world(client, admin)
+
+    def revision() -> str:
+        return str(client.get("/api/core", headers=admin.headers).json()["revision"])
+
+    first = revision()
+
+    # 등급은 이름순으로 맨 뒤였다(공급사 · 꼬리표 · 등급) — 「가」 로 시작하면 맨 앞이 된다.
+    renamed = client.patch(
+        f"/api/ontology/types/{part}/properties/grade",
+        json={
+            "key": "grade",
+            "label": "가장 등급",
+            "data_type": "enum",
+            "enum_options": ["A", "B"],
+        },
+        headers=admin.headers,
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert revision() == first
+
+    # 화면에서 칸 순서를 바꾼 것 — 표시다.
+    moved = client.patch(
+        f"/api/ontology/types/{part}/properties/grade",
+        json={
+            "key": "grade",
+            "label": "가장 등급",
+            "data_type": "enum",
+            "enum_options": ["A", "B"],
+            "sort_order": 99,
+        },
+        headers=admin.headers,
+    )
+    assert moved.status_code == 200, moved.text
+    assert revision() == first
+
+    # 사이드바에서 타입 순서를 바꾼 것 — 이것도 표시다.
+    for slug, order in ((vendor, 999), (part, -999)):
+        got = client.patch(
+            f"/api/ontology/types/{slug}", json={"sort_order": order}, headers=admin.headers
+        )
+        assert got.status_code == 200, got.text
+    assert revision() == first
+
+
+def test_행은_봉투와_알맹이로_나뉘고_참조는_식별자로_나간다(
+    client: TestClient, admin: Signed
+) -> None:
+    vendor, part = _world(client, admin)
+    acme = _make_object(client, admin, vendor, label="ACME", key="ACME-001")["id"]
+    # 화면·API 로 만들 때 참조는 id 다 — **파일로 넣을 때만** 식별자로 푼다.
+    _make_object(
+        client,
+        admin,
+        part,
+        label="볼트",
+        key="B-1",
+        properties={"grade": "A", "vendor": acme, "tags": ["철", "표준"]},
+    )
+
+    body = _rows(client, admin, part)
+    row = next(one for one in body["items"] if one["key"] == "B-1")
+    assert row["label"] == "볼트" and row["status"] == "active" and row["deleted"] is False
+    # 참조는 **상대의 key** — id 로 주면 받는 쪽이 아무것도 못 가리킨다.
+    assert row["properties"]["vendor"] == "ACME-001"
+    assert row["properties"]["tags"] == ["철", "표준"]
+    # 빈 값은 키를 뺀다 — 카탈로그에 칸 목록이 있으니 없는 키가 곧 빈 값이다.
+    assert "description" not in row["properties"]
+    assert body["as_of"] and body["next"] is None
+
+
+def test_지난번_이후만_오고_사라진_것도_온다(client: TestClient, admin: Signed) -> None:
+    """목록은 살아 있는 것만 준다 — 그러면 받는 쪽은 **삭제를 영영 모른다.**"""
+    vendor, _part = _world(client, admin)
+    first = _make_object(client, admin, vendor, label="ACME", key="ACME-001")
+    _make_object(client, admin, vendor, label="한화", key="HAN-002")
+
+    full = _rows(client, admin, vendor)
+    assert {one["key"] for one in full["items"]} == {"ACME-001", "HAN-002"}
+    mark = full["as_of"]
+
+    # 아무것도 안 바뀌었으면 빈 쪽이 온다 — 그게 「받아 갈 것 없음」 이다.
+    assert _rows(client, admin, vendor, since=mark)["items"] == []
+
+    client.patch(
+        f"/api/objects/{vendor}/{first['id']}",
+        json={"description": "이름 바꿈"},
+        headers=admin.headers,
+    )
+    delta = _rows(client, admin, vendor, since=mark)
+    assert [one["key"] for one in delta["items"]] == ["ACME-001"]
+
+    # 지우면 **무덤이 온다.**
+    gone = client.delete(f"/api/objects/{vendor}/{first['id']}", headers=admin.headers)
+    assert gone.status_code in (200, 204), gone.text
+    after = _rows(client, admin, vendor, since=delta["as_of"])
+    grave = next(one for one in after["items"] if one["key"] == "ACME-001")
+    assert grave["deleted"] is True and grave["properties"] == {}
+
+    # 처음 받아 가는 쪽에는 무덤을 안 보낸다 — 없던 것을 지우라고 할 이유가 없다.
+    fresh = _rows(client, admin, vendor)
+    assert all(not one["deleted"] for one in fresh["items"])
+
+
+def test_합쳐져_사라진_것은_이긴_쪽을_알려_준다(client: TestClient, admin: Signed) -> None:
+    """받는 쪽이 **제 참조를 옮길 수 있어야** 한다."""
+    vendor, _part = _world(client, admin)
+    loser = _make_object(client, admin, vendor, label="ACME Inc.", key="ACME-OLD")
+    winner = _make_object(client, admin, vendor, label="ACME", key="ACME-001")
+    mark = _rows(client, admin, vendor)["as_of"]
+
+    merged = client.post(
+        f"/api/objects/{vendor}/{loser['id']}/merge",
+        json={"into": winner["id"]},
+        headers=admin.headers,
+    )
+    assert merged.status_code == 200, merged.text
+
+    after = _rows(client, admin, vendor, since=mark)
+    grave = next(one for one in after["items"] if one["key"] == "ACME-OLD")
+    assert grave["deleted"] is True and grave["merged_into"] == "ACME-001"
+
+
+def test_쪽이_남으면_시계를_안_옮긴다(client: TestClient, admin: Signed) -> None:
+    """거기서 멈춘 쪽이 남은 쪽을 영영 안 받게 되기 때문이다."""
+    vendor, _part = _world(client, admin)
+    for at in range(3):
+        _make_object(client, admin, vendor, label=f"공급사{at}", key=f"V-{at}")
+
+    first = _rows(client, admin, vendor, limit=2)
+    assert len(first["items"]) == 2 and first["next"]
+    # **남았으면 시계를 안 준다.** 여기서 멈춘 쪽이 남은 쪽을 영영 안 받는 일을 막는다.
+    assert first["as_of"] is None
+
+    second = _rows(client, admin, vendor, cursor=first["next"], limit=2)
+    assert [one["key"] for one in second["items"]] == ["V-2"]
+    assert second["next"] is None and second["as_of"]
+
+
+def test_좁은_토큰은_코어_밖을_못_읽는다(client: TestClient, admin: Signed) -> None:
+    """바깥에 주는 토큰에 `read` 를 주면 그 계정이 볼 수 있는 전부가 나간다 —
+    연동 하나 때문에 사내 전체를 여는 일이 된다."""
+    vendor, _part = _world(client, admin)
+    made = client.post(
+        "/api/auth/tokens",
+        json={"name": f"matnexus-{uuid.uuid4().hex[:6]}", "scopes": ["core:read"]},
+        headers=admin.headers,
+    )
+    assert made.status_code == 201, made.text
+    outside = {"Authorization": f"Bearer {made.json()['token']}"}
+
+    assert client.get("/api/core", headers=outside).status_code == 200
+    assert client.get(f"/api/core/{vendor}", headers=outside).status_code == 200
+    # 코어 밖은 막힌다.
+    denied = client.get(f"/api/objects/{vendor}", headers=outside)
+    assert denied.status_code == 403
+    assert "AUTH-0104" in denied.json()["error"]["code"]
+    # 쓰기는 말할 것도 없다.
+    assert (
+        client.post(
+            f"/api/objects/{vendor}", json={"label": "몰래"}, headers=outside
+        ).status_code
+        == 403
+    )
+
+
+def test_투영_타입은_못_연다(client: TestClient, admin: Signed, db: Session) -> None:
+    """행이 원 표(부서 · 계정)에 있어 사람 정보가 그대로 나간다 — 다른 판단이다."""
+    projected = _make_type(
+        client,
+        admin,
+        label=f"부서투영{uuid.uuid4().hex[:6]}",
+        kind_class="system",
+        system_source="workspace",
+    )
+    denied = client.patch(
+        f"/api/ontology/types/{projected}", json={"core": True}, headers=admin.headers
+    )
+    assert denied.status_code == 409
+    assert "외부에 공개할 수 없습니다" in denied.json()["error"]["message"]
+
+
+# --- 연 뒤의 약속 -----------------------------------------------------------------
+
+
+def _token(client: TestClient, admin: Signed, name: str, scopes: list[str]) -> str:
+    made = client.post(
+        "/api/auth/tokens",
+        json={"name": name, "scopes": scopes},
+        headers=admin.headers,
+    )
+    assert made.status_code == 201, made.text
+    return str(made.json()["token"])
+
+
+def test_연_타입의_칸은_한_번_더_묻고_지운다(client: TestClient, admin: Signed) -> None:
+    """이 칸의 이름은 남의 시스템 코드에 박혀 있다 — 지우면 그쪽에서 조용히 사라진다."""
+    _vendor, part = _world(client, admin)
+    _token(client, admin, f"matnexus-{uuid.uuid4().hex[:6]}", ["core:read"])
+
+    # 지우기 전에 무엇이 걸렸는지 — 화면의 확인 창이 이것을 읽는다.
+    usage = client.get(
+        f"/api/ontology/types/{part}/properties/grade/usage", headers=admin.headers
+    ).json()
+    assert usage["core_open"] is True
+    assert any("matnexus" in one for one in usage["core_consumers"])
+
+    denied = client.delete(
+        f"/api/ontology/types/{part}/properties/grade", headers=admin.headers
+    )
+    assert denied.status_code == 409
+    assert "외부에 공개 중" in denied.json()["error"]["message"]
+    assert denied.json()["error"]["details"]["core_consumers"]
+
+    # **막지는 않는다** — 정말 지워야 할 때가 있고, 확인했다고 말하면 지워진다.
+    gone = client.delete(
+        f"/api/ontology/types/{part}/properties/grade?accept_core=true", headers=admin.headers
+    )
+    assert gone.status_code == 204, gone.text
+
+
+def test_닫힌_타입은_묻지_않는다(client: TestClient, admin: Signed) -> None:
+    """열지 않은 타입에까지 경고를 세우면 그 경고는 곧 아무도 안 읽는다."""
+    _vendor, part = _world(client, admin)
+    _open(client, admin, part, on=False)
+    usage = client.get(
+        f"/api/ontology/types/{part}/properties/grade/usage", headers=admin.headers
+    ).json()
+    assert usage["core_open"] is False and usage["core_consumers"] == []
+    assert (
+        client.delete(
+            f"/api/ontology/types/{part}/properties/grade", headers=admin.headers
+        ).status_code
+        == 204
+    )
+
+
+def test_연_타입은_끄기_전에_못_지운다(client: TestClient, admin: Signed) -> None:
+    """열린 채로 지우면 남의 동기화가 404 를 받고, 그것이 「잠깐 장애」 인지 「없어진 것」 인지
+    그쪽은 구별할 수 없다."""
+    vendor, _part = _world(client, admin)
+    denied = client.delete(f"/api/ontology/types/{vendor}", headers=admin.headers)
+    assert denied.status_code == 409
+    assert "먼저 「코어」 를 해제" in denied.json()["error"]["message"]
+
+    _open(client, admin, vendor, on=False)
+    assert (
+        client.delete(f"/api/ontology/types/{vendor}", headers=admin.headers).status_code
+        == 204
+    )
+
+
+def test_받아_간_것이_감사에_남는다(client: TestClient, admin: Signed) -> None:
+    """토큰의 「마지막 사용」 만으로는 **어느 타입을 받아 갔는지** 알 수 없다."""
+    vendor, _part = _world(client, admin)
+    _make_object(client, admin, vendor, label="ACME", key="ACME-001")
+    raw = _token(client, admin, f"matnexus-{uuid.uuid4().hex[:6]}", ["core:read"])
+    outside = {"Authorization": f"Bearer {raw}"}
+
+    body = _rows_as(client, outside, vendor)
+    assert len(body["items"]) == 1
+
+    recent = client.get(
+        "/api/audit/entries?action=core.pull&limit=50", headers=admin.headers
+    ).json()
+    rows = recent["items"]
+    pulled = next(one for one in rows if one["target_label"] == vendor)
+    assert pulled["target_label"] == vendor
+    # **통로가 함께 남는다** — 사람이 화면에서 본 것과 기계가 받아 간 것이 구별된다.
+    assert "matnexus" in (pulled["actor_token"] or "")
+
+    # 빈 응답(받아 갈 것 없음)은 안 남긴다 — 새벽마다 쌓이면 그 목록은 아무도 안 읽는다.
+    before = recent["total"]
+    _rows_as(client, outside, vendor, since=body["as_of"])
+    after = client.get(
+        "/api/audit/entries?action=core.pull&limit=1", headers=admin.headers
+    ).json()
+    assert after["total"] == before
+
+
+def test_공개를_켜고_끈_일이_감사에_남는다(client: TestClient, admin: Signed) -> None:
+    """「지금 무엇이 나가나」 는 코어 현황이 답한다.
+
+    **「언제 누가 공개했나」 는 여기서만 답한다.**
+
+    개발 설치에서 코어로 켜진 타입 하나의 사연을 아무도 댈 수 없었다 — 타입 수정 기록에
+    섞여 있으면 그 한 줄을 찾을 수 없다.
+    """
+    slug = _make_type(
+        client, admin, label=f"공개이력{uuid.uuid4().hex[:6]}", key_policy="optional"
+    )
+
+    def logged() -> list[dict[str, Any]]:
+        got = client.get(
+            "/api/audit/entries?action=ontology.type.core&limit=50", headers=admin.headers
+        ).json()
+        return [one for one in got["items"] if one["target_label"] == slug]
+
+    _open(client, admin, slug)
+    opened = logged()
+    assert len(opened) == 1
+    assert opened[0]["changes"] == {"core": True, "was": False}
+
+    # **값이 안 바뀌면 안 남긴다.** 이름만 고칠 때마다 공개 이력이 늘면 그 목록은 곧 안 읽힌다.
+    _open(client, admin, slug)
+    assert len(logged()) == 1
+
+    _open(client, admin, slug, on=False)
+    shut = logged()
+    assert len(shut) == 2
+    assert {"core": False, "was": True} in [one["changes"] for one in shut]
+
+
+def _rows_as(
+    client: TestClient, headers: dict[str, str], slug: str, **params: Any
+) -> dict[str, Any]:
+    got = client.get(f"/api/core/{slug}", params=params, headers=headers)
+    assert got.status_code == 200, got.text
+    return dict(got.json())
+
+
+def test_코어_현황이_한_화면에_모인다(client: TestClient, admin: Signed) -> None:
+    """연 것 · 읽을 수 있는 자격 · 받아 간 기록이 흩어져 있으면 「지금 바깥으로 뭐가 나가고
+    있지」 를 아무도 한눈에 답할 수 없다."""
+    vendor, _part = _world(client, admin)
+    _make_object(client, admin, vendor, label="ACME", key="ACME-001")
+    # **이름을 통째로 맞춘다.** 앞부분만 보면 다른 시험이 만든 같은 접두어 토큰이 먼저
+    # 걸리고(목록은 만든 차례다), 그것은 쓴 적이 없어 `last_used_at` 이 비어 있다.
+    name = f"matnexus-{uuid.uuid4().hex[:6]}"
+    raw = _token(client, admin, name, ["core:read"])
+    _rows_as(client, {"Authorization": f"Bearer {raw}"}, vendor)
+
+    body = client.get("/api/ontology/core-status", headers=admin.headers).json()
+    assert body["base"].endswith("/core")
+    assert vendor in {one["slug"] for one in body["types"]}
+
+    mine = next(one for one in body["consumers"] if one["name"] == name)
+    # **좁은 자격인지 보인다** — `read` 토큰은 코어 밖도 읽으므로 무게가 다르다.
+    assert mine["narrow"] is True and mine["last_used_at"]
+
+    pulled = next(one for one in body["recent"] if one["type_slug"] == vendor)
+    assert pulled["rows"] >= 1 and "matnexus" in (pulled["token"] or "")
+
+
+def test_현황은_시스템_관리자만(client: TestClient, member: Signed, admin: Signed) -> None:
+    """받아 가는 쪽이 다른 연동의 이름까지 보면 안 된다 — 그래서 코어 창구 밖에 둔다."""
+    _world(client, admin)
+    raw = _token(client, admin, f"outside-{uuid.uuid4().hex[:6]}", ["core:read"])
+    assert (
+        client.get(
+            "/api/ontology/core-status", headers={"Authorization": f"Bearer {raw}"}
+        ).status_code
+        == 403
+    )
+    assert client.get("/api/ontology/core-status", headers=member.headers).status_code == 403
+
+
+def test_연동_키트에_주소와_공개_타입이_채워진다(client: TestClient, admin: Signed) -> None:
+    """비워 두고 「여기에 주소를 적으십시오」 라고 하면 수신 측이 메일에서 찾아 옮겨 적다가
+    오타를 낸다 — 우리가 아는 값은 우리가 채운다."""
+    import io as _io
+    import zipfile
+
+    vendor, _part = _world(client, admin)
+    got = client.get("/api/ontology/core-kit", headers=admin.headers)
+    assert got.status_code == 200, got.text
+    assert "zip" in got.headers["content-type"]
+
+    bundle = zipfile.ZipFile(_io.BytesIO(got.content))
+    names = set(bundle.namelist())
+    assert names == {
+        "sp-core-client/README.md",
+        "sp-core-client/config.example.ini",
+        "sp-core-client/sp_core_pull.py",
+        "sp-core-client/check.sh",
+    }
+
+    readme = bundle.read("sp-core-client/README.md").decode()
+    config = bundle.read("sp-core-client/config.example.ini").decode()
+    # **API 루트가 들어가야 한다** — 창구 주소(`…/api/core`)를 넣으면 클라이언트가
+    # `/core/core/<타입>` 을 부른다(실측).
+    assert "/api/core" in readme  # 카탈로그 예시
+    assert "base_url = " in config and config.rstrip().endswith("retries = 3")
+    base_line = next(one for one in config.splitlines() if one.startswith("base_url"))
+    assert base_line.strip().endswith("/api"), base_line
+    assert vendor in readme and vendor in config
+    # 자리표시가 남아 있으면 그대로 전달된다 — 받는 쪽은 그것을 주소로 읽는다.
+    assert "{BASE}" not in readme and "{TYPES}" not in config
+
+    # 스크립트는 **그대로 돌아가야 한다** — 문법이 깨진 채로 나가면 상대가 고치게 된다.
+    import ast
+
+    ast.parse(bundle.read("sp-core-client/sp_core_pull.py").decode())
+
+
+def test_키트는_시스템_관리자만(client: TestClient, member: Signed) -> None:
+    assert client.get("/api/ontology/core-kit", headers=member.headers).status_code == 403
+
+
+def _relations(client: TestClient, who: Signed, slug: str, **params: Any) -> dict[str, Any]:
+    got = client.get(f"/api/core/{slug}/relations", params=params, headers=who.headers)
+    assert got.status_code == 200, got.text
+    return dict(got.json())
+
+
+def test_선도_받아_간다_바뀐_것과_끊긴_것(client: TestClient, admin: Signed) -> None:
+    """**객체만 주면 받는 쪽은 점만 있고 선이 없다.**
+
+    그것을 자기 쪽에서 다시 만들려면 우리가 이미 쥔 관계를 추측해야 한다. 그리고 선은 행을
+    정말 지우므로, 무덤이 없으면 받는 쪽은 **끊긴 것을 영영 모른다** — 허브에서 끊은 선이
+    쌍둥이에 남고 둘은 그때부터 갈린다.
+    """
+    vendor, part = _world(client, admin)
+    kind = f"supplies_{uuid.uuid4().hex[:6]}"
+    made = client.post(
+        "/api/ontology/import",
+        json={
+            "relation_types": [
+                {
+                    "slug": kind,
+                    "label": "공급",
+                    "src_type_slugs": [part],
+                    "dst_type_slugs": [vendor],
+                    "properties": [{"key": "n", "label": "근거 건수", "data_type": "number"}],
+                }
+            ]
+        },
+        params={"dry_run": "false"},
+        headers=admin.headers,
+    )
+    assert made.status_code == 200, made.text
+
+    acme = _make_object(client, admin, vendor, label="ACME", key="ACME-001")
+    han = _make_object(client, admin, vendor, label="한화", key="HAN-002")
+    bolt = _make_object(client, admin, part, label="볼트", key="P-1")
+
+    # 카탈로그가 **무엇이 오는지** 말한다 — 주소를 짐작하게 하지 않는다.
+    catalog = client.get("/api/core", headers=admin.headers).json()
+    entry = next(one for one in catalog["types"] if one["slug"] == part)
+    assert entry["relations"] == [kind]
+    assert entry["relations_endpoint"].endswith(f"/core/{part}/relations")
+
+    rows = [
+        {"src": "P-1", "relation": kind, "dst": "ACME-001", "properties": {"n": 2}},
+        {"src": "P-1", "relation": kind, "dst": "HAN-002"},
+    ]
+    applied = client.post(
+        f"/api/objects/{part}/relations/import-rows",
+        json={"rows": rows, "apply": True},
+        headers=admin.headers,
+    )
+    assert applied.status_code == 200, applied.text
+
+    first = _relations(client, admin, part)
+    assert {(one["src"], one["dst"]) for one in first["items"]} == {
+        ("P-1", "ACME-001"),
+        ("P-1", "HAN-002"),
+    }
+    edge = next(one for one in first["items"] if one["dst"] == "ACME-001")
+    assert edge["properties"] == {"n": 2} and edge["dst_type"] == vendor
+    assert all(not one["deleted"] for one in first["items"])
+    mark = first["as_of"]
+
+    # 아무것도 안 바뀌었으면 빈 쪽.
+    assert _relations(client, admin, part, since=mark)["items"] == []
+
+    # 근거를 채우면 **바뀐 선**으로 온다 — 예전에는 `created_at` 만 있어 안 걸렸다.
+    client.post(
+        f"/api/objects/{part}/relations/import-rows",
+        json={
+            "rows": [{"src": "P-1", "relation": kind, "dst": "ACME-001", "n": 5}],
+            "apply": True,
+        },
+        headers=admin.headers,
+    )
+    changed = _relations(client, admin, part, since=mark)
+    assert [one["dst"] for one in changed["items"]] == ["ACME-001"]
+    assert changed["items"][0]["properties"] == {"n": 5}
+
+    # 「파일대로 맞춤」 으로 하나를 끊으면 **무덤이 온다.**
+    cut = client.post(
+        f"/api/objects/{part}/relations/import-rows",
+        json={
+            "rows": [{"src": "P-1", "relation": kind, "dst": "ACME-001"}],
+            "relations_mode": "replace",
+            "apply": True,
+        },
+        headers=admin.headers,
+    )
+    assert cut.status_code == 200, cut.text
+    after = _relations(client, admin, part, since=changed["as_of"])
+    grave = next(one for one in after["items"] if one["dst"] == "HAN-002")
+    assert grave["deleted"] is True and grave["properties"] == {}
+
+    # 처음 받는 쪽에는 무덤을 안 보낸다 — 없던 선을 끊으라고 할 이유가 없다.
+    fresh = _relations(client, admin, part)
+    assert all(not one["deleted"] for one in fresh["items"])
+    assert {one["dst"] for one in fresh["items"]} == {"ACME-001"}
+    assert acme["id"] and han["id"] and bolt["id"]
+
+
+def test_한쪽_끝이_안_열린_선은_안_나간다(client: TestClient, admin: Signed) -> None:
+    """받는 쪽이 **못 찾는 끝점**을 쥐게 하지 않는다 — 그것은 「저쪽 데이터가 이상하다」 로
+    읽힌다."""
+    vendor, part = _world(client, admin)
+    hidden = _make_type(client, admin, label=f"비공개{uuid.uuid4().hex[:6]}")
+    kind = f"tested_{uuid.uuid4().hex[:6]}"
+    made = client.post(
+        "/api/ontology/import",
+        json={
+            "relation_types": [
+                {
+                    "slug": kind,
+                    "label": "시험",
+                    "src_type_slugs": [part],
+                    "dst_type_slugs": [hidden],
+                }
+            ]
+        },
+        params={"dry_run": "false"},
+        headers=admin.headers,
+    )
+    assert made.status_code == 200, made.text
+
+    catalog = client.get("/api/core", headers=admin.headers).json()
+    entry = next(one for one in catalog["types"] if one["slug"] == part)
+    assert kind not in entry["relations"]
+    assert entry["relations_endpoint"] is None
+    assert _relations(client, admin, part)["items"] == []
+    assert vendor
+
+
+def test_도는_적재보다_앞선_시각을_주지_않는다(
+    client: TestClient, admin: Signed, db: Session
+) -> None:
+    """**긴 적재가 도는 동안 받아 가면 그 적재분을 영영 놓쳤다.**
+
+    `objects.updated_at` 은 `now()`, 곧 트랜잭션이 **시작한** 시각이다. 2만 줄 적재가 T0 에
+    시작해 T2 에 끝나면 그 행들의 시각은 전부 T0 이고, 그 사이에 받아 간 쪽은 그것을 못 본
+    채 `as_of=T1` 을 적어 둔다 — 다음 호출은 `updated_at > T1` 이라 그 적재를 건너뛴다.
+
+    그래서 `as_of` 는 **지금 도는 트랜잭션 중 가장 먼저 시작한 것보다 앞**이어야 한다.
+    """
+    from sqlalchemy.orm import Session as RawSession
+
+    from app.database import SessionLocal
+    from app.modules.coreapi import services
+
+    vendor, _part = _world(client, admin)
+    # 다른 세션이 트랜잭션을 열어 두고 아직 안 끝냈다 — 긴 적재가 도는 상황이다.
+    other: RawSession = SessionLocal()
+    try:
+        other.execute(select(1))  # 트랜잭션을 연다(xact_start 가 생긴다).
+        started = other.scalar(select(func.now()))
+        assert started is not None
+        mark = services.watermark(db)
+        assert mark < started, (mark, started)
+    finally:
+        other.rollback()
+        other.close()
+
+    # 열린 트랜잭션이 없으면 지금이다 — 늦추기만 하고 멈추지는 않는다.
+    after = services.watermark(db)
+    assert after >= mark
+    body = _rows(client, admin, vendor)
+    assert body["as_of"]
+
+
+def test_긴_백필도_기준_시각에서_빠지지_않는다(
+    client: TestClient, admin: Signed, db: Session
+) -> None:
+    """**시간으로만 자르면 긴 백필이 셈에서 빠져 그 구멍이 그대로 돌아온다.**
+
+    기준 시각은 「도는 트랜잭션보다 앞」 인데, 붙잡힌 세션이 그것을 영영 묶지 않게 오래된
+    것은 뺀다. 그 자를 **시간으로만** 두면 한 시간 도는 백필이 빠지고, 그 사이에 받아 간
+    쪽은 백필분을 다시 잃는다. 그래서 자는 **`idle in transaction`** 에만 걸린다 —
+    정말 일하는 중(`active`)은 얼마나 오래됐든 센다.
+    """
+    from app.config import get_settings
+    from app.database import SessionLocal
+    from app.modules.coreapi import services
+
+    vendor, _part = _world(client, admin)
+    settings = get_settings()
+    was = settings.core_watermark_floor_seconds
+    # 자를 1초로 둔다 — 「오래된 것은 뺀다」 를 가장 좁게 켠 경우다. 트랜잭션을 **아주 오래
+    # 전에 시작**했더라도, 방금 무엇이라도 했다면 셈에 들어야 한다.
+    settings.core_watermark_floor_seconds = 1
+    other = SessionLocal()
+    try:
+        other.execute(text("SELECT 1"))
+        started = other.scalar(select(func.now()))
+        assert started is not None
+        # 이 세션은 지금 `idle in transaction` 이다(문장이 끝났다) — 백필의 문장 사이가
+        # 그 상태다. 그때 빠지면 그 적재분을 잃는다.
+        assert services.watermark(db) < started, "도는 적재가 셈에서 빠졌다"
+
+        status = client.get("/api/ontology/core-status", headers=admin.headers)
+        assert status.status_code == 200, status.text
+        assert status.json()["watermark_lag_seconds"] >= 0
+    finally:
+        settings.core_watermark_floor_seconds = was
+        other.rollback()
+        other.close()
+    assert vendor
+
+
+def test_쪽을_넘기는_사이_커밋된_긴_적재도_다음_주기에_받는다(
+    client: TestClient, admin: Signed, db: Session
+) -> None:
+    """**쪽을 넘기는 사이 끝난 적재를 영영 못 받았다**(2026-10-08).
+
+    긴 적재 A 가 T0 에 시작해 도는 동안 뒤에 시작한 짧은 적재들의 행이 쪽을 넘어 커서가 T0 를
+    지나고, 그 사이 A 가 커밋하면 A 의 행(시각 T0 < 커서)은 이번 쪽 넘김에서 건너뛰어진다.
+    마지막 쪽을 부른 때의 시계를 `as_of` 로 주면 그것은 T0 보다 뒤라 다음 주기로도 못 받는다
+    — 그래서 **첫 쪽의 시계**를 커서에 실어 그것을 준다.
+    """
+    from sqlalchemy import update
+
+    from app.database import SessionLocal
+    from app.modules.objects.models import ObjectInstance
+
+    vendor, _part = _world(client, admin)
+    early = _make_object(client, admin, vendor, label="먼저", key="X-0")
+    other = SessionLocal()
+    try:
+        other.execute(select(1))  # 긴 적재 A 가 T0 에 시작했다(아직 안 끝났다).
+        for at in range(1, 4):
+            _make_object(client, admin, vendor, label=f"나중{at}", key=f"V-{at}")
+        first = _rows(client, admin, vendor, limit=2)
+        assert [one["key"] for one in first["items"]] == ["X-0", "V-1"]
+        # A 가 이제 커밋한다 — 그 행의 시각은 시작한 때(T0)라 커서(V-1)보다 앞이다.
+        other.execute(
+            update(ObjectInstance)
+            .where(ObjectInstance.id == uuid.UUID(early["id"]))
+            .values(label="먼저 · 적재가 고침", updated_at=func.now())
+        )
+        other.commit()
+    finally:
+        other.rollback()
+        other.close()
+    db.rollback()  # 이 시험의 세션이 쥔 트랜잭션이 시계를 붙잡지 않게
+    second = _rows(client, admin, vendor, cursor=first["next"], limit=2)
+    assert [one["key"] for one in second["items"]] == ["V-2", "V-3"]
+    assert second["next"] is None and second["as_of"]
+    after = _rows(client, admin, vendor, since=second["as_of"])
+    caught = next((one for one in after["items"] if one["key"] == "X-0"), None)
+    assert caught is not None, "쪽을 넘기는 사이 커밋된 적재분을 다음 주기에도 못 받았다"
+    assert caught["label"] == "먼저 · 적재가 고침"
+    # 옛 커서(시계 없이 `시각|id`)도 받는다.
+    old = "|".join(first["next"].split("|")[:2])
+    assert _rows(client, admin, vendor, cursor=old, limit=2)["next"] is None
+
+
+def _other_workspace(client: TestClient, admin: Signed) -> str:
+    made = client.post(
+        "/api/workspaces",
+        json={"slug": f"other-{uuid.uuid4().hex[:6]}", "name": "다른 팀"},
+        headers=admin.headers,
+    )
+    assert made.status_code == 201, made.text
+    return str(made.json()["slug"])
+
+
+def test_못_보는_부서의_상대는_참조로도_선으로도_안_나간다(
+    client: TestClient, admin: Signed, member: Signed
+) -> None:
+    """참조 칸 · 선의 도착점이 토큰 주인이 못 보는 부서 것이면 그 식별자를 내보내지 않는다 —
+    출발점만 보고 상대를 안 봤더니 안 보이는 부서 객체의 식별자가 샜다(2026-10-08)."""
+    vendor, part = _world(client, admin)
+    other = _other_workspace(client, admin)
+    kind = f"supplies_{uuid.uuid4().hex[:6]}"
+    made = client.post(
+        "/api/ontology/import",
+        json={
+            "relation_types": [
+                {
+                    "slug": kind,
+                    "label": "공급",
+                    "src_type_slugs": [part],
+                    "dst_type_slugs": [vendor],
+                }
+            ]
+        },
+        params={"dry_run": "false"},
+        headers=admin.headers,
+    )
+    assert made.status_code == 200, made.text
+    _make_object(client, admin, vendor, label="ACME", key="ACME-001")
+    hidden = _make_object(
+        client, admin, vendor, label="비밀 공급사", key="HID-1", workspace_slug=other
+    )
+    _make_object(
+        client,
+        admin,
+        part,
+        label="볼트",
+        key="P-1",
+        properties={"grade": "A", "vendor": hidden["id"]},
+    )
+    applied = client.post(
+        f"/api/objects/{part}/relations/import-rows",
+        json={
+            "rows": [
+                {"src": "P-1", "relation": kind, "dst": "ACME-001"},
+                {"src": "P-1", "relation": kind, "dst": "HID-1"},
+            ],
+            "apply": True,
+        },
+        headers=admin.headers,
+    )
+    assert applied.status_code == 200, applied.text
+
+    # 다 보는 사람에게는 그대로.
+    row = next(one for one in _rows(client, admin, part)["items"] if one["key"] == "P-1")
+    assert row["properties"]["vendor"] == "HID-1"
+    assert {one["dst"] for one in _relations(client, admin, part)["items"]} == {
+        "ACME-001",
+        "HID-1",
+    }
+    # 그 부서를 못 보는 사람에게는 — 참조 칸은 빈 값처럼 빠지고, 그 선은 안 온다.
+    mine = next(one for one in _rows(client, member, part)["items"] if one["key"] == "P-1")
+    assert "vendor" not in mine["properties"] and mine["properties"]["grade"] == "A"
+    assert [one["dst"] for one in _relations(client, member, part)["items"]] == ["ACME-001"]
+
+
+def test_보이던_부서에서_옮겨_간_객체는_무덤으로_알린다(
+    client: TestClient, admin: Signed, member: Signed
+) -> None:
+    """보이던 부서에서 못 보는 부서로 옮긴 객체는 그 자격에게 사라진 것이다 — 알리지 않으면
+    받는 쪽은 그 행을 영영 살아 있는 것으로 든다(2026-10-08). 옮긴 뒤의 이름은 싣지 않는다."""
+    vendor, _part = _world(client, admin)
+    other = _other_workspace(client, admin)
+    moving = _make_object(client, admin, vendor, label="옮길 공급사", key="MOV-1")
+    _make_object(client, admin, vendor, label="남는 공급사", key="STAY-1")
+    mark = _rows(client, member, vendor)["as_of"]
+    assert {one["key"] for one in _rows(client, member, vendor)["items"]} == {
+        "MOV-1",
+        "STAY-1",
+    }
+
+    moved = client.post(
+        f"/api/objects/{vendor}/bulk-edit",
+        json={"ids": [moving["id"]], "field": "workspace", "value": other, "apply": True},
+        headers=admin.headers,
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["counts"]["change"] == 1, moved.text
+    client.patch(
+        f"/api/objects/{vendor}/{moving['id']}",
+        json={"label": "옮긴 뒤 새 이름"},
+        headers=admin.headers,
+    )
+
+    after = _rows(client, member, vendor, since=mark)
+    grave = next(one for one in after["items"] if one["key"] == "MOV-1")
+    assert grave["deleted"] is True and grave["hidden"] is True
+    assert grave["properties"] == {} and grave["label"] == "MOV-1"
+    assert all(not one["hidden"] for one in after["items"] if one["key"] != "MOV-1")
+    # 다 보는 사람에게는 옮긴 것이 그냥 바뀐 것이다.
+    seen = next(
+        one
+        for one in _rows(client, admin, vendor, since=mark)["items"]
+        if one["key"] == "MOV-1"
+    )
+    assert seen["deleted"] is False and seen["hidden"] is False
+    assert seen["label"] == "옮긴 뒤 새 이름"
+    # 처음 받는 쪽에는 무덤을 안 보낸다.
+    assert {one["key"] for one in _rows(client, member, vendor)["items"]} == {"STAY-1"}
+
+
+def test_정지된_계정의_토큰은_읽을_수_있는_자격으로_세지_않는다(
+    client: TestClient, admin: Signed, member: Signed, db: Session
+) -> None:
+    """인증이 이미 막는 토큰을 「읽을 수 있는 자격」 으로 세면 그 이름을 쓰는 연동이 있다고
+    읽혀 아무도 못 지운다(2026-10-08)."""
+    from app.modules.accounts.models import User
+
+    _world(client, admin)
+    name = f"member-sync-{uuid.uuid4().hex[:6]}"
+    _token(client, member, name, ["core:read"])
+
+    def listed() -> set[str]:
+        body = client.get("/api/ontology/core-status", headers=admin.headers).json()
+        return {one["name"] for one in body["consumers"]}
+
+    assert name in listed()
+    owner = db.scalars(select(User).where(User.email == member.email)).one()
+    owner.status = "suspended"
+    db.commit()
+    assert name not in listed()

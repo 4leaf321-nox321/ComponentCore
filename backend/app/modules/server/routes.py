@@ -1,4 +1,8 @@
-"""서버 상태 — 지금 뭐가 깔렸나, DB 는 맞춰져 있나, 무엇이 얼마나 쌓였나."""
+"""서버 상태 — 지금 뭐가 깔렸나, DB 는 맞춰져 있나, 무엇이 얼마나 쌓였나.
+
+StandardPlatform 에서 들인 모듈(ADR 0008)의 「쌓인 것」 과 「남은 일」 은 이 모듈이 모른다 — 그
+모듈이 `shared/extensions.py` 에 등록하고 여기는 모아 낸다.
+"""
 
 from __future__ import annotations
 
@@ -18,16 +22,19 @@ from app.modules.jigs.models import Jig
 from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Artifact, Job
 from app.modules.parts.models import Part
+from app.modules.review import services as review_services
 from app.modules.server import bend_check, settings_store, shape_fill
 from app.modules.server.schemas import (
     DiskOut,
     DisplayOut,
+    MaintenanceItemOut,
     ServerStatusOut,
     SettingOut,
     SettingUpdateRequest,
     TableCountOut,
 )
 from app.modules.works.models import Work
+from app.shared import extensions
 from app.shared.auth import current_user, require_system_admin
 
 router = APIRouter(prefix="/server", tags=["server"])
@@ -93,10 +100,33 @@ def status(
             TableCountOut(label="지그", count=count(Jig)),
             TableCountOut(label="작업", count=count(Job)),
             TableCountOut(label="작업물", count=count(Artifact)),
+            *(
+                TableCountOut(label=item.label, count=item.count)
+                for item in extensions.stat_items(db)
+            ),
         ],
         build123d_version=_build123d_version(),
         started_at=STARTED_AT,
     )
+
+
+@router.get("/maintenance", response_model=list[MaintenanceItemOut])
+def maintenance(
+    user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> list[MaintenanceItemOut]:
+    """남은 일 — 부서 홈이 보여 준다(StandardPlatform 그대로). **0 건인 항목은 안 내보낸다**
+    (레지스트리가 거른다). 검토함에 그 종류가 있으면 그리로 간다(SP ADR 0027)."""
+    relinked = review_services.maintenance_links(db, user)
+    return [
+        MaintenanceItemOut(
+            key=item.key,
+            label=item.label,
+            count=item.count,
+            link=relinked.get(item.key, item.link),
+            severity=item.severity,
+        )
+        for item in extensions.maintenance_items(db, user)
+    ]
 
 
 @router.get("/workers")

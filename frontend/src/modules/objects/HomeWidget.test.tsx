@@ -1,0 +1,201 @@
+/**
+ * 홈 위젯이 지키는 것 — **축이 있으면 그림, 없으면 수 하나, 깨져도 홈은 선다.**
+ */
+
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
+import { describe, expect, it, vi } from 'vitest'
+
+const objectApi = vi.hoisted(() => ({ summary: vi.fn(), list: vi.fn() }))
+const viewApi = vi.hoisted(() => ({ update: vi.fn() }))
+vi.mock('@/modules/objects/api', () => ({ objectApi, viewApi }))
+vi.mock('@/shared/charts', () => ({
+  Chart: ({ title }: { title?: string }) => <div data-testid="chart">{title}</div>,
+}))
+
+const SUMMARY = {
+  group_field: 'properties.grade',
+  group_label: '등급',
+  order: 'desc',
+  split_field: '',
+  split_label: '',
+  splits: [],
+  other_splits: 0,
+  metric: 'count',
+  metric_label: '건수',
+  total: 7,
+  buckets: [{ key: 'A', label: 'A', count: 7, value: null, parts: [] }],
+  other_groups: 0,
+  other_count: 0,
+  group_options: [],
+  metric_options: [],
+}
+
+function widget(overrides: Record<string, unknown> = {}) {
+  return {
+    type_label: '부품',
+    icon: 'Box',
+    workspace_slug: 'cae',
+    workspace_name: '해석팀',
+    view: {
+      id: 'v1',
+      type_slug: 'part',
+      name: '등급별',
+      query: {
+        q: '',
+        status: null,
+        conditions: [{ field: 'grade', op: 'eq' as const, value: 'A' }],
+      },
+      owner_user_id: 'u1',
+      owner_label: '나',
+      workspace_slug: 'cae',
+      summary: {
+        group_by: 'properties.grade',
+        split_by: '',
+        metric: 'count',
+        metric_field: null,
+        chart: 'bar',
+        stacked: false,
+        order: 'desc',
+      },
+      home_order: 0,
+      can_edit: true,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      ...overrides,
+    },
+  }
+}
+
+async function show(one: ReturnType<typeof widget>, props: Record<string, unknown> = {}) {
+  const { HomeWidget } = await import('@/modules/objects/HomeWidget')
+  const onChanged = vi.fn()
+  render(
+    <MemoryRouter>
+      <HomeWidget widget={one} onChanged={onChanged} {...props} />
+    </MemoryRouter>,
+  )
+  return onChanged
+}
+
+describe('홈 위젯', () => {
+  it('기준이 있으면 그림을 그리고, 제목은 그 뷰로 간다', async () => {
+    objectApi.summary.mockResolvedValue(SUMMARY)
+    await show(widget())
+    await waitFor(() => expect(screen.getByTestId('chart')).toBeInTheDocument())
+    // 홈의 숫자를 보고 다음에 하는 일은 언제나 「그게 뭔데」 다 — 조건까지 실어 보낸다.
+    // 위젯은 연도 없이 센다 — 목록의 기본 「올해」 가 걸리면 수가 달라서 `year=all` 을 싣는다.
+    expect(screen.getByRole('link', { name: '등급별' })).toHaveAttribute(
+      'href',
+      '/o/part?f.grade.eq=A&year=all&view=v1',
+    )
+  })
+
+  it('상태로 거른 뷰는 그 상태로 세고, 같은 상태로 목록을 연다', async () => {
+    // 세는 조건과 여는 조건이 갈리면 홈의 「12건」 을 눌러 30건이 열린다(2026-10-08).
+    objectApi.summary.mockClear()
+    objectApi.summary.mockResolvedValue(SUMMARY)
+    await show(widget({ query: { q: '', status: 'deprecated', conditions: [] } }))
+    await waitFor(() => expect(objectApi.summary).toHaveBeenCalled())
+    expect(objectApi.summary.mock.calls.at(-1)?.[1]).toMatchObject({ status: 'deprecated' })
+    expect(screen.getByRole('link', { name: '등급별' })).toHaveAttribute(
+      'href',
+      '/o/part?status=deprecated&year=all&view=v1',
+    )
+  })
+
+  it('기준이 없는 뷰는 수 하나다 — 「미승인 12건」 은 그림이 필요 없다', async () => {
+    objectApi.summary.mockResolvedValue({ ...SUMMARY, total: 12 })
+    await show(
+      widget({ summary: { group_by: '', metric: 'count', metric_field: null, chart: 'bar' } }),
+    )
+    await waitFor(() => expect(screen.getByText('12')).toBeInTheDocument())
+    expect(screen.queryByTestId('chart')).not.toBeInTheDocument()
+  })
+
+  it('한 위젯이 깨져도 홈은 선다 — 정의가 바뀌어 기준이 사라질 수 있다', async () => {
+    objectApi.summary.mockRejectedValue(new Error('422'))
+    await show(widget())
+    await waitFor(() => expect(screen.getByText(/지금 셀 수 없습니다/)).toBeInTheDocument())
+    expect(screen.getByRole('link', { name: '목록에서 확인' })).toBeInTheDocument()
+  })
+})
+
+describe('홈 게시 해제', () => {
+  it('부서 관리자에게만 메뉴가 보인다', async () => {
+    objectApi.summary.mockResolvedValue(SUMMARY)
+    await show(widget())
+    expect(screen.queryByRole('button', { name: '위젯 메뉴' })).not.toBeInTheDocument()
+
+    cleanup()
+    await show(widget(), { canEdit: true })
+    expect(screen.getByRole('button', { name: '위젯 메뉴' })).toBeInTheDocument()
+  })
+
+  it('내려도 **뷰는 안 지운다** — 필터까지 잃을 이유가 없다', async () => {
+    objectApi.summary.mockResolvedValue(SUMMARY)
+    viewApi.update.mockResolvedValue({})
+    const onChanged = await show(widget(), { canEdit: true })
+
+    await userEvent.click(screen.getByRole('button', { name: '위젯 메뉴' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: /홈 게시 해제/ }))
+
+    await waitFor(() =>
+      expect(viewApi.update).toHaveBeenCalledWith('part', 'v1', { on_home: false }),
+    )
+    expect(onChanged).toHaveBeenCalled()
+  })
+
+  it('끝에서는 그 방향 단추를 안 보인다', async () => {
+    objectApi.summary.mockResolvedValue(SUMMARY)
+    await show(widget(), { canEdit: true, index: 0, total: 2 })
+    await userEvent.click(screen.getByRole('button', { name: '위젯 메뉴' }))
+    expect(await screen.findByRole('menuitem', { name: /뒤로/ })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /앞으로/ })).not.toBeInTheDocument()
+  })
+})
+
+describe('목록으로 세운 위젯', () => {
+  const asList = () =>
+    widget({
+      summary: {
+        group_by: '',
+        split_by: '',
+        metric: 'count',
+        metric_field: null,
+        chart: 'list',
+        stacked: false,
+        order: 'desc',
+      },
+    })
+
+  it('세는 대신 몇 줄을 읽는다 — 「최근 들어온 것」 은 이름이 보여야 한다', async () => {
+    objectApi.list.mockResolvedValue({
+      items: [
+        { id: 'x', label: '볼트', key: 'P-1' },
+        { id: 'y', label: '너트', key: null },
+      ],
+      total: 2,
+      limit: 5,
+      offset: 0,
+    })
+    await show(asList())
+    expect(await screen.findByText('볼트')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /너트/ })).toHaveAttribute('href', '/o/part/y')
+    // 그림도 큰 숫자도 안 그린다.
+    expect(screen.queryByTestId('chart')).not.toBeInTheDocument()
+  })
+
+  it('해당하는 것이 없으면 그렇다고 말한다', async () => {
+    objectApi.list.mockResolvedValue({ items: [], total: 0, limit: 5, offset: 0 })
+    await show(asList())
+    expect(await screen.findByText('지금은 해당하는 것이 없습니다.')).toBeInTheDocument()
+  })
+
+  it('여러 부서를 함께 볼 때는 어디 것인지 적는다', async () => {
+    objectApi.summary.mockResolvedValue(SUMMARY)
+    await show(widget(), { showWorkspace: true })
+    expect(await screen.findByText('해석팀 · 부품')).toBeInTheDocument()
+  })
+})

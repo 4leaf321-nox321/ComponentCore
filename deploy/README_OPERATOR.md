@@ -36,7 +36,9 @@ cd <slug>-<태그>
 ls
 #  app.sif  deploy.sh  ha.sh  pg-ha.sh  backup.sh  restore.sh
 #  app.service.template  worker.service.template  mcp.service.template
-#  backup.service.template  backup.timer.template  .env.example  BUILD_INFO  README.md  쉬운-설치.md
+#  backup.service.template  backup.timer.template  cleanup.service.template  cleanup.timer.template
+#  sync.service.template  sync.timer.template  metrics.service.template  metrics.timer.template
+#  .env.example  BUILD_INFO  README.md  쉬운-설치.md
 #  mcp_server/   (Claude 연동 MCP 서버 + 오프라인 설치용 휠)
 #  apptainer_debs/  (폐쇄망용 apptainer .deb — prepare 가 먼저 본다)
 ```
@@ -387,6 +389,29 @@ sudo ./deploy.sh status                 # 다음 차례가 언제인지
   버전 · 사양을 쓴다.
 
 ---
+
+## 5e. 기준정보(온톨로지) — 데이터 소스 동기화 · 지표 타이머
+
+StandardPlatform 에서 들인 온톨로지(ADR 0008)가 주기로 도는 일은 둘이고, `install` · `update` 가
+타이머로 건다. 둘 다 **「차례가 된 것」 을 데이터 작업으로 넣기만 하고** 돌리는 것은 작업 워커다
+(5b-2) — 그래서 진행 · 실패 이유는 화면의 「데이터 작업」 에서 본다.
+
+| 타이머 | 언제 | 하는 일 |
+| --- | --- | --- |
+| `<slug>-sync.timer` | 5분마다 | `scripts/sync_datasources.py --due` — 간격(관리 › 데이터 소스에서 소스마다 정함)이 지난 소스를 동기화한다. SP 코어(`sp_core`) 받기도 이것이다 |
+| `<slug>-metrics.timer` | 매시 30분 | `scripts/recompute_metrics.py --due` — 주기가 지난 지표를 다시 센다. 「매일 밤 · N일마다 밤」 지표는 `.env` 의 `METRICS_NIGHT_HOUR`(기본 2, 서버 현지 시각)에만 |
+
+소스 · 지표가 없으면 목록만 보고 끝난다. 이중화에서 두 서버에 다 걸려도 DB 의 자문 잠금이 한 대만
+통과시킨다.
+
+```bash
+sudo systemctl list-timers '<slug>-sync.timer' '<slug>-metrics.timer'
+journalctl -u <slug>-sync -u <slug>-metrics --since today
+sudo systemctl start <slug>-sync          # 지금 한 번 — 차례가 된 것만
+# 타이머 없이 깔려면(이미 걸린 것은 아래 disable 로 끈다)
+sudo SYNC_ENABLED=0 METRICS_ENABLED=0 ./deploy.sh update
+sudo systemctl disable --now <slug>-sync.timer <slug>-metrics.timer
+```
 
 ## 6. 한 서버에 여러 플랫폼
 

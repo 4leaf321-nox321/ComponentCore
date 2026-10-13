@@ -13,7 +13,15 @@ FRONTEND_MODULES = BACKEND.parent / "frontend" / "src" / "modules"
 
 #: 백엔드에만 있는 모듈 — 화면이 없다. **사유와 함께** 적는다.
 FRONTEND_MERGED: set[str] = {
-    "audit",  # 접근 로그는 모델만 있다. 보는 화면이 생기면 여기서 뺀다.
+    # 아래 셋은 StandardPlatform 의 사유 그대로다(ADR 0008).
+    # 묶음 가져오기 — 지금은 MCP 와 로컬 정제 도구가 부른다. 묶음을 올려 미리 보는 화면이
+    # 생기면 그 모듈을 만들고 여기서 뺀다.
+    "bundles",
+    # RDF/OWL 내보내기 — 화면은 온톨로지 › 가져오기 페이지의 링크뿐이라 모듈을 안 둔다.
+    "rdf",
+    # 코어 API — 바깥 시스템이 쓰는 창구라 이 설치의 화면이 없다. 여는 것은 타입의 칸
+    # 하나(온톨로지 › 타입)라 그 화면이 이미 있다.
+    "coreapi",
 }
 
 

@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { ApiError, api } from '@/shared/api/client'
+import type { Pat } from '@/shared/api/types'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { Badge } from '@/shared/components/ui/badge'
 import { Button } from '@/shared/components/ui/button'
@@ -22,17 +23,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/components/ui
 import { useResource } from '@/shared/hooks/useResource'
 import { copyText } from '@/shared/lib/clipboard'
 import { shownDateTime } from '@/shared/lib/datetime'
-
-interface Pat {
-  id: string
-  name: string
-  prefix: string
-  scopes: string[]
-  created_at: string
-  expires_at: string | null
-  last_used_at: string | null
-  revoked_at: string | null
-}
 
 interface McpInfo {
   url: string

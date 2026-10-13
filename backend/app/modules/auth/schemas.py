@@ -18,6 +18,21 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=200)
 
 
+class WorkspaceMembershipOut(BaseModel):
+    """소속 부서 하나 — StandardPlatform 과 같은 모양(ADR 0008). 화면의 부서 선택기 · 「고칠 수
+    있나」 표시가 이것을 읽는다(판정은 서버)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    workspace_id: uuid.UUID
+    slug: str
+    name: str
+    path: str
+    """개발본부 / 재료시험팀 — 같은 이름의 팀이 본부마다 있을 때 어느 쪽인지 가른다."""
+    depth: int
+    role: str
+
+
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -27,6 +42,10 @@ class UserOut(BaseModel):
     status: str
     is_system_admin: bool
     must_change_password: bool
+    home_workspace_slug: str | None = None
+    """대표 소속 부서."""
+    memberships: list[WorkspaceMembershipOut] = Field(default_factory=list)
+    """소속 부서 — 조직도 순서."""
 
 
 class LoginResponse(BaseModel):

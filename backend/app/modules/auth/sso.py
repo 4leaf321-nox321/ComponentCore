@@ -239,7 +239,7 @@ def _session(db: Session, request: Request, response: Response, user: User) -> L
     )
     set_refresh_cookie(request, response, refresh_raw)
     return LoginResponse(
-        access_token=access, expires_in=expires_in, user=services.user_out(user)
+        access_token=access, expires_in=expires_in, user=services.user_out(db, user)
     )
 
 

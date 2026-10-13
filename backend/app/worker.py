@@ -57,6 +57,13 @@ class PlatformChores:
         self._last_gc = now - max(self._gc_every - self.GC_FIRST_AFTER, 0.0)
         self._gc_thread: threading.Thread | None = None
 
+    @staticmethod
+    def retry_webhooks() -> None:
+        """**밀린 웹훅은 여기서 다시 살아난다**(프로세스 안 타이머는 재시작에 사라진다)."""
+        with SessionLocal() as db:
+            if webhooks.pending_count(db):
+                webhooks.enqueue_dispatch(db)
+
     def tick(self) -> None:
         now = time.monotonic()
         if now - self._last_beat >= self.HEARTBEAT_EVERY:
@@ -69,10 +76,7 @@ class PlatformChores:
                 logger.warning("멎은 데이터 작업 %d개를 되살렸습니다", revived)
             self._last_recover = now
         if now - self._last_webhook >= webhooks.RETRY_AFTER_SECONDS:
-            # **밀린 웹훅은 여기서 다시 살아난다**(프로세스 안 타이머는 재시작에 사라진다).
-            with SessionLocal() as db:
-                if webhooks.pending_count(db):
-                    webhooks.enqueue_dispatch(db)
+            self.retry_webhooks()
             self._last_webhook = now
         if now - self._last_purge >= self.PURGE_EVERY:
             with SessionLocal() as db:

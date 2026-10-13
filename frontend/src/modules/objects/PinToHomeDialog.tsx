@@ -1,0 +1,181 @@
+/**
+ * 홈에 올리기 — **그림을 막 그려 놓고 보는 그 자리에서.**
+ *
+ * 사람이 「이거 홈에 두고 싶다」 고 생각하는 순간은 통계로 그림을 그린 직후다.
+ * 그때 뷰 메뉴를 열어 저장하고, 부서와 함께 쓰기를 켜고, 메뉴를 다시 열어 올리게
+ * 하면 — 그 경로를 찾아낸 사람만 이 기능을 쓴다. 여기서는 **이름 하나만** 받고
+ * 나머지(부서 뷰로 저장 + 홈에 올리기)는 한 요청으로 끝낸다.
+ *
+ * 요청을 하나로 두는 이유: 둘로 나누면 저장은 됐는데 안 올라간 상태가 생기고, 그때
+ * 사람은 자기가 무엇을 빠뜨렸는지 모른다.
+ */
+
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import { House } from 'lucide-react'
+
+import { viewApi } from '@/modules/objects/api'
+import type { SavedViewQuery, SavedViewSummary } from '@/modules/objects/api'
+import { OwnerWorkspacePicker } from '@/modules/workspaces/OwnerWorkspacePicker'
+import { ErrorNotice } from '@/shared/components/ErrorNotice'
+import { Button } from '@/shared/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/shared/components/ui/dialog'
+import { Input } from '@/shared/components/ui/input'
+
+interface Props {
+  typeSlug: string
+  /** 올릴 부서의 첫 값 — 보고 있던 부서(홈에서 왔으면 그 부서), 아니면 대표 소속. 창에서
+   *  **내가 관리자인 부서 중에서** 바꿀 수 있다(서버가 그 부서의 관리자만 받아 준다). */
+  workspaceSlug: string
+  query: SavedViewQuery
+  summary: SavedViewSummary | null
+  /** 이름 칸의 첫 값 — 무엇을 올리는지 사람이 이미 안다. */
+  suggested: string
+  onClose: () => void
+}
+
+export function PinToHomeDialog({
+  typeSlug,
+  workspaceSlug,
+  query,
+  summary,
+  suggested,
+  onClose,
+}: Props) {
+  const [name, setName] = useState(suggested)
+  const [target, setTarget] = useState(workspaceSlug)
+  /** 축이 없을 때의 두 모양 — 수 하나이거나 몇 줄이거나. 「미승인 12건」 은 수가 낫고,
+   *  「최근 들어온 것」 은 이름이 보여야 한다. */
+  const [shape, setShape] = useState<'count' | 'list'>('count')
+  const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState(false)
+  const [error, setError] = useState<Error | null>(null)
+
+  async function pin() {
+    setBusy(true)
+    setError(null)
+    try {
+      await viewApi.create(typeSlug, {
+        name: name.trim(),
+        query,
+        workspace_slug: target,
+        summary: summary ?? {
+          group_by: '',
+          split_by: '',
+          metric: 'count',
+          metric_field: null,
+          chart: shape,
+          stacked: false,
+          order: 'desc',
+        },
+        on_home: true,
+      })
+      setDone(true)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>부서 홈 게시</DialogTitle>
+          <DialogDescription>
+            지금 조건 {query.conditions.length}개와 {summary ? '통계 기준을' : '검색 조건을'} 아래
+            부서의 뷰로 저장하고 그 부서 홈에 게시합니다. 부서 사람 모두가 같은 것을 봅니다.
+          </DialogDescription>
+        </DialogHeader>
+
+        {done ? (
+          <p className="text-sm">
+            올렸습니다.{' '}
+            <Link to={`/w/${target}`} className="underline">
+              홈에서 보기
+            </Link>
+            . 게시 해제는 목록의 「뷰」 메뉴에서 합니다.
+          </p>
+        ) : (
+          <form
+            className="space-y-3"
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (name.trim()) void pin()
+            }}
+          >
+            <Input
+              autoFocus
+              value={name}
+              placeholder="홈에 뜰 이름 — 「등급별 공급사」 처럼"
+              onChange={(event) => setName(event.target.value)}
+            />
+            <div className="space-y-1">
+              <label htmlFor="pin-workspace" className="text-sm">
+                게시할 부서 홈
+              </label>
+              <OwnerWorkspacePicker
+                id="pin-workspace"
+                className="w-full"
+                value={target}
+                onChange={setTarget}
+              />
+            </div>
+            {!summary && (
+              /* 축이 없으면 **무엇으로 세울지** 고르게 한다. 둘 다 쓸모가 있다. */
+              <div className="space-y-1">
+                <span className="text-sm">어떻게 세울까요</span>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={shape === 'count' ? 'default' : 'outline'}
+                    onClick={() => setShape('count')}
+                  >
+                    수 하나
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={shape === 'list' ? 'default' : 'outline'}
+                    onClick={() => setShape('list')}
+                  >
+                    목록으로
+                  </Button>
+                </div>
+                <p className="text-muted-foreground text-xs">
+                  「미승인 12건」 은 수가 낫고, 「최근 들어온 것」 은 이름이 보여야 합니다. 그림으로
+                  게시하려면 닫고 통계 기준을 선택한 뒤 다시 클릭하세요.
+                </p>
+              </div>
+            )}
+            <ErrorNotice error={error} />
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+                취소
+              </Button>
+              <Button type="submit" disabled={busy || !name.trim()}>
+                <House className="mr-1 size-4" />
+                {busy ? '올리는 중…' : '홈 게시'}
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
+
+        {done && (
+          <DialogFooter>
+            <Button onClick={onClose}>닫기</Button>
+          </DialogFooter>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}

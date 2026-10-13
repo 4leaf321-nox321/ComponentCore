@@ -13,7 +13,9 @@ from app.config import get_settings
 from app.modules.accounts.models import User
 from app.modules.auth import security
 from app.modules.auth.models import PersonalAccessToken, RefreshToken
-from app.modules.auth.schemas import PatOut, UserOut
+from app.modules.auth.schemas import PatOut, UserOut, WorkspaceMembershipOut
+from app.modules.workspaces import services as workspaces
+from app.modules.workspaces.models import Workspace, WorkspaceMember
 from app.shared.errors import AppError, Forbidden, NotFound, code
 
 _INVALID_LOGIN = "아이디 또는 비밀번호가 올바르지 않습니다."
@@ -189,8 +191,42 @@ def change_password(db: Session, user: User, current: str, new: str) -> None:
     revoke_all_for_user(db, user.id)
 
 
-def user_out(user: User) -> UserOut:
-    return UserOut.model_validate(user)
+def user_out(db: Session, user: User) -> UserOut:
+    """로그인한 사람 — 소속 부서까지(StandardPlatform 의 `user_out` 그대로, ADR 0008)."""
+    rows = db.execute(
+        select(WorkspaceMember, Workspace)
+        .join(Workspace, Workspace.id == WorkspaceMember.workspace_id)
+        .where(WorkspaceMember.user_id == user.id)
+    ).all()
+    # 순서와 경로는 **조직도가 정한다** — 이름순이면 부서 선택기의 순서가 부서 관리 화면과
+    # 갈린다.
+    tree = {node.id: (depth, path) for node, depth, path in workspaces.ordered_tree(db)}
+    order = {node_id: index for index, node_id in enumerate(tree)}
+    rows = sorted(rows, key=lambda pair: order.get(pair[1].id, 10**6))
+    home_slug: str | None = None
+    if user.home_workspace_id is not None:
+        home = db.get(Workspace, user.home_workspace_id)
+        home_slug = home.slug if home else None
+    return UserOut(
+        id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        status=user.status,
+        is_system_admin=user.is_system_admin,
+        must_change_password=user.must_change_password,
+        home_workspace_slug=home_slug,
+        memberships=[
+            WorkspaceMembershipOut(
+                workspace_id=workspace.id,
+                slug=workspace.slug,
+                name=workspace.name,
+                path=tree.get(workspace.id, (0, workspace.name))[1],
+                depth=tree.get(workspace.id, (0, workspace.name))[0],
+                role=member.role,
+            )
+            for member, workspace in rows
+        ],
+    )
 
 
 # --- PAT ---------------------------------------------------------------------

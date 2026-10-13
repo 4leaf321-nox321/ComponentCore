@@ -243,6 +243,11 @@ class Settings(BaseSettings):
     (`kinds.Kind.max_file_setting`). 처리가 파일을 통째로 메모리에 올려 풀므로 상한이 있어야
     한다."""
 
+    job_photos_max_bytes: int = 2 * 1024 * 1024 * 1024
+    """**사진 zip**(사진 일괄 업로드)의 상한 — 2GB. zip 은 받을 때도(흘려 받기) 처리할 때도
+    (파일로 열어 한 장씩) 통째로 메모리에 올리지 않으므로 표 파일(`job_file_max_bytes`)과
+    상한이 다르다."""
+
     job_file_ttl_days: int = 7
     """작업 파일을 지우기까지. 임시물이 영구물이 되면 표가 DB 의 대부분이 된다."""
 
@@ -265,6 +270,11 @@ class Settings(BaseSettings):
     """**끝난** 작업 기록을 지우기까지. 타이머가 소스마다 5분에 한 줄을 넣으므로 하루 288행이
     쌓인다 — 안 지우면 사람이 올린 작업이 그 사이에 파묻혀 「작업」 화면이 못 쓰게 된다.
     도는 것(`queued`·`running`)은 아무리 오래돼도 안 지운다."""
+
+    metrics_night_hour: int = 2
+    """하루 이상 주기의 지표를 세는 **밤 시간**(서버 현지 시각, 0 ~ 23). 타이머
+    (`scripts/recompute_metrics.py --due`)는 매시간 깨고, 「매일 밤 · N일마다 밤」 지표는 이
+    시간에만 센다(`metrics/services.due`)."""
 
     metrics_full_every_days: int = 7
     """**전량으로 다시 세는 주기**(일). 그 사이 타이머 · 적재 뒤의 계산은 바뀐 기간만 센다

@@ -48,7 +48,7 @@ def login(
     )
     set_refresh_cookie(request, response, refresh_raw)
     return LoginResponse(
-        access_token=access, expires_in=expires_in, user=services.user_out(user)
+        access_token=access, expires_in=expires_in, user=services.user_out(db, user)
     )
 
 
@@ -65,7 +65,7 @@ def refresh(
     )
     set_refresh_cookie(request, response, new_raw)
     return LoginResponse(
-        access_token=access, expires_in=expires_in, user=services.user_out(user)
+        access_token=access, expires_in=expires_in, user=services.user_out(db, user)
     )
 
 
@@ -78,8 +78,8 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)) 
 
 
 @router.get("/me", response_model=UserOut)
-def me(user: User = Depends(current_user)) -> UserOut:
-    return services.user_out(user)
+def me(user: User = Depends(current_user), db: Session = Depends(get_db)) -> UserOut:
+    return services.user_out(db, user)
 
 
 @router.patch("/me", response_model=UserOut)
@@ -91,7 +91,7 @@ def update_me(
     user.display_name = payload.display_name.strip()
     db.commit()
     db.refresh(user)
-    return services.user_out(user)
+    return services.user_out(db, user)
 
 
 @router.post("/change-password", status_code=204)

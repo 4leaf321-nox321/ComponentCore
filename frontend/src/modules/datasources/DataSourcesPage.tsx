@@ -1,0 +1,1503 @@
+/**
+ * 데이터 소스 — **바깥 시스템(OData)에서 읽어 온톨로지를 채운다.**
+ *
+ * 규칙은 일괄 입력과 같다: 계획 먼저, 전부 아니면 무, 같은 객체면 고침, 빈 칸은 안 건드림.
+ * 다른 것은 행이 어디서 오는가(OData)와 같은 객체를 어떻게 다시 찾는가(바깥 식별자를
+ * 별칭으로 남김)뿐이다. 「미리 보기」 로 칸 대응을 맞추고, 「동기화」 는 계획을 보여 준 뒤
+ * 적용한다.
+ */
+
+import { useState } from 'react'
+import { Eye, Plus, RefreshCw, Trash2, Wand2, X } from 'lucide-react'
+
+import { datasourceApi } from '@/modules/datasources/api'
+import {
+  RA_FEED,
+  RA_PHASE_DEFAULT,
+  RaOptionsFields,
+  RaReportTypeMaker,
+} from '@/modules/datasources/RaReportsFields'
+import type {
+  AuthKind,
+  CoreSuggest,
+  DataSource,
+  SourceKind,
+  SourceOptions,
+  DataSourceWrite,
+  MappingColumn,
+  Preview,
+  SyncResult,
+} from '@/modules/datasources/api'
+import { ontologyApi } from '@/modules/ontology/api'
+import type { PropertyDef } from '@/modules/ontology/api'
+import { workspaceApi } from '@/modules/workspaces/api'
+import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
+import { EmptyState } from '@/shared/components/EmptyState'
+import { ErrorNotice } from '@/shared/components/ErrorNotice'
+import { PageHeader } from '@/shared/components/PageHeader'
+import { Button } from '@/shared/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/shared/components/ui/dialog'
+import { Input } from '@/shared/components/ui/input'
+import { Label } from '@/shared/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/shared/components/ui/select'
+import { Textarea } from '@/shared/components/ui/textarea'
+import { useResource } from '@/shared/hooks/useResource'
+import { shownDateTime } from '@/shared/lib/datetime'
+
+const NONE = '__none__'
+const KIND_LABEL: Record<string, string> = {
+  odata: 'OData',
+  rest: 'REST',
+  file: '파일',
+  sp_core: '형제 코어',
+  ra_reports: 'RA 보고서',
+}
+
+/** RA 보고서 소스만 아는 설정 — 다른 종류로 바꾸면 떨군다(서버가 모르는 설정을 거절한다). */
+const RA_OPTION_KEYS: readonly string[] = ['board', 'include_descendants', 'phase', 'include_text']
+
+function optionsFor(kind: SourceKind, options: SourceOptions): SourceOptions {
+  const ra = kind === 'ra_reports'
+  const kept = Object.fromEntries(
+    Object.entries(options).filter(([key]) => RA_OPTION_KEYS.includes(key) === ra),
+  ) as SourceOptions
+  // 단계는 **늘 적어 둔다** — 기본이 바뀌어도 저장된 소스가 조용히 다른 것을 받지 않게.
+  return ra ? { phase: RA_PHASE_DEFAULT, ...kept } : kept
+}
+
+export default function DataSourcesPage() {
+  const list = useResource(() => datasourceApi.list(), [])
+  const schema = useResource(() => ontologyApi.schema(), [])
+  const workspaces = useResource(() => workspaceApi.list(true), [])
+  const [editing, setEditing] = useState<DataSource | 'new' | null>(null)
+  const [removing, setRemoving] = useState<DataSource | null>(null)
+  const [opened, setOpened] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState<{ source: DataSource; result: SyncResult } | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<Error | null>(null)
+  /** 동기화(계획 · 적용)를 돌릴 때마다 하나씩 — 펼쳐 둔 「최근 동기화」 가 다시 읽는다. 안 읽던
+   *  때는 방금 돌린 것이 목록에 없어, 기록이 안 남은 줄 알았다(2026-10-08). */
+  const [runsVersion, setRunsVersion] = useState(0)
+
+  const sources = list.data ?? []
+
+  async function plan(source: DataSource) {
+    setBusy(source.slug)
+    setError(null)
+    try {
+      setSyncing({ source, result: await datasourceApi.sync(source.slug, false) })
+    } catch (caught) {
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+    } finally {
+      setBusy(null)
+      setRunsVersion((before) => before + 1)
+    }
+  }
+
+  return (
+    <div className="mx-auto max-w-5xl space-y-6">
+      <PageHeader
+        title="데이터 소스"
+        description="바깥 시스템(OData)에서 읽어 온톨로지를 채웁니다. 규칙은 일괄 입력과 같습니다 — 계획 먼저, 전부 아니면 무."
+        actions={
+          <Button size="sm" onClick={() => setEditing('new')}>
+            <Plus className="mr-1 size-4" />
+            생성
+          </Button>
+        }
+      />
+
+      {list.error && <ErrorNotice error={list.error} />}
+      {error && <ErrorNotice error={error} />}
+
+      {list.data && sources.length === 0 ? (
+        <EmptyState
+          title="데이터 소스가 없습니다"
+          hint="OData 서비스 주소·엔티티 셋·칸 대응을 적으면, 그 표의 행이 한 타입의 객체로 들어옵니다. ENOVIA·Teamcenter·ERP 가 이런 표를 냅니다."
+        />
+      ) : (
+        <ul className="divide-y rounded-md border">
+          {sources.map((source) => (
+            <li key={source.slug} className="space-y-2 p-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  className="text-left font-medium hover:underline"
+                  onClick={() => setOpened(opened === source.slug ? null : source.slug)}
+                >
+                  {source.name}
+                </button>
+                <code className="text-muted-foreground text-xs">{source.slug}</code>
+                {!source.is_active && (
+                  <span className="text-muted-foreground text-xs">사용 안 함</span>
+                )}
+                {source.last_status && (
+                  <span
+                    className={
+                      source.last_status === 'ok'
+                        ? 'text-xs text-emerald-700 dark:text-emerald-400'
+                        : 'text-destructive text-xs'
+                    }
+                  >
+                    마지막 {source.last_status === 'ok' ? '성공' : '실패'}
+                    {source.last_run_at && ` · ${shownDateTime(source.last_run_at)}`}
+                  </span>
+                )}
+                <span className="ml-auto flex gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy === source.slug}
+                    onClick={() => plan(source)}
+                  >
+                    <RefreshCw className="mr-1 size-3.5" />
+                    동기화
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setEditing(source)}>
+                    수정
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label="데이터 소스 삭제"
+                    onClick={() => setRemoving(source)}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </span>
+              </div>
+              <p className="text-muted-foreground font-mono text-xs break-all">
+                {source.kind === 'file'
+                  ? source.entity_set
+                  : source.kind === 'ra_reports'
+                    ? `${source.base_url} · 조직 ${source.options.board || '(선택하지 않음)'}${
+                        source.options.include_descendants === false ? '' : ' 및 하위 조직'
+                      }`
+                    : `${source.base_url}/${source.entity_set.replace(/^\//, '')}`}
+                {source.kind === 'odata' && source.filter && ` ?$filter=${source.filter}`}
+              </p>
+              <p className="text-muted-foreground text-xs">
+                {KIND_LABEL[source.kind] ?? source.kind} → {source.type_slug}
+                {source.workspace_slug ? ` · ${source.workspace_slug} 부서` : ' · 전역'}
+                {source.interval_minutes > 0
+                  ? ` · ${source.interval_minutes}분마다`
+                  : ' · 손으로만'}
+                {source.source_name && ` · 출처 ${source.source_name}`}
+                {source.deprecate_missing && ' · 사라진 행은 사용 중지'}
+                {(source.kind === 'sp_core' || source.options.mirror) && ' · 바깥이 정본'}
+                {source.kind === 'ra_reports' &&
+                  (source.reconciled_at
+                    ? ` · 마지막 전량 대조 ${shownDateTime(source.reconciled_at)}`
+                    : ' · 아직 전량 대조 전')}
+                {source.auth_kind !== 'none' && ` · 인증 ${source.auth_kind}`}
+              </p>
+              {opened === source.slug && <Runs source={source} version={runsVersion} />}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {editing && (
+        <EditDialog
+          source={editing === 'new' ? null : editing}
+          types={(schema.data?.types ?? []).filter((one) => one.kind_class !== 'system')}
+          onTypesChanged={schema.reload}
+          relationTypes={schema.data?.relation_types ?? []}
+          workspaceSlugs={(workspaces.data ?? []).map((one) => one.slug)}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null)
+            list.reload()
+          }}
+        />
+      )}
+
+      {syncing && (
+        <SyncDialog
+          source={syncing.source}
+          result={syncing.result}
+          onClose={() => {
+            setSyncing(null)
+            list.reload()
+            setRunsVersion((before) => before + 1)
+          }}
+        />
+      )}
+
+      <ConfirmDialog
+        open={removing !== null}
+        title={`「${removing?.name}」 을 삭제합니다`}
+        description="가져온 객체는 남습니다. 그 객체에 남긴 바깥 식별자도 남아서, 같은 slug 로 다시 만들면 이어서 찾습니다."
+        confirmLabel="삭제"
+        destructive
+        onConfirm={async () => {
+          if (removing) await datasourceApi.remove(removing.slug)
+          setRemoving(null)
+          list.reload()
+        }}
+        onClose={() => setRemoving(null)}
+      />
+    </div>
+  )
+}
+
+/** 최근 동기화 기록. `version` 이 바뀌면(이 화면에서 동기화를 돌렸으면) 다시 읽는다. */
+function Runs({ source, version }: { source: DataSource; version: number }) {
+  const runs = useResource(() => datasourceApi.runs(source.slug), [source.slug, version])
+  const rows = runs.data ?? []
+  const [shown, setShown] = useState<string | null>(null)
+  return (
+    <div className="mt-2 space-y-1 rounded-md border p-3 text-xs">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium">최근 동기화 {rows.length}건</span>
+        <Button size="sm" variant="ghost" onClick={runs.reload}>
+          <RefreshCw className="size-3.5" />
+        </Button>
+      </div>
+      {runs.data && rows.length === 0 && (
+        <p className="text-muted-foreground">아직 돌린 적이 없습니다.</p>
+      )}
+      {rows.map((run) => (
+        <div key={run.id} className="flex flex-wrap items-center gap-2">
+          <span
+            className={
+              run.status === 'ok'
+                ? 'text-emerald-700 dark:text-emerald-400'
+                : run.status === 'failed' && run.finished_at !== null
+                  ? 'text-destructive'
+                  : 'text-muted-foreground'
+            }
+          >
+            {/* 적용은 시작할 때 「실패 · 적용 중…」 을 먼저 적어 둔다(도중에 죽어도 계획으로
+                안 보이게) — 아직 안 끝난 것을 「실패」 라고 부르지 않는다. */}
+            {run.status === 'ok'
+              ? '적용'
+              : run.status === 'failed'
+                ? run.finished_at === null
+                  ? '적용 중'
+                  : '실패'
+                : '계획만'}
+          </span>
+          <span className="text-muted-foreground">{shownDateTime(run.started_at)}</span>
+          <span>{run.actor_label}</span>
+          <span className="text-muted-foreground">
+            행 {run.rows_seen} · {countsText(run.counts)}
+          </span>
+          {run.errors.length > 0 && (
+            <button
+              type="button"
+              className="text-destructive hover:underline"
+              onClick={() => setShown(shown === run.id ? null : run.id)}
+            >
+              오류 {run.errors.length}
+            </button>
+          )}
+          {shown === run.id && (
+            <ul className="bg-muted w-full rounded p-2">
+              {run.errors.map((one, index) => (
+                <li key={index}>{one}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+const COUNT_LABEL: Record<string, string> = {
+  create: '새로',
+  update: '고침',
+  unchanged: '그대로',
+  error: '오류',
+  deprecated: '사용 중지',
+  // RA 보고서(ADR 0018) — 지우지 않고 원본 상태를 적는다.
+  gone: '원본에서 내려감',
+  back: '다시 게시',
+  // 바깥이 한꺼번에 비어 「사라짐」 처리(내려감 · 사용 중지)를 미뤘다 — 일부만 온 응답일 수 있다.
+  gone_held_back: '사라짐 처리 보류',
+  // 이 소스가 「바깥에서 사라져」 중지했던 것이 다시 왔다.
+  revived: '다시 사용',
+  tags_as_text: '글로 남긴 태그',
+  // 선(관계) — 형제 코어 · 한 행이 선 하나인 소스.
+  relations_create: '선 새로',
+  relations_update: '선 고침',
+  relations_unchanged: '선 그대로',
+  relations_error: '선 오류',
+  relations_unlink: '선 끊음',
+  // 끝점이 아직 없어 다음 동기화에서 다시 넣을 선.
+  relations_waiting: '선 기다림',
+}
+
+/** 실행의 수 — 0 은 빼고. `full_read` 는 수가 아니라 「이번엔 전량으로 받았다」 는 표시다. */
+function countsText(counts: Record<string, number>): string {
+  return Object.entries(counts)
+    .filter(([, n]) => n > 0)
+    .map(([k, n]) => (k === 'full_read' ? '전량 대조' : `${COUNT_LABEL[k] ?? k} ${n}`))
+    .join(' · ')
+}
+
+/** 계획을 보고 적용한다 — 일괄 입력의 계획 창과 같은 무늬. */
+function SyncDialog({
+  source,
+  result: initial,
+  onClose,
+}: {
+  source: DataSource
+  result: SyncResult
+  onClose: () => void
+}) {
+  const [result, setResult] = useState(initial)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<Error | null>(null)
+  const ra = source.kind === 'ra_reports'
+  // RA 는 깨진 보고서(번호 · 제목이 빈 것)를 건너뛰고 나머지를 넣는다 — 한 건 때문에 조직
+  // 전체가 멈추지 않게. 그래서 넣을 수 있는가는 서버의 판단(`planned`)을 따른다.
+  // 넣을 수 있는가는 **서버의 판단**(`planned`)을 따른다 — 기록의 말(`errors`)에는 오류가 아닌
+  // 안내(선 기다림 · 처음부터 다시 받음 · 이어 받을 끊김)도 실려, 그것만으로 적용을 막았다
+  // (2026-10-08). RA 는 깨진 보고서(오류 줄)를 건너뛰고 넣되, 끊기면 넣지 않는다(전량 대조라
+  // 일부로는 「내려감」 을 틀리게 적는다).
+  const ok =
+    result.run.status === 'planned' &&
+    (ra ? !result.truncated : (result.counts.error ?? 0) === 0)
+  const problems = result.rows.filter((row) => row.action === 'error')
+
+  async function apply() {
+    setBusy(true)
+    setError(null)
+    try {
+      setResult(await datasourceApi.sync(source.slug, true))
+    } catch (caught) {
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>
+            {source.name} — {result.applied ? '적용했습니다' : '동기화 계획'}
+          </DialogTitle>
+          <DialogDescription>
+            외부에서 {result.run.rows_seen}행을 조회했습니다. {countsText(result.counts)}
+            {!result.applied && !ok && ' — 오류가 있어 아무것도 추가하지 않습니다.'}
+          </DialogDescription>
+        </DialogHeader>
+        {error && <ErrorNotice error={error} />}
+        {/* RA 에서는 게시하면 「검토 중」 에 머무는 것이 보통이라 발행본이 아직 적다(전사 13건,
+            2026-10 RA 실측) — 0건을 「연결이 틀렸다」 로 읽지 않게 이유와 바꾸는 길을 말한다. */}
+        {ra &&
+          result.run.rows_seen === 0 &&
+          (source.options.phase ?? RA_PHASE_DEFAULT) === 'finalized' && (
+            <p className="text-sm">
+              발행본이 아직 없을 수 있습니다 — RA 에서는 게시한 보고서가 「검토 중」 단계에 머무는
+              것이 보통이고, 발행 버튼을 클릭한 보고서는 아직 적습니다. 게시된 보고서까지
+              수신하려면 소스 수정에서 단계를 「게시된 것 전부」 로 변경합니다.
+            </p>
+          )}
+        {result.errors.length > 0 && (
+          <ul className="text-destructive space-y-1 text-sm">
+            {result.errors.map((one, index) => (
+              <li key={index}>{one}</li>
+            ))}
+          </ul>
+        )}
+        {problems.length > 0 && (
+          <div className="max-h-64 overflow-auto rounded-md border text-xs">
+            <table className="w-full">
+              <tbody>
+                {problems.slice(0, 100).map((row) => (
+                  <tr key={row.row} className="border-b">
+                    <td className="text-muted-foreground px-2 py-1 tabular-nums">{row.row}</td>
+                    <td className="px-2 py-1">{row.label}</td>
+                    <td className="text-destructive px-2 py-1">{row.message}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {!result.applied && ok && (
+          <p className="text-muted-foreground text-sm">
+            {ra
+              ? '같은 보고서(RA 번호)는 수정하고, 없으면 생성합니다 — 제목이 같아도 다른 보고서입니다. ' +
+                '번호 · 제목이 빈 보고서는 제외합니다. 이번에 수신하지 않은 보고서는 삭제하지 ' +
+                '않습니다(하루 한 번 전량 대조에서 「원본에서 내려감」 으로 표시).'
+              : '같은 객체(바깥 식별자·식별자·별칭·이름 순)는 수정하고, 없으면 새로 만듭니다. ' +
+                '빈 칸은 변경하지 않습니다.'}
+          </p>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
+            {result.applied ? '닫기' : '취소'}
+          </Button>
+          {!result.applied && (
+            <Button onClick={apply} disabled={busy || !ok}>
+              적용 — {result.counts.create ?? 0}개 새로, {result.counts.update ?? 0}개 고침
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function EditDialog({
+  source,
+  types,
+  onTypesChanged,
+  relationTypes,
+  workspaceSlugs,
+  onClose,
+  onSaved,
+}: {
+  source: DataSource | null
+  types: {
+    slug: string
+    label: string
+    managed_by?: string
+    usage?: 'axis' | 'log'
+    properties: PropertyDef[]
+  }[]
+  /** 타입을 새로 지었으면(「보고서 기록 타입 만들기」) 고르개가 다시 받는다. */
+  onTypesChanged: () => void
+  /** 이 설치의 관계 종류 — 선을 가져오는 소스가 그중 하나를 고른다. */
+  relationTypes: { slug: string; label: string }[]
+  workspaceSlugs: string[]
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [slug, setSlug] = useState(source?.slug ?? '')
+  const [name, setName] = useState(source?.name ?? '')
+  const [kind, setKind] = useState<SourceKind>(source?.kind ?? 'odata')
+  const [options, setOptions] = useState<SourceOptions>(source?.options ?? {})
+  const [baseUrl, setBaseUrl] = useState(source?.base_url ?? '')
+  const [entitySet, setEntitySet] = useState(source?.entity_set ?? '')
+  const [filter, setFilter] = useState(source?.filter ?? '')
+  const [authKind, setAuthKind] = useState<AuthKind>(source?.auth_kind ?? 'none')
+  const [authUser, setAuthUser] = useState(source?.auth_user ?? '')
+  const [authSecret, setAuthSecret] = useState('')
+  const [typeSlug, setTypeSlug] = useState(source?.type_slug ?? types[0]?.slug ?? '')
+  const [workspace, setWorkspace] = useState(source?.workspace_slug ?? NONE)
+  const [externalKey, setExternalKey] = useState(source?.mapping.external_key ?? '')
+  const [columns, setColumns] = useState<MappingColumn[]>(source?.mapping.columns ?? [])
+  /**
+   * **이 소스가 무엇을 가져오나** — 객체인가 선인가. 둘을 섞지 않는다: 한 소스가 둘 다 만들면
+   * 계획이 두 겹이 되어 「무엇이 몇 건인가」 를 한 표로 못 읽는다.
+   */
+  const edges = source?.mapping.relations
+  const [edgeMode, setEdgeMode] = useState(Boolean(edges))
+  const [edgeRelation, setEdgeRelation] = useState(
+    typeof edges?.relation === 'string' ? edges.relation : '',
+  )
+  const [edgeSrc, setEdgeSrc] = useState(edges?.src?.column ?? '')
+  const [edgeDst, setEdgeDst] = useState(edges?.dst?.column ?? '')
+  const [edgeNote, setEdgeNote] = useState(edges?.evidence_note?.value ?? '')
+  const [edgeReplace, setEdgeReplace] = useState(edges?.mode === 'replace')
+  const [sourceName, setSourceName] = useState(source?.source_name ?? '')
+  const [deprecate, setDeprecate] = useState(source?.deprecate_missing ?? false)
+  const [interval, setInterval] = useState(String(source?.interval_minutes ?? 0))
+  const [active, setActive] = useState(source?.is_active ?? true)
+  /**
+   * 이 창에서 **한 번 저장된** slug — 미리 보기 · 자동 제안 · 조직 불러오기가 먼저 저장한다.
+   * 새 소스에서 그런 단추를 두 번 누르면 두 번째는 고치기여야 한다(또 만들면 「이미 있다」).
+   */
+  const [savedSlug, setSavedSlug] = useState<string | null>(source?.slug ?? null)
+  const [preview, setPreview] = useState<Preview | null>(null)
+  const [suggested, setSuggested] = useState<CoreSuggest | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<Error | null>(null)
+
+  const ra = kind === 'ra_reports'
+  const type = types.find((one) => one.slug === typeSlug)
+  const propertyTargets = (type?.properties ?? [])
+    .filter((def) => def.data_type !== 'file')
+    .map((def): [string, string] => [`properties.${def.key}`, `${def.label} (${def.key})`])
+
+  /** 고정 칸(이름·식별자·설명·별칭)으로 가는 열 — 각자 자리 하나씩. */
+  const fixedOf = (target: string) => columns.find((one) => one.target === target)?.source ?? ''
+  function setFixed(target: string, source: string) {
+    const rest = columns.filter((one) => one.target !== target)
+    setColumns(source.trim() ? [...rest, { source: source.trim(), target }] : rest)
+  }
+  /** 속성으로 가는 열만 — 표에는 이것만 선다. */
+  const propertyColumns = columns
+    .map((column, index) => ({ column, index }))
+    .filter(({ column }) => column.target.startsWith('properties.') || column.target === '')
+  function patchColumn(index: number, patch: Partial<MappingColumn>) {
+    setColumns(columns.map((one, i) => (i === index ? { ...one, ...patch } : one)))
+  }
+
+  function body(): DataSourceWrite {
+    const out: DataSourceWrite = {
+      slug: slug.trim(),
+      name: name.trim(),
+      kind,
+      base_url: kind === 'file' ? '' : baseUrl.trim(),
+      // RA 는 피드 주소가 정해져 있고, 토큰(PAT)을 Bearer 로 보낸다.
+      entity_set: ra ? RA_FEED : entitySet.trim(),
+      options: optionsFor(kind, options),
+      filter: filter.trim(),
+      auth_kind: ra ? 'bearer' : authKind,
+      auth_user: ra ? '' : authUser.trim(),
+      type_slug: typeSlug,
+      workspace_slug: workspace === NONE ? null : workspace,
+      // 빈 줄(열 이름을 아직 안 적은 속성 줄)은 보내지 않는다 — 서버가 「source 가 없다」 로 거절한다.
+      mapping: edgeMode
+        ? {
+            relations: {
+              relation: edgeRelation,
+              src: { column: edgeSrc.trim() },
+              dst: { column: edgeDst.trim() },
+              ...(edgeNote.trim() ? { evidence_note: { value: edgeNote.trim() } } : {}),
+              mode: edgeReplace ? ('replace' as const) : ('add' as const),
+            },
+          }
+        : {
+            external_key: externalKey.trim(),
+            columns: columns.filter((one) => one.source.trim() && one.target),
+          },
+      source_name: sourceName.trim(),
+      deprecate_missing: ra ? false : deprecate,
+      interval_minutes: Number(interval) || 0,
+      is_active: active,
+    }
+    // RA 는 칸 대응을 적지 않는다 — 보고서 기록 타입의 칸 키가 약속이다.
+    if (ra) out.mapping = {}
+    // 비밀은 **적었을 때만** 보낸다 — 빈 값으로 보내면 있던 비밀이 지워진다.
+    if (authSecret || !source) out.auth_secret = authSecret
+    return out
+  }
+
+  /** 저장 — 이 창에서 처음이면 만들고, 그다음부터는 고친다. */
+  async function persist(payload: DataSourceWrite) {
+    if (savedSlug) await datasourceApi.update(savedSlug, payload)
+    else {
+      await datasourceApi.create(payload)
+      setSavedSlug(payload.slug)
+    }
+  }
+
+  async function save() {
+    setBusy(true)
+    setError(null)
+    try {
+      await persist(body())
+      onSaved()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * 미리 보기 · 초안 받기 **앞에 저장할 것** — 칸 대응을 맞추기 **전**에 누르므로, 덜 된 객체
+   * 대응은 빼고 보낸다(서버가 「이름 열이 없다」 로 거절하면 열 이름을 볼 길이 없다).
+   *
+   * ⚠️ **선 소스는 그 판정에 안 걸린다** — 선에는 바깥 식별자 · 이름 열이 없다. 예전에는 늘
+   *    「덜 됨」 으로 보고 빈 대응을 저장해, 미리 보기만 눌러도 저장된 선 대응이 지워졌다
+   *    (2026-10-08). 선은 출발 · 도착 열이 다 적혔을 때만 싣고, 아니면 **대응을 안 보낸다**
+   *    (있던 것을 그대로 둔다).
+   */
+  function draftForLookup(): DataSourceWrite {
+    const draft = body()
+    if (edgeMode) {
+      if (edgeRelation && edgeSrc.trim() && edgeDst.trim()) return draft
+      const { mapping: _unsent, ...rest } = draft
+      return rest as DataSourceWrite
+    }
+    const complete = Boolean(externalKey.trim() && fixedOf('label'))
+    return complete ? draft : { ...draft, mapping: {} }
+  }
+
+  /** 미리 보기 — 저장한 뒤 앞의 몇 행을 읽어 온다. 열 이름이 여기서 보이면 칸 대응이 쉽다. */
+  async function peek() {
+    setBusy(true)
+    setError(null)
+    try {
+      // 미리 보기는 칸 대응을 **맞추기 전**에 누른다 — 아직 덜 된 대응은 보내지 않는다
+      // (서버가 「이름 열이 없다」 로 거절하면 열 이름을 볼 길이 없다).
+      await persist(draftForLookup())
+      setPreview(await datasourceApi.preview(slug.trim()))
+    } catch (caught) {
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * 형제 설치의 카탈로그를 읽어 **대응 초안**을 채운다.
+   *
+   * 저장한 뒤에 부른다 — 상대의 토큰이 저장돼 있어야 읽을 수 있고, 비밀을 화면이 들고
+   * 다니지 않게 한다. 채우기만 하고 **저장은 사람이 누른다**(초안을 보고 고칠 자리가 있어야
+   * 한다).
+   */
+  async function suggest() {
+    setBusy(true)
+    setError(null)
+    try {
+      await persist(draftForLookup())
+      const found = await datasourceApi.coreSuggest(slug.trim())
+      setSuggested(found)
+      setExternalKey(found.mapping.external_key ?? 'key')
+      setColumns(found.mapping.columns ?? [])
+    } catch (caught) {
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** RA 의 조직 트리 — 저장된 주소 · 토큰으로 묻는다(비밀을 화면이 들고 다니지 않게). */
+  async function loadBoards() {
+    await persist(body())
+    return datasourceApi.raBoards(slug.trim())
+  }
+
+  const sourceColumns = preview?.columns ?? []
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>{source ? '데이터 소스 수정' : '데이터 소스 생성'}</DialogTitle>
+          <DialogDescription>
+            OData 서비스의 한 엔티티 셋을 한 타입으로. 「미리 보기」 로 열 이름을 받아 칸 대응을
+            맞추고, 목록에서 「동기화」 로 계획을 본 뒤 적용합니다.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          {error && <ErrorNotice error={error} />}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="ds-slug">slug {savedSlug && '(바꿀 수 없음)'}</Label>
+              <Input
+                id="ds-slug"
+                value={slug}
+                disabled={Boolean(savedSlug)}
+                placeholder="plm_suppliers"
+                onChange={(event) => setSlug(event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="ds-name">이름</Label>
+              <Input id="ds-name" value={name} onChange={(event) => setName(event.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>종류</Label>
+              <Select value={kind} onValueChange={(next) => setKind(next as SourceKind)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="odata">OData (v4 · v2)</SelectItem>
+                  <SelectItem value="rest">REST JSON</SelectItem>
+                  <SelectItem value="file">파일 (CSV · Excel · JSON)</SelectItem>
+                  <SelectItem value="sp_core">형제 Standard Platform (코어)</SelectItem>
+                  <SelectItem value="ra_reports">ReportArchive 보고서 (조직 하나)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {/* RA 는 개인 토큰(PAT) 하나 — 인증 방식을 고르게 하지 않는다. */}
+            <div className="space-y-1.5" hidden={ra}>
+              <Label>인증</Label>
+              <Select value={authKind} onValueChange={(next) => setAuthKind(next as AuthKind)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">없음</SelectItem>
+                  <SelectItem value="basic">Basic (아이디·비밀번호)</SelectItem>
+                  <SelectItem value="bearer">Bearer 토큰</SelectItem>
+                  <SelectItem value="header">헤더 직접 지정 (X-API-Key 같은 것)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {!ra && (authKind === 'basic' || authKind === 'header') && (
+              <div className="space-y-1.5">
+                <Label htmlFor="ds-user">{authKind === 'basic' ? '아이디' : '헤더 이름'}</Label>
+                <Input
+                  id="ds-user"
+                  value={authUser}
+                  placeholder={authKind === 'header' ? 'X-API-Key' : ''}
+                  onChange={(event) => setAuthUser(event.target.value)}
+                />
+              </div>
+            )}
+            {(ra || authKind !== 'none') && (
+              <div className="space-y-1.5">
+                <Label htmlFor="ds-secret">
+                  {ra
+                    ? 'RA 액세스 토큰 (PAT)'
+                    : authKind === 'basic'
+                      ? '비밀번호'
+                      : authKind === 'header'
+                        ? '헤더 값'
+                        : '토큰'}{' '}
+                  {source?.has_secret && '(비우면 그대로)'}
+                </Label>
+                <Input
+                  id="ds-secret"
+                  type="password"
+                  value={authSecret}
+                  onChange={(event) => setAuthSecret(event.target.value)}
+                />
+              </div>
+            )}
+
+            {/* 종류별 — 어디서 읽는가 */}
+            {kind !== 'file' && (
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="ds-url">
+                  {kind === 'odata'
+                    ? 'OData 서비스 루트'
+                    : kind === 'sp_core'
+                      ? '형제 설치의 API 루트'
+                      : ra
+                        ? 'RA 주소'
+                        : 'API 루트'}
+                </Label>
+                <Input
+                  id="ds-url"
+                  value={baseUrl}
+                  placeholder={
+                    kind === 'odata'
+                      ? 'https://plm.example.com/odata/v4'
+                      : kind === 'sp_core'
+                        ? 'https://hub.example.com/api'
+                        : ra
+                          ? 'https://ra.example.com'
+                          : 'https://erp.example.com/api'
+                  }
+                  onChange={(event) => setBaseUrl(event.target.value)}
+                />
+              </div>
+            )}
+            <div
+              className={kind === 'file' ? 'space-y-1.5 sm:col-span-2' : 'space-y-1.5'}
+              hidden={ra}
+            >
+              <Label htmlFor="ds-set">
+                {kind === 'odata'
+                  ? '엔티티 셋'
+                  : kind === 'rest'
+                    ? '경로'
+                    : kind === 'sp_core'
+                      ? '가져올 코어 타입'
+                      : '파일 위치 (URL 또는 서버 폴더 아래 경로)'}
+              </Label>
+              <Input
+                id="ds-set"
+                value={entitySet}
+                placeholder={
+                  kind === 'odata'
+                    ? 'Suppliers'
+                    : kind === 'rest'
+                      ? '/v1/suppliers'
+                      : kind === 'sp_core'
+                        ? 'material'
+                        : 'erp/suppliers.xlsx'
+                }
+                onChange={(event) => setEntitySet(event.target.value)}
+              />
+              {kind === 'file' && (
+                <p className="text-muted-foreground text-xs">
+                  서버 폴더는 운영자가 .env 의 DATASOURCE_DIR 로 정합니다 — 그 아래만 읽습니다.
+                  형식은 확장자로 압니다(.csv/.xlsx/.json).
+                </p>
+              )}
+            </div>
+            {kind === 'odata' && (
+              <div className="space-y-1.5">
+                <Label htmlFor="ds-filter">$filter (선택)</Label>
+                <Input
+                  id="ds-filter"
+                  value={filter}
+                  placeholder="Status eq 'Released'"
+                  onChange={(event) => setFilter(event.target.value)}
+                />
+              </div>
+            )}
+            {kind === 'rest' && (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="ds-rows">행이 있는 자리 (비우면 응답 자체가 배열)</Label>
+                  <Input
+                    id="ds-rows"
+                    value={options.rows_path ?? ''}
+                    placeholder="items 또는 data.results"
+                    onChange={(event) => setOptions({ ...options, rows_path: event.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>쪽 넘김</Label>
+                  <Select
+                    value={options.paging ?? 'none'}
+                    onValueChange={(next) =>
+                      setOptions({ ...options, paging: next as SourceOptions['paging'] })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">없음 — 한 번에 전부</SelectItem>
+                      <SelectItem value="page">page=1,2,… (쪽이 덜 차면 끝)</SelectItem>
+                      <SelectItem value="offset">offset=0,N,2N…</SelectItem>
+                      <SelectItem value="cursor">응답의 다음 커서/링크</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {options.paging && options.paging !== 'none' && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ds-size">쪽 크기 파라미터 이름</Label>
+                    <Input
+                      id="ds-size"
+                      value={options.size_param ?? ''}
+                      placeholder="page_size (또는 limit)"
+                      onChange={(event) =>
+                        setOptions({ ...options, size_param: event.target.value || undefined })
+                      }
+                    />
+                  </div>
+                )}
+                {options.paging === 'page' && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ds-page">쪽 번호 파라미터 이름</Label>
+                    <Input
+                      id="ds-page"
+                      value={options.page_param ?? ''}
+                      placeholder="page"
+                      onChange={(event) =>
+                        setOptions({ ...options, page_param: event.target.value || undefined })
+                      }
+                    />
+                  </div>
+                )}
+                {options.paging === 'offset' && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ds-offset">오프셋 파라미터 이름</Label>
+                    <Input
+                      id="ds-offset"
+                      value={options.offset_param ?? ''}
+                      placeholder="offset"
+                      onChange={(event) =>
+                        setOptions({ ...options, offset_param: event.target.value || undefined })
+                      }
+                    />
+                  </div>
+                )}
+                {options.paging === 'cursor' && (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="ds-cpath">응답에서 다음 커서가 있는 자리</Label>
+                      <Input
+                        id="ds-cpath"
+                        value={options.cursor_path ?? ''}
+                        placeholder="next 또는 meta.next"
+                        onChange={(event) =>
+                          setOptions({ ...options, cursor_path: event.target.value || undefined })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="ds-cparam">커서를 보낼 파라미터 이름</Label>
+                      <Input
+                        id="ds-cparam"
+                        value={options.cursor_param ?? ''}
+                        placeholder="cursor"
+                        onChange={(event) =>
+                          setOptions({ ...options, cursor_param: event.target.value || undefined })
+                        }
+                      />
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+            {kind === 'file' && (
+              <div className="space-y-1.5">
+                <Label htmlFor="ds-sheet">시트 이름 (Excel, 비우면 첫 시트)</Label>
+                <Input
+                  id="ds-sheet"
+                  value={options.sheet ?? ''}
+                  onChange={(event) =>
+                    setOptions({ ...options, sheet: event.target.value || undefined })
+                  }
+                />
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label>넣을 타입</Label>
+              <Select value={typeSlug} onValueChange={setTypeSlug}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {types.map((one) => (
+                    <SelectItem key={one.slug} value={one.slug}>
+                      {one.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {ra && (
+                <p className="text-muted-foreground text-xs">
+                  아래 「보고서 기록 타입 생성」 으로 만든 타입이어야 합니다 — 다른 타입(프로젝트
+                  등)은 저장할 때 거절됩니다.
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label>새 객체의 소유 부서</Label>
+              <Select value={workspace} onValueChange={setWorkspace}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>전역</SelectItem>
+                  {workspaceSlugs.map((one) => (
+                    <SelectItem key={one} value={one}>
+                      {one}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {ra && (
+            <>
+              <RaReportTypeMaker
+                axes={types.filter((one) => one.usage !== 'log')}
+                onMade={(made) => {
+                  setTypeSlug(made)
+                  onTypesChanged()
+                }}
+              />
+              <RaOptionsFields
+                options={options}
+                onChange={setOptions}
+                canLoad={Boolean(slug.trim() && name.trim() && baseUrl.trim() && typeSlug)}
+                onLoad={loadBoards}
+              />
+            </>
+          )}
+
+          {/* --- 칸 대응 — 역할별로 가른다. 식별자·이름은 각자 자리에서, 속성은 표에서.
+              RA 에는 없다(`hidden` — 화면에서도 화면 읽기에서도 빠진다). --- */}
+          <div className="space-y-4 rounded-md border p-3" hidden={ra}>
+            <div className="flex items-center justify-between">
+              <Label>칸 대응 — 바깥 열이 우리 객체의 어느 칸으로 가는가</Label>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={
+                  busy || !slug.trim() || (kind !== 'file' && !baseUrl.trim()) || !entitySet.trim()
+                }
+                onClick={peek}
+              >
+                <Eye className="mr-1 size-3.5" />
+                미리 보기 (저장하고 앞 5행 읽기)
+              </Button>
+            </div>
+            {/* **옮겨 적게 하지 않는다** — 상대가 칸을 하나 더하는 날 그 대응이 조용히
+                뒤처진다. 카탈로그를 읽어 채우고, 못 이은 것은 아래에 까닭과 함께 선다. */}
+            {kind === 'sp_core' && (
+              <div className="space-y-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={busy || !slug.trim() || !baseUrl.trim() || !entitySet.trim()}
+                  onClick={suggest}
+                >
+                  <Wand2 className="mr-1 size-3.5" />
+                  대응 자동 제안 (상대 카탈로그 읽기)
+                </Button>
+                {suggested && (
+                  <div className="space-y-1 rounded border p-2 text-xs">
+                    <p>
+                      <b>{suggested.system}</b> 의 「{suggested.type_label}」 — {suggested.count}건
+                      <span className="text-muted-foreground"> · 판 {suggested.revision}</span>
+                    </p>
+                    {suggested.notes.length > 0 ? (
+                      <ul className="text-muted-foreground list-inside list-disc">
+                        {suggested.notes.map((one) => (
+                          <li key={one}>{one}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-muted-foreground">상대의 칸이 모두 이어졌습니다.</p>
+                    )}
+                    <p className="text-muted-foreground">
+                      초안입니다 — 고칠 것이 있으면 아래에서 고친 뒤 저장하세요.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+            {preview?.mapping_error && (
+              <p className="text-destructive text-xs">{preview.mapping_error}</p>
+            )}
+            {sourceColumns.length > 0 && (
+              <p className="text-muted-foreground text-xs">
+                바깥 열:{' '}
+                {sourceColumns.map((one) => (
+                  <code key={one} className="mr-1">
+                    {one}
+                  </code>
+                ))}
+              </p>
+            )}
+            <datalist id="ds-columns">
+              {sourceColumns.map((one) => (
+                <option key={one} value={one} />
+              ))}
+            </datalist>
+
+            {/* **무엇을 가져오나** — 객체인가 선인가. 원천 하나가 둘 다 담고 있으면 소스를
+                둘로 만든다(같은 주소 · 다른 대응): 그러면 각자의 계획을 각자 읽는다. */}
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium">무엇을 가져오나</p>
+              <div className="flex flex-wrap gap-4 text-sm">
+                {(
+                  [
+                    ['objects', '객체 — 한 행이 객체 하나'],
+                    ['edges', '선(관계) — 한 행이 선 하나 (BOM · 매핑 표)'],
+                  ] as const
+                ).map(([value, text]) => (
+                  <label key={value} className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="radio"
+                      className="size-4"
+                      checked={edgeMode === (value === 'edges')}
+                      onChange={() => setEdgeMode(value === 'edges')}
+                    />
+                    {text}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {edgeMode && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">선 대응</p>
+                {relationTypes.length === 0 && (
+                  <p className="text-muted-foreground text-xs">
+                    관계 종류가 없습니다. 관리 › 온톨로지 › 관계에서 먼저 만드세요.
+                  </p>
+                )}
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">관계 종류</Label>
+                    <Select value={edgeRelation} onValueChange={setEdgeRelation}>
+                      <SelectTrigger className="w-52">
+                        <SelectValue placeholder="무슨 선인가" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {relationTypes.map((one) => (
+                          <SelectItem key={one.slug} value={one.slug}>
+                            {one.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="ds-edge-src" className="text-xs">
+                      출발점 열
+                    </Label>
+                    <Input
+                      id="ds-edge-src"
+                      value={edgeSrc}
+                      placeholder="PartNo"
+                      list="ds-columns"
+                      className="w-40"
+                      onChange={(event) => setEdgeSrc(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="ds-edge-dst" className="text-xs">
+                      도착점 열
+                    </Label>
+                    <Input
+                      id="ds-edge-dst"
+                      value={edgeDst}
+                      placeholder="VendorNo"
+                      list="ds-columns"
+                      className="w-40"
+                      onChange={(event) => setEdgeDst(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="ds-edge-note" className="text-xs">
+                      근거 (고정 문구)
+                    </Label>
+                    <Input
+                      id="ds-edge-note"
+                      value={edgeNote}
+                      placeholder="ERP BOM 표"
+                      className="w-48"
+                      onChange={(event) => setEdgeNote(event.target.value)}
+                    />
+                  </div>
+                </div>
+                <label className="text-muted-foreground flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    className="size-4"
+                    checked={edgeReplace}
+                    onChange={(event) => setEdgeReplace(event.target.checked)}
+                  />
+                  이 표를 정본으로 — <strong>온 목록에 나온 출발점</strong>의 그 관계 중 안 온
+                  선을 끊습니다. 표에 아예 안 나온 객체의 선은 건드리지 않습니다.
+                </label>
+                <p className="text-muted-foreground text-xs">
+                  출발점·도착점 열의 값은 그 객체의 <strong>식별자(없으면 별칭·이름)</strong>로
+                  풀립니다 — 못 풀면 그 줄만 건너뛰고 다음 동기화에서 다시 봅니다(정본으로 켜면 그
+                  줄이 오류이고 아무것도 안 들어갑니다). 선에 붙는 속성은 지금 화면에서 못
+                  정합니다(API 의 <code>mapping.relations.properties</code>).
+                </p>
+              </div>
+            )}
+
+            {/* 객체 소스의 대응 — **선 소스에는 그리지 않는다.** 뜻 없는 칸을 남겨 두면
+                사람은 그것을 채워야 하는 줄 알고, 서버는 그 값을 무시한다. */}
+            {!edgeMode && (
+              <>
+              {/* ① 같은 것 검색 */}
+              <div className="space-y-1.5">
+                <p className="text-sm font-medium">① 같은 것 검색</p>
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="ds-ext" className="text-xs">
+                      바깥 식별자 열
+                    </Label>
+                    <Input
+                      id="ds-ext"
+                      value={externalKey}
+                      placeholder="SupplierID"
+                      list="ds-columns"
+                      className="w-48"
+                      onChange={(event) => setExternalKey(event.target.value)}
+                    />
+                  </div>
+                  <label className="flex cursor-pointer items-center gap-2 pb-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="size-4"
+                      checked={fixedOf('key') === externalKey.trim() && externalKey.trim() !== ''}
+                      onChange={(event) =>
+                        setFixed('key', event.target.checked ? externalKey.trim() : '')
+                      }
+                    />
+                    우리 식별자(key)로도 쓴다
+                  </label>
+                </div>
+                <p className="text-muted-foreground text-xs">
+                  이 열의 값이 그 객체에 남아, 다음 동기화가 같은 객체를 다시 찾습니다 — 우리 쪽
+                  이름·식별자를 수정해도 유지됩니다.
+                </p>
+              </div>
+
+              {/* ② 이름 */}
+              <div className="space-y-1.5">
+                <p className="text-sm font-medium">② 이름</p>
+                <div className="space-y-1">
+                  <Label htmlFor="ds-label" className="text-xs">
+                    이름 열 (필수)
+                  </Label>
+                  <Input
+                    id="ds-label"
+                    value={fixedOf('label')}
+                    placeholder="CompanyName"
+                    list="ds-columns"
+                    className="w-48"
+                    onChange={(event) => setFixed('label', event.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* ③ 속성 */}
+              <div className="space-y-1.5">
+                <p className="text-sm font-medium">③ 속성</p>
+                {propertyTargets.length === 0 && (
+                  <p className="text-muted-foreground text-xs">
+                    이 타입에 속성이 없습니다. 관리 › 온톨로지에서 먼저 만드세요.
+                  </p>
+                )}
+                {propertyColumns.map(({ column, index }) => (
+                  <div key={index} className="flex flex-wrap items-start gap-2">
+                    <Input
+                      value={column.source}
+                      placeholder="바깥 열"
+                      list="ds-columns"
+                      className="w-40"
+                      onChange={(event) => patchColumn(index, { source: event.target.value })}
+                    />
+                    <span className="text-muted-foreground pt-2 text-sm">→</span>
+                    <Select
+                      value={column.target}
+                      onValueChange={(next) => patchColumn(index, { target: next })}
+                    >
+                      <SelectTrigger className="w-52">
+                        <SelectValue placeholder="어느 속성으로" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {propertyTargets.map(([key, text]) => (
+                          <SelectItem key={key} value={key}>
+                            {text}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Textarea
+                      defaultValue={column.values ? JSON.stringify(column.values) : ''}
+                      placeholder='값 대응표 (선택) {"US": "미국"}'
+                      rows={1}
+                      className="min-h-9 flex-1 font-mono text-xs"
+                      onBlur={(event) => {
+                        const text = event.target.value.trim()
+                        try {
+                          patchColumn(index, {
+                            values: text ? (JSON.parse(text) as Record<string, unknown>) : undefined,
+                          })
+                        } catch {
+                          setError(new Error(`값 대응표가 JSON 이 아닙니다: ${text.slice(0, 40)}`))
+                        }
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      aria-label="속성 대응 삭제"
+                      onClick={() => setColumns(columns.filter((_one, i) => i !== index))}
+                    >
+                      <X className="size-4" />
+                    </Button>
+                  </div>
+                ))}
+                {propertyTargets.length > 0 && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      setColumns([...columns, { source: '', target: propertyTargets[0][0] }])
+                    }
+                  >
+                    <Plus className="mr-1 size-4" />
+                    속성 추가
+                  </Button>
+                )}
+                <p className="text-muted-foreground text-xs">
+                  값 대응표에 없는 값이 오면 그 행은 오류입니다(조용히 통과시키면 선택할 값이
+                  오염됩니다). 참조 속성은 상대의 식별자·별칭·이름으로 풀리고, 못 풀면 오류 행입니다.
+                </p>
+              </div>
+
+              {/* ④ 그 밖에 */}
+              <div className="space-y-1.5">
+                <p className="text-sm font-medium">④ 그 밖에 (선택)</p>
+                <div className="flex flex-wrap gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="ds-desc" className="text-xs">
+                      설명 열
+                    </Label>
+                    <Input
+                      id="ds-desc"
+                      value={fixedOf('description')}
+                      list="ds-columns"
+                      className="w-48"
+                      onChange={(event) => setFixed('description', event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="ds-alias" className="text-xs">
+                      다른 이름(별칭) 열
+                    </Label>
+                    <Input
+                      id="ds-alias"
+                      value={fixedOf('alias')}
+                      placeholder="ShortName"
+                      list="ds-columns"
+                      className="w-48"
+                      onChange={(event) => setFixed('alias', event.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              </>
+            )}
+
+            {preview && preview.mapped.length > 0 && (
+              <div className="max-h-40 overflow-auto rounded border text-xs">
+                <table className="w-full">
+                  <tbody>
+                    {preview.mapped.map((one, index) => (
+                      <tr key={index} className="border-b">
+                        <td className="px-2 py-1 font-mono">{one.external_id}</td>
+                        <td className="px-2 py-1">
+                          {one.error ? (
+                            <span className="text-destructive">{one.error}</span>
+                          ) : (
+                            JSON.stringify(one.row)
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="ds-source-name">출처 이름 (비우면 slug)</Label>
+            <Input
+              id="ds-source-name"
+              value={sourceName}
+              onChange={(event) => setSourceName(event.target.value)}
+              placeholder={slug.trim() || 'hub'}
+              className="font-mono"
+            />
+            {/* **잠긴 타입에 넣으려면 이 이름이 맞아야 한다.** 그런데 「누가 관리하는가」 는
+                타입 화면에 있어서, 여기서 안 말해 주면 운영자는 동기화가 실패한 뒤에야 안다. */}
+            {type?.managed_by ? (
+              <p className="text-xs">
+                <b>{type.label}</b> 은(는) <b>{type.managed_by}</b> 가 관리하는 타입입니다 —
+                출처 이름을 <b className="font-mono">{type.managed_by}</b> 로 적어야 이 소스의
+                적재가 통과합니다.{' '}
+                {sourceName.trim()
+                  ? sourceName.trim() === type.managed_by
+                    ? '맞게 적혀 있습니다.'
+                    : `지금은 「${sourceName.trim()}」 입니다.`
+                  : `비우면 slug(「${slug.trim() || '…'}」)가 이름이 됩니다.`}
+              </p>
+            ) : (
+              <p className="text-muted-foreground text-xs">
+                <b>잠긴 타입에 받을 때만 씁니다.</b> 허브가 내려준 정의는 받는 쪽에서 고치는 길을
+                막는데, 적재가 이 이름을 말하고 그것이 허브가 적은 이름과 같을 때만 통과합니다 —
+                막기만 하면 받기도 막히기 때문입니다.
+              </p>
+            )}
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="ds-interval">몇 분마다 (0 = 손으로만)</Label>
+              <Input
+                id="ds-interval"
+                type="number"
+                min={0}
+                value={interval}
+                onChange={(event) => setInterval(event.target.value)}
+              />
+              {/* 분으로만 적게 하면 「하루 한 번」 을 적으려고 계산기를 켠다. */}
+              <p className="text-muted-foreground text-xs">
+                1440 = 하루 한 번 · 60 = 한 시간마다. <b>0 이어도 목록의 「동기화」 로 언제든</b>{' '}
+                돌릴 수 있습니다.
+              </p>
+            </div>
+            <div className="space-y-2 pt-6">
+              {/* **증분 소스에는 이 규칙이 없다.** 코어는 지난번 이후만 오므로 「안 온 것」 이
+                  대부분이다 — 켜면 다음 날 멀쩡한 객체 전부가 사용 중지가 된다. 사라진 것은
+                  상대가 무덤으로 알려 준다. */}
+              {ra ? (
+                <p className="text-muted-foreground text-sm">
+                  RA 에서 내려간 보고서는 <b>삭제하지도 사용 중지하지도 않습니다</b> — 하루 한 번
+                  전량 대조에서 「원본에서 내려감」 과 그 날짜를 표시하고, 다시 게시되면 「게시
+                  중」 으로 복원합니다.
+                </p>
+              ) : kind !== 'sp_core' ? (
+                <>
+                  <label className="flex cursor-pointer items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="size-4"
+                      checked={deprecate}
+                      onChange={(event) => setDeprecate(event.target.checked)}
+                    />
+                    외부에서 삭제된 행은 「사용 중지」 로 표시 (기본은 변경하지 않음)
+                  </label>
+                  {!edgeMode && (
+                    <label className="flex cursor-pointer items-start gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 size-4"
+                        checked={Boolean(options.mirror)}
+                        onChange={(event) =>
+                          setOptions({ ...options, mirror: event.target.checked })
+                        }
+                      />
+                      <span>
+                        바깥을 정본으로 — 바깥에서 <b>비운 칸은 이쪽도 비우고, 뺀 별칭은 뺍니다</b>
+                        (사람이 붙인 별칭도 바깥 목록대로 맞춰집니다). 끄면 빈 칸은 그대로 둡니다.
+                      </span>
+                    </label>
+                  )}
+                </>
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  상대를 <b>정본으로</b> 받습니다 — 상대에서 비운 칸 · 뺀 별칭 · 「사용 중지」 도
+                  따라옵니다. <b>지워진 것은 그쪽이 알려 줍니다</b> — 이쪽에서 자동으로 「사용
+                  중지」 가 됩니다(합쳐진 것이면 이긴 쪽이 이력에 남습니다).
+                </p>
+              )}
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="size-4"
+                  checked={active}
+                  onChange={(event) => setActive(event.target.checked)}
+                />
+                사용
+              </label>
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
+            취소
+          </Button>
+          <Button
+            onClick={save}
+            disabled={
+              busy ||
+              !slug.trim() ||
+              !name.trim() ||
+              (kind !== 'file' && !baseUrl.trim()) ||
+              !typeSlug ||
+              // RA 는 칸 대응을 적지 않는다 — 타입의 칸 키가 약속이다.
+              (!ra && (!entitySet.trim() || !externalKey.trim() || !fixedOf('label')))
+            }
+          >
+            저장
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}

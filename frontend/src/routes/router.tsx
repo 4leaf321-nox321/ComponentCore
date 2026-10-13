@@ -36,6 +36,35 @@ const ServerPage = lazy(() => import('@/modules/server/ServerPage'))
 const VocPage = lazy(() => import('@/modules/voc/VocPage'))
 const VocDetailPage = lazy(() => import('@/modules/voc/VocDetailPage'))
 
+// StandardPlatform 에서 들인 화면(ADR 0008) — 경로는 SP 와 같다. SP 의 `/jobs`(데이터 작업)만
+// `/tasks` 다 — `/jobs` 는 CompCore 의 실행 기록이다.
+const TasksPage = lazy(() => import('@/modules/tasks/JobsPage'))
+const NotificationsPage = lazy(() => import('@/modules/notifications/NotificationsPage'))
+const GraphPage = lazy(() => import('@/modules/graph/GraphPage'))
+const MetricsPage = lazy(() => import('@/modules/metrics/MetricsPage'))
+const MetricDetailPage = lazy(() => import('@/modules/metrics/MetricDetailPage'))
+const SearchPage = lazy(() => import('@/modules/objectsearch/SearchPage'))
+const AuditPage = lazy(() => import('@/modules/audit/AuditPage'))
+const QualityPage = lazy(() => import('@/modules/objects/QualityPage'))
+const ReviewPage = lazy(() => import('@/modules/review/ReviewPage'))
+const ObjectTypesPage = lazy(() => import('@/modules/objects/ObjectTypesPage'))
+const ObjectListPage = lazy(() => import('@/modules/objects/ObjectListPage'))
+const ObjectProfilePage = lazy(() => import('@/modules/objects/ObjectProfilePage'))
+// 차트 층 자신의 문서다 — 도메인 모듈이 아니라 `shared/charts` 에 산다.
+const ChartGalleryPage = lazy(() => import('@/shared/charts/GalleryPage'))
+const OntologyLayout = lazy(() => import('@/modules/ontology/OntologyLayout'))
+const OntologyGroupsPage = lazy(() => import('@/modules/ontology/OntologyGroupsPage'))
+const OntologyTypesPage = lazy(() => import('@/modules/ontology/OntologyTypesPage'))
+const OntologyInterfacesPage = lazy(() => import('@/modules/ontology/OntologyInterfacesPage'))
+const OntologyRelationsPage = lazy(() => import('@/modules/ontology/OntologyRelationsPage'))
+const OntologyImportPage = lazy(() => import('@/modules/ontology/OntologyImportPage'))
+const OntologyCorePage = lazy(() => import('@/modules/ontology/OntologyCorePage'))
+const WorkspacesAdminPage = lazy(() => import('@/modules/workspaces/WorkspacesAdminPage'))
+const WorkspaceHomePage = lazy(() => import('@/modules/workspaces/WorkspaceHomePage'))
+const MembersPage = lazy(() => import('@/modules/workspaces/MembersPage'))
+const WebhooksPage = lazy(() => import('@/modules/webhooks/WebhooksPage'))
+const DataSourcesPage = lazy(() => import('@/modules/datasources/DataSourcesPage'))
+
 export const router = createBrowserRouter(
   [
     { path: '/login', element: <LoginPage /> },
@@ -65,9 +94,51 @@ export const router = createBrowserRouter(
             { path: 'me', element: <ProfilePage /> },
             { path: 'voc', element: <VocPage /> },
             { path: 'voc/:id', element: <ById><VocDetailPage /></ById> },
+            { path: 'tasks', element: <TasksPage /> },
+            { path: 'notifications', element: <NotificationsPage /> },
+
+            // 기준정보 — **정의가 만드는 화면.** 타입이 늘어도 라우트는 안 늘어난다.
+            { path: 'search', element: <SearchPage /> },
+            { path: 'o', element: <ObjectTypesPage /> },
+            { path: 'o/:typeSlug', element: <ObjectListPage /> },
+            { path: 'o/:typeSlug/:objectId', element: <ObjectProfilePage /> },
+            { path: 'graph', element: <GraphPage /> },
+            { path: 'metrics', element: <MetricsPage /> },
+            { path: 'metrics/:slug', element: <MetricDetailPage /> },
+            { path: 'audit', element: <AuditPage /> },
+            { path: 'quality', element: <QualityPage /> },
+            { path: 'review', element: <ReviewPage /> },
+
+            // 부서 스코프
+            {
+              path: 'w/:slug',
+              children: [
+                { index: true, element: <WorkspaceHomePage /> },
+                { path: 'members', element: <MembersPage /> },
+              ],
+            },
+
             { path: 'admin/works', element: <AllWorksPage /> },
             { path: 'admin/accounts', element: <AccountsAdminPage /> },
+            { path: 'admin/workspaces', element: <WorkspacesAdminPage /> },
+            {
+              // **두 번째 사이드바.** 묶음과 타입을 각각 제 화면에서 본다.
+              path: 'admin/ontology',
+              element: <OntologyLayout />,
+              children: [
+                { index: true, element: <Navigate to="groups" replace /> },
+                { path: 'groups', element: <OntologyGroupsPage /> },
+                { path: 'types', element: <OntologyTypesPage /> },
+                { path: 'interfaces', element: <OntologyInterfacesPage /> },
+                { path: 'relations', element: <OntologyRelationsPage /> },
+                { path: 'import', element: <OntologyImportPage /> },
+                { path: 'core', element: <OntologyCorePage /> },
+              ],
+            },
             { path: 'admin/server', element: <ServerPage /> },
+            { path: 'admin/charts', element: <ChartGalleryPage /> },
+            { path: 'admin/webhooks', element: <WebhooksPage /> },
+            { path: 'admin/datasources', element: <DataSourcesPage /> },
             {
               path: '*',
               element: (

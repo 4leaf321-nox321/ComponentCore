@@ -1,0 +1,771 @@
+/**
+ * 통계 — 목록 위에서 **「그래서 몇 건인데」** 에 답한다.
+ *
+ * 그리는 일은 `shared/charts` 가 한다. 이 화면은 **무엇을 그릴지만** 정한다 —
+ * 축 색·범례 높이·빈 데이터 처리를 여기서 또 정하면 다른 화면의 그림과 어긋나고,
+ * 그때 같은 값이 화면마다 다른 색으로 선다.
+ *
+ * ## 기본은 막대다
+ *
+ * 사람은 각도보다 길이를 훨씬 잘 읽는다. 원그래프는 조각이 서넛일 때 비율을
+ * 보여 주는 데만 쓴다 — 여덟 조각짜리 원에서는 순위를 읽을 수 없다.
+ *
+ * ## 막대를 누르면 그 줄만 걸러진다
+ *
+ * 「B 등급이 12건」 다음의 물음은 언제나 「그 12건이 뭔데」 다. 거기서 필터 칸으로
+ * 돌아가 값을 다시 치게 하면, 그 한 번이 사람을 엑셀로 돌려보낸다.
+ *
+ * ## 홈에 올리는 단추가 여기 있다
+ *
+ * 「이거 홈에 두고 싶다」 는 생각은 **그림을 막 그려 놓고 보는 이 자리**에서 난다.
+ * 그때 뷰 메뉴를 열어 저장하고 부서와 함께 쓰기를 켜고 메뉴를 다시 열게 하면, 그
+ * 경로를 찾아낸 사람만 이 기능을 쓴다.
+ */
+
+import { useEffect, useMemo, useState } from 'react'
+import {
+  ArrowUpDown,
+  BarChart3,
+  Box as BoxIcon,
+  ChartArea,
+  Download,
+  ChartLine,
+  ChartPie,
+  Grid3x3,
+  House,
+  Layers,
+  Loader2,
+  ScatterChart,
+  X,
+} from 'lucide-react'
+
+import { objectApi } from '@/modules/objects/api'
+import type {
+  GroupOption,
+  ObjectQuery,
+  Points,
+  SavedViewQuery,
+  Summary,
+} from '@/modules/objects/api'
+import { PinToHomeDialog } from '@/modules/objects/PinToHomeDialog'
+import { DEFAULT_SUMMARY, GRAINS, ORDER_LABELS } from '@/modules/objects/summarySettings'
+import type { SummarySettings } from '@/modules/objects/summarySettings'
+import { useAuth } from '@/shared/auth/AuthContext'
+import { defaultOwnerWorkspace, isAnyManager } from '@/shared/auth/roles'
+import { Chart, LazyPlot, colorFor } from '@/shared/charts'
+import { ErrorNotice } from '@/shared/components/ErrorNotice'
+import { SearchablePicker } from '@/shared/components/SearchablePicker'
+import type { PickerOption } from '@/shared/components/SearchablePicker'
+import { Button } from '@/shared/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/shared/components/ui/select'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/shared/components/ui/dropdown-menu'
+import { cn } from '@/shared/lib/utils'
+
+/** 목록 화면은 `summarySettings` 에서 **바로** 가져간다 — 여기서 가져가면 그 화면이
+ *  이 패널을 정적으로 끌어와 `lazy()` 가 무색해진다(차트 라이브러리가 목록을 열
+ *  때마다 함께 내려온다). 여기서 다시 내보내는 것은 패널만 아는 쪽의 편의다. */
+export { DEFAULT_SUMMARY }
+export type { SummarySettings }
+
+/** 그림 모양. **막대가 기본이다** — 길이는 눈이 바로 비교하지만 각도는 못 한다. */
+const KINDS: { value: SummarySettings['chart']; label: string; Icon: typeof BarChart3 }[] = [
+  { value: 'bar', label: '막대', Icon: BarChart3 },
+  { value: 'line', label: '꺾은선', Icon: ChartLine },
+  { value: 'area', label: '영역', Icon: ChartArea },
+  { value: 'pie', label: '원', Icon: ChartPie },
+  // **세부 기준이 있을 때만 뜻이 있다.** 세부 기준 없는 히트맵은 색칠한 막대 하나일 뿐이다.
+  { value: 'heatmap', label: '히트맵', Icon: Grid3x3 },
+  // 아래 둘은 **안 센 값**을 그린다 — 분포는 집계로 안 보인다.
+  { value: 'box', label: '상자', Icon: BoxIcon },
+  { value: 'scatter', label: '산점도', Icon: ScatterChart },
+]
+
+/** 원값을 그리는 것들 — 묶어 세는 대신 값을 그대로 받아 온다. */
+const RAW_KINDS = new Set(['box', 'scatter'])
+
+/** 그림 안에서 쓰는 키. 사람이 고른 칸 이름과 안 겹치게 둔다. */
+const VALUE = '__value__'
+const KEY = '__key__'
+
+const METRICS = [
+  { value: 'count', label: '건수' },
+  { value: 'sum', label: '합계' },
+  { value: 'avg', label: '평균' },
+  { value: 'min', label: '최솟값' },
+  { value: 'max', label: '최댓값' },
+]
+
+/** 「세부 기준 없음」. 빈 문자열은 Select 가 「고른 것 없음」 으로 보고 자리표시자로 돌아간다. */
+const NO_SPLIT = '__none__'
+
+interface Props {
+  typeSlug: string
+  /** 목록이 지금 쓰는 필터 그대로. */
+  query: ObjectQuery
+  /**
+   * 지금 설정. **화면이 들고 있다** — 뷰를 불러오면 그 뷰의 축으로 열려야 하고,
+   * 저장할 때는 지금 축이 함께 담겨야 한다. 이 패널이 혼자 들고 있으면 둘 다 못 한다.
+   */
+  settings: SummarySettings
+  onSettings: (next: SummarySettings) => void
+  /** 막대를 눌렀을 때 — 걸 수 있는 축이면 부른다. 날짜 축이면 그 칸의 범위(`gte` · `lt`)를
+   *  함께 준다 — 키 하나를 `eq` 로 걸면 0건이다. */
+  onPick: (field: string, key: string | null, range?: { gte: string; lt: string } | null) => void
+  onClose: () => void
+  /**
+   * 홈 게시를 낼 수 있나 — **인터페이스 목록은 안 된다**(게시는 저장된 뷰라 타입의 것이다).
+   * 단추를 세운 뒤 서버가 거절하게 두면, 누른 사람은 왜 안 되는지 거절문으로야 안다.
+   */
+  pinnable?: boolean
+  /**
+   * 홈 게시의 기본 부서 — 홈의 「위젯 추가」 가 주소(`home=`)로 싣고 온 그 부서. 없으면 대표
+   * 소속(관리하는 곳일 때)이다. 그 부서의 관리자가 아니면 관리하는 부서로 떨어진다.
+   */
+  homeWorkspace?: string | null
+  /** 지금 실제로 쓰는 기간 단위(날짜 축일 때만) — 화면의 「뷰로 저장」 이 같은 것을 담게. */
+  onGrain?: (grain: string | null) => void
+}
+
+/**
+ * 원값을 plotly 의 trace 로.
+ *
+ * 상자는 무리마다 하나씩(무리가 없으면 전부 하나로), 산점도는 무리마다 점 무더기로.
+ * **색은 이름으로 고정한다** — 같은 무리가 그림마다 다른 색이면 비교가 안 된다.
+ */
+function plotTraces(kind: string, points: Points): Record<string, unknown>[] {
+  const groups = [...new Set(points.rows.map((one) => one.group || ''))]
+  return groups.map((group) => {
+    const rows = points.rows.filter((one) => (one.group || '') === group)
+    const name = group || points.x_label
+    return kind === 'box'
+      ? {
+          type: 'box',
+          name,
+          y: rows.map((one) => one.x),
+          marker: { color: colorFor(name) },
+          boxpoints: rows.length <= 40 ? 'all' : 'outliers',
+          jitter: 0.4,
+        }
+      : {
+          type: 'scatter',
+          mode: 'markers',
+          name,
+          x: rows.map((one) => one.x),
+          y: rows.map((one) => one.y),
+          text: rows.map((one) => one.label),
+          hovertemplate: '%{text}<br>%{x} · %{y}<extra></extra>',
+          marker: { color: colorFor(name), size: 8 },
+        }
+  })
+}
+
+/**
+ * 기준 고르개의 줄 — 자기 칸(제목 없음)이 먼저, 이어진 것은 걸음마다 제목 아래로.
+ *
+ * 참조 칸 「개발사」 와 관계 「개발사」 가 둘 다 있으면 「개발사 › 국가」 가 두 번 선다. 제목
+ * 없이 늘어놓으면 둘 중 무엇을 골랐는지 알 수 없다. **두 걸음까지 늘어놓으면 큰 타입은 기준이
+ * 수백이라** 펼쳐 놓는 고르개가 아니라 치거나 훑는 고르개에 싣는다.
+ */
+function choicesOf(options: GroupOption[], suffix = ''): PickerOption[] {
+  return options.map((one) => ({
+    value: one.field,
+    label: `${one.label}${suffix}${one.multi ? ' (여러 값)' : ''}`,
+    group: one.heading || undefined,
+  }))
+}
+
+/** 이 축으로 묶은 값을 목록 필터에 그대로 걸 수 있나. */
+function filterable(field: string): boolean {
+  return field === 'status' || field.startsWith('properties.') || /^(ref|out|in)\./.test(field)
+}
+
+export function SummaryPanel({
+  typeSlug,
+  query,
+  settings,
+  onSettings,
+  onPick,
+  onClose,
+  pinnable = true,
+  homeWorkspace = null,
+  onGrain,
+}: Props) {
+  const { groupBy, metric, metricField, chart: kind } = settings
+  const patch = (next: Partial<SummarySettings>) => onSettings({ ...settings, ...next })
+  const [data, setData] = useState<Summary | null>(null)
+  const [points, setPoints] = useState<Points | null>(null)
+  const raw = RAW_KINDS.has(settings.chart)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<Error | null>(null)
+  const [pinning, setPinning] = useState(false)
+  const { user } = useAuth()
+  // 올릴 곳은 **보고 있던 부서**(홈에서 왔으면 그 부서), 아니면 대표 소속 — 그중 내가 관리자인
+  // 곳이다. 늘 대표 소속으로 올리던 때는 시스템 관리자가 /w/sales 에서 추가한 것이 hq 홈에 섰고,
+  // 대표 소속에서 멤버뿐인 B 의 관리자에게는 단추가 아예 안 섰다(2026-10-08).
+  const pinTarget = defaultOwnerWorkspace(user, homeWorkspace)
+  const canPin = pinnable && isAnyManager(user) && pinTarget !== null
+
+  /** 기준이나 세부 기준이 날짜 칸인가 — 그때만 기간 단위와 「시간순」 이 뜻이 있다. */
+  const dated = useMemo(() => {
+    const kinds = new Set(['date', 'datetime'])
+    const kindOf = (field: string) =>
+      (data?.group_options ?? []).find((one) => one.field === field)?.kind ?? ''
+    return (
+      kinds.has(kindOf(groupBy)) || (settings.splitBy ? kinds.has(kindOf(settings.splitBy)) : false)
+    )
+  }, [data, groupBy, settings.splitBy])
+  /**
+   * 보낼 기간 단위 — 기준이나 세부 기준 중 날짜가 있을 때만. 날짜 기준에서 월을 고른 뒤 다른
+   * 기준으로 바꾸면 고른 단위가 남아, 날짜가 아닌 칸에 기간 단위를 걸었다는 거절이 났다.
+   */
+  const grain = dated ? settings.grain || null : null
+  useEffect(() => {
+    onGrain?.(grain)
+  }, [grain, onGrain])
+
+  // 필터가 바뀌면 다시 센다. `query` 는 매 렌더 새 객체라 **내용**으로 비교한다 —
+  // 안 그러면 이 효과가 끝없이 돈다.
+  const signature = JSON.stringify(query)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    if (raw) {
+      // **안 센 값**을 받아 온다. 분포는 집계로 안 보인다.
+      const numbers = data?.metric_options ?? []
+      const x = settings.x || numbers[0]?.field
+      if (!x) {
+        setLoading(false)
+        return
+      }
+      objectApi
+        .points(typeSlug, JSON.parse(signature) as ObjectQuery, {
+          x,
+          y: settings.chart === 'scatter' ? settings.y || numbers[1]?.field : null,
+          groupBy: settings.splitBy || (settings.chart === 'box' ? groupBy : null),
+          grain,
+        })
+        .then((found) => {
+          if (cancelled) return
+          setPoints(found)
+          setError(null)
+        })
+        .catch((caught: unknown) => {
+          if (!cancelled) setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false)
+        })
+      return () => {
+        cancelled = true
+      }
+    }
+    objectApi
+      .summary(typeSlug, JSON.parse(signature) as ObjectQuery, {
+        groupBy,
+        splitBy: settings.splitBy || null,
+        metric,
+        metricField: metric === 'count' ? null : metricField,
+        order: settings.order,
+        grain,
+      })
+      .then((found) => {
+        if (cancelled) return
+        setData(found)
+        setError(null)
+      })
+      .catch((caught: unknown) => {
+        if (!cancelled) setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [
+    typeSlug,
+    signature,
+    groupBy,
+    settings.splitBy,
+    metric,
+    metricField,
+    settings.order,
+    grain,
+    raw,
+    settings.chart,
+    settings.x,
+    settings.y,
+    // 숫자 칸 목록은 집계 응답이 알려 준다 — 처음 한 번은 그것을 기다린다.
+    data?.metric_options,
+  ])
+
+  const numbers = data?.metric_options ?? []
+  /**
+   * 그림이 받는 행 — 이름과 값, 그리고 눌렀을 때 되찾을 원래 값.
+   *
+   * 쪼갰으면 계열마다 칸을 하나씩 편다. **없는 계열은 0 으로 채운다** — 빠뜨리면
+   * 쌓은 막대에서 그 자리만 비어 사람은 데이터가 없는 것과 0 을 구별 못 한다.
+   */
+  const rows = useMemo(() => {
+    const splits = data?.splits ?? []
+    return (data?.buckets ?? []).map((one) => {
+      const row: Record<string, unknown> = {
+        name: one.label,
+        [VALUE]: data?.metric === 'count' ? one.count : (one.value ?? 0),
+        [KEY]: one.key,
+        건수: one.count,
+      }
+      for (const label of splits) {
+        const part = one.parts.find((each) => each.label === label)
+        row[label] = part ? (data?.metric === 'count' ? part.count : (part.value ?? 0)) : 0
+      }
+      return row
+    })
+  }, [data])
+
+  /** 계열 — 세부 기준 값의 **차례를 서버가 준다.** 그래야 같은 값이 언제나 같은 색이다. */
+  const series = useMemo(
+    () =>
+      (data?.splits ?? []).length > 0
+        ? (data?.splits ?? []).map((label) => ({ key: label, label, color: colorFor(label) }))
+        : [{ key: VALUE, label: data?.metric_label ?? '건수' }],
+    [data],
+  )
+  const canFilter = Boolean(data && filterable(data.group_field))
+  const orders = dated ? ['desc', 'asc', 'key'] : ['desc', 'asc']
+
+  /**
+   * 지금 그림을 **같은 숫자로** 파일에. 막대를 보고 옮겨 적으면 그 사이에 틀리고, 틀린
+   * 숫자가 회의에 들어간다. 원값 그림이면 그린 점 그대로(행 하나가 객체 하나).
+   */
+  const [exporting, setExporting] = useState(false)
+  async function exportAs(format: 'csv' | 'xlsx') {
+    const current = JSON.parse(signature) as ObjectQuery
+    setExporting(true)
+    setError(null)
+    try {
+      if (raw) {
+        const x = settings.x || numbers[0]?.field
+        if (!x) return
+        await objectApi.exportPoints(
+          typeSlug,
+          current,
+          {
+            x,
+            y: settings.chart === 'scatter' ? settings.y || numbers[1]?.field : null,
+            groupBy: settings.splitBy || (settings.chart === 'box' ? groupBy : null),
+            // 그림과 **같은 묶음**으로 — 빠뜨리면 그림은 월별인데 파일은 해별이었다(2026-10-08).
+            grain,
+          },
+          format,
+          `${typeSlug}-${points?.x_label ?? '값'}.${format}`,
+        )
+        return
+      }
+      await objectApi.exportSummary(
+        typeSlug,
+        current,
+        {
+          groupBy,
+          splitBy: settings.splitBy || null,
+          metric,
+          metricField: metric === 'count' ? null : metricField,
+          order: settings.order,
+          grain,
+        },
+        format,
+        `${typeSlug}-${data?.group_label ?? '통계'}별.${format}`,
+      )
+    } catch (caught) {
+      setError(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded-md border p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <BarChart3 className="text-muted-foreground size-4" />
+        <span className="text-sm font-medium">통계</span>
+
+        <SearchablePicker
+          options={choicesOf(data?.group_options ?? [])}
+          value={groupBy}
+          onChange={(next) => patch({ groupBy: next })}
+          ariaLabel="기준"
+          className="w-56"
+          searchPlaceholder="기준 이름으로 찾기 — 「국가」 · 「과제」"
+        />
+
+        {/* **세부 기준.** 「부서별 몇 건」 다음 물음은 거의 언제나 「그 안에서 등급은」
+            이다. 그때 필터를 바꿔 가며 여섯 번 세게 하면 사람은 그 답을 포기한다. */}
+        <SearchablePicker
+          options={[
+            { value: NO_SPLIT, label: '세부 기준 없음' },
+            ...choicesOf(
+              (data?.group_options ?? []).filter((one) => one.field !== groupBy),
+              ' 기준',
+            ),
+          ]}
+          value={settings.splitBy || NO_SPLIT}
+          onChange={(next) => patch({ splitBy: next === NO_SPLIT ? '' : next })}
+          ariaLabel="세부 기준"
+          className="w-52"
+          searchPlaceholder="기준 이름으로 찾기"
+        />
+
+        {!raw && (
+          <Select
+            value={metric}
+            onValueChange={(next) => {
+              // 합·평균으로 바꾸면 셀 칸이 필요하다. 하나뿐이면 그것으로 정해 준다 —
+              // 고를 것이 하나인 고르개는 묻는 시늉일 뿐이다.
+              const field =
+                next !== 'count' && !metricField && numbers.length > 0
+                  ? numbers[0].field
+                  : metricField
+              patch({ metric: next, metricField: field })
+            }}
+          >
+            <SelectTrigger className="w-32" aria-label="집계 방식">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {METRICS.map((one) => (
+                <SelectItem
+                  key={one.value}
+                  value={one.value}
+                  disabled={one.value !== 'count' && numbers.length === 0}
+                >
+                  {one.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {/* 원값 그림은 **숫자 칸**을 받는다 — 집계 방식·차례는 뜻이 없어 감춘다. */}
+        {raw && (
+          <>
+            <Select
+              value={settings.x || numbers[0]?.field || ''}
+              onValueChange={(next) => patch({ x: next })}
+            >
+              <SelectTrigger className="w-40" aria-label={kind === 'scatter' ? '가로 칸' : '값 칸'}>
+                <SelectValue placeholder="숫자 칸" />
+              </SelectTrigger>
+              <SelectContent>
+                {numbers.map((one) => (
+                  <SelectItem key={one.field} value={one.field}>
+                    {kind === 'scatter' ? `가로: ${one.label}` : one.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {kind === 'scatter' && (
+              <Select
+                value={settings.y || numbers[1]?.field || ''}
+                onValueChange={(next) => patch({ y: next })}
+              >
+                <SelectTrigger className="w-40" aria-label="세로 칸">
+                  <SelectValue placeholder="두 번째 숫자 칸" />
+                </SelectTrigger>
+                <SelectContent>
+                  {numbers.map((one) => (
+                    <SelectItem key={one.field} value={one.field}>
+                      세로: {one.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </>
+        )}
+
+        {!raw && metric !== 'count' && (
+          <Select value={metricField ?? ''} onValueChange={(next) => patch({ metricField: next })}>
+            <SelectTrigger className="w-40" aria-label="셀 칸">
+              <SelectValue placeholder="숫자 칸" />
+            </SelectTrigger>
+            <SelectContent>
+              {numbers.map((one) => (
+                <SelectItem key={one.field} value={one.field}>
+                  {one.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        <div className="flex items-center rounded-md border">
+          {KINDS.map((one) => (
+            <button
+              key={one.value}
+              type="button"
+              aria-label={one.label}
+              aria-pressed={kind === one.value}
+              title={one.label}
+              className={cn('px-2 py-1.5', kind === one.value ? 'bg-muted' : 'hover:bg-muted/50')}
+              onClick={() => patch({ chart: one.value })}
+            >
+              <one.Icon className="size-4" />
+            </button>
+          ))}
+        </div>
+
+        {/* 날짜 칸은 **기간 단위**로 묶는다 — 기본은 해. 월별 추이를 보려면 여기서 고른다. */}
+        {!raw && dated && (
+          <Select value={settings.grain || 'year'} onValueChange={(next) => patch({ grain: next })}>
+            <SelectTrigger className="w-24" aria-label="기간 단위">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {GRAINS.map((one) => (
+                <SelectItem key={one.value} value={one.value}>
+                  {one.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {/* 「가장 낮은 것」 을 찾는 물음이 따로 있다 — 점수가 제일 낮은 공급사, 불량이
+            제일 적은 공정. 그때마다 데이터를 거꾸로 넣게 할 수는 없다. 날짜 축이면
+            「시간순」 이 하나 더 — 값 순이면 꺾은선이 건수 순으로 선다. */}
+        {!raw && (
+          <Button
+            variant="outline"
+            size="sm"
+            title={ORDER_LABELS[settings.order] ?? ORDER_LABELS.desc}
+            aria-label="순서 변경"
+            onClick={() => {
+              const at = orders.indexOf(settings.order)
+              patch({ order: orders[(at + 1) % orders.length] })
+            }}
+          >
+            <ArrowUpDown className="mr-1 size-4" />
+            {ORDER_LABELS[settings.order] ?? ORDER_LABELS.desc}
+          </Button>
+        )}
+
+        {/* 쌓기는 **쪼갰을 때만** 뜻이 있다. 계열이 하나면 쌓아도 같은 그림이다. */}
+        {settings.splitBy && (kind === 'bar' || kind === 'area') && (
+          <Button
+            variant={settings.stacked ? 'secondary' : 'outline'}
+            size="sm"
+            aria-pressed={settings.stacked}
+            title="누적해서 전체를 보거나, 나란히 놓고 서로 견주거나"
+            onClick={() => patch({ stacked: !settings.stacked })}
+          >
+            <Layers className="mr-1 size-4" />
+            {settings.stacked ? '누적' : '나란히'}
+          </Button>
+        )}
+
+        {loading && <Loader2 className="text-muted-foreground size-4 animate-spin" />}
+        <div className="ml-auto flex items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={loading || exporting || (raw ? !points : !data)}
+              >
+                {exporting ? (
+                  <Loader2 className="mr-1 size-4 animate-spin" />
+                ) : (
+                  <Download className="mr-1 size-4" />
+                )}
+                내보내기
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => void exportAs('xlsx')}>
+                Excel (.xlsx)
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void exportAs('csv')}>CSV</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {/* **의도가 생기는 자리에 단추를 둔다.** 못 올리는 사람에게는 누가 올리는지
+              적는다 — 단추만 없으면 그 기능이 있는 줄도 모른다. */}
+          {canPin ? (
+            <Button variant="outline" size="sm" onClick={() => setPinning(true)}>
+              <House className="mr-1 size-4" />홈 게시
+            </Button>
+          ) : (
+            <span className="text-muted-foreground text-xs">부서 관리자가 홈에 게시합니다</span>
+          )}
+          <Button variant="ghost" size="icon" aria-label="통계 닫기" onClick={onClose}>
+            <X className="size-4" />
+          </Button>
+        </div>
+      </div>
+
+      <ErrorNotice error={error} />
+
+      {pinning && pinTarget && (
+        <PinToHomeDialog
+          typeSlug={typeSlug}
+          workspaceSlug={pinTarget}
+          query={
+            {
+              q: query.q ?? '',
+              conditions: query.conditions ?? [],
+              // 지표의 「N건 보기」 처럼 상태로 거른 목록이면 그 상태도 — 홈의 수가 목록과 같게.
+              status: query.status ?? null,
+            } satisfies SavedViewQuery
+          }
+          summary={
+            settings.groupBy
+              ? {
+                  group_by: settings.groupBy,
+                  split_by: settings.splitBy,
+                  metric: settings.metric,
+                  metric_field: settings.metricField,
+                  chart: settings.chart,
+                  stacked: settings.stacked,
+                  order: settings.order,
+                  grain: grain ?? undefined,
+                }
+              : null
+          }
+          suggested={data ? `${data.group_label}별 ${data.metric_label}` : ''}
+          onClose={() => setPinning(false)}
+        />
+      )}
+
+      {data && !error && (
+        <div className="space-y-1">
+          {raw ? (
+            /* **안 센 값들.** 상자는 무리별 분포를, 산점도는 두 칸의 관계를 보여 준다 —
+               둘 다 집계로는 안 보이는 것이다. */
+            points === null ? (
+              <p className="text-muted-foreground py-8 text-center text-sm">
+                숫자 칸을 선택하면 그립니다.
+              </p>
+            ) : points.rows.length === 0 ? (
+              <p className="text-muted-foreground py-8 text-center text-sm">
+                값이 있는 것이 없습니다 — 값이 빈 행은 점이 되지 않습니다.
+              </p>
+            ) : (
+              <LazyPlot
+                height={320}
+                title={
+                  kind === 'box'
+                    ? `${points.group_label || data.group_label}별 ${points.x_label} 분포`
+                    : `${points.x_label} × ${points.y_label}`
+                }
+                data={plotTraces(kind, points)}
+                layout={
+                  kind === 'scatter'
+                    ? {
+                        xaxis: { title: { text: points.x_label } },
+                        yaxis: { title: { text: points.y_label } },
+                      }
+                    : { yaxis: { title: { text: points.x_label } } }
+                }
+              />
+            )
+          ) : kind === 'heatmap' && data.splits.length > 0 ? (
+            /* 히트맵은 plotly 가 그린다 — **세부 기준이 있을 때만.** 색이 값이라 계열이 많아도
+               읽히는 것이 장점이고, 그래서 세부 기준 값이 열둘까지여도 견딘다. */
+            <LazyPlot
+              height={Math.max(240, Math.min(460, rows.length * 30 + 120))}
+              title={`${data.group_label} × ${data.split_label}`}
+              data={[
+                {
+                  type: 'heatmap',
+                  z: rows.map((row) => data.splits.map((label) => Number(row[label] ?? 0))),
+                  x: data.splits,
+                  y: rows.map((row) => String(row.name)),
+                  colorscale: 'Blues',
+                  hovertemplate: `%{y} · %{x}: %{z}<extra></extra>`,
+                },
+              ]}
+            />
+          ) : (
+            <Chart
+              kind={kind === 'heatmap' || kind === 'box' || kind === 'scatter' ? 'bar' : kind}
+              data={rows}
+              x="name"
+              series={series}
+              stacked={settings.stacked}
+              height={Math.max(220, Math.min(420, rows.length * 28 + 80))}
+              title={`${data.group_label}별 ${data.metric_label}`}
+              emptyText="셀 것이 없습니다."
+              onPick={
+                canFilter
+                  ? (row) => {
+                      const key = row[KEY]
+                      // 빈 칸은 「값이 없음」 이라 필터로 옮길 값이 없다.
+                      if (typeof key !== 'string') return
+                      // 날짜 축은 그 기간의 **범위**로 — 시작일 하나를 `eq` 로 걸면 0건이다.
+                      const picked = data.buckets.find((one) => one.key === key)
+                      onPick(data.group_field, key, picked?.range ?? null)
+                    }
+                  : undefined
+              }
+            />
+          )}
+          <p className="text-muted-foreground pt-1 text-xs">
+            {/* **막대의 합과 전체가 다르면 그 차이를 적는다.** 안 적으면 사람은 그것을
+                오류로 읽고, 그 뒤로 이 그림을 안 믿는다. */}
+            {raw && points
+              ? `점 ${points.rows.length.toLocaleString()}개`
+              : `조건에 맞는 전체 ${data.total.toLocaleString()}건`}
+            {raw && points?.truncated && (
+              <>
+                {' · '}
+                <strong>{points.total.toLocaleString()}개 중 앞의 것만</strong> 그렸습니다 —
+                조건으로 좁히면 전부 보입니다
+              </>
+            )}
+            {data.other_groups > 0 && (
+              <>
+                {' · '}
+                <strong>그 밖에</strong> {data.other_groups}종류 {data.other_count}건은 접혔습니다
+              </>
+            )}
+            {/* **합이 안 맞는 이유를 적는다.** 여러 값 칸은 한 행이 여러 막대에 들어가
+                막대의 합이 전체보다 크다 — 안 적으면 사람은 그것을 오류로 읽는다. */}
+            {!raw && data.overlap && (
+              <>
+                {' · '}
+                <strong>여러 값 칸</strong>이라 한 행이 여러 막대에 들어갑니다 — 막대의 합이
+                전체보다 클 수 있습니다
+              </>
+            )}
+            {data.metric !== 'count' && ' · 숫자로 안 읽히는 값은 셈에서 빠집니다'}
+            {canFilter && kind !== 'heatmap' && ' · 막대를 클릭하면 그것만 걸러집니다'}
+            {kind === 'heatmap' && data.splits.length === 0 && (
+              <> · 히트맵은 세부 기준이 필요합니다 — 「세부 기준」 을 선택하세요</>
+            )}
+            {data.group_field === 'label' && data.metric === 'count' && (
+              <>
+                {' '}
+                · 이름을 기준으로 건수를 세면 대개 전부 1 입니다 — 숫자 칸의 합·평균으로 바꾸면
+                순위가 됩니다
+              </>
+            )}
+            {data.other_splits > 0 && (
+              <> · 세부 기준 값 {data.other_splits}가지는 빠졌습니다(색이 겹쳐 못 읽습니다)</>
+            )}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}

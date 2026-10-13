@@ -845,7 +845,7 @@ def announce(db: Session, job: Job) -> None:
             kind=notifications.JOB_FAILED,
             title=f"{label}이(가) 실패했습니다",
             body=(job.error or "")[:500] or None,
-            link="/jobs",
+            link="/tasks",
         )
         return
     result = job.result or {}
@@ -879,7 +879,7 @@ def announce(db: Session, job: Job) -> None:
         kind=notifications.JOB_DONE,
         title=title,
         body=body,
-        link="/jobs",
+        link="/tasks",
     )
 
 
@@ -1010,7 +1010,7 @@ def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
                 key="job_awaiting_apply",
                 label="읽고 적용하기를 기다리는 계획",
                 count=waiting,
-                link="/jobs",
+                link="/tasks",
             )
         )
     failed = (
@@ -1027,7 +1027,7 @@ def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
                 key="job_failed",
                 label="실패한 내 작업",
                 count=int(failed),
-                link="/jobs",
+                link="/tasks",
                 severity="warning",
             )
         )
@@ -1037,7 +1037,7 @@ def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
                 key="worker_down",
                 label="작업 워커가 살아 있지 않습니다 — 가져오기와 웹훅이 멎어 있습니다",
                 count=1,
-                link="/jobs",
+                link="/tasks",
                 severity="warning",
             )
         )
@@ -1078,10 +1078,13 @@ def stats(db: Session) -> list[extensions.StatItem]:
     ).one()
     mb = 1024 * 1024
     return [
-        extensions.StatItem(label="작업", count=int(jobs)),
-        extensions.StatItem(label="작업 워커(살아 있는)", count=alive_workers(db)),
+        # 「데이터 작업」 — CompCore 의 형상 작업(`jobs`)이 이미 「작업」 으로 선다(ADR 0008).
+        extensions.StatItem(label="데이터 작업", count=int(jobs)),
+        extensions.StatItem(label="데이터 작업 워커(살아 있는)", count=alive_workers(db)),
         extensions.StatItem(
-            label=f"작업 파일 (DB {int(in_db) // mb}MB · 저장소 {int(on_disk) // mb}MB)",
+            label=(
+                f"데이터 작업 파일 (DB {int(in_db) // mb}MB · 저장소 {int(on_disk) // mb}MB)"
+            ),
             count=int(files_count),
         ),
     ]
