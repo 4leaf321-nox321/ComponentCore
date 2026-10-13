@@ -20,6 +20,7 @@ cloudpickle==3.1.2
 cryptography==46.0.7
 cssselect2==0.10.0
 defusedxml==0.7.1
+et_xmlfile==2.0.0
 executing==2.2.1
 ezdxf==1.4.4
 fastapi==0.141.1
@@ -43,6 +44,7 @@ narwhals==2.26.0
 numpy==2.5.3
 ocp_gordon==0.2.2
 ocpsvg==0.6.0
+openpyxl==3.1.5
 packaging==26.3
 parso==0.8.7
 pexpect==4.9.0

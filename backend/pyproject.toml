@@ -14,7 +14,9 @@ src = [".", "scripts"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 # 화면 문구의 작은따옴표(AGENTS.md 「화면 문구」) — 화면 요소 · 이름을 ‘’ 로 가리킨다.
-allowed-confusables = ["‘", "’"]
+# `›` · `σ` · `ρ` · `α` 는 StandardPlatform 에서 들인 온톨로지 · 분석이 화면에 그대로 내는 구분자 ·
+# 통계 기호다(ADR 0008) — 「개발사 › 국가」, 관리도의 「2σ 밖」.
+allowed-confusables = ["‘", "’", "›", "σ", "ρ", "α"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app", "tests"]
@@ -34,6 +36,8 @@ extend-immutable-calls = [
 
 [tool.ruff.lint.per-file-ignores]
 "migrations/versions/*" = ["E501", "I001", "UP035", "UP007"]
+# 비교키 정규화는 **전각 · 유사 문자 자체가 소재**다(StandardPlatform 에서 들임 — ADR 0008).
+"app/shared/text.py" = ["RUF002"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -42,6 +46,12 @@ files = ["app", "tests"]
 
 [[tool.mypy.overrides]]
 module = ["uvicorn.*", "cairosvg.*"]
+ignore_missing_imports = true
+
+# openpyxl 은 타입 스텁을 따로 배포한다(types-openpyxl). 표 읽기 · 쓰기(`shared/sheets.py`)
+# 한 자리라 여기서만 모르는 것으로 둔다(StandardPlatform 과 같다 — ADR 0008).
+[[tool.mypy.overrides]]
+module = ["openpyxl.*"]
 ignore_missing_imports = true
 
 # build123d 는 타입 정보가 부분적이라(OCP 바인딩) strict 로 보면 Any 가 흘러넘친다.
