@@ -145,7 +145,7 @@ export default function JigPage() {
               </ul>
             </CardContent>
           </Card>
-          <SourceLinksCard source="jig" id={id} />
+          <SourceLinksCard source="jig" id={id} canEdit={editable} />
           {selected && <ConditionsCard conditions={selected.conditions} />}
           {j.current_version > 0 && <SimilarCard source={`jig:${id}`} />}
         </div>

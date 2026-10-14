@@ -17,6 +17,7 @@ from app.modules.jigs.schemas import (
     JigUpdateRequest,
     JigVersionOut,
 )
+from app.modules.objects import source_links
 from app.modules.works import services as works
 from app.modules.works.schemas import WorkOut
 from app.shared import folders
@@ -176,3 +177,46 @@ def list_versions(
 ) -> list[JigVersionOut]:
     jig = services.get_jig(db, jig_id)
     return [services.version_out(db, one) for one in services.list_versions(db, jig)]
+
+
+# --- 기준정보 칸(온톨로지의 관계, ADR 0008) ---------------------------------------
+
+
+@router.get("/{jig_id}/ontology", response_model=source_links.SourceLinks)
+def ontology_links(
+    jig_id: uuid.UUID,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> source_links.SourceLinks:
+    """이 지그에 닿는 관계 종류마다 한 줄 — 걸린 기준정보와 이름으로 찾은 추천."""
+    jig = services.get_jig(db, jig_id)
+    return source_links.read(db, user, "jig", jig.id, jig.name)
+
+
+@router.post("/{jig_id}/ontology/links", response_model=source_links.SourceLinks)
+def add_ontology_link(
+    jig_id: uuid.UUID,
+    payload: source_links.LinkRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> source_links.SourceLinks:
+    """기준정보 하나를 잇는다 — **이 지그를 고칠 수 있는 사람**(주인 · 관리자)."""
+    jig = services.get_jig(db, jig_id)
+    services.require_owner(jig, user)
+    source_links.link(
+        db, user, "jig", jig.id, relation=payload.relation, object_id=payload.object_id
+    )
+    return source_links.read(db, user, "jig", jig.id, jig.name)
+
+
+@router.delete("/{jig_id}/ontology/links/{link_id}", response_model=source_links.SourceLinks)
+def remove_ontology_link(
+    jig_id: uuid.UUID,
+    link_id: uuid.UUID,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> source_links.SourceLinks:
+    jig = services.get_jig(db, jig_id)
+    services.require_owner(jig, user)
+    source_links.unlink(db, user, jig.id, link_id)
+    return source_links.read(db, user, "jig", jig.id, jig.name)

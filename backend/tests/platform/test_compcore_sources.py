@@ -17,14 +17,19 @@ from sqlalchemy.orm import Session
 from app.modules.accounts.models import User
 from app.modules.jigs.models import Jig
 from app.modules.parts.models import Part
-from tests.platform.conftest import Signed
+from app.modules.workspaces.models import Workspace
+from tests.platform.conftest import Signed, _login, _make_user
 from tests.platform.test_ontology import _link, _make_object, _make_relation, _make_type
 
 
-def _part(db: Session, owner: Signed, name: str) -> Part:
-    user = db.scalar(select(User).where(User.email == owner.email))
+def _user_id(db: Session, who: Signed) -> uuid.UUID:
+    user = db.scalar(select(User).where(User.email == who.email))
     assert user is not None
-    row = Part(name=name, owner_id=user.id, folder="시험/고정구")
+    return user.id
+
+
+def _part(db: Session, owner: Signed, name: str) -> Part:
+    row = Part(name=name, owner_id=_user_id(db, owner), folder="시험/고정구")
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -105,3 +110,123 @@ def test_지그도_찾아서_고른다(client: TestClient, admin: Signed, db: Se
     listed = client.get(f"/api/objects/{jigs}", params={"q": marker}, headers=admin.headers)
     assert listed.status_code == 200, listed.text
     assert [one["id"] for one in listed.json()["items"]] == [str(row.id)]
+
+
+def _world(client: TestClient, admin: Signed) -> dict[str, str]:
+    """CompCore 부품(원 표) · 받은 기본 모델 · 분류 — 「사용 부품」(기본 모델 → 부품, 여럿)과
+    「분류」(부품 → 분류, 하나)."""
+    parts = _make_type(
+        client,
+        admin,
+        "cc_part",
+        label="CompCore 부품",
+        kind_class="system",
+        system_source="part",
+    )
+    model = _make_type(client, admin, "model", label="기본 모델", key_policy="optional")
+    klass = _make_type(client, admin, "klass", label="부품 분류", key_policy="optional")
+    uses = _make_relation(
+        client,
+        admin,
+        "uses_part",
+        label="사용 부품",
+        inverse_label="적용 모델",
+        src_type_slugs=[model],
+        dst_type_slugs=[parts],
+    )
+    classed = _make_relation(
+        client,
+        admin,
+        "classed_as",
+        label="분류",
+        inverse_label="분류된 부품",
+        cardinality="many_to_one",
+        src_type_slugs=[parts],
+        dst_type_slugs=[klass],
+    )
+    return {"parts": parts, "model": model, "klass": klass, "uses": uses, "classed": classed}
+
+
+def test_부품_화면의_칸은_관계마다_서고_주인이_잇고_끊는다(
+    client: TestClient, admin: Signed, member: Signed, db: Session, workspace: Workspace
+) -> None:
+    w = _world(client, admin)
+    p5 = _make_object(client, admin, w["model"], label="P5 플립")
+    _make_object(client, admin, w["model"], label="N10")
+    hinge = _make_object(client, admin, w["klass"], label="힌지")
+    bracket = _part(db, member, f"P5 플립 힌지 브래킷 {uuid.uuid4().hex[:4]}")
+
+    got = client.get(f"/api/parts/{bracket.id}/ontology", headers=member.headers)
+    assert got.status_code == 200, got.text
+    rows = {one["relation"]: one for one in got.json()["rows"]}
+    # 부품 쪽에서 본 말로 선다 — 기본 모델 → 부품 이면 「적용 모델」.
+    assert rows[w["uses"]]["label"] == "적용 모델" and rows[w["uses"]]["incoming"] is True
+    assert rows[w["uses"]]["single"] is False
+    assert rows[w["classed"]]["label"] == "분류" and rows[w["classed"]]["single"] is True
+    # 이름의 낱말로 추천한다 — 「P5 플립」 은 들고 「N10」 은 안 든다.
+    suggested = [one["label"] for one in rows[w["uses"]]["suggestions"]]
+    assert suggested == ["P5 플립"]
+    assert [one["label"] for one in rows[w["classed"]]["suggestions"]] == ["힌지"]
+
+    # **부품 주인이 잇는다** — 기본 모델이 든 부서의 관리자가 아니어도.
+    linked = client.post(
+        f"/api/parts/{bracket.id}/ontology/links",
+        json={"relation": w["uses"], "object_id": p5["id"]},
+        headers=member.headers,
+    )
+    assert linked.status_code == 200, linked.text
+    rows = {one["relation"]: one for one in linked.json()["rows"]}
+    assert [one["label"] for one in rows[w["uses"]]["items"]] == ["P5 플립"]
+    assert rows[w["uses"]]["suggestions"] == []  # 이미 건 것은 다시 추천하지 않는다
+
+    # 방향은 관계 정의대로 — 기본 모델 쪽 상세에서 「사용 부품」 으로 보인다.
+    side = client.get(f"/api/objects/{w['model']}/{p5['id']}", headers=admin.headers).json()
+    assert [(r["label"], r["object_label"]) for r in side["related"]] == [
+        ("사용 부품", bracket.name)
+    ]
+
+    # 「하나만」 칸 — 하나를 걸면 더는 추천하지 않고, 둘째는 개수 제약이 막는다.
+    one = client.post(
+        f"/api/parts/{bracket.id}/ontology/links",
+        json={"relation": w["classed"], "object_id": hinge["id"]},
+        headers=member.headers,
+    )
+    assert one.status_code == 200, one.text
+    rows = {r["relation"]: r for r in one.json()["rows"]}
+    assert rows[w["classed"]]["suggestions"] == []
+    other = _make_object(client, admin, w["klass"], label="브래킷")
+    twice = client.post(
+        f"/api/parts/{bracket.id}/ontology/links",
+        json={"relation": w["classed"], "object_id": other["id"]},
+        headers=member.headers,
+    )
+    assert twice.status_code == 409, twice.text
+
+    # 남의 부품은 못 잇고 못 끊는다.
+    stranger = _make_user(
+        db, workspace, label="stranger", is_system_admin=False, role="member"
+    )
+    headers = {"Authorization": f"Bearer {_login(client, stranger.email)}"}
+    denied = client.post(
+        f"/api/parts/{bracket.id}/ontology/links",
+        json={"relation": w["uses"], "object_id": p5["id"]},
+        headers=headers,
+    )
+    assert denied.status_code == 403, denied.text
+    link_id = rows[w["uses"]]["items"][0]["link_id"]
+    assert (
+        client.delete(
+            f"/api/parts/{bracket.id}/ontology/links/{link_id}", headers=headers
+        ).status_code
+        == 403
+    )
+
+    # 주인이 끊으면 양쪽에서 사라진다.
+    cut = client.delete(
+        f"/api/parts/{bracket.id}/ontology/links/{link_id}", headers=member.headers
+    )
+    assert cut.status_code == 200, cut.text
+    rows = {r["relation"]: r for r in cut.json()["rows"]}
+    assert rows[w["uses"]]["items"] == []
+    side = client.get(f"/api/objects/{w['model']}/{p5['id']}", headers=admin.headers).json()
+    assert side["related"] == []

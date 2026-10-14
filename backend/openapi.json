@@ -3332,6 +3332,157 @@
         }
       }
     },
+    "/api/parts/{part_id}/ontology": {
+      "get": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "Ontology Links",
+        "description": "이 부품에 닿는 관계 종류마다 한 줄 — 걸린 기준정보와 이름으로 찾은 추천.",
+        "operationId": "ontology_links_api_parts__part_id__ontology_get",
+        "parameters": [
+          {
+            "name": "part_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Part Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceLinks"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/parts/{part_id}/ontology/links": {
+      "post": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "Add Ontology Link",
+        "description": "기준정보 하나를 잇는다 — **이 부품을 고칠 수 있는 사람**(주인 · 관리자).",
+        "operationId": "add_ontology_link_api_parts__part_id__ontology_links_post",
+        "parameters": [
+          {
+            "name": "part_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Part Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceLinks"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/parts/{part_id}/ontology/links/{link_id}": {
+      "delete": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "Remove Ontology Link",
+        "operationId": "remove_ontology_link_api_parts__part_id__ontology_links__link_id__delete",
+        "parameters": [
+          {
+            "name": "part_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Part Id"
+            }
+          },
+          {
+            "name": "link_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Link Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceLinks"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/jigs/tags": {
       "get": {
         "tags": [
@@ -3937,6 +4088,157 @@
                     "$ref": "#/components/schemas/JigVersionOut"
                   },
                   "title": "Response List Versions Api Jigs  Jig Id  Versions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jigs/{jig_id}/ontology": {
+      "get": {
+        "tags": [
+          "jigs"
+        ],
+        "summary": "Ontology Links",
+        "description": "이 지그에 닿는 관계 종류마다 한 줄 — 걸린 기준정보와 이름으로 찾은 추천.",
+        "operationId": "ontology_links_api_jigs__jig_id__ontology_get",
+        "parameters": [
+          {
+            "name": "jig_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Jig Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceLinks"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jigs/{jig_id}/ontology/links": {
+      "post": {
+        "tags": [
+          "jigs"
+        ],
+        "summary": "Add Ontology Link",
+        "description": "기준정보 하나를 잇는다 — **이 지그를 고칠 수 있는 사람**(주인 · 관리자).",
+        "operationId": "add_ontology_link_api_jigs__jig_id__ontology_links_post",
+        "parameters": [
+          {
+            "name": "jig_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Jig Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceLinks"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jigs/{jig_id}/ontology/links/{link_id}": {
+      "delete": {
+        "tags": [
+          "jigs"
+        ],
+        "summary": "Remove Ontology Link",
+        "operationId": "remove_ontology_link_api_jigs__jig_id__ontology_links__link_id__delete",
+        "parameters": [
+          {
+            "name": "jig_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Jig Id"
+            }
+          },
+          {
+            "name": "link_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Link Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceLinks"
                 }
               }
             }
@@ -34407,6 +34709,129 @@
         ],
         "title": "LineOut"
       },
+      "LinkRequest": {
+        "properties": {
+          "relation": {
+            "type": "string",
+            "title": "Relation"
+          },
+          "object_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Object Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "relation",
+          "object_id"
+        ],
+        "title": "LinkRequest",
+        "description": "부품 · 지그 화면에서 잇기 — 관계 종류와 상대 하나."
+      },
+      "LinkRow": {
+        "properties": {
+          "relation": {
+            "type": "string",
+            "title": "Relation"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "incoming": {
+            "type": "boolean",
+            "title": "Incoming"
+          },
+          "single": {
+            "type": "boolean",
+            "title": "Single"
+          },
+          "other_types": {
+            "items": {
+              "$ref": "#/components/schemas/TypeRef"
+            },
+            "type": "array",
+            "title": "Other Types"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LinkedItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/LinkedItem"
+            },
+            "type": "array",
+            "title": "Suggestions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "relation",
+          "label",
+          "incoming",
+          "single",
+          "other_types"
+        ],
+        "title": "LinkRow"
+      },
+      "LinkedItem": {
+        "properties": {
+          "object_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Object Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "type_slug": {
+            "type": "string",
+            "title": "Type Slug"
+          },
+          "type_label": {
+            "type": "string",
+            "title": "Type Label"
+          },
+          "link_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "object_id",
+          "label",
+          "key",
+          "type_slug",
+          "type_label"
+        ],
+        "title": "LinkedItem"
+      },
       "LogCountOut": {
         "properties": {
           "type_slug": {
@@ -45603,6 +46028,34 @@
         ],
         "title": "SketchSolveRequest"
       },
+      "SourceLinks": {
+        "properties": {
+          "type_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type Slug"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/LinkRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type_slug",
+          "rows"
+        ],
+        "title": "SourceLinks"
+      },
       "SpecimenBuildOut": {
         "properties": {
           "recipe": {
@@ -48837,6 +49290,24 @@
           "count"
         ],
         "title": "TypeNodeOut"
+      },
+      "TypeRef": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "label"
+        ],
+        "title": "TypeRef"
       },
       "UnfoldRequest": {
         "properties": {

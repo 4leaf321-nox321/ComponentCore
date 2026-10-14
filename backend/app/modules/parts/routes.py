@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.modules.accounts.models import User
+from app.modules.objects import source_links
 from app.modules.parts import services
 from app.modules.parts.schemas import (
     CopyToWorkRequest,
@@ -224,3 +225,46 @@ def copy_to_work(
         conditions=version.conditions if payload.conditions else None,
     )
     return works.work_out(db, work)
+
+
+# --- 기준정보 칸(온톨로지의 관계, ADR 0008) ---------------------------------------
+
+
+@router.get("/{part_id}/ontology", response_model=source_links.SourceLinks)
+def ontology_links(
+    part_id: uuid.UUID,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> source_links.SourceLinks:
+    """이 부품에 닿는 관계 종류마다 한 줄 — 걸린 기준정보와 이름으로 찾은 추천."""
+    part = services.get_part(db, part_id)
+    return source_links.read(db, user, "part", part.id, part.name)
+
+
+@router.post("/{part_id}/ontology/links", response_model=source_links.SourceLinks)
+def add_ontology_link(
+    part_id: uuid.UUID,
+    payload: source_links.LinkRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> source_links.SourceLinks:
+    """기준정보 하나를 잇는다 — **이 부품을 고칠 수 있는 사람**(주인 · 관리자)."""
+    part = services.get_part(db, part_id)
+    services.require_owner(part, user)
+    source_links.link(
+        db, user, "part", part.id, relation=payload.relation, object_id=payload.object_id
+    )
+    return source_links.read(db, user, "part", part.id, part.name)
+
+
+@router.delete("/{part_id}/ontology/links/{link_id}", response_model=source_links.SourceLinks)
+def remove_ontology_link(
+    part_id: uuid.UUID,
+    link_id: uuid.UUID,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> source_links.SourceLinks:
+    part = services.get_part(db, part_id)
+    services.require_owner(part, user)
+    source_links.unlink(db, user, part.id, link_id)
+    return source_links.read(db, user, "part", part.id, part.name)

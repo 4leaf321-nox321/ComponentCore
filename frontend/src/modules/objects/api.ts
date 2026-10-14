@@ -1087,3 +1087,43 @@ export interface Similar {
     extra: number
   }[]
 }
+
+// --- 부품 · 지그 화면의 「기준정보」 칸(CompCore, 백엔드 `objects/source_links.py`) -----------
+
+export interface SourceLinkItem {
+  object_id: string
+  label: string
+  key: string | null
+  type_slug: string
+  type_label: string
+  /** 걸린 것이면 그 선의 id(끊을 때 쓴다). 추천에는 없다. */
+  link_id: string | null
+}
+
+export interface SourceLinkRow {
+  relation: string
+  /** 이 부품(지그) 쪽에서 본 말 — 「적용 모델」 · 「분류」. */
+  label: string
+  incoming: boolean
+  /** 하나만 걸 수 있는 칸. */
+  single: boolean
+  other_types: { slug: string; label: string }[]
+  items: SourceLinkItem[]
+  suggestions: SourceLinkItem[]
+}
+
+export interface SourceLinks {
+  /** 이 원 표를 비추는 시스템 타입. 없으면 칸이 없다. */
+  type_slug: string | null
+  rows: SourceLinkRow[]
+}
+
+export type SourceBase = 'parts' | 'jigs'
+
+export const sourceLinksApi = {
+  get: (base: SourceBase, id: string) => api.get<SourceLinks>(`/${base}/${id}/ontology`),
+  link: (base: SourceBase, id: string, relation: string, objectId: string) =>
+    api.post<SourceLinks>(`/${base}/${id}/ontology/links`, { relation, object_id: objectId }),
+  unlink: (base: SourceBase, id: string, linkId: string) =>
+    api.delete<SourceLinks>(`/${base}/${id}/ontology/links/${linkId}`),
+}

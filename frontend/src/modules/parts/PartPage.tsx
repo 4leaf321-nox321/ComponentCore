@@ -140,7 +140,7 @@ export default function PartPage() {
               )}
             </CardContent>
           </Card>
-          <SourceLinksCard source="part" id={id} />
+          <SourceLinksCard source="part" id={id} canEdit={editable} />
           <StandardCard part={p} admin={isSystemAdmin(user)} onChanged={part.reload} />
           {selected && <ConditionsCard conditions={selected.conditions} />}
           {p.current_version > 0 && <SimilarCard source={`part:${id}`} />}
