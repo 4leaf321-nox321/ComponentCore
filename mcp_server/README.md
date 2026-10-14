@@ -40,6 +40,29 @@ PLATFORM_API_BASE=http://127.0.0.1:8061 ./venv/bin/python server.py
 | `promote_part` · `promote_jig` | 카탈로그에 올리기 — 사용자가 시킬 때만 |
 | `list_parts` · `get_part` · `copy_part_to_work` · `list_jigs` · `get_jig` | 카탈로그 |
 
+### 기준정보(온톨로지) — `ontology.py` · `ontology_links.py`
+
+StandardPlatform `6e5a773` 의 MCP 도구 72개를 그대로 옮겼다(ADR 0008) — 정의(`ontology_schema` ·
+`ontology_import` …), 객체(`objects_list` · `object_resolve` · `object_create` …), 일괄 · 묶음
+(`objects_import` · `bundle_import` · `bulk_edit`), 관계(`relation_add` · `relations_import`),
+둘러보기(`graph_neighbors` · `quality_report` · `audit_recent`), 데이터 작업(`task_status` ·
+`task_apply` …), 데이터 소스(`datasource_sync` …), RDF(`rdf_query`), 지표(`metric_*`).
+**`ontology_guide` 를 먼저 부른다**(안내서 `guide/ONTOLOGY.md`).
+
+| SP 에서 | 여기서 | 까닭 |
+| --- | --- | --- |
+| `search` | `object_search` | 작업 · 부품 찾기 `search` 가 이미 있다 |
+| `job_status` · `job_apply` · `jobs_list` · `job_cancel` | `task_*` | 형상 작업(`get_job` · `cancel_job`)과 다른 큐다 — 경로도 `/api/tasks` |
+| `get_guide` | `ontology_guide` | 안내서가 둘이다 |
+| `platform_profile` · `platform_profile_update` | 없음 | 설치의 자기소개 API 를 안 들였다 |
+| `extensions_schema` · `extension_call` | 없음 | 확장 모듈 기제를 안 들인다(AGENTS.md) |
+
+CompCore 에만 있는 것: `ontology_links(kind, id)` · `ontology_link` · `ontology_unlink` — 부품 ·
+지그 화면의 「기준정보」 칸(관계 종류마다 한 줄 · 이름 추천). 잇는 사람은 그 부품의 주인 · 관리자다.
+
+`ontology.py` · `guide/ONTOLOGY.md` · `tests/test_ontology_sp.py` 는 **손으로 고치지 않는다** —
+`port_from_sp.py` 가 SP 의 파일에서 다시 만든다(쓰는 법은 그 파일 머리에).
+
 ## 시험
 ```bash
 cd mcp_server && ./venv/bin/pip install pytest

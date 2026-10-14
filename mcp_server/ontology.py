@@ -1,0 +1,2747 @@
+"""CompCore MCP 의 **기준정보(온톨로지) 도구** — StandardPlatform `6e5a773` 의
+`mcp_server/server.py` 에서 옮겼다(ADR 0008). 도구 이름 · 설명 · 규칙은 SP 와 같고, 다른 것은
+아래뿐이다:
+
+- **이름이 겹치는 것** — CompCore 에 이미 있는 이름 · 뜻과 겹쳐 바꿨다: `search` →
+  `object_search`(작업 · 부품 찾기 `search` 가 따로 있다), `job_*` → `task_*`(데이터 작업 —
+  형상 작업 `get_job` · `cancel_job` 과 다르다, 경로도 `/api/tasks`), `get_guide` →
+  `ontology_guide`(안내서는 `guide/ONTOLOGY.md`).
+- **들이지 않은 것** — 설치의 자기소개(`platform_profile` · `platform_profile_update` ·
+  접속마다 붙는 소개 — CompCore 에 `/api/server/profile` 이 없다), 확장 모듈
+  (`extensions_schema` · `extension_call` — CompCore 는 그 기제를 넣지 않는다, AGENTS.md).
+- **등록** — SP 는 모듈의 `mcp` 에 곧장 붙인다. 여기서는 모았다가 `register(mcp)` 가 CompCore
+  의 서버에 붙인다(`server.py` 의 끝, `mcp.run()` 앞).
+
+이 파일은 `port_from_sp.py` 가 SP 의 파일에서 다시 만든다 — 손으로 고치지 말고 그 스크립트를
+고친다. CompCore 에만 있는 것(부품 · 지그의 「기준정보」 칸)은 `ontology_links.py`
+에 따로 둔다.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import functools
+import json
+import os
+import re
+import shlex
+import time
+from pathlib import PureWindowsPath
+from typing import Any
+from urllib.parse import quote, urlsplit
+
+import httpx
+from mcp.server.fastmcp import Context, FastMCP
+
+API_BASE = os.environ.get("PLATFORM_API_BASE", "http://127.0.0.1:8060").rstrip("/")
+
+#: 시험이 갈아 끼우는 자리 — 진짜 앱(ASGI)이나 가짜 응답을 여기로 붙인다. 운영에서는 None.
+_TRANSPORT: httpx.AsyncBaseTransport | None = None
+
+#: `@tool()` 이 모은 도구 — `register(mcp)` 가 서버에 붙인다.
+_TOOLS: list[Any] = []
+
+#: 서버 안내문에 덧붙는 몫(SP 의 `BASE_INSTRUCTIONS` 를 줄인 것) — `server.py` 가 붙인다.
+INSTRUCTIONS = (
+    "**기준정보(온톨로지)** — SP 에서 받은 기준정보와 이 플랫폼의 부품 · 지그를 잇는 정의 · "
+    "객체 · 관계를 읽고 쓴다. **`ontology_guide` 와 `ontology_schema` 를 먼저 부른다.** "
+    "지켜야 할 셋: (1) 이름은 `object_resolve` 로 해소하고 쓴다 — `candidates` 가 오면 "
+    "고르지 말고 사람에게 묻는다. (2) 0건은 「없다」 가 아니다 — 응답의 `diagnosis` 를 "
+    "읽는다. (3) 바꾸거나 지울 때는 미리 보기(apply=false) 먼저 — 계획을 사람에게 보이고 "
+    "판단을 받은 뒤 적용한다(`task_apply`). 부품 · 지그에 기준정보를 잇는 것은 "
+    "`ontology_links` → `ontology_link`."
+)
+
+
+def register(mcp: FastMCP) -> None:
+    """모은 도구를 서버에 붙인다 — **`mcp.run()` 보다 앞에서** 불러야 한다(그 뒤는 안
+    붙는다)."""
+    for fn in _TOOLS:
+        mcp.tool()(fn)
+
+
+#: 자취를 남길 파일(JSONL). 비어 있으면 **아무것도 안 남긴다** — 기본은 끔이다.
+#: 켜면 도구 한 번이 한 줄이 되고, `eval/score.py` 가 그 줄들을 점수로 바꾼다.
+_TRACE_PATH = os.environ.get("MCP_TRACE_FILE")
+
+
+def _signal(got: Any) -> dict[str, Any]:
+    """자취에 남길 **모양만.** 값은 안 남긴다.
+
+    자취는 「AI 가 어디서 헤맸나」 를 보려고 남기는 것이지 데이터를 모으려는 게
+    아니다. 객체 이름·속성 값이 파일에 쌓이면 그 파일 자체가 유출 경로가 된다 —
+    그래서 남기는 것은 **수와 판정뿐**이다(몇 건인가, exact 인가, 왜 0건인가).
+    """
+    out: dict[str, Any] = {}
+    if not isinstance(got, dict):
+        return {"outcome": "ok"}
+    if "error" in got:
+        # 코드만 — 문구에는 객체 이름이 들어간다.
+        head = str(got["error"])
+        out["outcome"] = "error"
+        out["code"] = head[1 : head.find("]")] if head.startswith("[") else "?"
+        return out
+    if "total" in got:
+        out["total"] = got["total"]
+        out["outcome"] = "empty" if got["total"] == 0 else "ok"
+        found = got.get("diagnosis")
+        if isinstance(found, dict):
+            out["reason"] = found.get("reason")
+        return out
+    if "match" in got:
+        out["outcome"] = "ok"
+        out["match"] = got["match"]
+        return out
+    out["outcome"] = "ok"
+    return out
+
+
+def _traced(fn: Any) -> Any:
+    """도구 한 번 = 한 줄. `MCP_TRACE_FILE` 이 없으면 **감싸지도 않는다.**"""
+    if not _TRACE_PATH:
+        return fn
+
+    @functools.wraps(fn)
+    async def inner(ctx: Any, *args: Any, **kwargs: Any) -> Any:
+        started = time.monotonic()
+        try:
+            got = await fn(ctx, *args, **kwargs)
+        except Exception as caught:
+            _write_trace(fn, started, {"outcome": "raised", "code": type(caught).__name__})
+            raise
+        _write_trace(fn, started, _signal(got))
+        return got
+
+    return inner
+
+
+def _write_trace(fn: Any, started: float, signal: dict[str, Any]) -> None:
+    line = {
+        "ts": time.time(),
+        "tool": fn.__name__,
+        "ms": round((time.monotonic() - started) * 1000),
+        **signal,
+    }
+    with (
+        contextlib.suppress(OSError),
+        open(str(_TRACE_PATH), "a", encoding="utf-8") as f,
+    ):
+        f.write(json.dumps(line, ensure_ascii=False) + "\n")
+
+
+def tool() -> Any:
+    """`@tool()` 과 같되 자취를 남긴다 — 등록과 측정을 한 자리에서 정한다.
+
+    도구마다 따로 감싸면 새 도구를 넣은 사람이 그 한 줄을 잊고, 그러면 **그 도구만
+    측정에서 빠진다** — 빠진 줄은 「안 쓴 도구」 처럼 보인다.
+    """
+
+    def wrap(fn: Any) -> Any:
+        wrapped = _traced(fn)
+        _TOOLS.append(wrapped)
+        return wrapped
+
+    return wrap
+
+
+def _forward_headers(ctx: Context) -> dict[str, str]:
+    """들어온 MCP HTTP 요청의 인증 헤더를 백엔드로 전달.
+
+    MCP 는 **사용자의 토큰으로** 동작한다. 백엔드가 토큰 이름을 감사 기록에 남기므로
+    사람이 한 건지 기계가 한 건지는 거기서 갈린다."""
+    headers: dict[str, str] = {}
+    req = getattr(getattr(ctx, "request_context", None), "request", None)
+    if req is not None:
+        v = req.headers.get("authorization")
+        if v:
+            # 백엔드가 기대하는 표기로.
+            headers["Authorization"] = v
+    return headers
+
+
+def _unwrap(r: httpx.Response) -> Any:
+    """백엔드 응답 언래핑. 오류 봉투 {error: {code, message, details}} 면 {error,...}."""
+    if r.status_code < 400 and not r.content:
+        # 돌려줄 게 없는 성공(삭제 등). 그대로 흘리면 도구 결과가 **빈 문자열**이라
+        # 모델은 성공했는지 알 수 없다 — 조용한 무동작과 구분이 안 된다.
+        return {"ok": True, "message": "완료"}
+    try:
+        body = r.json()
+    except ValueError:
+        return {"error": f"HTTP {r.status_code} (non-JSON)", "status": r.status_code}
+    if r.status_code >= 400:
+        # **서버의 말을 그대로 전한다.** 오류 문구에 무엇을 고쳐야 하는지가 적혀
+        # 있고, 여기서 고쳐 쓰면 그것을 잃는다.
+        error = body.get("error") if isinstance(body, dict) else None
+        if not isinstance(error, dict):
+            return {"error": f"HTTP {r.status_code}", "status": r.status_code}
+        out: dict[str, Any] = {
+            "error": f"[{error.get('code') or r.status_code}] {error.get('message') or ''}"
+        }
+        if error.get("details"):
+            out["details"] = error["details"]
+        return out
+    return body
+
+
+def _client(timeout: float) -> httpx.AsyncClient:
+    return httpx.AsyncClient(base_url=API_BASE, timeout=timeout, transport=_TRANSPORT)
+
+
+# --------------------------------------------------------------------------- #
+# 이 플랫폼의 자기소개 — 같은 도구를 가진 플랫폼 여럿 가운데 어디에 물을지
+# --------------------------------------------------------------------------- #
+async def _get(
+    ctx: Context,
+    path: str,
+    params: dict[str, Any] | list[tuple[str, Any]] | None = None,
+) -> Any:
+    async with _client(60) as client:
+        return _unwrap(await client.get(path, params=params, headers=_forward_headers(ctx)))
+
+
+async def _post(
+    ctx: Context,
+    path: str,
+    json_body: Any,
+    params: dict[str, Any] | None = None,
+) -> Any:
+    async with _client(120) as client:
+        return _unwrap(
+            await client.post(
+                path, json=json_body, params=params, headers=_forward_headers(ctx)
+            )
+        )
+
+
+async def _patch(ctx: Context, path: str, json_body: Any) -> Any:
+    async with _client(120) as client:
+        return _unwrap(await client.patch(path, json=json_body, headers=_forward_headers(ctx)))
+
+
+async def _put(ctx: Context, path: str, json_body: Any) -> Any:
+    async with _client(60) as client:
+        return _unwrap(await client.put(path, json=json_body, headers=_forward_headers(ctx)))
+
+
+async def _delete(ctx: Context, path: str, params: dict[str, Any] | None = None) -> Any:
+    async with _client(60) as client:
+        return _unwrap(await client.delete(path, params=params, headers=_forward_headers(ctx)))
+
+
+async def _post_form(
+    ctx: Context,
+    path: str,
+    fields: dict[str, Any],
+    file: tuple[str, bytes, str] | None,
+) -> Any:
+    async with _client(120) as client:
+        return _unwrap(
+            await client.post(
+                path,
+                data=fields,
+                files={"file": file} if file is not None else None,
+                headers=_forward_headers(ctx),
+            )
+        )
+
+
+JOB_WAIT_MAX = 25.0
+"""한 도구 호출이 작업을 기다리는 최대 초. 클라이언트의 도구 시간 한도(대개 60초)보다 넉넉히
+짧게 — 그 안에 안 끝나면 `task_status` 로 다시 묻는다. 작은 파일은 첫 호출 안에 끝난다."""
+
+
+async def _wait_job(ctx: Context, job: Any, wait_seconds: float) -> Any:
+    """작업이 끝나거나 `wait_seconds` 가 지날 때까지 본다. **끝났다는 말을 지어내지
+    않는다** — 안 끝났으면 `status` 가 `queued`/`running` 인 채로 돌려주고 `next` 가 무엇을
+    할지 말한다."""
+    if not isinstance(job, dict) or "id" not in job:
+        return job
+    deadline = time.monotonic() + max(0.0, min(wait_seconds, JOB_WAIT_MAX))
+    current = job
+    while current.get("status") in ("queued", "running") and time.monotonic() < deadline:
+        await asyncio.sleep(1.0)
+        current = await _get(ctx, f"/api/tasks/{job['id']}")
+        # 작업 행에는 `error` 칸이 늘 있다(없으면 null) — 오류 봉투는 `id` 가 없는 것으로
+        # 가른다.
+        if not isinstance(current, dict) or "id" not in current:
+            return current
+    return _job_view(current)
+
+
+#: 계획 → **`task_apply`** 로 적용하는 작업 종류(백엔드 `jobs/kinds.py` 의 두 단계 종류).
+_APPLY_BY_JOB = frozenset(
+    {
+        "objects_import",
+        "relations_import",
+        "bundle_import",
+        "bundle_undo",
+        "ontology_retype",
+        "filestore_gc",
+    }
+)
+#: 계획을 낸 **도구를 `apply=true` 로 다시 불러** 적용하는 종류 — `task_apply` 로는 안 된다.
+_APPLY_BY_TOOL = {"datasource_sync": "datasource_sync(slug, apply=true)"}
+
+
+def _job_view(job: Any) -> Any:
+    """AI 에게 주는 작업 모양 — 상태와 결과, 그리고 **다음에 할 일**(종류마다 다르다:
+    `task_apply` 로 적용하는 계획 · 도구를 `apply=true` 로 다시 부르는 계획 · 파일을 내는
+    작업 · 그냥 끝나는 작업)."""
+    if not isinstance(job, dict) or "id" not in job:
+        return job
+    status = job.get("status")
+    kind = job.get("kind")
+    out: dict[str, Any] = {
+        "job_id": job["id"],
+        "kind": kind,
+        "status": status,
+        "progress": job.get("progress"),
+    }
+    if status == "done":
+        out["result"] = job.get("result")
+        result = job.get("result") or {}
+        applied = bool(result.get("applied"))
+        has_errors = bool(result.get("errors")) or bool(
+            (result.get("counts") or {}).get("error")
+        )
+        # 두 단계 종류는 늘 계획을 낸다 — 결과에 `applied` 가 없어도.
+        is_plan = not applied and ("applied" in result or kind in _APPLY_BY_JOB)
+        if applied:
+            out["next"] = "적용됐다. 결과를 사용자에게 요약한다."
+        elif job.get("applied_by"):
+            out["applied_by"] = job["applied_by"]
+            out["next"] = (
+                "이 계획은 이미 적용됐다(또는 적용 중이다) — `applied_by` 작업을 "
+                "task_status 로 본다."
+            )
+        elif is_plan and has_errors:
+            out["next"] = (
+                "오류가 있는 계획이다 — 적용할 수 없다. 오류를 사용자에게 보이고 고쳐서 다시 "
+                "넣는다."
+            )
+        elif is_plan and result.get("ok") is False:
+            out["next"] = (
+                "적용할 것이 없는 계획이다(`result.summary` · `result.errors` 가 까닭) — "
+                "그것을 사용자에게 전한다."
+            )
+        elif is_plan and kind in _APPLY_BY_JOB:
+            out["next"] = (
+                "계획이다 — 아직 아무것도 안 들어갔다. 사용자에게 보여 주고 판단을 받은 뒤 "
+                "task_apply(job_id) 로 적용한다."
+            )
+        elif is_plan and kind in _APPLY_BY_TOOL:
+            out["next"] = (
+                "계획이다 — 아직 아무것도 안 들어갔다. 사용자에게 보여 주고 판단을 받은 뒤 "
+                f"{_APPLY_BY_TOOL[kind]} 로 적용한다(task_apply 로는 안 된다)."
+            )
+        elif job.get("has_output"):
+            out["next"] = (
+                "끝났다 — 만든 파일은 화면의 「작업」 에서 받는다. 결과를 사용자에게 요약한다."
+            )
+        else:
+            out["next"] = "끝났다. 결과를 사용자에게 요약한다."
+    elif status == "failed":
+        out["error"] = job.get("error")
+        out["next"] = "실패했다. 이유를 사용자에게 그대로 전한다 — 우회하지 않는다."
+    elif status == "cancelled":
+        out["next"] = "취소됐다."
+    else:
+        out["next"] = "아직 도는 중이다. 몇 초 뒤 task_status(job_id) 로 다시 묻는다."
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# 사용 가이드 — **서버가 쥔다.** 로컬 스킬에 본문을 두면 사람마다 복사 시점이
+# 달라 낡는다. 로컬엔 짧은 스텁만 두고 본문은 여기서 읽어 준다.
+# --------------------------------------------------------------------------- #
+_GUIDE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "guide", "ONTOLOGY.md")
+_GUIDE_TOPICS = (
+    "overview",
+    "modeling",
+    "schema",
+    "find",
+    "objects",
+    "bulk",
+    "relations",
+    "sparql",
+    "metrics",
+    "reports",
+    "platforms",
+)
+
+
+def _guide_sections() -> tuple[str, dict[str, str]]:
+    """GUIDE.md 를 `<!--@ 주제 -->` 로 갈라 {주제: 본문}. 매 호출마다 읽는다 —
+    파일 하나라 비용이 무시할 만하고, 서버 재시작 없이 가이드를 고칠 수 있다."""
+    try:
+        with open(_GUIDE_PATH, encoding="utf-8") as f:
+            raw = f.read()
+    except OSError:
+        return "?", {}
+    version = "?"
+    for line in raw.split("\n")[:20]:
+        if line.startswith("GUIDE_VERSION:"):
+            version = line.split(":", 1)[1].strip()
+            break
+    out: dict[str, list[str]] = {}
+    cur: str | None = None
+    for line in raw.split("\n"):
+        m = re.match(r"<!--@\s*(\w+)\s*-->", line.strip())
+        if m:
+            cur = m.group(1)
+            out[cur] = []
+        elif cur:
+            out[cur].append(line)
+    return version, {k: "\n".join(v).strip() for k, v in out.items()}
+
+
+@tool()
+async def ontology_guide(ctx: Context, topic: str | None = None) -> dict[str, Any]:
+    """**기준정보(온톨로지)를 다루기 전에 먼저 부른다.** 무엇을 어떤 순서로
+    쓸지, 정의를 바꿀 때 무엇을 조심할지 이 가이드가 정한다(서버가 최신본을 쥔다).
+
+    `topic` 없이 부르면 **overview** — "하려는 일 → 어떤 도구" 표와 기본 습관.
+    대개 이것만으로 충분하고, 세부가 필요하면 그때 주제를 지정한다:
+      - `modeling` 무엇을 타입·속성·관계로 만드나 — 원천을 정제하기 전에
+      - `schema` 정의 읽기·바꾸기(미리 보기 → 적용)
+      - `find` 찾기·거르기·이력·참조·품질
+      - `objects` 객체 하나씩 만들고 고치기
+      - `bulk` 여러 행 한 번에(upsert)
+      - `relations` 객체 잇기(근거)
+      - `sparql` 여러 타입을 건너뛰어 잇는 물음 — 질의어로
+      - `metrics` 지표 — 미리 세어 둔 값으로 비율 · 추이 · 코호트에 답하기
+      - `reports` 보고서 기록 — RA 에서 쌓인 보고서에 묻기
+      - `platforms` SP 와 함께 붙어 있을 때 — 어디에 물을지(정본은 SP)
+
+    한 번에 다 받지 마라 — 필요한 주제만 받는 게 싸다."""
+    version, secs = _guide_sections()
+    if not secs:
+        return {
+            "error": "가이드를 읽을 수 없습니다(서버 설치 문제). "
+            "도구 설명만으로 진행하되 사용자에게 알리세요."
+        }
+    if topic:
+        key = topic.strip().lower()
+        if key not in secs:
+            return {
+                "error": f"그런 주제가 없습니다: {topic}",
+                "topics": sorted(secs.keys()),
+            }
+        return {"guide_version": version, "topic": key, "content": secs[key]}
+    return {
+        "guide_version": version,
+        "topic": "overview",
+        "content": secs.get("overview", ""),
+        "more_topics": (
+            [t for t in _GUIDE_TOPICS if t in secs and t != "overview"]
+            # 가이드에 새 주제가 늘어도 알려준다 — 튜플은 **표시 순서**일 뿐,
+            # 진실은 GUIDE.md 다(가이드를 서버가 쥐기로 한 이유).
+            + sorted(t for t in secs if t not in _GUIDE_TOPICS and t != "overview")
+        ),
+        "note": "세부가 필요하면 ontology_guide(topic=...) 로 그 주제만 받아라.",
+    }
+
+
+# --------------------------------------------------------------------------- #
+# 나 · 찾기 — 타입을 모를 때의 첫 걸음
+# --------------------------------------------------------------------------- #
+@tool()
+async def whoami(ctx: Context) -> Any:
+    """**이 토큰의 주인** — 이름 · 내 부서(`home_workspace_slug`) · 속한 부서와 역할
+    (`memberships`) · 시스템 관리자인지.
+
+    `object_create` 의 `workspace_slug` 에 무엇을 넣을지는 여기서 안다. 비우면 전역이
+    되어 시스템 관리자가 아니면 거절된다 — **부서를 짐작해 넣지 말고 여기서 읽는다.**
+    쓰기가 거절되면 `memberships[].role` 을 보고 사용자에게 알린다.
+
+    `platform` 은 **지금 어느 플랫폼에 묻고 있나** — 이름 · 사람이 쓴 소개(`summary` ·
+    `notes`) · 지금 담긴 것(`facts`, 읽을 때 센다) · 사람이 쓴 뒤 달라진 것(`stale`). 같은
+    도구를 가진 플랫폼이 여럿 붙어 있으면 이것으로 가른다."""
+    return await _get(ctx, "/api/auth/me")
+
+
+@tool()
+async def object_search(
+    ctx: Context, q: str, type_slug: str | None = None, limit: int = 20, offset: int = 0
+) -> Any:
+    """**타입을 모를 때** 이름·식별자·별칭으로 전부 찾는다 — 「앤시스 관련된 거 뭐 있어」.
+
+    `types[]` 가 타입별 건수라 **어느 타입에 있는지**가 먼저 보인다. 타입을 알면
+    `objects_list`(조건 거르기) · `object_resolve`(하나로 정하기)가 낫다 — 이것은
+    「어디 있나」 를 묻는 도구지 「어느 것인가」 를 정하는 도구가 아니다.
+    볼 수 있는 것만 나온다(남의 부서 것은 수에도 안 잡힌다). `type_slug` 에 인터페이스를
+    주면 구현 타입 전부에서 찾는다.
+
+    **기록**(`usage="log"` — 시장 서비스 건 · 시험 결과)은 섞어 찾을 때 줄로 안 오고
+    `types[]` 의 건수와 `records` 로만 온다. 기록에서 찾으려면 그 타입을 `type_slug` 로
+    준다."""
+    params: list[tuple[str, Any]] = [("q", q), ("limit", limit), ("offset", offset)]
+    if type_slug:
+        params.append(("type", type_slug))
+    return await _get(ctx, "/api/object-search", params=params)
+
+
+# --------------------------------------------------------------------------- #
+# 정의
+# --------------------------------------------------------------------------- #
+@tool()
+async def ontology_schema(ctx: Context) -> Any:
+    """이 설치의 **정의 전부** — 묶음·인터페이스·타입·속성·관계 종류.
+
+    무엇을 만들 수 있고 각 타입이 어떤 값을 받는지가 여기 다 있다. **다른 도구를
+    부르기 전에 이것부터 읽는다.** 인터페이스는 여러 타입이 따르는 공통 모양이다 —
+    타입의 `interface_slugs` 가 구현이고, 속성의 `interface_slug` 가 붙어 있으면 공통
+    속성이다."""
+    return await _get(ctx, "/api/ontology/schema")
+
+
+@tool()
+async def ontology_import(
+    ctx: Context,
+    schema: dict[str, Any],
+    apply: bool = False,
+) -> Any:
+    """정의를 통째로 **한 트랜잭션으로** 적용한다.
+
+    `apply=False`(기본)면 **아무것도 안 바꾸고** 계획만 돌려준다 — 무엇이 새로
+    생기고, 무엇이 바뀌고, **무엇을 조용히 잃는지**(경고). 사람이 그 계획을 읽고
+    판단할 자리다.
+
+    더하고 고치기만 한다. **스키마에 없다고 지우지 않는다.** 여러 타입이 같은 개념이면
+    `interfaces` 에 공통 속성을 적고 타입이 `interface_slugs` 로 구현한다 — 모양이 다른
+    같은 키가 있으면 `errors` 가 무엇이 다른지 말한다(짐작으로 맞추지 말고 사람에게 보인다).
+    속성의 `data_type` 을 바꾸면 저장된 값도 변환된다 — 변환할 수 없는 값은 `errors` 가 값과
+    함께 말한다(대체 값은 사람이 화면의 「종류 변경」 에서 정한다).
+    자세한 것은 `get_guide("schema")`."""
+    return await _post(
+        ctx,
+        "/api/ontology/import",
+        schema,
+        params={"dry_run": "false" if apply else "true"},
+    )
+
+
+@tool()
+async def table_infer(ctx: Context, rows: list[dict[str, Any]]) -> Any:
+    """**표(행 목록)에서 기록 타입의 정의를 제안받는다** — 열마다 역할 · 종류, 그리고 **어느
+    있는 타입을 가리키나**(참조 후보). 아무것도 안 바꾼다. 시스템 관리자만 된다.
+
+    `rows` 는 `{열 이름: 값}` 목록(한 번에 5,000행까지 — 견본으로 충분하다). 열마다:
+    `role`(label · key · description · aliases · property · ignore) · `key` · `data_type` ·
+    `note`(왜 그렇게 맞혔나), 그리고 `ref_candidates` — 값이 그 타입의 객체로 **하나로 풀림
+    (`one`) · 여럿에 맞음(`many`) · 못 찾음(`none`)** 의 수와 견본. 넣을 때와 같은 이름 풀이
+    (식별자 → 별칭 → 이름)로 셌다 — 여기서 하나로 풀린 값은 넣을 때도 풀린다.
+
+    확실할 때만(하나로 90% 이상 · 3종 이상 · 짧은 숫자 아님) `data_type` 이 `object_ref` 로
+    바뀌어 온다(`ref_type_slug`). 아니면 글자 그대로고 `ref_note` 가 왜인지 말한다. **후보를
+    스스로 확정하지 않는다** — 열 · 후보 · 못 찾은 견본을 사람에게 보이고, 그가 고친 열로
+    `table_build` 를 부른다. 여럿에 맞는 값은 넣을 때 거절된다(식별자로 적어야 한다).
+
+    다음: `table_build` → `ontology_import`(계획 → 적용) → `objects_import`."""
+    body = json.dumps({"rows": rows}, ensure_ascii=False).encode("utf-8")
+    got = await _post_form(
+        ctx, "/api/ontology/infer", {}, ("rows.json", body, "application/json")
+    )
+    if isinstance(got, dict):
+        # 보낸 행을 그대로 돌려받을 까닭이 없다 — `table_build` 에 같은 행을 다시 넘긴다.
+        got.pop("raw_rows", None)
+    return got
+
+
+@tool()
+async def table_build(
+    ctx: Context,
+    slug: str,
+    label: str,
+    columns: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+    key_policy: str = "optional",
+    nav_group_slug: str | None = None,
+    usage: str = "log",
+) -> Any:
+    """`table_infer` 의 열(사람이 고친 것)과 같은 행 → **정의 스키마**와 **넣을 행**.
+    아무것도 안 바꾼다. `usage` 는 기본 `log`(기록) — 표는 대개 축을 가리키는 쪽이다. 개발모델
+    · 과제처럼 **가리켜지는 쪽**을 표로 만들면 `axis`(축).
+
+    `columns` 는 `table_infer` 가 준 열 그대로에서 고칠 것만 고친다 — `role` · `key` ·
+    `label` · `data_type` · `multi` · `enum_options`, 참조로 둘 열은
+    `data_type="object_ref"` 와 `ref_type_slug`(있는 타입 · 인터페이스). 이름(label) 역할
+    열이 정확히 하나여야 한다.
+
+    돌아온 `schema` 를 `ontology_import` 로(계획을 보이고 `apply=True`), `import_rows` 를
+    `objects_import(type_slug=slug, rows=import_rows, …)` 로 넣는다. 참조 칸의 값은 글자
+    그대로 가고 넣을 때 풀린다."""
+    return await _post(
+        ctx,
+        "/api/ontology/infer/build",
+        {
+            "slug": slug,
+            "label": label,
+            "key_policy": key_policy,
+            "nav_group_slug": nav_group_slug,
+            "usage": usage,
+            "columns": columns,
+            "raw_rows": rows,
+        },
+    )
+
+
+#: 지울 수 있는 정의와 그 자리. 미리 보기(`GET /api/ontology/delete-plan`)도 같은 이름이다.
+_DELETE_PATHS = {
+    "group": "/api/ontology/groups/{slug}",
+    "type": "/api/ontology/types/{slug}",
+    "interface": "/api/ontology/interfaces/{slug}",
+    "relation_type": "/api/ontology/relation-types/{slug}",
+    "property": "/api/ontology/types/{slug}/properties/{key}",
+    "interface_property": "/api/ontology/interfaces/{slug}/properties/{key}",
+}
+
+
+@tool()
+async def ontology_delete(
+    ctx: Context,
+    kind: str,
+    slug: str,
+    key: str | None = None,
+    apply: bool = False,
+    accept_core: bool = False,
+    purge_deleted: bool = False,
+) -> Any:
+    """정의 하나를 **지운다.** `kind` 는 `group`(묶음) · `type` · `interface` ·
+    `relation_type` · `property`(타입의 속성) · `interface_property`(공통 속성) — 속성
+    둘은 `key` 가 있어야 한다. 시스템 관리자만 된다.
+
+    `apply=False`(기본)면 **아무것도 안 지우고** 계획만 온다: `blocking`(먼저 할 일 —
+    하나라도 있으면 지금은 못 지운다) · `removes`(함께 사라지는 것) · `keeps`(남는 것 —
+    속성을 지워도 저장값은 남는다) · `warnings`. 사람에게 보이고 판단을 받은 뒤
+    `apply=True`.
+
+    **막는 것을 우회하지 않는다.** 살아 있는 객체가 든 타입 · 관계가 맺힌 관계 종류는 못
+    지운다 — 그만 쓰려는 것이면 `ontology_import` 로 `is_active: false`(자료는 남고 화면에서만
+    빠진다). 타입에 **지운 객체만** 남았으면 계획의 `purge_deleted` 가 그 수다 — 함께
+    **영구 삭제**되고 되돌릴 수 없으니, `removes` 를 사람에게 보이고 확인받아
+    `purge_deleted=True`(ADR 0008). 외부 공개 타입의 속성은 `core_consumers` 를 보이고
+    통보를 확인받아 `accept_core=True`. 지우기 직전 정의는 스냅샷으로 남는다 — 되살리기는
+    `ontology_restore`(객체는 스냅샷에 없다)."""
+    if kind not in _DELETE_PATHS:
+        return {"error": f"kind 는 {' · '.join(_DELETE_PATHS)} 중 하나입니다: {kind}"}
+    if kind.endswith("property") and not key:
+        return {"error": f"{kind} 를 지우려면 key(속성 키)가 있어야 합니다."}
+    if not apply:
+        asked = {"kind": kind, "slug": slug, **({"key": key} if key else {})}
+        return await _get(ctx, "/api/ontology/delete-plan", params=asked)
+    path = _DELETE_PATHS[kind].format(slug=slug, key=key)
+    params: dict[str, Any] = {}
+    if accept_core and kind == "property":
+        params["accept_core"] = "true"
+    if purge_deleted and kind == "type":
+        params["purge_deleted"] = "true"
+    got = await _delete(ctx, path, params=params or None)
+    if isinstance(got, dict) and got.get("ok"):
+        return {
+            "ok": True,
+            "message": f"지웠습니다 — {kind} {slug}{f'.{key}' if key else ''}",
+        }
+    return got
+
+
+def _property_owner(owner: str) -> str | None:
+    """`type` · `interface` → 경로의 자리. 모르는 것은 None — 짐작해 다른 데로 안 보낸다."""
+    return {"type": "types", "interface": "interfaces"}.get(owner)
+
+
+@tool()
+async def ontology_retype(
+    ctx: Context,
+    slug: str,
+    key: str,
+    data_type: str,
+    owner: str = "type",
+    mapping: dict[str, str | None] | None = None,
+    enum_options: list[str] | None = None,
+    min_value: float | None = None,
+    max_value: float | None = None,
+    decimals: int | None = None,
+    pattern: str | None = None,
+    unit: str | None = None,
+    unique: bool | None = None,
+    ref_type_slug: str | None = None,
+    inverse_label: str | None = None,
+    accept_core: bool = False,
+    apply: bool = False,
+) -> Any:
+    """속성의 **종류를 바꾼다** — 저장값도 같은 규칙으로 변환된다(종류 변경, ADR 0007).
+    `owner="interface"` 면 공통 속성이고 구현 타입 전부가 한 번에 바뀐다.
+
+    **글 → 참조**(`data_type="object_ref"`, `ref_type_slug` 필수)는 이미 넣은 기록을 축에
+    잇는다(ADR 0009) — 값마다 일괄 입력과 같은 이름 풀이(식별자 → 별칭 → 이름 → id)로
+    바꾸고, 이름이 여럿에 맞거나 못 찾은 값이 `failures` 로 온다(대체 값은 상대의 식별자 ·
+    이름 · id). **참조 → 글**은 상대의 식별자(없으면 이름)가 된다. 참조는 글 · 긴 글 ·
+    선택과만 오간다.
+
+    값이 있는 객체가 2만 건을 넘으면 **작업이 된다**(`apply` 와 상관없이 계획 작업) — 돌아온
+    `result` 가 계획이다. 사용자에게 보여 주고 판단을 받은 뒤 `task_apply(job_id)` 로 적용한다.
+    대체 값을 고치면 이 도구를 다시 부른다(새 계획 작업).
+
+    `apply=False`(기본)면 계획: 타입별 변환 건수 · `failures`(변환할 수 없는 값 · 건수 ·
+    견본) · `warnings` · `errors`. 변환할 수 없는 값이 하나라도 남으면 **적용되지
+    않는다** — 값마다 `mapping={값: 대체 값 | null(값 삭제)}` 을 적는다(열쇠는 계획의
+    `value` 그대로). **대체 값을 짐작하지 않는다** — 목록을 사람에게 보이고 그가 정한
+    값만 적는다. 적용하면 직전 정의가 스냅샷으로 남는다(`snapshot_id`). 공개 타입이면
+    `core_consumers` 를 보이고 `accept_core=True`.
+
+    `ontology_import` 도 종류를 바꾸지만 대체 값을 적을 자리가 없다 — 그때 이 도구다."""
+    base = _property_owner(owner)
+    if base is None:
+        return {"error": f"owner 는 type · interface 중 하나입니다: {owner}"}
+    body: dict[str, Any] = {
+        "data_type": data_type,
+        "mapping": mapping or {},
+        "accept_core": accept_core,
+        "apply": apply,
+    }
+    for name, value in (
+        ("enum_options", enum_options),
+        ("min_value", min_value),
+        ("max_value", max_value),
+        ("decimals", decimals),
+        ("pattern", pattern),
+        ("unit", unit),
+        ("unique", unique),
+        ("ref_type_slug", ref_type_slug),
+        ("inverse_label", inverse_label),
+    ):
+        if value is not None:
+            body[name] = value
+    path = f"/api/ontology/{base}/{slug}/properties/{key}/retype"
+    got = await _post(ctx, path, body)
+    if isinstance(got, dict) and "ONTOLOGY-0067" in str(got.get("error", "")):
+        # 값이 많은 타입(기록) — 요청 안에서 안 끝나 작업이 된다. 작업은 늘 계획부터다.
+        job = await _post(ctx, f"{path}/job", {**body, "apply": False})
+        return await _wait_job(ctx, job, JOB_WAIT_MAX)
+    return got
+
+
+@tool()
+async def ontology_rename_option(
+    ctx: Context,
+    slug: str,
+    key: str,
+    from_value: str,
+    to_value: str,
+    owner: str = "type",
+    apply: bool = False,
+) -> Any:
+    """고를 값(enum)의 **이름을 바꾼다 — 저장된 값까지 함께.** 이름만 바꾸면 옛 이름으로 저장된
+    값이 거르기에서 빠지고, 그 사실은 아무 데도 안 뜬다. `owner="interface"` 면 구현 타입 전부.
+
+    `apply=False`(기본)면 몇 개가 함께 바뀌는지(`objects_with_value`)만 말한다."""
+    base = _property_owner(owner)
+    if base is None:
+        return {"error": f"owner 는 type · interface 중 하나입니다: {owner}"}
+    return await _post(
+        ctx,
+        f"/api/ontology/{base}/{slug}/properties/{key}/rename-option",
+        {"from": from_value, "to": to_value, "apply": apply},
+    )
+
+
+@tool()
+async def ontology_promote(
+    ctx: Context,
+    slug: str,
+    key: str,
+    target_type_slug: str | None = None,
+    new_slug: str | None = None,
+    new_label: str | None = None,
+    nav_group_slug: str | None = None,
+    apply: bool = False,
+) -> Any:
+    """고를 값(enum) 속성을 **코드표(참조 타입)로 승격한다** — 고를 값마다 객체가
+    생기고(또는 `target_type_slug` 의 있는 객체에 붙고), 저장된 글자가 그 객체를
+    가리키게 바뀐다. 새 코드표면 `new_slug` · `new_label`.
+
+    `apply=False`(기본)면 계획(값마다 새로 만들지 · 붙일지). 값 이전은 스냅샷이 못 되돌린다 —
+    사람의 판단을 받은 뒤에만 `apply=True`."""
+    return await _post(
+        ctx,
+        f"/api/ontology/types/{slug}/properties/{key}/promote",
+        {
+            "target_type_slug": target_type_slug,
+            "new_slug": new_slug,
+            "new_label": new_label,
+            "nav_group_slug": nav_group_slug,
+            "apply": apply,
+        },
+    )
+
+
+@tool()
+async def ontology_restore(
+    ctx: Context, snapshot_id: str | None = None, apply: bool = False
+) -> Any:
+    """정의를 **그때의 모습으로 되돌린다**(스냅샷). `snapshot_id` 를 비우면 되돌릴 수
+    있는 스냅샷 목록(최근 50개 — 언제 · 누가 · 왜)이 온다. 가져오기 · 종류 변경 · 승격 ·
+    삭제 · 되돌리기 직전마다 하나씩 남는다.
+
+    `apply=False`(기본)면 계획(가져오기의 미리 보기와 같은 모양). **그 뒤에 새로 만든
+    정의는 안 지운다.** 종류가 바뀐 뒤의 복원은 저장값도 다시 변환한다. 되돌리기
+    직전도 스냅샷으로 남는다. 객체는 스냅샷에 없다."""
+    if snapshot_id is None:
+        listed = await _get(ctx, "/api/ontology/snapshots")
+        return {"snapshots": listed} if isinstance(listed, list) else listed
+    return await _post(
+        ctx,
+        f"/api/ontology/snapshots/{snapshot_id}/restore",
+        None,
+        params={"dry_run": "false" if apply else "true"},
+    )
+
+
+# --------------------------------------------------------------------------- #
+# 객체
+# --------------------------------------------------------------------------- #
+# 긴 글 칸(보고서 본문 같은 것)은 잘라서 준다 — 목록 50건이 본문째 오면 답 하나가 문맥을
+# 채우고, 정작 읽어야 할 것을 밀어낸다. 잘랐으면 **잘랐다고** 적는다(`clipped`) — 앞부분을
+# 전부로 읽지 않게.
+LIST_TEXT = 300
+GET_TEXT = 6000
+
+
+def _clip(row: Any, *, start: int, size: int) -> None:
+    """`row.properties` 의 `size` 보다 긴 글을 `[start, start+size)` 만 남기고, 무엇을
+    잘랐는지 `row.clipped[<칸>] = {from, to, length}` 로 적는다."""
+    properties = row.get("properties") if isinstance(row, dict) else None
+    if not isinstance(properties, dict):
+        return
+    clipped: dict[str, dict[str, int]] = {}
+    for key, value in properties.items():
+        if isinstance(value, str) and len(value) > size:
+            begin = min(max(start, 0), len(value))
+            end = min(len(value), begin + size)
+            properties[key] = value[begin:end]
+            clipped[key] = {"from": begin, "to": end, "length": len(value)}
+    if clipped:
+        row["clipped"] = clipped
+
+
+@tool()
+async def objects_list(
+    ctx: Context,
+    type_slug: str,
+    q: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    properties: dict[str, str] | None = None,
+    conditions: list[dict[str, str]] | None = None,
+    status: str | None = None,
+) -> Any:
+    """그 타입의 객체 목록 — 화면의 목록과 **같은 거르기**다.
+
+    `type_slug` 에 **인터페이스**를 주면 구현 타입 전부가 한 목록으로 온다(읽기만) —
+    줄마다 `type_slug` 가 그 객체의 실제 타입이고, 상세 · 고치기는 그 타입으로 한다.
+    조건은 공통 속성(키가 같다)과 `label`·`key`·`status` 로 건다.
+
+    - `q`: 이름·식별자·검색 속성.
+    - `properties`: `{"grade": "A"}` 처럼 속성 키로 「같음」 거르기(짧은 꼴).
+    - `conditions`: `[{"field": "power", "op": "gte", "value": "10"}, ...]` — 칸끼리 AND,
+      같은 칸에 여럿이면 그 안은 OR. 연산은 칸의 종류가 정한다:
+      숫자·날짜 `eq ne gt gte lt lte in` · 글자 `eq ne contains starts in` ·
+      선택·참조 `eq ne in` · 참/거짓 `eq` · 모두 `empty notempty`.
+      `in` 의 값은 `|` 로 잇는다(`"A|B"`). `field` 는 속성 키 또는 `label`·`key`·`status`.
+      **다른 타입의 칸**도 된다 — `ref.vendor.country`(참조 칸이 가리키는 것의 칸),
+      `out.used_by`(관계로 이어진 것 자체), `in.resells.country`. 주소는 `object_fields`
+      가 준다 — 추측하지 않는다.
+      **제외**: 조건에 `"exclude": 1`(묶음 번호)을 주면 같은 번호끼리 AND 로 묶어 **그 묶음에
+      맞는 것을 뺀다**(`nf1.<칸>.<연산>`). 칸이 비어 비교가 안 되는 기록은 남는다. 지표 건
+      보기의 `nf<번호>.<칸>.<연산>` 키는 `{"field", "op", "value", "exclude": <번호>}` 로 푼다.
+    - `status`: `active` · `deprecated`.
+
+    응답의 `total` 이 전체 수다 — 한 쪽(limit ≤ 200)씩 `offset` 으로 넘긴다.
+    **몇 건인지 세려면 전부 받지 말고 `objects_summary`.**
+
+    **0건이면 `diagnosis` 가 붙는다** — 「타입에 객체가 없음(empty_type)」 · 「부서 밖이라
+    안 보임(not_visible)」 · 「조건이 좁음(filters)」 중 무엇인지, 조건 때문이면 어느 조건을
+    빼면 몇 건인지, 그 중 **값이 비어 있어서** 빠진 것이 몇 건인지까지 있다(인터페이스는
+    「구현한 타입이 없음(no_implementers)」 도 있다). 읽지 않고
+    「없습니다」 라고 답하지 마라 — 있는 것을 없다고 하면 사람은 그것을 새로 만든다.
+
+    **긴 글 칸(보고서 본문 같은 것)은 앞 300자만** 온다 — 줄의 `clipped` 가 그 칸의 전체
+    길이를 말한다. 내용으로 답하려면 그 객체를 `object_get` 으로 읽는다."""
+    filters = _filter_params(q, status, properties, conditions)
+    params: list[tuple[str, Any]] = [("limit", limit), ("offset", offset), *filters]
+    found = await _get(ctx, f"/api/objects/{type_slug}", params=params)
+    if isinstance(found, dict):
+        for row in found.get("items") or []:
+            _clip(row, start=0, size=LIST_TEXT)
+    if isinstance(found, dict) and found.get("total") == 0:
+        # **0건은 「없다」 가 아니다.** 안 채운 타입일 수도, 부서 밖이라 안 보일 수도,
+        # 조건이 좁을 뿐일 수도 있다. 셋을 안 가르면 모델은 「없다」 로 읽고 없는 것을
+        # 새로 만든다 — 그래서 0건일 때만 한 번 더 물어 이유를 붙인다.
+        # 진단이 실패해도 목록은 돌려준다 — 덤이 본래 답을 막으면 안 된다.
+        with contextlib.suppress(Exception):
+            found["diagnosis"] = await _get(
+                ctx, f"/api/objects/{type_slug}/diagnose", params=list(filters)
+            )
+    return found
+
+
+def _filter_params(
+    q: str | None,
+    status: str | None,
+    properties: dict[str, str] | None,
+    conditions: list[dict[str, str]] | None,
+) -> list[tuple[str, Any]]:
+    """목록과 통계가 **같은 거르기**를 보낸다.
+
+    따로 만들면 「목록은 12건인데 통계는 15건」 이 되고, 모델은 어느 쪽을
+    믿을지 모른다."""
+    params: list[tuple[str, Any]] = []
+    if q:
+        params.append(("q", q))
+    if status:
+        params.append(("status", status))
+    for key, value in (properties or {}).items():
+        params.append((f"p.{key}", value))
+    for one in conditions or []:
+        field, op, value = (
+            one.get("field", ""),
+            one.get("op", "eq"),
+            one.get("value", ""),
+        )
+        # 제외 묶음(ADR 0015) — 같은 번호끼리 AND 로 묶어 뺀다. 지표 건 보기의 `nf<번호>.` 키.
+        group = str(one.get("exclude") or "").strip()
+        head = f"nf{group}" if group and group != "0" else "f"
+        params.append((f"{head}.{field}.{op}", value))
+    return params
+
+
+@tool()
+async def object_resolve(ctx: Context, type_slug: str, name: str) -> Any:
+    """이름 하나가 **어느 객체인지 정해지는가** — 이름으로 무언가를 가리키기 전에 부른다.
+
+    참조 칸을 채우거나 관계를 잇거나 「그 부품 상태 알려줘」 를 풀 때, 목록에서 첫 줄을
+    집으면 **틀린 줄도 첫 줄이면 집힌다.** 그래서 목록이 아니라 판정을 준다:
+
+      - `exact`      → `object.id` 를 그대로 쓴다.
+      - `candidates` → **쓰지 마라.** 후보를 사람에게 보여 주고 어느 것인지 묻는다.
+      - `none`       → 없다. 오타인지 아직 안 만든 것인지 사람에게 묻는다. 짐작하지 마라.
+
+    식별자 → 별칭 → 이름 → 포함 차례로 맞춘다. 별칭이 있으므로 「앤시스」 로 물어도
+    「Ansys」 가 나온다. **포함으로 하나만 걸려도 `exact` 가 아니다** — 포함은 짐작이다.
+
+    `type_slug` 에 인터페이스를 주면 구현 타입 전부에서 찾는다. 식별자는 타입마다 따로라
+    **같은 식별자가 두 타입에 있으면 `candidates`** 다 — 후보의 `type_slug` 로 가른다."""
+    return await _get(ctx, f"/api/objects/{type_slug}/resolve", params=[("name", name)])
+
+
+@tool()
+async def objects_resolve_many(ctx: Context, type_slug: str, names: list[str]) -> Any:
+    """이름 **여럿을 한 번에** 푼다 — 판정 규칙은 `object_resolve` 와 같다.
+
+    한 줄에 한 번 물으면 이천 줄짜리 원천에 왕복이 이천 번이다. **넣기 전에** 이것으로
+    한 번 물어 「없는 것」 과 「여럿과 맞는 것」 을 먼저 걸러라 — 그러면 묶음 전체가
+    거절되는 일이 줄고, 사람에게 물을 것만 남는다.
+
+    답은 **보낸 차례대로** 오고 줄마다 물은 이름(`name`)이 붙는다. `counts` 가 몇 개가
+    `exact` · `candidates` · `none` 인지 한 줄로 말한다. 한 번에 500개까지.
+
+    `candidates` 는 **쓰지 마라** — 어느 것인지 사람에게 묻는다. `none` 도 짐작하지 마라."""
+    return await _post(ctx, f"/api/objects/{type_slug}/resolve-many", {"names": names})
+
+
+@tool()
+async def aliases_pending(ctx: Context, type_slug: str, limit: int = 100) -> Any:
+    """**사람이 아직 안 본 별칭** — 기계가 붙인 것이 그대로 정본처럼 쓰이지 않게.
+
+    적재는 별칭을 수천 개 붙인다. 그 안에는 오타 표기와 남의 이름이 섞이는데, 본 것과 안 본
+    것을 가르는 칸이 없으면 전부 정본처럼 쓰인다. 화면에서 사람이 붙인 것은 붙이는 순간
+    확인한 것이라 여기 안 뜬다 — 여기 남는 것은 **파일 · 기계가 붙인 것**뿐이다.
+
+    줄마다 그 별칭이 **어디서 왔는지**(`source`)와 메모가 온다. 사람에게 보여 주고 판단을
+    받은 뒤 `aliases_review` 로 확인하거나 지운다. **네가 스스로 확인해 주지 마라** —
+    그러면 검수라는 자리가 없는 것과 같다."""
+    return await _get(
+        ctx, f"/api/objects/{type_slug}/aliases/pending", params=[("limit", str(limit))]
+    )
+
+
+@tool()
+async def aliases_review(
+    ctx: Context, type_slug: str, alias_ids: list[str], action: str = "approve"
+) -> Any:
+    """고른 별칭을 **한 번에** 확인(`approve`)하거나 지운다(`remove`).
+
+    `aliases_pending` 이 준 `id` 들을 넣는다. **사람이 고른 것만 넣어라** — 한 줄씩 누르게
+    하면 수백 줄을 끝까지 보는 사람이 없어서 한 번에 하게 둔 자리이고, 그 판단은 사람의
+    것이다. 확인한 것만 정본으로 쓰인다.
+
+    못 한 줄은 `refused` 에 이유와 함께 온다(남의 부서 것, 이미 없는 것) — 하나가 막혀도
+    나머지는 간다."""
+    return await _post(
+        ctx,
+        f"/api/objects/{type_slug}/aliases/review",
+        {"ids": alias_ids, "action": action},
+    )
+
+
+@tool()
+async def alias_candidates(
+    ctx: Context, type_slug: str | None = None, status: str = "pending", limit: int = 20
+) -> Any:
+    """**못 찾은 말**(별칭 후보) — 사람과 AI 가 이름으로 찾다가(`object_resolve` · `search` ·
+    `objects_list(q=)`) 아무것도 못 찾은 글자, 많이 · 여럿이 찾은 것부터(`hits` · `people`).
+
+    그 말이 어떤 객체의 다른 이름이면 `alias_candidate_apply(action="attach")` 로 그 객체의
+    별칭으로 붙인다 — **다음부터 찾힌다.** 줄마다 `suggestions`(「이것 아닐까」 — 이름 ·
+    식별자 · 별칭이 비슷한 것)가 오지만 **짐작이다**: 사람에게 보이고 어느 객체인지 받은 뒤에
+    붙인다. 별칭이 될 말이 아니면(오타 · 엉뚱한 말) `action="ignore"`.
+
+    `type_slug` 로 그 타입에서 못 찾은 것만(빈 글자 `""` 면 통합 검색에서 못 찾은 것).
+    `status` 는 `pending`(기본) · `attached` · `ignored` · `all`. 부서 관리자 이상. 누가
+    찾았는지는 남지 않는다 — 몇 사람인지만."""
+    params: list[tuple[str, Any]] = [("status", status), ("limit", str(limit))]
+    if type_slug is not None:
+        params.append(("type", type_slug))
+    return await _get(ctx, "/api/objects/alias-candidates", params=params)
+
+
+@tool()
+async def alias_candidate_apply(
+    ctx: Context,
+    candidate_id: str,
+    action: str = "attach",
+    object_id: str | None = None,
+    value: str | None = None,
+    apply: bool = False,
+) -> Any:
+    """별칭 후보 하나를 처리한다 — `attach`(그 객체의 별칭으로) · `ignore`(무시) ·
+    `restore`(대기로 되돌림).
+
+    **`apply=False`(기본)면 아무것도 안 바꾼다** — `attach` 는 계획(붙기 전 · 뒤 별칭,
+    `warnings`, `blocking`)을, `ignore` · `restore` 는 그 후보를 돌려준다. 사람에게 보이고
+    확인받은 뒤 `apply=True` 로 부른다. `blocking` 이 있으면(다른 객체가 그 별칭을 쓴다) 붙지
+    않는다 — 우회하지 말고 사람에게 말한다.
+
+    `object_id` 는 `alias_candidates` 의 `suggestions` 나 `object_resolve` 로 정한 id 다 —
+    **스스로 고르지 마라.** 별칭은 그 뒤로 이름 풀이 · 검색 · 파일 적재가 전부 쓰므로, 틀리게
+    붙인 별칭은 틀린 객체로 풀린다. `value` 를 주면 그 표기로 붙인다(비우면 못 찾은 말
+    그대로)."""
+    if action == "attach":
+        if not object_id:
+            return {
+                "error": "attach 에는 object_id 가 필요합니다 — 어느 객체의 별칭인지 사람에게 "
+                "받으세요(suggestions 는 짐작입니다)."
+            }
+        body: dict[str, Any] = {"object_id": object_id, "apply": apply}
+        if value is not None:
+            body["value"] = value
+        return await _post(
+            ctx, f"/api/objects/alias-candidates/{quote(candidate_id, safe='')}/attach", body
+        )
+    if action not in ("ignore", "restore"):
+        return {"error": f"action 은 attach · ignore · restore 중 하나입니다: {action}"}
+    if not apply:
+        got = await _get(ctx, f"/api/objects/alias-candidates/{quote(candidate_id, safe='')}")
+        if not isinstance(got, dict) or "error" in got:
+            return got
+        return {
+            "applied": False,
+            "action": action,
+            "candidate": got,
+            "next": "사람에게 보이고 확인받은 뒤 apply=True 로 부른다.",
+        }
+    got = await _post(
+        ctx, "/api/objects/alias-candidates/decide", {"ids": [candidate_id], "action": action}
+    )
+    if isinstance(got, dict) and "error" not in got:
+        return {"applied": True, "action": action, **got}
+    return got
+
+
+#: 「추천대로 모두」 의 기본 문턱 — 백엔드(`review/services.DEFAULT_THRESHOLD`)와 같다.
+REVIEW_THRESHOLD = 0.9
+
+
+def _review_filters(
+    kind: str | None,
+    type_slug: str | None,
+    workspace: str | None,
+    min_confidence: float | None,
+) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "type": type_slug,
+        "workspace": workspace,
+        "min_confidence": min_confidence,
+    }
+
+
+@tool()
+async def review_list(
+    ctx: Context,
+    kind: str | None = None,
+    type_slug: str | None = None,
+    workspace: str | None = None,
+    min_confidence: float | None = None,
+    group: bool = False,
+    limit: int = 20,
+    offset: int = 0,
+) -> Any:
+    """**검토함** — 사람이 판단할 일을 한 곳에서(ADR 0027). 별칭 후보(못 찾은 말) · 검수 대기
+    별칭 · 병합 후보(이름이 같은 객체) · 지워진 것을 가리키는 칸, 그리고 원래 화면에서만
+    처리하는 적용 대기 계획 · 선 기다림.
+
+    줄마다 `question`(물음) · `evidence`(근거) · `choices`(후보, `score`) · `recommended` ·
+    `confidence`(0~1) · `reason`(왜 이 추천인가) · `rows`(한 결정이 손대는 줄 수) · `blocked`
+    (이 토큰의 주인이 처리할 수 없는 까닭) · `link`(원래 화면). `kinds` 가 종류마다 수를 센다
+    (`total` 원래 자리에 있는 수 · `matched` 거르기에 맞는 수) — **요약할 때 이것으로.**
+
+    거르기: `kind`(종류 하나) · `type_slug` · `workspace`(부서 slug, `@global` 은 전역) ·
+    `min_confidence`. `group=True` 면 같은 말 · 같은 지워진 객체 · 같은 출처의 줄을 한 줄로
+    접는다(`members` 가 펼친 줄의 id — 결정은 그것마다).
+
+    **추천은 규칙의 짐작이다** — 처리는 `review_decide` 로, 사람에게 보이고 확인받은 뒤에.
+    부서 관리자 이상."""
+    params: list[tuple[str, Any]] = [("limit", str(limit)), ("offset", str(offset))]
+    for key, value in _review_filters(kind, type_slug, workspace, min_confidence).items():
+        if value is not None:
+            params.append((key, str(value)))
+    if group:
+        params.append(("group", "true"))
+    return await _get(ctx, "/api/review/items", params=params)
+
+
+@tool()
+async def review_decide(
+    ctx: Context,
+    decisions: list[dict[str, Any]] | None = None,
+    recommended: bool = False,
+    threshold: float = REVIEW_THRESHOLD,
+    kind: str | None = None,
+    type_slug: str | None = None,
+    workspace: str | None = None,
+    apply: bool = False,
+    fingerprint: str | None = None,
+) -> Any:
+    """검토함의 결정 — **늘 `apply=False`(기본) 미리 보기 먼저.** 무엇이 무엇으로 되나
+    (`outcomes[].effect`) · 막히는 것(`counts.blocked` · `outcomes[].message`) · 되돌릴 수
+    있나(`by_kind[].undoable` · `undo_note` — 병합은 복원이 없다)를 **사람에게 보이고 확인받은
+    뒤** 같은 인자에 `apply=True` 와 미리 보기의 `fingerprint` 를 넣어 다시 부른다. 그 사이
+    바뀌었으면 아무것도 안 하고 거절된다(다시 미리 본다).
+
+    두 길:
+    - `decisions=[{kind, item_id, action, value?}]` — 고른 것. `action` 은 `accept`(추천대로) ·
+      `choose`(다른 것으로 — `value` 에 `choices[].value`) · `ignore`(무시). `item_id` 는
+      `review_list` 의 `id`(묶은 줄이면 `members` 의 id 들).
+    - `recommended=True` — **추천대로 모두**: `kind` · `type_slug` · `workspace` 에 맞고
+      확신도가 `threshold`(기본 0.9) 이상인 것 전부. 문턱 아래는 `skipped` 로 센다(사람이 볼
+      것).
+
+    **스스로 고르지 마라** — 추천은 규칙의 짐작이다. 사람이 「추천대로 해」 라고 했을 때만
+    `recommended=True`, 줄마다 정한 것은 `decisions` 로. 큰 묶음은 작업이 되어 `job` 으로
+    온다(끝날 때까지 기다려 결과를 준다). 적용하면 `batch_id` — 화면의 검토함 › 최근 적용에서
+    복원한다."""
+    if not recommended and not decisions:
+        return {
+            "error": "decisions 를 주거나 recommended=True 로 부르세요 — 무엇을 정할지 "
+            "사람에게 받은 뒤에."
+        }
+    body: dict[str, Any] = {
+        "mode": "recommended" if recommended else "decisions",
+        "decisions": decisions or [],
+        "filters": {
+            key: value
+            for key, value in _review_filters(kind, type_slug, workspace, None).items()
+            if value is not None
+        },
+        "threshold": threshold,
+    }
+    plan = await _post(ctx, "/api/review/plan", body)
+    if not isinstance(plan, dict) or "fingerprint" not in plan:
+        return plan
+    if not apply:
+        plan["applied"] = False
+        plan["next"] = (
+            "미리 보기다 — 아직 아무것도 안 바뀌었다. outcomes 의 effect · message 와 막힌 "
+            "수 · 복원할 수 없는 것을 사람에게 보이고, 확인받으면 같은 인자에 apply=True 와 "
+            f'fingerprint="{plan["fingerprint"]}" 를 넣어 다시 부른다.'
+        )
+        return plan
+    if not fingerprint:
+        return {
+            "error": "apply=True 에는 미리 보기의 fingerprint 가 필요합니다 — 먼저 "
+            "apply=False 로 미리 보고 사람에게 확인받으세요."
+        }
+    if plan["fingerprint"] != fingerprint:
+        return {
+            "error": "미리 본 것과 달라졌습니다(그 사이 누군가 처리했거나 후보가 "
+            "바뀌었습니다) — 아무것도 안 했습니다. 다시 미리 보고 사람에게 확인받으세요.",
+            "plan": plan,
+        }
+    done = await _post(
+        ctx,
+        "/api/review/apply",
+        {
+            "decisions": plan["decisions"],
+            "fingerprint": fingerprint,
+            "mode": "recommended" if recommended else "selected",
+            "threshold": threshold if recommended else None,
+        },
+    )
+    if isinstance(done, dict) and done.get("job_id"):
+        job = await _get(ctx, f"/api/tasks/{done['job_id']}")
+        return {"applied": False, "job": await _wait_job(ctx, job, JOB_WAIT_MAX)}
+    return done
+
+
+@tool()
+async def objects_summary(
+    ctx: Context,
+    type_slug: str,
+    group_by: str = "status",
+    split_by: str | None = None,
+    metric: str = "count",
+    metric_field: str | None = None,
+    order: str = "desc",
+    grain: str | None = None,
+    q: str | None = None,
+    properties: dict[str, str] | None = None,
+    conditions: list[dict[str, str]] | None = None,
+    status: str | None = None,
+) -> Any:
+    """**통계** — 「부서별 몇 건」 「개발사 국가별 툴 수」. 화면의 「통계」 와 같다.
+
+    **목록을 전부 받아 직접 세지 않는다** — 쪽 상한에서 틀리고, 수천 건이면
+    못 한다. 서버가 센다. 거르기(`q`·`properties`·`conditions`·`status`)는
+    `objects_list` 와 같다 — 그래서 목록의 `total` 과 여기 `total` 이 같다.
+
+    - `group_by` 기준: `label`·`key`·`status`·`workspace`(소유 부서)·
+      `created_year`, 속성은 `properties.<키>`, 다른 타입의 칸은
+      `object_fields` 의 주소. 걸음은 이어 적을 수 있다(`ref.model.ref.base.series`,
+      셋까지). 긴 글·파일은 안 된다.
+      `type_slug` 가 인터페이스면 `type`(어느 구현 타입인가)도 된다.
+      쓸 수 있는 기준 전부가 응답의 `group_options` 다.
+    - `split_by` 세부 기준(같은 규칙). 주면 칸마다 `parts` 로 나뉜다.
+    - `metric`: `count`(기본)·`sum`·`avg`·`min`·`max`. `count` 가 아니면
+      `metric_field`(숫자 속성 `properties.<키>`)가 필요하다.
+    - `order`: `desc`(큰 값부터)·`asc`(작은 값부터 — 「가장 낮은 것」)·`key`(키 순 —
+      날짜 축을 **시간순**으로 볼 때).
+    - `grain`: 날짜 축의 기간 단위 `day`·`week`·`month`·`quarter`·`year`(기본). 「월별
+      추이」 는 `grain="month", order="key"`. 날짜 칸의 `buckets[].key` 는 그 기간의
+      **시작일**이고 `range` 가 `{gte, lt}` 다 — 그 칸을 보려면 `objects_list` 에
+      `{field: <칸>, op: "gte"}` 와 `{op: "lt"}` 둘을 건다(`eq` 는 0건).
+
+    사용자에게 옮길 때 **빼먹지 않는다**:
+    - `total` 은 거른 **객체 수**. 「(비어 있음)」 칸도 숨기지 않는다.
+    - `other_groups`·`other_count` 가 0 이 아니면 「그 밖에 N종류 M건」.
+    - `overlap` 이 true 면 한 객체가 여러 칸에 든다(여러 값 칸, 여럿과 이어진
+      관계) — 칸의 합이 `total` 보다 클 수 있다고 함께 말한다.
+    - 「그 칸이 뭔데」 는 `buckets[].key` 를 조건 값으로 `objects_list`:
+      기준이 `properties.<키>` 면 field 는 `<키>`, 다른 타입의 칸이면 그 주소,
+      `status` 면 `status` 인자. key 가 null 이면 op 는 `empty`."""
+    params: list[tuple[str, Any]] = [
+        ("group_by", group_by),
+        ("metric", metric),
+        ("order", order),
+    ]
+    if split_by:
+        params.append(("split_by", split_by))
+    if metric_field and metric != "count":
+        params.append(("metric_field", metric_field))
+    if grain:
+        params.append(("grain", grain))
+    params += _filter_params(q, status, properties, conditions)
+    return await _get(ctx, f"/api/objects/{type_slug}/summary", params=params)
+
+
+@tool()
+async def object_fields(ctx: Context, type_slug: str) -> Any:
+    """**다른 타입의 칸**을 쓰는 주소 — `conditions` 의 `field`, `objects_summary`
+    의 `group_by` 에 그대로 넣는다. 자기 칸은 `ontology_schema` 에 있다.
+
+    두 걸음까지 준다: `ref.<참조 칸>.<칸>`(참조 칸이 가리키는 것의 칸),
+    `out.<관계>`(관계로 이어진 것 자체 — 값은 상대 id), `out.<관계>.<칸>`,
+    `in.<관계>[.<칸>]`(들어오는 관계), `in.<타입>:<참조 칸>[.<칸>]`(나를 가리키는 것 —
+    그 타입의 참조 칸이 이 객체를 가리키는 것, 개발모델에서 `in.svc_case:model.symptom` 은
+    「이 모델을 가리키는 서비스 기록의 증상」), 그리고 그 너머 한 걸음 더
+    (`ref.model.ref.task.project` — 모델의 과제의 프로젝트). `heading` 이 어느 걸음인지
+    가른다 — 참조 칸과 관계가 같은 이름일 수 있다. `data_type` 이 `relation` 이면 상대가
+    하나로 안 정해져 `empty`·`notempty` 만 걸린다.
+
+    뜻: 이어진 것이 여럿이면 **그중 하나라도** 맞으면 걸린다. 이어진 것이 없는
+    객체는 그 너머의 칸 조건에 안 걸린다(`ne` 도) — 그것은 참조 칸이나 관계의
+    `empty` 로 묻는다. 인터페이스 slug 도 받는다 — 공통 속성에서 나가는 걸음이다."""
+    return await _get(ctx, f"/api/objects/{type_slug}/fields")
+
+
+@tool()
+async def objects_similar(
+    ctx: Context,
+    type_slug: str,
+    object_id: str | None = None,
+    tags: dict[str, list[str]] | None = None,
+    fields: list[str] | None = None,
+    limit: int = 10,
+) -> Any:
+    """**비슷한 기록**(ADR 0022) — 축 태그(참조 칸 — 제품 · 부품 · 고장 메커니즘 ·
+    해석법 …)가 많이 겹치는 같은 타입의 기록. 「이 이슈와 비슷한 과거 사례」 「이 부품 ·
+    메커니즘 조합을 다룬 보고」.
+
+    `object_id` 를 주면 그 기록의 태그로, 아직 기록이 없는 이슈면 `tags`(`{참조 칸: [객체
+    id]}` — 이름은 `object_resolve` 로 먼저 푼다)로 묻는다. `fields` 로 볼 참조 칸을 좁힌다
+    (비우면 전부).
+
+    태그마다 무게 `weight` = ln(N / 그 태그를 가진 기록 수) — **드문 태그가 겹칠수록
+    비슷하다**. `score` 는 무게를 단 자카드(0~1). 항목마다 `shared`(겹친 태그 — 「왜
+    비슷한가」)를 함께 말한다. 본문의 뜻으로 찾지 않는다 — 찾은 기록의 본문은 `object_get`
+    으로 읽어 비교한다."""
+    limit = max(1, min(limit, 50))
+    if object_id:
+        params: dict[str, Any] = {"limit": limit}
+        if fields:
+            params["fields"] = ",".join(fields)
+        return await _get(
+            ctx,
+            f"/api/objects/{type_slug}/{object_id}/similar",
+            params=list(params.items()),
+        )
+    if not tags:
+        return {"error": "object_id 나 tags 중 하나를 줍니다."}
+    return await _post(
+        ctx,
+        f"/api/objects/{type_slug}/similar",
+        {"tags": tags, "fields": fields, "limit": limit},
+    )
+
+
+@tool()
+async def object_get(ctx: Context, type_slug: str, object_id: str, text_from: int = 0) -> Any:
+    """객체 하나 — 속성·첨부·**관련 객체**(양방향)까지.
+
+    첨부(`attachments[]`)는 이름 · 크기 · `is_image` · 가로세로뿐이다 — **바이트는
+    오지 않는다**(사진은 화면에서 본다). `owner_field` 가 그 파일 칸의 키다.
+
+    **긴 글 칸은 6,000자씩** 온다. `clipped[<칸>] = {from, to, length}` 가 있으면 잘린
+    것이다 — `to < length` 면 `text_from=<to>` 로 다시 불러 이어 읽는다. 다 읽기 전에
+    「본문에 그런 내용은 없다」 고 답하지 마라."""
+    found = await _get(ctx, f"/api/objects/{type_slug}/{object_id}")
+    _clip(found, start=text_from, size=GET_TEXT)
+    return found
+
+
+@tool()
+async def object_history(ctx: Context, type_slug: str, object_id: str) -> Any:
+    """객체의 **변경 이력** — 최근 것이 앞. 언제·누가·어느 칸을 전→후, 관계를 맺고 끊은 것.
+
+    값 기록에는 `snapshot`(그 시점의 값 전체)이 붙는다. 되돌리기는 `object_restore(entry_id)` —
+    **어느 시점으로 갈지는 사람이 정한다**(저장과 같은 검증을 거친다)."""
+    return await _get(ctx, f"/api/objects/{type_slug}/{object_id}/history")
+
+
+@tool()
+async def object_rollup(ctx: Context, type_slug: str, object_id: str) -> Any:
+    """이 객체 **「아래 전부」 의 숫자를 모은 것** — 어셈블리의 총 무게, 과제의 예산 합계.
+
+    타입의 `list_view.rollups` 가 정한 대로 트리 관계 아래를 펼쳐 `sum·min·max·avg·count`
+    로 모은다. 저장된 값이 아니라 볼 때마다 센 것이다. `missing` 이 0 이 아니면 그 합계는
+    「전부의 합」 이 아니다 — 사용자에게 함께 말한다. 정의가 없는 타입은 빈 목록."""
+    return await _get(ctx, f"/api/objects/{type_slug}/{object_id}/rollup")
+
+
+@tool()
+async def object_references(ctx: Context, type_slug: str, object_id: str) -> Any:
+    """이 객체를 **가리키는 것** — 속성으로 가리키는 객체들과 걸린 관계들.
+
+    지우거나 합치기 전에 본다. 남의 부서 것은 수만 온다(`hidden_*`) — 「아무것도 안
+    걸렸다」 로 읽고 지우면 그쪽 화면이 깨진다."""
+    return await _get(ctx, f"/api/objects/{type_slug}/{object_id}/references")
+
+
+@tool()
+async def object_tree(
+    ctx: Context, type_slug: str, parent: str | None = None, orphans: bool = False
+) -> Any:
+    """계층(트리) **한 단계** — `parent` 없이 부르면 뿌리들, 있으면 그 아래 한 단계.
+
+    타입의 「목록 화면」 에 트리 관계가 정해져 있어야 한다(없으면 빈 트리). 통째로 안
+    온다 — 부품 5천 개짜리 트리를 한 번에 받으면 답이 잘린다. **깊이 전부가 필요하면
+    `rdf_query` 로 `+` 경로**(`ns:part_of+`)를 쓴다. `orphans=true` 는 어디에도 안 이어진
+    것만."""
+    params: list[tuple[str, Any]] = [("orphans", "true" if orphans else "false")]
+    if parent:
+        params.append(("parent", parent))
+    return await _get(ctx, f"/api/objects/{type_slug}/tree", params=params)
+
+
+@tool()
+async def graph_neighbors(
+    ctx: Context,
+    object_id: str,
+    depth: int = 1,
+    relations: list[str] | None = None,
+    types: list[str] | None = None,
+    fanout: int | None = None,
+    limit: int | None = None,
+    records: bool = False,
+) -> Any:
+    """이 객체에서 **몇 단계 안에 무엇이 이어져 있나** — 질의어 없이 그래프를 훑는다.
+
+    「이것과 연결된 것들」 은 `objects_list` 로는 두 걸음까지이고, 그보다 멀면 질의어를
+    써야 했다. 이 도구가 그 사이를 메운다 — **화면의 지식 그래프가 쓰는 것과 같은 길**이라
+    답도 화면과 같다.
+
+    - `depth` 는 몇 단계까지(서버가 상한을 강제한다). 1 이면 바로 이웃.
+    - `relations` · `types` 로 좁힌다 — 안 좁히면 온갖 관계가 함께 온다.
+    - **잘리면 잘렸다고 말한다**(`truncated`, 노드의 `degree`). 「이게 전부」 로 읽지 않는다 —
+      좁혀서 다시 부르거나 그 노드에서 다시 펼친다.
+
+    돌려주는 것: `nodes`(id · 이름 · 식별자 · 타입 · 상태 · 부서 · degree)와 `edges`
+    (관계 slug · 양끝 · 방향). 값이 필요하면 그 id 로 `object_get` 을 부른다.
+
+    **나를 가리키는 기록**(`usage="log"`)은 기본으로 이웃에 안 싣고 `log_counts`(타입 · 칸 ·
+    수)로 준다 — 인기 모델은 기록 10만 건이 가리킨다. 기록 자체를 보려면 `objects_list(기록
+    타입, conditions=[칸 = 이 객체])`, 이웃으로 싣고 싶으면 `records=True`.
+
+    깊이 전부를 한 번에(부품 트리 밑바닥까지) 봐야 하면 `rdf_query` 의 `+` 경로를 쓴다.
+    """
+    params: list[tuple[str, Any]] = [("focus", object_id), ("depth", depth)]
+    if fanout is not None:
+        params.append(("fanout", fanout))
+    if limit is not None:
+        params.append(("limit", limit))
+    if relations:
+        params.append(("relations", ",".join(relations)))
+    if types:
+        params.append(("types", ",".join(types)))
+    if records:
+        params.append(("records", "true"))
+    return await _get(ctx, "/api/graph/neighborhood", params=params)
+
+
+@tool()
+async def graph_overview(ctx: Context) -> Any:
+    """**무엇이 무엇과 이어져 있나** — 타입 사이의 지형 한 장(객체가 아니라 타입 수준).
+
+    어느 타입에서 출발해 어디로 갈 수 있는지를 먼저 보고 나서 `graph_neighbors` ·
+    `rdf_query` 로 들어간다. 관계 이름을 짐작해 질의를 쓰면 대개 0건이 나오고, 그 0건은
+    「없다」 로 잘못 읽힌다.
+
+    돌려주는 것: 타입마다 객체 수, 타입 사이의 관계 종류와 그 수.
+    """
+    return await _get(ctx, "/api/graph/overview")
+
+
+@tool()
+async def bulk_edit(
+    ctx: Context,
+    type_slug: str,
+    ids: list[str],
+    field: str,
+    value: Any = None,
+    apply: bool = False,
+) -> Any:
+    """고른 객체들의 **한 칸**을 같은 값으로 — 「등급 A 인 것 전부 B 로」.
+
+    `field` 는 `status` · `description` · `workspace` · `properties.<칸>`. `apply=false`
+    (기본)면 계획만 — 몇 건이 바뀌고, 몇 건은 이미 그 값이고, 몇 건은 **왜 안 되나**
+    (남의 부서 것)가 행마다 온다. 사람이 보고 판단한 뒤 `apply=true`. 적용 응답의
+    `batch_id` 를 **사용자에게 알려 준다** — `bulk_edit_undo` 가 그것으로 한 번에
+    되돌린다. 한 칸씩인 이유: 여러 칸을 동시에 바꾸면 실수 한 번의 크기가 수백 배가 된다."""
+    return await _post(
+        ctx,
+        f"/api/objects/{type_slug}/bulk-edit",
+        {"ids": ids, "field": field, "value": value, "apply": apply},
+    )
+
+
+@tool()
+async def bulk_edit_undo(
+    ctx: Context, type_slug: str, batch_id: str, apply: bool = False
+) -> Any:
+    """`bulk_edit` 한 묶음을 **통째로 되돌린다.** `apply=false` 면 무엇이 되돌아갈지만.
+    그 뒤에 따로 고쳐진 객체는 되돌리지 않고 이유를 적는다 — 남의 손이 닿은 것을
+    덮으면 그 손실은 아무 데도 안 뜬다."""
+    return await _post(
+        ctx, f"/api/objects/{type_slug}/bulk-edit/{batch_id}/undo", {"apply": apply}
+    )
+
+
+@tool()
+async def audit_recent(
+    ctx: Context,
+    action: str | None = None,
+    target_table: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> Any:
+    """**누가 언제 무엇을 바꿨나** — 객체를 가리지 않고 최근 것부터.
+
+    `object_history` 는 객체 하나의 이력이고, 이것은 「어제 무슨 일이 있었나」 다.
+    `action`(예 `object.update` · `relation.add` · `ontology.import`) · `target_table` 로
+    거른다. 시간 · 사람으로는 못 거른다 — 최근 것부터 받아 여기서 본다.
+    **부서 관리자 이상만** 볼 수 있다. 거절되면 그렇게 알린다."""
+    params: list[tuple[str, Any]] = [("limit", limit), ("offset", offset)]
+    if action:
+        params.append(("action", action))
+    if target_table:
+        params.append(("target_table", target_table))
+    return await _get(ctx, "/api/audit/entries", params=params)
+
+
+@tool()
+async def quality_report(ctx: Context, kind: str | None = None) -> Any:
+    """데이터 품질 — **나빠지고 있는 것**, 타입마다 어느 객체인지까지. 홈 「남은 일」 중 데이터
+    쪽을 펼친 것이다(운영 쪽 — 실패한 작업 · 지표 · 동기화 · 승인 대기는 `server_maintenance`).
+
+    `kind` 로 한 종류만: `missing_required`(필수값 빈 객체) · `orphan`(관계 없는 객체) ·
+    `broken_ref`(지워진 것을 가리키는 칸) · `duplicate`(이름이 같은 객체). 종류·타입마다
+    수는 전부, 목록은 앞의 몇 개(`sample_limit`)만. **볼 수 있는 것만 센다.**"""
+    params = {"kind": kind} if kind else None
+    return await _get(ctx, "/api/objects/quality/report", params=params)
+
+
+@tool()
+async def fill_priorities(ctx: Context, type_slug: str | None = None, limit: int = 20) -> Any:
+    """**어디부터 채우나** — 이 플랫폼에서 지금 먼저 채울 곳을 줄 세운다. 「무엇이 나쁜가」 는
+    `quality_report`, 「요즘 챙길 것(운영)」 은 `server_maintenance` 다.
+
+    타입마다(볼 수 있는 것만, `types`) 객체 수 · 필수 칸이 빈 객체 · 칸마다 채움률(낮은
+    칸부터) · 관계 종류마다 선이 없는 객체 · 지워진 것을 가리키는 칸 · 데이터 소스가 끝점을
+    기다리는 선 · 별칭 없는 객체 · 객체 없는 타입을 세고, 그 칸 · 타입을 **쓰는 곳**(필수 ·
+    지표 · 코어 공개 · 뷰 · 개수 제약 · 트리)으로 가중해 줄을 세운다(`priorities`). 줄마다
+    `gain` 이 「이것을 채우면 무엇이 좋아지나」, `link` 가 빈 것만 거른 화면 주소다 — 답할 때
+    둘을 함께 전한다.
+
+    **큰 타입은 표본에서 센 어림이다**(`estimated`, `notes`) — 사람에게 수를 전할 때 「약」 을
+    붙인다. `type_slug` 를 주면 그 타입(인터페이스면 구현 타입들)만, 칸은 전부 온다."""
+    params: list[tuple[str, Any]] = [("limit", str(limit))]
+    if type_slug:
+        params.append(("type", type_slug))
+    return await _get(ctx, "/api/objects/fill-priorities", params=params)
+
+
+@tool()
+async def server_maintenance(ctx: Context) -> Any:
+    """홈의 **「남은 일」** — 손이 가야 하는데 아무도 안 본 것들(승인 대기 계정 · 적용 안 한
+    계획 · 실패한 작업 · 멈춘 워커 · 실패하거나 멎은 지표 · 동기화 실패 · 웹훅 실패 · 낡은
+    백업 · 데이터 품질 · 여러 번 찾았는데 못 찾은 이름 · 확장이 올린 것). 줄마다 `label` ·
+    `count` · `severity`(`warning` 이면 미루면 안 되는 것) · `link`(화면 주소). **보는 사람의
+    권한대로** — 시스템 관리자에게만 보이는 줄이 있다. 「요즘 챙길 것이 뭐야」 에 먼저
+    부른다."""
+    return await _get(ctx, "/api/server/maintenance")
+
+
+@tool()
+async def notifications(ctx: Context, unread_only: bool = True) -> Any:
+    """**내 알림** 최근 것부터(100개까지) — 지켜보는 객체가 바뀜 · 경보가 울림 · 내 작업이
+    끝남/실패 · 가입 승인 같은 것. 줄마다 `kind` · 제목 · 본문 · 링크 · 읽음 여부.
+    `unread_only=false` 면 읽은
+    것까지. **읽음 처리는 하지 않는다** — 사람이 화면에서 본 것으로 둔다."""
+    params = {"unread_only": "true"} if unread_only else None
+    return await _get(ctx, "/api/notifications", params=params)
+
+
+@tool()
+async def object_create(
+    ctx: Context,
+    type_slug: str,
+    label: str,
+    key: str | None = None,
+    properties: dict[str, Any] | None = None,
+    workspace_slug: str | None = None,
+    description: str = "",
+) -> Any:
+    """객체 하나를 만든다.
+
+    `workspace_slug` 를 비우면 **전역**이 되고 시스템 관리자만 만들 수 있다.
+    속성은 정의에 없는 키를 넣으면 거절된다 — 먼저 `ontology_schema` 를 읽는다."""
+    return await _post(
+        ctx,
+        f"/api/objects/{type_slug}",
+        {
+            "key": key,
+            "label": label,
+            "description": description,
+            "properties": properties or {},
+            "workspace_slug": workspace_slug,
+        },
+    )
+
+
+@tool()
+async def object_update(
+    ctx: Context,
+    type_slug: str,
+    object_id: str,
+    label: str | None = None,
+    properties: dict[str, Any] | None = None,
+    description: str | None = None,
+    aliases: list[str] | None = None,
+    key: str | None = None,
+    status: str | None = None,
+    valid_from_year: int | None = None,
+    valid_to_year: int | None = None,
+) -> Any:
+    """객체를 고친다 — **보낸 것만.**
+
+    `properties` 는 보낸 키만 병합한다. 값을 지우려면 그 키에 `null` 을 넣는다 —
+    통째로 덮으면 다른 속성이 함께 날아가고 **그 손실은 아무 데도 안 뜬다.**
+
+    `key` 는 식별자(타입의 식별자 정책을 따른다), `status` 는 `active` ·
+    `deprecated`(그만 쓰지만 남긴다 — 지우기 전에 먼저 생각할 자리),
+    `valid_from_year` · `valid_to_year` 는 유효 연도.
+
+    `aliases` 는 **다른 이름 전부**(통째로 바꿈). 「Ansys」 를 「앤시스」 로도 부르면 여기
+    적는다 — 그 뒤로 찾기·참조·파일이 그 이름으로도 같은 객체를 찾는다. 같은 타입의 다른
+    객체가 쓰는 별칭이면 거절된다."""
+    body: dict[str, Any] = {
+        name: value
+        for name, value in (
+            ("label", label),
+            ("description", description),
+            ("properties", properties),
+            ("key", key),
+            ("status", status),
+            ("valid_from_year", valid_from_year),
+            ("valid_to_year", valid_to_year),
+        )
+        if value is not None
+    }
+    got = await _patch(ctx, f"/api/objects/{type_slug}/{object_id}", body) if body else None
+    if aliases is not None:
+        async with _client(60) as client:
+            got = _unwrap(
+                await client.put(
+                    f"/api/objects/{type_slug}/{object_id}/aliases",
+                    json={"aliases": aliases},
+                    headers=_forward_headers(ctx),
+                )
+            )
+    return got if got is not None else {"ok": True, "message": "바꿀 것이 없었습니다"}
+
+
+@tool()
+async def objects_delete(
+    ctx: Context,
+    type_slug: str,
+    ids: list[str],
+    mode: str = "block",
+    apply: bool = False,
+) -> Any:
+    """객체를 **지운다** — 하나든 여럿이든(같은 타입). 지워도 행은 남는다
+    (`deleted_at` — 몇 년 뒤에도 무엇이었는지 물을 수 있다).
+
+    `apply=False`(기본)면 계획: 줄마다 지울지 · 거절할지와 이유. `apply=True` 는 **지울 수
+    있는 줄만 지우고** 막힌 줄은 남긴다(그 이유가 `rows` 에) — 그 결과를 사람에게 전한다.
+    `mode="block"`(기본)은 **다른 것이 가리키는 객체를 거절**하고 몇 개가 걸렸는지 말한다.
+    `detach` 는 참조를 비우고 관계를 끊고 지운다 — 사람이 그 목록(`object_references`)을
+    보고 고른 뒤에만.
+    같은 것이 둘이면 지우지 말고 `object_merge`. 그만 쓰는 것이면 지우기보다
+    `object_update(status="deprecated")`. 권한은 화면과 같다(부서 관리자는 자기 부서 것).
+
+    가리키는 기록이 많은 객체(2만 건 넘음 — 인기 모델)는 `detach` 로 지울 때 **작업으로**
+    돈다 — 도구가 그 줄을 작업으로 넣고 기다린다(`rows[].job`)."""
+    if mode not in ("block", "detach"):
+        return {"error": f"mode 는 block · detach 중 하나입니다: {mode}"}
+    got = await _post(
+        ctx,
+        f"/api/objects/{type_slug}/bulk-delete",
+        {"ids": ids, "mode": mode, "apply": apply},
+    )
+    if apply and isinstance(got, dict):
+        for row in got.get("rows") or []:
+            # 요청 안에서 못 한 줄 — 서버가 준 작업 주소로 넣고 기다린다(같은 검사 · 같은
+            # 함수).
+            if isinstance(row, dict) and row.get("job_path"):
+                job = await _post(ctx, str(row["job_path"]), {})
+                row["job"] = await _wait_job(ctx, job, JOB_WAIT_MAX)
+    return got
+
+
+@tool()
+async def object_restore(ctx: Context, type_slug: str, object_id: str, entry_id: str) -> Any:
+    """객체를 **이력의 그 시점 값으로 되돌린다**(`entry_id` 는 `object_history` 의 값 기록).
+
+    저장과 같은 검증을 거친다 — 그때 가리키던 것이 지워졌거나 규칙(종류)이 바뀌어 맞출 수
+    없으면 거절하고 이유를 말한다. 되돌린 것도 이력에 한 줄로 남는다. **어느 시점으로
+    갈지는 사람이 정한다** — 그 기록의 `snapshot` 을 보이고 확인을 받는다."""
+    return await _post(
+        ctx, f"/api/objects/{type_slug}/{object_id}/restore", {"entry_id": entry_id}
+    )
+
+
+@tool()
+async def object_merge(
+    ctx: Context, type_slug: str, object_id: str, into: str, apply: bool = False
+) -> Any:
+    """같은 것이 둘일 때 **합친다** — `object_id`(지는 쪽)를 `into`(이기는 쪽, 같은 타입)에.
+    가리키던 참조 · 관계가 이긴 쪽으로 옮겨 가고, 지는 쪽은 지워져 옛 링크가 새 것으로 간다.
+
+    `apply=False`(기본)면 **아무것도 안 바꾸고** 두 객체와 지는 쪽을 가리키는 것
+    (`references`)을 돌려준다 — 사람에게 보이고 어느 쪽이 남을지 확인받는다. 되돌리기가
+    없다. 가리키는 기록이 많으면(2만 건 넘음) 작업으로 돌고 도구가 기다린다."""
+    if not apply:
+        loser = await _get(ctx, f"/api/objects/{type_slug}/{object_id}")
+        if not isinstance(loser, dict) or "error" in loser:
+            return loser
+        winner = await _get(ctx, f"/api/objects/{type_slug}/{into}")
+        if not isinstance(winner, dict) or "error" in winner:
+            return winner
+        return {
+            "applied": False,
+            "from": _brief(loser),
+            "into": _brief(winner),
+            "references": await _get(ctx, f"/api/objects/{type_slug}/{object_id}/references"),
+            "next": "사람에게 보이고 어느 쪽이 남을지 확인받은 뒤 apply=True 로 부른다.",
+        }
+    path = f"/api/objects/{type_slug}/{object_id}/merge"
+    got = await _post(ctx, path, {"into": into})
+    if isinstance(got, dict) and "OBJECTS-0096" in str(got.get("error", "")):
+        # 가리키는 기록이 많다(인기 모델) — 요청 안에서 안 끝나 작업으로 합친다.
+        return await _wait_job(
+            ctx, await _post(ctx, f"{path}/job", {"into": into}), JOB_WAIT_MAX
+        )
+    return got
+
+
+def _public_origin(ctx: Context) -> str | None:
+    """사용자 PC 가 **이 MCP 에 들어온 주소**의 앞부분 — 업로드 주소를 거기에 붙인다.
+
+    nginx 뒤면 `Host` 에 포트가 없다(`$host`) — 앱도 같은 호스트 · 같은 포트다. MCP
+    포트로 바로 들어왔으면 앱은 그 -2 다(설치 규칙: MCP = 앱 +2). 그 둘로 안 되는 설치는
+    `MCP_PUBLIC_URL` 을 적고, 그때는 백엔드가 완전한 주소를 준다(`upload_url`)."""
+    req = getattr(getattr(ctx, "request_context", None), "request", None)
+    headers = getattr(req, "headers", None) or {}
+    host = (headers.get("x-forwarded-host") or headers.get("host") or "").split(",")[0].strip()
+    if not host:
+        return None
+    proto = (headers.get("x-forwarded-proto") or "").split(",")[0].strip()
+    if not proto:
+        proto = getattr(getattr(req, "url", None), "scheme", None) or "http"
+    parts = urlsplit(f"//{host}")
+    if parts.hostname is None:
+        return None
+    name = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
+    port = parts.port
+    if port is not None and port == int(os.environ.get("MCP_PORT", "8062")):
+        port -= 2
+    default = port is None or (proto, port) in (("http", 80), ("https", 443))
+    return f"{proto}://{name}" if default else f"{proto}://{name}:{port}"
+
+
+@tool()
+async def attachment_upload_prepare(
+    ctx: Context,
+    type_slug: str,
+    object_id: str,
+    local_path: str,
+    field: str | None = None,
+    filename: str | None = None,
+) -> Any:
+    """사진 · 파일을 객체에 붙일 **curl 명령**을 만든다 — 파일 바이트는 모델을 거치지 않는다.
+
+    ⚠️ 파일을 읽어 base64 로 옮기거나 내용을 도구 인자에 넣지 않는다 — 1MB 가 수십만 토큰이다.
+    이 도구는 한 번 쓰는 업로드 표(5분)를 받아 명령을 돌려줄 뿐이고, **파일은 당신의 셸이
+    `curl` 로 직접** 올린다. 셸이 없는 클라이언트면 사람에게 화면에서 올려 달라고 한다.
+
+    - `local_path`: 셸에서 보이는 그 파일의 경로 — 이 서버는 그 파일을 열지 않는다
+      (명령에만 넣는다).
+    - `field`: 파일 칸의 키(`object_fields` · `ontology_schema` 의 `data_type: file`).
+      비우면 「그 밖의 첨부」. 칸의 `accept` 가 `image` 면 **서버가 이미지(PNG · JPEG ·
+      GIF · WebP)로 읽은 것만** 붙는다.
+    - 돌아온 `curl` 을 그대로 한 번 실행한다. 응답은 붙은 첨부(id · `is_image` ·
+      가로세로)이고, 실패하면 `{"error": ...}` 봉투가 온다 — 그 말을 사용자에게 전한다.
+    - 객체를 고칠 수 있어야 한다(소유 부서 관리자 · 토큰은 `objects:write`). 안 되면 표가
+      안 나온다.
+    """
+    name = filename or PureWindowsPath(local_path).name or "이름없음"
+    issued = await _post(
+        ctx,
+        "/api/attachments/tickets",
+        {
+            "owner_table": "objects",
+            "owner_id": object_id,
+            "owner_field": field,
+            "filename": name,
+        },
+    )
+    if not isinstance(issued, dict) or "error" in issued:
+        return issued
+    url = issued.get("upload_url")
+    if not url:
+        origin = _public_origin(ctx)
+        if origin is None:
+            return {
+                "error": "이 MCP 에 들어온 주소를 알 수 없어 업로드 주소를 못 만듭니다 — "
+                "운영자에게 `.env` 의 MCP_PUBLIC_URL 을 적어 달라고 하세요.",
+            }
+        url = f"{origin}{issued['upload_path']}"
+    command = (
+        f"curl -sS -T {shlex.quote(local_path)} "
+        f"-H 'X-Upload-Ticket: {issued['ticket']}' "
+        f"'{url}?filename={quote(name, safe='')}'"
+    )
+    return {
+        "curl": command,
+        "type_slug": type_slug,
+        "object_id": object_id,
+        "field": field,
+        "accept": issued.get("accept"),
+        "max_bytes": issued.get("max_bytes"),
+        "expires_in_seconds": issued.get("expires_in_seconds"),
+        "next": "셸에서 curl 을 그대로 한 번 실행합니다(5분 안). 응답 JSON 의 id · is_image "
+        "로 붙었는지 확인하고 사용자에게 알립니다. Windows PowerShell 이면 curl.exe 로 "
+        "부릅니다.",
+    }
+
+
+@tool()
+async def attachment_remove(ctx: Context, attachment_id: str) -> Any:
+    """붙은 첨부를 뗀다 — id 는 `object_get` 의 `attachments[].id`. 객체의 이력에 남는다.
+
+    **사람이 떼라고 한 것만.** 잘못 올린 것을 고칠 때 쓴다 — 파일 자체는 저장소에 남는다."""
+    return await _delete(ctx, f"/api/attachments/{attachment_id}")
+
+
+def _brief(detail: dict[str, Any]) -> dict[str, Any]:
+    """합치기 미리 보기에 실을 객체 한 줄 — 무엇을 견주는지 알 만큼만(상세의 `object`)."""
+    row = detail.get("object") or {}
+    return {
+        name: row.get(name)
+        for name in (
+            "id",
+            "key",
+            "label",
+            "owner_workspace_slug",
+            "status",
+            "properties",
+        )
+    }
+
+
+@tool()
+async def objects_import(
+    ctx: Context,
+    type_slug: str,
+    rows: list[dict[str, Any]],
+    workspace_slug: str | None = None,
+    aliases_mode: str = "add",
+    human_edits: str = "keep",
+) -> Any:
+    """객체를 **여러 행 한 번에** — 같은 식별자(`key`)면 만들지 않고 고친다(upsert).
+
+    **작업이 된다.** 워커가 계획(행마다 새로/고침/그대로/오류)을 세우고, 작은 것은 이 호출
+    안에 끝난다. 돌아온 `status` 가 `done` 이면 `result` 가 계획이다 — **아직 아무것도 안
+    들어갔다.** 사용자에게 보여 주고 판단을 받은 뒤 `task_apply(job_id)` 로 넣는다. 아직 도는
+    중이면 `task_status(job_id)` 로 다시 묻는다. **한 행이라도 오류면 아무것도 안 넣는다.**
+
+    행은 `{"key": ..., "label": ..., <속성 키>: ...}` 꼴. 없는 키는 안 건드리고,
+    비우려면 `null` 을 넣는다. 참조 속성은 상대의 식별자(없으면 이름)로 적어도 된다.
+    `workspace_slug` 는 `whoami` 에서 — 비우면 전역이라 시스템 관리자만 된다.
+
+    **별칭**(`aliases`)은 글자 목록이거나 `{"value","source","note"}` 목록이다. 출처를 적어
+    두면 나중에 「이건 어디서 온 이름이냐」 를 물을 수 있다 — 모르면 지워도 되는지 판단할 수
+    없어 아무것도 못 지운다. 기계가 붙인 별칭은 **검수 대기**로 남는다
+    (`aliases_pending` · `aliases_review`).
+
+    `aliases_mode` 는 별칭 칸을 **더할지 맞출지**다. 기본 `add` — 다시 넣어도 사람이 화면에서
+    붙여 둔 별칭이 남는다. `replace` 는 **파일에 없는 별칭을 지운다**: 그 파일을 정본으로 볼
+    때만 쓴다(허브가 쌍둥이에 보낼 때가 그렇다).
+
+    **키를 바꿀 때**는 행에 `renamed_from`(옛 식별자)을 적는다 — 없으면 같은 것이 새 객체로
+    하나 더 생긴다. 두 번 바뀌었으면 `previous_keys` 에 전부 적는다(오래된 것부터).
+
+    `human_edits` 는 **사람이 화면에서 고친 칸**을 어떻게 할지다. 기본 `keep` — 비켜 가고
+    계획의 그 줄에 「사람이 고친 칸은 그대로 둡니다 — 이름 · 공급사」 로 적는다. 칸 단위라
+    사람이 안 건드린 칸은 그대로 들어간다. **`overwrite` 를 스스로 고르지 않는다** — 사람의
+    수정을 되돌리는 일이고, 되돌린 사실은 그 사람에게 안 보인다. 사용자가 「원천이 정본이다」
+    라고 말했을 때만 쓴다."""
+    fields: dict[str, Any] = {
+        "kind": "objects_import",
+        "params": json.dumps(
+            {
+                "type_slug": type_slug,
+                "aliases_mode": aliases_mode,
+                "human_edits": human_edits,
+            }
+        ),
+    }
+    if workspace_slug:
+        fields["workspace_slug"] = workspace_slug
+    body = json.dumps({"rows": rows}, ensure_ascii=False).encode("utf-8")
+    job = await _post_form(ctx, "/api/tasks", fields, ("rows.json", body, "application/json"))
+    return await _wait_job(ctx, job, JOB_WAIT_MAX)
+
+
+@tool()
+async def bundle_import(ctx: Context, bundle: dict[str, Any]) -> Any:
+    """**정의 · 객체 · 관계를 한 묶음으로** — 정제 도구(`pipeline/`)가 만든 결과물.
+
+    **작업이 된다.** 워커가 **한 번에 미리 본다** — 정의를 먼저 적용하지 않아도 그
+    정의로 객체와 관계를 맞춰 본다. 돌아온 `result` 는 계획이고 아직 아무것도 안 들어갔다.
+    사람이 확인한 뒤 `task_apply(job_id)` — **전부 아니면 무**, 한 곳이라도 오류면 아무것도
+    안 들어간다.
+
+    모양: `{"ontology": <ontology_import 와 같은 스키마, 없으면 생략>,
+    "objects": [{"type_slug", "workspace_slug", "rows": [...]}],
+    "relations": [{"type_slug", "rows": [{"src","relation","dst","evidence_note"}]}]}`.
+    행은 `objects_import` · `relations_import` 와 같다. `objects` 는 **적은 차례대로**
+    넣는다 — 참조하는 타입을 뒤에. 정의가 들면 시스템 관리자와 `ontology:write`
+    범위가 필요하다.
+
+    **백필(한꺼번에 많이)** 이면 묶음에 칸 넷을 더 적는다 — 서버가 받는다.
+    `preview: "plan"`(적용을 두 번 안 돈다) · `events: "summary"` · `audit: "summary"`
+    (웹훅 · 감사가 줄마다 쌓이지 않게) · `missing_refs: "blank"`(못 찾은 참조 하나가
+    전체를 막지 않게 그 칸만 비운다). **사용자가 백필이라고 정했을 때만** 쓴다 —
+    넷 다 「전부 아니면 무 · 줄마다 기록」 을 느슨하게 하는 것이다.
+
+    **행이 이 호출에 실린다** — 모델이 한 번에 쓸 수 있는 만큼(대개 수백 ~ 천 줄)이
+    한계다. 수만 줄은 사용자 PC 의 **정제 도구 MCP**(`sp-pipeline` 키트)로 넣는다:
+    `run_init(backfill=True)` → `run_validate` → `run_preview` — 파일이 모델을 거치지
+    않고 서버로 간다. 그 MCP 가 안 붙어 있으면 「백필 기능이 없다」 고 답하지 않는다 —
+    **이 플랫폼 화면의 「내 정보」 에서 키트를 받는다**(서버가 같은 판을 들고 있다). 받기 ·
+    「이 PC 에 등록 정보 복사」 · `install.cmd` 더블클릭이 거기 안내돼 있다 — 사용자에게
+    그리로 안내한다."""
+    job = await _post(ctx, "/api/bundles/import", {**bundle, "apply": False})
+    return await _wait_job(ctx, job, JOB_WAIT_MAX)
+
+
+@tool()
+async def bundle_runs(ctx: Context, limit: int = 20) -> Any:
+    """**넣은 판들** — 되돌릴 번호를 여기서 찾는다. 최근 것부터.
+
+    적용한 묶음만 있다(미리 보기는 아무것도 안 바꾼다). `undoable` 이 거짓이면 되돌릴 수
+    없다 — 이미 되돌렸거나 보관 기간(30일)이 지나 기록을 지웠다."""
+    return await _get(ctx, "/api/bundles/runs", {"limit": limit})
+
+
+@tool()
+async def bundle_undo(ctx: Context, run_id: str, apply: bool = False) -> Any:
+    """넣은 판 하나를 **통째로 되돌린다** — 백필이 틀렸을 때의 길.
+
+    **작업이 된다. 기본은 계획이다** — 무엇이 지워지고 무엇이 어느 값으로 돌아가는지 줄마다
+    온다(`delete` · `update` · `create`). 그 계획을 **사람에게 보여 주고 판단을 받은 뒤**
+    `apply=True`(또는 `task_apply(job_id)`) 로 되돌린다. 스스로 되돌리지 않는다 — 되돌리기는
+    남의 하루를 지우는 일일 수 있다.
+
+    되돌리지 않는 줄은 `unchanged` 로 이유가 적혀 온다: 그 사이 남이 고친 줄, 밖에서
+    가리키는 것이 생긴 객체, 합치기(참조를 옮긴 것이라 손으로 되돌린다). 그 목록도 함께
+    사람에게 보여 준다 — 「되돌렸다」 만 말하면 남은 것을 아무도 모른다."""
+    job = await _post(
+        ctx, f"/api/bundles/runs/{run_id}/undo", None, {"apply": str(apply).lower()}
+    )
+    return await _wait_job(ctx, job, JOB_WAIT_MAX)
+
+
+@tool()
+async def relation_add(
+    ctx: Context,
+    type_slug: str,
+    object_id: str,
+    relation: str,
+    dst_object_id: str,
+    evidence_note: str = "",
+) -> Any:
+    """객체 둘을 잇는다.
+
+    **근거를 적는다.** 근거 없는 연결은 시간이 지나면 아무도 못 믿는다 — 맞는지
+    확인하려면 처음부터 다시 조사해야 하기 때문이다. 기계가 이은 것이면 더 그렇다.
+
+    양끝은 관계 종류가 허용한 타입이어야 한다 — 끝에 인터페이스가 적혔으면 그것을 구현한
+    타입이면 된다. 안 맞으면 서버가 무엇만 되는지 이름으로 말하며 거절한다."""
+    return await _post(
+        ctx,
+        f"/api/objects/{type_slug}/{object_id}/relations",
+        {
+            "relation": relation,
+            "dst_object_id": dst_object_id,
+            "evidence_note": evidence_note,
+        },
+    )
+
+
+@tool()
+async def relation_update(
+    ctx: Context,
+    type_slug: str,
+    object_id: str,
+    relation_id: str,
+    evidence_note: str | None = None,
+    properties: dict[str, Any] | None = None,
+) -> Any:
+    """관계의 **근거와 속성**을 고친다 — 보낸 것만. **양끝과 종류는 못 바꾼다** — 그건
+    다른 관계다(끊고 새로 잇는다). `relation_id` 는 `object_get` 의 `related[].relation_id`."""
+    body: dict[str, Any] = {}
+    if evidence_note is not None:
+        body["evidence_note"] = evidence_note
+    if properties is not None:
+        body["properties"] = properties
+    return await _patch(
+        ctx, f"/api/objects/{type_slug}/{object_id}/relations/{relation_id}", body
+    )
+
+
+@tool()
+async def relation_remove(
+    ctx: Context, type_slug: str, object_id: str, relation_id: str
+) -> Any:
+    """관계를 **끊는다.** 되돌리기가 없다 — 관계는 기록이 아니라 두 기록 사이의 말이라
+    진짜로 지운다(감사 기록에는 남는다). **틀리게 이은 것을 되돌리는 자리**다. 잘못
+    이었는지 확실하지 않으면 끊지 말고 사람에게 `object_get` 결과를 보여 준다."""
+    return await _delete(ctx, f"/api/objects/{type_slug}/{object_id}/relations/{relation_id}")
+
+
+@tool()
+async def relations_import(
+    ctx: Context,
+    type_slug: str,
+    rows: list[dict[str, Any]],
+    mode: str = "add",
+) -> Any:
+    """관계를 **여러 줄 한 번에** — `type_slug` 의 객체에서 출발하는 선들. **작업이 된다.**
+
+    행은 `{"src": ..., "relation": ..., "dst": ..., "evidence_note": ...}` 꼴. 끝점은
+    식별자(없으면 이름). 이미 이어진 것은 「그대로」 이고, **근거나 붙은 값이 다르면 「고침」**
+    이다. 돌아온 `result` 는 계획이다 — 사람이 확인한 뒤 `task_apply(job_id)`.
+    **근거(evidence_note)를 적는다** — 기계가 이은 것이면 더.
+
+    선에 붙는 값은 `{"properties": {...}}` 로(인과 관계의 근거 건수처럼). 모양은 그 **관계
+    종류의 속성 정의**로 본다 — 정의에 없는 키는 그 줄이 오류다.
+
+    `mode` 는 **더할지 맞출지**다. 사라진 관계를 정리할 길이 이것뿐이다:
+
+      - `add`(기본)      더하기만 한다.
+      - `replace`        이 파일에 나온 **(출발 객체 · 관계 종류)** 범위에서, 파일에 없는
+                         선을 「끊음」 으로 계획에 올린다.
+      - `replace_type`   **(출발 타입 · 관계 종류) 전체**에서. 파일이 그 타입의 **전부**일
+                         때만 쓴다 — 일부만 담은 파일로 돌리면 나머지가 다 끊긴다.
+
+    끊는 것은 계획에 `unlink` 로 먼저 보인다 — 사람이 보고 적용한다."""
+    fields: dict[str, Any] = {
+        "kind": "relations_import",
+        "params": json.dumps({"type_slug": type_slug, "relations_mode": mode}),
+    }
+    body = json.dumps({"rows": rows}, ensure_ascii=False).encode("utf-8")
+    job = await _post_form(ctx, "/api/tasks", fields, ("rows.json", body, "application/json"))
+    return await _wait_job(ctx, job, JOB_WAIT_MAX)
+
+
+# --------------------------------------------------------------------------- #
+# 작업 — 오래 걸리는 일은 요청이 아니라 표에 산다(docs/작업-워커-설계.md)
+# --------------------------------------------------------------------------- #
+@tool()
+async def task_status(ctx: Context, job_id: str, wait_seconds: int = 20) -> Any:
+    """작업이 어디까지 됐나 — 작업을 만든 도구(`objects_import` · `relations_import` ·
+    `bundle_import` · `datasource_sync` · `metric_define` · `metric_recompute` ·
+    `filestore_gc` …)가 돌려준 `job_id` 로. `wait_seconds`(최대 25) 동안 끝나기를 기다렸다가
+    돌려준다 — 그래도 안 끝났으면 `status` 가 `running` 인 채로 오고, 그때 다시 부른다.
+    **끝났다고 지어내지 않는다.** `next` 가 다음에 할 일을 말한다(종류마다 다르다)."""
+    job = await _get(ctx, f"/api/tasks/{job_id}")
+    return await _wait_job(ctx, job, float(wait_seconds))
+
+
+@tool()
+async def task_apply(ctx: Context, job_id: str, wait_seconds: int = 20) -> Any:
+    """계획을 **사람이 확인한 뒤** 적용한다 — 같은 파일 · 같은 지문으로 적용 작업을 만든다.
+
+    미리 본 뒤에 누군가 그 사이에 같은 것을 바꿨으면 서버가 거절한다(「미리 본 것과
+    달라졌습니다」) — 그러면 다시 미리 본다. 오류가 있는 계획은 적용 작업 자체가 안 만들어진다.
+    **사용자의 판단 없이 부르지 않는다.**"""
+    job = await _post(ctx, f"/api/tasks/{job_id}/apply", None)
+    return await _wait_job(ctx, job, float(wait_seconds))
+
+
+@tool()
+async def tasks_list(
+    ctx: Context,
+    limit: int = 20,
+    status: str | None = None,
+    kind: str | None = None,
+    mine: bool = False,
+) -> Any:
+    """작업 최근 것부터 — 무엇이 돌고 있고 무엇이 실패했나. 볼 수 있는 것만(내가 시킨 것 ·
+    내 부서 것, 시스템 관리자는 타이머가 넣은 것까지 전부). 워커가 살아 있는지도 함께
+    (`workers[].alive`) —
+    워커가 없으면 작업은 영영 대기다. 그때는 운영자에게 알린다.
+
+    거르기: `status`(`queued` · `running` · `done` · `failed` · `cancelled`) · `kind`(작업
+    종류 — `datasource_sync` · `metrics_recompute` · `objects_import` …) · `mine`(내가 시킨
+    것만). 「어젯밤 동기화가 실패했나」 는 `kind="datasource_sync", status="failed"`."""
+    params: list[tuple[str, Any]] = [("limit", limit)]
+    if status:
+        params.append(("status", status))
+    if kind:
+        params.append(("kind", kind))
+    if mine:
+        params.append(("mine", "true"))
+    listed = await _get(ctx, "/api/tasks", params=params)
+    workers = await _get(ctx, "/api/tasks/workers")
+    if isinstance(listed, dict) and "items" in listed:
+        listed["items"] = [_job_view(one) for one in listed["items"]]
+        listed["workers"] = workers
+    return listed
+
+
+@tool()
+async def task_cancel(ctx: Context, job_id: str) -> Any:
+    """작업을 **멈춘다** — 줄에서 기다리는 것은 바로, 도는 것은 단계 사이에서 멈춘다(그때까지
+    커밋한 것은 남는다 — 지표는 다 센 지표까지). 시킨 사람만(시스템 관리자는 모두). 이미 끝난
+    작업은 거절된다. **사용자가 멈추라고 한 것만** 멈춘다."""
+    job = await _post(ctx, f"/api/tasks/{job_id}/cancel", None)
+    return _job_view(job)
+
+
+@tool()
+async def filestore_gc(ctx: Context, wait_seconds: int = 20) -> Any:
+    """첨부 저장소의 **고아 파일**(아무 첨부도 안 가리키는 파일 · 끊긴 업로드의 찌꺼기)을 센다
+    — **계획만**: 지울 파일 수 · 크기 · 예시. 사람이 보고 판단한 뒤 `task_apply(job_id)` 로
+    지운다. 하루가 안 지난 것과 저장소 모양이 아닌 것은 안 건드린다. 워커가 매일 한 번 스스로도
+    지운다(`FILESTORE_GC_HOURS`). **시스템 관리자만.** 지운 파일은 되살릴 수 없다."""
+    job = await _post_form(ctx, "/api/tasks", {"kind": "filestore_gc", "params": "{}"}, None)
+    return await _wait_job(ctx, job, float(wait_seconds))
+
+
+# --------------------------------------------------------------------------- #
+# 데이터 소스 — 바깥 시스템(OData)에서 읽어 채우기. 정의는 화면에서, 돌리는 것은 여기서도.
+# --------------------------------------------------------------------------- #
+@tool()
+async def datasources_list(ctx: Context) -> Any:
+    """정의된 **데이터 소스**(OData · REST · 파일 폴더 · 다른 플랫폼 → 타입) 목록 — 어느 표를
+    어느 타입에 넣는지, 주기, 마지막 결과. 시스템 관리자 토큰이어야 보인다. 실패 이유 · 지난
+    결과는 `datasource_runs`, 칸 대응이 맞는지는 `datasource_preview`."""
+    return await _get(ctx, "/api/datasources")
+
+
+@tool()
+async def datasource_runs(ctx: Context, slug: str) -> Any:
+    """데이터 소스의 **최근 실행 기록** — 언제 · 누가(타이머) · 계획/적용 · 수(`counts`: 새로 ·
+    고침 · 그대로 · 오류 · 바깥에서 사라져 「사용 안 함」 으로 돌린 것 `deprecated` · 관계는
+    `relations_*`) · 오류 행. 「어젯밤 동기화가 왜 실패했나」 · 「얼마나 들어왔나」 는 여기서.
+    끝점을 못 찾아 **다음 동기화로 미룬 관계**는 `relations_waiting`. 시스템 관리자만."""
+    return await _get(ctx, f"/api/datasources/{slug}/runs")
+
+
+@tool()
+async def datasource_preview(ctx: Context, slug: str, limit: int = 5) -> Any:
+    """바깥 표의 **앞 몇 행을 그대로 + 칸 대응한 뒤로** — 대응이 맞는지 볼 때. 아무것도 안
+    바꾼다. `mapping_error` 가 있으면 대응이 틀린 것이다 — 고치는 것은 화면에서. 시스템
+    관리자만."""
+    return await _post(
+        ctx,
+        f"/api/datasources/{slug}/preview",
+        None,
+        params={"limit": max(1, min(limit, 50))},
+    )
+
+
+@tool()
+async def datasource_sync(ctx: Context, slug: str, apply: bool = False) -> Any:
+    """데이터 소스를 **동기화**한다 — 바깥 표를 읽어 그 타입의 객체로.
+
+    `apply=False`(기본)면 **계획만**: 행마다 새로/고침/그대로/오류와 그 이유. 사람에게 보여
+    주고 판단을 받은 뒤 `apply=True`. **한 행이라도 오류면 아무것도 안 넣는다.** 같은 객체는
+    바깥 식별자 → 식별자 → 별칭·이름 순으로 다시 찾는다(이미 다른 바깥 행과 이어진 객체는
+    이름으로 다시 안 고른다). 값 대응표에 없는 값·못 푸는 참조는 오류 행이다 — 사용자에게
+    무엇을 고쳐야 하는지 말한다.
+
+    **빈 칸 · 빠진 별칭** — 보통은 빈 칸을 안 건드린다(더하기 · 바꾸기만). 다른 플랫폼
+    (`sp_core`)이나 「바깥이 정본」(거울)으로 둔 소스는 바깥에서 비운 칸을 **비우고** 빠진
+    별칭을 **뺀다** — 계획의 「고침」 에 그것이 보인다. 관계의 끝점이 아직 안 들어왔으면 그
+    관계는 다음 동기화에서 다시 잇는다(`relations_waiting`).
+
+    **작업이 된다** — 바깥 표를 읽는 시간은 그쪽이 정한다. 끝나기를 잠깐 기다렸다가 돌려주고,
+    아직이면 `task_status(job_id)` 로 다시 묻는다. 결과(`result`)가 계획 · 기록이다."""
+    job = await _post(
+        ctx,
+        f"/api/datasources/{slug}/sync",
+        None,
+        params={"apply": "true" if apply else "false"},
+    )
+    return await _wait_job(ctx, job, JOB_WAIT_MAX)
+
+
+# --------------------------------------------------------------------------- #
+# RDF/OWL — 정의와 데이터를 형식 온톨로지로, 그리고 **질의어(SPARQL)로 묻기.**
+#
+# 목록 · 조건 · 통계는 한 타입 안에서 쉽다. 「코어를 건너뛰어 잇는 물음」(모델 → 과제 →
+# 프로젝트를 한 번에, 역관계로 거슬러, 상속으로 묶어)은 질의어가 낫다.
+# --------------------------------------------------------------------------- #
+@tool()
+async def rdf_schema(ctx: Context) -> str:
+    """이 설치의 정의를 **OWL(Turtle)** 로 — 클래스 · 속성 · 관계와 그 뜻.
+
+    `rdf_query` 를 쓰기 전에 읽는다. 여기서 클래스 이름(`sp:<타입slug>`) · 속성
+    (`sp:<타입>.<속성키>`) · 관계(`sp:rel.<관계slug>`)와 인터페이스 구현(`rdfs:subClassOf`,
+    공통 속성은 `rdfs:subPropertyOf`) · 역관계(`owl:inverseOf`) ·
+    이행(`owl:TransitiveProperty`)을 확인한다."""
+    async with _client(60) as client:
+        response = await client.get(
+            "/api/rdf/schema", params={"format": "ttl"}, headers=_forward_headers(ctx)
+        )
+        response.raise_for_status()
+        return response.text
+
+
+@tool()
+async def rdf_query(
+    ctx: Context,
+    query: str,
+    types: list[str] | None = None,
+    infer: bool = False,
+    limit: int = 200,
+) -> Any:
+    """**SPARQL 로 묻는다** — 여러 타입을 건너뛰어 잇는 물음에.
+
+    읽기만 한다(`SELECT` · `ASK`). 접두어는 답의 `prefixes` 에 오고, `sp:` 가 이 설치의 정의
+    자리다. 개체 주소는 `<base>o/<타입>/<식별자>` 다.
+
+    - `types` 로 **범위를 좁히면 빠르다** — 안 주면 전부 올린다.
+    - `infer=True` 면 OWL-RL 추론을 켠다: 상속으로 얻은 분류(「개발모델이면 제품이다」),
+      역관계(적은 것의 반대 방향), 이행(A→B, B→C 면 A→C)이 답에 들어온다. 느리므로 `types` 로
+      좁혀야 하고, 큰 범위는 서버가 거절한다.
+    - `truncated` 가 참이면 **잘린 것이다** — 「전부 이것뿐」 으로 읽지 않는다.
+
+    예: 과제마다 개발모델 수
+    ```sparql
+    PREFIX sp: <…/ns#>
+    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+    SELECT ?task (COUNT(?m) AS ?n) WHERE {
+      ?m a sp:plm_model ; sp:plm_model.task ?t . ?t rdfs:label ?task
+    } GROUP BY ?task ORDER BY DESC(?n)
+    ```"""
+    return await _post(
+        ctx,
+        "/api/rdf/query",
+        {"query": query, "types": types, "infer": infer, "limit": limit},
+    )
+
+
+# --- 확장 기능 ---------------------------------------------------------------
+#
+# **확장마다 도구를 만들지 않는다.** 도구 20개에 확장 셋이 붙으면 목록이 40개가 되고,
+# 목록이 길어질수록 모델은 엉뚱한 것을 고른다 — 이 파일 머리의 규칙과 같은 이유다.
+# 부를 수 있는 것이 무엇인지는 `extensions_schema` 가 말하고, 부르는 일은 한 도구가 한다.
+
+# --- 지표 — 기록을 미리 세어 둔 값 (ADR 0013) ------------------------------------
+#
+# **세는 일은 목록으로 받아 직접 하지 않는다.** 서비스 기록은 한 타입에 200만 건이고, 사람이
+# 묻는 것은 「판매월 코호트의 누적 인입률」 「생산월 x 공장별 건수」 처럼 분모가 있고 시간이
+# 있는 물음이다. 지표는 그것을 밤마다 세어 둔 것이다 — 계산은 플랫폼이 하고, AI 는 읽고
+# 해석만 한다. 지표에 없는 물음은 `metric_define(apply=false)` 로 **정의를 제안**한다.
+
+#: 읽기 모양 → 경로.
+_METRIC_SHAPES = {
+    "table": "values",
+    "series": "series",
+    "cohort": "cohort",
+    "dim_values": "dims",
+}
+
+
+@tool()
+async def metric_list(ctx: Context) -> Any:
+    """**지표 목록** — 기록을 미리 세어 둔 값들. 「몇 건 · 비율 · 추이 · 코호트」 를 묻기 전에
+    여기서 **이미 세어 둔 지표가 있나** 본다. 있으면 `metric_query`, 없으면 `objects_summary`
+    (그때그때 센다 — 기준 하나 · 세부 기준 하나뿐), 그래도 안 되면 `metric_define(apply=false)`
+    로 정의를 제안한다.
+
+    줄마다: `slug` · `label` · `source_type_slug`(원천 기록 타입) · `measure` · `grain`(기간
+    단위) · `cohort_grain` · `dims[]`(기준 이름 · 주소 · 종류) · `denominator`(분모 지표 —
+    비율이 나온다) · `last_run_at`(계산 시각) · `stale`(세 주기가 지나도록 안 셈) · `overlap`
+    (한 기록이 여러 셀에 든다) · `broken`(정의가 깨진 이유 — 있으면 값이 낡는다) ·
+    `analyses[]`(이 지표에 되는 분석 `{recipe, label, ok, reason}` — `metric_analyze`)."""
+    rows = await _get(ctx, "/api/metrics")
+    if not isinstance(rows, list):
+        return rows
+    out = []
+    for one in rows:
+        spec = one.get("spec") or {}
+        out.append(
+            {
+                "slug": one.get("slug"),
+                "label": one.get("label"),
+                "description": one.get("description"),
+                "source_type_slug": one.get("source_type_slug"),
+                "measure": spec.get("measure"),
+                "measure_field": spec.get("measure_field"),
+                "grain": one.get("grain"),
+                "cohort_grain": one.get("cohort_grain"),
+                "time": spec.get("time"),
+                "cohort": spec.get("cohort"),
+                "dims": one.get("dims"),
+                "filters": spec.get("filters"),
+                "denominator": spec.get("denominator"),
+                "settle_days": spec.get("settle_days"),
+                "is_active": one.get("is_active"),
+                "overlap": one.get("overlap"),
+                "cells": one.get("cells"),
+                "last_run_at": one.get("last_run_at"),
+                "last_status": one.get("last_status"),
+                "stale": one.get("stale"),
+                "broken": one.get("broken"),
+                "analyses": one.get("analyses"),
+            }
+        )
+    return {"total": len(out), "metrics": out}
+
+
+@tool()
+async def metric_query(
+    ctx: Context,
+    slug: str,
+    shape: str = "table",
+    dims: list[str] | None = None,
+    by: list[str] | None = None,
+    filters: dict[str, str | None] | None = None,
+    period_from: str | None = None,
+    period_to: str | None = None,
+    cohort_from: str | None = None,
+    cohort_to: str | None = None,
+    split: str | None = None,
+    cumulative: bool = False,
+    search: str | None = None,
+    composition: str | bool | None = None,
+) -> Any:
+    """**지표 읽기** — 세어 둔 셀 위에서 비율 · 누적 · 전기 · 전년 동기 · 건 보기까지.
+    보이는 부서의 것만 더한다(목록 · 통계와 같은 규칙).
+
+    - `shape="table"`: `dims`(묶을 기준 이름들, `metric_list` 의 `dims[].name`)와 `by`
+      (`period` · `cohort` · `age` 중 묶을 것)별 셀. 셀마다 `count` · `value`(이 지표의
+      집계) · `ratio`(분모가 있을 때) · `closed`(닫힌 기간) · `drill`.
+    - `shape="series"`: 기간순 추이. 빈 기간은 0, `prev`(전기) · `yoy`(전년 동기). `split`
+      으로 선을 나눈다(`lines[]`).
+    - `shape="cohort"`: 코호트 x 경과 행렬(`rows[].cells[]`). `cumulative=true` 면 경과순
+      누적 — 「판매 후 n개월째까지의 누적 인입률」. 행마다 `denominator`(분모가 코호트로
+      짝지어졌을 때 — 판매 대수).
+    - `shape="dim_values"`: 기준 **하나**(`dims=[이름]`)의 값과 이름 · 건수 — `filters` 에
+      넣을 값(참조는 id)을 찾을 때. `search` 로 이름에 든 글자를 거른다.
+    - `filters`: `{기준 이름: 값}` — 값은 `drill` 이나 `dim_values` 의 값(참조는 id).
+      `null` 은 「(비어 있음)」. 분모도 같은 기준으로 걸린다.
+    - `period_from` · `period_to`(앞까지) · `cohort_from` · `cohort_to`: `YYYY-MM-DD`.
+    - `composition`(구성비): `table` 이면 기준 이름(`dims` 중 하나) — 셀마다 그 기준의 값들
+      사이의 몫(`composition`, %, 나머지 칸이 같은 셀끼리 합 100). `series` 면 `true` —
+      점마다 그 기간의 선(`split` 의 값)들 사이의 몫. 「성격별 구성비 추이」 는
+      `shape="series", split=<규칙 기준>, composition=true`. 건수 · 합계의 몫이다(비율의
+      몫이 아니다 — 평균 · 최소 · 최대는 거절).
+
+    사용자에게 옮길 때 **빼먹지 않는다**:
+    - `computed_at`(계산 시각)과 `stale` — 세어 둔 값이다. `closed` 가 false 인 기간은 더
+      들어올 수 있다.
+    - `overlap` 이 true 면 셀의 합이 기록 수보다 크다(여러 값 기준). `unbucketed` 는 시간 칸이
+      비었거나 못 읽어 기간이 없는 기록 수, `truncated` 는 상한에서 잘렸다는 뜻 — 좁혀서 다시.
+    - `denominator.missing` 이 0 이 아니면 분모가 없어 비율이 빈 셀이 있다.
+    - 「그 수가 뭔데」 는 셀의 `drill.params` 를 `objects_list` 의 `conditions` 로 —
+      `f.<칸>.<연산>` 키를 `{field, op, value}` 로, `nf<번호>.<칸>.<연산>`(제외 묶음 — 규칙
+      기준의 「앞 규칙에 안 맞음」)은 `{field, op, value, exclude: <번호>}` 로 풀면 된다
+      (`drill.partial` 이 비어 있을 때 수가 같다)."""
+    where = _METRIC_SHAPES.get((shape or "table").strip().lower())
+    if where is None:
+        return {"error": f"shape 는 {', '.join(_METRIC_SHAPES)} 중 하나입니다: {shape!r}"}
+    if where == "dims":
+        if not dims or len(dims) != 1:
+            return {"error": "dim_values 는 기준 하나를 dims=[이름] 으로 줍니다."}
+        asked: list[tuple[str, Any]] = [("name", dims[0])]
+        if search:
+            asked.append(("q", search))
+        return await _get(ctx, f"/api/metrics/{slug}/dims", params=asked)
+    params: list[tuple[str, Any]] = []
+    if dims:
+        params.append(("dims", ",".join(dims)))
+    if by:
+        params.append(("by", ",".join(by)))
+    for key, value in (
+        ("period_from", period_from),
+        ("period_to", period_to),
+        ("cohort_from", cohort_from),
+        ("cohort_to", cohort_to),
+        ("split", split),
+    ):
+        if value:
+            params.append((key, value))
+    if cumulative:
+        params.append(("cumulative", "true"))
+    if composition not in (None, False, ""):
+        params.append(("composition", "true" if composition is True else str(composition)))
+    for name, value in (filters or {}).items():
+        params.append((f"d.{name}", "" if value is None else str(value)))
+    got = await _get(ctx, f"/api/metrics/{slug}/{where}", params=params)
+    if isinstance(got, dict) and "error" not in got and "total" not in got:
+        # 자취 점수가 「몇 건인가」 를 읽는 자리 — 모양마다 세는 것이 다르다.
+        if "cells" in got:
+            got["total"] = got.get("total_count", len(got["cells"]))
+        elif "lines" in got:
+            got["total"] = sum(len(one.get("points", [])) for one in got["lines"])
+        elif "rows" in got:
+            got["total"] = sum(len(one.get("cells", [])) for one in got["rows"])
+    return got
+
+
+#: 분석 레시피 → 받는 options(공통 범위 포함). 모르는 키는 백엔드가 조용히 버리므로 여기서
+#: 거절한다 — 「걸렀다고 믿었는데 안 걸린」 답이 제일 나쁘다.
+_RANGES = {"period_from", "period_to", "cohort_from", "cohort_to"}
+_RECIPE_OPTIONS: dict[str, set[str]] = {
+    "pareto": {"dim", "top", "include_empty", "by_period", "compare_from", "compare_to"}
+    | _RANGES,
+    "life": {"model", "max_age", "basis", "cohort_from", "cohort_to"},
+    "control": {"axis", "window", "split", "baseline_to"} | _RANGES,
+    "changes": {"axis", "window", "by", "top"} | _RANGES,
+    "sprt": {
+        "target",
+        "reference",
+        "reference_via",
+        "dim",
+        "rho",
+        "alpha",
+        "beta",
+        "by",
+        "top",
+    },
+    "groups": {"dim", "axis", "window"} | _RANGES,
+    "cutin": {"at", "axis", "window", "skip_first", "effect"} | _RANGES,
+    "coverage": {"levels", "via"} | _RANGES,
+    "recurrence": {"generation", "signature", "via"} | _RANGES,
+    "profile": {"dim", "value"} | _RANGES,
+    "forecast": {
+        "horizon",
+        "warranty",
+        "model",
+        "basis",
+        "cost",
+        "backtest",
+        "cohort_from",
+        "cohort_to",
+    },
+    "logit": {"factors", "min_count"} | _RANGES,
+    "assoc": {"rows", "cols", "min_count"} | _RANGES,
+}
+
+
+@tool()
+async def metric_analyze(
+    ctx: Context,
+    slug: str,
+    recipe: str,
+    options: dict[str, Any] | None = None,
+    filters: dict[str, str | None] | None = None,
+    compact: bool = True,
+) -> Any:
+    """**분석** — 세어 둔 지표의 셀 위에서 통계까지 **플랫폼이** 한다(ADR 0014). 셀을 받아
+    직접 계산하지 않는다 — 같은 물음에 같은 방법 · 같은 답 · 같은 주의가 나와야 한다.
+    `metric_list` 의 `analyses[]` 가 그 지표에 되는 분석과 **안 되는 이유**를 말한다.
+
+    `recipe` 와 `options`:
+    - `pareto` — 몫 · 누적 · ABC · HHI · 유효 개수 · 지니 · CR. `dim`(필수) · `top` ·
+      `include_empty` · `by_period`(기간별 집중도) · `compare_from` · `compare_to`(그 기간과
+      몫을 견준다 — 동질성 χ² 와 값마다 수정 잔차, 「구성비가 바뀌었나」)
+    - `life` — 와이블(표준 · 결함) 맞춤과 B1 · B5 · B10. `model`(`auto` · `weibull` ·
+      `defective`) · `max_age` · `basis`(`first_visits` 면 시리얼마다 첫 방문만 — 방문 기준이
+      있는 지표)
+    - `control` — 라니 u-관리도와 넬슨 규칙. `axis`(`period` · `cohort`) · `window`(코호트
+      축 — 출고 뒤 몇 기간) · `split`(분모 짝에 있는 기준) · `baseline_to`(한계를 이 날
+      앞으로만)
+    - `changes` — 계절 지수와 변화점. `axis` · `window` · **`by`**(값마다 훑기 — 「계절을 빼면
+      늘고 있는 증상은?」: 증상마다 변화점, 벌점 +2·ln K, 마지막 변화가 오름인 값부터) · `top`
+    - `sprt` — 새 모델 vs 전작 순차 검정. `target`(필수 — 기준 값, 참조면 id) ·
+      `reference` 또는 `reference_via`(새 모델 객체의 전작 칸) · `dim` · `rho` · `alpha` ·
+      `beta` · **`by`**(값마다 훑기 — 「전작보다 빨리 늘고 있는 증상은?」: 증상마다 그 증상으로
+      거른 검정, 유의수준 α/K, 「나쁨」 이 선 값부터. `new` 는 전작에 없던 값) · `top`
+    - `groups` — **집단 비교**(SKU · 공장 · 기본 모델마다 비율이 다른가). `dim`(분모 짝에 있는
+      기준) · `axis` · `window`. 이질성 χ², 집단 대 나머지 정확 검정(BH q), 작은 집단의 과장을
+      줄인 비율(`shrunk` · 구간 · `shrinkage`)
+    - `coverage` — **커버리지**(다뤄야 할 축 조합 중 기록이 다룬 것 · 빈 칸). `levels`(필수 —
+      축인 기준을 차례로, 2~4개, 예: 모델 · 부품 · 메커니즘 · 해석법) · `via`(기준 사이마다의
+      길 — 비운 자리는 온톨로지에 하나뿐인 길, 여럿이면 거절하며 후보를 말한다). 첫 기준은
+      `filters` 로 거른다. `gaps`(빈 칸 — `leaves` 는 그 아래 끝 조합 수), `extras`(기대 밖),
+      `roots`(첫 기준 값마다 다룬 몫)
+    - `recurrence` — **재발**(전작에서 나온 축 조합이 다음 모델에서 다시 나왔나).
+      `generation`(필수 — 세대 기준, 예: 모델) · `signature`(필수 — 서명 기준 1~3개, 예: 부품 ·
+      메커니즘) · `via`(세대 축에서 전작으로 가는 길 — 비우면 하나뿐인 앞쪽 길). 쌍마다
+      다시 나온 것 · `rate`(재발률) · `new`, 모든 쌍의 `rate`, 되풀이된 `signatures`
+    - `profile` — **한 장 요약**(기준 값 하나 — 예: 메커니즘 「피로」). `dim` · `value`(필수 —
+      참조면 객체 id, `object_resolve` 로 먼저). 건수 · 몫 · 기간 추이(`points`), 다른
+      기준마다 함께 나온 값(`related` — 몫 · `lift` 향상도 · `drill`)
+    - `cutin` — **전후 비교**(대책 적용일 뒤에 만든 것부터 줄었나). `at`(필수 — 적용일
+      `YYYY-MM-DD`) · `axis` · `window` · `skip_first`(앞쪽에서 뺄 처음 부분군 — 출시 초기) ·
+      `effect`(의미 있는 차이, 기본 0.2). 모델은 `filters` 로 거른다 — 앞쪽은 그 모델의 첫
+      출고부터. 비(뒤/앞)와 구간, `decision`(`reduced` · `increased` · `no_difference` ·
+      `too_early`), `more_subgroups`(결론까지 더 닫혀야 할 부분군), `pre_trend`(앞쪽 흐름)
+    - `forecast` — **클레임 예측**(이미 판 물량에서 앞으로 몇 건 · 얼마). 수명과 같은 지표 ·
+      같은 맞춤. `horizon`(앞으로 몇 기간, 기본 12) · `warranty`(보증 기간 — 주면 그 경과부터
+      안 세고 `remaining` 에 보증 끝까지의 총량) · `cost`(건당 비용 — 금액) · `model` ·
+      `basis` · `backtest`(되짚어 보기 기간, 기본 6). 기간마다 `expected` 와 80 · 95% 구간,
+      `total`, `backtest`(그때 예측했다면 실제를 맞혔나)
+    - `logit` — 재방문 위험 요인(방문 기준 「재방문」 이 있는 지표). `factors`(필수 — 값이 적은
+      기준 이름 넷까지, 목록) · `min_count`
+    - `assoc` — 연관 · 묶음. `rows` · `cols`(필수 — 증상 · 부품처럼 기준 둘) · `min_count`.
+      향상도 · 정확 검정(BH q), 행의 묶음, 대응 분석 지도, **원인분산도**(`dispersion` — 행마다
+      유효 원인 수 1/Σ몫², 가장 많은 원인과 그 몫)
+    - 범위: `period_from` · `period_to`(앞까지) · `cohort_from` · `cohort_to` — `YYYY-MM-DD`
+
+    `filters`: `{기준 이름: 값}` — 지표 읽기와 같다(분모 · 두 모델에 함께 걸린다).
+    `compact=true`(기본)는 대화에 맞게 줄인 응답이다 — 줄 · 곡선 · 점을 줄인다.
+
+    **옮길 때 규칙.**
+    - `caveats[]` 의 `message` 를 **그대로** 전한다. `warn` 은 결과보다 먼저.
+    - 수명: `status="unreachable"` 인 B수명은 **값이 없다** — 외삽으로 지어 말하지 않는다.
+      「판매의 p 만 결국 고장 나 그 비율에 이르지 않는다」 로 말하고, 필요하면
+      `conditional_age`(결국 고장 나는 것들 중의 그 비율)를 **그 이름으로** 말한다.
+      `extrapolated` 는 「관측 밖으로 늘려 읽은 값」 이다.
+    - 순차 검정: `continue` 는 「아직 결론 없음」 이지 「문제없음」 이 아니다. `not_worse` 는
+      「ρ 배 나쁘지는 않다」 이지 「같다」 가 아니다.
+    - 관리도의 신호는 「조사할 곳」 이지 원인이 아니다. 변화점의 `provisional` 은 잠정이다.
+    - 재발: 다시 나온 서명은 「전작에서도 이 조합의 기록이 있었다」 이다 — 날짜 순서는 안
+      본다(`order_ignored`). 재발률은 전작 서명 중의 몫이다.
+    - 커버리지: 빈 칸은 「이 플랫폼에 그 조합의 기록이 없다」 이지 「검토하지 않았다」 가
+      아니다. `extras`(기대 밖)는 온톨로지 관계나 태깅을 고칠 곳이다.
+    - 클레임 예측: 평균(`expected`)만 말하지 않고 구간과 함께, `backtest.within` 이 false
+      면 그것을 먼저. 이미 판 것만이다 — 앞으로 팔 것 · 리콜은 없다.
+    - 전후 비교: `reduced` 는 「적용일 뒤에 줄었다」 이지 「대책 때문에」 가 아니다.
+      `too_early` 는 「효과 없음」 이 아니다 — `more_subgroups` 로 언제쯤인지 말한다.
+      `pre_trend` 주의가 있으면 그 흐름을 먼저 말한다.
+    - 위험 요인의 오즈비 · 연관의 향상도는 「함께 나옴」 이지 원인이 아니다. `unstable` 인 값은
+      오즈비를 말하지 않는다. `aliased` 면 요인끼리 겹쳐 오즈비를 가를 수 없다.
+    - `method`(방법과 판) · `computed_at`(계산 시각)을 함께 말한다. 근거는 `drill.params` →
+      `objects_list` 의 `conditions`(지표 읽기와 같다)."""
+    name = (recipe or "").strip().lower()
+    allowed = _RECIPE_OPTIONS.get(name)
+    if allowed is None:
+        return {"error": f"recipe 는 {', '.join(_RECIPE_OPTIONS)} 중 하나입니다: {recipe!r}"}
+    unknown = sorted(set(options or {}) - allowed)
+    if unknown:
+        return {
+            "error": f"{name} 이 모르는 options: {', '.join(unknown)} — 받는 것: "
+            f"{', '.join(sorted(allowed))}"
+        }
+    params: list[tuple[str, Any]] = []
+    for key, value in (options or {}).items():
+        if value is None:
+            continue
+        if isinstance(value, bool):
+            value = "true" if value else "false"
+        elif isinstance(value, list | tuple):
+            # 빈 자리는 빈 글자로 — 커버리지의 `via` 처럼 「이 자리는 하나뿐인 길」 을 뜻한다.
+            value = ",".join("" if one is None else str(one) for one in value)
+        params.append((key, str(value)))
+    for dim_name, value in (filters or {}).items():
+        params.append((f"d.{dim_name}", "" if value is None else str(value)))
+    params.append(("compact", "true" if compact else "false"))
+    path = f"/api/metrics/{slug}/analysis/{name}"
+    if name in ("sprt", "changes") and (options or {}).get("by"):
+        path += "/scan"  # 값마다 훑기 — 응답 모양이 달라 경로가 따로다
+    return await _get(ctx, path, params=params)
+
+
+@tool()
+async def metric_alerts(ctx: Context, slug: str | None = None, limit: int = 20) -> Any:
+    """**내 경보와 최근 발생** — 「요즘 무엇이 울렸나」 · 「내가 지켜보는 게 뭐였지」
+    (ADR 0016).
+
+    경보는 사람이 화면의 「분석」 탭에서 「경보 저장」 으로 만든다 — 저장한 분석(순차 검정 ·
+    관리도 · 변화점)을 지표를 다시 셀 때마다 **그 사람의 눈으로** 돌려, 처음 보는 결론만 그
+    사람에게 알린다. 이 도구는 **읽기만** 한다(만들기 · 끄기는 화면에서 — 인자를 눈으로 보고
+    저장하게).
+
+    `slug` 를 주면 그 지표에 건 내 경보(`alerts[]` — 이름 · 분석 · 인자 · 켜짐 · 마지막 확인 ·
+    실패 이유)와 그 지표의 발생만, 비우면 내 모든 경보의 최근 발생 `limit` 개(새것부터).
+
+    발생(`events[]`)마다 `title`(한 줄 결론) · `detail`(수) · `created_at` · `link`(분석 탭을
+    그 인자로 여는 주소). `link` 의 인자를 `metric_analyze` 의 `options` 와 `filters`
+    (`d.<기준>`)로 옮기면 지금 셀로 같은 분석을 다시 본다.
+
+    **옮길 때 규칙.** 발생은 「그때 처음 본 결론」 이지 원인이 아니다 — 관리도 신호는 조사할
+    곳, 순차 검정 「나쁨」 은 정한 배수 쪽이라는 판정, 변화점의 「잠정」 은 잠정이다. 지금도
+    그런지는 `metric_analyze` 로 본다."""
+    events = await _get(
+        ctx,
+        "/api/metrics/alerts/events",
+        params=[("limit", str(max(1, min(limit, 200))))],
+    )
+    if not isinstance(events, list):
+        return events
+    if slug is None:
+        return {"events": events}
+    alerts = await _get(ctx, f"/api/metrics/{slug}/alerts")
+    if not isinstance(alerts, list):
+        return alerts
+    return {
+        "alerts": alerts,
+        "events": [one for one in events if one.get("metric") == slug],
+    }
+
+
+@tool()
+async def metric_define(
+    ctx: Context,
+    slug: str,
+    label: str,
+    source_type_slug: str,
+    spec: dict[str, Any],
+    apply: bool = False,
+    description: str = "",
+    interval_hours: int | None = None,
+    is_active: bool | None = None,
+    wait_seconds: float = 20.0,
+) -> Any:
+    """**지표 정의** — 계획(`apply=false`, 기본) → 사람 확인 → 저장하고 바로 센다
+    (`apply=true`). **시스템 관리자만.** 사용자의 판단 없이 `apply=true` 를 부르지 않는다.
+
+    `spec`:
+      - `measure`: `count` · `sum` · `avg` · `min` · `max`(+ `measure_field`:
+        `properties.<숫자 칸>`) · `share`(조건 비율 — `share_when` 에 거르기와 같은 꼴의
+        조건을 주면 셀마다 조건 건수(`value`) / 전체 건수(`count`) = `ratio`(%). 분모 지표는
+        두지 않는다. 「센터마다 NTF 비율」 · 「대분류 중 SW 의 몫」)
+      - `time`: `{"address": "properties.<날짜 칸>", "grain": "month"}` — 자기 타입의 날짜
+        칸만. 단위는 `day` · `week` · `month` · `quarter` · `year`
+      - `cohort`: 같은 모양(선택) — 「판매월」 처럼 묶어 둘 둘째 날짜. 단위는 `time` 과
+        같아야 한다
+      - `dimensions`: `[{"name": "base_model", "address": "ref.model.base_model"}]` 여덟까지
+        — 주소는 `objects_summary` 의 `group_by` 와 같다(걸음 셋까지). 날짜 기준에는 `grain`.
+        **규칙 기준**(ADR 0015 — 성격 분류): 주소 대신 `{"name": "nature", "label": "성격",
+        "rules": [{"label": "SW", "when": [{"field": "action", "op": "starts", "value":
+        "SW"}]}, …], "else": "기타"}` — 기록마다 위에서부터 **처음 맞는 규칙**의 이름이 값,
+        안 맞으면 `else`. `when` 은 `objects_list` 의 조건과 같은 모양(모두 맞아야, 너머 칸
+        도). 규칙 스물 · 규칙마다 조건 열까지, 이름은 규칙마다 달라야 한다(한 칸 안의 「또는」
+        은 `in`). 계획의 `rules[]` 가 규칙마다 붙인 수(`won`) · 막힌 규칙(`blocked` — 앞
+        규칙이 다 가져감) · 기타의 수(`other_count`)를 말한다 — 그대로 사람에게 보인다
+      - `filters`: `[{"field": "status", "op": "eq", "value": "active"}]` — `objects_list`
+        의 조건
+      - `denominator`: `{"metric": "<지표>", "on": ["base_model"], "time": "cohort",
+        "per": 100}` — 비율의 분모. `on` 은 양쪽에 같은 이름 · 같은 값 종류로 있는 기준,
+        `time` 은 `period`(기간끼리) · `cohort`(분모의 기간 = 분자의 코호트) · `null`(기간
+        없이 전부 합)
+      - `settle_days`: 이만큼 지난 기간은 「닫힘」
+      - `visits`: `{"key": "properties.<시리얼 칸>", "within_days": 90}`(선택) — 같은 제품의
+        방문. 있으면 기준 주소로 `visit.number`(시리얼마다 날짜순 차례 1 · 2 · 3 · 4+)와
+        `visit.repeat`(그 뒤 within_days 안에 다시 왔나 — yes · no · open)를 쓸 수 있다.
+        재방문 위험 요인(`metric_analyze(recipe="logit")`)과 첫 방문 수명이 이것을 쓴다
+      - `stay`: `{"periods": 24, "periods_from": "ref.country.warranty_months"}`(선택) —
+        머무는 기간. 기록을 그 기간부터 N기간 동안 센다(기간마다 최근 N기간의 합). 판매
+        집계에 두면 「보증 중 대수」 — 접수월 인입률의 분모(`denominator.time="period"`).
+        `periods_from` 은 기록마다 기간 수를 읽을 숫자 칸(비면 · 넘으면 `periods`). 코호트 ·
+        방문과 함께 못 둔다
+
+    `interval_hours` — 타이머가 다시 세는 주기. `0` 은 손으로만(`metric_recompute`), 1 ~ 23
+    은 그 시간마다(낮에도), `24` 는 매일 밤, `48` · `72` … 는 N일마다 밤(날 단위만 —
+    36 같은 값은 거절된다). 새로 만들 때 비우면 매일 밤, 고칠 때 비우면 그대로 둔다.
+    `is_active=false` 면 타이머 · 적재 뒤에 안 센다(값은 남는다).
+
+    타이머 · 적재 뒤의 계산은 **되면 바뀐 기간만** 다시 센다 — 정의를 바꾼 뒤 첫 계산 ·
+    일주일마다 · 다른 객체 너머가 바뀌었을 때는 전부(`metric_runs` 가 어느 쪽이었는지와 그
+    까닭을 말한다).
+
+    계획은 **오류 전부** · 경고 · 거르기를 통과한 기록 수 · 어림한 셀 수 · 기준의 종류를
+    돌려준다 — 그것을 사람에게 보여 주고 판단을 받는다. 같은 slug 가 이미 있으면 그 정의를
+    고친다(원천 타입은 못 바꾼다). 저장 뒤 계산은 작업이다 — `wait_seconds` 만큼 기다렸다가
+    돌려주고, 아직이면 `task_status(job_id)` 로 다시 묻는다."""
+    if not apply:
+        return await _post(
+            ctx,
+            "/api/metrics/plan",
+            {"slug": slug, "source_type_slug": source_type_slug, "spec": spec},
+        )
+    existing = await _get(ctx, f"/api/metrics/{slug}")
+    exists = isinstance(existing, dict) and existing.get("slug") == slug
+    # 비운 것은 안 보낸다 — 고칠 때는 그대로 두고, 만들 때는 서버의 기본(매일 밤 · 켜짐).
+    extra = {
+        key: value
+        for key, value in (("interval_hours", interval_hours), ("is_active", is_active))
+        if value is not None
+    }
+    if exists:
+        saved = await _patch_with_params(
+            ctx,
+            f"/api/metrics/{slug}",
+            {"label": label, "description": description, "spec": spec, **extra},
+            {"recompute": "true"},
+        )
+    else:
+        saved = await _post(
+            ctx,
+            "/api/metrics",
+            {
+                "slug": slug,
+                "label": label,
+                "description": description,
+                "source_type_slug": source_type_slug,
+                "spec": spec,
+                **extra,
+            },
+            params={"recompute": "true"},
+        )
+    if not isinstance(saved, dict) or "metric" not in saved:
+        return saved
+    job = await _wait_job(ctx, saved.get("job"), wait_seconds)
+    return {"metric": saved["metric"], "job": job, "updated": exists}
+
+
+@tool()
+async def metric_recompute(ctx: Context, slug: str, wait_seconds: float = 20.0) -> Any:
+    """지표를 **지금 전부 다시** 센다 — 화면의 「다시 세기」 와 같다. **시스템 관리자만.**
+
+    값이 이상해 보일 때 · 바깥에서 기록을 고친 직후 바로 볼 때. 평소에는 타이머가 주기마다
+    (되면 바뀐 기간만) 세므로 부를 일이 드물다. 같은 지표의 작업이 줄에서 기다리고 있으면
+    그것을 전부 세기로 올려 돌려준다(이미 도는 중이면 새로 넣는다). **작업이 된다** —
+    `wait_seconds` 만큼 기다렸다가 돌려주고, 아직이면 `task_status(job_id)` 로 다시 묻는다."""
+    job = await _post(ctx, f"/api/metrics/{slug}/recompute", None)
+    return await _wait_job(ctx, job, wait_seconds)
+
+
+@tool()
+async def metric_runs(ctx: Context, slug: str) -> Any:
+    """지표의 **최근 계산 기록** — 언제 · 성공/실패와 이유 · 기록 수 · 셀 수 · 날짜를 못 읽은
+    기록 수(`stats.unbucketed`) · **방식**(`mode`: `full` 전부 / `incremental` 바뀐 기간만 —
+    `periods` 가 다시 센 기간) · `note`(전부였으면 왜 전부였나) · `rules`(규칙 기준이 있으면
+    그 계산이 쓴 **규칙 판** — 지문 · 규칙 수 · 그 규칙을 저장한 때 · 사람). 「값이 왜
+    그대로인가」 · 「언제 셌나」 · 「지난달과 왜 다른가(규칙이 바뀌었나)」 는 여기서 — 실패한
+    계산은 옛 값을 그대로 두고 이유를 남긴다."""
+    return await _get(ctx, f"/api/metrics/{slug}/runs")
+
+
+@tool()
+async def metric_home(
+    ctx: Context,
+    slug: str,
+    workspace_slug: str | None = None,
+    split: str | None = None,
+    remove: bool = False,
+) -> Any:
+    """지표를 **부서 홈에 올린다**(최근 열두 기간의 추이 그림) · 내린다 · 어디 올라가 있나
+    본다.
+
+    - `workspace_slug` 없이: 이 지표가 올라간 부서 홈들(`split` 포함).
+    - `workspace_slug` 를 주면 그 부서 홈에 올린다 — `split` 은 선을 나눌 기준 이름
+      (`metric_list` 의 `dims[].name`, 비우면 합계 한 줄). 이미 있으면 기준만 바꾼다.
+    - `remove=true` 면 그 부서 홈에서 내린다(지표는 안 지운다).
+
+    **그 부서의 관리자만** 올리고 내린다(목록 통계를 홈에 올리는 것과 같다). 홈은 그 부서
+    사람 모두가 보는 자리다 — 사용자가 올리자고 한 것만 올린다."""
+    if workspace_slug is None:
+        return await _get(ctx, f"/api/metrics/{slug}/home")
+    if remove:
+        return await _delete(ctx, f"/api/metrics/{slug}/home", {"workspace": workspace_slug})
+    return await _put(
+        ctx,
+        f"/api/metrics/{slug}/home",
+        {"workspace_slug": workspace_slug, "split": split},
+    )
+
+
+async def _patch_with_params(
+    ctx: Context, path: str, json_body: Any, params: dict[str, Any]
+) -> Any:
+    async with _client(120) as client:
+        return _unwrap(
+            await client.patch(
+                path, json=json_body, params=params, headers=_forward_headers(ctx)
+            )
+        )
+
+
+# --- 기동 ----------------------------------------------------------------------
+#
+# **이 블록은 파일의 맨 끝이어야 한다.** `mcp.run()` 이 블로킹이라 그 뒤에 적힌 `@tool()` 은
+# 운영(`python server.py`)에서 등록되지 않는다 — 확장 도구 둘이 그렇게 빠져 있었다(시험은
+# 모듈을 import 해 보므로 못 잡았다). `tests/test_server.py` 가 순서를 지킨다.

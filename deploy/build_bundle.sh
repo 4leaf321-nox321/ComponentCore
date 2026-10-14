@@ -217,6 +217,9 @@ fi
 echo "==> [3b/4] MCP 서버 + 오프라인 휠 동봉"
 mkdir -p "$STAGE/mcp_server"
 cp mcp_server/server.py        "$STAGE/mcp_server/"
+# 기준정보(온톨로지) 도구 — server.py 가 import 한다. 빠지면 MCP 서버가 뜨자마자 죽는다.
+cp mcp_server/ontology.py       "$STAGE/mcp_server/"
+cp mcp_server/ontology_links.py "$STAGE/mcp_server/"
 cp mcp_server/requirements.txt "$STAGE/mcp_server/"
 [[ -f mcp_server/README.md ]] && cp mcp_server/README.md "$STAGE/mcp_server/" || true
 # 스킬 스텁(사용자가 ~/.claude/skills 로 설치) — 번들에 동봉

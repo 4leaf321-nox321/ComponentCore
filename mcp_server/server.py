@@ -38,6 +38,8 @@ from typing import Any
 from urllib.parse import urlencode
 
 import httpx
+import ontology  # 기준정보(온톨로지) 도구 — SP 에서 옮긴 것(옆 파일)
+import ontology_links  # noqa: F401  (부품 · 지그의 「기준정보」 칸 — 불러야 모인다)
 from mcp.server.fastmcp import Context, FastMCP, Image
 
 API_BASE = os.environ.get("PLATFORM_API_BASE", "http://127.0.0.1:8060").rstrip("/")
@@ -54,7 +56,8 @@ mcp = FastMCP(
         "레시피는 `recipe_check` 로 만들어 본 뒤에만 `save_version` 으로 저장한다. "
         "저장은 사용자의 내 작업에 새 버전으로 들어가고, 등록(부품 · 지그 카탈로그)은 "
         "사람이 판단할 일이니 `promote_*` 는 사용자가 시킬 때만. "
-        "결과에 `url` 이 있으면 사용자에게 「화면에서 열기」 링크로 함께 보여 준다."
+        "결과에 `url` 이 있으면 사용자에게 「화면에서 열기」 링크로 함께 보여 준다.\n\n"
+        + ontology.INSTRUCTIONS
     ),
 )
 
@@ -2638,6 +2641,11 @@ async def update_catalog_item(
     if not isinstance(got, dict) or "error" in got:
         return got
     return {"id": got["id"], "name": got["name"], "folder": got.get("folder", "")}
+
+
+# **기준정보 도구를 붙인다 — `mcp.run()` 보다 앞이어야 한다**(그 뒤의 등록은 운영에서 안
+# 붙는다, SP 가 겪은 것). 시험이 이 순서를 지킨다(`tests/test_ontology.py`).
+ontology.register(mcp)
 
 
 if __name__ == "__main__":

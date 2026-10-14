@@ -50,6 +50,10 @@ def _load_server() -> Any:
     for name in ("mcp", "mcp.server"):
         sys.modules.setdefault(name, types.ModuleType(name))
     sys.modules["mcp.server.fastmcp"] = fake
+    # 서버는 옆 파일(기준정보 도구 `ontology` · `ontology_links`)을 import 한다 — 운영처럼 그
+    # 폴더에서 뜬 것과 같게 폴더를 길에 넣는다.
+    if str(SERVER_PY.parent) not in sys.path:
+        sys.path.insert(0, str(SERVER_PY.parent))
     spec = importlib.util.spec_from_file_location("mcp_server_under_test", SERVER_PY)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
