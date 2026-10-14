@@ -17,16 +17,28 @@ class GeometryError(ValueError):
     """읽을 수 없거나 비어 있는 형상. 메시지는 화면에 그대로 나간다."""
 
 
-def load_step(path: Path) -> Shape:
+def read_step(path: Path) -> Shape:
+    """STEP 을 **읽기만** — 솔리드든 시트 바디(면, 해석용 셸 모델)든 받는다. 작업을 STEP 에서
+    시작할 때 쓴다(2026-10-15 — 예전에는 지그용 검사를 빌려 써서 셸 모델 STEP 이 올라가지
+    않았다). 솔리드도 면도 없으면(선 · 점뿐) 거절한다."""
     if not path.exists():
         raise GeometryError(f"파일이 없습니다: {path.name}")
     try:
         shape = import_step(path)
     except Exception as failure:
         raise GeometryError(f"STEP 파일을 읽지 못했습니다: {failure}") from failure
+    if not shape.solids() and not shape.faces():
+        raise GeometryError("STEP 파일에 솔리드도 면도 없습니다.")
+    return shape
+
+
+def load_step(path: Path) -> Shape:
+    """지그를 만들 제품 — **솔리드가 있어야** 한다(받침 · 클램프가 닿을 몸체)."""
+    shape = read_step(path)
     if not shape.solids():
         raise GeometryError(
-            "STEP 파일에 솔리드가 없습니다. 서피스만 있는 파일로는 지그를 생성할 수 없습니다."
+            "STEP 파일에 솔리드가 없습니다. 서피스만 있는 파일(셸 모델)로는 지그를 생성할 수 "
+            "없습니다 — 두께를 준 입체가 필요합니다."
         )
     return shape
 

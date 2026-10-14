@@ -84,7 +84,13 @@ export function GeometryJobView({
       </div>
     )
   }
-  const summary = job.summary as { volume?: number; bbox?: { size: number[] }; face_count?: number } | null
+  const summary = job.summary as {
+    volume?: number
+    surface_area?: number
+    is_shell?: boolean
+    bbox?: { size: number[] }
+    face_count?: number
+  } | null
   // 굳은 높이를 안 받았고 전체화면도 아니면 **잰 높이**로 채운다.
   const boxStyle = full.active || height ? undefined : fill.style
   const box = full.active ? 'h-[calc(100vh-4rem)]' : (height ?? 'h-full')
@@ -95,8 +101,11 @@ export function GeometryJobView({
         <StatusBadge kind="run" value={job.status} />
         {summary?.bbox && (
           <span className="text-muted-foreground text-xs">
-            {summary.bbox.size.map((v) => v.toFixed(1)).join(' × ')} mm · 부피{' '}
-            {summary.volume?.toLocaleString()} mm³ · 면 {summary.face_count}
+            {summary.bbox.size.map((v) => v.toFixed(1)).join(' × ')} mm ·{' '}
+            {summary.is_shell
+              ? `셸 모델 · 넓이 ${summary.surface_area?.toLocaleString()} mm²`
+              : `부피 ${summary.volume?.toLocaleString()} mm³`}{' '}
+            · 면 {summary.face_count}
           </span>
         )}
         <div className="flex-1" />

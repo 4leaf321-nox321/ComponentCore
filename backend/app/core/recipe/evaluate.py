@@ -143,10 +143,16 @@ class Evaluation:
     def is_sketch(self) -> bool:
         return isinstance(self.shape, Sketch)
 
+    @property
+    def is_shell(self) -> bool:
+        """셸 모델 — 솔리드 없이 면만(시트 바디). 해석의 셸 요소로 쓰고, 지그는 못 만든다."""
+        return not self.is_sketch and not self.shape.solids() and bool(self.shape.faces())
+
     def summary(self) -> dict[str, Any]:
         box = self.shape.bounding_box()
         return {
             "is_sketch": self.is_sketch,
+            "is_shell": self.is_shell,
             "bbox": {
                 "min": _xyz(box.min),
                 "max": _xyz(box.max),
@@ -722,6 +728,29 @@ def _bolt(node: S.BoltNode) -> Part:
     for one in [*parts[1:], head]:
         bolt = bolt + one
     return bolt
+
+
+#: 결과가 셸 모델일 때 늘 붙는 말 — 화면 · AI 가 무엇이 되고 무엇이 안 되는지 안다.
+SHELL_NOTE = (
+    "셸 모델입니다(두께 없는 면). 해석에서는 셸 요소의 중간면으로 쓰고, 두께는 해석 조건의 "
+    "파트 설정에서 정합니다. 지그 생성 · 입체가 필요하면 thicken 으로 두께를 주십시오."
+)
+
+
+def _sheet(shape: Shape) -> Shape:
+    """시트 바디(면)를 그대로 — 조립(이름표 붙은 구성품)이면 구성품마다 이름을 지켜 묶는다.
+    Part 로 감싸지 않는다(부피가 0 이라 솔리드 검사에 걸린다)."""
+    labeled = _labeled_children(shape)
+    if labeled:
+        children = []
+        for one in labeled:
+            child = copy.copy(one)
+            child.label = one.label
+            children.append(child)
+        return Compound(children=children)
+    # 단품은 **감싸기만** 한다(자식으로 넣으면 이름표 「FACE」 가 파트 이름이 된다). 가져온
+    # `Shell` 을 그대로 두면 build123d 가 STEP 으로 못 쓴다(실측) — Compound 는 쓴다.
+    return copy.copy(shape) if isinstance(shape, Compound) else Compound(shape.wrapped)
 
 
 def _to_part(shape: Shape) -> Part:
@@ -1516,9 +1545,13 @@ def _evaluate_node(
         except Exception as failure:
             raise RecipeError(node.id, f"파일을 찾지 못했습니다: {failure}") from failure
         shape = import_step(path)
-        if not shape.solids():
-            raise RecipeError(node.id, "STEP 파일에 솔리드가 없습니다.")
-        return _to_part(shape)
+        if shape.solids():
+            return _to_part(shape)
+        if shape.faces():
+            # **시트 바디(두께 없는 면)** — 해석용 셸 모델의 중간면. Part 로 감싸면 부피 0 이라
+            # 「유효한 솔리드가 아니다」 로 걸린다 — 곡면 노드처럼 면 그대로 든다.
+            return _sheet(shape)
+        raise RecipeError(node.id, "STEP 파일에 솔리드도 면도 없습니다.")
     raise RecipeError(node.id, f"알 수 없는 연산입니다: {node.op}")  # pragma: no cover
 
 
@@ -1699,23 +1732,17 @@ def _evaluate_recipe(
             result_id, "결과가 스케치입니다. extrude 또는 revolve로 솔리드를 생성하십시오."
         )
     if surfaces.is_surface(result):
-        # 곡면은 미리보기에서만 그대로 보인다 — 저장 · 지그는 입체여야 한다.
-        if allow_sketch:
-            shown = Sketch(children=[copy.copy(face) for face in result.faces()])
-            shown.label = "sketch"
-            return Evaluation(
-                shape=shown,
-                nodes=infos,
-                warnings=[
-                    "곡면입니다(두께 없음). thicken으로 두께를 부여하거나 split의 tool로 "
-                    "사용하십시오.",
-                    *notes,
-                ],
-                datums=marks,
-            )
-        raise RecipeError(
-            result_id,
-            "결과가 곡면입니다. thicken으로 두께를 부여하거나 split의 tool로 사용하십시오.",
+        # **셸 모델** — 두께 없는 면(시트 바디)이 결과다. 해석에서는 셸 요소의 중간면이고
+        # 두께는 해석 조건의 파트 설정이 정한다(2026-10-15 — 예전에는 미리보기에서만 보이고
+        # 저장은 거절했다. 해석용 셸 모델 STEP 을 받을 길이 없었다). 지그 · 입체는 thicken.
+        shell = _sheet(result)
+        shell.label = "model"
+        return Evaluation(
+            shape=shell,
+            nodes=infos,
+            warnings=[SHELL_NOTE, *notes],
+            tags=_tagged_faces(shell, patches),
+            datums=marks,
         )
     part = _to_part(result)
     if not part.solids():

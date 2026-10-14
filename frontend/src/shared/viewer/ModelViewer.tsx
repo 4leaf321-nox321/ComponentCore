@@ -81,6 +81,8 @@ export function ModelViewer({ models, className }: { models: ViewerModel[]; clas
             roughness: 0.6,
             transparent: (model.opacity ?? 1) < 1,
             opacity: model.opacity ?? 1,
+            // **양면** — 셸 모델(두께 없는 시트)은 뒤에서 보면 면이 통째로 사라진다.
+            side: THREE.DoubleSide,
           })
           gltf.scene.traverse((node) => {
             if ((node as THREE.Mesh).isMesh) {

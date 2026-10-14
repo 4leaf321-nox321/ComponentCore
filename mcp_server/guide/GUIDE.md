@@ -21,7 +21,7 @@
 | **다른 사람의 DOE 이어서 하기** | `doe_studies(scope="all")` → `doe_clone(study_id)` — 같은 설계점 · 조건으로 내 DOE 가 생긴다(원본은 그대로). 남의 것은 보내기 · 점 더하기가 안 된다 |
 | **2D 도면(가공 맡길 때)** | `recipe_drawing(recipe, title, material)` — 3각법 세 뷰 · 전체 치수 · 구멍표 · 표제란. 답은 요약 + 그림. PDF · DXF 는 화면의 「파일 › 도면」 |
 | **조립에서 면끼리 접촉 · 구멍 동심** | component 의 `mates` — 아래 「작업은 셋 중 하나다」 의 조립 |
-| **셸 해석용 중간면** | `recipe_midsurface(recipe)` — 판마다 두께 · 넓이. DOE 는 `doe_create(..., outputs=["midsurface"])` 로 점마다 `_mid.step` |
+| **셸 해석용 중간면** | `recipe_midsurface(recipe)` — 판마다 두께 · 넓이. DOE 는 `doe_create(..., outputs=["midsurface"])` 로 점마다 `_mid.step`. **시트 바디 STEP(셸 모델)** 은 형상이 곧 중간면 — 파트 설정에 `thickness` 를 적는다(아래 「conditions」 7) |
 | **판금 전개도** | `recipe_unfold(recipe)` — 펼친 크기 · 굽힘(선 · 각 · R · 위아래). 레시피 안에서는 `unfold` 노드. DXF 는 화면의 「파일 › 전개도」 |
 | **유사 형상 · 다시 쓸 지그 검색** | `find_similar(source="part:<id>")` 또는 `find_similar(recipe=…)` — 점수 · 이유(`why`) · 유사 부품의 지그(`jigs`) |
 | **이미 있는 것부터 검색** | `find_by_shape(has, thread, fits, hole, holes …)` — 내 작업 · 부품 · 지그의 최신 버전을 형상으로. **새로 그리기 전에** |
@@ -489,6 +489,11 @@ DB 에(`save_test_preset`) 둔다 — 같은 모양이다. 프리셋은 시편 �
    걸고(하중 · 다른 구속은 거절), 강체끼리는 접촉시키지 않는다. 쉘 파트가 있으면 DOE 가 그 파트의
    중간면을 함께 내고, 쉘 파트에 걸린 영역을 중간면 기준으로도 풀어 준다(점 파일 지문의 `mid`).
    메시가 겹치면 국부 메시 「전체」 < 파트 메시 < 면 · 엣지 국부 메시 순으로 좁은 것이 이긴다.
+   **셸 모델**(시트 바디 — 두께 없는 면 STEP 을 올렸거나 `surface` 를 두께 없이 둔 것)은 저장 ·
+   해석용 내보내기가 되지만 **지그는 못 만든다**(평가 요약 `is_shell: true`, 파트 목록
+   `kind: "sheet"`). 형상이 곧 중간면이라 두께를 잴 수 없다 — 그 파트에 `representation: "shell"`
+   과 `thickness`(mm)를 **반드시** 적는다(사용자에게 두께를 묻는다 — 짐작하지 않는다). 두께가 없으면
+   DOE 점의 `midsurface` 가 무엇이 빠졌는지 말한다. 솔리드 파트에는 두께를 적지 않는다(거절).
 8. 지금 저장된 조건은 `get_work` · `get_version` 의 `current.conditions` 에 있다 — 사람이 만든
    조건이 있으면 **읽고 고쳐서** `set_conditions` 로 보낸다(통째로 덮어 지우지 않는다).
 

@@ -898,7 +898,10 @@ export function RecipeEditor({
             {summary && (
               <p className="text-muted-foreground mt-1 text-xs">
                 {summary.bbox.size.map((v) => v.toFixed(1)).join(' × ')} mm
-                {!summary.is_sketch && ` · 부피 ${summary.volume.toLocaleString()} mm³`} · 면 {summary.face_count} · 피처 {summary.nodes.length}
+                {summary.is_shell
+                  ? ` · 셸 모델 · 넓이 ${summary.surface_area.toLocaleString()} mm²`
+                  : !summary.is_sketch && ` · 부피 ${summary.volume.toLocaleString()} mm³`}{' '}
+                · 면 {summary.face_count} · 피처 {summary.nodes.length}
                 {composeOn && ' (검사용 제품 포함)'}
               </p>
             )}

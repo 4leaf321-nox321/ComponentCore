@@ -2062,6 +2062,13 @@ def _with_values(recipe: dict[str, Any], values: dict[str, Any]) -> dict[str, An
     return {**recipe, "params": {**(recipe.get("params") or {}), **values}}
 
 
+def _parts_of(shape: Any) -> list[Any]:
+    """이름표 붙은 구성품들, 아니면 통째로 하나 — 파트 목록(`topology.bodies`)과 같은 갈래."""
+    from app.core.recipe.topology import _labeled_children
+
+    return _labeled_children(shape) or [shape]
+
+
 def _build_shape(task: dict[str, Any]) -> dict[str, Any]:
     """형상 하나를 만들어 STEP 을 쓰고, 형상에서 나오는 것(영역 · 겹침 · 좌표계 · 점검 ·
     측정값)을 돌려준다. **다른 프로세스에서 돈다** — 받는 것도 주는 것도 사전 · 목록뿐이고
@@ -2082,7 +2089,10 @@ def _build_shape(task: dict[str, Any]) -> dict[str, Any]:
         path.parent.mkdir(parents=True, exist_ok=True)
         shapes.write_step(made.evaluation.shape, path)
         mid: dict[str, Any] | None = None
-        if task.get("midsurface"):
+        # **시트 바디(셸 모델)가 있으면 늘** — 형상이 곧 중간면이고, 두께는 조건이 준 것이다.
+        shape = made.evaluation.shape
+        has_sheet = any(not one.solids() and one.faces() for one in _parts_of(shape))
+        if task.get("midsurface") or has_sheet:
             # 셸 해석용 중간면 — 판이 아니면 실패가 아니라 그 점의 알림이다.
             from app.core.recipe.midsurface import MidSurfaceError, midsurface
             from app.core.recipe.midsurface import attach as attach_mid
@@ -2096,6 +2106,7 @@ def _build_shape(task: dict[str, Any]) -> dict[str, Any]:
                     task.get("mid_only"),
                     strict=False,
                     single_name=condition_model.ALL_BODIES,
+                    thicknesses=task.get("thicknesses"),
                 )
                 summary = surface.summary()
                 if surface.bodies:
@@ -2337,6 +2348,8 @@ def run_job(
                         "midsurface": "midsurface" in (study.outputs or []),
                         # 쉘로 푸는 파트만 — 없으면(중간면만 고른 스터디) 판 모양 파트 전부.
                         "mid_only": condition_model.shell_parts(study.conditions) or None,
+                        # 시트 바디(셸 모델)의 두께 — 형상에 잴 두께가 없다.
+                        "thicknesses": condition_model.shell_thicknesses(study.conditions),
                         "step_path": str(folder / relative),
                     },
                 )

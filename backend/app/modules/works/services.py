@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.core import pipeline, shape_index
+from app.core import geometry, pipeline, shape_index
 from app.core.geometry import GeometryError
 from app.core.model import count_features
 from app.core.options import JigOptions
@@ -577,7 +577,8 @@ def import_step(
             status=413,
         ) from failure
     try:
-        pipeline.resolve_product(target)  # 읽히는지 **지금** 본다
+        # 읽히는지 **지금** 본다 — 솔리드든 시트 바디(셸 모델)든. 지그는 그때 따로 본다.
+        geometry.read_step(target)
     except GeometryError as failure:
         target.unlink(missing_ok=True)
         raise AppError(code("WORKS", 7), str(failure)) from failure
@@ -605,6 +606,22 @@ def import_step(
 
 # --- 지그 생성 ----------------------------------------------------------------
 
+#: 셸 모델로 지그를 만들려 할 때 — 무엇을 하면 되는지까지.
+SHELL_JIG = (
+    "셸 모델(두께 없는 시트 바디)로는 지그를 생성할 수 없습니다 — 받침 · 클램프가 닿을 입체가 "
+    "필요합니다. thicken 으로 두께를 준 부품 작업에서 생성하십시오."
+)
+
+
+def _refuse_shell(db: Session, job_id: uuid.UUID | None) -> None:
+    """그 버전의 저장 평가가 **셸 모델**이면 지그를 걸기 전에 거절한다 — 받아 두고 생성기가
+    「바닥에 평면이 없습니다」 로 실패하면 사람은 왜인지 모른다(2026-10-15)."""
+    if job_id is None:
+        return
+    job = db.get(Job, job_id)
+    if job is not None and (job.summary or {}).get("is_shell"):
+        raise AppError(code("WORKS", 37), SHELL_JIG)
+
 
 def _product_source(
     db: Session, source: str, by: User
@@ -626,6 +643,7 @@ def _product_source(
                 code("WORKS", 8),
                 "형상이 없습니다. 먼저 모델링하거나 STEP 파일을 업로드하십시오.",
             )
+        _refuse_shell(db, version.job_id)
         part_id, _jig = _promoted_ids(db, work.id)
         return (
             version.recipe,
@@ -644,6 +662,7 @@ def _product_source(
         )
         if catalog is None:
             raise AppError(code("WORKS", 8), "이 부품에는 형상이 없습니다.")
+        _refuse_shell(db, catalog.job_id)
         return (
             catalog.recipe,
             part.name,
@@ -1046,11 +1065,15 @@ def _product_from_input(input: dict[str, Any]) -> Shape | Path | None:
     if input.get("product_recipe"):
         try:
             recipe = parse(dict(input["product_recipe"]))
-            return evaluate(
+            shape = evaluate(
                 recipe,
                 resolve_file=cad.resolve_import,
                 resolve_component=cad.resolve_component,
             ).shape
+            if not shape.solids():
+                # 어느 길로 들어와도(옛 버전 · 요약 없는 부품) 생성기 전에 같은 말로 멈춘다.
+                raise registry.UserFacingError(SHELL_JIG)
+            return shape
         except RecipeValidationError as failure:
             raise registry.UserFacingError(
                 "제품 레시피가 올바르지 않습니다: " + " / ".join(failure.problems)

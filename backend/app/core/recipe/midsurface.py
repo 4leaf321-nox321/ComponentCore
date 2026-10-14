@@ -13,12 +13,15 @@
 잣대: 굽힌 판의 중간면 넓이 = 펼친 판(구멍 빼고), 쉘 상자 = 바닥(안팎 가운데) + 네 벽. 두께가
 곳곳에 다르면(리브 · 보스) 그 자리는 겉면 모으기에서 빠진다 — `부피 / t` 와 중간면 넓이가
 어긋나면 알린다.
+
+**시트 바디(셸 모델)** 는 형상이 이미 중간면이다(2026-10-15) — 잴 두께가 없으므로 두께는 해석
+조건의 파트 설정(`thickness`)에서 받고, 영역은 같은 면 · 엣지를 그대로 중간면의 영역으로 쓴다.
 """
 
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -79,6 +82,8 @@ class MidSurface:
     """`bodies` 와 같은 순서의 원래 솔리드 — 영역을 중간면으로 옮길 때(`attach`) 쓴다."""
     shells: list[Any] = field(default_factory=list)
     """`bodies` 와 같은 순서의 중간면 셸(OCP)."""
+    sheets: list[bool] = field(default_factory=list)
+    """`bodies` 와 같은 순서 — 참이면 시트 바디(형상이 곧 중간면, 두께는 조건이 준 것)."""
 
     def summary(self) -> dict[str, Any]:
         out: dict[str, Any] = {
@@ -91,8 +96,11 @@ class MidSurface:
                     "centroid": one.centroid,
                     "bbox": one.bbox,
                     "step_product": one.step_product,
+                    "source": "sheet" if sheet else "solid",
                 }
-                for one in self.bodies
+                for one, sheet in zip(
+                    self.bodies, self.sheets or [False] * len(self.bodies), strict=True
+                )
             ],
             "area": round(sum(one.area for one in self.bodies), 2),
             "notes": list(self.notes),
@@ -149,6 +157,7 @@ def midsurface(
     *,
     strict: bool = True,
     single_name: str = "판",
+    thicknesses: Mapping[str, float] | None = None,
 ) -> MidSurface:
     """판(솔리드)마다 중간면 — 조립이면 구성품 이름을 붙인다.
 
@@ -156,7 +165,10 @@ def midsurface(
     파트(강체 지그 블록)가 있어도 상관없다. `strict=False` 면 실패한 파트는 `failed` 에 까닭을
     남기고 나머지는 그대로 만든다 — 예전에는 판이 아닌 파트 하나가 점 전체를 오류로 만들어 쉘
     브래킷의 중간면도 나오지 않았다(SimEngBay, 2026-10-04). 단품의 이름은 `single_name`(DOE 는
-    토폴로지와 같게 「전체」)."""
+    토폴로지와 같게 「전체」).
+
+    **시트 바디는 늘 든다**(`only` 와 상관없이 — 시트는 셸로만 풀 수 있다). 두께는
+    `thicknesses`(파트 이름 → mm)에서 받고, 없으면 그 파트를 실패로 둔다(`strict` 면 오류)."""
     from app.core.recipe.evaluate import _labeled_children
     from app.core.recipe.topology import slug
 
@@ -166,12 +178,17 @@ def midsurface(
         if children
         else [(f"판 {index}", solid) for index, solid in enumerate(shape.solids(), start=1)]
     )
+    sheets = (
+        [(str(child.label), child) for child in children if _is_sheet(child)]
+        if children
+        else ([(single_name, shape)] if _is_sheet(shape) else [])
+    )
     # 셸 이름 — 토폴로지와 같은 규칙(조립이면 구성품의 순번 · 이름, 단품은 body_1).
     products = {
         str(child.label): slug(str(child.label), fallback=f"body_{index}")
         for index, child in enumerate(children, start=1)
     }
-    if not named:
+    if not named and not sheets:
         raise MidSurfaceError(
             "솔리드가 없습니다. 중간면은 판(두께가 균일한 솔리드)에서만 추출할 수 있습니다."
         )
@@ -179,9 +196,9 @@ def midsurface(
         named = [(single_name, named[0][1])]
     if only is not None:
         wanted = set(only)
-        missing = sorted(wanted - {name for name, _ in named})
+        missing = sorted(wanted - {name for name, _ in named} - {name for name, _ in sheets})
         named = [(name, solid) for name, solid in named if name in wanted]
-        if not named:
+        if not named and not sheets:
             raise MidSurfaceError(
                 f"쉘로 지정한 파트가 형상에 없습니다: {', '.join(missing) or '없음'}."
             )
@@ -190,6 +207,33 @@ def midsurface(
     notes: list[str] = []
     failed: list[tuple[str, str]] = []
     solids: list[Any] = []
+    flags: list[bool] = []
+    for name, sheet in sheets:
+        given = (thicknesses or {}).get(name)
+        if not given or given <= 0:
+            reason = (
+                "시트 바디(셸 모델)의 두께가 없습니다. 해석 조건의 파트 설정에서 이 파트의 "
+                "두께를 적으십시오."
+            )
+            if not strict:
+                failed.append((name, reason))
+                continue
+            raise MidSurfaceError(f"{name}: {reason}")
+        centroid, bbox = _box(sheet.wrapped)
+        shells.append(sheet.wrapped)
+        solids.append(sheet)
+        flags.append(True)
+        bodies.append(
+            MidBody(
+                name=name,
+                thickness=float(given),
+                area=_area(sheet.wrapped),
+                faces=len(sheet.faces()),
+                centroid=centroid,
+                bbox=bbox,
+                step_product=products.get(name, "body_1" if not children else name),
+            )
+        )
     for name, solid in named:
         try:
             mid, thickness, count = _one(solid)
@@ -203,6 +247,7 @@ def midsurface(
         area = _area(mid)
         shells.append(mid)
         solids.append(solid)
+        flags.append(False)
         centroid, bbox = _box(mid)
         bodies.append(
             MidBody(
@@ -234,7 +279,13 @@ def midsurface(
         failed=failed,
         solids=solids,
         shells=shells,
+        sheets=flags,
     )
+
+
+def _is_sheet(shape: Any) -> bool:
+    """시트 바디 — 솔리드 없이 면만(셸 모델)."""
+    return not shape.solids() and bool(shape.faces())
 
 
 # ── 영역을 중간면으로 ─────────────────────────────────────────────────────────
@@ -386,9 +437,14 @@ def attach(
             body,
             {what: set(getattr(solid, what)()) for what in ("faces", "edges", "vertices")},
             shell,
+            sheet,
         )
-        for body, solid, shell in zip(
-            surface.bodies, surface.solids, surface.shells, strict=True
+        for body, solid, shell, sheet in zip(
+            surface.bodies,
+            surface.solids,
+            surface.shells,
+            surface.sheets or [False] * len(surface.bodies),
+            strict=True,
         )
     ]
     for definition in definitions if definitions is not None else DEFAULT_REGIONS:
@@ -405,10 +461,30 @@ def attach(
         every = getattr(shape, what)()
         for fingerprint, row in zip(prints, rows, strict=True):
             feature = every[row["index"]]
-            for body, mine, shell in owners:
+            for body, mine, shell, sheet in owners:
                 if feature in mine[what]:
-                    fingerprint["mid"] = _mapped(what, feature, body.thickness, shell)
+                    # 시트 바디는 형상이 곧 중간면이다 — 같은 면 · 엣지 · 점을 그대로.
+                    fingerprint["mid"] = (
+                        _same(what, feature)
+                        if sheet
+                        else _mapped(what, feature, body.thickness, shell)
+                    )
                     break
+
+
+def _same(what: str, feature: Any) -> list[dict[str, Any]]:
+    """시트 바디의 면 · 엣지 · 점 — 중간면 위의 **그것 자체**. 면의 법선은 면이 가진 쪽이다
+    (셸은 앞뒤가 없으니 받는 쪽이 이 법선으로 어느 쪽에서 눌렀는지 안다)."""
+    if what == "faces":
+        found = _inside_point(Face(feature.wrapped))
+        if found is None:
+            return []
+        _point, normal = found
+        return [{"face": _mid_face(feature.wrapped, normal)}]
+    if what == "vertices":
+        center = feature.center()
+        return [{"point": [round(float(v), 3) for v in (center.X, center.Y, center.Z)]}]
+    return [{"edge": _mid_edge(feature.wrapped)}]
 
 
 def _one(solid: Any) -> tuple[Any, float, int]:

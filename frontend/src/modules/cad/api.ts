@@ -93,6 +93,8 @@ export interface RecipeSchema {
 export interface RecipeSummary {
   /** 아직 2D — 스케치까지만 그렸다. 저장 · 지그는 입체여야 한다. */
   is_sketch: boolean
+  /** 셸 모델 — 솔리드 없이 면만(시트 바디). 부피 대신 넓이로 말한다. */
+  is_shell?: boolean
   bbox: { min: number[]; max: number[]; size: number[] }
   volume: number
   surface_area: number

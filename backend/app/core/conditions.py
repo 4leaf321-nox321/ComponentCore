@@ -1116,6 +1116,14 @@ class BodySetting(Base):
         "설계점마다 중간면 STEP이 함께 생성됩니다.",
         json_schema_extra=_extra({"labels": {"solid": "솔리드", "shell": "쉘"}}),
     )
+    thickness: float | None = Field(
+        None,
+        gt=0,
+        le=1000,
+        title="두께(mm)",
+        description="시트 바디(셸 모델 — 형상이 이미 중간면)의 쉘 두께입니다. 솔리드를 쉘로 "
+        "풀 때는 비워 둡니다(두께를 형상에서 잽니다). 쉘 파트에만 적습니다.",
+    )
     suppressed: bool = Field(
         False,
         title="해석 제외",
@@ -1452,6 +1460,22 @@ def shell_parts(raw: dict[str, Any] | None) -> list[str]:
     ]
 
 
+def shell_thicknesses(raw: dict[str, Any] | None) -> dict[str, float]:
+    """파트 이름 → 사람이 정한 쉘 두께(mm) — 시트 바디(셸 모델)의 중간면이 쓴다. 솔리드를 쉘로
+    푸는 파트는 두께를 형상에서 재므로 여기 없어도 된다."""
+    settings = raw.get("body_settings") if isinstance(raw, dict) else None
+    if not isinstance(settings, list):
+        return {}
+    out: dict[str, float] = {}
+    for one in settings:
+        if not isinstance(one, dict) or one.get("suppressed"):
+            continue
+        value = one.get("thickness")
+        if isinstance(value, int | float) and value > 0:
+            out[str(one.get("name"))] = float(value)
+    return out
+
+
 def has_shell(raw: dict[str, Any] | None) -> bool:
     """쉘로 푸는 파트가 있나 — 있으면 설계점마다 중간면이 필요하다(옛 조건은 칸이 없다)."""
     return bool(shell_parts(raw))
@@ -1523,6 +1547,11 @@ def _check_body_settings(conditions: Conditions, known: set[str] | None) -> None
             raise ConditionError(
                 f"{where}: 강체 파트 ‘{one.name}’은(는) 쉘로 표현할 수 없습니다. 거동을 "
                 "변형체로 바꾸거나 표현을 솔리드로 두십시오."
+            )
+        if one.thickness is not None and one.representation != "shell":
+            raise ConditionError(
+                f"{where}: 두께는 쉘 파트에만 적습니다 — 파트 ‘{one.name}’의 표현을 쉘로 "
+                "바꾸거나 두께를 비우십시오."
             )
     if ALL_BODIES in names and len(names) > 1:
         raise ConditionError(

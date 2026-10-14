@@ -272,6 +272,8 @@ export interface BodySetting {
   name: string
   behavior?: 'deformable' | 'rigid'
   representation?: 'solid' | 'shell'
+  /** 시트 바디(셸 모델)의 쉘 두께(mm) — 솔리드를 쉘로 풀 때는 비운다(형상에서 잰다). */
+  thickness?: number | null
   suppressed?: boolean
   mesh?: BodyMesh
 }
@@ -284,6 +286,7 @@ export function defaultSetting(name: string): FullBodySetting {
     name,
     behavior: 'deformable',
     representation: 'solid',
+    thickness: null,
     suppressed: false,
     mesh: { element_size: null, method: 'automatic', order: 'program_controlled' },
   }
@@ -315,6 +318,8 @@ export function withSetting(
   const now = settingOf(settings, name)
   const next: FullBodySetting = { ...now, ...patch, name, mesh: { ...now.mesh, ...patch.mesh } }
   if (next.behavior === 'rigid') next.representation = 'solid'
+  // 두께는 쉘 파트에만 — 솔리드로 돌리면 비운다(서버도 막는다).
+  if (next.representation !== 'shell') next.thickness = null
   const list = settings ?? []
   const at = list.findIndex((one) => one.name === name)
   // **자리를 지킨다** — 끝으로 옮기면 바꿨다 되돌려도 저장한 것과 순서가 달라 「바뀜」 으로 남았다.
@@ -375,6 +380,9 @@ export interface Body {
   /** STEP 안에서의 이름(`body_1`) — 해석 쪽이 짝지을 때 쓴다. */
   step_product?: string
   volume?: number
+  /** `sheet` 면 시트 바디(셸 모델) — 부피가 0 이라 넓이로 본다. */
+  kind?: 'solid' | 'sheet'
+  area?: number
   centroid?: number[]
   bbox?: number[][]
 }

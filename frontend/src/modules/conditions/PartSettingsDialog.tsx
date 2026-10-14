@@ -137,9 +137,15 @@ export function PartSettingsDialog({
   const anyOff = rows.some((one) => one.suppressed)
   const title = (field: FieldSchema | undefined, fallback: string) => field?.title ?? fallback
 
+  const sheets = new Set(bodies.filter((one) => one.kind === 'sheet').map((one) => one.name))
+  const anySheet = sheets.size > 0
+
   /** 한 줄의 칸들 — 파트 하나이거나 「모든 파트」(`targets` 가 여럿, 값이 갈리면 혼합). */
   function cells(label: string, targets: string[], all: boolean) {
     const of = targets.map((name) => settingOf(settings, name))
+    const thick = common(of.map((one) => (one.thickness === null ? '' : String(one.thickness))))
+    // 두께는 쉘 파트 — 시트 바디는 쉘로만 풀리니 적으면 표현도 쉘이 된다.
+    const thickOpen = targets.every((name) => sheets.has(name) || settingOf(settings, name).representation === 'shell')
     const value = (pick: (one: (typeof of)[number]) => string) => common(of.map(pick))
     const off = !all && of[0].suppressed
     const rigid = !all && of[0].behavior === 'rigid'
@@ -175,6 +181,20 @@ export function PartSettingsDialog({
             mixedLabel={all ? '혼합' : undefined}
             disabled={off || rigid}
             onChange={(next) => next !== MIXED && change(targets, { representation: next as 'solid' | 'shell' })}
+          />
+        </TableCell>
+        <TableCell>
+          <NumberText
+            aria-label={`${label} ${title(fields.thickness, '두께')}`}
+            className="h-8 w-20 text-xs"
+            value={thick === MIXED ? '' : thick}
+            placeholder={thick === MIXED ? '혼합' : targets.some((name) => sheets.has(name)) ? '필수' : '형상에서'}
+            disabled={off || rigid || !thickOpen}
+            onText={(text) => {
+              const num = Number(text)
+              const thickness = text.trim() === '' || !Number.isFinite(num) ? null : num
+              change(targets, thickness === null ? { thickness } : { thickness, representation: 'shell' })
+            }}
           />
         </TableCell>
         <TableCell className="text-center">
@@ -237,6 +257,7 @@ export function PartSettingsDialog({
                 <TableHead className="min-w-36">물성</TableHead>
                 <TableHead className="min-w-24">{title(fields.behavior, '거동')}</TableHead>
                 <TableHead className="min-w-24">{title(fields.representation, '표현')}</TableHead>
+                <TableHead>{title(fields.thickness, '두께(mm)')}</TableHead>
                 <TableHead className="text-center">{title(fields.suppressed, '해석 제외')}</TableHead>
                 <TableHead>
                   {title(meshFields.element_size, '요소 크기')} ({lengthUnit})
@@ -256,8 +277,14 @@ export function PartSettingsDialog({
                 <TableRow key={body.name} className={settingOf(settings, body.name).suppressed ? 'opacity-60' : undefined}>
                   <TableCell>
                     <p className="text-sm font-medium">{single ? '전체 (단일 파트)' : body.name}</p>
-                    {body.volume !== undefined && (
-                      <p className="text-muted-foreground text-[11px]">부피 {Math.round(body.volume).toLocaleString()} mm³</p>
+                    {body.kind === 'sheet' ? (
+                      <p className="text-muted-foreground text-[11px]">
+                        시트(셸 모델){body.area !== undefined && ` · 넓이 ${Math.round(body.area).toLocaleString()} mm²`}
+                      </p>
+                    ) : (
+                      body.volume !== undefined && (
+                        <p className="text-muted-foreground text-[11px]">부피 {Math.round(body.volume).toLocaleString()} mm³</p>
+                      )
                     )}
                   </TableCell>
                   {cells(body.name, [body.name], false)}
@@ -297,6 +324,9 @@ export function PartSettingsDialog({
           )}
           <li>요소 크기를 비워 두면 국부 메시 ‘전체’ 또는 해석 플랫폼의 기본값을 따릅니다. 수 또는 =식으로 입력합니다. 구멍면처럼 일부 면만 촘촘하게 하려면 ‘국부 메시’를 사용하십시오.</li>
           {anyShell && <li>쉘 파트가 있으면 DOE가 설계점마다 중간면 STEP을 함께 생성합니다. 두께가 일정한 판만 중간면을 만들 수 있습니다.</li>}
+          {anySheet && (
+            <li>시트 파트(셸 모델)는 형상이 곧 중간면이라 두께를 잴 수 없습니다. 두께를 입력해야 중간면이 생성됩니다. 입력하면 표현이 쉘로 바뀝니다.</li>
+          )}
           {anyOff && <li>해석에서 제외한 파트에 걸린 구속, 하중, 접촉, 초기조건이 있으면 저장할 수 없습니다.</li>}
         </ul>
         <DialogFooter>

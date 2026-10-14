@@ -63,10 +63,15 @@ def _xyz(v: Any) -> list[float]:
 
 def _body_row(index: int, part: Shape, name: str) -> dict[str, Any]:
     box = part.bounding_box()
+    sheet = not part.solids()
     return {
         "name": name,
         "step_product": slug(name, fallback=f"body_{index}"),
         "volume": round(float(part.volume), 3),
+        # **시트 바디(셸 모델)** 는 부피가 0 이라 부피로는 못 짝짓는다 — 넓이와 종류를 함께
+        # 준다(2026-10-15). 받는 쪽은 `kind="sheet"` 면 그 파트를 그대로 셸 요소로 짓는다.
+        "kind": "sheet" if sheet else "solid",
+        "area": round(float(part.area), 3),
         "centroid": _xyz(part.center()),
         "bbox": [_xyz(box.min), _xyz(box.max)],
     }

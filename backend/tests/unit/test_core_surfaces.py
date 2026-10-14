@@ -23,12 +23,15 @@ def _made(*nodes: dict[str, Any], preview: bool = False) -> Any:
 def test_점_격자를_지나는_곡면에_두께를() -> None:
     surface = {"id": "s", "op": "surface", "kind": "grid", "grid": SADDLE}
     shown = _made(surface, preview=True)
-    # 곡면만으로는 미리보기에서만 보인다 — 무엇을 하면 되는지 함께.
-    assert any("thicken" in one for one in shown.warnings)
+    # 곡면만이면 **셸 모델**이다(2026-10-15 — 예전에는 저장을 거절했다). 무엇이 되고 무엇이
+    # 안 되는지 함께 말한다 — 두께는 해석 조건, 지그 · 입체는 thicken.
+    assert shown.is_shell
+    assert any("셸 모델" in one and "thicken" in one for one in shown.warnings)
     area = shown.shape.area
     assert area > 100 * 80  # 휘었으니 평면보다 넓다
-    with pytest.raises(RecipeError, match="결과가 곡면입니다"):
-        _made(surface)
+    saved = _made(surface)
+    assert saved.is_shell and saved.summary()["is_shell"] is True
+    assert saved.shape.area == pytest.approx(area)
     for side in ("front", "back", "both"):
         made = _made(
             surface, {"id": "t", "op": "thicken", "target": "s", "thickness": 3, "side": side}
