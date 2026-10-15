@@ -74,7 +74,10 @@ jobs:
           done
           # **MCP 서버는 SIF 밖에 산다**(백엔드와 의존성이 충돌한다). 소스와 가이드가
           # 빠지면 AI 도구는 붙고 나서야 빈 가이드를 받는다 — 그때는 사용자 자리다.
-          for f in mcp_server/server.py mcp_server/requirements.txt mcp_server/guide/GUIDE.md; do
+          # 기준정보 도구(`ontology*.py`)는 server.py 가 import 한다 — 빠지면 뜨자마자 죽는다.
+          for f in mcp_server/server.py mcp_server/requirements.txt mcp_server/guide/GUIDE.md \
+                   mcp_server/ontology.py mcp_server/ontology_links.py \
+                   mcp_server/guide/ONTOLOGY.md; do
             grep -qx "$f" /tmp/have.txt || { echo "번들에 $f 가 없습니다"; exit 1; }
           done
           grep -q '^mcp_server/wheels/' /tmp/have.txt \
