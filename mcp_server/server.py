@@ -262,21 +262,59 @@ def _slim_job(job: Any) -> Any:
     }
 
 
+def _material_snapshot(conditions: Any) -> dict[str, Any] | None:
+    """조건에 실린 재료가 **그날 받은 사본**이라는 것을 말한다.
+
+    `materials[].payload` 는 재료를 고른 날(`ref.fetched_at`)의 값을 그대로 둔
+    것이다 — MatNexus 가 값을 고친 뒤에도 그 설계점의 뜻이 바뀌지 않게
+    (docs/해석-조건-설계.md 6장). 그런데 AI 가 이 값을 「그 재료의 물성」 으로
+    옮기면 어제의 값을 오늘 것으로 말하게 된다. 여러 앱의 도구가 한 목록에
+    섞이는 HWAX 에서는 더 그렇다(ADR 0009)."""
+    items = conditions.get("materials") if isinstance(conditions, dict) else None
+    if not isinstance(items, list):
+        return None
+    rows = [
+        {
+            "code": ref.get("code"),
+            "name": ref.get("name"),
+            "source": ref.get("source"),
+            "fetched_at": ref.get("fetched_at"),
+        }
+        for ref in (one.get("ref") for one in items if isinstance(one, dict))
+        if isinstance(ref, dict)
+    ]
+    if not rows:
+        return None
+    return {
+        "note": (
+            "조건의 materials[].payload 는 그 재료를 고른 날(fetched_at)의 "
+            "값 사본이다 — 이 설계점의 뜻을 지키려고 그대로 둔다. 재료의 지금 "
+            "값 · 출처는 MatNexus(물성 정본)의 get_material 로 본다."
+        ),
+        "items": rows,
+    }
+
+
 def _slim_version(version: Any) -> Any:
     if not isinstance(version, dict) or "recipe" not in version:
         return version
-    return {
+    conditions = version.get("conditions") or {}
+    slim = {
         "number": version.get("number"),
         "source": version.get("source"),
         "note": version.get("note"),
         "recipe": version.get("recipe"),
         # 저장된 해석 조건 — 없으면 AI 가 사람이 만든 조건을 못 보고 `set_conditions` 로
         # 통째로 덮는다.
-        "conditions": version.get("conditions") or {},
+        "conditions": conditions,
         "evaluation": _slim_job(version.get("job")),
         "promoted_part_id": version.get("promoted_part_id"),
         "promoted_part_version": version.get("promoted_part_version"),
     }
+    snapshot = _material_snapshot(conditions)
+    if snapshot:
+        slim["materials_snapshot"] = snapshot
+    return slim
 
 
 # --------------------------------------------------------------------------- #
@@ -840,8 +878,43 @@ def _condition_item(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_MATERIAL_USE = (
+    "해석 조건(materials)에 넣을 재료를 고르는 결과다. 재료의 물성 값 · 출처 · "
+    "최신 여부를 묻는 질문의 답으로 옮기지 않는다 — 그것은 MatNexus(물성 정본)의 "
+    "search_materials · get_material 이다."
+)
+
+
+def _material_origin(
+    *, sources: set[str], fallback: bool = False, detail: str = ""
+) -> dict[str, Any]:
+    """재료 결과가 **어디서 왔고 무엇에 쓰는 것인지** — 재료 도구의 결과마다 싣는다.
+
+    물성의 정본은 MatNexus 다. 이 서버는 그것을 **설치의 MatNexus 계정 하나**로
+    중계한다(`backend/app/shared/clients/matnexus.py` — 「경계는 이 토큰이 누구냐
+    하나」). 그래서 여기서 보이는 재료는 부르는 사람의 MatNexus 권한이 아니라 그
+    계정이 보는 것이고, MatNexus 에 못 닿으면 이 서버에 올려 둔 카탈로그(사본)에서
+    온다. 그 사실이 결과에 안 실리면 HWAX 처럼 MatNexus 의 도구와 이 도구가 한
+    목록에 섞이는 곳에서 이 결과가 물성의 답으로 옮겨진다(ADR 0009)."""
+    copy = fallback or "catalog" in sources
+    origin: dict[str, Any] = {
+        "canonical": "MatNexus",
+        "via": "CompCore 설치의 MatNexus 계정 — 부르는 사람의 MatNexus 권한이 아니다",
+        "copy": copy,
+        "use_for": _MATERIAL_USE,
+    }
+    if copy:
+        origin["copy_note"] = (
+            "MatNexus 에 닿지 못해 이 서버에 올려 둔 카탈로그(사본)에서 왔다 — "
+            "지금 값과 다를 수 있다."
+        )
+    if detail:
+        origin["detail"] = detail
+    return origin
+
+
 @mcp.tool()
-async def material_search(
+async def condition_material_search(
     ctx: Context,
     query: str = "",
     source: str = "registered",
@@ -849,11 +922,20 @@ async def material_search(
     category: str = "",
     limit: int = 20,
 ) -> Any:
-    """물성(MatNexus) 검색 — 이름 · 별칭 · 번호로.
+    """**해석 조건에 붙일 재료 고르기** — 재료의 물성을 묻는 질문의 답이 아니다.
 
-    `source`: `registered`(기본 — 조직이 시험 · 등록한 재료) 또는 `literature`(문헌 카탈로그,
-    수천 건. 목록에는 값이 없다 — 고른 뒤 `material_get` 으로 받는다). 줄마다 번호(`code`) ·
-    이름 · 밀도 · 푸아송비가 온다. **물성 값을 지어내지 마라** — 여기서 찾은 것만 싣는다."""
+    재료는 MatNexus(물성 정본)에서 오지만, 이 도구는 **CompCore 설치의 MatNexus
+    계정**으로 묻는다 — 부르는 사람의 MatNexus 권한이 아니다. 「SECC 탄성계수가
+    얼마냐」 「이 값이 실측이냐」 같은 물음은 MatNexus 의 `search_materials` ·
+    `get_material` 로 답한다. 여기서는 조건의 `materials` 에 넣을 재료를 이름 ·
+    별칭 · 번호로 찾는다.
+
+    `source`: `registered`(기본 — 조직이 시험 · 등록한 재료) 또는 `literature`(문헌
+    카탈로그, 수천 건. 목록에는 값이 없다 — 고른 뒤 `condition_material_get` 으로
+    받는다). 줄마다 번호(`code`) · 이름 · 밀도 · 푸아송비가 온다. 결과의 `origin` 이
+    어디서 왔는지 말한다 — `copy` 가 참이면 MatNexus 에 못 닿아 올려 둔
+    카탈로그(사본)에서 찾은 것이다. **물성 값을 지어내지 마라** — 여기서 찾은 것만
+    싣는다."""
     got = await _get(
         ctx,
         "/api/materials",
@@ -866,20 +948,32 @@ async def material_search(
         },
     )
     if isinstance(got, dict) and isinstance(got.get("items"), list):
+        items = got["items"]
         # 목록에서는 payload 를 뺀다 — 한 줄에 수 KB 라 스무 줄이면 대화가 그것으로 찬다.
         got = {
             **got,
             "items": [
-                {key: value for key, value in row.items() if key != "payload"}
-                for row in got["items"]
+                {key: value for key, value in row.items() if key != "payload"} for row in items
             ],
+            "origin": _material_origin(
+                sources={str(row.get("source") or "") for row in items},
+                fallback=bool(got.get("fallback")),
+                detail=str(got.get("detail") or ""),
+            ),
         }
     return got
 
 
 @mcp.tool()
-async def material_get(ctx: Context, code_or_id: str, source: str = "registered") -> Any:
-    """재료 하나를 **값까지** — 그리고 해석 조건에 그대로 넣을 항목(`condition_item`).
+async def condition_material_get(
+    ctx: Context, code_or_id: str, source: str = "registered"
+) -> Any:
+    """**해석 조건에 넣을 재료 항목**(`condition_item`) — 물성을 묻는 질문의 답이 아니다.
+
+    값은 지금 MatNexus(물성 정본)에서 **CompCore 설치의 계정으로** 받아 온 것이고,
+    조건에 넣으면 그날의 사본으로 남는다(`condition_item.ref.fetched_at`). 재료의 지금
+    값 · 출처 · 최신 여부를 묻는 물음은 MatNexus 의 `get_material` 로 답한다. 결과의
+    `origin` 이 어디서 왔는지 말한다.
 
     `condition_item` 을 조건의 `materials` 에 넣고 `apply_to` 에 바디 이름(`recipe_bodies`,
     단품이면 `["전체"]`)을 적는다. **바디 하나에 물성 하나**다. 실험계획에서 재료를 훑을
@@ -891,6 +985,7 @@ async def material_get(ctx: Context, code_or_id: str, source: str = "registered"
     return {
         "material": {key: value for key, value in row.items() if key != "payload"},
         "condition_item": _condition_item(row),
+        "origin": _material_origin(sources={str(row.get("source") or "")}),
     }
 
 
@@ -1026,7 +1121,8 @@ async def doe_create(
 
     **재료도 훑는다** — 인자에 `{"name": "블록 재료", "mode": "material", "bodies": ["블록"],
     "values": ["SECC", "AL5052"]}`. 후보는 조건의 `materials` 에 **먼저 담아 둔 것**(이름 ·
-    번호 M-…)이어야 하고(`material_get` 의 `condition_item` 을 `apply_to: []` 로 담는다),
+    번호 M-…)이어야 하고(`condition_material_get` 의 `condition_item` 을 `apply_to: []` 로
+    담는다),
     바디는 `recipe_bodies` 의 이름(단품이면 「전체」). 형상은 그대로라 한 벌을 나눠 쓴다.
     **조건의 고르는 칸**: `{"mode": "choice", "target": {"group": "contacts",
     "item": "블록-판", "field": "type"}, "values": ["bonded", "frictional"]}` — 종류 · 선택
@@ -1121,7 +1217,8 @@ async def doe_run(
 
     **재료도 훑는다** — 인자에 `{"name": "블록 재료", "mode": "material", "bodies": ["블록"],
     "values": ["SECC", "AL5052"]}`. 후보는 조건의 `materials` 에 **먼저 담아 둔 것**(이름 ·
-    번호 M-…)이어야 하고(`material_get` 의 `condition_item` 을 `apply_to: []` 로 담는다),
+    번호 M-…)이어야 하고(`condition_material_get` 의 `condition_item` 을 `apply_to: []` 로
+    담는다),
     바디는 `recipe_bodies` 의 이름(단품이면 「전체」). 형상은 그대로라 한 벌을 나눠 쓴다.
     **조건의 고르는 칸**: `{"mode": "choice", "target": {"group": "contacts",
     "item": "블록-판", "field": "type"}, "values": ["bonded", "frictional"]}` — 종류 · 선택
@@ -2132,7 +2229,8 @@ async def create_specimen_work(
     까지. `dimensions` 는 그 밖의 시편 치수(프리셋 `specimen` 의 칸 이름 → 값 — 인장의
     `gauge_width` · `radius`, 전단의 `notch_depth` 등). 치수가 레시피 변수라 바로
     `doe_create` 로 훑고, 조건이 설계점마다 따라간다. 시편의 **물성은 비어 있다** —
-    `material_search` 로 골라 `set_conditions` 로 붙인다(이음은 피착재와 접착층 따로)."""
+    `condition_material_search` 로 골라 `set_conditions` 로 붙인다(이음은 피착재와 접착층
+    따로)."""
     body = {
         "preset_id": preset_id,
         "length": length,

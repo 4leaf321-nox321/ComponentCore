@@ -87,8 +87,8 @@ def test_사람이_손으로_하는_일이_도구로_다_있다() -> None:
         "place_on",  # 면에 얹기
         "search",  # 이름으로 찾기
         "promote_jig_recipe",  # 손으로 그린 지그
-        "material_search",  # 물성 찾기
-        "material_get",  # 물성 받기 — 조건에 넣을 항목까지
+        "condition_material_search",  # 조건에 붙일 재료 찾기
+        "condition_material_get",  # 재료 받기 — 조건에 넣을 항목까지
         "recipe_bodies",  # 물성을 붙일 바디
         "doe_run",  # 조건까지 실어 폴더로
         "doe_probe",  # 끝 점 미리 만들어 보기
@@ -213,8 +213,105 @@ def test_폴링은_error_null_을_오류로_읽지_않는다(monkeypatch) -> Non
 
 def test_물성과_바디_도구가_있다() -> None:
     """물성을 지어내지 않게 — 찾고, 받고, 붙일 바디를 안다."""
-    for name in ("material_search", "material_get", "recipe_bodies"):
+    for name in ("condition_material_search", "condition_material_get", "recipe_bodies"):
         assert hasattr(server, name), name
+
+
+def test_재료_도구는_MatNexus_와_이름이_헷갈리지_않는다() -> None:
+    """HWAX 게이트웨이는 앱마다의 도구를 한 목록에 편다. 옛 이름 `material_search` ·
+    `material_get` 은 MatNexus 의 `search_materials` · `get_material` 과 낱말 순서만
+    달라 나란히 보였다(ADR 0009)."""
+    for old in ("material_search", "material_get", "search_materials", "get_material"):
+        assert not hasattr(server, old), old
+
+
+def test_재료_도구는_조건용이라고_먼저_말하고_물성_질문은_MatNexus_로_보낸다() -> None:
+    for tool in (server.condition_material_search, server.condition_material_get):
+        doc = tool.__doc__ or ""
+        first = doc.strip().splitlines()[0]
+        assert "해석 조건" in first and "물성을 묻는 질문의 답이 아니다" in first, first
+        assert "get_material" in doc and "CompCore 설치의" in doc, tool.__name__
+
+
+def test_재료_찾기_결과가_어디서_왔는지_말한다(monkeypatch) -> None:
+    live = {
+        "items": [
+            {"code": "M-000158", "name": "AL5052", "source": "matnexus", "payload": {"x": 1}}
+        ],
+        "fallback": False,
+    }
+
+    async def fake_get(ctx, path, params=None):
+        return live
+
+    monkeypatch.setattr(server, "_get", fake_get)
+    got = asyncio.run(server.condition_material_search(SimpleNamespace(), "AL5052"))
+    assert "payload" not in got["items"][0]
+    origin = got["origin"]
+    assert origin["canonical"] == "MatNexus" and origin["copy"] is False
+    assert "부르는 사람의 MatNexus 권한이 아니다" in origin["via"]
+    assert "search_materials" in origin["use_for"] and "copy_note" not in origin
+
+    # MatNexus 에 못 닿으면 올려 둔 카탈로그 — 사본이라고 말한다.
+    live = {
+        "items": [{"code": "M-000158", "name": "AL5052", "source": "catalog", "payload": {}}],
+        "fallback": True,
+        "detail": "MatNexus 에 닿지 못했습니다.",
+    }
+    got = asyncio.run(server.condition_material_search(SimpleNamespace(), "AL5052"))
+    assert got["origin"]["copy"] is True and "사본" in got["origin"]["copy_note"]
+    assert got["origin"]["detail"] == "MatNexus 에 닿지 못했습니다."
+
+
+def test_재료_하나_결과도_어디서_왔는지_말한다(monkeypatch) -> None:
+    row = {
+        "id": "u-1",
+        "code": "M-000158",
+        "name": "AL5052",
+        "source": "catalog",
+        "payload": {},
+    }
+
+    async def fake_get(ctx, path, params=None):
+        return row
+
+    monkeypatch.setattr(server, "_get", fake_get)
+    got = asyncio.run(server.condition_material_get(SimpleNamespace(), "M-000158"))
+    assert got["condition_item"]["ref"]["code"] == "M-000158"
+    assert got["origin"]["canonical"] == "MatNexus" and got["origin"]["copy"] is True
+
+    row = {**row, "source": "matnexus"}
+    got = asyncio.run(server.condition_material_get(SimpleNamespace(), "M-000158"))
+    assert got["origin"]["copy"] is False
+
+
+def test_버전의_재료_값은_고른_날의_사본이라고_말한다() -> None:
+    picked = {
+        "apply_to": ["블록"],
+        "ref": {
+            "source": "matnexus",
+            "code": "M-000158",
+            "name": "AL5052",
+            "fetched_at": "2026-10-01T00:00:00+00:00",
+        },
+        "payload": {"density": 2680},
+    }
+    slim = server._slim_version(
+        {"number": 1, "recipe": {}, "conditions": {"materials": [picked]}}
+    )
+    snapshot = slim["materials_snapshot"]
+    assert snapshot["items"] == [
+        {
+            "code": "M-000158",
+            "name": "AL5052",
+            "source": "matnexus",
+            "fetched_at": "2026-10-01T00:00:00+00:00",
+        }
+    ]
+    assert "사본" in snapshot["note"] and "get_material" in snapshot["note"]
+    # 재료가 없으면 표시도 없다 — 빈 표시가 「사본이 있다」 로 읽히지 않게.
+    bare = server._slim_version({"number": 1, "recipe": {}, "conditions": {"loads": [1]}})
+    assert "materials_snapshot" not in bare
 
 
 def test_재료_한_줄은_화면이_싣는_모양으로_조건에_들어간다() -> None:

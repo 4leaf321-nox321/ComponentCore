@@ -1,4 +1,4 @@
-<!-- version: 2026-10-05.3 -->
+<!-- version: 2026-10-16.1 -->
 # CompCore MCP 가이드
 
 ## overview
@@ -15,7 +15,7 @@
 | **내가 그린 것의 치수** | `recipe_geometry(recipe)` — 구멍 지름 · 중심 · 깊이, 면의 법선 · 넓이 |
 | **제품을 기준으로 지그 그리기** | `part_geometry(part_id)` · `work_geometry(work_id)` — 치수표 + STEP id |
 | **해석 조건 붙이기** | `conditions_schema` → `recipe_find` · `recipe_selectors` → `set_conditions` — `get_guide("conditions")` |
-| **물성 붙이기** | `material_search` → `material_get`(→ `condition_item`) · `recipe_bodies` → `set_conditions` |
+| **물성 붙이기** | `condition_material_search` → `condition_material_get`(→ `condition_item`) · `recipe_bodies` → `set_conditions`. 재료의 물성 값 · 출처를 묻는 질문은 이 도구가 아니라 MatNexus(`search_materials` · `get_material`) |
 | **규격 시험 해석 모델** | 시편(굽힘 · 인장 · 압축 · 전단 · 접착 이음 · 체결부): `list_test_presets(test=…)` → `create_specimen_work(preset_id, thickness, dimensions …)`. 제품(정하중 · 방향 하중 · 손잡이 · 압착 · 적층 압축 · 수압 · 비틀림 · 등가 가속도 · 진동 · 고유진동수): `apply_product_test(preset_id, source, faces, direction …)`. 물성만 붙이면 `doe_create` 로 훑는다. 아래 「jig」 의 시험 규격 |
 | **형상 여러 벌 만들기(DOE)** | `doe_preview` → `doe_probe`(끝 점 미리) → `doe_create` → `doe_points` → `doe_export` — 공유 폴더에 STEP 이 쌓인다. 더 뽑을 때 `doe_extend` |
 | **다른 사람의 DOE 이어서 하기** | `doe_studies(scope="all")` → `doe_clone(study_id)` — 같은 설계점 · 조건으로 내 DOE 가 생긴다(원본은 그대로). 남의 것은 보내기 · 점 더하기가 안 된다 |
@@ -478,9 +478,13 @@ DB 에(`save_test_preset`) 둔다 — 같은 모양이다. 프리셋은 시편 �
    `frequency_range` 등. 빠진 필수 값은 저장에서 거절된다. 비운 칸은 기본값이다.
 5. 숫자 칸에는 레시피와 같은 식(`"=압력"`)을 쓸 수 있다 — 변수는 레시피 `params`(mm). 실험계획이
    그 변수를 훑으면 형상과 조건이 함께 움직인다.
-6. **물성**: `material_search` 로 찾고 `material_get` 으로 받아 그 `condition_item` 을
-   `materials` 에 넣는다 — 값을 지어내지 않는다. `apply_to` 는 바디 이름 목록(`recipe_bodies`,
-   단품이면 `["전체"]`). 바디 하나에 물성 하나.
+6. **물성**: `condition_material_search` 로 찾고 `condition_material_get` 으로 받아 그
+   `condition_item` 을 `materials` 에 넣는다 — 값을 지어내지 않는다. `apply_to` 는 바디 이름
+   목록(`recipe_bodies`, 단품이면 `["전체"]`). 바디 하나에 물성 하나. 이 두 도구는 **조건에 넣을
+   재료를 고르는 창구**다 — 결과의 `origin` 이 말하듯 CompCore 설치의 MatNexus 계정으로 받은
+   것이라, 재료의 물성 값 · 출처 · 최신 여부를 묻는 질문은 MatNexus 의 `search_materials` ·
+   `get_material` 로 답한다. 버전의 `materials_snapshot` 은 조건에 실린 재료 값이 **고른 날의
+   사본**이라는 표시다 — 그 값을 지금 물성으로 옮기지 않는다.
 7. **파트별 설정**(`body_settings`) — 파트(바디)마다 한 줄: `behavior`(`deformable` · `rigid`),
    `representation`(`solid` · `shell`), `suppressed`, `mesh`(`element_size` mm · `method` ·
    `order`). 기본값인 파트는 적지 않는다. 화면 이름은 「파트별 설정」 표다. 사용자가 「지그는 강체로」

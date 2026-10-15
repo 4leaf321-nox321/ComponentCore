@@ -111,12 +111,14 @@ def test_MCP_만으로_도면_조건_물성_DOE_까지(bot: Bot, export_root: Pa
     assert typo["total"] == 0 and typo["bodies"] == ["받침판", "블록"]
 
     # 4) 물성 — 찾고, 받고, 조건에 넣을 항목을 그대로 쓴다.
-    found = bot.call(server.material_search, "AL5052")
+    found = bot.call(server.condition_material_search, "AL5052")
     assert [one["code"] for one in found["items"]] == ["M-000158"]
     assert "payload" not in found["items"][0]  # 목록은 가볍게
-    aluminum = bot.call(server.material_get, "M-000158")
-    steel = bot.call(server.material_get, "M-000138")
+    assert found["origin"]["canonical"] == "MatNexus"  # 물성의 답이 아니라 조건용이라고 말한다
+    aluminum = bot.call(server.condition_material_get, "M-000158")
+    steel = bot.call(server.condition_material_get, "M-000138")
     assert aluminum["condition_item"]["payload"]["code"] == "M-000158"
+    assert aluminum["origin"]["canonical"] == "MatNexus"
 
     conditions: dict[str, Any] = {
         # 조립은 **바디와 방향으로** 고른다 — 좌표가 없어 두께를 훑어도 헛집지 않는다.
@@ -157,6 +159,10 @@ def test_MCP_만으로_도면_조건_물성_DOE_까지(bot: Bot, export_root: Pa
     # 5) 저장된 조건을 읽을 수 있다.
     work = bot.call(server.get_work, work_id)
     assert work["current"]["conditions"]["contacts"][0]["name"] == "블록-판"
+    # 조건에 실린 재료 값은 고른 날의 사본이라고 함께 말한다(ADR 0009).
+    snapshot = work["current"]["materials_snapshot"]
+    assert {one["code"] for one in snapshot["items"]} == {"M-000138", "M-000158"}
+    assert all(one["fetched_at"] for one in snapshot["items"])
 
     # 6) DOE — 조건을 따로 안 주면 작업의 조건이 실린다.
     #    치수 · 재료 · 접촉 종류 · 탄성계수 배율을 한꺼번에.
