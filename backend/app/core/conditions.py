@@ -2336,9 +2336,13 @@ def _value_fields(
         out.append((one, "element_size", _LENGTH, f"{name} 요소 크기"))
         out.append((one, "defeature_size", _LENGTH, f"{name} 무시할 형상 크기"))
     for one in conditions.get("body_settings") or []:
+        name = f"파트 ‘{one.get('name', '')}’"
+        if one.get("thickness") is not None:
+            # 시트의 쉘 두께 — 빠뜨려 SI 에서도 mm 로 나갔다(2026-10-16). 중간면 요약
+            # (`midsurface.bodies[].thickness`)은 계와 상관없이 mm(`length_units.midsurface`).
+            out.append((one, "thickness", _LENGTH, f"{name} 쉘 두께"))
         mesh = one.get("mesh")
         if isinstance(mesh, dict):
-            name = f"파트 ‘{one.get('name', '')}’"
             out.append((mesh, "element_size", _LENGTH, f"{name} 요소 크기"))
     return out
 

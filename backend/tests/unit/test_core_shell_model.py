@@ -165,3 +165,22 @@ def test_내보내는_조건에서_시트는_늘_쉘이다() -> None:
     off = {"body_settings": [{"name": "덮개", "representation": "solid", "suppressed": True}]}
     assert model.sheets_as_shell(off, ["덮개"]) == off
     assert model.sheets_as_shell(off, []) is off
+
+
+def test_SI_로_내보내면_쉘_두께도_계를_따른다() -> None:
+    """점 파일의 조건은 선언한 계다 — 두께 칸만 mm 로 남아 있었다(옮기는 목록에서 빠졌다).
+    중간면 요약의 두께는 계와 상관없이 mm 다(`length_units.midsurface`)."""
+    from app.core import conditions as model
+
+    raw = {
+        "units": {"system": "si"},
+        "body_settings": [
+            {"name": "덮개", "representation": "shell", "thickness": 1.2,
+             "mesh": {"element_size": 2}},
+            {"name": "받침"},
+        ],
+    }  # fmt: skip
+    shell, base = model.resolve(raw, {})["body_settings"]
+    assert shell["thickness"] == pytest.approx(0.0012)
+    assert shell["mesh"]["element_size"] == pytest.approx(0.002)
+    assert base["thickness"] is None
