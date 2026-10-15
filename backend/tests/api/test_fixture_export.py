@@ -940,3 +940,193 @@ def test_재료를_훑는_바디의_배율은_후보마다_그_물성이_있어�
     # 둘 다 가진 물성(탄성계수)이면 된다.
     body["factors"][1] = {**body["factors"][1], "property": "탄성계수"}
     assert client.post("/api/doe", json=body, headers=member.headers).status_code == 201
+
+
+# --- 셸 모델(시트 바디) — SimEngBay 의 부탁, 2026-10-15 ---------------------------------
+#
+# 두께 없는 시트 STEP 을 **올려서**(사람이 하는 그대로) 그 작업을 「설계 하나」 로 내보낸다.
+# 받는 쪽은 본 형상(pNNNN.step)의 시트를 넓이 · 무게중심으로 찾아 빼고 중간면(_mid.step)의
+# 셸로 짓는다 — gmsh · Mechanical 이 본 형상의 시트를 실제로 어떻게 읽는지 이 셋으로 본다.
+# 매처가 아직 면 · 점만 알아(모서리는 모른다) 고정 · 하중은 모두 **면**에 건다.
+
+#: 시트 판 — 폭 20(y 0 ~ 20), 높이 z, 면을 x 에서 나눈다(이음 엣지를 함께 쓰게 꿰맨다).
+SHEET_WIDTH = 20.0
+SHEET_THICKNESS = 1.2
+SHEET_PRESSURE = 0.001  # MPa — 처짐이 L 의 0.3 % 로 선형에 머문다
+
+
+def _sheet(cuts: list[float], z: float = 0.0) -> Any:
+    from itertools import pairwise
+
+    from build123d import Face, Shell, Wire
+
+    faces = [
+        Face(
+            Wire.make_polygon(
+                [(x0, 0, z), (x1, 0, z), (x1, SHEET_WIDTH, z), (x0, SHEET_WIDTH, z)],
+                close=True,
+            )
+        )
+        for x0, x1 in pairwise(cuts)
+    ]
+    return Shell(faces)
+
+
+def _upload(client: TestClient, member: Signed, tmp_path: Path, shape: Any, name: str) -> Any:
+    """STEP 으로 쓰고 「STEP 에서 시작」 으로 올린다 — 그 작업의 레시피(`import_step`)를
+    돌려준다. 조립의 구성품 이름은 STEP 의 이름 그대로라 ASCII 로 붙인다(한글은 STEP 에서
+    깨진다)."""
+    from build123d import export_step
+
+    path = tmp_path / f"{name}.step"
+    assert export_step(shape, str(path))
+    with path.open("rb") as stream:
+        got = client.post(
+            "/api/works/from-step",
+            files={"file": (path.name, stream, "application/step")},
+            headers=member.headers,
+        )
+    assert got.status_code == 201, got.text
+    work = got.json()
+    assert work["current"]["job"]["status"] == "done", work["current"]["job"]["error"]
+    return work["current"]["recipe"]
+
+
+def _sheet_conditions(thickness: float | None) -> dict[str, Any]:
+    shell: dict[str, Any] = {
+        "name": "전체",
+        "representation": "shell",
+        "mesh": {"element_size": 2},
+    }
+    if thickness is not None:
+        shell["thickness"] = thickness
+    return {
+        "units": {"system": "mm_n_tonne"},
+        "named_selections": [
+            _face("물림 띠", {"near": [5, 10, 0]}),
+            _face("하중면", {"near": [55, 10, 0]}),
+        ],
+        "materials": [_material("M-000138", ["전체"])],
+        "constraints": [{"name": "물림", "type": "fixed_support", "on": "물림 띠"}],
+        "loads": [{"name": "누름", "type": "pressure", "on": "하중면",
+                   "magnitude": SHEET_PRESSURE, "direction": "normal"}],
+        "body_settings": [shell],
+        "analysis": {"type": "static"},
+    }  # fmt: skip
+
+
+def _copy_fixture(folder: Path) -> None:
+    out = os.environ.get("COMPCORE_FIXTURE_OUT")
+    if out:
+        target = Path(out) / folder.name.rsplit("-", 1)[0]
+        shutil.rmtree(target, ignore_errors=True)
+        shutil.copytree(folder, target)
+
+
+def test_셸모델_시트_외팔보_픽스처(
+    client: TestClient, member: Signed, export_root: Path, tmp_path: Path
+) -> None:
+    """⑧ 시트 하나(100 x 20)를 물림 띠(x 0 ~ 10)와 나머지(x 10 ~ 100)로. 띠를 고정하고 나머지에
+    압력 — 손셈은 README(외팔보 L 90 · qL⁴/8EI)."""
+    recipe = _upload(client, member, tmp_path, _sheet([0, 10, 100]), "sheet_cantilever")
+    study = {"name": "셸모델_시트외팔보", "recipe": recipe, "factors": [],
+             "conditions": _sheet_conditions(SHEET_THICKNESS)}  # fmt: skip
+    folder = _export(client, member, export_root, study)
+    (point,) = _points(folder)
+    assert point["unresolved"] == []
+    (body,) = point["bodies"]
+    assert body["name"] == "전체" and body["kind"] == "sheet" and body["volume"] == 0
+    assert body["area"] == pytest.approx(100 * SHEET_WIDTH)
+    mid = point["midsurface"]
+    (shell,) = mid["bodies"]
+    assert shell["source"] == "sheet" and shell["thickness"] == SHEET_THICKNESS
+    assert shell["area"] == pytest.approx(100 * SHEET_WIDTH) and "failed" not in mid
+    assert (folder / mid["step_file"]).exists()
+    # 영역 — 면 그대로가 중간면의 면이다(겉면 → t/2 안쪽이 아니다).
+    strip, load = _only(point["regions"], "물림 띠"), _only(point["regions"], "하중면")
+    assert strip["area"] == pytest.approx(10 * SHEET_WIDTH)
+    assert load["area"] == pytest.approx(90 * SHEET_WIDTH)
+    (mid_load,) = load["mid"]
+    assert mid_load["face"]["area"] == pytest.approx(load["area"])
+    assert mid_load["face"]["normal"] == [0.0, 0.0, 1.0]
+    settings = point["conditions"]["body_settings"][0]
+    assert settings["thickness"] == SHEET_THICKNESS
+    _copy_fixture(folder)
+
+
+def test_셸모델_시트_받침_조립_픽스처(
+    client: TestClient, member: Signed, export_root: Path, tmp_path: Path
+) -> None:
+    """⑨ 솔리드 받침(20 x 20 x 10) 윗면에 시트(z 10, 접착 띠 x 0 ~ 20 · 나머지 x 20 ~ 100)를
+    본딩. 받침 바닥 고정, 나머지 면에 압력. 솔리드는 부피로, 시트는 넓이로 짝지어지는지
+    본다."""
+    from build123d import Box, Compound, Pos
+
+    base = Pos(10, 10, 5) * Box(20, 20, 10)
+    base.label = "base"
+    skin = _sheet([0, 20, 100], z=10)
+    skin.label = "skin"
+    assembly = Compound(children=[base, skin])
+    recipe = _upload(client, member, tmp_path, assembly, "sheet_on_base")
+    conditions = {
+        "units": {"system": "mm_n_tonne"},
+        "named_selections": [
+            _face("받침 바닥", {"body": "base", "normal": [0, 0, -1]}),
+            _face("받침 윗면", {"body": "base", "normal": [0, 0, 1]}),
+            _face("접착 띠", {"body": "skin", "near": [10, 10, 10]}),
+            _face("하중면", {"body": "skin", "near": [60, 10, 10]}),
+        ],
+        "materials": [_material("M-000138", ["base", "skin"])],
+        "constraints": [{"name": "바닥 고정", "type": "fixed_support", "on": "받침 바닥"}],
+        "loads": [{"name": "누름", "type": "pressure", "on": "하중면",
+                   "magnitude": SHEET_PRESSURE, "direction": "normal"}],
+        "contacts": [{"name": "시트 접착", "type": "bonded", "source": "접착 띠",
+                      "target": "받침 윗면"}],
+        "body_settings": [
+            {"name": "skin", "representation": "shell", "thickness": SHEET_THICKNESS,
+             "mesh": {"element_size": 2}},
+            {"name": "base", "mesh": {"element_size": 4}},
+        ],
+        "analysis": {"type": "static"},
+    }  # fmt: skip
+    study = {"name": "셸모델_시트받침조립", "recipe": recipe, "factors": [],
+             "conditions": conditions}  # fmt: skip
+    folder = _export(client, member, export_root, study)
+    (point,) = _points(folder)
+    assert point["unresolved"] == []
+    bodies = {one["name"]: one for one in point["bodies"]}
+    assert bodies["base"]["kind"] == "solid"
+    assert bodies["base"]["volume"] == pytest.approx(4000)
+    assert bodies["skin"]["kind"] == "sheet" and bodies["skin"]["volume"] == 0
+    assert bodies["skin"]["area"] == pytest.approx(100 * SHEET_WIDTH)
+    # 넓이 무게중심 — 중간면 요약과 같은 자리라야 받는 쪽이 짝짓는다(엣지 길이로 재면 45.714).
+    assert bodies["skin"]["centroid"] == [50.0, 10.0, 10.0]
+    mid = point["midsurface"]
+    # 중간면은 시트만 — 받침은 솔리드라 쉘로 고르지 않았다.
+    assert [(one["name"], one["source"]) for one in mid["bodies"]] == [("skin", "sheet")]
+    assert mid["bodies"][0]["step_product"] == bodies["skin"]["step_product"]
+    assert mid["bodies"][0]["centroid"] == bodies["skin"]["centroid"]
+    regions = point["regions"]
+    assert _only(regions, "접착 띠")["body"] == "skin"
+    assert _only(regions, "받침 윗면")["body"] == "base"
+    assert _only(regions, "하중면")["area"] == pytest.approx(80 * SHEET_WIDTH)
+    assert "mid" not in _only(regions, "받침 바닥")  # 솔리드 파트에는 붙지 않는다
+    _copy_fixture(folder)
+
+
+def test_셸모델_두께_없는_시트_픽스처(
+    client: TestClient, member: Signed, export_root: Path, tmp_path: Path
+) -> None:
+    """⑩ ⑧ 에서 두께만 뺐다 — 중간면을 지을 수 없다는 것이 `midsurface.failed` 로 나간다(받는
+    쪽은 그 점을 실패로 보고한다)."""
+    recipe = _upload(client, member, tmp_path, _sheet([0, 10, 100]), "sheet_no_thickness")
+    study = {"name": "셸모델_두께없음", "recipe": recipe, "factors": [],
+             "conditions": _sheet_conditions(None)}  # fmt: skip
+    folder = _export(client, member, export_root, study)
+    (point,) = _points(folder)
+    mid = point["midsurface"]
+    assert "step_file" not in mid and "bodies" not in mid
+    (failed,) = mid["failed"]
+    assert failed["name"] == "전체" and "두께" in failed["error"]
+    assert point["conditions"]["body_settings"][0]["thickness"] is None
+    _copy_fixture(folder)

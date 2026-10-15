@@ -103,3 +103,21 @@ def test_솔리드와_시트가_섞인_조립은_시트만_두께를_받는다()
         "받침": "solid",
         "덮개": "sheet",
     }
+
+
+def test_시트_구성품의_무게중심은_넓이로_잰다() -> None:
+    """조립에서 가져온 시트 구성품은 `Shell` 이고, build123d 의 `Shell.center()` 는 엣지 길이
+    무게중심이다 — 넓이가 다른 두 면이면 어긋난다(2026-10-15, x 45.714 ↔ 50)."""
+    from build123d import Shell, Wire
+
+    def rect(x0: float, x1: float) -> Face:
+        corners = [(x0, 0, 0), (x1, 0, 0), (x1, 20, 0), (x0, 20, 0)]
+        return Face(Wire.make_polygon(corners, close=True))
+
+    skin = Shell([rect(0, 20), rect(20, 100)])  # 400 mm² @ x 10 · 1600 mm² @ x 60
+    skin.label = "skin"
+    plate = copy.copy(Box(10, 10, 10))
+    plate.label = "plate"
+    rows = {row["name"]: row for row in topology.bodies(Compound(children=[plate, skin]))}
+    assert rows["skin"]["centroid"] == [50.0, 10.0, 0.0]
+    assert rows["plate"]["centroid"] == [0.0, 0.0, 0.0]

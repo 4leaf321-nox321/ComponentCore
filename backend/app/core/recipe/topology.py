@@ -23,6 +23,8 @@ import re
 from typing import Any
 
 from build123d import Shape
+from OCP.BRepGProp import BRepGProp
+from OCP.GProp import GProp_GProps
 
 from app.core.recipe.query import body_parts, select_features
 
@@ -72,9 +74,22 @@ def _body_row(index: int, part: Shape, name: str) -> dict[str, Any]:
         # 준다(2026-10-15). 받는 쪽은 `kind="sheet"` 면 그 파트를 그대로 셸 요소로 짓는다.
         "kind": "sheet" if sheet else "solid",
         "area": round(float(part.area), 3),
-        "centroid": _xyz(part.center()),
+        "centroid": _area_center(part) if sheet else _xyz(part.center()),
         "bbox": [_xyz(box.min), _xyz(box.max)],
     }
+
+
+def _area_center(part: Shape) -> list[float]:
+    """시트의 **넓이** 무게중심 — 중간면 요약(`midsurface._box`)과 같은 셈.
+
+    build123d 의 `Shell.center()` 는 넓이가 아니라 **엣지 길이** 무게중심이다. 실측
+    (2026-10-15): 띠 400 mm² @ x 10 와 나머지 1600 mm² @ x 60 로 된 시트가 x 45.714 를 줬다
+    (넓이로는 50). 조립에서 가져온 시트 구성품이 바로 그 `Shell` 이라 받는 쪽이 넓이 ·
+    무게중심으로 짝지을 때 어긋났다."""
+    props = GProp_GProps()
+    BRepGProp.SurfaceProperties_s(part.wrapped, props)
+    center = props.CentreOfMass()
+    return [round(float(v), 3) for v in (center.X(), center.Y(), center.Z())]
 
 
 def bodies(shape: Shape) -> list[dict[str, Any]]:
