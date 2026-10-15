@@ -149,3 +149,56 @@ def test_셸_모델로는_지그를_만들지_않는다(
     )
     assert preview.status_code == 400, preview.text
     assert "셸 모델" in preview.text
+
+
+def test_시트는_솔리드나_강체로_저장하지_못한다(
+    client: TestClient, member: Signed, tmp_path: Path
+) -> None:
+    """받는 쪽(SimEngBay)은 시트가 쉘이거나 해석 제외일 때만 푼다 — 그 밖이면 작업을 만들 때
+    막는데, 그때는 이미 내보낸 뒤다. 형상을 아는 두 자리(작업의 조건 저장 · DOE 만들기)에서
+    먼저 말한다(2026-10-16)."""
+    work = _upload_sheet(client, member, tmp_path)
+    saved = client.put(
+        f"/api/works/{work['id']}/versions/1/conditions",
+        json={"conditions": {"body_settings": [{"name": "전체", "representation": "solid"}]}},
+        headers=member.headers,
+    )
+    assert saved.status_code in (400, 422), saved.text
+    assert "쉘로만 풀 수" in saved.text
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "강체 시트",
+            "recipe": work["current"]["recipe"],
+            "conditions": {"body_settings": [{"name": "전체", "behavior": "rigid"}]},
+        },
+        headers=member.headers,
+    )
+    assert made.status_code in (400, 422), made.text
+    assert "강체로 둘 수" in made.text
+
+
+def test_설정_줄이_없는_시트도_점_파일에는_쉘로_나간다(
+    client: TestClient, member: Signed, tmp_path: Path, export_root: Path
+) -> None:
+    """파트 설정을 안 고친 시트 — 받는 쪽이 「설정이 없다 = 솔리드」 로 읽지 않게 쉘 줄을
+    적어 보낸다. 두께가 없으니 중간면은 실패로 말한다."""
+    work = _upload_sheet(client, member, tmp_path)
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "줄 없는 시트",
+            "recipe": work["current"]["recipe"],
+            "conditions": {"units": {"system": "mm_n_tonne"}},
+        },
+        headers=member.headers,
+    )
+    assert made.status_code == 201, made.text
+    sent = client.post(f"/api/doe/{made.json()['id']}/export", headers=member.headers)
+    assert sent.status_code == 200, sent.text
+    folder = next(export_root.iterdir())
+    point = json.loads((folder / "points" / "p0001.json").read_text("utf-8"))
+    (row,) = point["conditions"]["body_settings"]
+    assert row["name"] == "전체" and row["representation"] == "shell"
+    assert row["behavior"] == "deformable" and row["thickness"] is None
+    assert point["midsurface"]["failed"][0]["name"] == "전체"

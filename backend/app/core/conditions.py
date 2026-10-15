@@ -1309,6 +1309,7 @@ def parse(
     raw: dict[str, Any] | None,
     bodies: list[str] | None = None,
     frames: list[str] | None = None,
+    sheets: set[str] | None = None,
 ) -> Conditions:
     """읽어서 검증한다. **틀린 자리를 짚어 말한다** — 「조건이 잘못됐습니다」 로는 못 고친다.
 
@@ -1319,6 +1320,9 @@ def parse(
     `frames` 는 도면(레시피)의 좌표계 이름들 — 주면 조건의 `cs` 가 **있는 좌표계**를
     가리키는지 본다. 안 주면 조건 안의 좌표계만 알고, 모르는 이름은 넘어간다(도면을 못 보는
     자리에서 저장을 막지 않으려고).
+
+    `sheets` 는 그 가운데 **시트 바디**(셸 모델 — `topology.bodies` 의 `kind="sheet"`)의 이름 —
+    주면 파트 설정이 형상과 맞는지도 본다: 시트는 쉘로만, 솔리드는 두께를 형상에서 잰다.
     """
     if not raw:
         return Conditions()
@@ -1442,7 +1446,7 @@ def parse(
             f"materials[{owner[other]}]이(가) ‘{other}’에도 지정되었습니다. "
             f"‘{other}’에 물성이 2개 지정됩니다."
         )
-    _check_body_settings(conditions, known)
+    _check_body_settings(conditions, known, sheets)
     return conditions
 
 
@@ -1458,6 +1462,57 @@ def shell_parts(raw: dict[str, Any] | None) -> list[str]:
         and one.get("representation") == "shell"
         and not one.get("suppressed")
     ]
+
+
+def _check_sheet_setting(
+    where: str, one: BodySetting, sheet: bool, known: set[str] | None
+) -> None:
+    """파트 설정이 **형상의 종류**와 맞나(2026-10-16, SimEngBay 의 부탁).
+
+    시트 바디는 두께가 없어 솔리드 요소로 풀 수 없다 — 쉘이거나 해석 제외뿐이다. 받는 쪽은
+    그 밖이면 작업을 만들 때 막는데, 그때는 이미 내보낸 뒤다. 솔리드를 쉘로 풀 때 두께는
+    **형상에서 잰다** — 적은 두께는 쓰이지 않아 점 파일의 두 두께(`body_settings[].thickness`
+    · `midsurface.bodies[].thickness`)가 갈렸다."""
+    if sheet:
+        if one.behavior == "rigid":
+            raise ConditionError(
+                f"{where}: 파트 ‘{one.name}’은(는) 시트 바디(셸 모델)라 강체로 둘 수 "
+                "없습니다. 변형체 쉘로 두거나 해석에서 제외하십시오."
+            )
+        if one.representation != "shell":
+            raise ConditionError(
+                f"{where}: 파트 ‘{one.name}’은(는) 시트 바디(셸 모델)라 쉘로만 풀 수 "
+                "있습니다. 표현을 쉘로 두고 두께를 적으십시오."
+            )
+    elif one.thickness is not None and (known is None or one.name in known):
+        raise ConditionError(
+            f"{where}: 파트 ‘{one.name}’은(는) 솔리드라 쉘 두께를 형상에서 잽니다 — 두께를 "
+            "비우십시오. 두께는 시트 바디(셸 모델)에만 적습니다."
+        )
+
+
+def sheets_as_shell(resolved: dict[str, Any], sheets: list[str]) -> dict[str, Any]:
+    """점 파일의 조건에서 **시트 파트는 늘 쉘**이다 — 설정 줄이 없거나 표현을 안 적었어도.
+
+    시트는 쉘로만 풀린다(검증이 솔리드로 적은 것을 막는다). 받는 쪽이 「표현이 솔리드이거나
+    설정이 없다」 로 작업을 막지 않게, 내보내는 조건에 그렇게 적어 준다. 해석 제외한 줄은
+    그대로 둔다."""
+    if not sheets:
+        return resolved
+    rows = [dict(one) for one in resolved.get("body_settings") or []]
+    have = {one.get("name") for one in rows}
+    for row in rows:
+        if row.get("name") in sheets and not row.get("suppressed"):
+            row["representation"] = "shell"
+            row["behavior"] = "deformable"
+    rows.extend(
+        BodySetting.model_validate({"name": name, "representation": "shell"}).model_dump(
+            mode="json"
+        )
+        for name in sheets
+        if name not in have
+    )
+    return {**resolved, "body_settings": rows}
 
 
 def shell_thicknesses(raw: dict[str, Any] | None) -> dict[str, float]:
@@ -1527,7 +1582,9 @@ def _bodies_of(selection: NamedSelection) -> set[str] | None:
     return None if "" in names else names
 
 
-def _check_body_settings(conditions: Conditions, known: set[str] | None) -> None:
+def _check_body_settings(
+    conditions: Conditions, known: set[str] | None, sheets: set[str] | None = None
+) -> None:
     """파트별 설정 — 파트가 있고 한 번씩만 적혔나, 뜻이 서로 맞나, 해석할 것이 남나."""
     settings = conditions.body_settings
     names = [one.name for one in settings]
@@ -1548,11 +1605,17 @@ def _check_body_settings(conditions: Conditions, known: set[str] | None) -> None
                 f"{where}: 강체 파트 ‘{one.name}’은(는) 쉘로 표현할 수 없습니다. 거동을 "
                 "변형체로 바꾸거나 표현을 솔리드로 두십시오."
             )
+        sheet = sheets is not None and one.name in sheets
+        if sheet and "representation" not in one.model_fields_set:
+            # 시트는 쉘로만 풀린다 — 표현을 안 적은 줄은 쉘이다(내보낼 때도 그렇게 적는다).
+            one.representation = "shell"
         if one.thickness is not None and one.representation != "shell":
             raise ConditionError(
                 f"{where}: 두께는 쉘 파트에만 적습니다 — 파트 ‘{one.name}’의 표현을 쉘로 "
                 "바꾸거나 두께를 비우십시오."
             )
+        if sheets is not None and not one.suppressed:
+            _check_sheet_setting(where, one, sheet, known)
     if ALL_BODIES in names and len(names) > 1:
         raise ConditionError(
             f"파트별 설정에 ‘{ALL_BODIES}’와(과) 개별 파트가 함께 있습니다. ‘{ALL_BODIES}’는 "

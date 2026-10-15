@@ -121,3 +121,47 @@ def test_시트_구성품의_무게중심은_넓이로_잰다() -> None:
     rows = {row["name"]: row for row in topology.bodies(Compound(children=[plate, skin]))}
     assert rows["skin"]["centroid"] == [50.0, 10.0, 0.0]
     assert rows["plate"]["centroid"] == [0.0, 0.0, 0.0]
+
+
+def test_파트_설정은_형상의_종류와_맞아야_한다() -> None:
+    """시트는 변형체 쉘로만, 솔리드를 쉘로 풀 때 두께는 형상에서(2026-10-16, SimEngBay 의
+    부탁). 받는 쪽은 시트가 솔리드 · 강체면 작업을 만들 때 막는다 — 그때는 이미 내보낸 뒤다.
+    솔리드에 적은 두께는 쓰이지 않아 점 파일의 두 두께가 갈렸다."""
+    from app.core import conditions as model
+
+    bodies, sheets = ["덮개", "받침"], {"덮개"}
+
+    def parse(*rows: dict[str, object]) -> object:
+        return model.parse({"body_settings": list(rows)}, bodies, None, sheets)
+
+    # 표현을 안 적은 시트 줄은 쉘이다 — 두께만 적어도 된다.
+    got = parse({"name": "덮개", "thickness": 1.2})
+    assert got.body_settings[0].representation == "shell"  # type: ignore[attr-defined]
+    with pytest.raises(model.ConditionError, match="쉘로만 풀 수"):
+        parse({"name": "덮개", "representation": "solid"})
+    with pytest.raises(model.ConditionError, match="강체로 둘 수"):
+        parse({"name": "덮개", "behavior": "rigid"})
+    parse({"name": "덮개", "suppressed": True, "representation": "solid"})  # 제외면 상관없다
+    with pytest.raises(model.ConditionError, match="형상에서 잽니다"):
+        parse({"name": "받침", "representation": "shell", "thickness": 2})
+    parse({"name": "받침", "representation": "shell"})
+    # 형상을 모르는 자리(종류를 안 준다)는 예전 그대로 — 저장을 막지 않는다.
+    model.parse(
+        {"body_settings": [{"name": "받침", "representation": "shell", "thickness": 2}]}
+    )
+
+
+def test_내보내는_조건에서_시트는_늘_쉘이다() -> None:
+    from app.core import conditions as model
+
+    # 줄이 없으면 기본 줄을 쉘로 더한다(두께는 없다 — 중간면이 실패로 말한다).
+    out = model.sheets_as_shell({"body_settings": [{"name": "받침"}]}, ["덮개"])
+    names = [row["name"] for row in out["body_settings"]]
+    assert names == ["받침", "덮개"]
+    added = out["body_settings"][1]
+    assert added["representation"] == "shell" and added["behavior"] == "deformable"
+    assert added["thickness"] is None and added["suppressed"] is False
+    # 해석 제외한 줄은 그대로, 시트가 없으면 아무것도 안 바꾼다.
+    off = {"body_settings": [{"name": "덮개", "representation": "solid", "suppressed": True}]}
+    assert model.sheets_as_shell(off, ["덮개"]) == off
+    assert model.sheets_as_shell(off, []) is off

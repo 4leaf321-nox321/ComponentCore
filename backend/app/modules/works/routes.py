@@ -344,11 +344,17 @@ def set_conditions(
     # **물성이 붙은 바디가 진짜 있는지도 본다.** 도면을 평가해야 알 수 있으므로 여기서
     # 한 번 만든다 — 없는 이름에 물성을 붙이면 해석이 그 바디를 맨몸으로 푼다.
     try:
-        known = _body_names(version.recipe)
+        rows = _body_rows(version.recipe)
     except AppError:
-        known = None
+        rows = None
+    known = None if rows is None else [str(one["name"]) for one in rows]
+    sheets = (
+        None
+        if rows is None
+        else {str(one["name"]) for one in rows if one.get("kind") == "sheet"}
+    )
     try:
-        conditions.parse(payload.conditions, known, recipe_frame_names(version.recipe))
+        conditions.parse(payload.conditions, known, recipe_frame_names(version.recipe), sheets)
     except conditions.ConditionError as failure:
         raise AppError(code("WORKS", 12), str(failure)) from failure
     version.conditions = payload.conditions
@@ -357,8 +363,9 @@ def set_conditions(
     return services.version_out(db, version)
 
 
-def _body_names(recipe: dict[str, Any] | None) -> list[str] | None:
-    """이 도면의 바디 이름들. **못 만들면 None** — 그때는 바디 검사를 건너뛴다.
+def _body_rows(recipe: dict[str, Any] | None) -> list[dict[str, Any]] | None:
+    """이 도면의 파트 목록(`topology.bodies` — 이름 · 종류). **못 만들면 None** — 그때는 바디
+    검사를 건너뛴다.
 
     도면이 깨져 있을 수도 있고(그건 다른 오류로 이미 말한다) 평가가 무거울 수도 있다.
     검사 하나 때문에 조건 저장이 막히면, 사람은 고치던 것을 잃는다."""
@@ -368,7 +375,7 @@ def _body_names(recipe: dict[str, Any] | None) -> list[str] | None:
     from app.modules.cad import services as cad
 
     try:
-        return [str(one["name"]) for one in topology.bodies(cad.build(recipe).shape)]
+        return topology.bodies(cad.build(recipe).shape)
     except Exception:  # 도면이 안 서면 바디도 없다 — 검사를 건너뛴다.
         return None
 

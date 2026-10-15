@@ -323,7 +323,8 @@ def _check_condition_factors(
     - 고르기: 값마다 바꿔 끼운 한 벌이 조건으로서 온전한가(마찰로 바꾸면 마찰계수가 있나 …).
     - 배율: 바디에 재료가 붙어 있고 그 재료에 그 물성이 있나."""
     params = recipe.get("params") or {}
-    bodies = _body_names(recipe)
+    rows = _body_rows(recipe)
+    bodies, sheets = _names_of(rows), _sheets_of(rows)
     frame_names = frames.recipe_frame_names(recipe)
     if conditions:
         try:
@@ -340,6 +341,7 @@ def _check_condition_factors(
                     condition_model.with_choice(conditions, one["target"], value),
                     bodies,
                     frame_names,
+                    sheets,
                 )
             except condition_model.ConditionError as failure:
                 raise AppError(
@@ -412,7 +414,8 @@ def _check_material_factors(
             "현재 조건에 재료가 없습니다.",
         )
     params = recipe.get("params") or {}
-    bodies = _body_names(recipe)
+    rows = _body_rows(recipe)
+    bodies, sheets = _names_of(rows), _sheets_of(rows)
     for one in factors:
         if one.get("mode") != "material":
             continue
@@ -435,18 +438,35 @@ def _check_material_factors(
                     condition_model.with_material(conditions, targets, str(choice)),
                     bodies,
                     frames.recipe_frame_names(recipe),
+                    sheets,
                 )
             except condition_model.ConditionError as failure:
                 raise AppError(code("DOE", 22), f"재료 인자 ‘{name}’: {failure}") from failure
 
 
-def _body_names(recipe: dict[str, Any]) -> list[str] | None:
-    """이 도면의 바디 이름들. **못 만들면 None** — 그때는 바디 검사를 건너뛴다(도면이
-    깨진 것은 다른 오류가 이미 말한다)."""
+def _body_rows(recipe: dict[str, Any]) -> list[dict[str, Any]] | None:
+    """이 도면의 파트 목록(`topology.bodies`). **못 만들면 None** — 그때는 바디 검사를 건너뛴다
+    (도면이 깨진 것은 다른 오류가 이미 말한다)."""
     try:
-        return [str(one["name"]) for one in topology.bodies(cad.build(recipe).shape)]
+        return topology.bodies(cad.build(recipe).shape)
     except Exception:
         return None
+
+
+def _body_names(recipe: dict[str, Any]) -> list[str] | None:
+    """이 도면의 바디 이름들 — 못 만들면 None."""
+    return _names_of(_body_rows(recipe))
+
+
+def _names_of(rows: list[dict[str, Any]] | None) -> list[str] | None:
+    return None if rows is None else [str(one["name"]) for one in rows]
+
+
+def _sheets_of(rows: list[dict[str, Any]] | None) -> set[str] | None:
+    """그 가운데 시트 바디(셸 모델) — 파트 설정이 형상과 맞는지 본다(쉘로만 푼다)."""
+    if rows is None:
+        return None
+    return {str(one["name"]) for one in rows if one.get("kind") == "sheet"}
 
 
 def _request_digest(
@@ -797,9 +817,10 @@ def create_study(
     #
     # 바디 이름까지 본다: 물성을 없는 바디에 붙이면 해석이 그 바디를 **맨몸으로** 푼다.
     # 여기가 정작 해석으로 나가는 자리라 작업 저장보다 더 중요하다.
+    rows = _body_rows(recipe)
     try:
         condition_model.parse(
-            conditions, _body_names(recipe), frames.recipe_frame_names(recipe)
+            conditions, _names_of(rows), frames.recipe_frame_names(recipe), _sheets_of(rows)
         )
     except condition_model.ConditionError as failure:
         raise AppError(code("DOE", 15), f"해석 조건: {failure}") from failure
@@ -2435,6 +2456,16 @@ def run_job(
                                     },
                                     names,
                                 ),
+                            )
+                            # 시트 파트는 늘 쉘 — 설정 줄이 없어도 받는 쪽이 솔리드로 읽지
+                            # 않게(SimEngBay 는 그러면 작업을 막는다).
+                            topo["conditions"] = condition_model.sheets_as_shell(
+                                topo["conditions"],
+                                [
+                                    str(one["name"])
+                                    for one in topo.get("bodies") or []
+                                    if one.get("kind") == "sheet"
+                                ],
                             )
                         # **좌표계** — 도면의 것은 이 점의 치수로 푼 것, 조건의 것은 식을 이
                         # 점의 값으로 풀고 면에 붙인 것은 이 점의 영역에서 얻는다. 조건의 `cs`

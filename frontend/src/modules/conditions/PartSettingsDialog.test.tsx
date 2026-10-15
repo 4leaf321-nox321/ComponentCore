@@ -99,7 +99,7 @@ test('고쳤다 되돌리면 저장 목록이 처음과 같다 — 줄의 자리
   expect(withSetting(changed, '판', { mesh: { element_size: null } })).toEqual(before)
 })
 
-test('시트 파트(셸 모델)는 두께를 적으면 쉘이 되고, 솔리드 파트의 두께 칸은 닫힌다', () => {
+test('시트 파트(셸 모델)는 변형체 쉘로 고정되고 두께만 적는다 — 솔리드는 쉘이어도 두께를 형상에서', () => {
   const seen = { settings: [] as BodySetting[], materials: [] as MaterialItem[] }
   render(
     <Harness
@@ -112,14 +112,32 @@ test('시트 파트(셸 모델)는 두께를 적으면 쉘이 되고, 솔리드 
   )
   // 부피 0 대신 넓이로, 무엇을 해야 중간면이 나가는지 함께.
   expect(screen.getByText(/시트\(셸 모델\) · 넓이 1,218 mm²/)).toBeInTheDocument()
-  expect(screen.getByText(/두께를 입력해야 중간면이 생성됩니다/)).toBeInTheDocument()
+  expect(screen.getByText(/두께를 잴 수 없으니 입력해야 중간면이 생성됩니다/)).toBeInTheDocument()
   expect(screen.getByLabelText('덮개 두께(mm)')).toHaveAttribute('placeholder', '필수')
-  expect(screen.getByLabelText('받침 두께(mm)')).toBeDisabled()
+  // 시트는 솔리드 · 강체로 고를 수 없다 — SimEngBay 가 작업을 막는 조합이다(2026-10-16).
+  expect(screen.getByLabelText('덮개 표현')).toHaveValue('shell')
+  expect(screen.getByLabelText('덮개 표현')).toBeDisabled()
+  expect(screen.getByLabelText('덮개 거동')).toBeDisabled()
 
   fireEvent.change(screen.getByLabelText('덮개 두께(mm)'), { target: { value: '1.2' } })
-  expect(seen.settings.find((one) => one.name === '덮개')).toMatchObject({ representation: 'shell', thickness: 1.2 })
+  expect(seen.settings.find((one) => one.name === '덮개')).toMatchObject({
+    behavior: 'deformable',
+    representation: 'shell',
+    thickness: 1.2,
+  })
 
-  // 솔리드로 돌리면 두께는 비운다(서버도 솔리드 + 두께를 막는다).
-  fireEvent.change(screen.getByLabelText('덮개 표현'), { target: { value: 'solid' } })
-  expect(seen.settings.find((one) => one.name === '덮개')?.thickness ?? null).toBeNull()
+  // 솔리드를 쉘로 풀어도 두께 칸은 닫혀 있다 — 형상에서 잰다(적은 값은 쓰이지 않았다).
+  fireEvent.change(screen.getByLabelText('받침 표현'), { target: { value: 'shell' } })
+  expect(screen.getByLabelText('받침 두께(mm)')).toBeDisabled()
+  expect(screen.getByLabelText('받침 두께(mm)')).toHaveAttribute('placeholder', '형상에서')
+
+  // 「모든 파트」 에서 솔리드 · 강체를 골라도 시트는 쉘로 남고 두께도 그대로다.
+  fireEvent.change(screen.getByLabelText('모든 파트 표현'), { target: { value: 'solid' } })
+  fireEvent.change(screen.getByLabelText('모든 파트 거동'), { target: { value: 'rigid' } })
+  expect(seen.settings.find((one) => one.name === '덮개')).toMatchObject({
+    behavior: 'deformable',
+    representation: 'shell',
+    thickness: 1.2,
+  })
+  expect(seen.settings.find((one) => one.name === '받침')).toMatchObject({ behavior: 'rigid', representation: 'solid' })
 })
