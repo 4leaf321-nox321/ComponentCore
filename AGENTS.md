@@ -19,6 +19,10 @@
   저장소 뿌리 `filestore/blobs/` 셋이고, 고친 자리에는 왜인지 적는다.
 - **pytest 는 한 번에 하나만 돌린다.** 시험은 시작할 때 `<db>_test` 의 스키마를 지우고 다시
   세운다(`tests/conftest.py`) — 긴 실행 중에 다른 pytest 를 띄우면 앞 실행의 표가 사라진다.
+  conftest 가 지우기 전에 시험 DB 의 잠금을 쥐므로, 둘째 pytest 는 「다른 pytest 가 … 쓰고
+  있습니다(compcore pytest <pid>)」 라고 말하고 끝날 때까지 기다린다(`COMPCORE_TEST_LOCK_WAIT`
+  초, 기본 1800 · 0 이면 바로 멈춘다). 그 pid 는 남의 실행일 수 있다 — 끄지 말고 기다린다.
+  `--noconftest` 로 돌리는 시험은 잠금도 스키마 지우기도 없다.
 
     제품 STEP ─▶ Geometry Understanding ─▶ Feature Recognition ─▶ Fixture Planning
              ─▶ Support · Locator · Clamp ─▶ Jig 자동 생성 ─▶ 간섭 검사 ─▶ STEP
