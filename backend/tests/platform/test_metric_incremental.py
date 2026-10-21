@@ -245,12 +245,11 @@ def test_날짜_칸_색인을_세우고_증분이_그것을_탄다(client: TestC
     """색인 식은 계산 쪽 식(`incremental.date_expr`)과 글자 그대로 같아야 플래너가 맞춰 본다 —
     어긋나면 색인은 서 있는데 아무도 안 쓴다(조용히 느려질 뿐이라 아무도 모른다).
 
-    시험 DB 에는 다른 시험의 지표가 쌓여 있어 `sync` 로 세우면 그것들 것까지 선다 — 이 지표의
-    것 하나만 같은 문장(`create_sql`)으로 세운다. 작은 타입이라 기본 `sync` 는 그것을
-    지운다."""
+    `sync` 로 세우면 이 파일의 다른 지표 것까지 선다 — 이 지표의 것 하나만 같은
+    문장(`create_sql`)으로 세운다. 작은 타입이라 기본 `sync` 는 그것을 지운다."""
     from datetime import date
 
-    from sqlalchemy import func, text
+    from sqlalchemy import func, insert, text
 
     from app.database import SessionLocal, engine
     from app.modules.metrics import compute, incremental, timeindex
@@ -280,6 +279,23 @@ def test_날짜_칸_색인을_세우고_증분이_그것을_탄다(client: TestC
         where = incremental.period_filter(built, periods).compile(
             dialect=engine.dialect, compile_kwargs={"literal_binds": True}
         )
+        # 플래너는 **이 타입이 클 때만** 이 색인을 고른다 — 작으면 타입 색인 하나로 충분하다.
+        # 예전에는 다른 시험 파일이 남긴 기록으로 표가 컸고, 파일마다 표를 비우면서
+        # (`tests/conftest.py` 의 `fresh_tables`) 플래너가 타입 색인을 골랐다. 이 색인이 서는
+        # 자리(큰 타입)를 만든다 — 다른 달의 기록을 채우고 통계를 세운다. 아래 `rollback` 이
+        # 기록과 통계를 함께 되돌리고, 다른 달이라 아래의 셈(2월 · 못 읽는 날짜)에 안 든다.
+        db.execute(
+            insert(ObjectInstance),
+            [
+                {
+                    "type_id": source,
+                    "label": f"채움 {n}",
+                    "properties": {"received": "2025-06-15"},
+                }
+                for n in range(2000)
+            ],
+        )
+        db.execute(text("ANALYZE objects"))
         db.execute(text("SET LOCAL enable_seqscan = off"))
         plan = "\n".join(
             db.scalars(

@@ -394,7 +394,13 @@ def pages(db: Session) -> list[Page]:
 
 
 def _tick(progress: Progress, stage: str, done: int, total: int) -> None:
-    if progress is not None:
+    """진행 보고 — **50번쯤으로 솎는다.** 보고마다 새 세션으로 커밋하므로(`tasks`) 타입마다
+    적으면 타입 수만큼 커밋한다(정의가 쌓인 DB 에서 1270번 · 4초, CompCore 2026-10-21). 처음 ·
+    끝은 늘 적는다. 읽기만 하는 작업이라 취소를 조금 늦게 알아도 해가 없다."""
+    if progress is None:
+        return
+    step = max(1, total // 50)
+    if done in (1, total) or done % step == 0:
         progress(stage, done, total)
 
 

@@ -638,12 +638,16 @@ def _prop(row: PropertyDef) -> Prop:
     )
 
 
-def load(db: Session) -> Catalog:
-    """지금 정의를 한 벌로. 타입 · 인터페이스는 수십 개라 통째로 읽어도 된다."""
+def load(db: Session, *, type_props: bool = True) -> Catalog:
+    """지금 정의를 한 벌로. 타입 · 인터페이스는 수십 개라 통째로 읽어도 된다.
+
+    `type_props=False` 면 **타입의 속성은 안 읽는다**(`TypeDef.props` 가 빈다) — 어느 타입이
+    무엇을 구현하나 · 인터페이스의 상속 · 공통 속성만 보는 자리(`objects.scope`)용. 속성은
+    타입 쪽이 대부분이라, 이어진 주소를 풀 때마다 그것을 다 읽고 모양을 지어 정의가 쌓인
+    DB 에서 한 번에 0.2초를 넘었다(CompCore, 2026-10-21 — SP 6e5a773 에는 이 길이 없다)."""
+    owners = ("type", "interface") if type_props else ("interface",)
     props: dict[tuple[str, Any], dict[str, Prop]] = {}
-    for row in db.scalars(
-        select(PropertyDef).where(PropertyDef.owner_kind.in_(("type", "interface")))
-    ):
+    for row in db.scalars(select(PropertyDef).where(PropertyDef.owner_kind.in_(owners))):
         props.setdefault((row.owner_kind, row.owner_id), {})[row.key] = _prop(row)
     catalog = Catalog()
     for iface in db.scalars(select(ObjectInterface)):

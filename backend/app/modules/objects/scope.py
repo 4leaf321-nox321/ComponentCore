@@ -96,11 +96,13 @@ def of_type(db: Session, object_type: ObjectType) -> Scope:
 def _interfaces_of(db: Session, declared: list[str]) -> list[str]:
     if not declared:
         return []
-    return interfaces.closure(declared, interfaces.load(db).extends_of())
+    # 상속만 본다 — 타입 속성까지 읽으면 이어진 주소를 풀 때마다 정의 전체를 읽는다.
+    return interfaces.closure(declared, interfaces.load(db, type_props=False).extends_of())
 
 
 def of_interface(db: Session, iface: ObjectInterface) -> Scope:
-    catalog = interfaces.load(db)
+    # 구현 타입 · 공통 속성만 본다 — 타입 속성은 안 읽는다(`interfaces.load` 의 까닭).
+    catalog = interfaces.load(db, type_props=False)
     implementers = set(interfaces.implementers(catalog, iface.slug))
     types = list(
         db.scalars(

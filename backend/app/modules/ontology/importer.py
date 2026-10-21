@@ -1196,6 +1196,14 @@ def take_snapshot(db: Session, user: User, *, reason: str) -> OntologySnapshot:
 
 def capture(db: Session) -> dict[str, Any]:
     """지금 정의 전부를 한 덩어리로 — **되돌릴 자리에 담을 것.**"""
+    # 속성 정의는 **한 번에** 읽어 주인별로 나눈다 — 주인(타입 · 인터페이스 · 관계)마다 따로
+    # 읽으면 정의가 쌓인 DB 에서 한 번 담는 데 4천 번을 물었다(CompCore, 2026-10-21).
+    owned: dict[tuple[str, uuid.UUID], list[dict[str, Any]]] = {}
+    for prop in db.scalars(select(PropertyDef).order_by(PropertyDef.sort_order)):
+        owned.setdefault((prop.owner_kind, prop.owner_id), []).append(
+            {name: getattr(prop, name) for name in sorted(PROPERTY_FIELDS)}
+        )
+
     groups = [
         {name: getattr(row, name) for name in sorted(GROUP_FIELDS)}
         # `parent_slug` 는 모델의 property 라 위 한 줄로 함께 담긴다 — 되돌릴 때 그대로
@@ -1212,7 +1220,7 @@ def capture(db: Session) -> dict[str, Any]:
         one = {
             name: getattr(iface, name) for name in sorted(INTERFACE_FIELDS - {"properties"})
         }
-        one["properties"] = _captured_properties(db, "interface", iface.id)
+        one["properties"] = owned.get(("interface", iface.id), [])
         ifaces.append(one)
 
     types = []
@@ -1222,14 +1230,14 @@ def capture(db: Session) -> dict[str, Any]:
             for name in sorted(TYPE_FIELDS - {"nav_group_slug", "properties"})
         }
         one["nav_group_slug"] = group_slugs.get(row.nav_group_id) if row.nav_group_id else None
-        one["properties"] = _captured_properties(db, "type", row.id)
+        one["properties"] = owned.get(("type", row.id), [])
         types.append(one)
 
     relations: list[dict[str, Any]] = []
     for kind in db.scalars(select(RelationType).order_by(RelationType.sort_order)):
         one = {name: getattr(kind, name) for name in sorted(RELATION_FIELDS - {"properties"})}
         # 관계에 붙은 속성 정의도 함께 담는다 — 안 담으면 되돌릴 때 그것만 안 돌아온다.
-        one["properties"] = _captured_properties(db, "relation", kind.id)
+        one["properties"] = owned.get(("relation", kind.id), [])
         relations.append(one)
     return {
         "groups": groups,
@@ -1237,19 +1245,6 @@ def capture(db: Session) -> dict[str, Any]:
         "types": types,
         "relation_types": relations,
     }
-
-
-def _captured_properties(
-    db: Session, owner_kind: str, owner_id: uuid.UUID
-) -> list[dict[str, Any]]:
-    return [
-        {name: getattr(prop, name) for name in sorted(PROPERTY_FIELDS)}
-        for prop in db.scalars(
-            select(PropertyDef)
-            .where(PropertyDef.owner_kind == owner_kind, PropertyDef.owner_id == owner_id)
-            .order_by(PropertyDef.sort_order)
-        )
-    ]
 
 
 def upgrade_snapshot(schema: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:

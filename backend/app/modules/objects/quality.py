@@ -191,7 +191,11 @@ def _orphans(
 
 
 def _broken_refs(
-    db: Session, user: User, object_type: ObjectType, defs: list[PropertyDef]
+    db: Session,
+    user: User,
+    object_type: ObjectType,
+    defs: list[PropertyDef],
+    types: dict[str, ObjectType] | None = None,
 ) -> Finding | None:
     """참조 칸이 지워졌거나 없는 것을 가리키는 객체 — **참조 색인으로** 센다(ADR 0010).
 
@@ -204,7 +208,10 @@ def _broken_refs(
     ref_defs = [d for d in defs if d.data_type == "object_ref"]
     if not ref_defs:
         return None
-    types = system.types_by_slug(db)
+    # 보고 하나가 타입마다 이것을 부른다 — 타입 표는 보고가 한 번 지어 넘긴다(`report`).
+    # 타입마다 읽으면 타입 수 x 타입 수였다(CompCore, 2026-10-21 — SP 6e5a773 에서 옮긴
+    # 그대로).
+    types = types if types is not None else system.types_by_slug(db)
     labels = {d.key: d.label for d in ref_defs}
     object_keys: list[str] = []
     system_keys: dict[str, ObjectType] = {}
@@ -411,6 +418,7 @@ def report(
         )
     )
     relation_kinds = list(db.scalars(select(RelationType)))
+    by_slug = system.types_by_slug(db)  # 깨진 참조가 타입마다 쓴다 — 한 번만 짓는다
     ends = interfaces.load_ends(db)
     defs_by_type: dict[uuid.UUID, list[PropertyDef]] = {}
     for d in db.scalars(select(PropertyDef).where(PropertyDef.owner_kind == "type")):
@@ -442,7 +450,9 @@ def report(
             if "orphan" in kinds
             else None,
             # 깨진 참조는 색인으로 세므로 **큰 타입도 본다**.
-            _broken_refs(db, user, object_type, defs) if "broken_ref" in kinds else None,
+            _broken_refs(db, user, object_type, defs, by_slug)
+            if "broken_ref" in kinds
+            else None,
             _duplicates(object_type, rows) if "duplicate" in kinds and not big else None,
             _alias_clashes(db, object_type, rows)
             if "alias_clash" in kinds and not big

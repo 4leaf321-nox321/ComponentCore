@@ -23,6 +23,9 @@
   있습니다(compcore pytest <pid>)」 라고 말하고 끝날 때까지 기다린다(`COMPCORE_TEST_LOCK_WAIT`
   초, 기본 1800 · 0 이면 바로 멈춘다). 그 pid 는 남의 실행일 수 있다 — 끄지 말고 기다린다.
   `--noconftest` 로 돌리는 시험은 잠금도 스키마 지우기도 없다.
+- **시험 파일마다 빈 표로 시작한다**(`tests/conftest.py` 의 `fresh_tables`). 다른 파일이 남긴 줄에
+  기대지 않는다 — 필요한 데이터는 그 파일이 만든다. 「표가 커야」 서는 것(플래너의 색인 선택 등)을
+  보려면 그 시험이 트랜잭션 안에서 채우고 되돌린다(`test_metric_incremental` 이 예).
 
     제품 STEP ─▶ Geometry Understanding ─▶ Feature Recognition ─▶ Fixture Planning
              ─▶ Support · Locator · Clamp ─▶ Jig 자동 생성 ─▶ 간섭 검사 ─▶ STEP

@@ -147,6 +147,23 @@ def schema(request: pytest.FixtureRequest) -> Iterator[None]:
         held.close()
 
 
+@pytest.fixture(scope="module", autouse=True)
+def fresh_tables(schema: None) -> None:
+    """**시험 파일마다 빈 표로 시작한다.**
+
+    예전에는 스위트 전체가 한 DB 에 쌓였다 — 앞 파일이 남긴 타입 · 지표 · 객체가 수백 개가
+    되어, 정의 전체를 훑는 동작(속성 삭제 점검 · 지표 재계산 · 통째 내보내기)이 혼자 돌면
+    0.5초인 시험을 3분으로 늘렸다(2026-10-21 — 스위트 35분 중 95%가 그것). 남이 남긴 줄을
+    「차이로 보는」 시험은 그대로 통하고, 한 파일 안의 시험끼리는 지금처럼 이어진다.
+
+    다른 연결이 표를 쥐고 있으면 TRUNCATE 가 끝없이 기다린다 — 10초 넘게 못 잡으면 오류로
+    말한다(시험이 연결을 안 닫은 것이다)."""
+    names = ", ".join(f'"{table.name}"' for table in Base.metadata.sorted_tables)
+    with engine.begin() as connection:
+        connection.execute(text("SET LOCAL lock_timeout = '10s'"))
+        connection.execute(text(f"TRUNCATE {names} RESTART IDENTITY CASCADE"))
+
+
 @pytest.fixture
 def db() -> Iterator[Session]:
     session = SessionLocal()
