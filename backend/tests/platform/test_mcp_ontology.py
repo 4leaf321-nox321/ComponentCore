@@ -31,9 +31,12 @@ links = mcp_server.ontology_links
 
 
 @pytest.fixture(autouse=True)
-def _asgi_transport() -> Iterator[None]:
+def _asgi_transport(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     tools._TRANSPORT = httpx.ASGITransport(app=fastapi_app)
     tools.API_BASE = "http://testserver"
+    # 작업은 이 시험이 직접 돌린다(`work_until`) — 도구가 끝나기를 기다리면 아무도 안 돌리는
+    # 작업을 25초 꼬박 지켜봤다(스위트에서 가장 느린 시험이었다, 2026-10-21).
+    monkeypatch.setattr(tools, "JOB_WAIT_MAX", 0.0)
     yield
     tools._TRANSPORT = None
 

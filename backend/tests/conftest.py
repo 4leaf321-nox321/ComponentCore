@@ -157,11 +157,20 @@ def fresh_tables(schema: None) -> None:
     「차이로 보는」 시험은 그대로 통하고, 한 파일 안의 시험끼리는 지금처럼 이어진다.
 
     다른 연결이 표를 쥐고 있으면 TRUNCATE 가 끝없이 기다린다 — 10초 넘게 못 잡으면 오류로
-    말한다(시험이 연결을 안 닫은 것이다)."""
-    names = ", ".join(f'"{table.name}"' for table in Base.metadata.sorted_tables)
+    말한다(시험이 연결을 안 닫은 것이다).
+
+    **줄이 있는 표만** 비운다 — 표 150여 개를 늘 통째로 비우면 파일마다 0.5초(스위트에서
+    1분 반)였고, 한 파일이 쓰는 표는 수십 개다. DB 를 안 쓰는 파일 뒤에는 아무것도 안 한다."""
+    probe = " UNION ALL ".join(
+        f"SELECT '{table.name}' WHERE EXISTS (SELECT 1 FROM \"{table.name}\")"
+        for table in Base.metadata.tables.values()
+    )
     with engine.begin() as connection:
         connection.execute(text("SET LOCAL lock_timeout = '10s'"))
-        connection.execute(text(f"TRUNCATE {names} RESTART IDENTITY CASCADE"))
+        filled = [str(row[0]) for row in connection.execute(text(probe))]
+        if filled:
+            names = ", ".join(f'"{name}"' for name in filled)
+            connection.execute(text(f"TRUNCATE {names} RESTART IDENTITY CASCADE"))
 
 
 @pytest.fixture
