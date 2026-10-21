@@ -277,10 +277,13 @@ cd backend && .venv/bin/python scripts/generate_jig.py            # 시연 제�
 
 ## 배포와 릴리스
 
-**번들은 태그에서 나온다.** `git tag v0.1.0 && git push origin v0.1.0` → Actions 가
-`ci.yml` 전체를 먼저 돌리고(통과해야 한다), `deploy/build_bundle.sh` 로 tar.gz 하나를 만들어
-릴리스에 붙인다. 검증을 릴리스 쪽에 한 벌 더 적지 않는다 — 두 벌이 되면 한쪽만 고쳐지고,
-그때부터 「CI 는 통과인데 릴리스는 다른 것을 본다」 가 된다.
+**번들은 태그에서 나온다.** `git tag v0.1.0 && git push origin v0.1.0` → Actions 가 검증을
+통과한 것만 `deploy/build_bundle.sh` 로 tar.gz 하나로 만들어 릴리스에 붙인다. 검증을 릴리스 쪽에
+한 벌 더 적지 않는다 — 두 벌이 되면 한쪽만 고쳐지고, 그때부터 「CI 는 통과인데 릴리스는 다른
+것을 본다」 가 된다. 그래서 릴리스는 `ci.yml` 을 불러 쓰는데, **태그가 가리키는 바로 그 커밋이
+main 에서 24시간 안에 CI 를 통과했으면 다시 돌리지 않는다**(같은 코드를 두 번 돌리는 10분).
+그 결과가 없거나 · 오래됐거나 · 못 읽으면 예전처럼 여기서 CI 전체를 돌린다 — 그러니 main 에
+올리고 **CI 가 초록인 것을 본 뒤에** 태그를 밀면 빠르다(`release.yml` 머리말).
 
 - 받는 PC 는 저장소를 안 받는다. `deploy/pc/fetch-release.{sh,ps1,bat}` 이 릴리스를 받아
   체크섬까지 본다. 저장소가 공개라 토큰은 필요 없다 — 비공개 포크로 쓸 때만 `GH_TOKEN`.
