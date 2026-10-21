@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from collections.abc import Iterator
@@ -18,7 +19,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -286,6 +287,92 @@ def test_허용_목록_밖에서는_403(
 ) -> None:
     monkeypatch.setattr(get_settings(), "heax_sso_allowed_ips", "10.0.0.5")
     assert _ask(client, _email()).status_code == 403
+
+
+def test_verify_는_문지기만_보고_계정과_토큰을_건드리지_않는다(
+    client: TestClient, db: Session, gateway: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """포털이 설정을 점검할 때 부른다 — 맞으면 204 · 비밀 불일치 401 · 허용 밖 403 · 꺼짐 404.
+    이메일이 필요 없고, 이메일 머리를 실어 와도 계정을 만들거나 토큰을 지우지 않는다."""
+    email, stranger = _email(), _email()
+    token = _ask(client, email).json()["data"]["access_token"]
+    users = db.scalar(select(func.count()).select_from(User))
+    tokens = db.scalar(select(func.count()).select_from(PersonalAccessToken))
+
+    def verify(secret: str = SECRET, **headers: str) -> int:
+        got = client.post(
+            "/api/auth/sso/verify", headers={"X-Heax-Gateway-Secret": secret, **headers}
+        )
+        return int(got.status_code)
+
+    assert verify() == 204
+    assert verify("nope") == 401
+    # 모르는 사람 · 있는 사람의 머리를 실어 와도 문지기만 본다.
+    people = {"X-Hwax-Delegate-Email": stranger, "X-Heax-User-Email": email}
+    assert verify(**people, **{"X-Heax-Client": "mcp"}) == 204
+    db.expire_all()
+    assert db.scalar(select(func.count()).select_from(User)) == users
+    assert db.scalar(select(func.count()).select_from(PersonalAccessToken)) == tokens
+    assert client.get("/api/works", headers=_bearer(token)).status_code == 200
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "heax_sso_allowed_ips", "10.0.0.5")
+    assert verify() == 403
+    monkeypatch.setattr(settings, "heax_sso_secret", "")
+    assert verify() == 404
+
+
+def test_위임_머리가_먼저다_다르면_경고하고_위임_머리로_간다(
+    client: TestClient, db: Session, gateway: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    """게이트웨이는 그 사람을 `X-Hwax-Delegate-Email` 로 따로 싣는다 — 도중의 프록시가
+    `X-Heax-User-Email` 을 서비스 토큰의 주인으로 바꾸는 앱이 있어서다. 그 값을 믿으면 남의
+    이름으로 토큰이 나간다(SP ADR 0028 과 같은 계약)."""
+    person, service = _email(), _email()
+    only = client.post(
+        "/api/auth/sso",
+        headers={
+            "X-Heax-Gateway-Secret": SECRET,
+            "X-Hwax-Delegate-Email": person.upper(),
+            "X-Heax-Client": "mcp",
+        },
+    )
+    assert only.status_code == 200, only.text  # 위임 머리만 와도 된다
+
+    with caplog.at_level(logging.WARNING, logger="app.modules.auth.sso"):
+        both = _ask(client, service, **{"X-Hwax-Delegate-Email": person})
+    assert both.status_code == 200, both.text
+    token = both.json()["data"]["access_token"]
+    assert client.get("/api/auth/me", headers=_bearer(token)).json()["email"] == person
+    assert "위임 머리" in caplog.text and service in caplog.text
+    # 바뀐 이메일 머리(서비스 계정의 주인)로는 아무것도 하지 않았다.
+    assert db.scalar(select(User.id).where(User.email == service)) is None
+
+    # 회수도 같다 — 위임 머리의 사람 것을 끊는다.
+    cut = client.post(
+        "/api/auth/sso/revoke",
+        headers={
+            "X-Heax-Gateway-Secret": SECRET,
+            "X-Hwax-Delegate-Email": person,
+            "X-Heax-User-Email": service,
+            "X-Heax-Client": "mcp",
+        },
+    )
+    assert cut.status_code == 200 and cut.json()["revoked"] == 1
+    assert client.get("/api/auth/me", headers=_bearer(token)).status_code == 401
+
+    # 위임 머리가 이메일이 아니면 이메일 머리로 내려가지 않는다 — 형식 오류로 말한다.
+    bad = _ask(client, person, **{"X-Hwax-Delegate-Email": "not-an-email"})
+    assert bad.status_code == 401 and "X-Hwax-Delegate-Email" in bad.text
+
+
+def test_모르는_사람의_회수는_0_이메일이_없으면_400(client: TestClient, gateway: None) -> None:
+    headers = {"X-Heax-Gateway-Secret": SECRET, "X-Heax-Client": "mcp"}
+    unknown = client.post(
+        "/api/auth/sso/revoke", headers={**headers, "X-Hwax-Delegate-Email": _email()}
+    )
+    assert unknown.status_code == 200 and unknown.json()["revoked"] == 0
+    assert client.post("/api/auth/sso/revoke", headers=headers).status_code == 400
 
 
 def test_위임_토큰은_그_사람의_것이고_client_마다_하나다(

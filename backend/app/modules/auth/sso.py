@@ -23,6 +23,14 @@
 범위가 붙어 **관리자 기능은 막힌다**(AI 가 채팅으로 계정 · 서버 설정에 손대지 않게 —
 `shared.auth`). 포털 NEW-SYSTEM-ASK 6규칙: 상수 시간 비교 · 비밀 없으면 404 · 불일치 401 ·
 이메일 형식 아니면 401 · 모르는 이메일 생성 · 같은 client 직전 토큰 회수 + revoke 짝.
+
+위임 창구의 머리 — 세 플랫폼(SP · CompCore · SimEngBay)이 같다(SP ADR 0028 · `delegation.py`):
+
+    X-Heax-Gateway-Secret   이 설치만의 공유 비밀(`HEAX_SSO_SECRET`) — 상수 시간으로 견준다
+    X-Hwax-Delegate-Email   그 사람(게이트웨이가 확인한 신원) — **이것이 먼저다**
+    X-Heax-User-Email       같은 값(옛 계약) — 위임 머리가 없을 때만
+    X-Heax-User-Name        퍼센트 인코딩 이름 — 처음 만들 때 표시 이름
+    X-Heax-Client           토큰 이름에 든다(client 마다 하나)
 """
 
 from __future__ import annotations
@@ -63,6 +71,9 @@ DELEGATE_NAME = "HWAX 포털 게이트웨이"
 #: 위임 토큰의 범위 — `portal` 은 「포털이 대신 들고 온 것」 표시다(관리자 기능을 막는다).
 DELEGATE_SCOPES = ["read", "write", "portal"]
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+#: 게이트웨이가 확인한 그 사람 — 이메일 머리보다 먼저 읽는다(`_asked_email`).
+DELEGATE_HEADER = "x-hwax-delegate-email"
+EMAIL_HEADER = "x-heax-user-email"
 
 
 class SsoError(Exception):
@@ -303,14 +314,30 @@ def _gate(request: Request) -> None:
 
 
 def _asked_email(request: Request) -> str:
-    email = (request.headers.get("x-heax-user-email") or "").strip().lower()
+    """누구의 토큰인가 — `X-Hwax-Delegate-Email` 이 먼저, 없을 때만 `X-Heax-User-Email`.
+
+    게이트웨이가 위임 머리를 따로 싣는 까닭: 도중의 프록시가 `X-Heax-User-Email` 을 서비스
+    토큰의 주인으로 바꾸는 앱이 있다. 그 값을 믿으면 **남의 이름으로** 토큰이 나간다. 둘이
+    다르면 경고를 남기고 위임 머리로 간다(SP `delegation.py` 와 같다)."""
+    delegate = (request.headers.get(DELEGATE_HEADER) or "").strip().lower()
+    claimed = (request.headers.get(EMAIL_HEADER) or "").strip().lower()
+    if delegate and claimed and delegate != claimed:
+        logger.warning(
+            "auth/sso: 위임 머리(%s)와 이메일 머리(%s)가 다르다 — 위임 머리로 간다",
+            delegate,
+            claimed,
+        )
+    email = delegate or claimed
     if not email:
-        raise AppError(code("AUTH", 113), "X-Heax-User-Email이 필요합니다.", status=400)
+        raise AppError(
+            code("AUTH", 113),
+            "X-Hwax-Delegate-Email(또는 X-Heax-User-Email)이 필요합니다.",
+            status=400,
+        )
     if not _EMAIL.match(email):
         # 형식 검사 없이는 쓰레기 문자열로 계정이 만들어진다(NEW-SYSTEM-ASK).
-        raise AppError(
-            code("AUTH", 113), "X-Heax-User-Email이 이메일 형식이 아닙니다.", status=401
-        )
+        header = "X-Hwax-Delegate-Email" if delegate else "X-Heax-User-Email"
+        raise AppError(code("AUTH", 113), f"{header}이 이메일 형식이 아닙니다.", status=401)
     return email
 
 

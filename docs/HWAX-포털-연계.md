@@ -71,7 +71,8 @@ refresh 쿠키 + access 토큰)을 준다.
 ```
 POST /api/auth/sso
   X-Heax-Gateway-Secret: <HEAX_SSO_SECRET>
-  X-Heax-User-Email:     kim@example.com
+  X-Hwax-Delegate-Email: kim@example.com                  (그 사람 — 이것이 먼저다)
+  X-Heax-User-Email:     kim@example.com                  (옛 계약 — 위임 머리가 없을 때만)
   X-Heax-User-Name:      %ED%99%8D%EA%B8%B8%EB%8F%99     (퍼센트 인코딩, 처음 만들 때 표시 이름)
   X-Heax-Client:         mcp                              (client 마다 토큰 하나)
 
@@ -87,9 +88,16 @@ POST /api/auth/sso
 | 이메일 없음 · 형식 아님 | 400 · 401 |
 | 정지 · 삭제된 계정, 자동 생성 꺼짐 | 403(404 는 「창구 꺼짐」 으로 예약) |
 | 같은 사람 · 같은 client 로 다시 받음 | 직전 토큰을 지우고 새로 준다 |
+| 위임 머리와 이메일 머리가 다르다 | 경고 로그를 남기고 위임 머리의 사람으로 |
 
-`POST /api/auth/sso/verify` 는 비밀만 확인한다(204). `POST /api/auth/sso/revoke` 는 그 사람 · 그
-client 의 토큰을 지운다(`{"ok": true, "revoked": n}`).
+**위임 머리가 먼저다**(`X-Hwax-Delegate-Email`, 세 플랫폼 공통 — SP ADR 0028). 도중의 프록시가
+`X-Heax-User-Email` 을 서비스 토큰의 주인으로 바꾸는 앱이 있어, 게이트웨이는 그 사람을 위임
+머리로 따로 싣는다. 이메일 머리를 믿으면 남의 이름으로 토큰이 나간다.
+
+`POST /api/auth/sso/verify` 는 문지기 검사만 한다 — 꺼짐 404 · 허용 밖 403 · 비밀 불일치 401 ·
+맞으면 204. 이메일이 필요 없고 계정 · 토큰을 건드리지 않는다. `POST /api/auth/sso/revoke` 는 그
+사람 · 그 client 의 토큰을 지운다(`{"ok": true, "revoked": n}` — 모르는 사람이면 0, 머리는 `/sso`
+와 같다).
 
 **위임 토큰의 울타리** — 토큰은 2일짜리이고 범위는 `read` · `write` · `portal` 이다. `portal`
 범위가 있으면:
