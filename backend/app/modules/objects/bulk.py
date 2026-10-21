@@ -3271,7 +3271,6 @@ def export_relations(db: Session, user: User, object_type: ObjectType) -> list[d
         )
     # 원 표(system)로 가는 선도 같은 파일에 — 도착점은 그 표의 식별자(부서 slug 등)로.
     # 안 실으면 내보낸 파일을 다시 넣었을 때 그 선만 빠지고, 빠진 것은 안 보인다.
-    types = system.types_by_slug(db)
     srcs = {
         one.id: one
         for one in db.scalars(
@@ -3290,6 +3289,9 @@ def export_relations(db: Session, user: User, object_type: ObjectType) -> list[d
                 .order_by(ObjectLink.created_at)
             )
         )
+        # 타입 표는 **선이 있을 때만** 읽는다 — 통째 내보내기가 타입마다 이 함수를 불러, 늘
+        # 읽으면 타입 수 x 타입 수가 됐다(CompCore, 2026-10-21 — SP 6e5a773 에서 옮긴 그대로).
+        types = system.types_by_slug(db) if link_rows else {}
         for link in link_rows:
             target_type = types.get(link.dst_type)
             if target_type is None or not system.is_system(target_type):

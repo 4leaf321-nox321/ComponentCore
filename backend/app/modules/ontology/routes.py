@@ -1689,11 +1689,11 @@ def rename_interface_option(
             f"「{payload.to_value}」 은 이미 있는 값입니다. 둘을 합치려면 먼저 저장된 값을 "
             "옮기세요."
         )
-    implementers = [
-        one
-        for one in db.scalars(select(ObjectType))
-        if one.slug in interfaces.implementers(interfaces.load(db), slug)
-    ]
+    # 구현 타입은 **한 번** 센다 — 조건 안에서 세면 타입마다 정의 전체를 다시 읽어(타입 수 x
+    # 정의 수) 정의가 쌓인 DB 에서 한 번의 이름 바꾸기가 50초를 넘었다(CompCore, 2026-10-21 —
+    # SP 6e5a773 에서 옮긴 그대로였다).
+    implementing = set(interfaces.implementers(interfaces.load(db), slug))
+    implementers = [one for one in db.scalars(select(ObjectType)) if one.slug in implementing]
     total = 0
     for one in implementers:
         prop = db.scalar(
@@ -2514,7 +2514,7 @@ def _property_deletion(db: Session, owner: ObjectType, row: PropertyDef) -> _Del
     def drop() -> None:
         db.execute(delete(PropertyDef).where(PropertyDef.id == row.id))
 
-    found.warnings.extend(retype.breaking(db, drop))
+    found.warnings.extend(retype.breaking(db, drop, [row.key]))
     field = f"properties.{row.key}"
     for source in db.scalars(select(DataSource).where(DataSource.type_id == owner.id)):
         columns = (source.mapping or {}).get("columns") or []

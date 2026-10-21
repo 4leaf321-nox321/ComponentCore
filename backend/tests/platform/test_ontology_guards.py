@@ -661,3 +661,37 @@ def test_속성을_지우기_전에_딸린_뷰와_지표를_말한다(client: Te
         headers=admin.headers,
     ).json()
     assert any("판매 수량" in one for one in retyped["warnings"]), retyped["warnings"]
+
+
+def test_다른_타입이_이어진_주소로_쓰는_속성도_지우기_전에_말한다(
+    client: TestClient, admin: Signed
+) -> None:
+    """뷰 · 지표 흉내는 **바뀌는 키가 정의에 나오는 것만** 돈다(CompCore, 2026-10-21 — 모든
+    지표를 두 번씩 지어 점검이 10초를 넘었다). 다른 타입의 지표가 이어진 주소
+    (`ref.<참조>.<키>`)로 그 속성을 쓰면 키가 글자로 나오므로 여전히 걸려야 한다."""
+    vendor = _make_type(client, admin, label="공급사")
+    _make_property(client, admin, vendor, key="country", label="국가", data_type="text")
+    part = _make_type(client, admin, label="부품")
+    _make_property(
+        client, admin, part, key="vendor", label="공급사", data_type="object_ref",
+        ref_type_slug=vendor,
+    )  # fmt: skip
+    chained = client.post(
+        "/api/metrics",
+        params={"recompute": False},
+        json={
+            "slug": _uniq("m"),
+            "label": "공급국별 부품",
+            "source_type_slug": part,
+            "spec": {"dimensions": [{"name": "country", "address": "ref.vendor.country"}]},
+        },
+        headers=admin.headers,
+    )
+    assert chained.status_code == 201, chained.text
+
+    plan = client.get(
+        "/api/ontology/delete-plan",
+        params={"kind": "property", "slug": vendor, "key": "country"},
+        headers=admin.headers,
+    ).json()
+    assert any("공급국별 부품" in one for one in plan["warnings"]), plan["warnings"]

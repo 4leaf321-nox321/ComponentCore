@@ -26,7 +26,7 @@ import hashlib
 import json
 import re
 import uuid
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -980,7 +980,15 @@ def _metric_error(db: Session, metric: Any) -> str | None:
     return None
 
 
-def breaking(db: Session, mutate: Callable[[], None]) -> list[str]:
+def _mentions(spec: Any, keys: Collection[str]) -> bool:
+    """정의 어딘가에 그 키가 **글자로** 나오나 — 넉넉하게 잡는다(다른 낱말 속에 든 것도)."""
+    text = json.dumps(spec or {}, ensure_ascii=False, default=str)
+    return any(key in text for key in keys)
+
+
+def breaking(
+    db: Session, mutate: Callable[[], None], keys: Collection[str] | None = None
+) -> list[str]:
     """저장된 뷰 · 홈 위젯 · **지표** 가운데 `mutate` 로 **새로** 깨지는 것.
 
     손으로 견주지 않고 **흉내 낸다** — 세이브포인트 안에서 바꾼 뒤, 저장할 때 · 계산할 때와
@@ -988,12 +996,20 @@ def breaking(db: Session, mutate: Callable[[], None]) -> list[str]:
     손으로 견주면 다른 타입의 뷰 · 지표를 놓친다. 원래 깨져 있던 것은 이 변경 탓이 아니라
     말하지 않는다. 속성 삭제(`ontology.routes`)와 종류 변경이 함께 쓴다 — 지표는 예전에 둘 다
     안 봤다(2026-10-08).
+
+    `keys`(바뀌는 속성의 키)를 주면 **그 키가 정의에 나오는 것만** 흉내 낸다. 뷰 · 지표는 쓰는
+    칸을 모두 이름(주소)으로 적으므로, 키가 안 나오는 정의는 이 변경으로 결과가 같다. 안
+    거르면 모든 지표를 두 번씩 지어, 지표가 쌓인 DB 에서 속성 하나 지우는 점검이 10초를
+    넘었다(CompCore, 2026-10-21 — SP 6e5a773 에는 거르기가 없다).
     """
     from app.modules.metrics.models import MetricDef
     from app.modules.objects.models import SavedView
 
     saved = list(db.scalars(select(SavedView)))
     metrics = list(db.scalars(select(MetricDef)))
+    if keys is not None:
+        saved = [one for one in saved if _mentions([one.query, one.summary], keys)]
+        metrics = [one for one in metrics if _mentions(one.spec, keys)]
     if not saved and not metrics:
         return []
     before = {one.id: _view_error(db, one) for one in saved}
@@ -1043,4 +1059,4 @@ def _views_breaking(db: Session, targets: list[Target]) -> list[str]:
             for name, value in interfaces.shape_of(target.after).written().items():
                 setattr(definition, name, value)
 
-    return breaking(db, write)
+    return breaking(db, write, [target.key for target in targets])
