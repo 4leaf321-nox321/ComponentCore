@@ -18,6 +18,8 @@
 #     것(`mcp_server/requirements.txt`)은 범위라, 오래된 CI 는 지금 받는 판을 안 본 것이다
 #   - 그 결과를 읽을 수 있었다 — 못 읽으면(권한 · API 오류) 「통과 안 함」 으로 친다
 # 하나라도 아니면 예전처럼 CI 전체를 여기서 돌린다. CI 가 아직 돌고 있을 때 민 태그도 그렇다.
+# CI 가 **막 끝난** 직후에는 통과가 목록에 늦게 올라온다 — 20초 간격으로 네 번(1분)까지 묻는다
+# (v0.16.5: CI 가 끝나고 40초 뒤에 물어 못 찾고, 같은 커밋의 CI 를 다시 10분 돌렸다).
 
 name: Release
 
@@ -44,7 +46,12 @@ jobs:
           since=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
           query="repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${{ github.sha }}&event=push&status=success&per_page=20"
           # 못 읽으면 0 — 「통과 안 함」 으로 쳐서 CI 를 여기서 돌린다(릴리스를 막지 않는다).
-          found=$(gh api "$query" --jq "[.workflow_runs[] | select(.conclusion == \"success\" and .updated_at >= \"$since\")] | length" 2>/dev/null) || found=0
+          # 막 끝난 CI 는 목록에 늦게 올라온다 — 못 찾으면 20초 뒤에 다시, 네 번까지.
+          for attempt in 1 2 3 4; do
+            found=$(gh api "$query" --jq "[.workflow_runs[] | select(.conclusion == \"success\" and .updated_at >= \"$since\")] | length" 2>/dev/null) || found=0
+            if [ "${found:-0}" -gt 0 ] 2>/dev/null; then break; fi
+            if [ "$attempt" -lt 4 ]; then echo "아직 못 찾음($attempt/4) — 20초 뒤 다시"; sleep 20; fi
+          done
           if [ "${found:-0}" -gt 0 ] 2>/dev/null; then
             echo "passed=true" >> "$GITHUB_OUTPUT"
             echo "같은 커밋(${{ github.sha }})의 main CI 가 24시간 안에 통과했다 — 다시 돌리지 않는다."
