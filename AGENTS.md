@@ -291,6 +291,10 @@ main 에서 24시간 안에 CI 를 통과했으면 다시 돌리지 않는다**(
   **Windows 에서는 못 만든다** — Apptainer 가 리눅스 전용이라 CI 가 그 일을 한다.
 - 번들에 무엇이 들어가야 하는지는 `release.yml` 의 「번들이 온전한가」 가 지킨다. 새 파일을
   `build_bundle.sh` 에 더했으면 그 목록에도 더한다 — 빠진 파일은 **서버에서** 드러난다.
+  MCP 서버의 옆 파일(`server.py` 가 import 하는 `mcp_server/*.py`)은 세 자리 — 번들 · 릴리스 점검 ·
+  서버 설치(`deploy.sh` 는 번들의 `*.py` 를 전부 옮기고, 불러와 본 뒤에 기동한다) — 를
+  `mcp_server/tests/test_bundle_files.py` 가 맞춰 본다(2026-10-23, 서버 설치에서만 빠져 운영 MCP 가
+  되살아나기를 되풀이했다).
 - **문서 · 안내 문구에서 env 는 `sudo` 뒤에 쓴다** — `sudo X=… ./deploy.sh`. `X=… sudo ./deploy.sh` 는
   우분투 기본 sudo(`env_reset`)가 값을 **조용히 버려** 그 명령이 아무 일도 안 한 것이 된다(24.04 운영
   서버에서 확인, 2026-10-05).

@@ -498,7 +498,15 @@ setup_mcp() {
 
     # 1) 소스 배치
     as_op mkdir -p "$md"
-    install -o "$OPERATOR" -g "$OPERATOR" -m 644 "$HERE/mcp_server/server.py" "$md/server.py"
+    # 파이썬 파일은 **번들에 든 것 전부** — server.py 가 옆 파일(ontology · ontology_links …)을
+    # import 한다. 이름을 하나씩 적었더니 기준정보 도구를 더한 판(v0.16.0 ~ v0.16.4)에서 둘이
+    # 빠져, 운영 MCP 가 뜨자마자 죽고 되살아나기를 되풀이했다(2026-10-23). 무엇을 싣나는
+    # build_bundle.sh 가 정하고, release.yml 의 「번들이 온전한가」 가 지킨다.
+    local py
+    for py in "$HERE"/mcp_server/*.py; do
+        [[ -f "$py" ]] || continue
+        install -o "$OPERATOR" -g "$OPERATOR" -m 644 "$py" "$md/$(basename "$py")"
+    done
     # 사용 가이드 — get_guide 가 읽는 본문. server.py 옆 guide/ 에 있어야 한다.
     # 이게 빠지면 get_guide 가 "가이드를 읽을 수 없습니다" 를 돌려주고, AI 는
     # 도구 설명만으로 일하게 된다(치명적이진 않지만 품질이 떨어진다).
@@ -534,7 +542,16 @@ setup_mcp() {
         fi
     fi
 
-    # 4) 유닛 렌더 + 기동
+    # 4) **뜨는지 먼저 본다** — 못 불러오면(빠진 파일 · 의존성) systemd 가 죽고 되살리기를 끝없이
+    #    되풀이하고, 까닭은 journal 에만 남는다. 불러오기만 하고(포트를 열지 않는다) 안 되면 기동하지
+    #    않고 까닭을 말한다 — 백엔드 배포는 그대로 끝난다.
+    local why
+    if ! why=$(as_op env -C "$md" timeout 60 "$md/venv/bin/python" -c "import server" 2>&1); then
+        warn "MCP 서버를 불러오지 못해 기동하지 않습니다(백엔드 영향 없음): $(tail -n 3 <<<"$why")"
+        return 0
+    fi
+
+    # 5) 유닛 렌더 + 기동
     render_mcp_service_unit || return 0
     systemctl enable "$MCP_SERVICE_NAME" >/dev/null 2>&1 || true
     systemctl restart "$MCP_SERVICE_NAME" \
