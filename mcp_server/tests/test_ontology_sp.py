@@ -19,6 +19,7 @@ from typing import Any
 
 import httpx
 import ontology as server  # SP 의 `server` 자리 — 옮긴 도구는 여기 있다
+import pytest
 import server as cc_server  # CompCore 의 서버 — 거기 붙었는지 본다
 from mcp.server.fastmcp import FastMCP
 
@@ -136,7 +137,8 @@ def test_토큰을_그대로_건넨다() -> None:
     seen = _serve(
         lambda _r: httpx.Response(401, json={"error": {"code": "X", "message": "m"}})
     )
-    asyncio.run(server.ontology_schema(_ctx(None)))
+    with pytest.raises(server.BackendUnauthorized):
+        asyncio.run(server.ontology_schema(_ctx(None)))
     assert "authorization" not in seen[0].headers
 
 

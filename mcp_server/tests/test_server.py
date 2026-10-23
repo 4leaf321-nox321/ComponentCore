@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from types import SimpleNamespace
+from typing import Any
 
 import httpx
+import pytest
 import server
 
 
@@ -507,3 +510,150 @@ def test_지그를_고치면_제품과의_간섭을_함께_돌려준다(monkeypa
 
     monkeypatch.setattr(server, "_post", not_jig)
     assert "jig_interference" not in asyncio.run(server.patch_work(None, "w1", []))
+
+
+# --- HWAX 게이트웨이: 401 은 다시 받기 신호로(SP ADR 0028 결정 12) ---------------------
+
+GATEWAY_TOKEN_REJECTED = re.compile(
+    r"^Error executing tool \S+: (?:GET|POST|PUT|PATCH|DELETE) \S+ → HTTP 401\b"
+)
+
+
+def _gateway_serve(monkeypatch: pytest.MonkeyPatch, answer: Any) -> list[httpx.Request]:
+    """CompCore 도구(`server`)와 옮긴 기준정보 도구(`ontology`) 모두 가짜 백엔드로."""
+    import ontology
+
+    seen: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return answer(request)
+
+    transport = httpx.MockTransport(respond)
+    monkeypatch.setattr(server, "_TRANSPORT", transport)
+    monkeypatch.setattr(ontology, "_TRANSPORT", transport)
+    return seen
+
+
+def _through_fastmcp(name: str, arguments: dict[str, Any], authorization: str) -> Any:
+    """게이트웨이가 보는 그대로 — FastMCP 의 도구 호출 처리기(`tools/call`)를 거친 결과.
+    도구에서 난 예외를 FastMCP 가 어떻게 감싸는지까지 이 길에서 돈다."""
+    from mcp import types
+    from mcp.server.lowlevel.server import request_ctx
+    from mcp.shared.context import RequestContext
+
+    handler = server.mcp._mcp_server.request_handlers[types.CallToolRequest]
+    request = SimpleNamespace(headers={"authorization": authorization})
+    held = request_ctx.set(
+        RequestContext(
+            request_id=1, meta=None, session=None, lifespan_context=None, request=request
+        )
+    )
+    try:
+        got = asyncio.run(
+            handler(
+                types.CallToolRequest(
+                    method="tools/call",
+                    params=types.CallToolRequestParams(name=name, arguments=arguments),
+                )
+            )
+        )
+    finally:
+        request_ctx.reset(held)
+    return got.root
+
+
+def _text(result: Any) -> str:
+    """게이트웨이가 읽는 글 — 내용 조각을 이어 붙여 앞뒤 공백을 뗀 것."""
+    return "".join(getattr(one, "text", "") or "" for one in result.content).strip()
+
+
+def test_백엔드가_토큰을_거절하면_게이트웨이가_다시_받는_모양으로_실패한다(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """401 은 결과(`{"error": …}`)가 아니라 **오류**로 — 문구가 게이트웨이의 정규식에 맞아야
+    게이트웨이가 위임 토큰을 새로 받아 한 번 다시 부른다. 읽는 도구 · 쓰는 도구 · 본문이 JSON
+    이 아닌 401 · 옮긴 기준정보 도구(`ontology.py` · `ontology_links.py`) · 글로 받는 도구
+    (`rdf_schema`) 모두 같다."""
+    seen = _gateway_serve(
+        monkeypatch,
+        lambda _r: httpx.Response(
+            401,
+            json={"error": {"code": "CCR-AUTH-0001", "message": "토큰이 유효하지 않습니다."}},
+        ),
+    )
+    got = _through_fastmcp("doe_status", {"study_id": "s1"}, "Bearer old")
+    assert got.isError is True
+    text = _text(got)
+    assert GATEWAY_TOKEN_REJECTED.match(text), text
+    # 경로는 물음표 앞까지 — 서버의 말은 그대로다.
+    assert text == (
+        "Error executing tool doe_status: GET /api/doe/s1/status → HTTP 401: "
+        "[CCR-AUTH-0001] 토큰이 유효하지 않습니다."
+    )
+    assert seen[0].headers["authorization"] == "Bearer old"
+
+    # 쓰는 도구(POST) · 본문이 JSON 이 아닌 401 도 같다.
+    _gateway_serve(monkeypatch, lambda _r: httpx.Response(401, text="Unauthorized"))
+    got = _through_fastmcp("doe_export", {"study_id": "s1"}, "Bearer t")
+    assert got.isError is True and GATEWAY_TOKEN_REJECTED.match(_text(got)), _text(got)
+    assert _text(got).startswith("Error executing tool doe_export: POST /api/doe/s1/export")
+
+    # 옮긴 기준정보 도구 · CompCore 의 기준정보 칸 · 글로 받는 RDF 도 같은 길이다.
+    for name, arguments in (
+        ("ontology_schema", {}),
+        ("ontology_links", {"kind": "part", "id": "p1"}),
+        ("rdf_schema", {}),
+    ):
+        got = _through_fastmcp(name, arguments, "Bearer t")
+        assert got.isError is True, name
+        assert GATEWAY_TOKEN_REJECTED.match(_text(got)), (name, _text(got))
+
+
+def test_401_이_아닌_오류는_결과로_전한다(monkeypatch: pytest.MonkeyPatch) -> None:
+    """권한 없음(403) · 검증(422) 은 토큰 문제가 아니다 — 게이트웨이가 다시 받으면 같은 일이
+    두 번 돈다. 결과로 그대로 전해 Claude 가 서버의 말을 읽는다."""
+    for status in (403, 404, 409, 422, 500):
+        _gateway_serve(
+            monkeypatch,
+            lambda _r, status=status: httpx.Response(
+                status, json={"error": {"code": "CCR-X-0001", "message": "안 됩니다"}}
+            ),
+        )
+        for name, arguments in (("doe_status", {"study_id": "s1"}), ("ontology_schema", {})):
+            got = _through_fastmcp(name, arguments, "Bearer t")
+            assert got.isError is False, (status, name)
+            assert not GATEWAY_TOKEN_REJECTED.match(_text(got))
+            assert "[CCR-X-0001] 안 됩니다" in _text(got), (status, name)
+
+
+#: 이름만 보고도 지움 · 되돌리기 · 멈춤인 도구 — 새로 생기면 위험 목록에 들어 있어야 한다.
+_DESTRUCTIVE_WORDS = (
+    "delete",
+    "remove",
+    "cancel",
+    "undo",
+    "merge",
+    "restore",
+    "unlink",
+    "purge",
+)
+#: 이름은 그렇지만 지우지 않는 것 — 까닭과 함께.
+_NOT_DESTRUCTIVE = {
+    "restore_version": "옛 판을 새 판으로 세운다 — 이력은 그대로 남는다",
+    "restore_work": "지운 작업을 되살린다",
+}
+
+
+def test_위험_도구는_실제_도구이고_이름이_그런_것은_빠짐없다() -> None:
+    """HWAX 게이트웨이에 범용 실행기 차단을 요청하는 목록(SP ADR 0028 결정 13) — 없는 이름을
+    적으면 요청이 헛돌고, 새 지우기 도구를 빠뜨리면 그 도구는 게이트웨이의 이름 규칙(`delete_`
+    로 **시작**)에도 안 걸린다."""
+    tools = {one.name for one in asyncio.run(server.mcp.list_tools())}
+    assert tools >= server.DESTRUCTIVE_TOOLS, server.DESTRUCTIVE_TOOLS - tools
+    named = {
+        one
+        for one in tools
+        if any(word in one for word in _DESTRUCTIVE_WORDS) and one not in _NOT_DESTRUCTIVE
+    }
+    assert named <= server.DESTRUCTIVE_TOOLS, named - server.DESTRUCTIVE_TOOLS

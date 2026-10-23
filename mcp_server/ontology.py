@@ -11,6 +11,9 @@
   (`extensions_schema` · `extension_call` — CompCore 는 그 기제를 넣지 않는다, AGENTS.md).
 - **등록** — SP 는 모듈의 `mcp` 에 곧장 붙인다. 여기서는 모았다가 `register(mcp)` 가 CompCore
   의 서버에 붙인다(`server.py` 의 끝, `mcp.run()` 앞).
+- **401** — 백엔드가 토큰을 거절하면 결과가 아니라 예외로 올린다
+  (`backend_errors.rejected`) — HWAX 게이트웨이의 다시 받기 신호다. SP 는 `6e5a773` 뒤에 같은
+  것을 고쳤다(SP ADR 0028 결정 12).
 
 이 파일은 `port_from_sp.py` 가 SP 의 파일에서 다시 만든다 — 손으로 고치지 말고 그 스크립트를
 고친다. CompCore 에만 있는 것(부품 · 지그의 「기준정보」 칸)은 `ontology_links.py`
@@ -32,6 +35,8 @@ from typing import Any
 from urllib.parse import quote, urlsplit
 
 import httpx
+from backend_errors import BackendUnauthorized as BackendUnauthorized  # 시험이 여기서 본다
+from backend_errors import rejected
 from mcp.server.fastmcp import Context, FastMCP
 
 API_BASE = os.environ.get("PLATFORM_API_BASE", "http://127.0.0.1:8060").rstrip("/")
@@ -161,7 +166,12 @@ def _forward_headers(ctx: Context) -> dict[str, str]:
 
 
 def _unwrap(r: httpx.Response) -> Any:
-    """백엔드 응답 언래핑. 오류 봉투 {error: {code, message, details}} 면 {error,...}."""
+    """백엔드 응답 언래핑. 오류 봉투 {error: {code, message, details}} 면 {error,...}.
+
+    **401 만은 예외로 올린다**(`backend_errors.rejected`) — HWAX 게이트웨이가 위임 토큰을 새로
+    받아 다시 부르는 신호다(CompCore 가 더함, SP ADR 0028 결정 12)."""
+    if r.status_code == 401:
+        raise rejected(r)
     if r.status_code < 400 and not r.content:
         # 돌려줄 게 없는 성공(삭제 등). 그대로 흘리면 도구 결과가 **빈 문자열**이라
         # 모델은 성공했는지 알 수 없다 — 조용한 무동작과 구분이 안 된다.
@@ -2181,6 +2191,8 @@ async def rdf_schema(ctx: Context) -> str:
         response = await client.get(
             "/api/rdf/schema", params={"format": "ttl"}, headers=_forward_headers(ctx)
         )
+        if response.status_code == 401:  # 게이트웨이의 다시 받기 신호(`_unwrap` 과 같다)
+            raise rejected(response)
         response.raise_for_status()
         return response.text
 

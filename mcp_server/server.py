@@ -40,12 +40,46 @@ from urllib.parse import urlencode
 import httpx
 import ontology  # 기준정보(온톨로지) 도구 — SP 에서 옮긴 것(옆 파일)
 import ontology_links  # noqa: F401  (부품 · 지그의 「기준정보」 칸 — 불러야 모인다)
+from backend_errors import rejected
 from mcp.server.fastmcp import Context, FastMCP, Image
 
 API_BASE = os.environ.get("PLATFORM_API_BASE", "http://127.0.0.1:8060").rstrip("/")
 
 # SSE 를 버퍼링하는 프록시 뒤에서는 단발 JSON 응답으로(StandardPlatform 에서 실측한 함정).
 _JSON_RESPONSE = os.environ.get("MCP_JSON_RESPONSE") == "1"
+
+#: **지우거나 되돌려 되살릴 수 없는 도구** — HWAX 게이트웨이의 범용 실행기(`invoke_tool`)가
+#: 막을 목록으로 포털 요청서에 적는다(SP ADR 0028 결정 13). 게이트웨이는 이름이 `delete_` ·
+#: `remove_` · `cancel_` 로 **시작**할 때만 스스로 막는다 — `objects_delete` · `doe_cancel`
+#: 꼴은 여기 있어야 막힌다. 위 열여섯은 SP 의 목록에서 CompCore 에 옮겨 온 도구(이름은
+#: `task_*`), 아래는 CompCore 의 것. 새 지우기 도구를 더하면 여기에도 —
+#: `tests/test_server.py` 가 이름으로 견준다.
+DESTRUCTIVE_TOOLS = frozenset(
+    {
+        "objects_delete",  # 객체 삭제(여럿)
+        "object_merge",  # 둘을 하나로 — 하나가 지워진다
+        "object_restore",  # 지금 값을 이력의 그 값으로 덮는다
+        "attachment_remove",  # 첨부 삭제
+        "relation_remove",  # 관계 삭제
+        "ontology_delete",  # 정의(타입 · 속성 · 관계 종류) 삭제
+        "ontology_restore",  # 정의 전체를 그때로 되돌린다
+        "ontology_retype",  # 속성 종류 변경 — 모든 객체의 값을 바꾼다
+        "ontology_rename_option",  # 고를 값 이름 변경 — 모든 객체의 값을 바꾼다
+        "bulk_edit",  # 여러 객체의 한 칸을 한 값으로
+        "bulk_edit_undo",
+        "bundle_undo",  # 묶음으로 넣은 것을 걷어낸다
+        "task_apply",  # 계획(수천 줄)을 반영한다
+        "task_cancel",
+        "filestore_gc",  # 가리키는 곳 없는 파일을 지운다
+        "review_decide",  # 검토함 결정을 객체에 반영한다
+        # --- CompCore
+        "delete_work",  # 작업 삭제
+        "cancel_job",  # 형상 작업 멈추기
+        "doe_cancel",  # DOE 생성 멈추기
+        "delete_test_preset",  # 시험 프리셋 삭제
+        "ontology_unlink",  # 부품 · 지그에 이은 기준정보 끊기
+    }
+)
 
 mcp = FastMCP(
     os.environ.get("APP_SLUG", "compcore"),
@@ -85,7 +119,12 @@ def _forward_headers(ctx: Context) -> dict[str, str]:
 
 
 def _unwrap(response: httpx.Response) -> Any:
-    """백엔드 응답 언래핑. 오류 봉투는 {error, details} 로 — **서버의 말을 그대로 전한다.**"""
+    """백엔드 응답 언래핑. 오류 봉투는 {error, details} 로 — **서버의 말을 그대로 전한다.**
+
+    **401 만은 예외로 올린다**(`backend_errors.rejected`) — HWAX 게이트웨이가 위임 토큰을 새로
+    받아 다시 부르는 신호다. 401 밖은 결과로 둔다(다시 부르면 쓰기가 두 번 돈다)."""
+    if response.status_code == 401:
+        raise rejected(response)
     if response.status_code < 400 and not response.content:
         return {"ok": True, "message": "완료"}
     try:
@@ -1450,7 +1489,11 @@ async def doe_release(ctx: Context, study_id: str) -> Any:
     마라 — 알린 폴더는 보관 기한을 기다리지 않고 치워진다.
 
     치워지는 것은 **공유 폴더의 사본뿐**이다. 레시피 · 설계점 · 조건은 남아서 `doe_export` 를
-    다시 부르면 같은 폴더가 다시 선다."""
+    다시 부르면 같은 폴더가 다시 선다.
+
+    **SimEngBay 로 풀면 그쪽이 `jobs_create` 로 가져간 뒤에 부른다** — 가져올 때 STEP 을 자기
+    작업 폴더로 복사하므로 그 뒤로는 공유 폴더가 필요 없다. 그 전에 부르면 SimEngBay 의
+    `folder_find` 가 그 폴더를 못 찾는다(치워졌으면 `doe_export` 를 다시)."""
     return await _post(ctx, f"/api/doe/{study_id}/release", None)
 
 

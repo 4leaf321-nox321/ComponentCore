@@ -184,6 +184,34 @@ text = text.replace(
     "      - `platforms` SP 와 함께 붙어 있을 때 — 어디에 물을지(정본은 SP)\n",
 )
 
+# 401 은 결과가 아니라 예외로 — HWAX 게이트웨이가 위임 토큰을 다시 받는 신호(SP ADR 0028 결정 12,
+# SP 에서는 6e5a773 뒤에 고쳤다). 규칙은 `backend_errors.py` 한 곳에 두고 여기서 부른다.
+for old, new in (
+    (
+        """def _unwrap(r: httpx.Response) -> Any:
+    \"\"\"백엔드 응답 언래핑. 오류 봉투 {error: {code, message, details}} 면 {error,...}.\"\"\"
+    if r.status_code < 400 and not r.content:""",
+        """def _unwrap(r: httpx.Response) -> Any:
+    \"\"\"백엔드 응답 언래핑. 오류 봉투 {error: {code, message, details}} 면 {error,...}.
+
+    **401 만은 예외로 올린다**(`backend_errors.rejected`) — HWAX 게이트웨이가 위임 토큰을 새로
+    받아 다시 부르는 신호다(CompCore 가 더함, SP ADR 0028 결정 12).\"\"\"
+    if r.status_code == 401:
+        raise rejected(r)
+    if r.status_code < 400 and not r.content:""",
+    ),
+    (
+        """        response.raise_for_status()
+        return response.text""",
+        """        if response.status_code == 401:  # 게이트웨이의 다시 받기 신호(`_unwrap` 과 같다)
+            raise rejected(response)
+        response.raise_for_status()
+        return response.text""",
+    ),
+):
+    assert text.count(old) == 1, old[:60]
+    text = text.replace(old, new)
+
 HEADER = '''"""CompCore MCP 의 **기준정보(온톨로지) 도구** — StandardPlatform `6e5a773` 의
 `mcp_server/server.py` 에서 옮겼다(ADR 0008). 도구 이름 · 설명 · 규칙은 SP 와 같고, 다른 것은
 아래뿐이다:
@@ -197,6 +225,9 @@ HEADER = '''"""CompCore MCP 의 **기준정보(온톨로지) 도구** — Standa
   (`extensions_schema` · `extension_call` — CompCore 는 그 기제를 넣지 않는다, AGENTS.md).
 - **등록** — SP 는 모듈의 `mcp` 에 곧장 붙인다. 여기서는 모았다가 `register(mcp)` 가 CompCore
   의 서버에 붙인다(`server.py` 의 끝, `mcp.run()` 앞).
+- **401** — 백엔드가 토큰을 거절하면 결과가 아니라 예외로 올린다
+  (`backend_errors.rejected`) — HWAX 게이트웨이의 다시 받기 신호다. SP 는 `6e5a773` 뒤에 같은
+  것을 고쳤다(SP ADR 0028 결정 12).
 
 이 파일은 `port_from_sp.py` 가 SP 의 파일에서 다시 만든다 — 손으로 고치지 말고 그 스크립트를
 고친다. CompCore 에만 있는 것(부품 · 지그의 「기준정보」 칸)은 `ontology_links.py`
@@ -218,6 +249,8 @@ from typing import Any
 from urllib.parse import quote, urlsplit
 
 import httpx
+from backend_errors import BackendUnauthorized as BackendUnauthorized  # 시험이 여기서 본다
+from backend_errors import rejected
 from mcp.server.fastmcp import Context, FastMCP
 
 API_BASE = os.environ.get("PLATFORM_API_BASE", "http://127.0.0.1:8060").rstrip("/")
@@ -432,6 +465,18 @@ tests = tests.replace(
 )
 tests = tests.replace('"/api/jobs', '"/api/tasks').replace('f"/api/jobs', 'f"/api/tasks')
 tests = tests.replace('"/api/search"', '"/api/object-search"')
+# 401 은 예외 — 위의 `_unwrap` 패치와 짝. SP 지금 판의 같은 시험과 같다(SP ADR 0028 결정 12).
+_old_401 = """    asyncio.run(server.ontology_schema(_ctx(None)))
+    assert "authorization" not in seen[0].headers"""
+assert tests.count(_old_401) == 1, "토큰 시험의 401 자리가 바뀌었다"
+tests = tests.replace(
+    _old_401,
+    """    with pytest.raises(server.BackendUnauthorized):
+        asyncio.run(server.ontology_schema(_ctx(None)))
+    assert "authorization" not in seen[0].headers""",
+)
+if "\nimport pytest\n" not in tests:
+    tests = tests.replace("import httpx\n", "import httpx\nimport pytest\n", 1)
 for old, new in TOOL_RENAMES.items():
     if old == "search":
         tests = tests.replace("server.search(", "server.object_search(")

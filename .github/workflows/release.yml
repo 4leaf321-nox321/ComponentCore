@@ -123,7 +123,7 @@ jobs:
           # 기준정보 도구(`ontology*.py`)는 server.py 가 import 한다 — 빠지면 뜨자마자 죽는다.
           for f in mcp_server/server.py mcp_server/requirements.txt mcp_server/guide/GUIDE.md \
                    mcp_server/ontology.py mcp_server/ontology_links.py \
-                   mcp_server/guide/ONTOLOGY.md; do
+                   mcp_server/backend_errors.py mcp_server/guide/ONTOLOGY.md; do
             grep -qx "$f" /tmp/have.txt || { echo "번들에 $f 가 없습니다"; exit 1; }
           done
           grep -q '^mcp_server/wheels/' /tmp/have.txt \
