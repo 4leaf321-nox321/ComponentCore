@@ -2072,6 +2072,13 @@ def _point_warnings(geometry: dict[str, Any] | None) -> list[str]:
     mid_error = (geometry or {}).get("mid_error")
     if mid_error:
         found.append(f"중간면: {mid_error}")
+    bare = (geometry or {}).get("unmaterialed")
+    if bare:
+        # 해석 쪽(SimEngBay)은 이런 점을 걸지 않는다 — 강체도 요소로 메시하면 재료가 있어야
+        # 하고, 질량 · 관성이 고유진동수를 바꾼다(2026-10-23).
+        found.append(
+            f"재료가 없는 파트: {', '.join(bare)} — 해석 제외가 아니면 재료가 있어야 합니다"
+        )
     return found
 
 
@@ -2530,6 +2537,20 @@ def run_job(
                             json.dumps(topo, ensure_ascii=False, indent=2), encoding="utf-8"
                         )
                         point.point_file = f"points/{point_name}"
+                        # **재료가 빈 파트** — 조건이 있는 스터디만(형상만 훑는 DOE 에는 재료가
+                        # 없어도 된다). 해석 제외는 뺀다.
+                        bare = (
+                            condition_model.unmaterialed(
+                                this_point,
+                                [
+                                    str(one["name"])
+                                    for one in topo.get("bodies") or []
+                                    if one.get("name")
+                                ],
+                            )
+                            if study.conditions
+                            else []
+                        )
                         point.geometry = {
                             "interference": interference,
                             # manifest.csv 를 나중에 다시 그릴 때(내려받기 API)도
@@ -2539,6 +2560,7 @@ def run_job(
                             "measures": measured or None,
                             "mid_file": mid_file or None,
                             "mid_error": mid_error or None,
+                            "unmaterialed": bare or None,
                         }
                         made += 1
                         rows.append(

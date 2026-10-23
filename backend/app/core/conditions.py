@@ -1556,6 +1556,28 @@ def mesh_skips(raw: dict[str, Any] | None) -> tuple[frozenset[str], frozenset[st
     return frozenset(wall), frozenset(size)
 
 
+def unmaterialed(raw: dict[str, Any] | None, bodies: list[str]) -> list[str]:
+    """**해석 제외가 아닌데 재료가 없는 파트** — 바디 이름 순서대로.
+
+    받는 쪽(SimEngBay)은 이런 설계점을 걸지 않는다: 강체도 요소로 메시하면 재료 단면이 있어야
+    하고, 질량 · 관성이 고유진동수를 바꾼다(2026-10-23). 「전체」 에 붙은 재료는 모든 파트를
+    덮는다."""
+    if not isinstance(raw, dict):
+        return list(bodies)
+    taken: set[str] = set()
+    for one in raw.get("materials") or []:
+        if isinstance(one, dict):
+            taken.update(applied_bodies(one.get("apply_to")))
+    if ALL_BODIES in taken:
+        return []
+    off = {
+        str(one.get("name"))
+        for one in raw.get("body_settings") or []
+        if isinstance(one, dict) and one.get("suppressed")
+    }
+    return [one for one in bodies if one not in taken and one not in off]
+
+
 def has_global_mesh(raw: dict[str, Any] | None) -> bool:
     """사람이 **전역 요소 크기**를 적었나 — 국부 메시 「전체」 의 요소 크기(식이어도 적은
     것이다). 안 적었으면 받는 쪽은 점 파일의 제안값(`mesh_suggestion`)을 쓴다."""

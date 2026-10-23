@@ -21,6 +21,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core import conditions as condition_model
 from tests.api.conftest import Signed
 from tests.api.test_fixture_export import _material, export_root, property_keys  # noqa: F401
 
@@ -127,8 +128,25 @@ def test_시험_규격마다_설계_하나_폴더가_온전히_나간다(
     first = _ok(client.get(f"/api/works/{work['id']}/versions/1", headers=member.headers))
     assert first["job"]["status"] == "done", first["job"]
     conditions = dict(first["conditions"])
-    if not conditions.get("materials"):
-        conditions["materials"] = [_material("M-000138", ["전체"])]
+    # 시편의 물성은 비어 있다 — 비어 있는 파트에만 담는다. 강체 지그에는 생성기가 붙인 기본
+    # 강재가 이미 있다(2026-10-23, 해석은 지그도 재료가 있어야 건다).
+    names = [
+        one["name"]
+        for one in _ok(
+            client.post(
+                "/api/cad/recipe/bodies",
+                json={"recipe": first["recipe"]},
+                headers=member.headers,
+            )
+        )["items"]
+    ]
+    bare = condition_model.unmaterialed(conditions, names)
+    if bare:
+        whole = not conditions.get("materials")
+        conditions["materials"] = [
+            *(conditions.get("materials") or []),
+            _material("M-000138", ["전체"] if whole else bare),
+        ]
 
     study = _ok(
         client.post(
@@ -149,6 +167,10 @@ def test_시험_규격마다_설계_하나_폴더가_온전히_나간다(
     assert point["unresolved"] == [], f"{name}: 영역을 못 찾았다 {point['unresolved']}"
     assert point["conditions"]["analysis"]["type"] in ("static", "modal", "harmonic")
     assert point["conditions"]["materials"], f"{name}: 물성이 없다"
+    bodies = [one["name"] for one in point["bodies"]]
+    assert condition_model.unmaterialed(point["conditions"], bodies) == [], (
+        f"{name}: 재료가 빈 파트 — 해석 쪽이 걸지 않는다"
+    )
     for region, found in point["regions"].items():
         assert found, f"{name}: 선택 그룹 ‘{region}’ 이 비었다"
 

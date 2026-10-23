@@ -378,6 +378,17 @@ gmsh · ccx, 점 파일 · STEP 을 그대로 `topology.json` · `input.step` �
 
 ## 읽을 때 알아 둘 것
 
+- **2026-10-23 — 시험 지그(강체)에도 재료가 붙는다**(SimEngBay 의 요청). 시험 규격으로 만든 작업의
+  강체 지그 — 굽힘의 `롤러_*` · `로딩_노즈*`, 핀 베어링의 `핀` — 에 `materials[]` 한 줄이 생긴다:
+  `ref.source = "compcore-default"`, 이름 「일반 구조용 강(지그 기본)」, payload 는 `density` 7850 kg/m³ ·
+  `poisson_ratio` 0.3 · `values[]` 의 `mechanical.youngs_modulus` 200 GPa(Ansys Structural Steel 과
+  같다). 설치가 `FIXTURE_MATERIAL_CODE` 를 정하면 그 MatNexus 재료(`ref.source = "matnexus"`, 번호 ·
+  id 가 찬다)로 바뀐다. **시편의 물성은 여전히 비어 있다**(사람이 고른다). 제품에 거는 시험은 지그
+  바디를 만들지 않는다 — 받침 · 하중 자리는 제품의 면이고, 제품의 재료가 그대로 간다.
+  - 내보낼 때 해석 제외가 아닌데 재료가 없는 파트가 있으면 `manifest.csv` 의 `warnings` 에 「재료가 없는
+    파트: 롤러_1, … — 해석 제외가 아니면 재료가 있어야 합니다」 가 선다(조건이 있는 스터디만).
+  - 「시험_보드굽힘_JESD22」 · 「시험_숏빔전단_D2344」 · 「시험_핀베어링_D5961」 을 다시 뽑았다 — 지그는
+    기본 강재, 시편은 M-000138(전에는 M-000138 이 「전체」 에 붙어 지그까지 같은 재료였다).
 - **2026-10-23 — 전역 요소 크기 제안(`mesh_suggestion`).** 사람이 메시를 안 정하고 내보내는 일이 잦아,
   점 파일마다 CompCore 가 형상으로 셈한 **제안값**을 따로 싣는다(조건 밖 — 사람이 정한 값과 섞지 않는다).
   **쓰는 차례**: 파트 메시(`body_settings[].mesh.element_size`) · 면 · 엣지 국부 메시는 그대로, 전역

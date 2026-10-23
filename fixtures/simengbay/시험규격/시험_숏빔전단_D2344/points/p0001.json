@@ -258,7 +258,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "488cd84a-f960-4dfc-ad2a-40bec32b82f4",
+      "id": "550fc7c9-6c66-4fa9-ad5b-cb0ef5b122eb",
       "name": "시험_숏빔전단_D2344",
       "method": "factorial",
       "seed": 1
@@ -358,7 +358,59 @@
     "materials": [
       {
         "apply_to": [
-          "전체"
+          "롤러_1",
+          "롤러_2",
+          "로딩_노즈"
+        ],
+        "ref": {
+          "source": "compcore-default",
+          "code": "",
+          "material_id": "",
+          "name": "일반 구조용 강(지그 기본)",
+          "fetched_at": ""
+        },
+        "payload": {
+          "name": "일반 구조용 강(지그 기본)",
+          "values": [
+            {
+              "unit": "GPa",
+              "value_num": 200.0,
+              "property_key": "mechanical.youngs_modulus",
+              "property_name": "탄성계수",
+              "representative": true
+            }
+          ],
+          "density": 7850.0,
+          "density_unit": "kg/m3",
+          "poisson_ratio": 0.3
+        },
+        "deck_formats": [],
+        "converted": {
+          "system": "mm_n_tonne",
+          "density": 7.85e-09,
+          "density_unit": "tonne/mm3",
+          "density_key": "physical.density",
+          "poisson_ratio": 0.3,
+          "poisson_key": "mechanical.poisson_ratio",
+          "properties": [
+            {
+              "item": "탄성계수",
+              "key": "mechanical.youngs_modulus",
+              "unit": "MPa",
+              "points": [
+                {
+                  "temperature_C": null,
+                  "value": 200000.0
+                }
+              ],
+              "representative": true
+            }
+          ]
+        }
+      },
+      {
+        "apply_to": [
+          "시편"
         ],
         "ref": {
           "source": "matnexus",

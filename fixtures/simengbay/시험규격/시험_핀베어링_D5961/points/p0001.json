@@ -189,7 +189,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "87e94781-4372-42a1-a462-387030a0caf0",
+      "id": "4f901d6a-1445-4e31-9a8a-34585df937f2",
       "name": "시험_핀베어링_D5961",
       "method": "factorial",
       "seed": 1
@@ -271,7 +271,57 @@
     "materials": [
       {
         "apply_to": [
-          "전체"
+          "핀"
+        ],
+        "ref": {
+          "source": "compcore-default",
+          "code": "",
+          "material_id": "",
+          "name": "일반 구조용 강(지그 기본)",
+          "fetched_at": ""
+        },
+        "payload": {
+          "name": "일반 구조용 강(지그 기본)",
+          "values": [
+            {
+              "unit": "GPa",
+              "value_num": 200.0,
+              "property_key": "mechanical.youngs_modulus",
+              "property_name": "탄성계수",
+              "representative": true
+            }
+          ],
+          "density": 7850.0,
+          "density_unit": "kg/m3",
+          "poisson_ratio": 0.3
+        },
+        "deck_formats": [],
+        "converted": {
+          "system": "mm_n_tonne",
+          "density": 7.85e-09,
+          "density_unit": "tonne/mm3",
+          "density_key": "physical.density",
+          "poisson_ratio": 0.3,
+          "poisson_key": "mechanical.poisson_ratio",
+          "properties": [
+            {
+              "item": "탄성계수",
+              "key": "mechanical.youngs_modulus",
+              "unit": "MPa",
+              "points": [
+                {
+                  "temperature_C": null,
+                  "value": 200000.0
+                }
+              ],
+              "representative": true
+            }
+          ]
+        }
+      },
+      {
+        "apply_to": [
+          "시편"
         ],
         "ref": {
           "source": "matnexus",

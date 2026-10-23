@@ -2271,9 +2271,11 @@ async def create_specimen_work(
     고정 · 다른 쪽 X 당김, 전단: 한쪽 물림 고정 · 다른 쪽 Y 이동, 이음: 본드 접촉 + 그립)
     까지. `dimensions` 는 그 밖의 시편 치수(프리셋 `specimen` 의 칸 이름 → 값 — 인장의
     `gauge_width` · `radius`, 전단의 `notch_depth` 등). 치수가 레시피 변수라 바로
-    `doe_create` 로 훑고, 조건이 설계점마다 따라간다. 시편의 **물성은 비어 있다** —
-    `condition_material_search` 로 골라 `set_conditions` 로 붙인다(이음은 피착재와 접착층
-    따로)."""
+    `doe_create` 로 훑고, 조건이 설계점마다 따라간다. 시편의 **물성은 비어 있다(지그는 기본
+    강재)** — `condition_material_search` 로 골라 `set_conditions` 로 붙인다(이음은 피착재와
+    접착층 따로). 강체 지그(굽힘의 롤러 · 노즈, 핀 베어링의 핀)에는 일반 구조용 강(설치가
+    MatNexus 재료로 바꿀 수 있다)이 붙어 있다 — 해석은 지그도 재료가 있어야 걸리므로
+    `materials` 를 통째로 줄 때 그 줄을 지우지 않는다."""
     body = {
         "preset_id": preset_id,
         "length": length,

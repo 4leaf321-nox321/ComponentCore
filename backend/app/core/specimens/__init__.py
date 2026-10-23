@@ -9,7 +9,16 @@ from __future__ import annotations
 
 from pydantic import ValidationError
 
-from app.core.specimens import bending, compressive, fastener, lap, product, shear, tensile
+from app.core.specimens import (
+    bending,
+    compressive,
+    fastener,
+    fixture_material,
+    lap,
+    product,
+    shear,
+    tensile,
+)
 from app.core.specimens.bending import SpecimenBuild
 from app.core.specimens.presets import (
     PRODUCT_TESTS,
@@ -73,7 +82,31 @@ def build(
     conditions: bool = True,
 ) -> SpecimenBuild:
     """프리셋의 시험 종류에 맞는 생성기로. 치수는 `dimensions`(시편 칸 이름 → 값)나
-    `length` · `width` · `thickness` 로 바꾸고, 비우면 프리셋 값이다."""
+    `length` · `width` · `thickness` 로 바꾸고, 비우면 프리셋 값이다. 강체 지그에는 기본
+    재료(일반 구조용 강)가 붙는다(`fixture_material`) — 시편의 물성은 비어 있다."""
+    return fixture_material.attach(
+        _drawn(
+            preset,
+            dimensions=dimensions,
+            length=length,
+            width=width,
+            thickness=thickness,
+            fixture=fixture,
+            conditions=conditions,
+        )
+    )
+
+
+def _drawn(
+    preset: Preset,
+    *,
+    dimensions: dict[str, float] | None,
+    length: float | None,
+    width: float | None,
+    thickness: float | None,
+    fixture: bool,
+    conditions: bool,
+) -> SpecimenBuild:
     given = {key: float(value) for key, value in (dimensions or {}).items() if value}
     for key, value in (("length", length), ("width", width), ("thickness", thickness)):
         if value:

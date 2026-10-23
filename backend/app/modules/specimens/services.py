@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -15,13 +16,15 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.core import conditions as condition_model
 from app.core import specimens
 from app.core.recipe import topology
 from app.core.recipe.params import resolve_params
-from app.core.specimens import PRODUCT_TESTS, TESTS, Preset
+from app.core.specimens import PRODUCT_TESTS, TESTS, Preset, SpecimenBuild, fixture_material
 from app.core.specimens.product import FacePick, ProductTestError
 from app.modules.accounts.models import User
+from app.modules.materials import services as materials
 from app.modules.parts import services as parts
 from app.modules.specimens.models import SpecimenPreset
 from app.modules.specimens.schemas import (
@@ -235,12 +238,58 @@ def build(db: Session, request: SpecimenRequest) -> SpecimenBuildOut:
         )
     except ValueError as failure:
         raise AppError(_UNBUILDABLE, str(failure)) from failure
+    made = _installed_fixture_material(db, made)
     return SpecimenBuildOut(
         recipe=made.recipe,
         conditions=made.conditions,
         notes=made.notes,
         values=resolve_params(made.recipe),
     )
+
+
+def _installed_fixture_material(db: Session, made: SpecimenBuild) -> SpecimenBuild:
+    """설치가 정한 지그 재료(`FIXTURE_MATERIAL_CODE` — MatNexus 번호)로 기본 강재를 바꿔
+    끼운다. **못 찾으면 기본 강재를 두고 노트에 그렇다고 적는다** — 재료가 빈 지그는 해석
+    쪽에서 막히므로, 비우는 것보다 강재가 낫다."""
+    wanted = get_settings().fixture_material_code.strip()
+    rows = list((made.conditions or {}).get("materials") or [])
+    index = next(
+        (
+            at
+            for at, one in enumerate(rows)
+            if (one.get("ref") or {}).get("source") == fixture_material.SOURCE
+        ),
+        None,
+    )
+    if not wanted or index is None or made.conditions is None:
+        return made
+    bodies = list(rows[index].get("apply_to") or [])
+    before = fixture_material.note(bodies, fixture_material.DEFAULT_LABEL)
+    try:
+        found = materials.one(db, wanted)
+    except AppError:
+        missed = (
+            f"설치의 지그 재료({wanted})를 찾지 못해 기본 강재를 붙였습니다 — MatNexus 연결과 "
+            "FIXTURE_MATERIAL_CODE 를 확인하십시오."
+        )
+        return replace(made, notes=[*made.notes, missed])
+    rows[index] = {
+        "apply_to": bodies,
+        "ref": {
+            "source": "matnexus-catalog" if found["source"] == "catalog" else "matnexus",
+            "material_id": found["id"],
+            "code": found["code"],
+            "name": found["name"],
+            "fetched_at": datetime.now(UTC).isoformat(),
+        },
+        "payload": found["payload"],
+        "deck_formats": [],
+    }
+    label = f"「{found['name']}」({found['code'] or wanted})"
+    notes = [
+        fixture_material.note(bodies, label) if one == before else one for one in made.notes
+    ]
+    return replace(made, conditions={**made.conditions, "materials": rows}, notes=notes)
 
 
 def create_work(db: Session, user: User, request: SpecimenWorkRequest) -> Work:
