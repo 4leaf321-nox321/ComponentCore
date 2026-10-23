@@ -383,14 +383,21 @@ gmsh · ccx, 점 파일 · STEP 을 그대로 `topology.json` · `input.step` �
   **쓰는 차례**: 파트 메시(`body_settings[].mesh.element_size`) · 면 · 엣지 국부 메시는 그대로, 전역
   크기는 국부 메시 「전체」 의 `element_size` 가 있으면 그것, 없으면 `mesh_suggestion.element_size`.
   - 모양: `{"element_size": 2.5, "basis": "최소 벽 두께(5 mm, 「받침판」)의 절반 — …", "rule": …,
-    "in_conditions": false, "inputs": {"min_wall", "wall_body", "longest", "skipped"}}`. 단위는
-    `length_units.mesh_suggestion`(늘 도면의 mm — SI 로 내보내도 옮기지 않는다).
+    "in_conditions": false, "inputs": {"min_wall", "wall_body", "longest", "skipped", "nodes_estimate",
+    "max_nodes", "capped_from"}}`. 단위는 `length_units.mesh_suggestion`(늘 도면의 mm — SI 로
+    내보내도 옮기지 않는다).
   - 규칙: 솔리드로 푸는 파트(해석 제외 · 쉘 · 강체를 뺀 것)의 최소 벽 ÷ 2 를 가장 긴 변(해석 제외를
     뺀 상자) ÷ 200 ~ ÷ 20 사이로 맞추고 깔끔한 수(1 · 1.2 · 1.5 · 2 · 2.5 · 3 · 4 · 5 · 6 · 8 × 10ⁿ)로
     내린다. 벽을 모르면(시트만 · 솔리드로 푸는 파트가 없음 · 점검 끔) ÷ 20.
+  - **절점 수 상한**(SimEngBay 의 의견): 그 크기의 절점 수를 셈해(`nodes_estimate`) 상한
+    (`max_nodes`, 기본 10만 — CompCore `.env` 의 `MESH_SUGGESTION_MAX_NODES`)을 넘으면 상한 안에 드는
+    가장 작은 깔끔한 수까지 키운다(`capped_from` 이 키우기 전 값). 셈: 솔리드 25 × 부피 ÷ (h² ×
+    min(h, 그 파트의 최소 벽)) — 계수 25 는 보드굽힘 시편 1 mm 의 25만 절점(CalculiX 실측)에 맞췄다 ·
+    쉘 3 × 넓이 ÷ h² · 강체 · 해석 제외 0. 키운 만큼 얇은 벽은 국부 메시로 촘촘히 한다.
   - 예: 「조건_두바디_두재료」 2.5 mm(받침판 벽 5) · 「조건_강체지그_쉘브래킷」 4 mm(셋 다 쉘 · 강체 ·
     해석 제외라 크기 80 ÷ 20) · 「셸모델_시트외팔보」 5 mm(시트만, 100 ÷ 20) · 「시험_보드굽힘_JESD22」
-    0.6 mm(시편 벽 1 의 절반 0.5 가 아래 한도 132 ÷ 200 보다 작다).
+    2 mm(벽 규칙은 0.6 mm 지만 110만 절점쯤이라 상한으로 키움 — 추정 6.4만). 상한에 걸린 것은
+    시험규격 여섯(보드굽힘 · 겹치기이음 · 뽑힘 · 오픈홀 둘 · 인장).
   - 형상 점검(`quality`)에 파트별 최소 벽(`min_wall_by_body`, 이름은 `bodies[].name`)이 늘었다.
   - 모든 픽스처를 다시 뽑았다(「셸모델_*」 셋 포함) — 바뀐 것은 이 세 열쇠뿐이고 값 · 열 · 파일 목록은 같다.
 - **2026-10-20 — 모든 픽스처를 v0.16.0 으로 다시 뽑았다**(「셸모델_*」 셋은 이미 그 판이라 두었다).

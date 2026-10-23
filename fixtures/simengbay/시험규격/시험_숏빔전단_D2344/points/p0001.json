@@ -239,7 +239,7 @@
   "mesh_suggestion": {
     "element_size": 1.2,
     "basis": "가장 긴 변(24 mm)의 1/20 — 벽(4 mm)의 절반보다 작게, 그 방향에 요소 스무 개 이상",
-    "rule": "최소 벽 두께/2 를 가장 긴 변/200 ~ 1/20 사이로 맞추고 깔끔한 수로 내림(mm)",
+    "rule": "최소 벽 두께/2 를 가장 긴 변/200 ~ 1/20 사이로 맞추고 깔끔한 수로 내림(mm) · 추정 절점 수가 상한을 넘으면 그 안에 들 때까지 키움",
     "in_conditions": false,
     "inputs": {
       "min_wall": 4.0,
@@ -249,13 +249,16 @@
         "로딩_노즈",
         "롤러_1",
         "롤러_2"
-      ]
+      ],
+      "nodes_estimate": 11111,
+      "max_nodes": 100000,
+      "capped_from": null
     }
   },
   "point": {
     "number": 1,
     "study": {
-      "id": "6e2af1a2-2a98-42d9-8847-2ed794d3b364",
+      "id": "488cd84a-f960-4dfc-ad2a-40bec32b82f4",
       "name": "시험_숏빔전단_D2344",
       "method": "factorial",
       "seed": 1

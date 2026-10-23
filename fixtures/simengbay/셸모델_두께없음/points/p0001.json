@@ -86,7 +86,7 @@
   "mesh_suggestion": {
     "element_size": 5.0,
     "basis": "가장 긴 변(100 mm)의 1/20 — 벽 두께를 모른다(시트만 있거나 형상 점검을 껐다)",
-    "rule": "최소 벽 두께/2 를 가장 긴 변/200 ~ 1/20 사이로 맞추고 깔끔한 수로 내림(mm)",
+    "rule": "최소 벽 두께/2 를 가장 긴 변/200 ~ 1/20 사이로 맞추고 깔끔한 수로 내림(mm) · 추정 절점 수가 상한을 넘으면 그 안에 들 때까지 키움",
     "in_conditions": false,
     "inputs": {
       "min_wall": null,
@@ -94,13 +94,16 @@
       "longest": 100.0,
       "skipped": [
         "전체"
-      ]
+      ],
+      "nodes_estimate": 240,
+      "max_nodes": 100000,
+      "capped_from": null
     }
   },
   "point": {
     "number": 1,
     "study": {
-      "id": "6272db85-c9af-4e5d-9890-e7e7c380c343",
+      "id": "1c427753-2d0a-4b06-93ea-262572b7d2e1",
       "name": "셸모델_두께없음",
       "method": "factorial",
       "seed": 1

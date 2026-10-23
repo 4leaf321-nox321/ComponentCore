@@ -1,5 +1,5 @@
 {
-  "id": "4235eb20-afa2-44c6-9419-e24b2e26969e",
+  "id": "c5703367-3857-4675-b1c8-b467339e1bfa",
   "name": "셸모델_시트받침조립",
   "description": "",
   "method": "factorial",
@@ -20,7 +20,7 @@
       {
         "id": "imported",
         "op": "import_step",
-        "file": "d3e8bfd1-afab-46e7-9ca7-2455088adcc6",
+        "file": "a80cc3a4-c86f-45d9-901e-1bd6e6b6992b",
         "label": "sheet_on_base.step"
       }
     ],
@@ -264,7 +264,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-2b84b99e@example.local"
+    "email": "member-34182479@example.local"
   },
   "requested_by": null,
   "cloned_from": null

@@ -2425,12 +2425,20 @@ def run_job(
                         # 값과 섞이지 않게. 받는 쪽은 사람이 정한 값이 없을 때만 쓴다.
                         this_point = _point_conditions(study, point.params)
                         skip_wall, skip_size = condition_model.mesh_skips(this_point)
+                        mid_bodies = (topo.get("midsurface") or {}).get("bodies") or []
                         suggested = mesh_suggestion.suggest(
                             topo.get("bodies"),
                             found,
                             in_conditions=condition_model.has_global_mesh(this_point),
                             skip_wall=skip_wall,
                             skip_size=skip_size,
+                            shell=frozenset(condition_model.shell_parts(this_point)),
+                            shell_areas={
+                                str(one["name"]): float(one["area"])
+                                for one in mid_bodies
+                                if one.get("name") and one.get("area")
+                            },
+                            max_nodes=get_settings().mesh_suggestion_max_nodes or None,
                         )
                         if suggested is not None:
                             topo["mesh_suggestion"] = suggested

@@ -68,19 +68,22 @@
   "mesh_suggestion": {
     "element_size": 3.0,
     "basis": "최소 벽 두께(6 mm)의 절반 — 가장 얇은 벽에 요소 두 개",
-    "rule": "최소 벽 두께/2 를 가장 긴 변/200 ~ 1/20 사이로 맞추고 깔끔한 수로 내림(mm)",
+    "rule": "최소 벽 두께/2 를 가장 긴 변/200 ~ 1/20 사이로 맞추고 깔끔한 수로 내림(mm) · 추정 절점 수가 상한을 넘으면 그 안에 들 때까지 키움",
     "in_conditions": false,
     "inputs": {
       "min_wall": 6.0,
       "wall_body": "전체",
       "longest": 100.0,
-      "skipped": []
+      "skipped": [],
+      "nodes_estimate": 64433,
+      "max_nodes": 100000,
+      "capped_from": null
     }
   },
   "point": {
     "number": 1,
     "study": {
-      "id": "96418449-bb59-4166-b036-68de4f967e68",
+      "id": "f5647806-d482-481b-8d32-a9f24f33430c",
       "name": "시험_진동_150Hz",
       "method": "factorial",
       "seed": 1

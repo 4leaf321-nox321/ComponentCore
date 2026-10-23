@@ -1,5 +1,5 @@
 {
-  "id": "28abe5bb-9816-4689-90d8-a233698fffbf",
+  "id": "0c7f621c-f2a9-4801-a345-c8ad76b1fd03",
   "name": "조건_강체지그_쉘브래킷",
   "description": "",
   "method": "factorial",
@@ -534,7 +534,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-fd5b2772@example.local"
+    "email": "member-7372128a@example.local"
   },
   "requested_by": null,
   "cloned_from": null

@@ -143,7 +143,7 @@
   "mesh_suggestion": {
     "element_size": 5.0,
     "basis": "가장 긴 변(100 mm)의 1/20 — 벽 두께를 모른다(시트만 있거나 형상 점검을 껐다)",
-    "rule": "최소 벽 두께/2 를 가장 긴 변/200 ~ 1/20 사이로 맞추고 깔끔한 수로 내림(mm)",
+    "rule": "최소 벽 두께/2 를 가장 긴 변/200 ~ 1/20 사이로 맞추고 깔끔한 수로 내림(mm) · 추정 절점 수가 상한을 넘으면 그 안에 들 때까지 키움",
     "in_conditions": false,
     "inputs": {
       "min_wall": null,
@@ -151,13 +151,16 @@
       "longest": 100.0,
       "skipped": [
         "전체"
-      ]
+      ],
+      "nodes_estimate": 240,
+      "max_nodes": 100000,
+      "capped_from": null
     }
   },
   "point": {
     "number": 1,
     "study": {
-      "id": "bb1d5ee0-a8b4-4471-b4c2-8bbafbc15553",
+      "id": "f1297a14-a623-4dec-9e92-c45584073d9c",
       "name": "셸모델_시트외팔보",
       "method": "factorial",
       "seed": 1

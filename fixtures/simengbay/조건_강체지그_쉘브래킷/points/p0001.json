@@ -261,7 +261,7 @@
   "mesh_suggestion": {
     "element_size": 4.0,
     "basis": "가장 긴 변(80 mm)의 1/20 — 솔리드로 푸는 파트의 벽이 없다(쉘 · 강체 · 해석 제외만 있다)",
-    "rule": "최소 벽 두께/2 를 가장 긴 변/200 ~ 1/20 사이로 맞추고 깔끔한 수로 내림(mm)",
+    "rule": "최소 벽 두께/2 를 가장 긴 변/200 ~ 1/20 사이로 맞추고 깔끔한 수로 내림(mm) · 추정 절점 수가 상한을 넘으면 그 안에 들 때까지 키움",
     "in_conditions": true,
     "inputs": {
       "min_wall": null,
@@ -271,13 +271,16 @@
         "명판",
         "브래킷",
         "지그블록"
-      ]
+      ],
+      "nodes_estimate": 483,
+      "max_nodes": 100000,
+      "capped_from": null
     }
   },
   "point": {
     "number": 1,
     "study": {
-      "id": "28abe5bb-9816-4689-90d8-a233698fffbf",
+      "id": "0c7f621c-f2a9-4801-a345-c8ad76b1fd03",
       "name": "조건_강체지그_쉘브래킷",
       "method": "factorial",
       "seed": 1
