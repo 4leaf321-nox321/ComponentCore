@@ -9,7 +9,7 @@
  * 쌓인다. 「고르기」 타입은 있는 것에서만 고른다(새 이름은 관리자가 그 타입에 만든다).
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Plus, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
@@ -137,9 +137,15 @@ function TagAdder({
   const exact = found.find((one) => one.label.toLowerCase() === name.toLowerCase())
   const options = found.filter((one) => !taken.has(one.object_id))
 
+  const typed = useRef<HTMLInputElement>(null)
+
+  // 붙인 뒤에는 이름 칸으로 돌아간다 — 이어서 치거나 Esc 로 닫는다. 후보 · 「새로 만들기」 를
+  // 누르면 커서가 그 단추에 남아, 칸을 닫으려면 × 를 찾아 눌러야 했다(2026-10-24).
   function pick(body: AddTag) {
+    if (busy) return
     onAdd(body)
     setText('')
+    typed.current?.focus()
   }
 
   function submit() {
@@ -149,7 +155,16 @@ function TagAdder({
   }
 
   return (
-    <div className="relative">
+    // Esc 는 칸 어디서든 닫는다 — 타입 고르개 · 후보 단추에 있을 때도.
+    <div
+      className="relative"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          onClose()
+        }
+      }}
+    >
       <div className="flex items-center gap-1">
         <select
           aria-label="태그 타입"
@@ -164,7 +179,9 @@ function TagAdder({
             </option>
           ))}
         </select>
+        {/* 붙이는 동안에도 칸을 막지 않는다 — 막으면 커서가 빠져 Esc · 이어 치기가 안 된다. */}
         <input
+          ref={typed}
           autoFocus
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -172,13 +189,12 @@ function TagAdder({
             if (e.key === 'Enter') {
               e.preventDefault()
               submit()
-            } else if (e.key === 'Escape') onClose()
+            }
           }}
           placeholder={kind?.can_create ? '이름 (Enter)' : '찾아서 고르기'}
           className="h-6 min-w-32 rounded border bg-transparent px-1 text-xs outline-none"
           aria-label="태그 이름"
           maxLength={80}
-          disabled={busy}
         />
         <button type="button" className="text-muted-foreground hover:text-foreground" onClick={onClose} aria-label="태그 붙이기 닫기">
           <X className="size-3" />

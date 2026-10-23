@@ -71,3 +71,21 @@ test('떼면 서버가 돌려준 목록으로 바뀐다', async () => {
   await waitFor(() => expect(screen.queryByRole('link', { name: 'EMC' })).not.toBeInTheDocument())
   expect(asked.some((one) => one.method === 'DELETE' && one.url.endsWith('/tags/work/w1/o1'))).toBe(true)
 })
+
+test('붙인 뒤에는 이름 칸으로 돌아가고, Esc 는 칸 어디서든 닫는다', async () => {
+  serve()
+  fireEvent.click(await screen.findByRole('button', { name: '태그' }))
+  const input = await screen.findByRole('textbox', { name: '태그 이름' })
+  fireEvent.change(input, { target: { value: '진동' } })
+  const create = await screen.findByRole('button', { name: /「진동」 새로 만들기/ })
+  create.focus()
+  fireEvent.click(create)
+  await waitFor(() => expect(screen.getByRole('textbox', { name: '태그 이름' })).toHaveFocus())
+  expect(screen.getByRole('textbox', { name: '태그 이름' })).toHaveValue('')
+  // 커서가 타입 고르개에 있어도 Esc 로 닫힌다.
+  const select = screen.getByRole('combobox', { name: '태그 타입' })
+  select.focus()
+  fireEvent.keyDown(select, { key: 'Escape' })
+  expect(screen.queryByRole('textbox', { name: '태그 이름' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '태그' })).toBeInTheDocument()
+})
