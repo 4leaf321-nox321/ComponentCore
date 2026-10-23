@@ -194,6 +194,9 @@
       3.333,
       0.0
     ],
+    "min_wall_by_body": {
+      "base": 10.0
+    },
     "shortest_edge": 10.0,
     "short_edges": 0,
     "narrowest_face": 6.6667,
@@ -201,10 +204,24 @@
     "warnings": [],
     "notes": []
   },
+  "mesh_suggestion": {
+    "element_size": 5.0,
+    "basis": "최소 벽 두께(10 mm, 「base」)의 절반 — 가장 얇은 벽에 요소 두 개",
+    "rule": "최소 벽 두께/2 를 가장 긴 변/200 ~ 1/20 사이로 맞추고 깔끔한 수로 내림(mm)",
+    "in_conditions": false,
+    "inputs": {
+      "min_wall": 10.0,
+      "wall_body": "base",
+      "longest": 100.0,
+      "skipped": [
+        "skin"
+      ]
+    }
+  },
   "point": {
     "number": 1,
     "study": {
-      "id": "786bcfb1-80bc-4726-9fd7-95b253fb581e",
+      "id": "4235eb20-afa2-44c6-9419-e24b2e26969e",
       "name": "셸모델_시트받침조립",
       "method": "factorial",
       "seed": 1
@@ -578,6 +595,7 @@
     "geometry": "mm",
     "regions": "mm",
     "midsurface": "mm",
+    "mesh_suggestion": "mm",
     "coordinate_systems": "mm"
   }
 }

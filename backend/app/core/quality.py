@@ -134,14 +134,26 @@ def inspect(shape: Any, limits: dict[str, Any] | None = None) -> dict[str, Any]:
     }
     # 면이 많으면 면마다 쏘는 수를 줄인다 — 점 하나가 몇 초를 넘지 않게.
     samples = 3 if len(faces) * 9 <= MAX_RAYS else 2 if len(faces) * 4 <= MAX_RAYS else 1
+    from app.core.recipe.topology import named_parts
+
     wall: float | None = None
     wall_at: list[float] | None = None
-    for solid in solids:
-        found, at, _ = _wall(solid, samples)
-        if found is not None and (wall is None or found < wall):
-            wall, wall_at = found, at
+    # **파트마다도** 적는다 — 전역 요소 크기 제안(`mesh_suggestion`)이 해석 제외 · 쉘 · 강체
+    # 파트의 얇은 벽을 빼고 보게(해석에서 뺀 1 mm 명판이 80 mm 모델을 0.5 mm 로 제안했다,
+    # 2026-10-23). 광선은 더 쏘지 않는다 — 솔리드마다 재던 것을 파트 이름으로 묶을 뿐이다.
+    by_part: dict[str, float] = {}
+    for name, part in named_parts(shape):
+        for solid in part.solids():
+            found, at, _ = _wall(solid, samples)
+            if found is None:
+                continue
+            if name not in by_part or found < by_part[name]:
+                by_part[name] = found
+            if wall is None or found < wall:
+                wall, wall_at = found, at
     out["min_wall"] = round(wall, 4) if wall is not None else None
     out["min_wall_at"] = wall_at
+    out["min_wall_by_body"] = {name: round(value, 4) for name, value in by_part.items()}
     lengths = [float(one.length) for one in edges]
     short = [one for one in lengths if one < limits["short_edge"]]
     out["shortest_edge"] = round(min(lengths), 4) if lengths else None

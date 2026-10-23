@@ -33,7 +33,7 @@ from app.config import get_settings
 from app.core import conditions as condition_model
 from app.core import doe as engine
 from app.core import export as shapes
-from app.core import frames
+from app.core import frames, mesh_suggestion
 from app.core import measures as measuring
 from app.core import quality as checking
 from app.core.recipe import RecipeError, evaluate, follow, params, parse, topology
@@ -2419,6 +2419,21 @@ def run_job(
                             # 메시가 막힐 자리(얇은 벽 · 짧은 모서리 · 좁은 면 · 쪼개진 바디) —
                             # 해석이 200점 중에서 하나씩 찾게 두지 않는다.
                             topo["quality"] = found
+                        # **전역 요소 크기 제안** — 사람이 메시를 안 정하고 내보내는 일이 잦아
+                        # 해석 쪽이 제 기준으로 정하던 것을, 형상을 가진 쪽이 늘 같은 규칙으로
+                        # 제안한다(`core/mesh_suggestion.py`). 조건에는 안 넣는다 — 사람이 정한
+                        # 값과 섞이지 않게. 받는 쪽은 사람이 정한 값이 없을 때만 쓴다.
+                        this_point = _point_conditions(study, point.params)
+                        skip_wall, skip_size = condition_model.mesh_skips(this_point)
+                        suggested = mesh_suggestion.suggest(
+                            topo.get("bodies"),
+                            found,
+                            in_conditions=condition_model.has_global_mesh(this_point),
+                            skip_wall=skip_wall,
+                            skip_size=skip_size,
+                        )
+                        if suggested is not None:
+                            topo["mesh_suggestion"] = suggested
                         # **이 점이 무엇인가**를 파일이 스스로 말하게 한다 — 결과가 우리에게
                         # 돌아오지 않으므로, 해석 쪽은 파일만 보고 「이 결과가 두께 8 짜리」 를
                         # 알아야 한다.
@@ -2491,6 +2506,8 @@ def run_job(
                             # 중간면의 두께 · 넓이 · 무게중심 · 경계상자도 도면의 mm 다 — 쉘
                             # 두께를 해석 계로 읽으면 SI 에서 1000 배 틀린다.
                             "midsurface": "mm",
+                            # 제안 요소 크기도 도면의 mm — 해석 계로 옮기지 않는다.
+                            "mesh_suggestion": "mm",
                             "coordinate_systems": frame_length,
                         }
                         if placed:

@@ -1536,6 +1536,38 @@ def has_shell(raw: dict[str, Any] | None) -> bool:
     return bool(shell_parts(raw))
 
 
+def mesh_skips(raw: dict[str, Any] | None) -> tuple[frozenset[str], frozenset[str]]:
+    """전역 요소 크기 제안이 **뺄 파트** — (벽 두께에서, 크기에서).
+
+    벽에서는 해석 제외 · 쉘(두께 방향으로 요소를 쌓지 않는다) · 강체(요소를 촘촘히 안 짓는다)를
+    뺀다. 크기에서는 해석 제외만 — 쉘 · 강체도 모델의 크기다."""
+    settings = raw.get("body_settings") if isinstance(raw, dict) else None
+    wall: set[str] = set()
+    size: set[str] = set()
+    for one in settings or []:
+        if not isinstance(one, dict) or not one.get("name"):
+            continue
+        name = str(one["name"])
+        if one.get("suppressed"):
+            wall.add(name)
+            size.add(name)
+        elif one.get("representation") == "shell" or one.get("behavior") == "rigid":
+            wall.add(name)
+    return frozenset(wall), frozenset(size)
+
+
+def has_global_mesh(raw: dict[str, Any] | None) -> bool:
+    """사람이 **전역 요소 크기**를 적었나 — 국부 메시 「전체」 의 요소 크기(식이어도 적은
+    것이다). 안 적었으면 받는 쪽은 점 파일의 제안값(`mesh_suggestion`)을 쓴다."""
+    hints = (raw or {}).get("mesh_hints") if isinstance(raw, dict) else None
+    for one in hints or []:
+        if not isinstance(one, dict) or one.get("on", ALL_BODIES) != ALL_BODIES:
+            continue
+        if one.get("element_size") not in (None, ""):
+            return True
+    return False
+
+
 #: 강체 면에 걸 수 있는 구속 — 받는 쪽(Ansys · CalculiX)은 강체에 하중 · 다른 구속을 걸지
 #: 못하고 멈춘다(SimEngBay, 2026-10-04). 저장할 때 미리 말한다.
 RIGID_CONSTRAINTS = ("fixed_support", "remote_displacement")

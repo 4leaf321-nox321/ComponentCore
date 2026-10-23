@@ -634,6 +634,7 @@ def test_좌표계는_설계점마다_치수를_따라_점_파일에_나간다(
             "geometry": "mm",
             "regions": "mm",
             "midsurface": "mm",
+            "mesh_suggestion": "mm",
             "coordinate_systems": "mm",
         }
 

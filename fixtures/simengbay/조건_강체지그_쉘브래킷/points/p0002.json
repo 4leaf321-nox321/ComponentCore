@@ -246,6 +246,11 @@
       -21.0,
       6.667
     ],
+    "min_wall_by_body": {
+      "지그블록": 20.0,
+      "브래킷": 3.0,
+      "명판": 1.0
+    },
     "shortest_edge": 1.0,
     "short_edges": 0,
     "narrowest_face": 0.9091,
@@ -253,10 +258,26 @@
     "warnings": [],
     "notes": []
   },
+  "mesh_suggestion": {
+    "element_size": 4.0,
+    "basis": "가장 긴 변(80 mm)의 1/20 — 솔리드로 푸는 파트의 벽이 없다(쉘 · 강체 · 해석 제외만 있다)",
+    "rule": "최소 벽 두께/2 를 가장 긴 변/200 ~ 1/20 사이로 맞추고 깔끔한 수로 내림(mm)",
+    "in_conditions": true,
+    "inputs": {
+      "min_wall": null,
+      "wall_body": null,
+      "longest": 80.0,
+      "skipped": [
+        "명판",
+        "브래킷",
+        "지그블록"
+      ]
+    }
+  },
   "point": {
     "number": 2,
     "study": {
-      "id": "fd990b0b-d31b-435d-81f8-4c34cfacd9b7",
+      "id": "28abe5bb-9816-4689-90d8-a233698fffbf",
       "name": "조건_강체지그_쉘브래킷",
       "method": "factorial",
       "seed": 1
@@ -918,6 +939,7 @@
     "geometry": "mm",
     "regions": "mm",
     "midsurface": "mm",
+    "mesh_suggestion": "mm",
     "coordinate_systems": "mm"
   }
 }

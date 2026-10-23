@@ -1,5 +1,5 @@
 {
-  "id": "0e2c9861-2b29-4a92-8db4-7b6565aa2641",
+  "id": "8c9e7bd9-3151-4fb2-854d-bf294777e572",
   "name": "시험_가속도_15g",
   "description": "",
   "method": "factorial",
@@ -268,7 +268,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-56a7dd95@example.local"
+    "email": "member-62939383@example.local"
   },
   "requested_by": null,
   "cloned_from": null

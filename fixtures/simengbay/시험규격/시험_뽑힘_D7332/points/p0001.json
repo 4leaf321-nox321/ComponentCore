@@ -172,6 +172,10 @@
       -4.233,
       7.0
     ],
+    "min_wall_by_body": {
+      "시편": 4.0,
+      "체결구": 3.0
+    },
     "shortest_edge": 3.0,
     "short_edges": 0,
     "narrowest_face": 2.8913,
@@ -179,10 +183,22 @@
     "warnings": [],
     "notes": []
   },
+  "mesh_suggestion": {
+    "element_size": 1.5,
+    "basis": "최소 벽 두께(3 mm, 「체결구」)의 절반 — 가장 얇은 벽에 요소 두 개",
+    "rule": "최소 벽 두께/2 를 가장 긴 변/200 ~ 1/20 사이로 맞추고 깔끔한 수로 내림(mm)",
+    "in_conditions": false,
+    "inputs": {
+      "min_wall": 3.0,
+      "wall_body": "체결구",
+      "longest": 100.0,
+      "skipped": []
+    }
+  },
   "point": {
     "number": 1,
     "study": {
-      "id": "7b88729c-5b4c-4805-8f08-1dedd5b0faaa",
+      "id": "3782df2f-718f-47ac-b4d3-a19a0acedf0d",
       "name": "시험_뽑힘_D7332",
       "method": "factorial",
       "seed": 1
@@ -568,6 +584,7 @@
     "geometry": "mm",
     "regions": "mm",
     "midsurface": "mm",
+    "mesh_suggestion": "mm",
     "coordinate_systems": "mm"
   }
 }

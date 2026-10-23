@@ -158,6 +158,10 @@
       -12.0,
       4.0
     ],
+    "min_wall_by_body": {
+      "시편": 4.0,
+      "핀": 6.0
+    },
     "shortest_edge": 4.0,
     "short_edges": 0,
     "narrowest_face": 3.0,
@@ -165,10 +169,24 @@
     "warnings": [],
     "notes": []
   },
+  "mesh_suggestion": {
+    "element_size": 2.0,
+    "basis": "최소 벽 두께(4 mm, 「시편」)의 절반 — 가장 얇은 벽에 요소 두 개",
+    "rule": "최소 벽 두께/2 를 가장 긴 변/200 ~ 1/20 사이로 맞추고 깔끔한 수로 내림(mm)",
+    "in_conditions": false,
+    "inputs": {
+      "min_wall": 4.0,
+      "wall_body": "시편",
+      "longest": 135.0,
+      "skipped": [
+        "핀"
+      ]
+    }
+  },
   "point": {
     "number": 1,
     "study": {
-      "id": "aa041d19-ee27-4611-a6b9-becf79aa987f",
+      "id": "6b73054b-e190-42f3-a3be-0f6d56d85cb0",
       "name": "시험_핀베어링_D5961",
       "method": "factorial",
       "seed": 1
@@ -527,6 +545,7 @@
     "geometry": "mm",
     "regions": "mm",
     "midsurface": "mm",
+    "mesh_suggestion": "mm",
     "coordinate_systems": "mm"
   }
 }

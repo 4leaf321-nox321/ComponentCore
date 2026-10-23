@@ -71,6 +71,9 @@
       -16.667,
       10.0
     ],
+    "min_wall_by_body": {
+      "전체": 10.0
+    },
     "shortest_edge": 10.0,
     "short_edges": 0,
     "narrowest_face": 8.3333,
@@ -78,10 +81,22 @@
     "warnings": [],
     "notes": []
   },
+  "mesh_suggestion": {
+    "element_size": 4.0,
+    "basis": "가장 긴 변(80 mm)의 1/20 — 벽(10 mm)의 절반보다 작게, 그 방향에 요소 스무 개 이상",
+    "rule": "최소 벽 두께/2 를 가장 긴 변/200 ~ 1/20 사이로 맞추고 깔끔한 수로 내림(mm)",
+    "in_conditions": false,
+    "inputs": {
+      "min_wall": 10.0,
+      "wall_body": "전체",
+      "longest": 80.0,
+      "skipped": []
+    }
+  },
   "point": {
     "number": 2,
     "study": {
-      "id": "40df3ae8-a26a-457f-a9a9-ff3cb13f1ab0",
+      "id": "a00f66e4-b84f-483a-bb37-9d54aa145a57",
       "name": "조건_원통_SI",
       "method": "factorial",
       "seed": 1
@@ -478,6 +493,7 @@
     "geometry": "mm",
     "regions": "mm",
     "midsurface": "mm",
+    "mesh_suggestion": "mm",
     "coordinate_systems": "m"
   }
 }

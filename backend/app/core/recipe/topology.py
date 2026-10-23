@@ -98,13 +98,21 @@ def bodies(shape: Shape) -> list[dict[str, Any]]:
     조립이면 이름표 붙은 구성품마다, 아니면 통째로 하나다. 순서는 레시피가 만든 순서라 설계점이
     바뀌어도 같다 — 그래도 받는 쪽은 **부피 · 무게중심으로 짝짓는다**(순서에 기대지 않는다).
     """
+    return [
+        _body_row(i, part, name) for i, (name, part) in enumerate(named_parts(shape), start=1)
+    ]
+
+
+def named_parts(shape: Shape) -> list[tuple[str, Shape]]:
+    """파트 이름과 그 형상 — `bodies` 와 **같은 이름**(조립이면 이름표, 아니면 「전체」). 형상
+    점검이 파트별 벽 두께를 이 이름으로 적는다(`quality.inspect`)."""
     children = _labeled_children(shape)
     if children:
         return [
-            _body_row(i, child, str(getattr(child, "label", "") or f"body_{i}"))
+            (str(getattr(child, "label", "") or f"body_{i}"), child)
             for i, child in enumerate(children, start=1)
         ]
-    return [_body_row(1, shape, "전체")]
+    return [("전체", shape)]
 
 
 def _face_fingerprint(row: dict[str, Any], face: Any) -> dict[str, Any]:

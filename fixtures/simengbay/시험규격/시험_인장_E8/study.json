@@ -1,5 +1,5 @@
 {
-  "id": "2ce1d399-6925-45f5-a969-5a0eef0bf684",
+  "id": "8d0008c2-7b02-4f60-a7f5-0b231d0161be",
   "name": "시험_인장_E8",
   "description": "",
   "method": "factorial",
@@ -427,7 +427,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-3c44f52a@example.local"
+    "email": "member-80a82b55@example.local"
   },
   "requested_by": null,
   "cloned_from": null
