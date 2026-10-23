@@ -61,6 +61,7 @@ from app.modules.review import routes as review_routes
 from app.modules.search import routes as search_routes
 from app.modules.server import routes as server_routes
 from app.modules.specimens import routes as specimens_routes
+from app.modules.tagging import routes as tagging_routes
 from app.modules.tasks import routes as tasks_routes
 from app.modules.tasks import services as tasks_services
 from app.modules.templates import routes as templates_routes
@@ -68,6 +69,7 @@ from app.modules.voc import routes as voc_routes
 from app.modules.webhooks import routes as webhooks_routes
 from app.modules.webhooks import services as webhooks_services
 from app.modules.works import routes as works_routes
+from app.modules.works import system as works_system
 from app.modules.workspaces import routes as workspaces_routes
 from app.modules.workspaces import services as workspaces_services
 from app.schema_version import warn_if_behind
@@ -103,6 +105,7 @@ def _api_router(settings: Settings) -> APIRouter:
     router.include_router(works_routes.router)
     router.include_router(parts_routes.router)
     router.include_router(jigs_routes.router)
+    router.include_router(tagging_routes.router)
     router.include_router(jobs_routes.router)
     router.include_router(cad_routes.router)
     router.include_router(templates_routes.router)
@@ -159,6 +162,8 @@ def register_platform() -> None:
     # CompCore 의 부품 · 지그 — 기준정보(SP 에서 받은 제품 · 프로젝트 …)가 이것을 가리킨다.
     system_sources.register_system_source(parts_system.SYSTEM_SOURCE)
     system_sources.register_system_source(jigs_system.SYSTEM_SOURCE)
+    # 내 작업 — 태그가 작업에 객체를 붙인다(ADR 0011). **요청의 사람으로 거른다**(주인만).
+    system_sources.register_system_source(works_system.SYSTEM_SOURCE)
     # 변경 이벤트(감사 기록이 커밋된 뒤)를 웹훅 · 지켜보기가 듣는다.
     events.register_listener(webhooks_services.on_events, in_jobs="summary")
     events.register_listener(objects_watches.on_events)
@@ -181,6 +186,7 @@ def register_platform() -> None:
     scopes.register_write_scope("/api/bundles", "objects:write")
     scopes.register_write_scope("/api/tasks", "objects:write")
     scopes.register_write_scope("/api/attachments", "objects:write")
+    scopes.register_write_scope("/api/tags", "objects:write")
     for pattern in (
         "/api/ontology/export",
         "/api/bundles/export",

@@ -35,6 +35,7 @@ from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Artifact, Job
 from app.modules.parts import services as parts_services
 from app.modules.parts.models import Part, PartVersion
+from app.modules.tagging import services as tagging
 from app.modules.works.models import VERSION_SOURCES, WORK_KINDS, Work, WorkVersion
 from app.modules.works.schemas import PromoteJigOut, VersionOut, WorkOut, WorkSummaryOut
 from app.shared import filestore, folders, search, shape_search
@@ -157,7 +158,7 @@ def work_out(db: Session, work: Work) -> WorkOut:
         current=version_out(db, current) if current else None,
         jig_options=work.jig_options,
         unit_system=work.unit_system,
-        tags=list(work.tags or []),
+        tags=tagging.labels(db, work.id),
         folder=work.folder,
         deleted_at=work.deleted_at,
         jig_run_count=runs,
@@ -195,7 +196,7 @@ def work_summary(db: Session, work: Work) -> WorkSummaryOut:
         last_jig_status=last,
         promoted_part_id=part_id,
         promoted_jig_id=jig_id,
-        tags=list(work.tags or []),
+        tags=tagging.labels(db, work.id),
         folder=work.folder,
         created_at=work.created_at,
         updated_at=work.updated_at,
@@ -241,12 +242,15 @@ def list_works(
         base = base.where(Work.owner_id == owner_id)
     base = base.where(Work.deleted_at.is_not(None) if trashed else Work.deleted_at.is_(None))
     found = search.matches(
-        query, columns=[Work.name, Work.description], tags=Work.tags, owner=Work.owner_id
+        query,
+        columns=[Work.name, Work.description],
+        owner=Work.owner_id,
+        also=[tagging.label_like(Work.id)],
     )
     if found is not None:
         base = base.where(found)
     if tag.strip():
-        base = base.where(Work.tags.contains([tag.strip()]))
+        base = base.where(tagging.tagged(Work.id, tag))
     if kind.strip():
         base = base.where(Work.kind == kind.strip())
     base = folders.narrowed(base, Work.folder, folder, subfolders, _BAD_FOLDER)
@@ -267,15 +271,8 @@ def list_works(
 def my_tags(db: Session, owner_id: uuid.UUID | None) -> list[str]:
     """`owner_id` 의 작업(None 이면 모두)에 붙은 꼬리표 전부(지운 것 제외) — 거르개 · 자동
     완성."""
-    found = select(Work.tags).where(Work.deleted_at.is_(None))
-    if owner_id is not None:
-        found = found.where(Work.owner_id == owner_id)
-    rows = db.scalars(found)
-    seen: dict[str, int] = {}
-    for tags in rows:
-        for one in tags or []:
-            seen[one] = seen.get(one, 0) + 1
-    return sorted(seen, key=lambda t: (-seen[t], t))
+    mine = [Work.owner_id == owner_id] if owner_id is not None else []
+    return tagging.label_counts(db, Work, *mine)
 
 
 def my_folders(db: Session, owner_id: uuid.UUID | None) -> list[folders.FolderOut]:
@@ -359,7 +356,7 @@ def duplicate_work(
         kind=work.kind,
         jig_for_part_id=work.jig_for_part_id,
     )
-    made.tags = list(work.tags or [])
+    tagging.copy(db, by, work, "work", made)
     made.folder = work.folder
     made.jig_options = dict(work.jig_options or {})
     made.unit_system = work.unit_system
@@ -494,7 +491,7 @@ def _check_unit_system(key: str) -> None:
         )
 
 
-def update_work(db: Session, work: Work, *, fields: dict[str, Any]) -> Work:
+def update_work(db: Session, work: Work, *, fields: dict[str, Any], by: User) -> Work:
     if "jig_options" in fields and fields["jig_options"] is not None:
         fields["jig_options"] = JigOptions.from_dict(fields["jig_options"]).to_dict()
     if fields.get("unit_system") is not None:
@@ -511,12 +508,8 @@ def update_work(db: Session, work: Work, *, fields: dict[str, Any]) -> Work:
             work.folder = normalize_folder(value)
             continue
         if key == "tags":
-            cleaned: list[str] = []
-            for one in value:
-                tag = str(one).strip()[:40]
-                if tag and tag not in cleaned:
-                    cleaned.append(tag)
-            work.tags = cleaned
+            # 글자 목록은 옛 길이다 — 이름마다 태그 객체로 붙인다(`tagging.set_labels`).
+            tagging.set_labels(db, by, "work", work, list(value))
             continue
         setattr(work, key, value.strip() if isinstance(value, str) else value)
     db.commit()
@@ -1163,19 +1156,18 @@ def promote_part(
             description=work.description,
             owner_id=by.id,
             work_id=work.id,
-            # **꼬리표를 물려받는다.** 안 옮기면 사람이 붙여 둔 것이 공용 공간으로 나가는
-            # 순간 없어진다 — 정작 남이 찾아야 하는 자리에서. **폴더도** 처음 한 번만 —
-            # 카탈로그에서 옮긴 뒤 다시 올려도 제자리로 끌고 오지 않는다.
-            tags=list(work.tags or []),
+            # **폴더는** 처음 한 번만 — 카탈로그에서 옮긴 뒤 다시 올려도 제자리로 끌고 오지
+            # 않는다.
             folder=work.folder,
         )
         db.add(part)
         db.flush()
     elif part.owner_id != by.id and not by.is_system_admin:
         raise Forbidden(code("WORKS", 11), "이 부품에 버전을 등록할 권한이 없습니다.")
-    # **버전을 올릴 때도 따라온다** — 첫 승격 뒤에 작업에 꼬리표를 더했으면 그것도 와야 한다.
-    # 카탈로그에서 뺀 것을 되살리지는 않는다(거기서 지운 것은 뜻이 있다) — 더하기만 한다.
-    part.tags = sorted({*(part.tags or []), *(work.tags or [])})
+    # **태그를 물려받는다.** 안 옮기면 사람이 붙여 둔 것이 공용 공간으로 나가는 순간 없어진다 —
+    # 정작 남이 찾아야 하는 자리에서. 버전을 올릴 때도 따라온다(첫 승격 뒤에 더한 것) —
+    # 더하기만 한다.
+    tagging.copy(db, by, work, "part", part)
 
     promoted = PartVersion(
         part_id=part.id,
@@ -1273,14 +1265,13 @@ def _jig_for(
             owner_id=by.id,
             work_id=work.id,
             part_id=part_version.part_id if part_version else None,
-            tags=list(work.tags or []),
             folder=work.folder,
         )
         db.add(jig)
         db.flush()
     elif jig.owner_id != by.id and not by.is_system_admin:
         raise Forbidden(code("WORKS", 15), "이 지그에 버전을 등록할 권한이 없습니다.")
-    jig.tags = sorted({*(jig.tags or []), *(work.tags or [])})
+    tagging.copy(db, by, work, "jig", jig)
     if part_version is not None:
         jig.part_id = part_version.part_id
     return jig

@@ -64,6 +64,27 @@ def set_actor_token(name: str | None) -> None:
         holder["token"] = name
 
 
+def set_viewer(user_id: uuid.UUID, *, admin: bool) -> None:
+    """인증이 끝난 뒤 부른다 — **이 요청을 보는 사람.** 부르는 자리가 사람을 넘기지 않는 원 표
+    읽기(`SystemSource.lookup` · `list_all`)가 비공개 행을 거를 때 쓴다(내 작업, ADR 0011).
+    `set_actor_token` 처럼 dict 를 고친다. `admin` 은 포털 위임 토큰이 내린 뒤의 값이다."""
+    holder = _actor.get()
+    if holder is not None:
+        holder["viewer"] = str(user_id)
+        holder["viewer_admin"] = "1" if admin else None
+
+
+def get_viewer() -> tuple[uuid.UUID, bool] | None:
+    """이 요청을 보는 사람과 시스템 관리자인가 — **요청 밖(작업 · 스크립트 · 시험의 직접
+    호출)이면 None.** 부르는 쪽은 None 을 「아무도 아니다」 로 읽어야 한다(비공개 행을 내지
+    않는다)."""
+    holder = _actor.get() or {}
+    raw = holder.get("viewer")
+    if not raw:
+        return None
+    return uuid.UUID(raw), bool(holder.get("viewer_admin"))
+
+
 class RequestIdMiddleware:
     def __init__(self, app: ASGIApp) -> None:
         self.app = app

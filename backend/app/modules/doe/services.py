@@ -48,6 +48,7 @@ from app.modules.jobs import registry
 from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Job
 from app.modules.server import settings_store
+from app.modules.tagging import services as tagging
 from app.modules.works.models import Work
 from app.shared import filestore, search
 from app.shared.errors import AppError, Forbidden, NotFound, code
@@ -1037,7 +1038,7 @@ def list_studies(
         statement = statement.where(
             exists(
                 select(literal(1)).where(
-                    Work.id == DoeStudy.work_id, Work.tags.contains([tag.strip()])
+                    Work.id == DoeStudy.work_id, tagging.tagged(Work.id, tag)
                 )
             )
         )
@@ -1054,11 +1055,7 @@ def study_tags(db: Session, viewer: User, *, scope: str = "mine") -> list[str]:
     targets = select(DoeStudy.work_id).where(
         _visible(viewer, scope), DoeStudy.work_id.is_not(None)
     )
-    seen: dict[str, int] = {}
-    for tags in db.scalars(select(Work.tags).where(Work.id.in_(targets))):
-        for one in tags or []:
-            seen[one] = seen.get(one, 0) + 1
-    return sorted(seen, key=lambda t: (-seen[t], t))
+    return tagging.label_counts(db, Work, Work.id.in_(targets))
 
 
 def points(db: Session, study: DoeStudy) -> list[DoePoint]:

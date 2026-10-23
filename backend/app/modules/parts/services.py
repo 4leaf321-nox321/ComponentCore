@@ -30,6 +30,7 @@ from app.modules.parts.schemas import (
     StandardImportOut,
     StandardSpec,
 )
+from app.modules.tagging import services as tagging
 from app.shared import folders, search, shape_search
 from app.shared.errors import AppError, Forbidden, NotFound, code
 
@@ -100,7 +101,7 @@ def part_out(db: Session, part: Part) -> PartOut:
         current=version_out(db, current) if current else None,
         jig_count=_jig_count(db, part.id),
         created_at=part.created_at,
-        tags=list(part.tags or []),
+        tags=tagging.labels(db, part.id),
         folder=part.folder,
         standard=part.standard,
         updated_at=part.updated_at,
@@ -118,7 +119,7 @@ def part_summary(db: Session, part: Part) -> PartSummaryOut:
         owner_name=owner.display_name if owner else "(삭제된 계정)",
         current_version=part.current_version,
         jig_count=_jig_count(db, part.id),
-        tags=list(part.tags or []),
+        tags=tagging.labels(db, part.id),
         folder=part.folder,
         standard=part.standard,
         updated_at=part.updated_at,
@@ -150,12 +151,15 @@ def list_parts(
         )
     base = folders.narrowed(base, Part.folder, folder, subfolders, _BAD_FOLDER)
     found = search.matches(
-        query, columns=[Part.name, Part.description], tags=Part.tags, owner=Part.owner_id
+        query,
+        columns=[Part.name, Part.description],
+        owner=Part.owner_id,
+        also=[tagging.label_like(Part.id)],
     )
     if found is not None:
         base = base.where(found)
     if tag.strip():
-        base = base.where(Part.tags.contains([tag.strip()]))
+        base = base.where(tagging.tagged(Part.id, tag))
     total = int(db.scalar(select(func.count()).select_from(base.subquery())) or 0)
     rows = list(
         db.scalars(base.order_by(Part.updated_at.desc(), Part.id).limit(limit).offset(offset))
@@ -232,11 +236,7 @@ def all_tags(db: Session) -> list[str]:
 
     내 작업의 `my_tags` 와 **같은 모양**이다(화면이 한 벌이면 된다). 다만 여기는 **남의
     것까지** 센다 — 공용 공간이라 그것이 맞다."""
-    seen: dict[str, int] = {}
-    for tags in db.scalars(select(Part.tags).where(Part.deleted_at.is_(None))):
-        for one in tags or []:
-            seen[one] = seen.get(one, 0) + 1
-    return sorted(seen, key=lambda t: (-seen[t], t))
+    return tagging.label_counts(db, Part)
 
 
 # --- 규격 부품 -------------------------------------------------------------------
@@ -393,7 +393,7 @@ def export_standard(db: Session, ids: list[uuid.UUID]) -> StandardBundle:
             StandardBundleItem(
                 name=part.name,
                 description=part.description,
-                tags=list(part.tags or []),
+                tags=tagging.labels(db, part.id),
                 folder=part.folder,
                 standard=spec,
                 recipe=pinned.recipe,
@@ -418,15 +418,6 @@ def _spec_problems(failure: ValidationError) -> list[str]:
         message = str(one["msg"]).removeprefix("Value error, ")
         out.append(f"{where}: {message}" if where else message)
     return out
-
-
-def _tags(raw: list[str]) -> list[str]:
-    cleaned: list[str] = []
-    for one in raw:
-        tag = str(one).strip()[:40]
-        if tag and tag not in cleaned:
-            cleaned.append(tag)
-    return cleaned
 
 
 def _same_spec(stored: dict[str, Any], given: dict[str, Any]) -> bool:
@@ -522,12 +513,12 @@ def import_standard(
                 name=item.name.strip(),
                 description=item.description.strip(),
                 owner_id=by.id,
-                tags=_tags(item.tags),
                 folder=folders.normalize(item.folder, _BAD_FOLDER),
                 current_version=0,
             )
             db.add(part)
             db.flush()
+            tagging.set_labels(db, by, "part", part, item.tags)
         number = int(out.version or 1)
         if out.action in ("create", "version"):
             origin = item.origin

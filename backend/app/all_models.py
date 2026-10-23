@@ -50,6 +50,7 @@ from app.modules.parts.models import Part, PartVersion
 from app.modules.review.models import ReviewDecision
 from app.modules.server.models import ServerSetting
 from app.modules.specimens.models import SpecimenPreset
+from app.modules.tagging.models import TagType
 from app.modules.tasks.models import Job as Task
 from app.modules.tasks.models import JobFile as TaskFile
 from app.modules.tasks.models import WorkerHeartbeat
@@ -109,6 +110,7 @@ __all__ = [
     "ServerSetting",
     "SpecimenPreset",
     "SsoUsedJti",
+    "TagType",
     "Task",
     "TaskFile",
     "User",

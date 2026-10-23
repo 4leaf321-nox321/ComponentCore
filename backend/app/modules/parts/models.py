@@ -19,7 +19,6 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
-    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
@@ -45,7 +44,6 @@ class Part(Base):
             postgresql_using="gin",
             postgresql_ops={"description": "gin_trgm_ops"},
         ),
-        Index("ix_parts_tags_trgm", text("(tags::text) gin_trgm_ops"), postgresql_using="gin"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -57,9 +55,6 @@ class Part(Base):
         PgUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), index=True
     )
     """처음 승격한 사람. 이후 버전은 이 사람(또는 관리자)만 올린다."""
-    tags: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
-    """꼬리표 — 승격할 때 **내 작업의 것을 그대로 물려받는다.** 공용 공간은 남의 것까지
-    쌓이므로 이름만으로는 못 찾는다(내 작업은 열두 개쯤이라 이름으로 충분하다)."""
     folder: Mapped[str] = mapped_column(String(255), default="", server_default="", index=True)
     """놓인 **폴더** — `고객A/2026` 같은 경로, 빈 것이 맨 위(`shared/folders.py`). 여럿이 함께
     쓰는 공간이라 옮기기는 주인 · 관리자만, 남의 것이 든 폴더의 이름은 관리자만 바꾼다."""

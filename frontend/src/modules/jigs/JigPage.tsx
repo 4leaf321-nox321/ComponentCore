@@ -8,6 +8,7 @@ import { jigsApi } from '@/modules/jigs/api'
 import type { JigVersion } from '@/modules/jigs/api'
 import { JigResultView } from '@/modules/jigs/JigResultView'
 import { SourceLinksCard } from '@/modules/objects/SourceLinksCard'
+import { TagField } from '@/modules/tagging/TagField'
 import { SimilarCard } from '@/modules/search/SimilarCard'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { canEditProject } from '@/shared/auth/roles'
@@ -112,6 +113,11 @@ export default function JigPage() {
           jig.reload()
         }}
       />
+      {/* 태그 — 온톨로지의 객체. 카탈로그 목록이 이것으로 거른다(승격이 내 작업의 것을 물려준다). */}
+      <div className="flex items-center gap-2">
+        <span className="text-muted-foreground text-xs">태그</span>
+        <TagField target="jig" id={id} canEdit={editable} />
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-4">
         <div className="space-y-4 lg:col-span-1">

@@ -47,7 +47,7 @@ import { Label } from '@/shared/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/components/ui/tabs'
 import { FolderDialog } from '@/shared/folders/FolderDialog'
 import { DuplicateDialog, hasConditions } from '@/modules/works/DuplicateDialog'
-import { TagEditor } from '@/modules/works/TagEditor'
+import { TagField } from '@/modules/tagging/TagField'
 import { SimilarCard } from '@/modules/search/SimilarCard'
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
@@ -75,10 +75,9 @@ export default function WorkPage() {
   /** 지그 작업이 부품에서 생성됐으면 그 생성 기록 — 계획 · 간섭 검사를 되짚어 본다. */
   const runs = useResource(() => worksApi.jigRuns(id), [id])
   const { user } = useAuth()
-  /** 남의 작업이면(관리자가 열었다) 그 사람 — 꼬리표 · 폴더 제안도 그 사람의 것에서. */
+  /** 남의 작업이면(관리자가 열었다) 그 사람 — 폴더 제안도 그 사람의 것에서. */
   const ownerId = work.data?.owner_id
   const othersOwner = ownerId && ownerId !== user?.id ? ownerId : undefined
-  const allTags = useResource(() => worksApi.tags(othersOwner), [othersOwner])
   /** 폴더 옮기기 창 — 있는 폴더를 고르거나 새 경로를 적는다. */
   const [moving, setMoving] = useState(false)
   const allFolders = useResource(() => worksApi.folders(othersOwner), [moving, othersOwner])
@@ -306,21 +305,13 @@ export default function WorkPage() {
         }}
         onClose={() => setMoving(false)}
       />
-      {/* 꼬리표 — 프로젝트 · 제품군으로 묶는다. 내 작업 목록이 이것으로 거른다. */}
+      {/*
+        태그 — 온톨로지의 객체(프로젝트 · 고객사 · 일반 태그)를 붙인다. 내 작업 목록이 이것으로
+        거르고, 승격하면 부품 · 지그로 따라간다.
+      */}
       <div className="flex items-center gap-2">
         <span className="text-muted-foreground text-xs">태그</span>
-        <TagEditor
-          tags={w.tags}
-          suggestions={allTags.data ?? []}
-          busy={busy}
-          onChange={(next) =>
-            void act(async () => {
-              await worksApi.update(id, { tags: next })
-              work.reload()
-              allTags.reload()
-            })
-          }
-        />
+        <TagField target="work" id={id} canEdit />
         {/*
           **기본 내보내기 단위계** — 새 시뮬레이션 조건이 이 계로 내보낸다. 조건의 값은 늘 mm · N · t
           로 적고(도면과 같다), 점 파일을 만들 때만 옮긴다. 있는 조건의 설정은 그대로.

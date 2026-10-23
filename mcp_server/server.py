@@ -2592,7 +2592,8 @@ async def update_work(
     """작업의 **이름 · 설명 · 태그 · 폴더 · 종류 · 내보내기 단위계**를 고친다 — 준 것만.
 
     도면(레시피)은 여기서 안 바뀐다 — `save_version` · `patch_work`. `tags` 는 **전체를
-    바꾼다**(빈 목록이면 다 뗀다 — 하나 더하려면 `get_work` 의 `tags` 에 붙여서 준다).
+    바꾼다**(빈 목록이면 다 뗀다 — 하나 더하려면 `get_work` 의 `tags` 에 붙여서 준다). 태그는
+    온톨로지의 객체다 — 이름이 같은 것은 타입째 그대로 두고, 새 이름은 「일반 태그」 로 붙는다.
     `kind` 는 part · jig · assembly. `folder` 는 경로(비우면 맨 위)."""
     body = {
         key: value

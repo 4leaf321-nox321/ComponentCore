@@ -30,7 +30,6 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
-    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
@@ -64,7 +63,6 @@ class Work(Base):
             postgresql_using="gin",
             postgresql_ops={"description": "gin_trgm_ops"},
         ),
-        Index("ix_works_tags_trgm", text("(tags::text) gin_trgm_ops"), postgresql_using="gin"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -93,8 +91,6 @@ class Work(Base):
     )
     """이 작업의 **기본 내보내기 단위계**(`core/units.py`) — 새 시뮬레이션 조건이 이 계로
     내보낸다. 조건의 값은 늘 mm · N · t 로 적고(도면과 같다), 점 파일을 만들 때만 옮긴다."""
-    tags: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
-    """꼬리표 — 프로젝트 · 제품군 같은 묶음. 한 작업이 여러 묶음에 들 수 있다."""
     folder: Mapped[str] = mapped_column(String(255), default="", server_default="", index=True)
     """놓인 **폴더** — `고객A/2026/검사지그` 같은 경로, 빈 것이 맨 위. 꼬리표와 달리 한 곳이다.
     폴더 표는 없다 — 폴더는 그 안에 작업이 있을 때 있다(`services.my_folders`)."""

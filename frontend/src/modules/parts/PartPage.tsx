@@ -6,6 +6,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { GeometryJobView } from '@/modules/cad/GeometryJobView'
 import { ConditionsCard } from '@/modules/conditions/ConditionsCard'
 import { SourceLinksCard } from '@/modules/objects/SourceLinksCard'
+import { TagField } from '@/modules/tagging/TagField'
 import { jigsApi } from '@/modules/jigs/api'
 import { partsApi } from '@/modules/parts/api'
 import type { PartVersion } from '@/modules/parts/api'
@@ -87,6 +88,11 @@ export default function PartPage() {
           part.reload()
         }}
       />
+      {/* 태그 — 온톨로지의 객체. 카탈로그 목록이 이것으로 거른다(승격이 내 작업의 것을 물려준다). */}
+      <div className="flex items-center gap-2">
+        <span className="text-muted-foreground text-xs">태그</span>
+        <TagField target="part" id={id} canEdit={editable} />
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-4">
         <div className="space-y-4 lg:col-span-1">

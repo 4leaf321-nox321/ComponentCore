@@ -279,7 +279,7 @@ def update_work(
 ) -> WorkOut:
     work = _mine(db, work_id, user)
     fields = payload.model_dump(exclude_unset=True)
-    return services.work_out(db, services.update_work(db, work, fields=fields))
+    return services.work_out(db, services.update_work(db, work, fields=fields, by=user))
 
 
 @router.delete("/{work_id}", status_code=204)

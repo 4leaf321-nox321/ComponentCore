@@ -17,7 +17,7 @@ from app.modules.auth import security, services
 from app.shared import scopes
 from app.shared.access_log import USER_ID_SCOPE_KEY
 from app.shared.errors import AppError, Forbidden, code
-from app.shared.request_context import set_actor_token
+from app.shared.request_context import set_actor_token, set_viewer
 
 _UNAUTHENTICATED = "로그인이 필요합니다."
 
@@ -84,6 +84,7 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
         # **감사에 토큰 이름을 남긴다**(StandardPlatform 과 같다) — 소유자만 남기면 사람이 넣은
         # 것과 기계가 넣은 것이 구별되지 않는다.
         set_actor_token(pat.name)
+        set_viewer(user.id, admin=user.is_system_admin)
         request.scope[USER_ID_SCOPE_KEY] = user.id
         return user
 
@@ -96,6 +97,7 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     if signed_in is None:
         raise Forbidden(code("AUTH", 2), "삭제된 계정입니다. 관리자에게 문의하십시오.")
     services.ensure_can_sign_in(signed_in)
+    set_viewer(signed_in.id, admin=signed_in.is_system_admin)
     request.scope[USER_ID_SCOPE_KEY] = signed_in.id
     return signed_in
 

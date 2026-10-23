@@ -30,6 +30,7 @@ from app.modules.objects import relations as rel
 from app.modules.objects.models import ObjectInstance, ObjectLink
 from app.modules.ontology import managed
 from app.modules.ontology.models import ObjectType, RelationType
+from app.modules.tagging.models import TAG_RELATION
 from app.shared.errors import Conflict, NotFound, code
 from app.shared.permissions import visible_owner_clause
 
@@ -91,9 +92,12 @@ def system_types(db: Session, source_key: str) -> list[ObjectType]:
 
 
 def _sides(kind: RelationType, slugs: set[str]) -> list[bool]:
-    """이 원 표가 그 관계의 어느 쪽에 서나 — 참이면 도착점. **타입을 정해 둔 관계만** 본다
-    (안 정한 관계는 원 표를 뒤지지 않는다 — `system.find_end` 와 같은 규칙)."""
+    """이 원 표가 그 관계의 어느 쪽에 서나 — 참이면 도착점. **타입을 정해 둔 관계만** 본다 (안
+    정한 관계는 원 표를 뒤지지 않는다 — `system.find_end` 와 같은 규칙). 태그(`cc_tagged`)는
+    칸이 아니다 — 제 자리(태그 줄, `tagging`)가 있다."""
     out: list[bool] = []
+    if kind.slug == TAG_RELATION:
+        return out
     if slugs & set(kind.dst_type_slugs or []):
         out.append(True)
     if slugs & set(kind.src_type_slugs or []):

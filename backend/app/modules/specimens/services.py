@@ -268,6 +268,7 @@ def create_work(db: Session, user: User, request: SpecimenWorkRequest) -> Work:
         db,
         work,
         fields={"tags": [f"{TESTS.get(preset.test, preset.test)} 시험", preset.standard]},
+        by=user,
     )
 
 
@@ -408,4 +409,5 @@ def apply_product_test(db: Session, user: User, request: ProductTestRequest) -> 
         db,
         work,
         fields={"tags": [f"{TESTS.get(preset.test, preset.test)} 시험", preset.standard]},
+        by=user,
     )

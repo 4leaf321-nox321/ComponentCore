@@ -12,7 +12,7 @@
 
 import { useState } from 'react'
 import { NavLink, Outlet, useOutletContext } from 'react-router-dom'
-import { Boxes, LayoutList, Radio, Shapes, Share2, Upload } from 'lucide-react'
+import { Boxes, LayoutList, Radio, Shapes, Share2, Tag, Upload } from 'lucide-react'
 
 import { OntologyExportButton } from '@/modules/ontology/OntologyExportButton'
 import { ontologyApi } from '@/modules/ontology/api'
@@ -62,6 +62,14 @@ const SECTIONS = [
     label: '관계 종류',
     icon: Share2,
     count: (schema: OntologySchema | null) => schema?.relation_types.length,
+  },
+  {
+    // 관계 다음이다 — **태그는 작업 · 부품 · 지그에 붙이는 관계**이고, 어느 타입에서 고르나만
+    // 여기서 정한다(ADR 0011).
+    to: 'tags',
+    label: '태그',
+    icon: Tag,
+    count: () => undefined,
   },
   {
     // **기계가 정의를 만드는 자리.** 사람이 한 칸씩 만드는 길과 나란히 둔다.

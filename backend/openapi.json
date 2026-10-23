@@ -4256,6 +4256,386 @@
         }
       }
     },
+    "/api/tags/types": {
+      "get": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Tag Types",
+        "description": "태그로 고를 수 있는 타입 — 「일반 태그」 가 맨 앞. `can_create` 면 이름을 쳐서 새로\n만든다.",
+        "operationId": "tag_types_api_tags_types_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TagTypeOut"
+                  },
+                  "type": "array",
+                  "title": "Response Tag Types Api Tags Types Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tags/types/{type_slug}/objects": {
+      "get": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Tag Candidates",
+        "description": "그 타입에서 고를 것 — 이름에 `q` 가 든 것, 많이 쓴 것부터.",
+        "operationId": "tag_candidates_api_tags_types__type_slug__objects_get",
+        "parameters": [
+          {
+            "name": "type_slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Type Slug"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TagCandidate"
+                  },
+                  "title": "Response Tag Candidates Api Tags Types  Type Slug  Objects Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tags/settings": {
+      "get": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Tag Settings",
+        "description": "관리 › 온톨로지 › 태그 — 타입마다 「태그로 안 씀 · 고르기 · 늘리기」.",
+        "operationId": "tag_settings_api_tags_settings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TagSettingOut"
+                  },
+                  "type": "array",
+                  "title": "Response Tag Settings Api Tags Settings Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tags/settings/{type_slug}": {
+      "put": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Set Tag Mode",
+        "operationId": "set_tag_mode_api_tags_settings__type_slug__put",
+        "parameters": [
+          {
+            "name": "type_slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Type Slug"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagModeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TagSettingOut"
+                  },
+                  "title": "Response Set Tag Mode Api Tags Settings  Type Slug  Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tags/{target}/{row_id}": {
+      "get": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Row Tags",
+        "operationId": "row_tags_api_tags__target___row_id__get",
+        "parameters": [
+          {
+            "name": "target",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "work",
+                "part",
+                "jig"
+              ],
+              "type": "string",
+              "title": "Target"
+            }
+          },
+          {
+            "name": "row_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Row Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TagItem"
+                  },
+                  "title": "Response Row Tags Api Tags  Target   Row Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Add Tag",
+        "description": "하나 붙인다 — 고른 객체(`object_id`), 또는 타입과 이름(없으면 만든다 — 「늘리기」\n타입만). 이미 붙어 있으면 그대로다. 붙은 태그 전부를 돌려준다.",
+        "operationId": "add_tag_api_tags__target___row_id__post",
+        "parameters": [
+          {
+            "name": "target",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "work",
+                "part",
+                "jig"
+              ],
+              "type": "string",
+              "title": "Target"
+            }
+          },
+          {
+            "name": "row_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Row Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTagRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TagItem"
+                  },
+                  "title": "Response Add Tag Api Tags  Target   Row Id  Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tags/{target}/{row_id}/{object_id}": {
+      "delete": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Remove Tag",
+        "description": "하나 뗀다 — 객체는 남는다(다른 데 붙어 있을 수 있다).",
+        "operationId": "remove_tag_api_tags__target___row_id___object_id__delete",
+        "parameters": [
+          {
+            "name": "target",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "work",
+                "part",
+                "jig"
+              ],
+              "type": "string",
+              "title": "Target"
+            }
+          },
+          {
+            "name": "row_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Row Id"
+            }
+          },
+          {
+            "name": "object_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Object Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TagItem"
+                  },
+                  "title": "Response Remove Tag Api Tags  Target   Row Id   Object Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/jobs/kinds": {
       "get": {
         "tags": [
@@ -23119,6 +23499,48 @@
           "deleted_at"
         ],
         "title": "AccountOut"
+      },
+      "AddTagRequest": {
+        "properties": {
+          "object_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Object Id"
+          },
+          "type_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type Slug"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "title": "AddTagRequest",
+        "description": "붙이기 — 고른 객체(`object_id`), 또는 타입과 이름(`type_slug` · `label`). 이름은 그\n타입에서 같은 이름 · 별칭을 먼저 찾고, 없으면 만든다(「늘리기」 타입만)."
       },
       "AlertCheckOut": {
         "properties": {
@@ -48698,6 +49120,169 @@
         ],
         "title": "TableOut"
       },
+      "TagCandidate": {
+        "properties": {
+          "object_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Object Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "type_slug": {
+            "type": "string",
+            "title": "Type Slug"
+          },
+          "type_label": {
+            "type": "string",
+            "title": "Type Label"
+          },
+          "uses": {
+            "type": "integer",
+            "title": "Uses"
+          }
+        },
+        "type": "object",
+        "required": [
+          "object_id",
+          "label",
+          "type_slug",
+          "type_label",
+          "uses"
+        ],
+        "title": "TagCandidate"
+      },
+      "TagItem": {
+        "properties": {
+          "object_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Object Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "type_slug": {
+            "type": "string",
+            "title": "Type Slug"
+          },
+          "type_label": {
+            "type": "string",
+            "title": "Type Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "object_id",
+          "label",
+          "type_slug",
+          "type_label"
+        ],
+        "title": "TagItem"
+      },
+      "TagModeRequest": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "title": "TagModeRequest"
+      },
+      "TagSettingOut": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "managed_by": {
+            "type": "string",
+            "title": "Managed By"
+          },
+          "entry_policy": {
+            "type": "string",
+            "title": "Entry Policy"
+          },
+          "is_default": {
+            "type": "boolean",
+            "title": "Is Default"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "label",
+          "mode",
+          "managed_by",
+          "entry_policy",
+          "is_default"
+        ],
+        "title": "TagSettingOut",
+        "description": "관리 화면의 한 줄 — 태그로 쓸 수 있는 타입(원 표 타입은 빼고) 하나."
+      },
+      "TagTypeOut": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "icon": {
+            "type": "string",
+            "title": "Icon"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "can_create": {
+            "type": "boolean",
+            "title": "Can Create"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          },
+          "is_default": {
+            "type": "boolean",
+            "title": "Is Default"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "label",
+          "icon",
+          "mode",
+          "can_create",
+          "is_default"
+        ],
+        "title": "TagTypeOut"
+      },
       "TemplateCreateRequest": {
         "properties": {
           "name": {
@@ -52914,6 +53499,10 @@
     {
       "name": "templates",
       "description": "레시피 **템플릿** — 변수만 채워 쓰는 밑그림."
+    },
+    {
+      "name": "tags",
+      "description": "**태그** — 작업 · 부품 · 지그에 온톨로지의 객체를 붙인다. 타입을 고르고 그 안에서 고르거나, 「늘리기」 타입이면 이름을 쳐서 새로 만든다(타입을 안 고르면 「일반 태그」). 목록의 `tags`(이름 목록) · `?tag=` 거르개 · 글자 목록으로 바꾸기는 그대로다."
     },
     {
       "name": "specimens",
