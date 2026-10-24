@@ -147,6 +147,9 @@ class PointOut(BaseModel):
     """형상 점검 — 최소 벽 두께 · 짧은 모서리 · 좁은 면 · 바디 수와 `warnings` · `notes`."""
     measures: dict[str, float | None] | None = None
     """측정값 — 스터디의 `measures` 정의대로. 못 잰 것은 None."""
+    unmaterialed: list[str] | None = None
+    """**해석 제외가 아닌데 재료가 없는 파트** — 해석 쪽(SimEngBay)은 이 점을 걸지 않는다.
+    조건이 있는 스터디만 센다. 내보낼 때 정해지므로 내보내기 전에는 비어 있다."""
 
 
 class StudySummaryOut(BaseModel):

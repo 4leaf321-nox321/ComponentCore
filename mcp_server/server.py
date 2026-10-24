@@ -32,8 +32,10 @@ import asyncio
 import base64
 import os
 import re
+import shlex
 import time
 from datetime import UTC, datetime
+from pathlib import PureWindowsPath
 from typing import Any
 from urllib.parse import urlencode
 
@@ -78,6 +80,8 @@ DESTRUCTIVE_TOOLS = frozenset(
         "doe_cancel",  # DOE 생성 멈추기
         "delete_test_preset",  # 시험 프리셋 삭제
         "ontology_unlink",  # 부품 · 지그에 이은 기준정보 끊기
+        "tag_remove",  # 작업 · 부품 · 지그에서 태그 떼기
+        "voc_delete",  # VOC 글 삭제
     }
 )
 
@@ -90,7 +94,9 @@ mcp = FastMCP(
         "레시피는 `recipe_check` 로 만들어 본 뒤에만 `save_version` 으로 저장한다. "
         "저장은 사용자의 내 작업에 새 버전으로 들어가고, 등록(부품 · 지그 카탈로그)은 "
         "사람이 판단할 일이니 `promote_*` 는 사용자가 시킬 때만. "
-        "결과에 `url` 이 있으면 사용자에게 「화면에서 열기」 링크로 함께 보여 준다.\n\n"
+        "결과에 `url` 이 있으면 사용자에게 「화면에서 열기」 링크로 함께 보여 준다. "
+        "태그는 온톨로지의 객체다 — 같은 말이 있으면 `tag_candidates` 에서 고른다. "
+        "파일(STEP)은 도구 인자에 싣지 않는다 — `step_upload_prepare` 의 curl 로 올린다.\n\n"
         + ontology.INSTRUCTIONS
     ),
 )
@@ -1029,6 +1035,25 @@ async def condition_material_get(
 
 
 @mcp.tool()
+async def condition_material_status(ctx: Context) -> Any:
+    """재료를 **어디서** 가져오나 — MatNexus 에 닿나, 올려 둔 사본(카탈로그)은 몇 건이고 언제
+    받은 것인가. `condition_material_search` 가 사본(`copy: true`)으로만 오거나 비면 이것으로
+    까닭을 본다(주소 · 토큰이 비었나, 막혔나)."""
+    return await _get(ctx, "/api/materials/status")
+
+
+@mcp.tool()
+async def condition_material_decks(
+    ctx: Context, material_id: str, source: str = "registered"
+) -> Any:
+    """이 재료로 낼 수 있는 **솔버 덱 형식**(`ansys` · `nastran` · `dyna_elastic` …)과 못 내는
+    까닭. `set_conditions` 의 `materials[].deck_formats` 에 담을 값을 여기서 고른다 — 기본은
+    안 담는다(덱은 솔버를 고르는 일이라 사람이 정한다). `material_id` 는 조건의
+    `ref.material_id`, `source` 는 registered · literature."""
+    return await _get(ctx, f"/api/materials/{material_id}/decks", {"source": source})
+
+
+@mcp.tool()
 async def doe_preview(
     ctx: Context,
     factors: list[dict[str, Any]],
@@ -1306,10 +1331,25 @@ async def doe_run(
             "done": got["done"],
             "failed": got["failed"],
             "job": _slim_job(got.get("job")),
+            **_bare_parts(got.get("points")),
         },
         "doe",
         got["id"],
     )
+
+
+#: 재료가 빈 파트를 사람에게 말할 때 — 해석 쪽은 그 점을 걸지 않는다.
+_BARE_HINT = (
+    "해석 제외가 아닌데 재료가 없는 파트가 있습니다 — 해석 쪽(SimEngBay)은 이 점을 걸지 "
+    "않습니다. set_conditions 로 재료를 붙이거나(지그는 기본 강재가 붙어 있었다면 그 줄을 "
+    "지우지 말 것) 그 파트를 해석에서 빼고 다시 내보내십시오."
+)
+
+
+def _bare_parts(points: Any) -> dict[str, Any]:
+    """점들의 「재료가 없는 파트」 를 모은다 — 있으면 이름과 할 일을, 없으면 아무것도."""
+    bare = sorted({name for one in points or [] for name in (one.get("unmaterialed") or [])})
+    return {"unmaterialed": bare, "unmaterialed_hint": _BARE_HINT} if bare else {}
 
 
 @mcp.tool()
@@ -1321,9 +1361,13 @@ async def doe_status(ctx: Context, study_id: str) -> Any:
 
     `files_ready` 가 거짓이면 보관 기한이 지나 파일이 치워진 것이다(`doe_rerun` — 재생성으로
     복원한다). `export_stale` 이 참이면 내보낸 뒤에 점을 더한 것이다(`doe_extend`) — 다
-    만들어지면 `doe_export` 를 다시 불러야 해석이 새 점을 본다.
+    만들어지면 `doe_export` 를 다시 불러야 해석이 새 점을 본다. `unmaterialed` 가 비어 있지
+    않으면 해석 제외가 아닌데 재료가 없는 파트다 — 해석 쪽이 그 폴더를 걸지 않는다.
     """
-    return await _linked(await _get(ctx, f"/api/doe/{study_id}/status"), "doe", study_id)
+    got = await _get(ctx, f"/api/doe/{study_id}/status")
+    if isinstance(got, dict) and got.get("unmaterialed"):
+        got = {**got, "unmaterialed_hint": _BARE_HINT}
+    return await _linked(got, "doe", study_id)
 
 
 @mcp.tool()
@@ -1370,6 +1414,7 @@ async def doe_points(ctx: Context, study_id: str) -> Any:
         "done": got["done"],
         "failed": got["failed"],
         "job": _slim_job(got.get("job")),
+        **_bare_parts(got.get("points")),
         "points": [
             {
                 "number": one["number"],
@@ -1378,8 +1423,16 @@ async def doe_points(ctx: Context, study_id: str) -> Any:
                 "interference": one.get("interference"),
                 "step_file": one["step_file"],
                 "point_file": one.get("point_file"),
-                # 형상 점검 경고 — 메시가 막힐 점(얇은 벽 · 짧은 모서리 · 좁은 면 · 바디 수).
-                "warnings": (one.get("quality") or {}).get("warnings") or [],
+                # 형상 점검 경고 — 메시가 막힐 점(얇은 벽 · 짧은 모서리 · 좁은 면 · 바디 수) —
+                # 와 재료가 빈 파트(해석 쪽이 이 점을 걸지 않는다).
+                "warnings": [
+                    *((one.get("quality") or {}).get("warnings") or []),
+                    *(
+                        [f"재료가 없는 파트: {', '.join(one['unmaterialed'])}"]
+                        if one.get("unmaterialed")
+                        else []
+                    ),
+                ],
                 # 측정값 — 스터디가 정한 것(못 잰 것은 None).
                 "measures": one.get("measures"),
                 "error": one["error"],
@@ -1533,6 +1586,18 @@ async def doe_keep(ctx: Context, study_id: str, keep: bool = True) -> Any:
     `doe_rerun`(재생성)이 복원하지만, 수천 점이면 그 시간이 아깝다."""
     flag = "true" if keep else "false"
     return await _post(ctx, f"/api/doe/{study_id}/keep?keep={flag}", None)
+
+
+@mcp.tool()
+async def doe_visibility(ctx: Context, study_id: str, private: bool) -> Any:
+    """**누가 보나** — 기본은 모두(`private=False`), `private=True` 면 나와 관리자만. DOE 는
+    조직의 설계 이력이라 기본이 공개다(옆 사람이 같은 훑기를 다시 돌지 않게). 고치는 일
+    (보내기 · 영구보관 · 지우기)은 공개와 무관하게 소유자 · 관리자뿐이다."""
+    value = "private" if private else "read"
+    got = await _post(ctx, f"/api/doe/{study_id}/visibility?value={value}", None)
+    if not isinstance(got, dict) or "error" in got:
+        return got
+    return {"study_id": got["id"], "name": got["name"], "visibility": got.get("visibility")}
 
 
 @mcp.tool()
@@ -1755,6 +1820,58 @@ async def list_versions(ctx: Context, work_id: str) -> Any:
 async def get_version(ctx: Context, work_id: str, number: int) -> Any:
     """특정 버전의 레시피와 평가 요약."""
     return _slim_version(await _get(ctx, f"/api/works/{work_id}/versions/{number}"))
+
+
+@mcp.tool()
+async def step_upload_prepare(
+    ctx: Context, local_path: str, work_id: str | None = None, name: str | None = None
+) -> Any:
+    """STEP 파일로 **작업을 만들거나 새 버전을 올릴 curl 명령** — 파일 바이트는 모델을 거치지
+    않는다.
+
+    ⚠️ 파일을 읽어 base64 로 옮기거나 내용을 도구 인자에 넣지 않는다 — 1MB 가 수십만 토큰이다.
+    이 도구는 한 번 쓰는 업로드 표(5분)를 받아 명령을 돌려줄 뿐이고, **파일은 당신의 셸이
+    `curl` 로 직접** 올린다. 셸이 없는 클라이언트면 사람에게 화면(새 작업 › STEP 가져오기)에서
+    올려 달라고 한다.
+
+    - `local_path`: 셸에서 보이는 그 파일의 경로(.step · .stp) — 이 서버는 그 파일을 열지
+      않는다.
+    - `work_id` 를 비우면 **새 작업**(첫 버전이 `import_step`, 이름은 `name` 또는 파일 이름),
+      주면 내 작업의 **새 버전**(주인 · 관리자). 그 위에 구멍 하나 더 같은 편집은 레시피로
+      쌓인다(`patch_work`).
+    - 돌아온 `curl` 을 그대로 한 번 실행한다. 응답은 작업(`id` · `current_version`)이고, 형상
+      평가가 끝나면 `work_geometry` 로 치수를 본다. 실패하면 `{"error": ...}` 봉투가 온다.
+    """
+    filename = PureWindowsPath(local_path).name or "import.step"
+    issued = await _post(
+        ctx, "/api/works/step-tickets", {"filename": filename, "work_id": work_id}
+    )
+    if not isinstance(issued, dict) or "error" in issued:
+        return issued
+    url = issued.get("upload_url")
+    if not url:
+        origin = ontology._public_origin(ctx)
+        if origin is None:
+            return {
+                "error": "이 MCP 에 들어온 주소를 알 수 없어 업로드 주소를 못 만듭니다 — "
+                "운영자에게 `.env` 의 MCP_PUBLIC_URL 을 적어 달라고 하세요.",
+            }
+        url = f"{origin}{issued['upload_path']}"
+    query = urlencode({"filename": filename, **({"name": name} if name else {})})
+    command = (
+        f"curl -sS -T {shlex.quote(local_path)} "
+        f"-H 'X-Upload-Ticket: {issued['ticket']}' "
+        f"'{url}?{query}'"
+    )
+    return {
+        "curl": command,
+        "work_id": work_id,
+        "max_bytes": issued.get("max_bytes"),
+        "expires_in_seconds": issued.get("expires_in_seconds"),
+        "next": "셸에서 curl 을 그대로 한 번 실행합니다(5분 안). 응답 JSON 의 id 로 작업이 "
+        "생겼는지(또는 새 버전이 붙었는지) 확인하고 사용자에게 알립니다. Windows PowerShell "
+        "이면 curl.exe 로 부릅니다.",
+    }
 
 
 @mcp.tool()
@@ -2253,6 +2370,62 @@ async def list_test_presets(ctx: Context, test: str = "") -> Any:
 
 
 @mcp.tool()
+async def preview_specimen(
+    ctx: Context,
+    preset_id: str,
+    length: float | None = None,
+    width: float | None = None,
+    thickness: float | None = None,
+    dimensions: dict[str, float] | None = None,
+    fixture: bool = True,
+    conditions: bool = True,
+) -> Any:
+    """시험 규격으로 **만들지 않고 그려 본다** — 인자는 `create_specimen_work` 와 같다.
+
+    풀린 치수(`values` — 지지 간격 · 처짐 · 반지름 …), 노트(지그에 붙인 기본 재료 · 규격과
+    다른 점), 조건 요약(재료가 어디에 붙었나 · 구속 · 하중 · 해석 종류)을 준다. 마음에 들면
+    같은 인자로 `create_specimen_work`."""
+    got = await _post(
+        ctx,
+        "/api/specimens/build",
+        {
+            "preset_id": preset_id,
+            "length": length,
+            "width": width,
+            "thickness": thickness,
+            "dimensions": dimensions or {},
+            "fixture": fixture,
+            "conditions": conditions,
+        },
+    )
+    if not isinstance(got, dict) or "error" in got:
+        return got
+    made = got.get("conditions") or {}
+    return {
+        "values": got.get("values") or {},
+        "notes": got.get("notes") or [],
+        "params": (got.get("recipe") or {}).get("params") or {},
+        "nodes": len((got.get("recipe") or {}).get("nodes") or []),
+        "conditions": {
+            "materials": [
+                {
+                    "apply_to": one.get("apply_to"),
+                    "name": (one.get("ref") or {}).get("name"),
+                    "source": (one.get("ref") or {}).get("source"),
+                }
+                for one in made.get("materials") or []
+            ],
+            "constraints": [one.get("name") for one in made.get("constraints") or []],
+            "loads": [one.get("name") for one in made.get("loads") or []],
+            "contacts": [one.get("name") for one in made.get("contacts") or []],
+            "analysis": (made.get("analysis") or {}).get("type"),
+        }
+        if made
+        else None,
+    }
+
+
+@mcp.tool()
 async def create_specimen_work(
     ctx: Context,
     preset_id: str,
@@ -2275,7 +2448,8 @@ async def create_specimen_work(
     강재)** — `condition_material_search` 로 골라 `set_conditions` 로 붙인다(이음은 피착재와
     접착층 따로). 강체 지그(굽힘의 롤러 · 노즈, 핀 베어링의 핀)에는 일반 구조용 강(설치가
     MatNexus 재료로 바꿀 수 있다)이 붙어 있다 — 해석은 지그도 재료가 있어야 걸리므로
-    `materials` 를 통째로 줄 때 그 줄을 지우지 않는다."""
+    `materials` 를 통째로 줄 때 그 줄을 지우지 않는다. 결과의 `notes` 는 그린 것의 설명(지그에
+    붙인 재료 등)이라 사용자에게 전한다. 만들기 전에 보려면 `preview_specimen`."""
     body = {
         "preset_id": preset_id,
         "length": length,
@@ -2443,6 +2617,38 @@ async def get_jig(ctx: Context, jig_id: str) -> Any:
 
 
 @mcp.tool()
+async def list_catalog_versions(ctx: Context, space: str, item_id: str) -> Any:
+    """공용 부품(`space="parts"`) · 지그(`"jigs"`) 하나의 **버전 목록** — 번호 · 해석 조건이
+    있나 · 평가 상태(새것부터). 등록한 버전은 고치지 않는다. 옛 버전의 형상은
+    `part_geometry(number=…)`, 그 버전으로 고치려면 `copy_part_to_work(number=…)` ·
+    `copy_jig_to_work`."""
+    if space not in ("parts", "jigs"):
+        return {"error": "space 는 parts · jigs 중 하나입니다."}
+    rows = await _get(ctx, f"/api/{space}/{item_id}/versions")
+    if not isinstance(rows, list):
+        return rows
+    return {
+        "space": space,
+        "id": item_id,
+        "versions": [
+            {
+                "number": one["number"],
+                "has_conditions": bool(one.get("conditions")),
+                "evaluation": _slim_job(one.get("job")),
+                **({"note": one["note"]} if one.get("note") else {}),
+                **({"by": one["promoted_by_name"]} if one.get("promoted_by_name") else {}),
+                **(
+                    {"part_id": one["part_id"], "part_version": one.get("part_version")}
+                    if one.get("part_id")
+                    else {}
+                ),
+            }
+            for one in rows
+        ],
+    }
+
+
+@mcp.tool()
 async def copy_jig_to_work(
     ctx: Context, jig_id: str, name: str | None = None, with_conditions: bool = True
 ) -> Any:
@@ -2571,13 +2777,116 @@ async def rename_folder(ctx: Context, space: str, path: str, to: str = "") -> An
 
 
 @mcp.tool()
-async def list_tags(ctx: Context, space: str = "works") -> Any:
-    """태그 전부(많이 쓴 것부터) — `works` · `parts` · `jigs` · `templates`. 목록 도구의
-    `tag` 로 거를 때 쓸 이름을 여기서 고른다."""
-    if problem := _space(space):
+async def list_tags(ctx: Context, space: str = "works", scope: str = "mine") -> Any:
+    """태그 **이름** 전부(많이 쓴 것부터) — `works` · `parts` · `jigs` · `templates` ·
+    `doe`(대상 작업의 태그, `scope` = mine · all). 목록 도구의 `tag` 로 거를 때 쓸 이름을
+    여기서 고른다. 태그를 붙이고 떼는 것은 `tag_add` · `tag_remove`(타입까지 보려면
+    `tags_get`)."""
+    if space == "doe":
+        tags = await _get(ctx, "/api/doe/tags", {"scope": scope})
+    elif problem := _space(space):
         return {"error": problem}
-    tags = await _get(ctx, f"/api/{space}/tags")
+    else:
+        tags = await _get(ctx, f"/api/{space}/tags")
     return {"space": space, "tags": tags} if isinstance(tags, list) else tags
+
+
+# --- 태그 — 온톨로지의 객체를 붙인다(ADR 0011) --------------------------------------
+
+#: 태그가 붙는 것 — `kind` 값.
+_TAG_KINDS = ("work", "part", "jig")
+
+
+def _tag_kind(kind: str) -> str | None:
+    return None if kind in _TAG_KINDS else f"kind 는 {' · '.join(_TAG_KINDS)} 중 하나입니다."
+
+
+@mcp.tool()
+async def tag_types(ctx: Context) -> Any:
+    """**태그로 고를 수 있는 타입** — 태그는 글자가 아니라 온톨로지의 객체다(ADR 0011).
+
+    「일반 태그」(`cc_tag`)가 맨 앞이고, 타입을 안 고르면 거기다. `mode`: `pick`(있는 것에서
+    고르기만) · `grow`(붙이는 사람 누구나 새 이름을 만든다). `can_create` 가 거짓이면 그
+    타입에는 새 이름을 못 만든다 — `tag_candidates` 에서 고른다(`note` 가 까닭)."""
+    return await _get(ctx, "/api/tags/types")
+
+
+@mcp.tool()
+async def tag_candidates(
+    ctx: Context, type_slug: str = "cc_tag", query: str = "", limit: int = 20
+) -> Any:
+    """그 태그 타입에서 **고를 객체** — 이름에 `query` 가 든 것, 많이 쓴 것(`uses`)부터. 붙일
+    때는 `tag_add(object_id=…)`. 같은 말이 이미 있으면 새로 만들지 말고 이것을 쓴다 — 태그는
+    모두의 어휘라 「굽힘시험」 과 「굽힘 시험」 이 따로 생기면 묶음이 갈린다."""
+    return await _get(
+        ctx,
+        f"/api/tags/types/{type_slug}/objects",
+        {"q": query, "limit": max(1, min(int(limit), 100))},
+    )
+
+
+@mcp.tool()
+async def tags_get(ctx: Context, kind: str, id: str) -> Any:
+    """작업(`kind="work"`) · 공용 부품(`part`) · 지그(`jig`) 하나에 **붙은 태그** — 객체 id ·
+    이름 · 타입(붙인 순서). 작업은 주인 · 관리자만 본다. 태그 객체를 열면(`object_get`) 그
+    태그가 붙은 다른 것들이 「태그가 붙은 것」 으로 보인다."""
+    if problem := _tag_kind(kind):
+        return {"error": problem}
+    return await _get(ctx, f"/api/tags/{kind}/{id}")
+
+
+@mcp.tool()
+async def tag_add(
+    ctx: Context,
+    kind: str,
+    id: str,
+    object_id: str | None = None,
+    type_slug: str | None = None,
+    label: str | None = None,
+) -> Any:
+    """태그 하나를 **붙인다** — 붙은 태그 전부를 돌려준다(이미 붙어 있으면 그대로).
+
+    - 고른 객체: `object_id`(`tag_candidates` 의 것).
+    - 이름으로: `label` 과 `type_slug`(비우면 「일반 태그」). 그 타입에서 같은 이름 · 별칭을
+      먼저 찾고, 없으면 만든다 — **「늘리기」 타입만**(`tag_types` 의 `can_create`). 고르기만
+      하는 타입에 없는 이름이면 거절된다.
+    - 붙이는 사람은 그 행을 고칠 수 있어야 한다 — 작업은 주인, 부품 · 지그는 올린 사람 ·
+      관리자.
+    - 작업의 태그를 이름 목록으로 통째로 바꾸려면 `update_work(tags=[…])`(새 이름은 「일반
+      태그」 로)."""
+    if problem := _tag_kind(kind):
+        return {"error": problem}
+    if not object_id and not (label or "").strip():
+        return {"error": "object_id 또는 label 중 하나를 주십시오."}
+    body = {"object_id": object_id, "type_slug": type_slug, "label": label}
+    return await _post(
+        ctx, f"/api/tags/{kind}/{id}", {k: v for k, v in body.items() if v is not None}
+    )
+
+
+@mcp.tool()
+async def tag_remove(ctx: Context, kind: str, id: str, object_id: str) -> Any:
+    """태그 하나를 **뗀다** — 객체는 남는다(다른 데 붙어 있을 수 있고, 어휘는 쌓이는 것이다).
+    붙은 태그 전부를 돌려준다. `object_id` 는 `tags_get` 의 것."""
+    if problem := _tag_kind(kind):
+        return {"error": problem}
+    return await _delete(ctx, f"/api/tags/{kind}/{id}/{object_id}")
+
+
+@mcp.tool()
+async def tag_settings(
+    ctx: Context, type_slug: str | None = None, mode: str | None = None
+) -> Any:
+    """(시스템 관리자) **어느 타입을 태그로 쓰나** — 인자 없이 부르면 목록, `type_slug` 와
+    `mode` 를 주면 바꾼다. `mode`: `off`(태그로 안 씀) · `pick`(고르기) · `grow`(고르기 ·
+    늘리기 — 붙이는 사람 누구나 그 타입에 전역 객체를 만든다). 「일반 태그」 는 끌 수 없고,
+    끈 타입의 태그는 붙은 채 남는다. `note` 는 늘리기여도 만들 수 없는 까닭(입력 정책 · 허브
+    관리 …)."""
+    if type_slug is None and mode is None:
+        return await _get(ctx, "/api/tags/settings")
+    if not type_slug or not mode:
+        return {"error": "바꾸려면 type_slug 와 mode 를 함께 주십시오."}
+    return await _put(ctx, f"/api/tags/settings/{type_slug}", {"mode": mode})
 
 
 @mcp.tool()
@@ -2771,7 +3080,7 @@ async def update_catalog_item(
 ) -> Any:
     """공용 부품 · 지그(`space` = parts · jigs)의 이름 · 설명 · 폴더를 고친다 — 준 것만.
     **등록한 사용자 · 관리자만** 된다. 형상(버전)은 여기서 안 바뀐다 — 내 작업에서 고쳐 다시
-    등록한다."""
+    등록한다. 태그는 `tag_add` · `tag_remove`(`kind` = part · jig)."""
     if space not in ("parts", "jigs"):
         return {"error": "space 는 parts · jigs 중 하나입니다(템플릿은 update_template)."}
     body = {
@@ -2785,6 +3094,96 @@ async def update_catalog_item(
     if not isinstance(got, dict) or "error" in got:
         return got
     return {"id": got["id"], "name": got["name"], "folder": got.get("folder", "")}
+
+
+# --- VOC — 게시판이고 절차다(접수 · 처리 · 확인) ------------------------------------------
+
+#: VOC 의 상태 — 옮길 수 있는 곳은 사람 · 지금 상태마다 다르다(`voc_get` 의 `allowed`).
+_VOC_STATUSES = ("open", "accepted", "in_progress", "resolved", "closed", "rejected")
+
+
+@mcp.tool()
+async def voc_list(
+    ctx: Context,
+    status: str | None = None,
+    query: str = "",
+    mine: bool = False,
+    limit: int = 20,
+    offset: int = 0,
+) -> Any:
+    """VOC 게시판 — 번호(`seq`) · 제목 · 상태 · 낸 사람(새것부터). **목록은 누구나 본다** —
+    같은 문제를 여럿이 따로 내지 않게, 새로 내기 전에 `query` 로 같은 것이 있는지 먼저 찾는다.
+    `status`: open(등록) · accepted · in_progress · resolved(해결) · closed · rejected, `mine`
+    이면 내가 낸 것만."""
+    if status is not None and status not in _VOC_STATUSES:
+        return {"error": f"status 는 {' · '.join(_VOC_STATUSES)} 중 하나입니다."}
+    params: dict[str, Any] = {
+        "q": query,
+        "mine": "true" if mine else "false",
+        "limit": max(1, min(int(limit), 100)),
+        "offset": max(0, int(offset)),
+    }
+    if status:
+        params["status"] = status
+    return await _get(ctx, "/api/voc", params)
+
+
+@mcp.tool()
+async def voc_get(ctx: Context, item_id: str) -> Any:
+    """VOC 하나 — 본문 · 이력(상태를 옮긴 것과 댓글, 시간순) · 첨부 이름, 그리고 **이 사람이
+    지금 할 수 있는 것**: `allowed`(옮길 수 있는 상태) · `note_required`(말을 꼭 적어야 하는
+    상태). `item_id` 는 `voc_list` 의 `id`."""
+    return await _get(ctx, f"/api/voc/{item_id}")
+
+
+@mcp.tool()
+async def voc_create(ctx: Context, title: str, body: str, page_path: str | None = None) -> Any:
+    """VOC 를 **낸다** — 문제 · 요청 하나. 먼저 `voc_list(query=…)` 로 같은 것이 있는지 본다
+    (있으면 거기 `voc_event` 로 말을 보탠다). `page_path` 는 겪은 화면의 경로(`/works/…`).
+    본문에는 무엇을 했고 · 무엇을 기대했고 · 무엇이 일어났는지를 적는다. 화면을 찍은 그림 같은
+    첨부는 화면에서 붙인다."""
+    payload: dict[str, Any] = {"title": title, "body": body}
+    if page_path:
+        payload["page_path"] = page_path
+    return await _post(ctx, "/api/voc", payload)
+
+
+@mcp.tool()
+async def voc_update(
+    ctx: Context, item_id: str, title: str | None = None, body: str | None = None
+) -> Any:
+    """낸 VOC 의 제목 · 본문을 고친다 — 준 것만. 낸 사람과 관리자만."""
+    payload = {key: value for key, value in (("title", title), ("body", body)) if value}
+    if not payload:
+        return {"error": "바꿀 칸이 없습니다 — title · body 중 하나를."}
+    return await _patch(ctx, f"/api/voc/{item_id}", payload)
+
+
+@mcp.tool()
+async def voc_event(
+    ctx: Context, item_id: str, note: str | None = None, status: str | None = None
+) -> Any:
+    """VOC 에 **말을 보태거나 상태를 옮긴다** — `status` 를 비우면 댓글이다(누구나). 옮길 수
+    있는 상태는 사람과 지금 상태마다 다르다 — `voc_get` 의 `allowed` 에서 고르고, 그 상태가
+    `note_required` 에 있으면 `note` 를 꼭 적는다(해결 · 반려 · 다시 열기)."""
+    if status is None and not (note or "").strip():
+        return {"error": "note 나 status 중 하나는 주십시오."}
+    payload = {key: value for key, value in (("status", status), ("note", note)) if value}
+    return await _post(ctx, f"/api/voc/{item_id}/events", payload)
+
+
+@mcp.tool()
+async def voc_summary(ctx: Context) -> Any:
+    """**이 사람이 손댈 차례인 VOC 수** — `waiting`(접수 대기, 시스템 관리자에게만) ·
+    `to_confirm`(내가 낸 것 중 「해결」 되어 확인 · 종료를 기다리는 것)."""
+    return await _get(ctx, "/api/voc/summary")
+
+
+@mcp.tool()
+async def voc_delete(ctx: Context, item_id: str) -> Any:
+    """VOC 를 **지운다**(목록 · 상세에서 뺀다) — 낸 사람과 관리자만. **사람이 지우라고 한
+    것만.** 잘못 낸 것이 아니면 지우지 말고 `voc_event` 로 반려 · 종료한다(이력이 남는다)."""
+    return await _delete(ctx, f"/api/voc/{item_id}")
 
 
 # **기준정보 도구를 붙인다 — `mcp.run()` 보다 앞이어야 한다**(그 뒤의 등록은 운영에서 안

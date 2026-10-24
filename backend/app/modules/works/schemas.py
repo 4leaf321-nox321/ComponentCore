@@ -12,6 +12,15 @@ from app.modules.jobs.schemas import JobOut
 from app.shared import folders
 
 
+class StepTicketRequest(BaseModel):
+    """STEP 을 올릴 표를 낸다 — 새 작업(`work_id` 를 비운다)이나 내 작업의 새 버전."""
+
+    filename: str = Field(min_length=1, max_length=255)
+    """올릴 파일 이름(.step · .stp). 올릴 때 `?filename=` 을 안 주면 이 이름."""
+    work_id: uuid.UUID | None = None
+    """주면 그 작업에 `import_step` 버전을 더한다(주인 · 관리자). 비우면 새 작업."""
+
+
 class WorkCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=2000)

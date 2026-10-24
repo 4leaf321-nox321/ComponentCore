@@ -1250,6 +1250,115 @@
         }
       }
     },
+    "/api/works/step-tickets": {
+      "post": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Issue Step Ticket",
+        "description": "STEP 을 올릴 **한 번 쓰는 표**(5분) — MCP 가 파일을 토큰으로 나르지 않게(ADR 0012).\n\n`work_id` 를 비우면 새 작업(첫 버전이 `import_step`), 주면 그 작업의 새 버전. 자리를 지금\n확인하고 낸다. 받은 쪽은 표를 `X-Upload-Ticket` 머리에 실어 `PUT /api/works/step-upload` 로\n파일 바이트를 그대로 보낸다 — `curl -T <파일>`.",
+        "operationId": "issue_step_ticket_api_works_step_tickets_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StepTicketRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/works/step-upload": {
+      "put": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Upload Step With Ticket",
+        "description": "표로 STEP 을 올린다 — **토큰 없이**, 본문이 곧 파일이다(첨부의 `PUT\n/api/attachments/upload` 와 같은 규칙). 새 작업이면 `name`(비우면 파일 이름)으로 만든다.\n표는 올리기에 성공했을 때만 쓴 것이 된다 — STEP 이 깨져 거절되면 같은 표로 다시 올린다.",
+        "operationId": "upload_step_with_ticket_api_works_step_upload_put",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 255,
+              "default": "",
+              "title": "Filename"
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 120,
+              "default": "",
+              "title": "Name"
+            }
+          },
+          {
+            "name": "X-Upload-Ticket",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 20,
+              "maxLength": 200,
+              "title": "X-Upload-Ticket"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/works/tags": {
       "get": {
         "tags": [
@@ -8670,7 +8779,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/WorkOut"
+                  "$ref": "#/components/schemas/MadeWorkOut"
                 }
               }
             }
@@ -8712,7 +8821,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/WorkOut"
+                  "$ref": "#/components/schemas/MadeWorkOut"
                 }
               }
             }
@@ -35763,6 +35872,191 @@
         ],
         "title": "LogitOut"
       },
+      "MadeWorkOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "owner_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Owner Id"
+          },
+          "owner_name": {
+            "type": "string",
+            "title": "Owner Name"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "jig_for_part_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jig For Part Id"
+          },
+          "jig_for_part_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jig For Part Name"
+          },
+          "current_version": {
+            "type": "integer",
+            "title": "Current Version"
+          },
+          "version_count": {
+            "type": "integer",
+            "title": "Version Count"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VersionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "jig_options": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Jig Options"
+          },
+          "unit_system": {
+            "type": "string",
+            "title": "Unit System",
+            "default": "mm_n_tonne"
+          },
+          "jig_run_count": {
+            "type": "integer",
+            "title": "Jig Run Count"
+          },
+          "last_jig_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Jig Status"
+          },
+          "promoted_part_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promoted Part Id"
+          },
+          "promoted_jig_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promoted Jig Id"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags",
+            "default": []
+          },
+          "folder": {
+            "type": "string",
+            "title": "Folder",
+            "default": ""
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "owner_id",
+          "owner_name",
+          "kind",
+          "jig_for_part_id",
+          "jig_for_part_name",
+          "current_version",
+          "version_count",
+          "current",
+          "jig_options",
+          "jig_run_count",
+          "last_jig_status",
+          "promoted_part_id",
+          "promoted_jig_id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "MadeWorkOut",
+        "description": "시험 규격으로 만든 작업 — 그 작업에 더해 **그린 노트**(지그에 붙인 기본 재료 · 시험 자리\n설명 …). 화면은 작업으로 넘어가고, 기계(MCP)는 이 노트를 사람에게 전한다."
+      },
       "MaintenanceItemOut": {
         "properties": {
           "key": {
@@ -48162,6 +48456,34 @@
         "title": "StayOut",
         "description": "머무는 기간 — 기간마다의 값이 최근 `periods` 기간의 합이다(ADR 0023)."
       },
+      "StepTicketRequest": {
+        "properties": {
+          "filename": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Filename"
+          },
+          "work_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "filename"
+        ],
+        "title": "StepTicketRequest",
+        "description": "STEP 을 올릴 표를 낸다 — 새 작업(`work_id` 를 비운다)이나 내 작업의 새 버전."
+      },
       "StudyCreateRequest": {
         "properties": {
           "factors": {
@@ -52419,6 +52741,20 @@
               }
             ],
             "title": "Measures"
+          },
+          "unmaterialed": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unmaterialed"
           }
         },
         "type": "object",

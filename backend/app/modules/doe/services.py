@@ -1141,6 +1141,10 @@ def status_of(db: Session, study: DoeStudy) -> dict[str, Any]:
     }
     done = int(counted.get("ok", 0))
     failed = int(counted.get("failed", 0))
+    # 재료가 빈 파트(점마다 내보낼 때 센 것) — 해석 쪽이 막히는 폴더를 기계가 여기서 안다.
+    bare: set[str] = set()
+    for one in db.scalars(select(DoePoint.geometry).where(DoePoint.study_id == study.id)):
+        bare.update((one or {}).get("unmaterialed") or [])
     return {
         "study_id": str(study.id),
         "name": study.name,
@@ -1161,6 +1165,7 @@ def status_of(db: Session, study: DoeStudy) -> dict[str, Any]:
         # 보낸 뒤에 점을 더했으면 공유 폴더가 옛것이다 — 기계는 이것을 보고 다시 보낸다.
         "export_stale": export_stale(study),
         "batches": len(study.batches or []),
+        "unmaterialed": sorted(bare),
     }
 
 

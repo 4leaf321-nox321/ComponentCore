@@ -5,6 +5,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.modules.works.schemas import WorkOut
+
 
 class PresetOut(BaseModel):
     """시험 규격 프리셋 하나 — 공개 규격(`builtin`, 코드)과 사내 규격(`internal`, DB)이 같은
@@ -98,3 +100,10 @@ class ProductSourceRequest(BaseModel):
     """제품의 형상을 본다 — 「제품에 적용」 이 3D 에서 면을 고르게."""
 
     source: str = Field(pattern=r"^(work|part):[0-9a-fA-F-]{36}$")
+
+
+class MadeWorkOut(WorkOut):
+    """시험 규격으로 만든 작업 — 그 작업에 더해 **그린 노트**(지그에 붙인 기본 재료 · 시험 자리
+    설명 …). 화면은 작업으로 넘어가고, 기계(MCP)는 이 노트를 사람에게 전한다."""
+
+    notes: list[str] = Field(default_factory=list)

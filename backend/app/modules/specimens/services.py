@@ -292,9 +292,11 @@ def _installed_fixture_material(db: Session, made: SpecimenBuild) -> SpecimenBui
     return replace(made, conditions={**made.conditions, "materials": rows}, notes=notes)
 
 
-def create_work(db: Session, user: User, request: SpecimenWorkRequest) -> Work:
+def create_work(
+    db: Session, user: User, request: SpecimenWorkRequest
+) -> tuple[Work, list[str]]:
     """프리셋으로 **내 작업**을 만든다 — 첫 버전이 시편(과 시험 지그)의 레시피, 해석 조건까지.
-    치수가 레시피 변수라 바로 DOE 로 훑는다."""
+    치수가 레시피 변수라 바로 DOE 로 훑는다. 그린 노트(지그 기본 재료 등)를 함께 돌려준다."""
     preset, _ = find(db, request.preset_id)
     made = build(db, request)
     parts = ["시편"]
@@ -313,12 +315,13 @@ def create_work(db: Session, user: User, request: SpecimenWorkRequest) -> Work:
         folder=request.folder,
         conditions=made.conditions,
     )
-    return works.update_work(
+    tagged = works.update_work(
         db,
         work,
         fields={"tags": [f"{TESTS.get(preset.test, preset.test)} 시험", preset.standard]},
         by=user,
     )
+    return tagged, list(made.notes)
 
 
 def bending_setup(db: Session, preset_id: str) -> dict[str, Any]:
@@ -372,7 +375,9 @@ def product_mesh(db: Session, user: User, request: ProductSourceRequest) -> dict
     return {"summary": built.summary(), "mesh": mesh(built.shape)}
 
 
-def apply_product_test(db: Session, user: User, request: ProductTestRequest) -> Work:
+def apply_product_test(
+    db: Session, user: User, request: ProductTestRequest
+) -> tuple[Work, list[str]]:
     """제품에 시험 규격을 건 **새 내 작업** — 제품 레시피 그대로 + 시험 변수 · 하중 자리 ·
     구속 · 하중 · 해석 설정. 만들기 전에 그려 보고 시험 자리(받침면 · 하중 자리 · 끝 면)가
     실제로 풀리는지 본다(안 풀리는 조건을 해석으로 넘기면 저쪽에서야 실패한다)."""
@@ -454,9 +459,10 @@ def apply_product_test(db: Session, user: User, request: ProductTestRequest) -> 
         folder=request.folder,
         conditions=made.conditions,
     )
-    return works.update_work(
+    tagged = works.update_work(
         db,
         work,
         fields={"tags": [f"{TESTS.get(preset.test, preset.test)} 시험", preset.standard]},
         by=user,
     )
+    return tagged, list(made.notes)

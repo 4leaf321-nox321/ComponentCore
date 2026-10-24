@@ -12,6 +12,7 @@ from app.database import get_db
 from app.modules.accounts.models import User
 from app.modules.specimens import services
 from app.modules.specimens.schemas import (
+    MadeWorkOut,
     PresetIn,
     PresetOut,
     ProductSourceRequest,
@@ -21,7 +22,6 @@ from app.modules.specimens.schemas import (
     SpecimenWorkRequest,
 )
 from app.modules.works import services as works
-from app.modules.works.schemas import WorkOut
 from app.shared.auth import current_user, require_system_admin
 
 router = APIRouter(prefix="/specimens", tags=["specimens"])
@@ -88,28 +88,30 @@ def build(
     return services.build(db, payload)
 
 
-@router.post("/works", response_model=WorkOut, status_code=201)
+@router.post("/works", response_model=MadeWorkOut, status_code=201)
 def create_work(
     payload: SpecimenWorkRequest,
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-) -> WorkOut:
+) -> MadeWorkOut:
     """시험 규격으로 **내 작업**을 만든다 — 시편 치수가 레시피 변수라 바로 DOE 로 훑고, 해석
     조건이 함께 붙어 그대로 내보낸다."""
-    return works.work_out(db, services.create_work(db, user, payload))
+    work, notes = services.create_work(db, user, payload)
+    return MadeWorkOut(**works.work_out(db, work).model_dump(), notes=notes)
 
 
-@router.post("/product-tests", response_model=WorkOut, status_code=201)
+@router.post("/product-tests", response_model=MadeWorkOut, status_code=201)
 def apply_product_test(
     payload: ProductTestRequest,
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-) -> WorkOut:
+) -> MadeWorkOut:
     """**제품에 시험 규격을 건다** — 정하중 · 손잡이·벽걸이 · 적층 압축 · 비틀림 · 정현파
     진동 · 고유진동수. 제품 레시피를 그대로 쓴 새 내 작업에 시험 변수 · 하중 자리 · 구속 ·
     하중 · 해석 설정을 붙인다. 제품의 물성 · 접촉 · 파트별 설정은 그대로 가져온다. 자리는
     기본이 아랫면 받침 · 윗면 하중이고, `faces` 로 3D 에서 고른 면을 준다."""
-    return works.work_out(db, services.apply_product_test(db, user, payload))
+    work, notes = services.apply_product_test(db, user, payload)
+    return MadeWorkOut(**works.work_out(db, work).model_dump(), notes=notes)
 
 
 @router.post("/product-mesh")

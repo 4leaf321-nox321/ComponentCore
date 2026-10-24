@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-import tempfile
 import uuid
 from typing import BinaryIO, cast
 from urllib.parse import quote
@@ -30,8 +29,8 @@ from app.modules.accounts.models import User
 from app.modules.files import services
 from app.modules.files.schemas import AttachmentOut, TicketOut, TicketRequest
 from app.shared import blobstore as filestore
+from app.shared import uploads
 from app.shared.auth import current_user
-from app.shared.errors import AppError, code
 
 router = APIRouter(prefix="/attachments", tags=["files"])
 
@@ -106,27 +105,7 @@ async def upload_with_ticket(
     받으며 세다가 상한을 넘는 순간 끊는다(다 받고 나서 재지 않는다).
     """
     await run_in_threadpool(services.check_ticket, db, ticket=ticket)
-    limit = services.MAX_BYTES
-
-    def too_large() -> AppError:
-        return AppError(
-            code("FILES", 3),
-            f"파일이 너무 큽니다 (최대 {limit // 1024 // 1024}MB).",
-            status=413,
-            details={"max_bytes": limit},
-        )
-
-    declared = request.headers.get("content-length", "")
-    if declared.isdigit() and int(declared) > limit:
-        raise too_large()
-    with tempfile.SpooledTemporaryFile(max_size=1024 * 1024) as spool:
-        size = 0
-        async for chunk in request.stream():
-            size += len(chunk)
-            if size > limit:
-                raise too_large()
-            spool.write(chunk)
-        spool.seek(0)
+    with await uploads.spooled_body(request, services.MAX_BYTES) as spool:
         return await run_in_threadpool(
             services.redeem_ticket,
             db,

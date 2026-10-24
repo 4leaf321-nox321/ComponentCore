@@ -15,9 +15,9 @@
 | **내가 그린 것의 치수** | `recipe_geometry(recipe)` — 구멍 지름 · 중심 · 깊이, 면의 법선 · 넓이 |
 | **제품을 기준으로 지그 그리기** | `part_geometry(part_id)` · `work_geometry(work_id)` — 치수표 + STEP id |
 | **해석 조건 붙이기** | `conditions_schema` → `recipe_find` · `recipe_selectors` → `set_conditions` — `get_guide("conditions")` |
-| **물성 붙이기** | `condition_material_search` → `condition_material_get`(→ `condition_item`) · `recipe_bodies` → `set_conditions`. 재료의 물성 값 · 출처를 묻는 질문은 이 도구가 아니라 MatNexus(`search_materials` · `get_material`) |
-| **규격 시험 해석 모델** | 시편(굽힘 · 인장 · 압축 · 전단 · 접착 이음 · 체결부): `list_test_presets(test=…)` → `create_specimen_work(preset_id, thickness, dimensions …)`. 제품(정하중 · 방향 하중 · 손잡이 · 압착 · 적층 압축 · 수압 · 비틀림 · 등가 가속도 · 진동 · 고유진동수): `apply_product_test(preset_id, source, faces, direction …)`. 물성만 붙이면 `doe_create` 로 훑는다. 아래 「jig」 의 시험 규격 |
-| **형상 여러 벌 만들기(DOE)** | `doe_preview` → `doe_probe`(끝 점 미리) → `doe_create` → `doe_points` → `doe_export` — 공유 폴더에 STEP 이 쌓인다. 더 뽑을 때 `doe_extend` |
+| **물성 붙이기** | `condition_material_search` → `condition_material_get`(→ `condition_item`) · `recipe_bodies` → `set_conditions`. 재료의 물성 값 · 출처를 묻는 질문은 이 도구가 아니라 MatNexus(`search_materials` · `get_material`). 사본으로만 나오면 `condition_material_status`, 솔버 덱(`deck_formats`)을 담을 때는 `condition_material_decks` |
+| **규격 시험 해석 모델** | 시편(굽힘 · 인장 · 압축 · 전단 · 접착 이음 · 체결부): `list_test_presets(test=…)` → (`preview_specimen` 으로 미리) → `create_specimen_work(preset_id, thickness, dimensions …)` — 답의 `notes` 를 사용자에게 전한다. 제품(정하중 · 방향 하중 · 손잡이 · 압착 · 적층 압축 · 수압 · 비틀림 · 등가 가속도 · 진동 · 고유진동수): `apply_product_test(preset_id, source, faces, direction …)`. 물성만 붙이면 `doe_create` 로 훑는다. 아래 「jig」 의 시험 규격 |
+| **형상 여러 벌 만들기(DOE)** | `doe_preview` → `doe_probe`(끝 점 미리) → `doe_create` → `doe_points` → `doe_export` — 공유 폴더에 STEP 이 쌓인다. 더 뽑을 때 `doe_extend`. 답에 **`unmaterialed`** 가 있으면 재료가 빈 파트라 해석 쪽이 걸지 않는다 — 재료를 붙이고 다시 내보낸다. 누가 보나는 `doe_visibility` |
 | **다른 사람의 DOE 이어서 하기** | `doe_studies(scope="all")` → `doe_clone(study_id)` — 같은 설계점 · 조건으로 내 DOE 가 생긴다(원본은 그대로). 남의 것은 보내기 · 점 더하기가 안 된다 |
 | **2D 도면(가공 맡길 때)** | `recipe_drawing(recipe, title, material)` — 3각법 세 뷰 · 전체 치수 · 구멍표 · 표제란. 답은 요약 + 그림. PDF · DXF 는 화면의 「파일 › 도면」 |
 | **조립에서 면끼리 접촉 · 구멍 동심** | component 의 `mates` — 아래 「작업은 셋 중 하나다」 의 조립 |
@@ -28,6 +28,7 @@
 | **기준정보(온톨로지)** — SP 에서 받은 모델 · 부품, 부품 · 지그에 잇기 | **`ontology_guide` 를 먼저** — 정의 · 객체 · 관계 · 데이터 작업 도구 72개와 부품 · 지그의 「기준정보」 칸(`ontology_links` → `ontology_link`)이 거기 있다. 작업 · 부품 찾기 `search` 와 객체 찾기 `object_search` 는 다르다 |
 | 레시피가 맞나, 만들어지나 | `recipe_check` — **저장 전에 반드시** |
 | 새 부품 시작 | `create_work(name, recipe)` |
+| **STEP 파일로 시작 · 새 버전** | `step_upload_prepare(local_path, work_id?, name?)` → 돌아온 `curl` 을 셸에서 한 번 실행(5분 안). 파일을 읽어 도구 인자에 넣지 않는다 — 셸이 없으면 사람에게 화면에서 올려 달라고 한다 |
 | 있는 부품 고치기 | `get_work` 로 레시피를 받아 고쳐 `save_version` |
 | 버전 복원 | `list_versions` → `restore_version` |
 | 부품에서 지그 생성 | `jig_preview(source, options)` 로 계획을 보고 → `run_jig` → 지그 작업이 생긴다 |
@@ -37,11 +38,13 @@
 | 다른 사용자의 지그 가져오기 | `list_jigs` → `copy_jig_to_work` — 부품과 같다(레시피 · 잡는 부품 · 해석 조건). `get_jig` 의 `has_recipe` 가 거짓이면 생성기로 만든 이전 버전이라 복사할 수 없다 |
 | 폴더로 나눠 보기 | `list_folders(space)` 로 나무를 보고 `list_works` · `list_parts` · `list_jigs` · `list_templates` 의 `folder`(그 아래까지)로 거른다. 만들 때 `create_work(folder)` · `save_template(folder)` |
 | **정리하기** | `move_to_folder(space, ids, folder)` · `rename_folder(space, path, to)`(삭제 = 위 폴더로 합치기) · `update_work`(이름 · 설명 · 태그 · 폴더 · 종류) · `list_tags` — 공용 공간은 등록한 사용자 · 관리자만 옮긴다 |
+| **태그 붙이기 — 온톨로지의 객체** | 태그는 글자가 아니라 객체다(ADR 0011). `tag_types` 로 타입을 보고 → `tag_candidates(type_slug, query)` 에서 고르거나 → `tag_add(kind, id, object_id \| label, type_slug?)`. 작업 · 부품 · 지그(`kind` = work · part · jig) 모두 같다. 같은 말이 있으면 **새로 만들지 말고 고른다**. 「고르기」 타입은 있는 것만, 「늘리기」 타입과 「일반 태그」(기본)는 이름을 주면 만든다. 떼기 `tag_remove`, 보기 `tags_get`. 태그 객체를 `object_get` 으로 열면 붙은 것들이 보인다. 어느 타입을 태그로 쓰나는 관리자가 `tag_settings` |
 | 복제 · 휴지통 | `duplicate_work`(`with_conditions` — 해석 조건까지; 사용자가 안 정했으면 묻는다) · `delete_work`(휴지통 — **사용자가 지우라고 할 때만**) · `restore_work`(`list_works(trashed=True)` 로 본다) |
-| 템플릿 · 카탈로그 고치기 | `list_templates` · `update_template`(이름 · 공용 여부 · 폴더) · `copy_template` · `update_catalog_item(parts\|jigs)` — 내 것만 |
+| 템플릿 · 카탈로그 고치기 | `list_templates` · `update_template`(이름 · 공용 여부 · 폴더) · `copy_template` · `update_catalog_item(parts\|jigs)` — 내 것만. 공용 부품 · 지그의 버전 목록은 `list_catalog_versions` |
 | 멈추기 · 워커 | `cancel_job` · `doe_cancel`(만든 점은 남고 `doe_rerun(only="failed")` 로 잇는다) — **사용자가 멈추라고 할 때만**. 작업이 안 돌면 `worker_status`(관리자) |
 | 다른 사용자의 작업 조회(시스템 관리자만 — 화면의 「모든 작업」) | `list_works(owner="all")` · `list_works(owner=<사용자 id>)` — 답에 `owner`. 작업 하나는 `get_work` 로 그대로 열린다. **고치면 그 사용자의 작업에 새 버전이 생긴다** — 사용자가 시킬 때만 |
 | 이름 · 태그 · 작성자로 검색 | `search("알루미늄 브래킷")` — 내 작업 · 공용 부품 · 지그 · 템플릿 한꺼번에(낱말마다 AND). DOE 는 `doe_studies(query=…, tag=…)` — 대상 작업 이름 · 태그로도 |
+| **문제 · 요청 내기(VOC)** | 먼저 `voc_list(query=…)` 로 같은 것이 있는지 → 없으면 `voc_create(title, body, page_path)`, 있으면 `voc_event(item_id, note)` 로 말을 보탠다. 상태 옮기기는 `voc_get` 의 `allowed` 에서(해결 · 반려는 `note` 필수). 내 차례인 건은 `voc_summary`. 지우기(`voc_delete`)는 사람이 시킬 때만 |
 
 기본 습관:
 1. 저장은 늘 **사용자의 내 작업**에 새 버전으로 들어간다. 옛 버전은 남는다. 그러니 겁내지 말고

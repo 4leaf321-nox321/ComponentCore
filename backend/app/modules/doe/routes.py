@@ -74,6 +74,7 @@ def _point_out(point: Any) -> PointOut:
     out.interference = (point.geometry or {}).get("interference")
     out.quality = (point.geometry or {}).get("quality")
     out.measures = (point.geometry or {}).get("measures")
+    out.unmaterialed = (point.geometry or {}).get("unmaterialed")
     return out
 
 

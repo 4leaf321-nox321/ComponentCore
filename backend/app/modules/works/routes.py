@@ -6,14 +6,18 @@ from __future__ import annotations
 import uuid
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, Query, Request, UploadFile
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
+from app.config import get_settings
 from app.core import conditions
 from app.core.frames import recipe_frame_names
 from app.database import get_db
 from app.modules.accounts.models import User
 from app.modules.cad import services as cad
+from app.modules.files import services as files
+from app.modules.files.schemas import TicketOut
 from app.modules.jobs import services as jobs
 from app.modules.jobs.schemas import JobOut
 from app.modules.parts import services as parts
@@ -33,6 +37,7 @@ from app.modules.works.schemas import (
     PromoteJigOut,
     PromoteJigRecipeRequest,
     PromotePartRequest,
+    StepTicketRequest,
     VersionCreateRequest,
     VersionOut,
     WorkCreateRequest,
@@ -43,6 +48,7 @@ from app.modules.works.schemas import (
     WorkUpdateRequest,
     YearOut,
 )
+from app.shared import uploads
 from app.shared.auth import current_user
 from app.shared.errors import AppError, Forbidden, code
 from app.shared.pagination import Page, clamp_limit
@@ -180,6 +186,73 @@ def create_work_from_step(
         filename=filename,
         stream=file.file,
     )
+    return services.work_out(db, work)
+
+
+@router.post("/step-tickets", response_model=TicketOut, status_code=201)
+def issue_step_ticket(
+    payload: StepTicketRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> TicketOut:
+    """STEP 을 올릴 **한 번 쓰는 표**(5분) — MCP 가 파일을 토큰으로 나르지 않게(ADR 0012).
+
+    `work_id` 를 비우면 새 작업(첫 버전이 `import_step`), 주면 그 작업의 새 버전. 자리를 지금
+    확인하고 낸다. 받은 쪽은 표를 `X-Upload-Ticket` 머리에 실어 `PUT /api/works/step-upload` 로
+    파일 바이트를 그대로 보낸다 — `curl -T <파일>`."""
+    if not payload.filename.lower().endswith((".step", ".stp")):
+        raise AppError(code("WORKS", 5), "STEP 파일(.step, .stp)만 업로드할 수 있습니다.")
+    if payload.work_id is not None:
+        _mine(db, payload.work_id, user)
+    return files.mint_ticket(
+        db,
+        user=user,
+        owner_table=files.STEP_TICKET,
+        owner_id=payload.work_id or user.id,
+        owner_field="version" if payload.work_id else "new",
+        filename=payload.filename,
+        path=f"{get_settings().base_path}/api/works/step-upload",
+        accept=".step,.stp",
+        max_bytes=_step_limit(),
+    )
+
+
+def _step_limit() -> int:
+    return get_settings().max_upload_mb * 1024 * 1024
+
+
+@router.put("/step-upload", response_model=WorkOut, status_code=201)
+async def upload_step_with_ticket(
+    request: Request,
+    filename: str = Query(default="", max_length=255),
+    name: str = Query(default="", max_length=120),
+    ticket: str = Header(alias="X-Upload-Ticket", min_length=20, max_length=200),
+    db: Session = Depends(get_db),
+) -> WorkOut:
+    """표로 STEP 을 올린다 — **토큰 없이**, 본문이 곧 파일이다(첨부의 `PUT
+    /api/attachments/upload` 와 같은 규칙). 새 작업이면 `name`(비우면 파일 이름)으로 만든다.
+    표는 올리기에 성공했을 때만 쓴 것이 된다 — STEP 이 깨져 거절되면 같은 표로 다시 올린다."""
+    await run_in_threadpool(files.check_ticket, db, ticket=ticket, step=True)
+    with await uploads.spooled_body(request, _step_limit()) as spool:
+        return await run_in_threadpool(_redeem_step, db, ticket, filename, name, spool)
+
+
+def _redeem_step(db: Session, ticket: str, filename: str, name: str, stream: Any) -> WorkOut:
+    found, user = files.take_ticket(db, ticket=ticket, step=True)
+    given = filename or found.filename or "import.step"
+    if found.owner_field == "new":
+        work = services.create_work_from_step(
+            db,
+            owner=user,
+            name=name.strip() or given.rsplit(".", 1)[0],
+            filename=given,
+            stream=stream,
+        )
+    else:
+        # 표를 낸 뒤 권한이 바뀌었을 수 있다 — 낸 사람으로 다시 본다.
+        work = _mine(db, found.owner_id, user)
+        services.import_step(db, work, filename=given, stream=stream, by=user)
+    db.commit()
     return services.work_out(db, work)
 
 

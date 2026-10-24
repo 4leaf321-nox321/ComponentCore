@@ -420,6 +420,12 @@ def _public_upload_url(path: str) -> str | None:
     return f"{base}{path}"
 
 
+#: 내 작업에 STEP 을 올리는 표(`works` 가 낸다) — 첨부가 아니다. 같은 표 · 같은 규칙(5분 ·
+#: 한 번 · 해시만 둔다)을 쓰고 **어느 문으로 쓰는지만 가른다** — 첨부 표로 STEP 을 올리거나
+#: STEP 표로 첨부를 다는 길이 생기지 않게.
+STEP_TICKET = "works.step"
+
+
 def issue_ticket(
     db: Session,
     *,
@@ -432,12 +438,38 @@ def issue_ticket(
     """업로드 표를 낸다. **지금 자리를 확인한다** — 안 되는 자리면 표를 안 낸다(AI 가 curl 을
     돌리고 나서야 거절을 보지 않게)."""
     owner = extensions.attachment_owner(db, user, owner_table, owner_id, owner_field)
-    if owner is None:
+    if owner is None or owner_table == STEP_TICKET:
         raise Conflict(
             code("FILES", 9),
             f"업로드 티켓은 객체의 첨부에만 발급합니다({owner_table} 은(는) 지원하지 "
             "않습니다).",
         )
+    return mint_ticket(
+        db,
+        user=user,
+        owner_table=owner_table,
+        owner_id=owner_id,
+        owner_field=owner_field,
+        filename=filename,
+        path=f"{get_settings().base_path}/api/attachments/upload",
+        accept=owner.accept,
+        max_bytes=MAX_BYTES,
+    )
+
+
+def mint_ticket(
+    db: Session,
+    *,
+    user: User,
+    owner_table: str,
+    owner_id: uuid.UUID,
+    owner_field: str | None,
+    filename: str,
+    path: str,
+    accept: str | None,
+    max_bytes: int,
+) -> TicketOut:
+    """표 한 장 — **자리 확인은 부르는 쪽이 했다**(첨부는 `issue_ticket`, STEP 은 `works`)."""
     ticket = secrets.token_urlsafe(32)
     expires_at = datetime.now(UTC) + TICKET_TTL
     db.add(
@@ -454,29 +486,31 @@ def issue_ticket(
     )
     db.commit()
     # 표는 주소가 아니라 머리(`X-Upload-Ticket`)로 — 주소는 접근 로그에 남는다.
-    path = f"{get_settings().base_path}/api/attachments/upload"
     return TicketOut(
         ticket=ticket,
         upload_path=path,
         upload_url=_public_upload_url(path),
         expires_at=expires_at,
         expires_in_seconds=int(TICKET_TTL.total_seconds()),
-        max_bytes=MAX_BYTES,
-        accept=owner.accept,
+        max_bytes=max_bytes,
+        accept=accept,
     )
 
 
-def _ticket_holder(db: Session, found: AttachmentTicket | None) -> User:
-    """쓸 수 있는 표면 그 표를 낸 사람 — 없거나 · 썼거나 · 만료됐거나 · 낸 사람이 막혔으면
-    거절한다. 본문 전의 확인(`check_ticket`)과 쓸 때의 확인(`redeem_ticket`)이 **같은
-    규칙**이다."""
+def _ticket_holder(db: Session, found: AttachmentTicket | None, *, step: bool = False) -> User:
+    """쓸 수 있는 표면 그 표를 낸 사람 — 없거나 · 썼거나 · 만료됐거나 · 다른 문의 표거나 · 낸
+    사람이 막혔으면 거절한다. 본문 전의 확인(`check_ticket`)과 쓸 때의 확인(`take_ticket`)이
+    **같은 규칙**이다. `step` 은 STEP 표의 문(`works`)인가."""
+    again = "step_upload_prepare" if step else "attachment_upload_prepare"
     refused = AppError(
         code("FILES", 10),
         "업로드 티켓이 없거나, 이미 사용했거나, 만료됐습니다 — 새로 발급받으세요"
-        "(MCP `attachment_upload_prepare`).",
+        f"(MCP `{again}`).",
         status=401,
     )
     if found is None or found.used_at is not None or found.expires_at <= datetime.now(UTC):
+        raise refused
+    if (found.owner_table == STEP_TICKET) != step:
         raise refused
     user = db.get(User, found.user_id)
     if user is None or not user.can_sign_in:
@@ -484,7 +518,7 @@ def _ticket_holder(db: Session, found: AttachmentTicket | None) -> User:
     return user
 
 
-def check_ticket(db: Session, *, ticket: str) -> None:
+def check_ticket(db: Session, *, ticket: str, step: bool = False) -> None:
     """본문을 받기 **전에** 표를 본다. 올리는 요청에는 토큰이 없어 표가 곧 자격인데, 본문을
     다 받고 나서 봤다 — 아무나 표 없이 50MB 를 거듭 보내 서버 디스크(임시 파일)를 쓰게 할 수
     있었다(2026-10-08).
@@ -501,9 +535,29 @@ def check_ticket(db: Session, *, ticket: str) -> None:
                     AttachmentTicket.token_hash == _ticket_hash(ticket)
                 )
             ),
+            step=step,
         )
     finally:
         db.rollback()
+
+
+def take_ticket(
+    db: Session, *, ticket: str, step: bool = False
+) -> tuple[AttachmentTicket, User]:
+    """쓸 표를 **잠그고** 다시 본 뒤 쓴 것으로 적는다 — 커밋은 부르는 쪽이 올리기에 성공한 뒤에
+    한다(실패하면 되돌아가 같은 표로 다시 올릴 수 있다). 같은 표를 동시에 두 번 쓰면 행 잠금이
+    하나만 통과시킨다."""
+    found = db.scalar(
+        select(AttachmentTicket)
+        .where(AttachmentTicket.token_hash == _ticket_hash(ticket))
+        .with_for_update()
+    )
+    user = _ticket_holder(db, found, step=step)
+    assert found is not None  # _ticket_holder 가 None 이면 이미 던졌다
+    # 감사에 「어느 토큰이 올렸나」 — 표를 낸 토큰의 이름을 그대로 잇는다.
+    set_actor_token(found.token_name)
+    found.used_at = func.now()
+    return found, user
 
 
 def redeem_ticket(
@@ -514,16 +568,7 @@ def redeem_ticket(
     표는 성공했을 때만 쓴 것이 된다 — 이미지만 받는 칸에 엑셀을 올려 거절되면 같은 표로 고쳐
     다시 올릴 수 있다(5분 안). 같은 표를 동시에 두 번 쓰면 행 잠금이 하나만 통과시킨다.
     """
-    found = db.scalar(
-        select(AttachmentTicket)
-        .where(AttachmentTicket.token_hash == _ticket_hash(ticket))
-        .with_for_update()
-    )
-    user = _ticket_holder(db, found)
-    assert found is not None  # _ticket_holder 가 None 이면 이미 던졌다
-    # 감사에 「어느 토큰이 올렸나」 — 표를 낸 토큰의 이름을 그대로 잇는다.
-    set_actor_token(found.token_name)
-    found.used_at = func.now()
+    found, user = take_ticket(db, ticket=ticket)
     made = upload(
         db,
         user=user,
