@@ -1,5 +1,5 @@
 {
-  "id": "f38898a2-c67a-458e-a6e9-7e35ebd58718",
+  "id": "8ef2d723-703f-449e-b868-07edb5d90a05",
   "name": "시험_비틀림",
   "description": "",
   "method": "factorial",
@@ -293,8 +293,12 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-4a71bc9d@example.local"
+    "email": "member-810f653d@example.local"
   },
   "requested_by": null,
-  "cloned_from": null
+  "cloned_from": null,
+  "ontology": {
+    "tags": [],
+    "links": []
+  }
 }

@@ -83,7 +83,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "f5647806-d482-481b-8d32-a9f24f33430c",
+      "id": "bdbd85e8-d50d-4857-b4ab-3e07740cd305",
       "name": "시험_진동_150Hz",
       "method": "factorial",
       "seed": 1

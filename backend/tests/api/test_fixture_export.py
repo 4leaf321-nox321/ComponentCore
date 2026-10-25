@@ -804,6 +804,102 @@ def test_조건_픽스처를_실제_내보내기로_만든다(
             shutil.copytree(folder, target / name)
 
 
+#: ⑦ **기준정보가 이어진 DOE** — 「조건_두바디_두재료」 를 작업으로 그려 부품으로 등록하고,
+#: 그 부품의 「적용 모델」 에 기본 모델 「P5 플립」 을, 작업에 태그 둘(일반 태그 「본딩」 ·
+#: 「시험 목적」 타입의 「강성 검토」)을 이었다. `study.json` 의 `ontology` 가 차는 모양을
+#: 받는 쪽이 보게(온톨로지 이식 E 단계, 2026-10-26). 다른 픽스처는 대상 작업이 없어 빈 칸이다.
+LINKED: dict[str, Any] = {**TWO_BODIES, "name": "기준정보_태그_적용모델"}
+
+
+def test_기준정보_픽스처_태그와_적용_모델이_실린다(
+    client: TestClient, member: Signed, admin: Signed, export_root: Path
+) -> None:
+    def ok(response: Any) -> Any:
+        assert response.status_code in (200, 201, 202), response.text
+        return response.json()
+
+    # 관리자가 정의를 둔다 — 부품 원 표 타입은 태그의 기본 정의가 만든다.
+    ok(client.get("/api/tags/types", headers=admin.headers))
+    ok(
+        client.post(
+            "/api/ontology/types",
+            json={"slug": "base_model", "label": "기본 모델", "key_policy": "optional"},
+            headers=admin.headers,
+        )
+    )
+    ok(
+        client.post(
+            "/api/ontology/relation-types",
+            json={
+                "slug": "model_parts",
+                "label": "사용 부품",
+                "inverse_label": "적용 모델",
+                "src_type_slugs": ["base_model"],
+                "dst_type_slugs": ["cc_part"],
+            },
+            headers=admin.headers,
+        )
+    )
+    phone = ok(
+        client.post(
+            "/api/objects/base_model",
+            json={"label": "P5 플립", "key": "SM-P500"},
+            headers=admin.headers,
+        )
+    )
+    ok(
+        client.post(
+            "/api/ontology/types",
+            json={"slug": "test_purpose", "label": "시험 목적", "kind_class": "reference"},
+            headers=admin.headers,
+        )
+    )
+    grow = {"mode": "grow"}
+    ok(client.put("/api/tags/settings/test_purpose", json=grow, headers=admin.headers))
+
+    # 사람이 작업을 그려 부품으로 등록하고, 태그 · 적용 모델을 잇는다.
+    work = ok(
+        client.post(
+            "/api/works",
+            json={"name": "두바디 본딩 조립", "kind": "part", "recipe": TWO_BODIES["recipe"]},
+            headers=member.headers,
+        )
+    )
+    part = ok(
+        client.post(f"/api/works/{work['id']}/promote/part", json={}, headers=member.headers)
+    )["part_id"]
+    ok(
+        client.post(
+            f"/api/parts/{part}/ontology/links",
+            json={"relation": "model_parts", "object_id": phone["id"]},
+            headers=member.headers,
+        )
+    )
+    tagged = f"/api/tags/work/{work['id']}"
+    ok(client.post(tagged, json={"label": "본딩"}, headers=member.headers))
+    purpose = {"type_slug": "test_purpose", "label": "강성 검토"}
+    ok(client.post(tagged, json=purpose, headers=member.headers))
+
+    folder = _export(client, member, export_root, {**LINKED, "work_id": work["id"]})
+    written = json.loads((folder / "study.json").read_text(encoding="utf-8"))["ontology"]
+    tags = [(one["label"], one["type_slug"], one["type_label"]) for one in written["tags"]]
+    assert tags == [
+        ("본딩", "cc_tag", "일반 태그"),
+        ("강성 검토", "test_purpose", "시험 목적"),
+    ]
+    [link] = written["links"]
+    assert link["on"] == {"kind": "part", "id": part, "name": "두바디 본딩 조립"}
+    assert (link["relation"], link["relation_label"]) == ("model_parts", "적용 모델")
+    assert (link["label"], link["key"]) == ("P5 플립", "SM-P500")
+    assert link["type_slug"] == "base_model"
+    readme = (folder / "README.txt").read_text(encoding="utf-8")
+    assert "  - 태그: 강성 검토 (시험 목적)" in readme
+    assert "  - 두바디 본딩 조립 — 적용 모델: P5 플립 [SM-P500]" in readme
+    # 형상 · 조건은 「조건_두바디_두재료」 와 같다 — 기준정보만 더 실렸다.
+    assert [len(point["bodies"]) for point in _points(folder)] == [2, 2]
+    _copy_fixture(folder)
+
+
 def test_DOE_는_조건을_안_주면_작업의_현재_조건을_싣는다(
     client: TestClient, member: Signed, export_root: Path
 ) -> None:
