@@ -1737,7 +1737,9 @@ def _public_origin(ctx: Context) -> str | None:
     name = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
     port = parts.port
     if port is not None and port == int(os.environ.get("MCP_PORT", "8062")):
-        port -= 2
+        # 개발은 앱이 +1(8061)이라 -2 규칙이 틀린다 — 띄우는 쪽(`run.py`)이 앱 포트를 알려 준다
+        # (CompCore 가 더함).
+        port = int(os.environ.get("PLATFORM_APP_PORT") or port - 2)
     default = port is None or (proto, port) in (("http", 80), ("https", 443))
     return f"{proto}://{name}" if default else f"{proto}://{name}:{port}"
 

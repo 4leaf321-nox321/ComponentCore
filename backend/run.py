@@ -85,6 +85,9 @@ def _start_mcp(api_port: int, mcp_port: int) -> subprocess.Popen[bytes] | None:
         "PLATFORM_API_BASE": f"http://127.0.0.1:{api_port}",
         "MCP_HOST": "127.0.0.1",
         "MCP_PORT": str(mcp_port),
+        # 업로드 주소(첨부 · STEP 의 curl)를 만들 때 앱 포트 — 「MCP - 2」 규칙은 운영의 것이고
+        # 개발은 앱이 +1 이다(그대로 두면 8060 을 가리켜 연결이 거부된다, 2026-10-25).
+        "PLATFORM_APP_PORT": str(api_port),
         "APP_SLUG": get_settings().app_slug,
     }
     child = subprocess.Popen([str(python), str(server)], cwd=MCP_DIR, env=env)

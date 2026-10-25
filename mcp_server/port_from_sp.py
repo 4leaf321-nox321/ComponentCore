@@ -185,7 +185,8 @@ text = text.replace(
 )
 
 # 401 은 결과가 아니라 예외로 — HWAX 게이트웨이가 위임 토큰을 다시 받는 신호(SP ADR 0028 결정 12,
-# SP 에서는 6e5a773 뒤에 고쳤다). 규칙은 `backend_errors.py` 한 곳에 두고 여기서 부른다.
+# SP 에서는 6e5a773 뒤에 고쳤다). 규칙은 `backend_errors.py` 한 곳에 두고 여기서 부른다. 업로드
+# 주소의 앱 포트는 개발(+1)에서 띄우는 쪽이 알려 준다(`PLATFORM_APP_PORT`, 2026-10-25).
 for old, new in (
     (
         """def _unwrap(r: httpx.Response) -> Any:
@@ -207,6 +208,14 @@ for old, new in (
             raise rejected(response)
         response.raise_for_status()
         return response.text""",
+    ),
+    (
+        """    if port is not None and port == int(os.environ.get("MCP_PORT", "8062")):
+        port -= 2""",
+        """    if port is not None and port == int(os.environ.get("MCP_PORT", "8062")):
+        # 개발은 앱이 +1(8061)이라 -2 규칙이 틀린다 — 띄우는 쪽(`run.py`)이 앱 포트를 알려 준다
+        # (CompCore 가 더함).
+        port = int(os.environ.get("PLATFORM_APP_PORT") or port - 2)""",
     ),
 ):
     assert text.count(old) == 1, old[:60]
