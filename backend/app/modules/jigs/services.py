@@ -15,6 +15,7 @@ from app.modules.jigs.models import Jig, JigVersion
 from app.modules.jigs.schemas import JigOut, JigSummaryOut, JigVersionOut
 from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Job
+from app.modules.objects import source_links
 from app.modules.parts.models import Part, PartVersion
 from app.modules.tagging import services as tagging
 from app.shared import folders, search, shape_search
@@ -128,6 +129,8 @@ def list_jigs(
     query: str = "",
     tag: str = "",
     tag_id: uuid.UUID | None = None,
+    link_object: uuid.UUID | None = None,
+    link_relation: str = "",
     folder: str | None = None,
     subfolders: bool = True,
     shape: shape_search.ShapeFilter | None = None,
@@ -158,6 +161,8 @@ def list_jigs(
         base = base.where(tagging.tagged(Jig.id, tag))
     if tag_id is not None:
         base = base.where(tagging.tagged_object(Jig.id, tag_id))
+    if link_object is not None:
+        base = base.where(source_links.linked(Jig.id, link_object, link_relation or None))
     total = int(db.scalar(select(func.count()).select_from(base.subquery())) or 0)
     rows = list(
         db.scalars(base.order_by(Jig.updated_at.desc(), Jig.id).limit(limit).offset(offset))

@@ -86,6 +86,20 @@ def list_parts(
         default=None,
         description="이 태그 객체가 붙은 것만(`/api/tags/used/…` 의 `object_id`).",
     ),
+    link_object: uuid.UUID | None = Query(
+        default=None,
+        description=(
+            "이 기준정보 객체와 이어진 것만(어느 방향이든) — `link_relation` 으로 좁힌다."
+        ),
+    ),
+    link_relation: str = Query(
+        default="",
+        max_length=32,
+        description=(
+            "`link_object` 와 잇는 관계 종류(`/ontology/kinds` 의 `relation`). "
+            "비우면 태그 밖의 모든 관계."
+        ),
+    ),
     folder: str | None = Query(default=None, max_length=255),
     subfolders: bool = Query(default=True),
     shape: ShapeFilter = Depends(shape_query),
@@ -104,6 +118,8 @@ def list_parts(
         query=q,
         tag=tag,
         tag_id=tag_id,
+        link_object=link_object,
+        link_relation=link_relation,
         folder=folder,
         subfolders=subfolders,
         shape=shape,
@@ -164,6 +180,15 @@ def clear_standard(
     """규격 사양을 뗀다 — 일반 부품으로 돌아간다. 이미 만든 지그는 그대로다."""
     part = services.get_part(db, part_id)
     return services.part_out(db, services.clear_standard(db, part))
+
+
+@router.get("/ontology/kinds", response_model=list[source_links.LinkKind])
+def part_link_kinds(
+    _: User = Depends(current_user), db: Session = Depends(get_db)
+) -> list[source_links.LinkKind]:
+    """부품에 닿는 기준정보 관계 종류(「적용 모델」 · 「서비스 부품」 …) — 목록을 기준정보로
+    거를 칸(`link_relation`). 「기준정보」 칸과 같은 줄이고 같은 말이다."""
+    return source_links.kinds(db, "part")
 
 
 @router.get("/{part_id}", response_model=PartOut)

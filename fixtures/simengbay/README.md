@@ -378,6 +378,13 @@ gmsh · ccx, 점 파일 · STEP 을 그대로 `topology.json` · `input.step` �
 
 ## 읽을 때 알아 둘 것
 
+- **2026-10-26 — `study.json` 에 `ontology` 가 는다**(더한 열쇠뿐 — 이 폴더의 픽스처에는 아직 없다,
+  없으면 `{"tags": [], "links": []}` 로 읽는다). 대상 작업에 이은 기준정보의 내보낼 때 사본:
+  - `tags[]`: 그 작업의 태그 — `object_id` · `key` · `label` · `type_slug` · `type_label`(「일반 태그」 는
+    `cc_tag`).
+  - `links[]`: 그 작업에서 나온 부품 · 지그(지그 작업이면 잡는 부품)의 기준정보 칸 — `on`(`kind` ·
+    `id` · `name`) · `relation` · `relation_label`(「적용 모델」) · `object_id` · `key` · `label` ·
+    `type_slug` · `type_label`. 「어느 모델의 부품 해석인가」 를 폴더만 보고 안다. README 에도 몇 줄.
 - **2026-10-23 — 시험 지그(강체)에도 재료가 붙는다**(SimEngBay 의 요청). 시험 규격으로 만든 작업의
   강체 지그 — 굽힘의 `롤러_*` · `로딩_노즈*`, 핀 베어링의 `핀` — 에 `materials[]` 한 줄이 생긴다:
   `ref.source = "compcore-default"`, 이름 「일반 구조용 강(지그 기본)」, payload 는 `density` 7850 kg/m³ ·

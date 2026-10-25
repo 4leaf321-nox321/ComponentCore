@@ -259,11 +259,25 @@ def write_readme(folder: Path, study: dict[str, Any], point_count: int) -> Path:
             f"\n복제 원본: ‘{origin.get('name', '')}’({owner}) — "
             "설계점 번호와 값이 원본과 같습니다.\n"
         )
+    # 이은 기준정보 — 태그와 부품 · 지그의 기준정보 칸(적용 모델 …). 없으면 줄을 안 둔다.
+    linked = study.get("ontology") or {}
+    lines = [
+        f"  - 태그: {one.get('label')}"
+        + (f" ({one.get('type_label')})" if one.get("type_slug") != "cc_tag" else "")
+        for one in linked.get("tags") or []
+    ] + [
+        f"  - {one['on']['name']} — {one.get('relation_label')}: {one.get('label')}"
+        + (f" [{one.get('key')}]" if one.get("key") else "")
+        for one in linked.get("links") or []
+    ]
+    ontology = (
+        "\n기준정보(study.json 의 `ontology`)\n" + "\n".join(lines) + "\n" if lines else ""
+    )
     text = f"""{study.get("name", "DOE")}
 {"=" * 60}
 
 {study.get("description", "") or "(설명 없음)"}
-{cloned}
+{cloned}{ontology}
 생성일: {datetime.now(UTC).astimezone().strftime("%Y-%m-%d %H:%M")}
 방법: {_method_text(str(study.get("method") or ""))}
 설계점: {point_count}개

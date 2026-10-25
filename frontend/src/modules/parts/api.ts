@@ -148,6 +148,9 @@ export interface FolderFilter {
   shape?: ShapeQuery
   /** 태그 객체로 거른다(`TypedTagFilter`). */
   tagId?: string
+  /** 기준정보로 거른다 — 이 객체와 이은 것만(`LinkFilter`). `linkRelation` 으로 관계를 좁힌다. */
+  linkObject?: string
+  linkRelation?: string
 }
 
 export const partsApi = {
@@ -160,6 +163,10 @@ export const partsApi = {
     addShapeParams(query, filter.shape)
     if (filter.standard) query.set('standard', filter.standard)
     if (filter.tagId) query.set('tag_id', filter.tagId)
+    if (filter.linkObject) {
+      query.set('link_object', filter.linkObject)
+      if (filter.linkRelation) query.set('link_relation', filter.linkRelation)
+    }
     return api.get<Page<PartSummary>>(`/parts?${query}`)
   },
   /** 규격 사양을 붙이거나 고친다 — 시스템 관리자만. 형상이 기준을 어기면 400 과 `details.problems`. */

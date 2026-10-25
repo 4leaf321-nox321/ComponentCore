@@ -2263,6 +2263,8 @@ async def list_parts(
     query: str = "",
     tag: str = "",
     tag_id: str | None = None,
+    linked_object: str | None = None,
+    linked_relation: str = "",
     standard: str = "",
 ) -> Any:
     """부품 카탈로그(누구나 보는 것). 고치려면 `copy_part_to_work` 로 내 작업 공간에 복사한다.
@@ -2270,7 +2272,9 @@ async def list_parts(
     `tag_id`(태그 객체 — 같은 이름의 다른 타입을 가른다)로 거른다.
     `standard` 면 **규격 부품**만 — `any` 또는 종류(`support` 받침 · `pin` 위치 핀 · `clamp`
     토글 클램프). 각 부품의 `standard` 가 규격 사양(품번 · 쓰는 버전 · 치수), `folder` 가 놓인
-    곳, `owner_id` 가 등록한 사용자(옮기기 · 고치기는 그 사용자 · 관리자)."""
+    곳, `owner_id` 가 등록한 사용자(옮기기 · 고치기는 그 사용자 · 관리자).
+    **기준정보로**: `linked_object`(SP 에서 받은 모델 같은 객체 — `object_resolve` 의 id)와
+    이은 부품만, `linked_relation`(`ontology_links` 의 `relation`)으로 관계를 좁힌다."""
     params: dict[str, Any] = {"limit": limit}
     if standard:
         params["standard"] = standard
@@ -2282,6 +2286,10 @@ async def list_parts(
         params["tag"] = tag
     if tag_id:
         params["tag_id"] = tag_id
+    if linked_object:
+        params["link_object"] = linked_object
+        if linked_relation:
+            params["link_relation"] = linked_relation
     page = await _get(ctx, "/api/parts", params)
     if isinstance(page, dict) and "items" in page:
         return {"total": page["total"], "parts": page["items"]}
@@ -2586,9 +2594,13 @@ async def list_jigs(
     query: str = "",
     tag: str = "",
     tag_id: str | None = None,
+    linked_object: str | None = None,
+    linked_relation: str = "",
 ) -> Any:
     """지그 카탈로그. `part_id` 를 주면 그 부품의 지그만, `folder` 면 그 폴더(아래까지)만,
-    `query`(이름 · 설명) · `tag`(이름) · `tag_id`(태그 객체)로도 거른다."""
+    `query`(이름 · 설명) · `tag`(이름) · `tag_id`(태그 객체)로도 거른다.
+    **기준정보로**: `linked_object`(SP 에서 받은 모델 같은 객체 — `object_resolve` 의 id)와
+    이은 지그만, `linked_relation`(`ontology_links` 의 `relation`)으로 관계를 좁힌다."""
     params: dict[str, Any] = {"limit": limit}
     if part_id:
         params["part_id"] = part_id
@@ -2600,6 +2612,10 @@ async def list_jigs(
         params["tag"] = tag
     if tag_id:
         params["tag_id"] = tag_id
+    if linked_object:
+        params["link_object"] = linked_object
+        if linked_relation:
+            params["link_relation"] = linked_relation
     page = await _get(ctx, "/api/jigs", params)
     if isinstance(page, dict) and "items" in page:
         return {"total": page["total"], "jigs": page["items"]}

@@ -1120,8 +1120,18 @@ export interface SourceLinks {
 
 export type SourceBase = 'parts' | 'jigs'
 
+/** 목록 거르개의 칸 — 원 표에 닿는 관계 종류 하나(「기준정보」 칸과 같은 말 · 방향). */
+export interface SourceLinkKind {
+  relation: string
+  label: string
+  incoming: boolean
+  other_types: { slug: string; label: string }[]
+}
+
 export const sourceLinksApi = {
   get: (base: SourceBase, id: string) => api.get<SourceLinks>(`/${base}/${id}/ontology`),
+  /** 목록을 기준정보로 거를 칸들 — 행 없이. */
+  kinds: (base: SourceBase) => api.get<SourceLinkKind[]>(`/${base}/ontology/kinds`),
   link: (base: SourceBase, id: string, relation: string, objectId: string) =>
     api.post<SourceLinks>(`/${base}/${id}/ontology/links`, { relation, object_id: objectId }),
   unlink: (base: SourceBase, id: string, linkId: string) =>

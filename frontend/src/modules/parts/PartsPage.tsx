@@ -25,6 +25,8 @@ import {
   TableRow,
 } from '@/shared/components/ui/table'
 import { useDisplay } from '@/shared/api/display'
+import { LinkFilter } from '@/modules/objects/LinkFilter'
+import type { LinkChoice } from '@/modules/objects/LinkFilter'
 import { tagsApi } from '@/modules/tagging/api'
 import { TypedTagFilter } from '@/modules/tagging/TypedTagFilter'
 import { describeShape, ShapeFilter, shapeConditionCount } from '@/shared/components/ShapeFilter'
@@ -38,6 +40,8 @@ export default function PartsPage() {
   const [q, setQ] = useState('')
   /** 고른 꼬리표 — 빈 문자열이면 안 거른다. */
   const [tagId, setTagId] = useState('')
+  /** 기준정보로 — 「적용 모델 = P5」. */
+  const [linked, setLinked] = useState<LinkChoice | null>(null)
   /** 형상 조건 — 「M6 구멍이 있는 판」 · 「이 상자 안에 드는 것」. */
   const [shape, setShape] = useState<ShapeQuery>({})
   /** 규격 부품만 — 지그 생성기가 고르는 받침 · 위치 핀 · 토글 클램프. */
@@ -47,8 +51,16 @@ export default function PartsPage() {
   const PAGE = useDisplay().list_page_size
   const space = useFolderSpace('parts', partsApi, { onRefilter: () => setOffset(0) })
   const page = useResource(
-    () => partsApi.list(offset, PAGE, q, '', { folder: space.folder, shape, standard: standardOnly ? 'any' : '', tagId }),
-    [offset, q, tagId, shape, PAGE, space.folder, space.version, standardOnly],
+    () =>
+      partsApi.list(offset, PAGE, q, '', {
+        folder: space.folder,
+        shape,
+        standard: standardOnly ? 'any' : '',
+        tagId,
+        linkObject: linked?.objectId,
+        linkRelation: linked?.relation,
+      }),
+    [offset, q, tagId, linked, shape, PAGE, space.folder, space.version, standardOnly],
   )
   const tags = useResource(() => tagsApi.used('part'), [page.data])
   const rows = page.data?.items ?? []
@@ -58,7 +70,7 @@ export default function PartsPage() {
   /** 규격 부품 내보내기 · 가져오기 — 표시일 뿐이다(판정은 서버). */
   const admin = isSystemAdmin(user)
   const chosenStandard = rows.filter((row) => space.chosen.has(row.id) && row.standard).map((row) => row.id)
-  const filtered = Boolean(q || tagId || standardOnly || space.folder !== null || shapeConditionCount(shape) > 0)
+  const filtered = Boolean(q || tagId || linked || standardOnly || space.folder !== null || shapeConditionCount(shape) > 0)
 
   return (
     <div>
@@ -73,6 +85,7 @@ export default function PartsPage() {
         <FolderSelect space={space} allLabel="전체 부품" />
         <SearchBox value={q} onChange={(next) => { setQ(next); setOffset(0) }} />
         <TypedTagFilter tags={tags.data ?? []} value={tagId} onChange={(next) => { setTagId(next); setOffset(0) }} />
+        <LinkFilter base="parts" value={linked} onChange={(next) => { setLinked(next); setOffset(0) }} />
         <ShapeFilter value={shape} onChange={(next) => { setShape(next); setOffset(0) }} />
         <Button
           size="sm"

@@ -16,6 +16,7 @@ from app.modules.accounts.models import User
 from app.modules.jigs.models import Jig
 from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Job
+from app.modules.objects import source_links
 from app.modules.parts.models import Part, PartVersion
 from app.modules.parts.schemas import (
     BUNDLE_FORMAT,
@@ -135,6 +136,8 @@ def list_parts(
     query: str = "",
     tag: str = "",
     tag_id: uuid.UUID | None = None,
+    link_object: uuid.UUID | None = None,
+    link_relation: str = "",
     folder: str | None = None,
     subfolders: bool = True,
     shape: shape_search.ShapeFilter | None = None,
@@ -163,6 +166,8 @@ def list_parts(
         base = base.where(tagging.tagged(Part.id, tag))
     if tag_id is not None:
         base = base.where(tagging.tagged_object(Part.id, tag_id))
+    if link_object is not None:
+        base = base.where(source_links.linked(Part.id, link_object, link_relation or None))
     total = int(db.scalar(select(func.count()).select_from(base.subquery())) or 0)
     rows = list(
         db.scalars(base.order_by(Part.updated_at.desc(), Part.id).limit(limit).offset(offset))

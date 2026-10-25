@@ -2861,6 +2861,38 @@
             "description": "이 태그 객체가 붙은 것만(`/api/tags/used/…` 의 `object_id`)."
           },
           {
+            "name": "link_object",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "이 기준정보 객체와 이어진 것만(어느 방향이든) — `link_relation` 으로 좁힌다.",
+              "title": "Link Object"
+            },
+            "description": "이 기준정보 객체와 이어진 것만(어느 방향이든) — `link_relation` 으로 좁힌다."
+          },
+          {
+            "name": "link_relation",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 32,
+              "description": "`link_object` 와 잇는 관계 종류(`/ontology/kinds` 의 `relation`). 비우면 태그 밖의 모든 관계.",
+              "default": "",
+              "title": "Link Relation"
+            },
+            "description": "`link_object` 와 잇는 관계 종류(`/ontology/kinds` 의 `relation`). 비우면 태그 밖의 모든 관계."
+          },
+          {
             "name": "folder",
             "in": "query",
             "required": false,
@@ -3243,6 +3275,32 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/parts/ontology/kinds": {
+      "get": {
+        "tags": [
+          "parts"
+        ],
+        "summary": "Part Link Kinds",
+        "description": "부품에 닿는 기준정보 관계 종류(「적용 모델」 · 「서비스 부품」 …) — 목록을 기준정보로\n거를 칸(`link_relation`). 「기준정보」 칸과 같은 줄이고 같은 말이다.",
+        "operationId": "part_link_kinds_api_parts_ontology_kinds_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LinkKind"
+                  },
+                  "type": "array",
+                  "title": "Response Part Link Kinds Api Parts Ontology Kinds Get"
                 }
               }
             }
@@ -3862,6 +3920,38 @@
             "description": "이 태그 객체가 붙은 것만(`/api/tags/used/…` 의 `object_id`)."
           },
           {
+            "name": "link_object",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "이 기준정보 객체와 이어진 것만(어느 방향이든) — `link_relation` 으로 좁힌다.",
+              "title": "Link Object"
+            },
+            "description": "이 기준정보 객체와 이어진 것만(어느 방향이든) — `link_relation` 으로 좁힌다."
+          },
+          {
+            "name": "link_relation",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 32,
+              "description": "`link_object` 와 잇는 관계 종류(`/ontology/kinds` 의 `relation`). 비우면 태그 밖의 모든 관계.",
+              "default": "",
+              "title": "Link Relation"
+            },
+            "description": "`link_object` 와 잇는 관계 종류(`/ontology/kinds` 의 `relation`). 비우면 태그 밖의 모든 관계."
+          },
+          {
             "name": "folder",
             "in": "query",
             "required": false,
@@ -4035,6 +4125,32 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jigs/ontology/kinds": {
+      "get": {
+        "tags": [
+          "jigs"
+        ],
+        "summary": "Jig Link Kinds",
+        "description": "지그에 닿는 기준정보 관계 종류(「적용 모델」 · 「서비스 부품」 …) — 목록을 기준정보로\n거를 칸(`link_relation`). 「기준정보」 칸과 같은 줄이고 같은 말이다.",
+        "operationId": "jig_link_kinds_api_jigs_ontology_kinds_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LinkKind"
+                  },
+                  "type": "array",
+                  "title": "Response Jig Link Kinds Api Jigs Ontology Kinds Get"
                 }
               }
             }
@@ -35452,6 +35568,38 @@
           "points"
         ],
         "title": "LineOut"
+      },
+      "LinkKind": {
+        "properties": {
+          "relation": {
+            "type": "string",
+            "title": "Relation"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "incoming": {
+            "type": "boolean",
+            "title": "Incoming"
+          },
+          "other_types": {
+            "items": {
+              "$ref": "#/components/schemas/TypeRef"
+            },
+            "type": "array",
+            "title": "Other Types"
+          }
+        },
+        "type": "object",
+        "required": [
+          "relation",
+          "label",
+          "incoming",
+          "other_types"
+        ],
+        "title": "LinkKind",
+        "description": "목록 거르개의 한 줄 — 이 원 표에 닿는 관계 종류 하나(칸과 같은 말 · 같은 방향)."
       },
       "LinkRequest": {
         "properties": {

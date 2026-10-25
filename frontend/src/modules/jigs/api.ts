@@ -95,12 +95,16 @@ export interface JigCatalogSummary {
 }
 
 export const jigsApi = {
-  list: (params: { part_id?: string; offset?: number; limit?: number; q?: string; tag?: string; tagId?: string; folder?: string | null; shape?: ShapeQuery } = {}) => {
+  list: (params: { part_id?: string; offset?: number; limit?: number; q?: string; tag?: string; tagId?: string; linkObject?: string; linkRelation?: string; folder?: string | null; shape?: ShapeQuery } = {}) => {
     const query = new URLSearchParams()
     if (params.part_id) query.set('part_id', params.part_id)
     if (params.q) query.set('q', params.q)
     if (params.tag) query.set('tag', params.tag)
     if (params.tagId) query.set('tag_id', params.tagId)
+    if (params.linkObject) {
+      query.set('link_object', params.linkObject)
+      if (params.linkRelation) query.set('link_relation', params.linkRelation)
+    }
     // 폴더 — null 이면 전부, '' 이면 폴더 없는 것만(그때는 하위를 안 본다).
     if (params.folder != null) query.set('folder', params.folder)
     if (params.folder === '') query.set('subfolders', 'false')

@@ -19,10 +19,12 @@ from __future__ import annotations
 
 import re
 import uuid
+from typing import Any
 
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select
+from sqlalchemy import and_, exists, literal, or_, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import ColumnElement
 
 from app.modules.accounts.models import User
 from app.modules.objects import links, system
@@ -164,6 +166,62 @@ def _suggest(
         )
         for _share, _hits, row in scored[:SUGGEST_MAX]
     ]
+
+
+class LinkKind(BaseModel):
+    """목록 거르개의 한 줄 — 이 원 표에 닿는 관계 종류 하나(칸과 같은 말 · 같은 방향)."""
+
+    relation: str
+    label: str
+    incoming: bool
+    other_types: list[TypeRef]
+
+
+def kinds(db: Session, source_key: str) -> list[LinkKind]:
+    """이 원 표에 닿는 관계 종류 — 「기준정보」 칸과 같은 줄들을 **행 없이**. 목록 화면이
+    「적용 모델 = P5」 로 거를 때 고를 칸이다."""
+    mine_slugs = {one.slug for one in system_types(db, source_key)}
+    if not mine_slugs:
+        return []
+    types = system.types_by_slug(db)
+    out: list[LinkKind] = []
+    for kind in db.scalars(
+        select(RelationType)
+        .where(RelationType.is_active.is_(True))
+        .order_by(RelationType.label, RelationType.slug)
+    ):
+        for incoming in _sides(kind, mine_slugs):
+            others = (kind.src_type_slugs if incoming else kind.dst_type_slugs) or []
+            out.append(
+                LinkKind(
+                    relation=kind.slug,
+                    label=(kind.inverse_label or kind.label) if incoming else kind.label,
+                    incoming=incoming,
+                    other_types=[
+                        TypeRef(slug=one, label=types[one].label)
+                        for one in others
+                        if one in types
+                    ],
+                )
+            )
+    return out
+
+
+def linked(
+    row_id: Any, object_id: uuid.UUID, relation: str | None = None
+) -> ColumnElement[bool]:
+    """목록 거르개 — 이 행이 그 객체와 **이어져 있나**(어느 쪽 방향이든). `relation` 을 주면 그
+    관계로만, 비우면 태그를 뺀 모든 관계로."""
+    kind = ObjectLink.relation == relation if relation else ObjectLink.relation != TAG_RELATION
+    return exists(
+        select(literal(1)).where(
+            kind,
+            or_(
+                and_(ObjectLink.src_id == row_id, ObjectLink.dst_id == object_id),
+                and_(ObjectLink.dst_id == row_id, ObjectLink.src_id == object_id),
+            ),
+        )
+    )
 
 
 def read(

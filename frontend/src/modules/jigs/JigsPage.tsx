@@ -24,6 +24,8 @@ import {
   TableRow,
 } from '@/shared/components/ui/table'
 import { useDisplay } from '@/shared/api/display'
+import { LinkFilter } from '@/modules/objects/LinkFilter'
+import type { LinkChoice } from '@/modules/objects/LinkFilter'
 import { tagsApi } from '@/modules/tagging/api'
 import { TypedTagFilter } from '@/modules/tagging/TypedTagFilter'
 import { describeShape, ShapeFilter, shapeConditionCount } from '@/shared/components/ShapeFilter'
@@ -37,20 +39,23 @@ export default function JigsPage() {
   const [q, setQ] = useState('')
   /** 고른 꼬리표 — 빈 문자열이면 안 거른다. */
   const [tagId, setTagId] = useState('')
+  /** 기준정보로 — 「대상 모델 = P5」. */
+  const [linked, setLinked] = useState<LinkChoice | null>(null)
   /** 형상 조건 — 「이 제품에 맞는 지그가 있나」 를 크기 · 구멍으로. */
   const [shape, setShape] = useState<ShapeQuery>({})
   const PAGE = useDisplay().list_page_size
   const space = useFolderSpace('jigs', jigsApi, { onRefilter: () => setOffset(0) })
   const page = useResource(
-    () => jigsApi.list({ offset, limit: PAGE, q, tagId, folder: space.folder, shape }),
-    [offset, q, tagId, shape, PAGE, space.folder, space.version],
+    () =>
+      jigsApi.list({ offset, limit: PAGE, q, tagId, linkObject: linked?.objectId, linkRelation: linked?.relation, folder: space.folder, shape }),
+    [offset, q, tagId, linked, shape, PAGE, space.folder, space.version],
   )
   const tags = useResource(() => tagsApi.used('jig'), [page.data])
   const rows = page.data?.items ?? []
   /** 옮길 수 있는 줄 — 올린 사람 · 관리자. 판정은 서버가 다시 한다. */
   const { user } = useAuth()
   const movable = (ownerId: string) => canEditProject(user, ownerId)
-  const filtered = Boolean(q || tagId || space.folder !== null || shapeConditionCount(shape) > 0)
+  const filtered = Boolean(q || tagId || linked || space.folder !== null || shapeConditionCount(shape) > 0)
 
   return (
     <div>
@@ -65,6 +70,7 @@ export default function JigsPage() {
         <FolderSelect space={space} allLabel="전체 지그" />
         <SearchBox value={q} onChange={(next) => { setQ(next); setOffset(0) }} />
         <TypedTagFilter tags={tags.data ?? []} value={tagId} onChange={(next) => { setTagId(next); setOffset(0) }} />
+        <LinkFilter base="jigs" value={linked} onChange={(next) => { setLinked(next); setOffset(0) }} />
         <ShapeFilter value={shape} onChange={(next) => { setShape(next); setOffset(0) }} />
       </div>
       <FolderCrumbs space={space} allLabel="전체 지그" />

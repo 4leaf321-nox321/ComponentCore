@@ -44,9 +44,13 @@ from app.modules.cad import services as cad
 from app.modules.cad.services import resolve_component, resolve_import
 from app.modules.doe import export as files
 from app.modules.doe.models import DoePoint, DoeStudy
+from app.modules.jigs.models import Jig
 from app.modules.jobs import registry
 from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Job
+from app.modules.objects import source_links
+from app.modules.objects.models import ObjectInstance
+from app.modules.parts.models import Part
 from app.modules.server import settings_store
 from app.modules.tagging import services as tagging
 from app.modules.tagging.services import TagUse
@@ -1692,6 +1696,72 @@ def _origin_of(db: Session, study: DoeStudy) -> dict[str, Any] | None:
     return {"id": str(origin.id), "name": origin.name, "owner": _owner_of(db, origin)}
 
 
+def _ontology_of(db: Session, study: DoeStudy) -> dict[str, Any]:
+    """대상 작업에 이은 **기준정보** — 해석하는 쪽이 「어느 모델 · 어느 고객의 것인가」 를
+    폴더만 보고 알게(온톨로지 이식 E 단계, 2026-10-26).
+
+    - `tags`: 그 작업에 붙은 태그 객체(ADR 0011).
+    - `links`: 그 작업을 등록한 부품 · 지그, 지그 작업이면 그 지그가 잡는 부품의 「기준정보」
+      칸(적용 모델 · 서비스 부품 …) — 화면의 칸과 같은 줄 · 같은 말. 스터디 주인의 눈으로 본다.
+
+    내보낼 때의 사본이다 — 나중에 이어도 이 폴더는 그대로고, 다시 내보내면 새것이 실린다."""
+    out: dict[str, Any] = {"tags": [], "links": []}
+    work = db.get(Work, study.work_id) if study.work_id else None
+    if work is None:
+        return out
+    tags = tagging.tags_of(db, work.id)
+    # `dict(결과)` 는 안 된다 — 결과 객체에 `keys()` 가 있어 사전으로 읽으려 든다.
+    keys = {
+        one: key
+        for one, key in db.execute(
+            select(ObjectInstance.id, ObjectInstance.key).where(
+                ObjectInstance.id.in_([one.object_id for one in tags])
+            )
+        )
+    }
+    out["tags"] = [
+        {
+            "object_id": str(one.object_id),
+            "key": keys.get(one.object_id),
+            "label": one.label,
+            "type_slug": one.type_slug,
+            "type_label": one.type_label,
+        }
+        for one in tags
+    ]
+    viewer = db.get(User, study.owner_id)
+    if viewer is None:
+        return out
+    rows: list[tuple[str, Any]] = []
+    made_part = db.scalar(
+        select(Part).where(Part.work_id == work.id, Part.deleted_at.is_(None))
+    )
+    if made_part is not None:
+        rows.append(("part", made_part))
+    held = db.get(Part, work.jig_for_part_id) if work.jig_for_part_id else None
+    if held is not None and held.deleted_at is None and held is not made_part:
+        rows.append(("part", held))
+    made_jig = db.scalar(select(Jig).where(Jig.work_id == work.id, Jig.deleted_at.is_(None)))
+    if made_jig is not None:
+        rows.append(("jig", made_jig))
+    for kind, row in rows:
+        for line in source_links.read(db, viewer, kind, row.id, row.name).rows:
+            for item in line.items:
+                out["links"].append(
+                    {
+                        "on": {"kind": kind, "id": str(row.id), "name": row.name},
+                        "relation": line.relation,
+                        "relation_label": line.label,
+                        "object_id": str(item.object_id),
+                        "key": item.key,
+                        "label": item.label,
+                        "type_slug": item.type_slug,
+                        "type_label": item.type_label,
+                    }
+                )
+    return out
+
+
 def _shape_params(study: DoeStudy, row: dict[str, Any]) -> dict[str, Any]:
     """설계점 한 줄에서 **형상을 바꾸는 값만**(레시피 `params` · 조건의 식으로 간다). 재료
     인자는 재료 이름이라 레시피에 넣으면 「모르는 이름」 으로 형상이 깨진다."""
@@ -2646,6 +2716,7 @@ def run_job(
         # 여러 프로세스가 끝나는 차례대로 왔다 — 표는 번호 차례로.
         rows.sort(key=lambda row: int(row["point"]))
         files.write_manifest(folder, columns, rows)
+        ontology = _ontology_of(db, study)
         files.write_study(
             folder,
             {
@@ -2679,6 +2750,9 @@ def run_job(
                 # **복제한 DOE 면 원본** — 두 폴더의 점은 번호 · 값이 같아 결과를 점끼리
                 # 견줄 수 있다. 복제가 아니면(또는 원본이 지워졌으면) null.
                 "cloned_from": _origin_of(db, study),
+                # **이은 기준정보** — 대상 작업의 태그와, 그 작업에서 나온 부품 · 지그의
+                # 기준정보 칸(적용 모델 …). 해석 쪽이 폴더만 보고 「무엇의 해석인가」 를 안다.
+                "ontology": ontology,
             },
         )
         files.write_conditions(folder, study.conditions)
@@ -2693,6 +2767,7 @@ def run_job(
                 "constraints": study.constraints or [],
                 "outputs": list(study.outputs or []),
                 "cloned_from": _origin_of(db, study),
+                "ontology": ontology,
             },
             study.point_count,
         )

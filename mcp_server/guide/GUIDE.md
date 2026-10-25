@@ -25,7 +25,7 @@
 | **판금 전개도** | `recipe_unfold(recipe)` — 펼친 크기 · 굽힘(선 · 각 · R · 위아래). 레시피 안에서는 `unfold` 노드. DXF 는 화면의 「파일 › 전개도」 |
 | **유사 형상 · 다시 쓸 지그 검색** | `find_similar(source="part:<id>")` 또는 `find_similar(recipe=…)` — 점수 · 이유(`why`) · 유사 부품의 지그(`jigs`) |
 | **이미 있는 것부터 검색** | `find_by_shape(has, thread, fits, hole, holes …)` — 내 작업 · 부품 · 지그의 최신 버전을 형상으로. **새로 그리기 전에** |
-| **기준정보(온톨로지)** — SP 에서 받은 모델 · 부품, 부품 · 지그에 잇기 | **`ontology_guide` 를 먼저** — 정의 · 객체 · 관계 · 데이터 작업 도구 72개와 부품 · 지그의 「기준정보」 칸(`ontology_links` → `ontology_link`)이 거기 있다. 작업 · 부품 찾기 `search` 와 객체 찾기 `object_search` 는 다르다 |
+| **기준정보(온톨로지)** — SP 에서 받은 모델 · 부품, 부품 · 지그에 잇기 | **`ontology_guide` 를 먼저** — 정의 · 객체 · 관계 · 데이터 작업 도구 72개와 부품 · 지그의 「기준정보」 칸(`ontology_links` → `ontology_link`)이 거기 있다. 「이 모델에 쓰인 부품」 은 `list_parts(linked_object=<모델 객체 id>)`(`linked_relation` 으로 칸을 좁힌다) · 지그도 같다. DOE 폴더의 `study.json` `ontology` 에 대상 작업의 태그와 기준정보가 실린다. 작업 · 부품 찾기 `search` 와 객체 찾기 `object_search` 는 다르다 |
 | 레시피가 맞나, 만들어지나 | `recipe_check` — **저장 전에 반드시** |
 | 새 부품 시작 | `create_work(name, recipe)` |
 | **STEP 파일로 시작 · 새 버전** | `step_upload_prepare(local_path, work_id?, name?)` → 돌아온 `curl` 을 셸에서 한 번 실행(5분 안). 파일을 읽어 도구 인자에 넣지 않는다 — 셸이 없으면 사람에게 화면에서 올려 달라고 한다 |
