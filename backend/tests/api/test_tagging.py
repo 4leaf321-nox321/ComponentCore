@@ -388,3 +388,52 @@ def test_타입별_거르개는_이름이_같아도_객체로_가린다(
     assert [one["id"] for one in studies["items"]] == [study.json()["id"]]
     objects = client.get("/api/doe/tag-objects", headers=member.headers).json()
     assert customer_a in {one["object_id"] for one in objects}
+
+
+def test_템플릿에도_태그가_객체로_붙고_지우면_선도_사라진다(
+    client: TestClient, member: Signed, admin: Signed, db: Session
+) -> None:
+    """템플릿은 내 것이면 주인만 본다(공용이면 모두) — 태그 객체 쪽에서도 남의 내 템플릿은 안
+    보이고, 템플릿을 지우면(행이 진짜로 사라진다) 붙은 선도 함께 지운다."""
+    customers = _type(client, admin, "고객사")
+    assert _mode(client, admin, customers, "grow").status_code == 200
+    made = client.post(
+        "/api/templates",
+        json={"name": "비밀 판", "recipe": BOX, "tags": ["템플릿-옛이름"]},
+        headers=member.headers,
+    )
+    assert made.status_code == 201, made.text
+    secret = made.json()["id"]
+    assert made.json()["tags"] == ["템플릿-옛이름"]  # 글자로 줘도 「일반 태그」 객체로
+    typed = _tag(client, member, "template", secret, type_slug=customers, label="고객T")
+    assert typed.status_code == 200, typed.text
+    customer_t = next(one["object_id"] for one in typed.json() if one["label"] == "고객T")
+
+    # 남의 내 템플릿 — 태그도, 태그 객체 쪽 「태그가 붙은 것」 에도 안 보인다.
+    assert client.get(f"/api/tags/template/{secret}", headers=admin.headers).status_code == 404
+    seen = client.get(f"/api/objects/{customers}/{customer_t}", headers=admin.headers).json()
+    assert [one["object_label"] for one in seen["related"]] == []
+    mine = client.get(f"/api/objects/{customers}/{customer_t}", headers=member.headers).json()
+    assert [one["object_label"] for one in mine["related"]] == ["비밀 판"]
+
+    # 타입별 거르개 · 복제는 객체째.
+    found = client.get(
+        "/api/templates", params={"tag_id": customer_t}, headers=member.headers
+    ).json()
+    assert [one["id"] for one in found["items"]] == [secret]
+    assert customer_t in {
+        one["object_id"]
+        for one in client.get("/api/tags/used/template", headers=member.headers).json()
+    }
+    copied = client.post(f"/api/templates/{secret}/copy", headers=member.headers)
+    assert copied.status_code == 201, copied.text
+    copy_tags = client.get(f"/api/tags/template/{copied.json()['id']}", headers=member.headers)
+    assert {(one["label"], one["type_slug"]) for one in copy_tags.json()} == {
+        ("템플릿-옛이름", "cc_tag"),
+        ("고객T", customers),
+    }
+
+    # 지우면 선이 남지 않는다.
+    assert client.delete(f"/api/templates/{secret}", headers=member.headers).status_code == 204
+    left = db.scalars(select(ObjectLink).where(ObjectLink.src_id == uuid.UUID(secret))).all()
+    assert left == []

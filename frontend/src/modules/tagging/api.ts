@@ -11,7 +11,7 @@ import { api } from '@/shared/api/client'
 export const DEFAULT_TAG_TYPE = 'cc_tag'
 
 /** 태그가 붙는 원 표 — API 경로에 그대로 쓴다. */
-export type TagTarget = 'work' | 'part' | 'jig'
+export type TagTarget = 'work' | 'part' | 'jig' | 'template'
 
 export interface TagItem {
   object_id: string

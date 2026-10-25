@@ -18,9 +18,9 @@
   `jobs` → `tasks`(데이터 작업, `/tasks`) · `search` → `objectsearch`(`/api/object-search`) ·
   저장소 뿌리 `filestore/blobs/` 셋이고, 고친 자리에는 왜인지 적는다.
 - **태그는 온톨로지의 객체다**([ADR 0011](docs/adr/0011-태그는-온톨로지의-객체다.md)). 작업 · 부품 ·
-  지그에 `tags` 칸은 없다 — 붙은 것은 `object_links` 의 `cc_tagged` 선이고, 읽고 쓰기 · 거르개 ·
+  지그 · 템플릿에 `tags` 칸은 없다 — 붙은 것은 `object_links` 의 `cc_tagged` 선이고, 읽고 쓰기 · 거르개 ·
   찾기는 `tagging.services` 를 거친다(이름을 따로 적어 두지 않는다). 작업 원 표(`works/system.py`)는
-  요청의 사람으로 거른다 — 요청 밖에서는 작업이 하나도 안 나온다.
+  요청의 사람으로 거른다 — 요청 밖에서는 작업이 하나도 안 나온다(템플릿 원 표도 같다 — 공용만).
 - **pytest 는 한 번에 하나만 돌린다.** 시험은 시작할 때 `<db>_test` 의 스키마를 지우고 다시
   세운다(`tests/conftest.py`) — 긴 실행 중에 다른 pytest 를 띄우면 앞 실행의 표가 사라진다.
   conftest 가 지우기 전에 시험 DB 의 잠금을 쥐므로, 둘째 pytest 는 「다른 pytest 가 … 쓰고

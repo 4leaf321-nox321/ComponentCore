@@ -24,6 +24,9 @@ class TemplateUpdateRequest(BaseModel):
     recipe: dict[str, Any] | None = None
     is_shared: bool | None = None
     folder: str | None = Field(default=None, max_length=255)
+    tags: list[str] | None = Field(default=None, max_length=50)
+    """**통째로 바꾼다** — 이름마다 태그 객체로(새 이름은 「일반 태그」). 타입을 골라 붙이려면
+    `/api/tags/template/{id}`."""
     """옮길 폴더 — 빈 문자열이면 맨 위로."""
 
 

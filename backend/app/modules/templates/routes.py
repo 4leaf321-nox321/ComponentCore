@@ -69,7 +69,10 @@ def move_templates(
 def list_templates(
     scope: str = Query(default="all", description="mine · shared · all"),
     q: str = Query(default="", max_length=120),
-    tag: str = Query(default="", max_length=40),
+    tag: str = Query(default="", max_length=80),
+    tag_id: uuid.UUID | None = Query(
+        default=None, description="이 태그 객체가 붙은 것만(`/api/tags/used/template`)."
+    ),
     folder: str | None = Query(default=None, max_length=255),
     subfolders: bool = Query(default=True),
     limit: int | None = Query(default=None, ge=1),
@@ -86,6 +89,7 @@ def list_templates(
         scope=scope,
         query=q,
         tag=tag,
+        tag_id=tag_id,
         folder=folder,
         subfolders=subfolders,
         limit=size,
@@ -138,7 +142,7 @@ def update_template(
     services.require_owner(template, user)
     fields = payload.model_dump(exclude_unset=True)
     return services.template_out(
-        db, services.update_template(db, template, fields=fields), user
+        db, services.update_template(db, template, fields=fields, by=user), user
     )
 
 

@@ -36,7 +36,9 @@ import {
   TableRow,
 } from '@/shared/components/ui/table'
 import { useDisplay } from '@/shared/api/display'
-import { TagFilter } from '@/shared/components/TagFilter'
+import { tagsApi } from '@/modules/tagging/api'
+import { TagField } from '@/modules/tagging/TagField'
+import { TypedTagFilter } from '@/modules/tagging/TypedTagFilter'
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
@@ -52,7 +54,9 @@ export default function TemplatesPage() {
   const [scope, setScope] = useState<TemplateScope>('all')
   const [query, setQuery] = useState('')
   /** 고른 꼬리표 — 빈 문자열이면 안 거른다. */
-  const [tag, setTag] = useState('')
+  const [tagId, setTagId] = useState('')
+  /** 태그를 고치고 있는 줄 — 하나만 연다(줄마다 태그를 따로 묻지 않게). */
+  const [tagging, setTagging] = useState<string | null>(null)
   const [offset, setOffset] = useState(0)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<ApiError | Error | null>(null)
@@ -65,10 +69,10 @@ export default function TemplatesPage() {
     { onRefilter: () => setOffset(0), deps: [scope] },
   )
   const page = useResource(
-    () => templatesApi.list({ scope, q: query, tag, folder: space.folder, offset, limit: PAGE }),
-    [scope, query, tag, offset, PAGE, space.folder, space.version],
+    () => templatesApi.list({ scope, q: query, tagId, folder: space.folder, offset, limit: PAGE }),
+    [scope, query, tagId, offset, PAGE, space.folder, space.version],
   )
-  const tags = useResource(() => templatesApi.tags(), [page.data])
+  const tags = useResource(() => tagsApi.used('template'), [page.data])
   const rows = page.data?.items ?? []
   /** 옮길 수 있는 줄 — 만든 사람 · 관리자. 판정은 서버가 다시 한다. */
   const { user } = useAuth()
@@ -133,7 +137,7 @@ export default function TemplatesPage() {
           className="h-9 w-64"
           aria-label="템플릿 검색"
         />
-        <TagFilter tags={tags.data ?? []} value={tag} onChange={(next) => { setTag(next); setOffset(0) }} />
+        <TypedTagFilter tags={tags.data ?? []} value={tagId} onChange={(next) => { setTagId(next); setOffset(0) }} />
         <span className="text-muted-foreground text-xs">{SCOPES.find((one) => one.value === scope)?.hint}</span>
       </div>
       <FolderCrumbs space={space} allLabel="모든 템플릿" />
@@ -143,7 +147,7 @@ export default function TemplatesPage() {
 
       {rows.length === 0 && !page.loading ? (
         <EmptyState
-          title={query || tag ? '검색 조건에 맞는 템플릿이 없습니다' : space.folder !== null ? '이 폴더에 템플릿이 없습니다' : scope === 'shared' ? '공용으로 공개된 템플릿이 없습니다' : '등록된 템플릿이 없습니다'}
+          title={query || tagId ? '검색 조건에 맞는 템플릿이 없습니다' : space.folder !== null ? '이 폴더에 템플릿이 없습니다' : scope === 'shared' ? '공용으로 공개된 템플릿이 없습니다' : '등록된 템플릿이 없습니다'}
           hint={space.folder !== null ? '템플릿을 이 폴더로 끌어다 놓거나, 새 작업 화면에서 저장할 때 폴더를 지정하십시오.' : '새 작업 화면의 ‘파일’ 탭에서 ‘템플릿’ 버튼으로 저장하면 이 목록에 표시됩니다'}
           action={<Button onClick={() => navigate('/draw')}>새 작업으로 이동</Button>}
         />
@@ -180,6 +184,33 @@ export default function TemplatesPage() {
                     </button>
                     <RowFolder space={space} folder={row.folder} />
                     {row.description && <p className="text-muted-foreground truncate text-xs">{row.description}</p>}
+                    {/*
+                      태그 — 온톨로지의 객체(ADR 0011). 목록은 이름만 싣고, 고칠 때만 그 줄의 태그 줄을
+                      연다(줄마다 따로 묻지 않게).
+                    */}
+                    {tagging === row.id ? (
+                      <div className="mt-1 flex items-center gap-2">
+                        <TagField target="template" id={row.id} canEdit onChanged={() => tags.reload()} />
+                        <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs" onClick={() => { setTagging(null); page.reload() }}>
+                          닫기
+                        </Button>
+                      </div>
+                    ) : (
+                      ((row.tags ?? []).length > 0 || row.mine) && (
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                          {(row.tags ?? []).map((one) => (
+                            <span key={one} className="bg-accent rounded-full px-2 py-0.5 text-xs">
+                              {one}
+                            </span>
+                          ))}
+                          {row.mine && (
+                            <button type="button" className="text-muted-foreground text-xs hover:underline" onClick={() => setTagging(row.id)} aria-label={`${row.name} 태그 고치기`}>
+                              {(row.tags ?? []).length > 0 ? '고치기' : '+ 태그'}
+                            </button>
+                          )}
+                        </div>
+                      )
+                    )}
                   </TableCell>
                   <TableCell>
                     {row.is_shared ? <Badge variant="secondary">공용</Badge> : <Badge variant="outline">내 템플릿</Badge>}

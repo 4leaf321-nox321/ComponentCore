@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, func, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -36,11 +36,6 @@ class RecipeTemplate(Base):
             postgresql_using="gin",
             postgresql_ops={"description": "gin_trgm_ops"},
         ),
-        Index(
-            "ix_recipe_templates_tags_trgm",
-            text("(tags::text) gin_trgm_ops"),
-            postgresql_using="gin",
-        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -48,9 +43,6 @@ class RecipeTemplate(Base):
     )
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(Text, default="", server_default="")
-    tags: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
-    """꼬리표 — 템플릿은 **작업과의 연결을 안 남기므로** 저장할 때 받는다(부품 · 지그는
-    승격이 물려받는다)."""
     folder: Mapped[str] = mapped_column(String(255), default="", server_default="", index=True)
     """놓인 **폴더** — `고객A/2026` 같은 경로, 빈 것이 맨 위(`shared/folders.py`). 여럿이 함께
     쓰는 공간이라 옮기기는 주인 · 관리자만, 남의 것이 든 폴더의 이름은 관리자만 바꾼다."""

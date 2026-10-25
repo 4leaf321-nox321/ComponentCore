@@ -460,6 +460,7 @@ async def save_template(
     description: str = "",
     shared: bool = False,
     folder: str = "",
+    tags: list[str] | None = None,
 ) -> Any:
     """지금 레시피를 **템플릿으로 저장**한다 — 다음에 그릴 때의 출발점. `shared` 를 켜면 공용
     자리에 놓여 누구나 고른다(고치는 것은 작성자뿐). `folder` 는 템플릿 공간의 폴더
@@ -476,6 +477,7 @@ async def save_template(
             "recipe": recipe,
             "is_shared": shared,
             "folder": folder,
+            "tags": tags or [],
         },
     )
 
@@ -2798,14 +2800,19 @@ async def list_tags(
     """태그 **이름** 전부(많이 쓴 것부터) — `works` · `parts` · `jigs` · `templates` ·
     `doe`(대상 작업의 태그, `scope` = mine · all). 목록 도구의 `tag` 로 거를 때 쓸 이름을
     여기서 고른다. `typed` 면 **태그 객체**를 타입별로(`object_id` · 타입 · 붙은 수) — 목록
-    도구의 `tag_id` 로 거르면 이름이 같은 다른 타입(고객사 A · 프로젝트 A)이 갈린다(템플릿은
-    아직 글자 태그라 없다). 붙이고 떼는 것은 `tag_add` · `tag_remove`."""
+    도구의 `tag_id` 로 거르면 이름이 같은 다른 타입(고객사 A · 프로젝트 A)이 갈린다. 붙이고
+    떼는 것은 `tag_add` · `tag_remove`."""
     if typed:
-        target = {"works": "work", "parts": "part", "jigs": "jig"}.get(space)
+        target = {
+            "works": "work",
+            "parts": "part",
+            "jigs": "jig",
+            "templates": "template",
+        }.get(space)
         if space == "doe":
             used = await _get(ctx, "/api/doe/tag-objects", {"scope": scope})
         elif target is None:
-            return {"error": "typed 는 works · parts · jigs · doe 에서만 됩니다."}
+            return {"error": "typed 는 works · parts · jigs · templates · doe 에서만 됩니다."}
         else:
             used = await _get(ctx, f"/api/tags/used/{target}")
         return {"space": space, "tags": used} if isinstance(used, list) else used
@@ -2821,7 +2828,7 @@ async def list_tags(
 # --- 태그 — 온톨로지의 객체를 붙인다(ADR 0011) --------------------------------------
 
 #: 태그가 붙는 것 — `kind` 값.
-_TAG_KINDS = ("work", "part", "jig")
+_TAG_KINDS = ("work", "part", "jig", "template")
 
 
 def _tag_kind(kind: str) -> str | None:
@@ -2854,9 +2861,10 @@ async def tag_candidates(
 
 @mcp.tool()
 async def tags_get(ctx: Context, kind: str, id: str) -> Any:
-    """작업(`kind="work"`) · 공용 부품(`part`) · 지그(`jig`) 하나에 **붙은 태그** — 객체 id ·
-    이름 · 타입(붙인 순서). 작업은 주인 · 관리자만 본다. 태그 객체를 열면(`object_get`) 그
-    태그가 붙은 다른 것들이 「태그가 붙은 것」 으로 보인다."""
+    """작업(`kind="work"`) · 공용 부품(`part`) · 지그(`jig`) · 템플릿(`template`) 하나에 **붙은
+    태그** — 객체 id · 이름 · 타입(붙인 순서). 작업은 주인 · 관리자만, 내 템플릿은 주인만 본다.
+    태그 객체를 열면(`object_get`) 그 태그가 붙은 다른 것들이 「태그가 붙은 것」 으로
+    보인다."""
     if problem := _tag_kind(kind):
         return {"error": problem}
     return await _get(ctx, f"/api/tags/{kind}/{id}")
@@ -2877,8 +2885,8 @@ async def tag_add(
     - 이름으로: `label` 과 `type_slug`(비우면 「일반 태그」). 그 타입에서 같은 이름 · 별칭을
       먼저 찾고, 없으면 만든다 — **「늘리기」 타입만**(`tag_types` 의 `can_create`). 고르기만
       하는 타입에 없는 이름이면 거절된다.
-    - 붙이는 사람은 그 행을 고칠 수 있어야 한다 — 작업은 주인, 부품 · 지그는 올린 사람 ·
-      관리자.
+    - 붙이는 사람은 그 행을 고칠 수 있어야 한다 — 작업은 주인, 부품 · 지그 · 템플릿은 올린
+      사람 · 관리자.
     - 작업의 태그를 이름 목록으로 통째로 바꾸려면 `update_work(tags=[…])`(새 이름은 「일반
       태그」 로)."""
     if problem := _tag_kind(kind):
@@ -3016,10 +3024,12 @@ async def list_templates(
     query: str = "",
     tag: str = "",
     limit: int = 50,
+    tag_id: str | None = None,
 ) -> Any:
     """템플릿 목록 — `scope` = all(내 것 + 공용) · mine · shared. `folder` 면 그 폴더
-    (아래까지), `query` · `tag` 로도 거른다. 본문은 `template_recipe(id)`. 내 것만
-    고치고(`update_template`), 다른 사용자의 공용 것은 `copy_template` 로 복사해서 쓴다."""
+    (아래까지), `query` · `tag`(이름) · `tag_id`(태그 객체)로도 거른다. 본문은
+    `template_recipe(id)`. 내 것만 고치고(`update_template`), 다른 사용자의 공용 것은
+    `copy_template` 로 복사해서 쓴다."""
     params: dict[str, Any] = {"scope": scope, "limit": limit}
     if folder is not None:
         params["folder"] = folder
@@ -3027,6 +3037,8 @@ async def list_templates(
         params["q"] = query
     if tag:
         params["tag"] = tag
+    if tag_id:
+        params["tag_id"] = tag_id
     page = await _get(ctx, "/api/templates", params)
     if not isinstance(page, dict) or "items" not in page:
         return page
@@ -3057,10 +3069,12 @@ async def update_template(
     description: str | None = None,
     shared: bool | None = None,
     folder: str | None = None,
+    tags: list[str] | None = None,
 ) -> Any:
-    """내 템플릿의 이름 · 설명 · **공용 여부** · 폴더를 고친다 — 준 것만. 공용으로 공개하면
-    로그인한 누구나 시작점으로 고른다(고치는 것은 작성자뿐). 레시피 본문을 바꾸려면 새로
-    `save_template` 한다."""
+    """내 템플릿의 이름 · 설명 · **공용 여부** · 폴더 · 태그를 고친다 — 준 것만. `tags` 는 이름
+    목록으로 **통째로 바꾼다**(새 이름은 「일반 태그」 — 타입을 골라 붙이려면 `tag_add`).
+    공용으로 공개하면 로그인한 누구나 시작점으로 고른다(고치는 것은 작성자뿐). 레시피 본문을
+    바꾸려면 새로 `save_template` 한다."""
     body = {
         key: value
         for key, value in (
@@ -3068,12 +3082,14 @@ async def update_template(
             ("description", description),
             ("is_shared", shared),
             ("folder", folder),
+            ("tags", tags),
         )
         if value is not None
     }
     if not body:
         return {
-            "error": "바꿀 칸이 없습니다 — name · description · shared · folder 중 하나를."
+            "error": "바꿀 칸이 없습니다 — name · description · shared · folder · tags 중 "
+            "하나를."
         }
     got = await _patch(ctx, f"/api/templates/{template_id}", body)
     if not isinstance(got, dict) or "error" in got:

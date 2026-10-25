@@ -26,13 +26,14 @@ from app.modules.tagging.services import (
     TagTypeOut,
     TagUse,
 )
+from app.modules.templates import services as templates
 from app.modules.works import services as works
 from app.shared.auth import current_user, require_system_admin
 from app.shared.errors import AppError, Forbidden, code
 
 router = APIRouter(prefix="/tags", tags=["tags"])
 
-TargetKey = Literal["work", "part", "jig"]
+TargetKey = Literal["work", "part", "jig", "template"]
 
 
 def _row(db: Session, user: User, target: TargetKey, row_id: uuid.UUID, *, write: bool) -> Any:
@@ -45,6 +46,12 @@ def _row(db: Session, user: User, target: TargetKey, row_id: uuid.UUID, *, write
         if write:
             parts.require_owner(part, user)
         return part
+    if target == "template":
+        # 내 템플릿은 주인만 본다(공용이면 누구나) — 붙이고 떼는 것은 주인 · 관리자.
+        template = templates.get_template(db, row_id, user)
+        if write:
+            templates.require_owner(template, user)
+        return template
     jig = jigs.get_jig(db, row_id)
     if write:
         jigs.require_owner(jig, user)
@@ -86,11 +93,14 @@ def used_tags(
     db: Session = Depends(get_db),
 ) -> list[TagUse]:
     """쓰인 태그 **객체**를 타입별로 — 목록의 타입별 거르개(`?tag_id=`)가 칩으로 그린다. 작업은
-    내 것(관리자는 `owner` 로 남의 것 · 모두), 부품 · 지그는 카탈로그 전부."""
+    내 것(관리자는 `owner` 로 남의 것 · 모두), 부품 · 지그는 카탈로그 전부, 템플릿은 볼 수 있는
+    것(내 것 · 공용)."""
     if target == "part":
         return services.used(db, services.TARGETS["part"].model)
     if target == "jig":
         return services.used(db, services.TARGETS["jig"].model)
+    if target == "template":
+        return templates.used_tags(db, user)
     model = services.TARGETS["work"].model
     if not owner:
         return services.used(db, model, model.owner_id == user.id)

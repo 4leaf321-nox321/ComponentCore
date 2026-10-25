@@ -65,6 +65,7 @@ from app.modules.tagging import routes as tagging_routes
 from app.modules.tasks import routes as tasks_routes
 from app.modules.tasks import services as tasks_services
 from app.modules.templates import routes as templates_routes
+from app.modules.templates import system as templates_system
 from app.modules.voc import routes as voc_routes
 from app.modules.webhooks import routes as webhooks_routes
 from app.modules.webhooks import services as webhooks_services
@@ -164,6 +165,8 @@ def register_platform() -> None:
     system_sources.register_system_source(jigs_system.SYSTEM_SOURCE)
     # 내 작업 — 태그가 작업에 객체를 붙인다(ADR 0011). **요청의 사람으로 거른다**(주인만).
     system_sources.register_system_source(works_system.SYSTEM_SOURCE)
+    # 템플릿 — 태그가 붙는다. 내 템플릿은 주인만 본다(공용은 모두).
+    system_sources.register_system_source(templates_system.SYSTEM_SOURCE)
     # 변경 이벤트(감사 기록이 커밋된 뒤)를 웹훅 · 지켜보기가 듣는다.
     events.register_listener(webhooks_services.on_events, in_jobs="summary")
     events.register_listener(objects_watches.on_events)

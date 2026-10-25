@@ -29,7 +29,7 @@ export interface Template extends TemplateSummary {
 export type TemplateScope = 'all' | 'mine' | 'shared'
 
 export const templatesApi = {
-  list: (options: { scope?: TemplateScope; q?: string; tag?: string; folder?: string | null; offset?: number; limit?: number } = {}) => {
+  list: (options: { scope?: TemplateScope; q?: string; tag?: string; tagId?: string; folder?: string | null; offset?: number; limit?: number } = {}) => {
     const query = new URLSearchParams({
       scope: options.scope ?? 'all',
       offset: String(options.offset ?? 0),
@@ -37,6 +37,7 @@ export const templatesApi = {
     })
     if (options.q) query.set('q', options.q)
     if (options.tag) query.set('tag', options.tag)
+    if (options.tagId) query.set('tag_id', options.tagId)
     // 폴더 — null 이면 전부, '' 이면 폴더 없는 것만(그때는 하위를 안 본다).
     if (options.folder != null) query.set('folder', options.folder)
     if (options.folder === '') query.set('subfolders', 'false')

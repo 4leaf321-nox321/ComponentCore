@@ -4523,7 +4523,7 @@
           "tags"
         ],
         "summary": "Used Tags",
-        "description": "쓰인 태그 **객체**를 타입별로 — 목록의 타입별 거르개(`?tag_id=`)가 칩으로 그린다. 작업은\n내 것(관리자는 `owner` 로 남의 것 · 모두), 부품 · 지그는 카탈로그 전부.",
+        "description": "쓰인 태그 **객체**를 타입별로 — 목록의 타입별 거르개(`?tag_id=`)가 칩으로 그린다. 작업은\n내 것(관리자는 `owner` 로 남의 것 · 모두), 부품 · 지그는 카탈로그 전부, 템플릿은 볼 수 있는\n것(내 것 · 공용).",
         "operationId": "used_tags_api_tags_used__target__get",
         "parameters": [
           {
@@ -4534,7 +4534,8 @@
               "enum": [
                 "work",
                 "part",
-                "jig"
+                "jig",
+                "template"
               ],
               "type": "string",
               "title": "Target"
@@ -4680,7 +4681,8 @@
               "enum": [
                 "work",
                 "part",
-                "jig"
+                "jig",
+                "template"
               ],
               "type": "string",
               "title": "Target"
@@ -4740,7 +4742,8 @@
               "enum": [
                 "work",
                 "part",
-                "jig"
+                "jig",
+                "template"
               ],
               "type": "string",
               "title": "Target"
@@ -4812,7 +4815,8 @@
               "enum": [
                 "work",
                 "part",
-                "jig"
+                "jig",
+                "template"
               ],
               "type": "string",
               "title": "Target"
@@ -6617,10 +6621,29 @@
             "required": false,
             "schema": {
               "type": "string",
-              "maxLength": 40,
+              "maxLength": 80,
               "default": "",
               "title": "Tag"
             }
+          },
+          {
+            "name": "tag_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "이 태그 객체가 붙은 것만(`/api/tags/used/template`).",
+              "title": "Tag Id"
+            },
+            "description": "이 태그 객체가 붙은 것만(`/api/tags/used/template`)."
           },
           {
             "name": "folder",
@@ -50078,6 +50101,21 @@
               }
             ],
             "title": "Folder"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
           }
         },
         "type": "object",

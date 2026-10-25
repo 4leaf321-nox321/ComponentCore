@@ -25,8 +25,8 @@ function mockFetch(items: unknown[]) {
     calls.push({ url, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : null })
     const body = url.includes('/auth/refresh')
       ? { access_token: 't', expires_in: 900, user: { id: 'u1', email: 'me@x', display_name: '나', status: 'active', is_system_admin: false, must_change_password: false } }
-      : url.includes('/templates/tags')
-      ? ['브래킷']
+      : url.includes('/tags/used/template')
+      ? [{ object_id: 'b1', label: '브래킷', type_slug: 'cc_tag', type_label: '일반 태그', uses: 1 }]
       : url.includes('/templates/folders')
       ? [{ path: '', count: 2 }]
       : url.includes('/templates?')

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.core.recipe.schema import RecipeValidationError, parse
 from app.modules.accounts.models import User
+from app.modules.tagging import services as tagging
 from app.modules.templates.models import RecipeTemplate
 from app.modules.templates.schemas import TemplateOut, TemplateSummaryOut
 from app.shared import folders, search
@@ -46,7 +47,7 @@ def template_summary(
         is_shared=template.is_shared,
         mine=template.owner_id == viewer.id,
         node_count=_node_count(template.recipe),
-        tags=list(template.tags or []),
+        tags=tagging.labels(db, template.id),
         folder=template.folder,
         updated_at=template.updated_at,
     )
@@ -85,6 +86,7 @@ def list_templates(
     scope: str = "all",
     query: str = "",
     tag: str = "",
+    tag_id: uuid.UUID | None = None,
     folder: str | None = None,
     subfolders: bool = True,
     limit: int,
@@ -98,13 +100,15 @@ def list_templates(
     found = search.matches(
         query,
         columns=[RecipeTemplate.name, RecipeTemplate.description],
-        tags=RecipeTemplate.tags,
         owner=RecipeTemplate.owner_id,
+        also=[tagging.label_like(RecipeTemplate.id)],
     )
     if found is not None:
         statement = statement.where(found)
     if tag.strip():
-        statement = statement.where(RecipeTemplate.tags.contains([tag.strip()]))
+        statement = statement.where(tagging.tagged(RecipeTemplate.id, tag))
+    if tag_id is not None:
+        statement = statement.where(tagging.tagged_object(RecipeTemplate.id, tag_id))
     total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0
     rows = db.scalars(
         statement.order_by(
@@ -198,18 +202,20 @@ def create_template(
         owner_id=owner.id,
         recipe=_checked(recipe),
         is_shared=is_shared,
-        # 템플릿은 작업과의 연결을 안 남기므로 **저장할 때 받는다**(부품 · 지그는 승격이
-        # 물려받는다). 화면이 그때 보던 작업의 꼬리표를 건넨다.
-        tags=sorted({one.strip() for one in (tags or []) if one.strip()}),
     )
     db.add(template)
+    db.flush()
+    # 템플릿은 작업과의 연결을 안 남기므로 태그를 **저장할 때 받는다**(부품 · 지그는 승격이
+    # 물려받는다) — 이름마다 태그 객체로(ADR 0011).
+    if tags:
+        tagging.set_labels(db, owner, "template", template, list(tags))
     db.commit()
     db.refresh(template)
     return template
 
 
 def update_template(
-    db: Session, template: RecipeTemplate, *, fields: dict[str, Any]
+    db: Session, template: RecipeTemplate, *, fields: dict[str, Any], by: User
 ) -> RecipeTemplate:
     if fields.get("recipe") is not None:
         _checked(fields["recipe"])
@@ -217,6 +223,10 @@ def update_template(
         fields["folder"] = folders.normalize(fields["folder"], _BAD_FOLDER)
     for key, value in fields.items():
         if value is None:
+            continue
+        if key == "tags":
+            # 글자 목록은 옛 길이다 — 이름마다 태그 객체로 붙인다(`tagging.set_labels`).
+            tagging.set_labels(db, by, "template", template, list(value))
             continue
         setattr(template, key, value.strip() if isinstance(value, str) else value)
     db.commit()
@@ -227,27 +237,34 @@ def update_template(
 def copy_to_mine(db: Session, template: RecipeTemplate, *, owner: User) -> RecipeTemplate:
     """공용 템플릿을 내 것으로. 남의 것을 고칠 수는 없으니 복사해서 쓴다 —
     부품 · 지그의 「내 공간으로 복사」 와 같은 손놀림이다."""
-    return create_template(
+    made = create_template(
         db,
         owner=owner,
         name=template.name if template.owner_id == owner.id else f"{template.name} (복사)",
         description=template.description,
         recipe=template.recipe,
         is_shared=False,
-        tags=list(template.tags or []),
         folder=template.folder,
     )
+    # 태그는 객체째 물려준다 — 이름으로 다시 붙이면 타입을 골라 단 태그가 「일반 태그」 가
+    # 된다.
+    tagging.copy(db, owner, template, "template", made)
+    db.commit()
+    return made
 
 
 def delete_template(db: Session, template: RecipeTemplate) -> None:
+    """**행이 진짜로 지워진다** — 붙은 태그 선도 함께(`tagging.forget`)."""
+    tagging.forget(db, template.id)
     db.delete(template)
     db.commit()
 
 
 def all_tags(db: Session, viewer: User) -> list[str]:
-    """볼 수 있는 템플릿의 꼬리표 전부 — 부품 · 지그와 같은 모양."""
-    seen: dict[str, int] = {}
-    for tags in db.scalars(select(RecipeTemplate.tags).where(_visible(viewer))):
-        for one in tags or []:
-            seen[one] = seen.get(one, 0) + 1
-    return sorted(seen, key=lambda t: (-seen[t], t))
+    """볼 수 있는 템플릿의 태그 이름 전부 — 부품 · 지그와 같은 모양."""
+    return tagging.label_counts(db, RecipeTemplate, _visible(viewer))
+
+
+def used_tags(db: Session, viewer: User) -> list[tagging.TagUse]:
+    """볼 수 있는 템플릿의 태그 **객체** — 타입별 거르개(`tag_id`)가 쓴다."""
+    return tagging.used(db, RecipeTemplate, _visible(viewer))

@@ -44,6 +44,7 @@ from app.modules.ontology.models import ObjectType, RelationType
 from app.modules.ontology.services import InvalidValue, validate_properties
 from app.modules.parts.models import Part
 from app.modules.tagging.models import DEFAULT_TAG_TYPE, TAG_MODES, TAG_RELATION, TagType
+from app.modules.templates.models import RecipeTemplate
 from app.modules.works.models import Work
 from app.shared import audit, search
 from app.shared.errors import Conflict, NotFound, code
@@ -72,7 +73,22 @@ TARGETS: dict[str, Target] = {
     "work": Target("work", Work, "cc_work", "CompCore 작업", "작업"),
     "part": Target("part", Part, "cc_part", "CompCore 부품", "부품"),
     "jig": Target("jig", Jig, "cc_jig", "CompCore 지그", "지그"),
+    "template": Target("template", RecipeTemplate, "cc_template", "CompCore 템플릿", "템플릿"),
 }
+
+
+def _alive(model: Any) -> tuple[ColumnElement[bool], ...]:
+    """지운 행은 안 센다 — 지우면 행이 사라지는 표(템플릿)는 거를 칸이 없다."""
+    deleted = getattr(model, "deleted_at", None)
+    return (deleted.is_(None),) if deleted is not None else ()
+
+
+def _named(target: Target, row: Any) -> str:
+    """선의 감사 기록 · 알림에 적을 이 행의 이름 — **남에게 안 보이는 행은 이름을 안 적는다**
+    (작업은 늘, 템플릿은 공용이 아니면 — 그 기록은 태그 객체의 이력으로 모두에게 나간다)."""
+    if target.key == "work" or (target.key == "template" and not row.is_shared):
+        return target.noun
+    return str(row.name)
 
 
 @dataclass(frozen=True)
@@ -326,7 +342,7 @@ def used(db: Session, model: Any, *where: ColumnElement[bool]) -> list[TagUse]:
         .join(model, model.id == ObjectLink.src_id)
         .where(
             ObjectLink.relation == TAG_RELATION,
-            model.deleted_at.is_(None),
+            *_alive(model),
             *_shown(),
             *where,
         )
@@ -358,7 +374,7 @@ def label_counts(db: Session, model: Any, *where: ColumnElement[bool]) -> list[s
         .join(model, model.id == ObjectLink.src_id)
         .where(
             ObjectLink.relation == TAG_RELATION,
-            model.deleted_at.is_(None),
+            *_alive(model),
             *_shown(),
             *where,
         )
@@ -471,10 +487,10 @@ def candidates(db: Session, slug: str, q: str, limit: int) -> list[TagCandidate]
 
 
 def _end(defaults: Defaults, target: Target, row: Any) -> End:
-    """붙인 행 쪽 끝. **작업은 이름을 안 적는다** — 선의 감사 기록은 태그 객체의 이력 ·
-    지켜보기 알림 · 웹훅으로 나가고, 그쪽을 보는 사람은 남의 작업을 못
-    본다(`works/system.py`)."""
-    label = target.noun if target.key == "work" else row.name
+    """붙인 행 쪽 끝. **남에게 안 보이는 행(작업 · 내 템플릿)은 이름을 안 적는다**(`_named`)
+    — 선의 감사 기록은 태그 객체의 이력 · 지켜보기 알림 · 웹훅으로 나가고, 그쪽을 보는 사람은
+    남의 작업 · 템플릿을 못 본다(`works/system.py` · `templates/system.py`)."""
+    label = _named(target, row)
     return End(
         id=row.id, type_slug=defaults.sources[target.key].slug, label=label, is_system=True
     )
@@ -618,7 +634,7 @@ def remove(db: Session, user: User, key: str, row: Any, object_id: uuid.UUID) ->
         db,
         user,
         found,
-        src_label=target.noun if key == "work" else row.name,
+        src_label=_named(target, row),
         dst_label=obj.label if obj else "?",
         workspace_id=None,
         reason="태그 뗌",
@@ -645,6 +661,21 @@ def set_labels(db: Session, user: User, key: str, row: Any, names: list[str]) ->
     for name in wanted:
         if name.casefold() not in have:
             add(db, user, key, row, AddTagRequest(label=name))
+
+
+def forget(db: Session, row_id: uuid.UUID) -> int:
+    """행이 **진짜로 지워질 때**(템플릿) 그 행에 닿은 선을 함께 지운다 — 남기면 태그 객체의
+    「태그가 붙은 것」 에 없는 행이 「(지워짐)」 으로 남는다. 부르는 쪽이 커밋한다."""
+    found = list(
+        db.scalars(
+            select(ObjectLink).where(
+                (ObjectLink.src_id == row_id) | (ObjectLink.dst_id == row_id)
+            )
+        )
+    )
+    for one in found:
+        db.delete(one)
+    return len(found)
 
 
 def copy(db: Session, user: User, source: Any, key: str, row: Any) -> None:

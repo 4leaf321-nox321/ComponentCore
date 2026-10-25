@@ -210,4 +210,21 @@ def test_태그_객체로_목록을_거른다(bot: Bot) -> None:  # noqa: F811
     assert mine["MCP-거르개"]["uses"] == 1 and mine["MCP-거르개"]["type_slug"] == "cc_tag"
     listed = bot.call(server.list_works, tag_id=tagged[0]["object_id"])
     assert [one["work_id"] for one in listed["works"]] == [first], listed
-    assert "error" in bot.call(server.list_tags, "templates", typed=True)
+    assert "error" in bot.call(server.list_tags, "voc", typed=True)
+
+
+def test_템플릿도_태그를_객체로(bot: Bot) -> None:  # noqa: F811
+    saved = bot.call(server.save_template, "MCP 판 템플릿", BOX, tags=["MCP-템플릿"])
+    assert "error" not in saved, saved
+    assert saved["tags"] == ["MCP-템플릿"]
+    got = bot.call(server.tag_add, "template", saved["id"], label="MCP-더함")
+    assert [one["label"] for one in got] == ["MCP-템플릿", "MCP-더함"]
+    used = bot.call(server.list_tags, "templates", typed=True)
+    picked = next(one for one in used["tags"] if one["label"] == "MCP-더함")
+    listed = bot.call(server.list_templates, tag_id=picked["object_id"])
+    assert [one["id"] for one in listed["templates"]] == [saved["id"]], listed
+    changed = bot.call(server.update_template, saved["id"], tags=["MCP-더함"])
+    assert "error" not in changed, changed
+    assert [one["label"] for one in bot.call(server.tags_get, "template", saved["id"])] == [
+        "MCP-더함"
+    ]
