@@ -24,9 +24,11 @@ from app.modules.tagging.services import (
     TagModeRequest,
     TagSettingOut,
     TagTypeOut,
+    TagUse,
 )
 from app.modules.works import services as works
 from app.shared.auth import current_user, require_system_admin
+from app.shared.errors import AppError, Forbidden, code
 
 router = APIRouter(prefix="/tags", tags=["tags"])
 
@@ -70,6 +72,39 @@ def tag_candidates(
 ) -> list[TagCandidate]:
     """그 타입에서 고를 것 — 이름에 `q` 가 든 것, 많이 쓴 것부터."""
     return services.candidates(db, type_slug, q, limit)
+
+
+@router.get("/used/{target}", response_model=list[TagUse])
+def used_tags(
+    target: TargetKey,
+    owner: str = Query(
+        default="",
+        max_length=36,
+        description="작업만 — 비우면 내 것. `all`(모두) · 사람 id(그 사람)는 시스템 관리자만.",
+    ),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> list[TagUse]:
+    """쓰인 태그 **객체**를 타입별로 — 목록의 타입별 거르개(`?tag_id=`)가 칩으로 그린다. 작업은
+    내 것(관리자는 `owner` 로 남의 것 · 모두), 부품 · 지그는 카탈로그 전부."""
+    if target == "part":
+        return services.used(db, services.TARGETS["part"].model)
+    if target == "jig":
+        return services.used(db, services.TARGETS["jig"].model)
+    model = services.TARGETS["work"].model
+    if not owner:
+        return services.used(db, model, model.owner_id == user.id)
+    if not user.is_system_admin:
+        raise Forbidden(code("TAGS", 14), "다른 사용자의 작업 태그는 시스템 관리자만 봅니다.")
+    if owner == "all":
+        return services.used(db, model)
+    try:
+        whose = uuid.UUID(owner)
+    except ValueError as failure:
+        raise AppError(
+            code("TAGS", 15), "owner 는 비우거나 all · 사람 id 중 하나입니다."
+        ) from failure
+    return services.used(db, model, model.owner_id == whose)
 
 
 @router.get("/settings", response_model=list[TagSettingOut])

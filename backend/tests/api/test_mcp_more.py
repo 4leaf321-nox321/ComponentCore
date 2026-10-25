@@ -194,3 +194,20 @@ def test_재료_상태와_카탈로그_버전(bot: Bot) -> None:  # noqa: F811
     versions = bot.call(server.list_catalog_versions, "parts", part)
     assert [one["number"] for one in versions["versions"]] == [1]
     assert "error" in bot.call(server.list_catalog_versions, "works", part)
+
+
+def test_태그_객체로_목록을_거른다(bot: Bot) -> None:  # noqa: F811
+    """`list_tags(typed=True)` 의 `object_id` 를 목록 도구의 `tag_id` 로 — 이름 거르개와 달리
+    그 객체가 붙은 것만."""
+    first = bot.call(server.create_work, "거르개 판 하나", BOX)["work_id"]
+    second = bot.call(server.create_work, "거르개 판 둘", BOX)["work_id"]
+    tagged = bot.call(server.tag_add, "work", first, label="MCP-거르개")
+    bot.call(server.tag_add, "work", second, label="MCP-다른것")
+    used = bot.call(server.list_tags, "works", typed=True)
+    assert "error" not in used, used
+    mine = {one["label"]: one for one in used["tags"]}
+    assert mine["MCP-거르개"]["object_id"] == tagged[0]["object_id"]
+    assert mine["MCP-거르개"]["uses"] == 1 and mine["MCP-거르개"]["type_slug"] == "cc_tag"
+    listed = bot.call(server.list_works, tag_id=tagged[0]["object_id"])
+    assert [one["work_id"] for one in listed["works"]] == [first], listed
+    assert "error" in bot.call(server.list_tags, "templates", typed=True)

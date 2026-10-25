@@ -31,13 +31,18 @@ test('찾기 · 꼬리표 · 휴지통은 서버가 거르고, 되살리기가 �
     calls.push(`${init?.method ?? 'GET'} ${url}`)
     const u = new URL(url, 'http://x')
     let body: unknown
-    if (u.pathname.endsWith('/works/tags')) body = ['진동', 'P1']
+    // 쓰인 태그 객체(타입별) — 거르개는 이름이 아니라 객체로 거른다(ADR 0011).
+    if (u.pathname.endsWith('/tags/used/work'))
+      body = [
+        { object_id: 't1', label: '진동', type_slug: 'cc_tag', type_label: '일반 태그', uses: 1 },
+        { object_id: 't2', label: 'P1', type_slug: 'customer', type_label: '고객사', uses: 1 },
+      ]
     else if (u.pathname.endsWith('/works/folders') || u.pathname.endsWith('/works/years')) body = []
     else if (u.pathname.endsWith('/restore')) body = row('w2', '모터 브래킷')
     else if (u.pathname.endsWith('/works')) {
       const items = u.searchParams.get('trashed')
         ? [row('w2', '모터 브래킷', { deleted_at: '2026-09-19T00:00:00Z' })]
-        : u.searchParams.get('q') === '모터' || u.searchParams.get('tag') === '진동'
+        : u.searchParams.get('q') === '모터' || u.searchParams.get('tag_id') === 't1'
           ? [row('w2', '모터 브래킷', { tags: ['진동'] })]
           : [row('w1', '센서 브래킷'), row('w2', '모터 브래킷', { tags: ['진동'] })]
       body = { items, total: items.length, limit: 20, offset: 0 }
@@ -60,11 +65,12 @@ test('찾기 · 꼬리표 · 휴지통은 서버가 거르고, 되살리기가 �
   fireEvent.click(screen.getByLabelText('검색어 초기화'))
   await waitFor(() => expect(screen.getByText('센서 브래킷')).toBeInTheDocument())
 
-  // 꼬리표 칩 — 서버에 tag 로.
-  fireEvent.click(screen.getByRole('button', { name: '진동' }))
-  await waitFor(() => expect(calls.some((c) => c.includes('tag=%EC%A7%84%EB%8F%99'))).toBe(true))
+  // 태그 칩 — 타입별로 묶이고(「고객사:」), 서버에는 태그 객체(tag_id)로.
+  expect(screen.getByText('고객사:')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: /^진동/ }))
+  await waitFor(() => expect(calls.some((c) => c.includes('tag_id=t1'))).toBe(true))
   await waitFor(() => expect(screen.queryByText('센서 브래킷')).toBeNull())
-  fireEvent.click(screen.getByRole('button', { name: '진동' })) // 풀기
+  fireEvent.click(screen.getByRole('button', { name: /^진동/ })) // 풀기
 
   // 휴지통 — 지운 것만, 되살리기.
   fireEvent.click(screen.getByRole('button', { name: '휴지통' }))

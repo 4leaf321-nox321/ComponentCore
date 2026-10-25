@@ -25,7 +25,8 @@ import {
   TableRow,
 } from '@/shared/components/ui/table'
 import { useDisplay } from '@/shared/api/display'
-import { TagFilter } from '@/shared/components/TagFilter'
+import { tagsApi } from '@/modules/tagging/api'
+import { TypedTagFilter } from '@/modules/tagging/TypedTagFilter'
 import { describeShape, ShapeFilter, shapeConditionCount } from '@/shared/components/ShapeFilter'
 import type { ShapeQuery } from '@/shared/components/ShapeFilter'
 import { useResource } from '@/shared/hooks/useResource'
@@ -36,7 +37,7 @@ export default function PartsPage() {
   const [offset, setOffset] = useState(0)
   const [q, setQ] = useState('')
   /** 고른 꼬리표 — 빈 문자열이면 안 거른다. */
-  const [tag, setTag] = useState('')
+  const [tagId, setTagId] = useState('')
   /** 형상 조건 — 「M6 구멍이 있는 판」 · 「이 상자 안에 드는 것」. */
   const [shape, setShape] = useState<ShapeQuery>({})
   /** 규격 부품만 — 지그 생성기가 고르는 받침 · 위치 핀 · 토글 클램프. */
@@ -46,10 +47,10 @@ export default function PartsPage() {
   const PAGE = useDisplay().list_page_size
   const space = useFolderSpace('parts', partsApi, { onRefilter: () => setOffset(0) })
   const page = useResource(
-    () => partsApi.list(offset, PAGE, q, tag, { folder: space.folder, shape, standard: standardOnly ? 'any' : '' }),
-    [offset, q, tag, shape, PAGE, space.folder, space.version, standardOnly],
+    () => partsApi.list(offset, PAGE, q, '', { folder: space.folder, shape, standard: standardOnly ? 'any' : '', tagId }),
+    [offset, q, tagId, shape, PAGE, space.folder, space.version, standardOnly],
   )
-  const tags = useResource(() => partsApi.tags(), [page.data])
+  const tags = useResource(() => tagsApi.used('part'), [page.data])
   const rows = page.data?.items ?? []
   /** 옮길 수 있는 줄 — 올린 사람 · 관리자. 판정은 서버가 다시 한다. */
   const { user } = useAuth()
@@ -57,7 +58,7 @@ export default function PartsPage() {
   /** 규격 부품 내보내기 · 가져오기 — 표시일 뿐이다(판정은 서버). */
   const admin = isSystemAdmin(user)
   const chosenStandard = rows.filter((row) => space.chosen.has(row.id) && row.standard).map((row) => row.id)
-  const filtered = Boolean(q || tag || standardOnly || space.folder !== null || shapeConditionCount(shape) > 0)
+  const filtered = Boolean(q || tagId || standardOnly || space.folder !== null || shapeConditionCount(shape) > 0)
 
   return (
     <div>
@@ -71,7 +72,7 @@ export default function PartsPage() {
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <FolderSelect space={space} allLabel="전체 부품" />
         <SearchBox value={q} onChange={(next) => { setQ(next); setOffset(0) }} />
-        <TagFilter tags={tags.data ?? []} value={tag} onChange={(next) => { setTag(next); setOffset(0) }} />
+        <TypedTagFilter tags={tags.data ?? []} value={tagId} onChange={(next) => { setTagId(next); setOffset(0) }} />
         <ShapeFilter value={shape} onChange={(next) => { setShape(next); setOffset(0) }} />
         <Button
           size="sm"

@@ -1608,13 +1608,16 @@ async def doe_studies(
     scope: str = "mine",
     query: str = "",
     tag: str = "",
+    tag_id: str | None = None,
 ) -> Any:
     """실험계획 목록 — 무엇을 언제 훑었나.
 
     `scope="mine"`(기본) 은 네 토큰의 계정 것, `"all"` 은 **공개된 것까지**. 다른 사용자가 이미
     같은 훑기를 돌았는지 보려면 `all` 로 찾아라 — 같은 것을 다시 도는 것이 가장 큰 낭비다.
     `query` 는 이름 · 설명 · **대상 작업 이름** · 작성자(낱말마다 AND), `tag` 는 대상 작업의
-    태그 — 「브래킷 EMC 에 건 DOE 가 있나」 를 목록을 넘기지 않고 묻는다."""
+    태그 — 「브래킷 EMC 에 건 DOE 가 있나」 를 목록을 넘기지 않고 묻는다. `tag_id` 는 태그
+    **객체**로 — 이름이 같은 다른 타입의 태그(고객사 A · 프로젝트 A)를 가른다
+    (`list_tags(space="doe", typed=True)` 의 `object_id`)."""
     params: dict[str, Any] = {"limit": limit, "scope": scope}
     if work_id:
         params["work_id"] = work_id
@@ -1622,6 +1625,8 @@ async def doe_studies(
         params["q"] = query
     if tag:
         params["tag"] = tag
+    if tag_id:
+        params["tag_id"] = tag_id
     page = await _get(ctx, "/api/doe", params)
     if isinstance(page, dict) and "items" in page:
         return {"total": page["total"], "studies": page["items"]}
@@ -1695,12 +1700,15 @@ async def list_works(
     kind: str = "",
     trashed: bool = False,
     owner: str = "",
+    tag_id: str | None = None,
 ) -> Any:
     """사용자의 내 작업 목록(이름 · 종류 · 폴더 · 태그 · 현재 버전 · 지그 생성 횟수 ·
     등록 여부). `folder`(`고객A/2026` 같은 경로 — 그 아래까지, `""` 이면 폴더 없는 것만) ·
     `year`(생성 연도) · `query`(이름 · 설명 · 작성자) · `tag` · `kind`(part · jig ·
-    assembly)로 거른다. `trashed` 면 휴지통. **시스템 관리자만**: `owner="all"` 이면 모두의
-    작업, 사용자 id 면 그 사용자의 것(답에 `owner` 가 붙는다) — 아니면 거절된다."""
+    assembly)로 거른다 — `tag_id` 는 태그 **객체**(`list_tags(typed=True)` · `tags_get` 의
+    `object_id`)로, 이름이 같은 다른 타입의 태그를 가른다. `trashed` 면 휴지통. **시스템
+    관리자만**: `owner="all"` 이면 모두의 작업, 사용자 id 면 그 사용자의 것(답에 `owner` 가
+    붙는다) — 아니면 거절된다."""
     params: dict[str, Any] = {"limit": limit}
     if owner:
         params["owner"] = owner
@@ -1710,7 +1718,7 @@ async def list_works(
             params["subfolders"] = "false"
     if year is not None:
         params["year"] = year
-    for key, value in (("q", query), ("tag", tag), ("kind", kind)):
+    for key, value in (("q", query), ("tag", tag), ("kind", kind), ("tag_id", tag_id)):
         if value:
             params[key] = value
     if trashed:
@@ -2252,10 +2260,12 @@ async def list_parts(
     folder: str | None = None,
     query: str = "",
     tag: str = "",
+    tag_id: str | None = None,
     standard: str = "",
 ) -> Any:
     """부품 카탈로그(누구나 보는 것). 고치려면 `copy_part_to_work` 로 내 작업 공간에 복사한다.
-    `folder`(`고객A/2026` 같은 경로 — 그 아래까지) · `query`(이름 · 설명) · `tag` 로 거른다.
+    `folder`(`고객A/2026` 같은 경로 — 그 아래까지) · `query`(이름 · 설명) · `tag`(이름) ·
+    `tag_id`(태그 객체 — 같은 이름의 다른 타입을 가른다)로 거른다.
     `standard` 면 **규격 부품**만 — `any` 또는 종류(`support` 받침 · `pin` 위치 핀 · `clamp`
     토글 클램프). 각 부품의 `standard` 가 규격 사양(품번 · 쓰는 버전 · 치수), `folder` 가 놓인
     곳, `owner_id` 가 등록한 사용자(옮기기 · 고치기는 그 사용자 · 관리자)."""
@@ -2268,6 +2278,8 @@ async def list_parts(
         params["q"] = query
     if tag:
         params["tag"] = tag
+    if tag_id:
+        params["tag_id"] = tag_id
     page = await _get(ctx, "/api/parts", params)
     if isinstance(page, dict) and "items" in page:
         return {"total": page["total"], "parts": page["items"]}
@@ -2571,9 +2583,10 @@ async def list_jigs(
     folder: str | None = None,
     query: str = "",
     tag: str = "",
+    tag_id: str | None = None,
 ) -> Any:
     """지그 카탈로그. `part_id` 를 주면 그 부품의 지그만, `folder` 면 그 폴더(아래까지)만,
-    `query`(이름 · 설명) · `tag` 로도 거른다."""
+    `query`(이름 · 설명) · `tag`(이름) · `tag_id`(태그 객체)로도 거른다."""
     params: dict[str, Any] = {"limit": limit}
     if part_id:
         params["part_id"] = part_id
@@ -2583,6 +2596,8 @@ async def list_jigs(
         params["q"] = query
     if tag:
         params["tag"] = tag
+    if tag_id:
+        params["tag_id"] = tag_id
     page = await _get(ctx, "/api/jigs", params)
     if isinstance(page, dict) and "items" in page:
         return {"total": page["total"], "jigs": page["items"]}
@@ -2777,11 +2792,23 @@ async def rename_folder(ctx: Context, space: str, path: str, to: str = "") -> An
 
 
 @mcp.tool()
-async def list_tags(ctx: Context, space: str = "works", scope: str = "mine") -> Any:
+async def list_tags(
+    ctx: Context, space: str = "works", scope: str = "mine", typed: bool = False
+) -> Any:
     """태그 **이름** 전부(많이 쓴 것부터) — `works` · `parts` · `jigs` · `templates` ·
     `doe`(대상 작업의 태그, `scope` = mine · all). 목록 도구의 `tag` 로 거를 때 쓸 이름을
-    여기서 고른다. 태그를 붙이고 떼는 것은 `tag_add` · `tag_remove`(타입까지 보려면
-    `tags_get`)."""
+    여기서 고른다. `typed` 면 **태그 객체**를 타입별로(`object_id` · 타입 · 붙은 수) — 목록
+    도구의 `tag_id` 로 거르면 이름이 같은 다른 타입(고객사 A · 프로젝트 A)이 갈린다(템플릿은
+    아직 글자 태그라 없다). 붙이고 떼는 것은 `tag_add` · `tag_remove`."""
+    if typed:
+        target = {"works": "work", "parts": "part", "jigs": "jig"}.get(space)
+        if space == "doe":
+            used = await _get(ctx, "/api/doe/tag-objects", {"scope": scope})
+        elif target is None:
+            return {"error": "typed 는 works · parts · jigs · doe 에서만 됩니다."}
+        else:
+            used = await _get(ctx, f"/api/tags/used/{target}")
+        return {"space": space, "tags": used} if isinstance(used, list) else used
     if space == "doe":
         tags = await _get(ctx, "/api/doe/tags", {"scope": scope})
     elif problem := _space(space):

@@ -19,7 +19,8 @@ import { Pagination } from '@/shared/components/Pagination'
 import { SearchBox } from '@/shared/components/SearchBox'
 import { describeShape } from '@/shared/components/ShapeFilter'
 import { StatusBadge } from '@/shared/components/StatusBadge'
-import { TagFilter } from '@/shared/components/TagFilter'
+import { tagsApi } from '@/modules/tagging/api'
+import { TypedTagFilter } from '@/modules/tagging/TypedTagFilter'
 import { Badge } from '@/shared/components/ui/badge'
 import {
   Table,
@@ -38,16 +39,16 @@ export default function AllWorksPage() {
   const owner = params.get('owner') || 'all'
   const [offset, setOffset] = useState(0)
   const [q, setQ] = useState('')
-  const [tag, setTag] = useState('')
+  const [tagId, setTagId] = useState('')
   const [kind, setKind] = useState<KindChoice>('all')
   const [trashed, setTrashed] = useState(false)
   const PAGE = useDisplay().list_page_size
   const accounts = useResource(() => accountsApi.all(), [])
   const page = useResource(
-    () => worksApi.list(offset, PAGE, { owner, q, tag, kind: kind === 'all' ? '' : kind, trashed }),
-    [offset, PAGE, owner, q, tag, kind, trashed],
+    () => worksApi.list(offset, PAGE, { owner, q, tagId, kind: kind === 'all' ? '' : kind, trashed }),
+    [offset, PAGE, owner, q, tagId, kind, trashed],
   )
-  const tags = useResource(() => worksApi.tags(owner), [owner])
+  const tags = useResource(() => tagsApi.used('work', owner), [owner])
   const rows = page.data?.items ?? []
   /**
    * 사람이 **주소로** 바뀌면(사이드바의 「모든 작업」 · 계정 화면의 「작업」) 첫 페이지부터, 꼬리표는
@@ -57,7 +58,7 @@ export default function AllWorksPage() {
   if (seenOwner !== owner) {
     setSeenOwner(owner)
     setOffset(0)
-    setTag('')
+    setTagId('')
   }
   /** 고르개에 없는 사람(삭제된 계정 · 100명 밖) — 줄의 이름으로라도 보인다. */
   const ownerMissing = owner !== 'all' && !(accounts.data ?? []).some((one) => one.id === owner)
@@ -69,7 +70,7 @@ export default function AllWorksPage() {
 
   function pickOwner(next: string) {
     refilter(() => {
-      setTag('')
+      setTagId('')
       setParams(next === 'all' ? {} : { owner: next }, { replace: true })
     })
   }
@@ -97,7 +98,7 @@ export default function AllWorksPage() {
         </select>
         <SearchBox value={q} onChange={(next) => refilter(() => setQ(next))} />
         <KindFilter value={kind} onChange={(next) => refilter(() => setKind(next))} />
-        <TagFilter tags={tags.data ?? []} value={tag} onChange={(next) => refilter(() => setTag(next))} />
+        <TypedTagFilter tags={tags.data ?? []} value={tagId} onChange={(next) => refilter(() => setTagId(next))} />
         <button
           type="button"
           onClick={() => refilter(() => setTrashed(!trashed))}

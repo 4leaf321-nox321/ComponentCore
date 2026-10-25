@@ -95,6 +95,11 @@ class TagCandidate(TagItem):
     """이 객체를 태그로 단 작업 · 부품 · 지그 수 — 많이 쓴 것이 앞이다."""
 
 
+class TagUse(TagItem):
+    uses: int
+    """이 객체가 붙은 행 수(지운 것 빼고) — 거르개의 칩 곁에 적는다."""
+
+
 class TagTypeOut(BaseModel):
     slug: str
     label: str
@@ -289,6 +294,57 @@ def tagged(row_id: Any, label: str) -> ColumnElement[bool]:
             *_shown(),
         )
     )
+
+
+def tagged_object(row_id: Any, object_id: uuid.UUID) -> ColumnElement[bool]:
+    """목록 거르개(`?tag_id=`) — **이 태그 객체**가 붙었나. 이름이 같은 다른 타입의 태그(고객사
+    「A」 와 프로젝트 「A」)는 안 걸린다 — 그것이 이름 거르개(`tagged`)와 다른 점이다."""
+    return exists(
+        select(literal(1)).where(
+            ObjectLink.src_id == row_id,
+            ObjectLink.relation == TAG_RELATION,
+            ObjectLink.dst_id == object_id,
+        )
+    )
+
+
+def used(db: Session, model: Any, *where: ColumnElement[bool]) -> list[TagUse]:
+    """`model`(작업 · 부품 · 지그)에 붙은 태그 **객체**와 붙은 수 — 타입별 거르개가 쓴다.
+    「일반 태그」 가 먼저, 그다음 타입 이름 순, 한 타입 안에서는 많이 쓴 것부터. `where` 로
+    행을 좁힌다(내 작업만 · DOE 의 대상 작업만)."""
+    rows = db.execute(
+        select(
+            ObjectInstance.id,
+            ObjectInstance.label,
+            ObjectType.slug,
+            ObjectType.label,
+            func.count(func.distinct(ObjectLink.src_id)),
+        )
+        .select_from(ObjectLink)
+        .join(ObjectInstance, ObjectInstance.id == ObjectLink.dst_id)
+        .join(ObjectType, ObjectType.id == ObjectInstance.type_id)
+        .join(model, model.id == ObjectLink.src_id)
+        .where(
+            ObjectLink.relation == TAG_RELATION,
+            model.deleted_at.is_(None),
+            *_shown(),
+            *where,
+        )
+        .group_by(ObjectInstance.id, ObjectInstance.label, ObjectType.slug, ObjectType.label)
+    ).all()
+    out = [
+        TagUse(object_id=one, label=label, type_slug=slug, type_label=kind, uses=int(n))
+        for one, label, slug, kind, n in rows
+    ]
+    out.sort(
+        key=lambda one: (
+            one.type_slug != DEFAULT_TAG_TYPE,
+            one.type_label,
+            -one.uses,
+            one.label,
+        )
+    )
+    return out
 
 
 def label_counts(db: Session, model: Any, *where: ColumnElement[bool]) -> list[str]:

@@ -71,6 +71,8 @@ export interface YearRow {
 export interface WorkFilter {
   q?: string
   tag?: string
+  /** 태그 객체로 거른다 — 이름이 같은 다른 타입의 태그를 가른다(`TypedTagFilter`). */
+  tagId?: string
   kind?: string
   trashed?: boolean
   /** 폴더 — 주면 그 폴더(하위까지가 기본). 안 주면 모든 폴더. */
@@ -145,6 +147,7 @@ export const worksApi = {
     const query = new URLSearchParams({ offset: String(offset), limit: String(limit) })
     if (filter.q) query.set('q', filter.q)
     if (filter.tag) query.set('tag', filter.tag)
+    if (filter.tagId) query.set('tag_id', filter.tagId)
     if (filter.kind) query.set('kind', filter.kind)
     if (filter.trashed) query.set('trashed', 'true')
     if (filter.folder != null) query.set('folder', filter.folder)

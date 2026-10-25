@@ -917,10 +917,29 @@
             "required": false,
             "schema": {
               "type": "string",
-              "maxLength": 40,
+              "maxLength": 80,
               "default": "",
               "title": "Tag"
             }
+          },
+          {
+            "name": "tag_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "이 태그 객체가 붙은 것만(`/api/tags/used/…` 의 `object_id`).",
+              "title": "Tag Id"
+            },
+            "description": "이 태그 객체가 붙은 것만(`/api/tags/used/…` 의 `object_id`)."
           },
           {
             "name": "kind",
@@ -2817,10 +2836,29 @@
             "required": false,
             "schema": {
               "type": "string",
-              "maxLength": 40,
+              "maxLength": 80,
               "default": "",
               "title": "Tag"
             }
+          },
+          {
+            "name": "tag_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "이 태그 객체가 붙은 것만(`/api/tags/used/…` 의 `object_id`).",
+              "title": "Tag Id"
+            },
+            "description": "이 태그 객체가 붙은 것만(`/api/tags/used/…` 의 `object_id`)."
           },
           {
             "name": "folder",
@@ -3799,10 +3837,29 @@
             "required": false,
             "schema": {
               "type": "string",
-              "maxLength": 40,
+              "maxLength": 80,
               "default": "",
               "title": "Tag"
             }
+          },
+          {
+            "name": "tag_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "이 태그 객체가 붙은 것만(`/api/tags/used/…` 의 `object_id`).",
+              "title": "Tag Id"
+            },
+            "description": "이 태그 객체가 붙은 것만(`/api/tags/used/…` 의 `object_id`)."
           },
           {
             "name": "folder",
@@ -4443,6 +4500,71 @@
                     "$ref": "#/components/schemas/TagCandidate"
                   },
                   "title": "Response Tag Candidates Api Tags Types  Type Slug  Objects Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tags/used/{target}": {
+      "get": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Used Tags",
+        "description": "쓰인 태그 **객체**를 타입별로 — 목록의 타입별 거르개(`?tag_id=`)가 칩으로 그린다. 작업은\n내 것(관리자는 `owner` 로 남의 것 · 모두), 부품 · 지그는 카탈로그 전부.",
+        "operationId": "used_tags_api_tags_used__target__get",
+        "parameters": [
+          {
+            "name": "target",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "work",
+                "part",
+                "jig"
+              ],
+              "type": "string",
+              "title": "Target"
+            }
+          },
+          {
+            "name": "owner",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 36,
+              "description": "작업만 — 비우면 내 것. `all`(모두) · 사람 id(그 사람)는 시스템 관리자만.",
+              "default": "",
+              "title": "Owner"
+            },
+            "description": "작업만 — 비우면 내 것. `all`(모두) · 사람 id(그 사람)는 시스템 관리자만."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TagUse"
+                  },
+                  "title": "Response Used Tags Api Tags Used  Target  Get"
                 }
               }
             }
@@ -6935,10 +7057,29 @@
             "required": false,
             "schema": {
               "type": "string",
-              "maxLength": 40,
+              "maxLength": 80,
               "default": "",
               "title": "Tag"
             }
+          },
+          {
+            "name": "tag_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "이 태그 객체가 붙은 것만(`/api/tags/used/…` 의 `object_id`).",
+              "title": "Tag Id"
+            },
+            "description": "이 태그 객체가 붙은 것만(`/api/tags/used/…` 의 `object_id`)."
           },
           {
             "name": "limit",
@@ -7065,6 +7206,55 @@
                     "type": "string"
                   },
                   "title": "Response Study Tags Api Doe Tags Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/doe/tag-objects": {
+      "get": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Study Tag Objects",
+        "description": "보이는 DOE 들의 대상 작업에 붙은 태그 **객체** — 타입별 거르개(`?tag_id=`)가 쓴다.",
+        "operationId": "study_tag_objects_api_doe_tag_objects_get",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(mine|all)$",
+              "default": "mine",
+              "title": "Scope"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TagUse"
+                  },
+                  "title": "Response Study Tag Objects Api Doe Tag Objects Get"
                 }
               }
             }
@@ -49604,6 +49794,40 @@
           "is_default"
         ],
         "title": "TagTypeOut"
+      },
+      "TagUse": {
+        "properties": {
+          "object_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Object Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "type_slug": {
+            "type": "string",
+            "title": "Type Slug"
+          },
+          "type_label": {
+            "type": "string",
+            "title": "Type Label"
+          },
+          "uses": {
+            "type": "integer",
+            "title": "Uses"
+          }
+        },
+        "type": "object",
+        "required": [
+          "object_id",
+          "label",
+          "type_slug",
+          "type_label",
+          "uses"
+        ],
+        "title": "TagUse"
       },
       "TemplateCreateRequest": {
         "properties": {

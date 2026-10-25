@@ -42,7 +42,7 @@ test('모든 사람의 작업을 둘러보고, 사람으로 거른다', async ()
     const u = new URL(url, 'http://x')
     let body: unknown
     if (u.pathname.endsWith('/accounts')) body = [account('kim', '김'), account('lee', '이')]
-    else if (u.pathname.endsWith('/works/tags')) body = []
+    else if (u.pathname.endsWith('/tags/used/work')) body = []
     else if (u.pathname.endsWith('/works')) {
       const owner = u.searchParams.get('owner')
       const items = [row('w1', '김의 브래킷', 'kim', '김'), row('w2', '이의 받침', 'lee', '이')].filter(
@@ -70,7 +70,7 @@ test('모든 사람의 작업을 둘러보고, 사람으로 거른다', async ()
   fireEvent.change(screen.getByLabelText('작성자'), { target: { value: 'lee' } })
   await waitFor(() => expect(screen.queryByText('김의 브래킷')).toBeNull())
   expect(screen.getByText('이의 받침')).toBeInTheDocument()
-  expect(calls.some((c) => c.includes('/works/tags?owner=lee'))).toBe(true)
+  expect(calls.some((c) => c.includes('/tags/used/work?owner=lee'))).toBe(true)
 })
 
 test('계정 화면에서 온 사람은 주소로 걸러져 있다', async () => {

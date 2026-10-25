@@ -49,6 +49,7 @@ from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Job
 from app.modules.server import settings_store
 from app.modules.tagging import services as tagging
+from app.modules.tagging.services import TagUse
 from app.modules.works.models import Work
 from app.shared import filestore, search
 from app.shared.errors import AppError, Forbidden, NotFound, code
@@ -1014,6 +1015,7 @@ def list_studies(
     scope: str = "mine",
     query: str = "",
     tag: str = "",
+    tag_id: uuid.UUID | None = None,
 ) -> tuple[list[DoeStudy], int]:
     """`scope="mine"` 은 내 것(대행으로 내 이름이 된 것 포함), `"all"` 은 공개된 것까지.
 
@@ -1042,6 +1044,14 @@ def list_studies(
                 )
             )
         )
+    if tag_id is not None:
+        statement = statement.where(
+            exists(
+                select(literal(1)).where(
+                    Work.id == DoeStudy.work_id, tagging.tagged_object(Work.id, tag_id)
+                )
+            )
+        )
     total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0
     rows = db.scalars(
         statement.order_by(DoeStudy.created_at.desc()).limit(limit).offset(offset)
@@ -1056,6 +1066,14 @@ def study_tags(db: Session, viewer: User, *, scope: str = "mine") -> list[str]:
         _visible(viewer, scope), DoeStudy.work_id.is_not(None)
     )
     return tagging.label_counts(db, Work, Work.id.in_(targets))
+
+
+def study_tag_objects(db: Session, viewer: User, *, scope: str = "mine") -> list[TagUse]:
+    """`study_tags` 를 **객체로** — 타입별 거르개(`tag_id`)가 쓴다."""
+    targets = select(DoeStudy.work_id).where(
+        _visible(viewer, scope), DoeStudy.work_id.is_not(None)
+    )
+    return tagging.used(db, Work, Work.id.in_(targets))
 
 
 def points(db: Session, study: DoeStudy) -> list[DoePoint]:

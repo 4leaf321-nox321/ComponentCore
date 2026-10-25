@@ -127,6 +127,7 @@ def list_jigs(
     offset: int,
     query: str = "",
     tag: str = "",
+    tag_id: uuid.UUID | None = None,
     folder: str | None = None,
     subfolders: bool = True,
     shape: shape_search.ShapeFilter | None = None,
@@ -155,6 +156,8 @@ def list_jigs(
         base = base.where(found)
     if tag.strip():
         base = base.where(tagging.tagged(Jig.id, tag))
+    if tag_id is not None:
+        base = base.where(tagging.tagged_object(Jig.id, tag_id))
     total = int(db.scalar(select(func.count()).select_from(base.subquery())) or 0)
     rows = list(
         db.scalars(base.order_by(Jig.updated_at.desc(), Jig.id).limit(limit).offset(offset))

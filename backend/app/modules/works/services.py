@@ -223,6 +223,7 @@ def list_works(
     offset: int,
     query: str = "",
     tag: str = "",
+    tag_id: uuid.UUID | None = None,
     kind: str = "",
     trashed: bool = False,
     folder: str | None = None,
@@ -251,6 +252,8 @@ def list_works(
         base = base.where(found)
     if tag.strip():
         base = base.where(tagging.tagged(Work.id, tag))
+    if tag_id is not None:
+        base = base.where(tagging.tagged_object(Work.id, tag_id))
     if kind.strip():
         base = base.where(Work.kind == kind.strip())
     base = folders.narrowed(base, Work.folder, folder, subfolders, _BAD_FOLDER)

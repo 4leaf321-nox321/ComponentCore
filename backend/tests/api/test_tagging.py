@@ -326,3 +326,65 @@ def test_승격과_복제가_타입을_고른_태그도_물려준다(
         ("고객Z", customers),
         ("새것", "cc_tag"),
     ]
+
+
+def test_타입별_거르개는_이름이_같아도_객체로_가린다(
+    client: TestClient, member: Signed, admin: Signed, db: Session
+) -> None:
+    """고객사 「A」 와 프로젝트 「A」 는 다른 태그다 — 이름 거르개(`tag`)는 둘 다, 객체
+    거르개(`tag_id`)는 고른 것만 건다."""
+    customers = _type(client, admin, "고객사")
+    projects = _type(client, admin, "프로젝트")
+    for slug in (customers, projects):
+        assert _mode(client, admin, slug, "grow").status_code == 200
+    word = _uniq("A")
+    first = _work(client, member, "고객 판")
+    second = _work(client, member, "과제 판")
+    tagged = _tag(client, member, "work", first, type_slug=customers, label=word).json()
+    _tag(client, member, "work", second, type_slug=projects, label=word)
+    customer_a = tagged[0]["object_id"]
+
+    by_name = client.get("/api/works", params={"tag": word}, headers=member.headers).json()
+    assert {one["id"] for one in by_name["items"]} == {first, second}
+    by_object = client.get(
+        "/api/works", params={"tag_id": customer_a}, headers=member.headers
+    ).json()
+    assert [one["id"] for one in by_object["items"]] == [first]
+
+    # 거르개의 칩 — 쓰인 태그 객체를 타입별로(「일반 태그」 가 먼저, 그다음 타입 이름 순).
+    used = client.get("/api/tags/used/work", headers=member.headers)
+    assert used.status_code == 200, used.text
+    mine = [(one["type_slug"], one["label"], one["uses"]) for one in used.json()]
+    assert (customers, word, 1) in mine and (projects, word, 1) in mine
+    # 남의 작업 태그는 관리자만.
+    assert (
+        client.get("/api/tags/used/work", params={"owner": "all"}, headers=member.headers)
+    ).status_code == 403
+    every = client.get("/api/tags/used/work", params={"owner": "all"}, headers=admin.headers)
+    assert every.status_code == 200 and customer_a in {
+        one["object_id"] for one in every.json()
+    }
+
+    # 부품 · 지그도 같은 거르개 — 공용 카탈로그 전부를 센다.
+    part = _part(db, admin, _uniq("공용 판"))
+    _tag(client, admin, "part", part.id, object_id=customer_a)
+    parts = client.get("/api/parts", params={"tag_id": customer_a}, headers=member.headers)
+    assert [one["id"] for one in parts.json()["items"]] == [str(part.id)]
+    assert customer_a in {
+        one["object_id"]
+        for one in client.get("/api/tags/used/part", headers=member.headers).json()
+    }
+
+    # DOE — 대상 작업의 태그로.
+    study = client.post(
+        "/api/doe",
+        json={"name": _uniq("고객 판 DOE"), "recipe": BOX, "work_id": first},
+        headers=member.headers,
+    )
+    assert study.status_code == 201, study.text
+    studies = client.get(
+        "/api/doe", params={"tag_id": customer_a, "scope": "mine"}, headers=member.headers
+    ).json()
+    assert [one["id"] for one in studies["items"]] == [study.json()["id"]]
+    objects = client.get("/api/doe/tag-objects", headers=member.headers).json()
+    assert customer_a in {one["object_id"] for one in objects}

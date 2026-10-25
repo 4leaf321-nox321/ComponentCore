@@ -30,6 +30,7 @@ from app.modules.doe.schemas import (
 )
 from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Job
+from app.modules.tagging.services import TagUse
 from app.modules.works.models import Work
 from app.shared.auth import current_user, granted_scopes
 from app.shared.errors import AppError, Forbidden, code
@@ -135,7 +136,11 @@ def list_studies(
     work_id: uuid.UUID | None = Query(default=None),
     scope: str = Query(default="mine", pattern="^(mine|all)$"),
     q: str = Query(default="", max_length=120),
-    tag: str = Query(default="", max_length=40),
+    tag: str = Query(default="", max_length=80),
+    tag_id: uuid.UUID | None = Query(
+        default=None,
+        description="이 태그 객체가 붙은 것만(`/api/tags/used/…` 의 `object_id`).",
+    ),
     limit: int | None = Query(default=None, ge=1),
     offset: int = Query(default=0, ge=0),
     user: User = Depends(current_user),
@@ -150,7 +155,15 @@ def list_studies(
     `tag` 는 **대상 작업의 꼬리표**."""
     size = clamp_limit(limit)
     rows, total = services.list_studies(
-        db, user, work_id=work_id, limit=size, offset=offset, scope=scope, query=q, tag=tag
+        db,
+        user,
+        work_id=work_id,
+        limit=size,
+        offset=offset,
+        scope=scope,
+        query=q,
+        tag=tag,
+        tag_id=tag_id,
     )
     return Page(
         items=[_summary(db, one) for one in rows], total=total, limit=size, offset=offset
@@ -165,6 +178,16 @@ def study_tags(
 ) -> list[str]:
     """보이는 DOE 들의 **대상 작업** 꼬리표 — 많이 쓴 것부터. 목록의 거르개가 쓴다."""
     return services.study_tags(db, user, scope=scope)
+
+
+@router.get("/tag-objects", response_model=list[TagUse])
+def study_tag_objects(
+    scope: str = Query(default="mine", pattern="^(mine|all)$"),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> list[TagUse]:
+    """보이는 DOE 들의 대상 작업에 붙은 태그 **객체** — 타입별 거르개(`?tag_id=`)가 쓴다."""
+    return services.study_tag_objects(db, user, scope=scope)
 
 
 def _acting_for(db: Session, caller: User, request: Request, asked: str) -> User | None:

@@ -10,7 +10,7 @@ import { PageHeader } from '@/shared/components/PageHeader'
 import { Pagination } from '@/shared/components/Pagination'
 import { Badge } from '@/shared/components/ui/badge'
 import { SearchBox } from '@/shared/components/SearchBox'
-import { TagFilter } from '@/shared/components/TagFilter'
+import { TypedTagFilter } from '@/modules/tagging/TypedTagFilter'
 import { Button } from '@/shared/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/components/ui/table'
 import { useDisplay } from '@/shared/api/display'
@@ -26,12 +26,12 @@ export default function DoeStudiesPage() {
   /** 내 것 / 모두 — 남이 같은 훑기를 이미 돌았는지 보려면 「모두」. 찾기 · 꼬리표는 서버가 거른다. */
   const [scope, setScope] = useState<'mine' | 'all'>('mine')
   const [q, setQ] = useState('')
-  const [tag, setTag] = useState('')
+  const [tagId, setTagId] = useState('')
   const PAGE = useDisplay().list_page_size
-  const page = useResource(() => doeApi.list({ offset, limit: PAGE, scope, q, tag }), [offset, PAGE, scope, q, tag])
-  const tags = useResource(() => doeApi.tags(scope), [scope, page.data])
+  const page = useResource(() => doeApi.list({ offset, limit: PAGE, scope, q, tagId }), [offset, PAGE, scope, q, tagId])
+  const tags = useResource(() => doeApi.tagObjects(scope), [scope, page.data])
   const rows = page.data?.items ?? []
-  const filtered = Boolean(q || tag)
+  const filtered = Boolean(q || tagId)
 
   function refilter(apply: () => void) {
     apply()
@@ -65,7 +65,7 @@ export default function DoeStudiesPage() {
           ))}
         </div>
         <SearchBox value={q} onChange={(next) => refilter(() => setQ(next))} placeholder="이름, 설명, 대상 작업, 작성자로 검색" />
-        <TagFilter tags={tags.data ?? []} value={tag} onChange={(next) => refilter(() => setTag(next))} label="대상 작업 태그" />
+        <TypedTagFilter tags={tags.data ?? []} value={tagId} onChange={(next) => refilter(() => setTagId(next))} label="대상 작업 태그" />
       </div>
       <ErrorNotice error={page.error} className="mb-4" />
       {rows.length === 0 && !page.loading ? (

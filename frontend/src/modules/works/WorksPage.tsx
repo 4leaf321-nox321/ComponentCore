@@ -28,7 +28,8 @@ import {
   TableRow,
 } from '@/shared/components/ui/table'
 import { useDisplay } from '@/shared/api/display'
-import { TagFilter } from '@/shared/components/TagFilter'
+import { tagsApi } from '@/modules/tagging/api'
+import { TypedTagFilter } from '@/modules/tagging/TypedTagFilter'
 import { describeShape, ShapeFilter, shapeConditionCount } from '@/shared/components/ShapeFilter'
 import type { ShapeQuery } from '@/shared/components/ShapeFilter'
 import { useResource } from '@/shared/hooks/useResource'
@@ -44,7 +45,7 @@ export default function WorksPage() {
   const [assembling, setAssembling] = useState(false)
   /** 찾기 · 꼬리표 · 휴지통 — 서버가 거른다(수십 개를 넘으면 한 쪽에 다 안 온다). */
   const [q, setQ] = useState('')
-  const [tag, setTag] = useState('')
+  const [tagId, setTagId] = useState('')
   const [trashed, setTrashed] = useState(false)
   const [year, setYear] = useState<number | null>(null)
   /** 연도별로 묶어 본다 — 만든 순으로 받아야 같은 해가 한데 모인다. */
@@ -59,7 +60,7 @@ export default function WorksPage() {
     () =>
       worksApi.list(offset, PAGE, {
         q,
-        tag,
+        tagId,
         kind: kind === 'all' ? '' : kind,
         trashed,
         folder,
@@ -68,9 +69,9 @@ export default function WorksPage() {
         order: byYear ? 'created' : 'updated',
         shape,
       }),
-    [offset, q, tag, kind, trashed, PAGE, folder, year, byYear, shape, space.version],
+    [offset, q, tagId, kind, trashed, PAGE, folder, year, byYear, shape, space.version],
   )
-  const tags = useResource(() => worksApi.tags(), [page.data])
+  const tags = useResource(() => tagsApi.used('work'), [page.data])
   const years = useResource(() => worksApi.years(), [page.data])
   const [restoring, setRestoring] = useState<string | null>(null)
 
@@ -148,7 +149,7 @@ export default function WorksPage() {
         <FolderSelect space={space} allLabel="모든 작업" />
         <SearchBox value={q} onChange={(next) => refilter(() => setQ(next))} />
         <KindFilter value={kind} onChange={(next) => refilter(() => setKind(next))} />
-        <TagFilter tags={tags.data ?? []} value={tag} onChange={(next) => refilter(() => setTag(next))} />
+        <TypedTagFilter tags={tags.data ?? []} value={tagId} onChange={(next) => refilter(() => setTagId(next))} />
         <ShapeFilter value={shape} onChange={(next) => refilter(() => setShape(next))} />
         <button
           type="button"
@@ -182,7 +183,7 @@ export default function WorksPage() {
       {rows.length === 0 && !page.loading ? (
         trashed ? (
           <EmptyState title="휴지통이 비어 있습니다" hint="삭제한 작업은 이곳으로 이동하며, 복원할 수 있습니다." />
-        ) : q || tag || folder !== null || year !== null || shapeConditionCount(shape) > 0 ? (
+        ) : q || tagId || folder !== null || year !== null || shapeConditionCount(shape) > 0 ? (
           <EmptyState title="조건에 맞는 작업이 없습니다" hint="검색어, 태그, 폴더, 연도, 형상 조건을 변경하십시오. 빈 폴더인 경우 작업을 끌어서 놓으십시오." />
         ) : (
           <EmptyState

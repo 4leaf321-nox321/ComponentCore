@@ -25,6 +25,11 @@ export interface TagCandidate extends TagItem {
   uses: number
 }
 
+export interface TagUse extends TagItem {
+  /** 이 태그가 붙은 수(지운 것 빼고) — 거르개의 칩 곁에 적는다. */
+  uses: number
+}
+
 export interface TagType {
   slug: string
   label: string
@@ -65,6 +70,9 @@ export const tagsApi = {
   add: (target: TagTarget, id: string, body: AddTag) => api.post<TagItem[]>(`/tags/${target}/${id}`, body),
   remove: (target: TagTarget, id: string, objectId: string) =>
     api.delete<TagItem[]>(`/tags/${target}/${id}/${objectId}`),
+  /** 쓰인 태그 객체를 타입별로 — 목록의 거르개(`tag_id`). 작업은 내 것(관리자는 `owner`). */
+  used: (target: TagTarget, owner?: string) =>
+    api.get<TagUse[]>(owner ? `/tags/used/${target}?${new URLSearchParams({ owner })}` : `/tags/used/${target}`),
   settings: () => api.get<TagSetting[]>('/tags/settings'),
   setMode: (slug: string, mode: TagMode) =>
     api.put<TagSetting[]>(`/tags/settings/${encodeURIComponent(slug)}`, { mode }),
