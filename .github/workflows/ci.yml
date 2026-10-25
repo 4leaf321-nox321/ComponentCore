@@ -114,8 +114,10 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
       - working-directory: frontend
+        # 설치가 저장소 쪽 사정으로 한 번 떨어진 적이 있다(2026-10-26, v0.19.0 — 로컬 · 저장소는
+        # 정상, 다시 돌리니 됐다). 한 번만 쉬었다 다시 한다 — 잠금 파일이 틀린 것은 또 실패한다.
         run: |
-          npm ci
+          npm ci || { sleep 20; npm ci; }
           npm run api:types
           npm run build
           npm test

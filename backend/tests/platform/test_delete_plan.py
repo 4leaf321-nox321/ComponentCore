@@ -257,12 +257,14 @@ def test_빈_타입은_무엇이_사라지고_무엇이_가리키는지_말하�
     before = {one["id"] for one in _snapshots(client, admin)}
     done = client.delete(f"/api/ontology/types/{kind}", headers=admin.headers)
     assert done.status_code == 204, done.text
-    snapshots = _snapshots(client, admin)
-    assert snapshots[0]["id"] not in before
-    assert snapshots[0]["reason"] == f"삭제 직전: 타입 {kind}"
+    # 새로 생긴 것을 **id 로** 고른다 — 「맨 앞이 새것」 에 기대면 시각이 겹치거나 50개 창이
+    # 밀릴 때 다른 스냅샷을 집는다(CompCore — 바쁜 기계에서 한 번 틀렸다, 2026-10-25).
+    fresh_one = [one for one in _snapshots(client, admin) if one["id"] not in before]
+    assert len(fresh_one) == 1, fresh_one
+    assert fresh_one[0]["reason"] == f"삭제 직전: 타입 {kind}"
 
     # 그 스냅샷이 되살린다 — 미리 보기는 아무것도 안 바꾼다.
-    restore = f"/api/ontology/snapshots/{_only(db, snapshots[0]['id'], kind)}/restore"
+    restore = f"/api/ontology/snapshots/{_only(db, fresh_one[0]['id'], kind)}/restore"
     preview = client.post(restore, params={"dry_run": "true"}, headers=admin.headers)
     assert preview.status_code == 200, preview.text
     assert preview.json()["applied"] is False
