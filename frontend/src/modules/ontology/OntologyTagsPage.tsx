@@ -7,12 +7,15 @@
  * 꼬리표가 가는 곳이다.
  *
  * 끈 타입의 태그는 붙은 채 남는다 — 새로 고르는 자리에서만 빠진다.
+ *
+ * 아래 「비슷한 태그 정리」 는 늘리기로 갈린 이름(「굽힘시험」 · 「굽힘 시험」)을 하나로 합친다.
  */
 
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { useOntology } from '@/modules/ontology/OntologyLayout'
+import { SimilarTagsPanel } from '@/modules/tagging/SimilarTagsPanel'
 import { tagsApi } from '@/modules/tagging/api'
 import type { TagMode, TagSetting } from '@/modules/tagging/api'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
@@ -109,6 +112,7 @@ export default function OntologyTagsPage() {
           ))}
         </TableBody>
       </Table>
+      <SimilarTagsPanel />
     </div>
   )
 }

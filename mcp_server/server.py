@@ -81,6 +81,7 @@ DESTRUCTIVE_TOOLS = frozenset(
         "delete_test_preset",  # 시험 프리셋 삭제
         "ontology_unlink",  # 부품 · 지그에 이은 기준정보 끊기
         "tag_remove",  # 작업 · 부품 · 지그에서 태그 떼기
+        "tag_merge",  # 태그 여럿을 하나로 — 나머지가 지워진다
         "voc_delete",  # VOC 글 삭제
     }
 )
@@ -2938,6 +2939,28 @@ async def tag_settings(
     if not type_slug or not mode:
         return {"error": "바꾸려면 type_slug 와 mode 를 함께 주십시오."}
     return await _put(ctx, f"/api/tags/settings/{type_slug}", {"mode": mode})
+
+
+@mcp.tool()
+async def tag_similar(ctx: Context) -> Any:
+    """(시스템 관리자) **이름이 비슷한 태그 묶음** — 같은 타입 안에서 띄어쓰기 · 이음표 ·
+    대소문자만 다른 것(「굽힘시험」 · 「굽힘 시험」 · 「굽힘-시험」). 묶음마다 `keep`(남길 것의
+    추천 — 많이 쓴 것 → 식별자가 있는 것 → 먼저 만든 것)과 `members[]`(`object_id` · `label` ·
+    `uses`). 합치기는 `tag_merge`. 규칙이 묶었어도 다른 말일 수 있다 — 사용자에게 보이고 고르게
+    한다."""
+    return await _get(ctx, "/api/tags/similar")
+
+
+@mcp.tool()
+async def tag_merge(ctx: Context, into: str, merge: list[str]) -> Any:
+    """(시스템 관리자) 태그를 하나로 — `merge` 의 태그 객체들을 `into` 에 합치고 지운다
+    (같은 타입끼리만, 한 번에 50개까지). 붙은 작업 · 부품 · 지그 · 템플릿이 `into` 로 옮겨
+    가고(이미 둘 다 붙은 행은 한 겹으로), 지운 이름은 `into` 의 별칭이 되어 같은 표기로 다시
+    붙여도 `into` 로 풀린다. **되돌리는 도구가 없다** — 사용자가 고른 것만 합친다. 답:
+    `merged` · `moved`(옮긴 선) · `dropped`(겹쳐 버린 선)."""
+    if not merge:
+        return {"error": "합칠 태그(merge)를 하나 이상 주십시오."}
+    return await _post(ctx, "/api/tags/merge", {"into": into, "merge": merge})
 
 
 @mcp.tool()

@@ -22,6 +22,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -35,7 +36,7 @@ from sqlalchemy.sql import ColumnElement
 
 from app.modules.accounts.models import User
 from app.modules.jigs.models import Jig
-from app.modules.objects import aliases, links
+from app.modules.objects import aliases, lifecycle, links, quality
 from app.modules.objects.models import ObjectInstance, ObjectLink
 from app.modules.objects.services import properties_of
 from app.modules.objects.system import End, end_of
@@ -48,7 +49,7 @@ from app.modules.templates.models import RecipeTemplate
 from app.modules.works.models import Work
 from app.shared import audit, search
 from app.shared.errors import Conflict, NotFound, code
-from app.shared.text import clean
+from app.shared.text import clean, compare_key
 
 #: 새로 만드는 태그 이름의 길이 — 목록의 칩에 들어갈 만큼.
 LABEL_MAX = 80
@@ -758,4 +759,185 @@ def set_mode(db: Session, user: User, slug: str, mode: str) -> None:
         target_id=object_type.id,
         target_label=object_type.slug,
         changes={"mode": {"before": before, "after": mode}},
+    )
+
+
+# --- 비슷한 태그 정리 -------------------------------------------------------------
+
+#: 「비슷한 이름」 에서 빼는 글자 — 띄어쓰기와 이음표뿐. 「굽힘시험」 · 「굽힘 시험」 ·
+#: 「굽힘-시험」 이 한 묶음이다. 구두점 전부를 빼지는 않는다 — `포스코(주)` 처럼 뜻이 있을 수
+#: 있다.
+_SEPARATORS = re.compile(r"[\s\-_·・./]+")
+
+
+class SimilarTag(BaseModel):
+    object_id: uuid.UUID
+    label: str
+    key: str | None
+    uses: int
+    """붙은 행 수 — 합치면 남길 것으로 옮겨 간다."""
+    created_at: datetime
+
+
+class SimilarGroup(BaseModel):
+    """이름이 비슷한 태그 한 묶음 — **같은 타입 안에서만**(다른 타입끼리는 못 합친다)."""
+
+    type_slug: str
+    type_label: str
+    keep: uuid.UUID
+    """남길 것의 추천 — 많이 쓴 것 → 식별자가 있는 것 → 먼저 만든 것."""
+    members: list[SimilarTag]
+    """남길 것이 맨 앞, 그다음 많이 쓴 것부터."""
+
+
+class SimilarTagsOut(BaseModel):
+    groups: list[SimilarGroup]
+    notes: list[str] = []
+    """훑지 않은 타입(너무 큼) · 합칠 수 없는 타입(바깥 원천이 관리)."""
+
+
+class MergeTagsRequest(BaseModel):
+    into: uuid.UUID
+    """남길 태그."""
+    merge: list[uuid.UUID] = Field(min_length=1, max_length=50)
+    """남길 것에 합쳐 지울 태그 — 같은 타입이어야 한다."""
+
+
+class MergeTagsOut(BaseModel):
+    into: TagItem
+    merged: int
+    moved: int
+    """남길 것으로 옮긴 선."""
+    dropped: int
+    """버린 선 — 그 행에 남길 것이 이미 붙어 있었다(한 겹으로)."""
+
+
+def similar_key(label: str) -> str:
+    """비슷한 태그의 기준 — 비교키(NFKC · 대소문자 무시)에서 띄어쓰기 · 이음표를 뺀 것."""
+    return _SEPARATORS.sub("", compare_key(label))
+
+
+def _keep_order(one: SimilarTag) -> tuple[int, bool, datetime, str]:
+    """남길 것의 차례 — 많이 쓴 것(옮길 선이 적다) → 식별자가 있는 것 → 먼저 만든 것."""
+    return (-one.uses, one.key is None, one.created_at, str(one.object_id))
+
+
+def similar(db: Session) -> SimilarTagsOut:
+    """태그 타입마다 **이름이 비슷한 태그 묶음**(`similar_key`) — 관리 › 온톨로지 › 태그의
+    「비슷한 태그 정리」. 「늘리기」 로 쌓인 어휘는 사람마다 적는 법이 달라 갈린다
+    (「굽힘시험」 · 「굽힘 시험」). 붙어 보이는 것(전역 · 안 지운 것)만, 끈 타입은 빼고
+    본다."""
+    ensure(db)
+    uses = (
+        select(ObjectLink.dst_id, func.count().label("n"))
+        .where(ObjectLink.relation == TAG_RELATION)
+        .group_by(ObjectLink.dst_id)
+        .subquery()
+    )
+    kinds = list(
+        db.scalars(select(ObjectType).join(TagType, TagType.type_id == ObjectType.id))
+    )
+    kinds.sort(key=lambda one: (one.slug != DEFAULT_TAG_TYPE, one.sort_order, one.label))
+    groups: list[SimilarGroup] = []
+    notes: list[str] = []
+    for object_type in kinds:
+        alive = (ObjectInstance.type_id == object_type.id, *_shown())
+        size = int(db.scalar(select(func.count()).where(*alive)) or 0)
+        if size > quality.SCAN_MAX_ROWS:
+            notes.append(f"{object_type.label}({size:,}개)은 너무 커서 훑지 않았습니다.")
+            continue
+        buckets: dict[str, list[SimilarTag]] = {}
+        for object_id, label, key, created_at, count in db.execute(
+            select(
+                ObjectInstance.id,
+                ObjectInstance.label,
+                ObjectInstance.key,
+                ObjectInstance.created_at,
+                func.coalesce(uses.c.n, 0),
+            )
+            .outerjoin(uses, uses.c.dst_id == ObjectInstance.id)
+            .where(*alive)
+        ):
+            buckets.setdefault(similar_key(label), []).append(
+                SimilarTag(
+                    object_id=object_id,
+                    label=label,
+                    key=key,
+                    uses=int(count),
+                    created_at=created_at,
+                )
+            )
+        found = [members for members in buckets.values() if len(members) > 1]
+        refused = managed.objects_refusal(object_type, what="합치지")
+        if found and refused:
+            notes.append(f"{object_type.label}: {refused}")
+            continue
+        for members in sorted(found, key=lambda ones: (-len(ones), ones[0].label)):
+            keep = min(members, key=_keep_order)
+            rest = sorted(
+                (one for one in members if one is not keep),
+                key=lambda one: (-one.uses, one.label),
+            )
+            groups.append(
+                SimilarGroup(
+                    type_slug=object_type.slug,
+                    type_label=object_type.label,
+                    keep=keep.object_id,
+                    members=[keep, *rest],
+                )
+            )
+    return SimilarTagsOut(groups=groups, notes=notes)
+
+
+def _shown_object(db: Session, object_id: uuid.UUID) -> ObjectInstance:
+    found = db.scalar(select(ObjectInstance).where(ObjectInstance.id == object_id, *_shown()))
+    if found is None:
+        raise NotFound(code("TAGS", 16), f"그런 태그가 없습니다({object_id}).")
+    return found
+
+
+def merge(db: Session, user: User, request: MergeTagsRequest) -> MergeTagsOut:
+    """태그를 하나로 — **온톨로지의 객체 합치기 그대로**(`lifecycle.merge_into`). 붙은 선이
+    남길 것으로 옮겨 가고(그 행에 이미 붙어 있으면 한 겹으로), 지는 쪽의 이름은 남길 것의
+    별칭이 된다 — 같은 표기로 다시 붙여도 남길 것으로 풀린다(`_find`). 지는 쪽은 `merged_into`
+    로 남아 옛 링크가 새 것으로 간다.
+
+    같은 태그 타입끼리만. 하나씩 커밋한다 — 중간에 막히면 앞의 것은 합쳐진 채다(다시 부르면
+    남은 것만 한다)."""
+    ensure(db)
+    winner = _shown_object(db, request.into)
+    wanted = list(dict.fromkeys(request.merge))
+    if winner.id in wanted:
+        raise Conflict(code("TAGS", 17), "남길 태그를 합칠 목록에 넣지 않습니다.")
+    losers = [_shown_object(db, one) for one in wanted]
+    object_type = db.get(ObjectType, winner.type_id)
+    if object_type is None or _setting_of(db, object_type) is None:
+        raise Conflict(
+            code("TAGS", 18),
+            f"{winner.label} 은(는) 태그 타입의 객체가 아닙니다 — 객체 화면의 「합치기」 를 "
+            "쓰십시오.",
+        )
+    strangers = [one.label for one in losers if one.type_id != winner.type_id]
+    if strangers:
+        raise Conflict(
+            code("TAGS", 19),
+            f"같은 타입의 태그끼리만 합칩니다 — {', '.join(strangers)} 은(는) "
+            f"「{object_type.label}」 타입이 아닙니다.",
+        )
+    managed.require_objects_editable(object_type, what="합치지")
+    moved = dropped = 0
+    for loser in losers:
+        result = lifecycle.merge_into(db, user, loser, object_type, winner)
+        moved += result["relations_moved"]
+        dropped += result["relations_dropped"]
+    return MergeTagsOut(
+        into=TagItem(
+            object_id=winner.id,
+            label=winner.label,
+            type_slug=object_type.slug,
+            type_label=object_type.label,
+        ),
+        merged=len(losers),
+        moved=moved,
+        dropped=dropped,
     )

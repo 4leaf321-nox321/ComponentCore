@@ -228,3 +228,34 @@ def test_템플릿도_태그를_객체로(bot: Bot) -> None:  # noqa: F811
     assert [one["label"] for one in bot.call(server.tags_get, "template", saved["id"])] == [
         "MCP-더함"
     ]
+
+
+def test_비슷한_태그를_찾아_합친다(
+    bot: Bot,  # noqa: F811
+    client: TestClient,
+    admin: Signed,
+) -> None:
+    work = bot.call(server.create_work, "합칠 판", BOX)["work_id"]
+    bot.call(server.tag_add, "work", work, label="MCP굽힘시험")
+    bot.call(server.tag_add, "work", work, label="MCP굽힘 시험")
+    # 관리 기능이라 관리자 토큰으로만.
+    assert "error" in bot.call(server.tag_similar)
+    made = client.post(
+        "/api/auth/tokens",
+        json={"name": "관리 손", "scopes": ["read", "write"]},
+        headers=admin.headers,
+    )
+    assert made.status_code == 201, made.text
+    boss = Bot(made.json()["token"])
+    [group] = [
+        one
+        for one in boss.call(server.tag_similar)["groups"]
+        if {m["label"] for m in one["members"]} == {"MCP굽힘시험", "MCP굽힘 시험"}
+    ]
+    keep = group["keep"]
+    rest = [one["object_id"] for one in group["members"] if one["object_id"] != keep]
+    assert "error" in boss.call(server.tag_merge, keep, [])
+    merged = boss.call(server.tag_merge, keep, rest)
+    assert (merged["merged"], merged["dropped"]) == (1, 1), merged
+    assert len(bot.call(server.tags_get, "work", work)) == 1
+    assert "tag_merge" in server.DESTRUCTIVE_TOOLS

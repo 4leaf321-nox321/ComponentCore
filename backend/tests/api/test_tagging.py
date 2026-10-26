@@ -437,3 +437,85 @@ def test_템플릿에도_태그가_객체로_붙고_지우면_선도_사라진�
     assert client.delete(f"/api/templates/{secret}", headers=member.headers).status_code == 204
     left = db.scalars(select(ObjectLink).where(ObjectLink.src_id == uuid.UUID(secret))).all()
     assert left == []
+
+
+def test_비슷한_태그를_찾아_하나로_합친다(
+    client: TestClient, member: Signed, admin: Signed, db: Session
+) -> None:
+    """「낙하시험」 · 「낙하 시험」 · 「낙하-시험」 은 한 묶음 — 많이 쓴 것을 남길 것으로
+    권하고, 합치면 붙은 선이 옮겨 가고(한 행에 둘이었으면 한 겹으로) 지는 쪽 이름은 별칭이
+    된다."""
+    word = _uniq("낙하")
+    one, two, three = (_work(client, member, name) for name in ("판 하나", "판 둘", "판 셋"))
+    for row, label in (
+        (one, f"{word}시험"),
+        (two, f"{word}시험"),
+        (two, f"{word} 시험"),
+        (three, f"{word}-시험"),
+    ):
+        assert _tag(client, member, "work", row, label=label).status_code == 200
+    # 다른 타입의 같은 이름은 묶이지 않는다 — 다른 타입끼리는 못 합친다.
+    other_type = _type(client, admin, "시험 종류")
+    assert _mode(client, admin, other_type, "grow").status_code == 200
+    typed = _tag(client, member, "work", three, type_slug=other_type, label=f"{word} 시험")
+    assert typed.status_code == 200, typed.text
+
+    assert client.get("/api/tags/similar", headers=member.headers).status_code == 403
+    found = client.get("/api/tags/similar", headers=admin.headers)
+    assert found.status_code == 200, found.text
+    [group] = [
+        one
+        for one in found.json()["groups"]
+        if any(member["label"].startswith(word) for member in one["members"])
+    ]
+    assert group["type_slug"] == "cc_tag"
+    # 남길 것(많이 쓴 것)이 맨 앞, 나머지는 많이 쓴 것 → 이름 차례.
+    assert [(one["label"], one["uses"]) for one in group["members"]] == [
+        (f"{word}시험", 2),
+        (f"{word} 시험", 1),
+        (f"{word}-시험", 1),
+    ]
+    keep = group["keep"]
+    assert group["members"][0]["object_id"] == keep
+    losers = [one["object_id"] for one in group["members"][1:]]
+    typed_id = next(one["object_id"] for one in typed.json() if one["type_slug"] == other_type)
+
+    refused = client.post(
+        "/api/tags/merge", json={"into": keep, "merge": [typed_id]}, headers=admin.headers
+    )
+    assert refused.status_code == 409 and "같은 타입" in refused.json()["error"]["message"]
+    assert (
+        client.post(
+            "/api/tags/merge", json={"into": keep, "merge": losers}, headers=member.headers
+        ).status_code
+        == 403
+    )
+    merged = client.post(
+        "/api/tags/merge", json={"into": keep, "merge": losers}, headers=admin.headers
+    )
+    assert merged.status_code == 200, merged.text
+    body = merged.json()
+    assert (body["into"]["label"], body["merged"]) == (f"{word}시험", 2)
+    assert (body["moved"], body["dropped"]) == (1, 1), "판 둘에는 둘 다 붙어 있었다"
+
+    def labels(row: str) -> list[str]:
+        got = client.get(f"/api/tags/work/{row}", headers=member.headers).json()
+        return [one["label"] for one in got]
+
+    assert labels(two) == [f"{word}시험"]
+    assert sorted(labels(three)) == sorted([f"{word}시험", f"{word} 시험"])
+    listed = client.get("/api/works", params={"tag_id": keep}, headers=member.headers).json()
+    assert {one["id"] for one in listed["items"]} == {one, two, three}
+    for loser in losers:
+        gone = db.get(ObjectInstance, uuid.UUID(loser))
+        assert gone is not None and gone.deleted_at is not None
+        assert str(gone.merged_into_id) == keep
+
+    # 지는 쪽 표기로 다시 붙여도 남긴 것으로 풀린다(별칭).
+    four = _work(client, member, "판 넷")
+    again = _tag(client, member, "work", four, label=f"{word}-시험")
+    assert [one["object_id"] for one in again.json()] == [keep]
+    after = client.get("/api/tags/similar", headers=admin.headers).json()["groups"]
+    assert not [
+        one for one in after if any(m["label"].startswith(word) for m in one["members"])
+    ]

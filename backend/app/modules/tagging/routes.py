@@ -19,6 +19,9 @@ from app.modules.parts import services as parts
 from app.modules.tagging import services
 from app.modules.tagging.services import (
     AddTagRequest,
+    MergeTagsOut,
+    MergeTagsRequest,
+    SimilarTagsOut,
     TagCandidate,
     TagItem,
     TagModeRequest,
@@ -137,6 +140,28 @@ def set_tag_mode(
     services.set_mode(db, user, type_slug, payload.mode)
     db.commit()
     return services.settings(db)
+
+
+@router.get("/similar", response_model=SimilarTagsOut)
+def similar_tags(
+    _: User = Depends(require_system_admin), db: Session = Depends(get_db)
+) -> SimilarTagsOut:
+    """관리 › 온톨로지 › 태그의 「비슷한 태그 정리」 — 같은 타입 안에서 이름이 띄어쓰기 ·
+    이음표 · 대소문자만 다른 태그 묶음과 남길 것의 추천."""
+    out = services.similar(db)
+    db.commit()
+    return out
+
+
+@router.post("/merge", response_model=MergeTagsOut)
+def merge_tags(
+    payload: MergeTagsRequest,
+    user: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> MergeTagsOut:
+    """태그를 하나로 — 붙은 선이 남길 것으로 옮겨 가고, 지는 쪽 이름은 남길 것의 별칭이 된다
+    (온톨로지의 객체 합치기 그대로, 하나씩 커밋한다)."""
+    return services.merge(db, user, payload)
 
 
 @router.get("/{target}/{row_id}", response_model=list[TagItem])

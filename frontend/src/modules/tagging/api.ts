@@ -54,6 +54,39 @@ export interface TagSetting {
   note: string
 }
 
+export interface SimilarTag {
+  object_id: string
+  label: string
+  key: string | null
+  /** 붙은 행 수 — 합치면 남길 것으로 옮겨 간다. */
+  uses: number
+  created_at: string
+}
+
+/** 이름이 띄어쓰기 · 이음표 · 대소문자만 다른 태그 한 묶음 — 같은 타입 안에서만. */
+export interface SimilarGroup {
+  type_slug: string
+  type_label: string
+  /** 남길 것의 추천 — 많이 쓴 것 → 식별자가 있는 것 → 먼저 만든 것. 맨 앞 줄이다. */
+  keep: string
+  members: SimilarTag[]
+}
+
+export interface SimilarTags {
+  groups: SimilarGroup[]
+  /** 훑지 않은 타입(너무 큼) · 합칠 수 없는 타입(바깥 원천이 관리). */
+  notes: string[]
+}
+
+export interface MergedTags {
+  into: TagItem
+  merged: number
+  /** 남길 것으로 옮긴 선. */
+  moved: number
+  /** 버린 선 — 그 행에 남길 것이 이미 붙어 있었다. */
+  dropped: number
+}
+
 export interface AddTag {
   object_id?: string
   type_slug?: string
@@ -76,4 +109,8 @@ export const tagsApi = {
   settings: () => api.get<TagSetting[]>('/tags/settings'),
   setMode: (slug: string, mode: TagMode) =>
     api.put<TagSetting[]>(`/tags/settings/${encodeURIComponent(slug)}`, { mode }),
+  /** (관리자) 이름이 비슷한 태그 묶음. */
+  similar: () => api.get<SimilarTags>('/tags/similar'),
+  /** (관리자) `merge` 를 `into` 에 합친다 — 온톨로지의 객체 합치기 그대로. */
+  merge: (into: string, merge: string[]) => api.post<MergedTags>('/tags/merge', { into, merge }),
 }

@@ -4781,6 +4781,70 @@
         }
       }
     },
+    "/api/tags/similar": {
+      "get": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Similar Tags",
+        "description": "관리 › 온톨로지 › 태그의 「비슷한 태그 정리」 — 같은 타입 안에서 이름이 띄어쓰기 ·\n이음표 · 대소문자만 다른 태그 묶음과 남길 것의 추천.",
+        "operationId": "similar_tags_api_tags_similar_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimilarTagsOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tags/merge": {
+      "post": {
+        "tags": [
+          "tags"
+        ],
+        "summary": "Merge Tags",
+        "description": "태그를 하나로 — 붙은 선이 남길 것으로 옮겨 가고, 지는 쪽 이름은 남길 것의 별칭이 된다\n(온톨로지의 객체 합치기 그대로, 하나씩 커밋한다).",
+        "operationId": "merge_tags_api_tags_merge_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MergeTagsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MergeTagsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tags/{target}/{row_id}": {
       "get": {
         "tags": [
@@ -36677,6 +36741,58 @@
         ],
         "title": "MergeResultOut"
       },
+      "MergeTagsOut": {
+        "properties": {
+          "into": {
+            "$ref": "#/components/schemas/TagItem"
+          },
+          "merged": {
+            "type": "integer",
+            "title": "Merged"
+          },
+          "moved": {
+            "type": "integer",
+            "title": "Moved"
+          },
+          "dropped": {
+            "type": "integer",
+            "title": "Dropped"
+          }
+        },
+        "type": "object",
+        "required": [
+          "into",
+          "merged",
+          "moved",
+          "dropped"
+        ],
+        "title": "MergeTagsOut"
+      },
+      "MergeTagsRequest": {
+        "properties": {
+          "into": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Into"
+          },
+          "merge": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Merge"
+          }
+        },
+        "type": "object",
+        "required": [
+          "into",
+          "merge"
+        ],
+        "title": "MergeTagsRequest"
+      },
       "MetricIn": {
         "properties": {
           "slug": {
@@ -46893,6 +47009,39 @@
         "title": "SimilarAskRequest",
         "description": "태그 묶음으로 묻기 — {참조 칸: [객체 id, …]}. 기록이 아직 없는 이슈에서 찾을 때."
       },
+      "SimilarGroup": {
+        "properties": {
+          "type_slug": {
+            "type": "string",
+            "title": "Type Slug"
+          },
+          "type_label": {
+            "type": "string",
+            "title": "Type Label"
+          },
+          "keep": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Keep"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/SimilarTag"
+            },
+            "type": "array",
+            "title": "Members"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type_slug",
+          "type_label",
+          "keep",
+          "members"
+        ],
+        "title": "SimilarGroup",
+        "description": "이름이 비슷한 태그 한 묶음 — **같은 타입 안에서만**(다른 타입끼리는 못 합친다)."
+      },
       "SimilarItemOut": {
         "properties": {
           "id": {
@@ -47040,6 +47189,48 @@
         "title": "SimilarRequest",
         "description": "무엇과 닮은 것을 찾나 — 이미 있는 것(`source`) 또는 아직 저장 안 한 레시피(`recipe`)."
       },
+      "SimilarTag": {
+        "properties": {
+          "object_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Object Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "uses": {
+            "type": "integer",
+            "title": "Uses"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "object_id",
+          "label",
+          "key",
+          "uses",
+          "created_at"
+        ],
+        "title": "SimilarTag"
+      },
       "SimilarTagOut": {
         "properties": {
           "field": {
@@ -47085,6 +47276,30 @@
         ],
         "title": "SimilarTagOut",
         "description": "태그 하나 — 참조 칸과 가리키는 객체, 그 무게(ln(N / 그 태그를 가진 기록 수))."
+      },
+      "SimilarTagsOut": {
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/SimilarGroup"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notes",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "groups"
+        ],
+        "title": "SimilarTagsOut"
       },
       "SketchSolveRequest": {
         "properties": {
