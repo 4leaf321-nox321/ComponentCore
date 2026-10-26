@@ -22,7 +22,7 @@ from app.modules.accounts.models import User
 from app.modules.coreapi.schemas import CoreStatusOut
 from app.modules.datasources.models import DataSource
 from app.modules.metrics.models import MetricDef
-from app.modules.objects import bulk, purge, refedges
+from app.modules.objects import bulk, link_defaults, purge, refedges
 from app.modules.objects.models import ObjectInstance, ObjectLink, ObjectRelation
 from app.modules.ontology import (
     codebook,
@@ -1074,6 +1074,26 @@ def create_relation_type(
     db.commit()
     db.refresh(row)
     return row
+
+
+@router.get("/link-defaults", response_model=list[link_defaults.LinkDefaultOut])
+def list_link_defaults(
+    _: User = Depends(require_system_admin), db: Session = Depends(get_db)
+) -> list[link_defaults.LinkDefaultOut]:
+    """(CompCore) **기본 기준정보 관계** — 부품 · 지그에 SP 기준정보를 잇는 관계 종류 꾸러미와
+    줄마다 상태(만들 수 있음 · 이미 있음 · 출발 타입 없음)."""
+    out = link_defaults.read(db)
+    db.commit()  # 처음이면 원 표 타입이 선다
+    return out
+
+
+@router.post("/link-defaults", response_model=link_defaults.LinkDefaultsApplied)
+def apply_link_defaults(
+    user: User = Depends(require_system_admin), db: Session = Depends(get_db)
+) -> link_defaults.LinkDefaultsApplied:
+    """(CompCore) 만들 수 있는 기본 관계를 만든다 — 이미 있는 것은 건드리지 않는다. 정의
+    가져오기 그대로(적용 전 스냅샷 · 감사 기록). 안 쓸 것은 관계 종류에서 지운다."""
+    return link_defaults.apply(db, user)
 
 
 @router.patch("/relation-types/{slug}", response_model=RelationTypeOut)

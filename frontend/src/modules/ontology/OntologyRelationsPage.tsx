@@ -3,11 +3,14 @@
  *
  * 타입이 「무엇이 있나」 를 정하고, 여기가 「그것들이 어떻게 엮이나」 를 정한다.
  * 관계를 실제로 맺는 것은 객체 상세(2-b)에서 한다.
+ *
+ * 위의 「CompCore 기본 관계」 는 부품 · 지그에 SP 기준정보를 잇는 관계 종류 꾸러미다(`LinkDefaultsPanel`).
  */
 
 import { useState } from 'react'
 import { ArrowLeftRight, ArrowRight, Plus } from 'lucide-react'
 
+import { LinkDefaultsPanel } from '@/modules/objects/LinkDefaultsPanel'
 import { useOntology } from '@/modules/ontology/OntologyLayout'
 import {
   CARDINALITY_LABELS,
@@ -51,6 +54,8 @@ export default function OntologyRelationsPage() {
         객체들이 <b>어떻게 엮이는지</b>를 정합니다. 여기서 정한 의미(방향·재귀·개수 제약· 허용
         타입)를 화면과 MCP 가 함께 읽습니다 — <b>코드에 숨겨 두면 둘 다 그 뜻을 알 수 없습니다.</b>
       </p>
+
+      <LinkDefaultsPanel onChanged={reload} />
 
       <div className="flex justify-end">
         <Button size="sm" onClick={() => setCreating(true)}>

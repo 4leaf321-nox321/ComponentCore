@@ -413,6 +413,12 @@ sudo SYNC_ENABLED=0 METRICS_ENABLED=0 ./deploy.sh update
 sudo systemctl disable --now <slug>-sync.timer <slug>-metrics.timer
 ```
 
+**SP 기준정보를 처음 받은 뒤 한 번** — 관리 › 온톨로지 › 관계의 「CompCore 기본 관계」 에서
+「만들기」 를 누른다. 부품 · 지그에 기준정보를 잇는 관계 종류(「적용 모델」 `uses_part` · 「서비스
+부품」 `design_part` · 「대상 모델」 `verify_jig`)가 생겨야 부품 · 지그 화면의 「기준정보」 칸 ·
+목록의 기준정보 거르개 · DOE 폴더의 적용 모델이 선다. 출발 타입(기본 모델 · 서비스 부품)을 아직 안
+받았으면 그 줄은 「출발 타입 없음」 으로 남는다(받은 뒤 다시 누른다). 이미 있는 것은 건드리지 않는다.
+
 ## 6. 한 서버에 여러 플랫폼
 
 같은 번들의 인스턴스든 다른 제품군이든 **slug 하나로 전부 갈린다**:

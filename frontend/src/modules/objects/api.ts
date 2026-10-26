@@ -1137,3 +1137,31 @@ export const sourceLinksApi = {
   unlink: (base: SourceBase, id: string, linkId: string) =>
     api.delete<SourceLinks>(`/${base}/${id}/ontology/links/${linkId}`),
 }
+
+/** CompCore 기본 기준정보 관계의 한 줄(백엔드 `objects/link_defaults.py`). */
+export interface LinkDefault {
+  slug: string
+  label: string
+  /** 부품 · 지그 쪽에서 읽는 말 — 「기준정보」 칸의 이름(「적용 모델」). */
+  inverse_label: string
+  source_type: string
+  /** 출발 타입의 이름 — 아직 없으면 빈칸. */
+  source_label: string
+  target_type: string
+  target_label: string
+  /** ready — 만들 수 있다, exists — 이미 있다(건드리지 않는다), missing — 출발 타입이 없다. */
+  status: 'ready' | 'exists' | 'missing'
+  note: string
+}
+
+export interface LinkDefaultsApplied {
+  created: string[]
+  snapshot_id: string | null
+  items: LinkDefault[]
+}
+
+export const linkDefaultsApi = {
+  list: () => api.get<LinkDefault[]>('/ontology/link-defaults'),
+  /** 만들 수 있는 것만 만든다 — 이미 있는 것은 그대로. */
+  apply: () => api.post<LinkDefaultsApplied>('/ontology/link-defaults'),
+}

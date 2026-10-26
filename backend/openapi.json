@@ -12313,6 +12313,52 @@
         }
       }
     },
+    "/api/ontology/link-defaults": {
+      "get": {
+        "tags": [
+          "ontology"
+        ],
+        "summary": "List Link Defaults",
+        "description": "(CompCore) **기본 기준정보 관계** — 부품 · 지그에 SP 기준정보를 잇는 관계 종류 꾸러미와\n줄마다 상태(만들 수 있음 · 이미 있음 · 출발 타입 없음).",
+        "operationId": "list_link_defaults_api_ontology_link_defaults_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LinkDefaultOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Link Defaults Api Ontology Link Defaults Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "ontology"
+        ],
+        "summary": "Apply Link Defaults",
+        "description": "(CompCore) 만들 수 있는 기본 관계를 만든다 — 이미 있는 것은 건드리지 않는다. 정의\n가져오기 그대로(적용 전 스냅샷 · 감사 기록). 안 쓸 것은 관계 종류에서 지운다.",
+        "operationId": "apply_link_defaults_api_ontology_link_defaults_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkDefaultsApplied"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/ontology/relation-types/{slug}": {
       "patch": {
         "tags": [
@@ -35632,6 +35678,101 @@
           "points"
         ],
         "title": "LineOut"
+      },
+      "LinkDefaultOut": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "inverse_label": {
+            "type": "string",
+            "title": "Inverse Label"
+          },
+          "source_type": {
+            "type": "string",
+            "title": "Source Type"
+          },
+          "source_label": {
+            "type": "string",
+            "title": "Source Label"
+          },
+          "target_type": {
+            "type": "string",
+            "title": "Target Type"
+          },
+          "target_label": {
+            "type": "string",
+            "title": "Target Label"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "exists",
+              "missing"
+            ],
+            "title": "Status"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "label",
+          "inverse_label",
+          "source_type",
+          "source_label",
+          "target_type",
+          "target_label",
+          "status"
+        ],
+        "title": "LinkDefaultOut"
+      },
+      "LinkDefaultsApplied": {
+        "properties": {
+          "created": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Created"
+          },
+          "snapshot_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LinkDefaultOut"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "created",
+          "snapshot_id",
+          "items"
+        ],
+        "title": "LinkDefaultsApplied"
       },
       "LinkKind": {
         "properties": {

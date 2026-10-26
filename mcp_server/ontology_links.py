@@ -70,3 +70,18 @@ async def ontology_unlink(ctx: Context, kind: str, id: str, link_id: str) -> Any
     if base is None:
         return {"error": f"kind 는 part · jig 중 하나입니다: {kind}"}
     return await _delete(ctx, f"/api/{base}/{id}/ontology/links/{link_id}")
+
+
+@tool()
+async def ontology_link_defaults(ctx: Context, apply: bool = False) -> Any:
+    """(시스템 관리자) **CompCore 기본 관계** — 부품 · 지그에 SP 기준정보를 잇는 관계 종류
+    꾸러미(「적용 모델」 `uses_part` · 「서비스 부품」 `design_part` · 「대상 모델」
+    `verify_jig`). 이것이 있어야 「기준정보」 칸 · 목록 거르개 · DOE 폴더의 `ontology` 가 선다.
+
+    인자 없이 부르면 줄마다 `status` — `ready`(만들 수 있음) · `exists`(있음 — 같은 slug 거나
+    같은 두 타입을 잇는 관계가 이미 있다) · `missing`(출발 타입이 없음 — SP 기준정보를 먼저
+    받는다). `apply=True` 면 `ready` 인 것만 만든다 — 이미 있는 것은 건드리지 않는다. 정의를
+    더하는 일이니 **사용자가 시킬 때만** 만든다."""
+    if apply:
+        return await _post(ctx, "/api/ontology/link-defaults", None)
+    return await _get(ctx, "/api/ontology/link-defaults")

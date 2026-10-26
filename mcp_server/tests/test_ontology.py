@@ -17,12 +17,8 @@ import ontology
 import server
 
 #: SP 에서 옮긴 도구 72 — 이름을 바꾼 것(`object_search` · `task_*` · `ontology_guide`) 포함.
-SP_TOOLS = {fn.__name__ for fn in ontology._TOOLS} - {
-    "ontology_links",
-    "ontology_link",
-    "ontology_unlink",
-}
-LINK_TOOLS = {"ontology_links", "ontology_link", "ontology_unlink"}
+LINK_TOOLS = {"ontology_links", "ontology_link", "ontology_unlink", "ontology_link_defaults"}
+SP_TOOLS = {fn.__name__ for fn in ontology._TOOLS} - LINK_TOOLS
 
 
 def _ctx(authorization: str | None = "Bearer t") -> Any:
@@ -44,7 +40,7 @@ def _serve(handler: Any) -> list[httpx.Request]:
 
 
 def test_옮긴_도구가_다_붙고_이름이_겹치지_않는다() -> None:
-    """CompCore 의 도구 89 + 옮긴 72 + 기준정보 칸 3. 이름이 겹치면 뒤에 붙은 것이 앞의 것을
+    """CompCore 의 도구 + 옮긴 72 + 기준정보 칸 4. 이름이 겹치면 뒤에 붙은 것이 앞의 것을
     **조용히 덮는다** — 작업 · 부품 찾기 `search` 가 객체 찾기로 바뀌는 식으로."""
     assert len(SP_TOOLS) == 72
     listed = {one.name for one in asyncio.run(server.mcp.list_tools())}
@@ -92,7 +88,17 @@ def test_기준정보_칸은_부품과_지그의_경로로_간다() -> None:
     assert "error" in got and len(seen) == before
 
 
-async def ontology_links_call(name: str, *args: str) -> Any:
+def test_기본_관계는_보기와_만들기가_한_도구다() -> None:
+    seen = _serve(lambda _r: httpx.Response(200, json=[]))
+    asyncio.run(ontology_links_call("ontology_link_defaults"))
+    asyncio.run(ontology_links_call("ontology_link_defaults", True))
+    assert [(one.method, one.url.path) for one in seen] == [
+        ("GET", "/api/ontology/link-defaults"),
+        ("POST", "/api/ontology/link-defaults"),
+    ]
+
+
+async def ontology_links_call(name: str, *args: Any) -> Any:
     import ontology_links
 
     return await getattr(ontology_links, name)(_ctx(), *args)
