@@ -684,6 +684,136 @@ def test_전단_이음_픽스처_마찰이_할_일이_있다(
         shutil.copytree(folder, target)
 
 
+#: ⑧ **볼트 예압** — 알루미늄 판 두 장을 M8 강 볼트 하나로 체결한다(SimEngBay v0.20.0 이
+#: CalculiX 로 예압을 걸게 되어 회귀 시험에 둘 폴더를 부탁했다, 2026-10-26). 볼트는 위판의 여유
+#: 구멍(9)을 지나 아래판의 구멍(8)에 물린다 — 나사산은 그리지 않고 물린 자리를 본딩으로.
+#: 판끼리 · 머리와 위판이 닿는 자리, 물린 자리를 새겨(`imprint`) 몸통이 「자유 몸통」(위판 안,
+#: z 10 ~ 18)과 「물린 몸통」(아래판 안)으로 갈린다 — 예압은 자유 몸통의 원통면에 건다.
+#:
+#: 예압은 두 방식이고 단위(`unit`)가 가른다 — 힘 1000 N, 조임량 0.0025 mm. 그 뒤 위판을 600 N
+#: 으로 끌어올린다: 「체결 → 길이 고정 → 다른 하중」 차례면 볼트 힘이 예압보다 조금 는다.
+BOLT_PRETENSION: dict[str, Any] = {
+    "name": "조건_볼트예압_정적",
+    "method": "table",
+    "recipe": {
+        "params": {"예압": 1000.0},
+        "nodes": [
+            {"id": "아래판_원형", "op": "box", "length": 60, "width": 40, "height": 10,
+             "align": ["center", "center", "min"]},
+            {"id": "아래판", "op": "hole", "target": "아래판_원형", "at": [[0, 0]],
+             "diameter": 8},
+            {"id": "위판_원형", "op": "box", "length": 60, "width": 40, "height": 8,
+             "at": [0, 0, 10], "align": ["center", "center", "min"]},
+            {"id": "위판", "op": "hole", "target": "위판_원형", "at": [[0, 0]], "diameter": 9},
+            # 머리가 위판 윗면(z 18)에 앉고 몸통 18 이 아래판 바닥까지 내려간다.
+            {"id": "볼트", "op": "bolt", "at": [0, 0, 18], "nominal": 8, "length": 18,
+             "head": "hex"},
+            {"id": "조립", "op": "group", "targets": ["아래판", "위판", "볼트"]},
+            {"id": "새김", "op": "imprint", "target": "조립"},
+        ],
+    },
+    "factors": [
+        {"name": "예압 방식", "mode": "choice",
+         "target": {"group": "loads", "item": "볼트 예압", "field": "unit"},
+         "values": ["N", "mm"]},
+    ],
+    # 표로 준다 — 방식마다 값의 뜻(힘 · 길이)이 달라 격자로 짜면 1000 mm 조임 같은 점이 생긴다.
+    "table": [
+        {"예압 방식": "N", "예압": 1000},
+        {"예압 방식": "mm", "예압": 0.0025},
+    ],
+    "conditions": {
+        "units": {"system": "mm_n_tonne"},
+        "named_selections": [
+            _face("바닥", {"body": "아래판", "normal": [0, 0, -1]}),
+            # 위판 윗면 중 머리가 앉은 자리를 뺀 나머지(새김으로 갈렸다).
+            _face("위판 윗면", {"body": "위판", "normal": [0, 0, 1], "near": [25, 0, 18]}),
+            _face("자유 몸통", {"body": "볼트", "kind": "cylinder", "near": [4, 0, 14]}),
+            _face("머리 밑", {"tag": "볼트/위판"}),
+            _face("머리 자리", {"tag": "위판/볼트"}),
+            _face("위판 밑", {"tag": "위판/아래판"}),
+            _face("아래판 위", {"tag": "아래판/위판"}),
+            _face("물린 몸통", {"tag": "볼트/아래판"}),
+            _face("물린 구멍", {"tag": "아래판/볼트"}),
+        ],
+        "materials": [
+            _material("M-000138", ["볼트"]),
+            _material("M-000158", ["아래판", "위판"]),
+        ],
+        "constraints": [{"name": "바닥 고정", "type": "fixed_support", "on": "바닥"}],
+        "loads": [
+            {"name": "볼트 예압", "type": "bolt_pretension", "on": "자유 몸통",
+             "preload": "=예압", "unit": "N"},
+            {"name": "끌어올림", "type": "force", "on": "위판 윗면", "magnitude": 600,
+             "direction": [0, 0, 1]},
+        ],
+        "contacts": [
+            {"name": "머리-위판", "type": "bonded", "source": "머리 밑",
+             "target": "머리 자리"},
+            {"name": "판-판", "type": "frictional", "source": "위판 밑", "target": "아래판 위",
+             "friction": 0.2},
+            {"name": "나사 물림", "type": "bonded", "source": "물린 몸통",
+             "target": "물린 구멍"},
+        ],
+        "mesh_hints": [
+            {"on": "전체", "element_size": 2, "order": "quadratic"},
+            {"on": "자유 몸통", "element_size": 1},
+        ],
+        # 1 단계 체결(예압) → 2 단계 길이 고정 + 끌어올림.
+        "analysis": {"type": "static", "steps": 2},
+    },
+}  # fmt: skip
+
+#: ⑧-1 같은 체결의 **선응력 모달** — 정적(예압 → 끌어올림)의 응력을 안고 고유진동을 구한다.
+BOLT_PRESTRESSED: dict[str, Any] = {
+    **BOLT_PRETENSION,
+    "name": "조건_볼트예압_선응력모달",
+    "conditions": {
+        **BOLT_PRETENSION["conditions"],
+        "initial": [{"type": "prestress"}],
+        "analysis": {"type": "modal", "modes": 6, "prestressed": True},
+    },
+}
+
+
+def test_볼트_예압_픽스처_힘과_조임량_정적과_선응력_모달(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    static = _export(client, member, export_root, BOLT_PRETENSION)
+    modal = _export(client, member, export_root, BOLT_PRESTRESSED)
+    for folder in (static, modal):
+        points = _points(folder)
+        assert [one["point"]["params"]["예압 방식"] for one in points] == ["N", "mm"]
+        for point in points:
+            assert point["unresolved"] == []
+            regions = point["regions"]
+            # 예압을 거는 자리 — 위판 안의 자유 몸통(2π · 4 · 8). 물린 몸통은 따로
+            # (2π · 4 · 10).
+            (shank,) = regions["자유 몸통"]
+            assert (shank["body"], shank["area"]) == ("볼트", pytest.approx(201.06, abs=0.01))
+            assert shank["centroid"] == [0.0, 0.0, 14.0]
+            assert regions["물린 몸통"][0]["area"] == pytest.approx(251.33, abs=0.01)
+            # 머리가 앉은 자리 — 육각 맞변 13 의 넓이 146.36 - 여유 구멍 63.62.
+            assert regions["머리 밑"][0]["area"] == pytest.approx(82.74, abs=0.01)
+            assert regions["위판 밑"][0]["area"] == regions["아래판 위"][0]["area"]
+            loads = {one["name"]: one for one in point["conditions"]["loads"]}
+            bolt = loads["볼트 예압"]
+            kind = point["point"]["params"]["예압 방식"]
+            assert (bolt["unit"], bolt["preload"]) == (
+                (kind, 1000) if kind == "N" else (kind, pytest.approx(0.0025))
+            )
+        # 형상은 하나 — 두 점이 STEP 하나를 나눠 쓴다.
+        assert len({one["point"]["step_file"] for one in points}) == 1
+    assert _points(static)[0]["conditions"]["analysis"]["steps"] == 2
+    readme = (static / "README.txt").read_text(encoding="utf-8")
+    assert "  - 예압 방식: N, mm (조건 loads · 볼트 예압 · unit)" in readme
+    analysis = _points(modal)[0]["conditions"]["analysis"]
+    assert (analysis["type"], analysis["prestressed"]) == ("modal", True)
+    assert _points(modal)[0]["conditions"]["initial"][0]["type"] == "prestress"
+    for folder in (static, modal):
+        _copy_fixture(folder)
+
+
 def test_조건_픽스처를_실제_내보내기로_만든다(
     client: TestClient, member: Signed, export_root: Path
 ) -> None:

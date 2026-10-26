@@ -1,5 +1,5 @@
 {
-  "id": "b6e64c91-8023-4690-963b-4432ddedaa6f",
+  "id": "c404c272-a01c-498a-b475-b56debf40031",
   "name": "조건_전단이음",
   "description": "",
   "method": "table",
@@ -599,7 +599,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-fd321b0c@example.local"
+    "email": "member-649b6603@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

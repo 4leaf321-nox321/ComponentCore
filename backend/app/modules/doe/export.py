@@ -327,9 +327,23 @@ def _method_text(method: str) -> str:
 
 
 def _factor_text(factor: dict[str, Any]) -> str:
+    """인자 한 줄 — 방식마다 무엇을 바꾸는지. 재료 · 고르기 · 배율이 「고정 None」 으로 적히고
+    있었다(2026-10-26 — SimEngBay 픽스처의 README 에서 보였다)."""
     mode = factor.get("mode")
+    values = ", ".join(str(v) for v in factor.get("values") or [])
+    bodies = ", ".join(str(v) for v in factor.get("bodies") or [])
     if mode == "range":
         return f"{factor.get('start')} ~ {factor.get('end')} ({factor.get('steps')}단계)"
     if mode == "list":
-        return ", ".join(str(v) for v in factor.get("values", []))
+        return values
+    if mode == "material":
+        return f"재료 {values} (바디: {bodies})"
+    if mode == "choice":
+        target = factor.get("target") or {}
+        where = " · ".join(
+            str(target[key]) for key in ("group", "item", "field") if target.get(key)
+        )
+        return f"{values} (조건 {where})"
+    if mode == "scale":
+        return f"배율 {values} ({factor.get('property')}, 바디: {bodies})"
     return f"고정 {factor.get('value')}"
