@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 import uuid
 from collections.abc import Iterator
@@ -498,6 +499,26 @@ def test_화면은_요청마다_접두어와_포털_타일을_심는다(
     _mount_spa(app, settings.model_copy(update={"frontend_dist": tmp_path}))
     with TestClient(app) as local:
         assert "portal-system" not in local.get("/").text
+
+
+def test_다시_빌드하면_새_index_를_낸다(tmp_path: Path) -> None:
+    """기동할 때 한 번만 읽으면 서버가 도는 동안 다시 빌드한 화면이 비었다(옛 해시의 자산)."""
+    (tmp_path / "assets").mkdir()
+    index = tmp_path / "index.html"
+    index.write_text('<html><head><script src="./assets/old.js"></script></head></html>')
+    app = FastAPI()
+    _mount_spa(app, get_settings().model_copy(update={"frontend_dist": tmp_path}))
+    with TestClient(app) as local:
+        assert "old.js" in local.get("/").text
+        index.write_text('<html><head><script src="./assets/new.js"></script></head></html>')
+        stamp = index.stat().st_mtime_ns + 1_000_000_000
+        os.utime(index, ns=(stamp, stamp))  # 같은 순간에 쓴 것으로 읽히지 않게
+        fresh = local.get("/works/abc").text
+        assert "new.js" in fresh and "old.js" not in fresh
+        assert '<meta name="app-name"' in fresh, "이름 · 접두어는 그대로 심는다"
+        # 빌드 도중(파일이 잠깐 없다)은 앞의 것을 낸다.
+        index.unlink()
+        assert "new.js" in local.get("/").text
 
 
 def test_health_는_화면_주소를_알려_준다(client: TestClient) -> None:

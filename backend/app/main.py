@@ -227,13 +227,30 @@ def _mount_spa(app: FastAPI, settings: Settings) -> None:
             ("app-tagline", settings.app_tagline),
         )
     )
-    html = index.read_text(encoding="utf-8").replace("<head>", f"<head>\n    {metas}", 1)
-    html = re.sub(
-        r"<title>.*?</title>",
-        f"<title>{html_escape(settings.app_name)}</title>",
-        html,
-        count=1,
-    )
+
+    def read() -> str:
+        html = index.read_text(encoding="utf-8").replace("<head>", f"<head>\n    {metas}", 1)
+        return re.sub(
+            r"<title>.*?</title>",
+            f"<title>{html_escape(settings.app_name)}</title>",
+            html,
+            count=1,
+        )
+
+    # **빌드가 바뀌면 다시 읽는다**(파일 시각으로). 기동할 때 한 번만 읽어 두면, 서버가 도는
+    # 동안 프론트를 다시 빌드했을 때 옛 index.html 이 이제 없는 `assets/index-<옛 해시>.js` 를
+    # 가리켜 화면이 비었다(2026-10-26 — 개발 서버에서 겪었다). 빌드 도중(파일이 잠깐 없을 때)은
+    # 앞의 것을 낸다.
+    cached = {"stamp": index.stat().st_mtime_ns, "html": read()}
+
+    def current() -> str:
+        try:
+            stamp = index.stat().st_mtime_ns
+            if stamp != cached["stamp"]:
+                cached.update(stamp=stamp, html=read())
+        except FileNotFoundError:
+            pass
+        return str(cached["html"])
 
     portal = settings.portal_system_id if settings.portal_jwks_url.strip() else ""
 
@@ -256,7 +273,7 @@ def _mount_spa(app: FastAPI, settings: Settings) -> None:
         if portal:
             # 화면이 포털 세션으로 launch 토큰을 받을 타일 id — 비면 포털 로그인 단추가 없다.
             head.append(f'<meta name="portal-system" content="{html_escape(portal)}" />')
-        page = html.replace("<head>", "<head>\n    " + "\n    ".join(head), 1)
+        page = current().replace("<head>", "<head>\n    " + "\n    ".join(head), 1)
         return HTMLResponse(page, headers={"Cache-Control": "no-store"})
 
     logger.info("SPA 서빙: %s", dist)
