@@ -792,8 +792,17 @@ def test_조건마다_받는_선택_그룹의_종류와_모양이_정해져_있�
     parse(load("bearing", "구멍"))
     with pytest.raises(ConditionError, match="kind: cylinder 조건이 없어"):
         parse(load("bearing", "가까운 면"))
-    # 볼트는 원통면 또는 바디.
-    parse(load("bolt_pretension", "몸", preload=1000, magnitude=None, direction=None))
+    # 볼트는 원통면 또는 바디(바디면 단면을 정할 좌표계와 함께 — 아래 시험).
+    parse(
+        {
+            **load("bolt_pretension", "몸", preload=1000, magnitude=None, direction=None),
+            "loads": [
+                {"name": "조임", "type": "bolt_pretension", "on": "몸", "preload": 1000,
+                 "cs": "단면"},
+            ],
+            "coordinate_systems": [{"name": "단면", "origin": [0, 0, 5]}],
+        }
+    )  # fmt: skip
 
     contact = {"name": "맞닿음", "type": "bonded", "source": "윗면", "target": "모서리"}
     with pytest.raises(ConditionError, match="대상면에는 면 선택 그룹만"):
@@ -1103,3 +1112,72 @@ def test_선언한_종류와_규칙이_어긋나면_막는다() -> None:
             ]
         }
     )
+
+
+def test_볼트_예압의_단면은_바디면_좌표계가_원통면이면_면이_정한다() -> None:
+    """SimEngBay 와 정한 꼴(2026-10-28): 바디 예압은 좌표계의 Z 가 볼트 축, 원점이 단면
+    자리."""
+    section = [{"name": "단면", "origin": [0, 0, 5]}]
+
+    def pretension(on: str, cs: str = "global") -> dict[str, Any]:
+        one = {"name": "조임", "type": "bolt_pretension", "on": on, "preload": 1000, "cs": cs}
+        return {**SPOTS, "loads": [one], "coordinate_systems": section}
+
+    parse(pretension("몸", "단면"), frames=[])
+    parse(pretension("구멍"), frames=[])
+    with pytest.raises(ConditionError, match="바디에 건 볼트 예압 ‘조임’에는 좌표계가"):
+        parse(pretension("몸"), frames=[])
+    with pytest.raises(ConditionError, match="원통면에 건 볼트 예압 ‘조임’은\\(는\\) 면이"):
+        parse(pretension("구멍", "단면"), frames=[])
+    with pytest.raises(ConditionError, match="좌표계 ‘없음’이\\(가\\) 없습니다"):
+        parse(pretension("몸", "없음"), frames=[])
+    # 화면 · AI 가 볼트 예압에도 좌표계 칸을 본다.
+    extra: Any = conditions.Load.model_fields["cs"].json_schema_extra
+    assert "bolt_pretension" in extra["only_for"]
+
+
+BODIES = [
+    {"name": "판", "step_product": "body_1", "volume": 100.0, "centroid": [0, 0, 5],
+     "bbox": [[-10, -10, 0], [10, 10, 10]]},
+    {"name": "볼트", "step_product": "body_2", "volume": 10.0, "centroid": [0, 0, 12],
+     "bbox": [[-4, -4, 0], [4, 4, 25]]},
+]  # fmt: skip
+
+
+def test_바디_그룹은_bodies_줄로_풀리고_적힌_바디가_없으면_못_푼_것이다() -> None:
+    raw = {
+        "named_selections": [
+            {"name": "볼트 몸", "entity": "body", "select": {"body": "볼트"}},
+            {"name": "모두", "entity": "body", "select": {"body": "전체"}},
+            {"name": "둘", "entity": "body",
+             "select": {"any": [{"body": "판"}, {"body": "볼트"}]}},
+            {"name": "반쯤", "entity": "body",
+             "select": {"any": [{"body": "판"}, {"body": "너트"}]}},
+            {"name": "면", "entity": "face", "select": {"what": "faces", "role": "top"}},
+        ]
+    }  # fmt: skip
+    found, missing = conditions.body_regions(raw, BODIES)
+    assert found["볼트 몸"] == [BODIES[1]] and found["볼트 몸"][0] is not BODIES[1]
+    assert [one["name"] for one in found["모두"]] == ["판", "볼트"]
+    assert [one["name"] for one in found["둘"]] == ["판", "볼트"]
+    assert "면" not in found and missing == ["반쯤"]
+
+
+def test_단면이_바디를_지나지_않으면_까닭을_말한다() -> None:
+    raw = {
+        "loads": [
+            {"name": "조임", "type": "bolt_pretension", "on": "볼트 몸", "cs": "단면"},
+            {"name": "면 조임", "type": "bolt_pretension", "on": "몸통면", "cs": "global"},
+        ]
+    }
+    regions = {"볼트 몸": [BODIES[1]], "몸통면": [{"area": 1.0, "centroid": [0, 0, 1]}]}
+
+    def frame(origin: list[float], z: list[float]) -> list[dict[str, Any]]:
+        return [{"name": "단면", "origin": origin, "z": z}]
+
+    assert conditions.pretension_misses(raw, regions, frame([0, 0, 14], [0, 0, 1])) == []
+    # 볼트 위(z 40)에서 자르면 — 볼트는 z 0 ~ 25.
+    (said,) = conditions.pretension_misses(raw, regions, frame([0, 0, 40], [0, 0, 1]))
+    assert "‘조임’의 단면(좌표계 ‘단면’)이 바디 ‘볼트’을(를) 지나지 않습니다" in said
+    # 축이 누워 있으면 x = 0 평면이 볼트를 지난다.
+    assert conditions.pretension_misses(raw, regions, frame([0, 0, 40], [1, 0, 0])) == []

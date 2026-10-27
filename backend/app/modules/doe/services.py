@@ -1935,7 +1935,8 @@ def _region_definitions(conditions: dict[str, Any] | None) -> list[dict[str, Any
         return None
     # **바디 이름표는 면으로 풀지 않는다.** 영역은 면의 지문이고 바디는 덩어리다 — 섞으면
     # 바디마다 「못 풀었다」 가 하나씩 쌓이고, 그 표가 「이 점을 해석에 쓸 수 있나」 를
-    # 말하는 자리라 못 믿게 된다. 바디는 점 파일의 `bodies` 가 이름으로 들고 있다.
+    # 말하는 자리라 못 믿게 된다. 바디 그룹은 점마다 `bodies[]` 의 줄로 따로 싣는다
+    # (`condition_model.body_regions`).
     # **선언한 종류대로 푼다** — 규칙에 `what` 이 없으면 질의는 엣지를 고른다
     # (`selection_query`).
     return [
@@ -2172,6 +2173,8 @@ def _point_warnings(geometry: dict[str, Any] | None) -> list[str]:
         found.append(
             f"재료가 없는 파트: {', '.join(bare)} — 해석 제외가 아니면 재료가 있어야 합니다"
         )
+    # 받는 쪽은 단면이 바디를 안 지나는 바디 예압을 막는다(SimEngBay, 2026-10-28).
+    found.extend((geometry or {}).get("pretension_misses") or [])
     return found
 
 
@@ -2587,6 +2590,16 @@ def run_job(
                                     if one.get("kind") == "sheet"
                                 ],
                             )
+                            # **바디 그룹** — 면 지문 대신 그 바디의 `bodies[]` 줄(SimEngBay
+                            # 와 정한 꼴, 2026-10-28). 바디 예압 · 바디 초기조건이 이 이름으로
+                            # 걸린다.
+                            grouped, lost = condition_model.body_regions(
+                                topo["conditions"], topo.get("bodies") or []
+                            )
+                            topo["regions"].update(grouped)
+                            for name in lost:
+                                if name not in topo["unresolved"]:
+                                    topo["unresolved"].append(name)
                         # **좌표계** — 도면의 것은 이 점의 치수로 푼 것, 조건의 것은 식을 이
                         # 점의 값으로 풀고 면에 붙인 것은 이 점의 영역에서 얻는다. 조건의 `cs`
                         # 가 이름으로 가리킨다. 그룹을 못 풀어 좌표계를 못 정하면 「못 풀었다」
@@ -2601,6 +2614,13 @@ def run_job(
                         system = str(
                             ((topo.get("conditions") or {}).get("units") or {}).get("system")
                             or ""
+                        )
+                        # 바디 예압의 단면이 바디를 지나나 — 좌표계 원점을 계로 옮기기
+                        # 전(mm)에 본다.
+                        misses = condition_model.pretension_misses(
+                            topo.get("conditions"),
+                            topo["regions"],
+                            [*cad_frames, *condition_side],
                         )
                         placed, frame_length = frames.in_system(
                             [*cad_frames, *condition_side], system
@@ -2654,6 +2674,7 @@ def run_job(
                             "mid_file": mid_file or None,
                             "mid_error": mid_error or None,
                             "unmaterialed": bare or None,
+                            "pretension_misses": misses or None,
                         }
                         made += 1
                         rows.append(

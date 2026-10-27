@@ -529,8 +529,15 @@ class Load(Base):
         ),
     )
     """중력처럼 온 몸에 걸리는 것은 비어 있다."""
-    cs: str = Field("global", json_schema_extra=_extra({"only_for": DIRECTED_LOADS}))
-    """방향 성분의 축 — 구속과 같다. 회전 속도는 이 좌표계의 원점을 지나는 축으로 돈다."""
+    cs: str = Field(
+        "global",
+        json_schema_extra=_extra({"only_for": [*DIRECTED_LOADS, "bolt_pretension"]}),
+    )
+    """방향 성분의 축 — 구속과 같다. 회전 속도는 이 좌표계의 원점을 지나는 축으로 돈다.
+
+    **바디에 건 볼트 예압**은 이것이 단면이다 — Z 축이 볼트 축, 원점이 단면 자리(축에 수직인
+    평면이 원점을 지난다). Ansys 의 바디 예압과 같은 뜻이라 SimEngBay 의 두 솔버가 그대로
+    쓴다(2026-10-28 에 정했다). 원통면에 건 예압은 면이 축과 자리를 정하므로 비운다."""
     magnitude: Number | None = Field(
         None,
         title="크기",
@@ -1412,6 +1419,7 @@ def parse(
         _check_contact(f"contacts[{index}]", contact)
     for index, initial in enumerate(conditions.initial):
         _check_initial(f"initial[{index}]", initial)
+    entity_of = {one.name: one.entity for one in conditions.named_selections}
     for index, load in enumerate(conditions.loads):
         _check_load(f"loads[{index}]", load)
         if frames is not None and load.cs not in known_frames:
@@ -1419,6 +1427,8 @@ def parse(
                 f"loads[{index}]: 좌표계 ‘{load.cs}’이(가) 없습니다"
                 f"(정의된 좌표계: {defined_frames})."
             )
+        if load.type == "bolt_pretension" and load.on in entity_of:
+            _check_section(f"loads[{index}]", load, entity_of[load.on] == "body")
 
     # **물성이 붙은 바디가 진짜 있나.** 「전체」 는 늘 된다(모든 바디).
     known = set(bodies) if bodies is not None else None
@@ -1576,6 +1586,81 @@ def unmaterialed(raw: dict[str, Any] | None, bodies: list[str]) -> list[str]:
         if isinstance(one, dict) and one.get("suppressed")
     }
     return [one for one in bodies if one not in taken and one not in off]
+
+
+def body_regions(
+    raw: dict[str, Any] | None, bodies: list[dict[str, Any]]
+) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:
+    """**바디 그룹 → 그 바디의 `bodies[]` 줄** — 점 파일의 `regions` 에 면 지문 대신 싣는다.
+    그리고 못 푼 이름들.
+
+    면 · 엣지 · 점 그룹은 지문이 있는데 바디 그룹만 `regions` 에 없어, 받는 쪽이 바디에 건
+    조건(바디 예압 등)을 받지 못했다. SimEngBay 와 정한 꼴(2026-10-28): `bodies[]` 의 그 줄
+    그대로 — 짝짓는 법이 `bodies[]` 와 같다(이름 → STEP product → 부피 · 무게중심).
+
+    규칙에 바디 이름이 없거나 「전체」 면 모든 바디다. **적힌 바디가 하나라도 없으면 못 푼
+    것**이다 — 있는 것만 실으면 조건이 일부 바디에만 걸린 채 해석이 돈다."""
+    rows = {str(one.get("name")): one for one in bodies}
+    found: dict[str, list[dict[str, Any]]] = {}
+    missing: list[str] = []
+    for one in (raw or {}).get("named_selections") or []:
+        if not isinstance(one, dict) or one.get("entity") != "body" or not one.get("name"):
+            continue
+        select = one.get("select") or {}
+        members = select.get("any") or [select]
+        names = [str(rule.get("body") or "") for rule in members if isinstance(rule, dict)]
+        if not names or "" in names or ALL_BODIES in names:
+            picked = list(bodies)
+        elif all(name in rows for name in names):
+            picked = [rows[name] for name in dict.fromkeys(names)]
+        else:
+            picked = []
+        if picked:
+            found[str(one["name"])] = [dict(row) for row in picked]
+        else:
+            missing.append(str(one["name"]))
+    return found, missing
+
+
+def pretension_misses(
+    raw: dict[str, Any] | None,
+    regions: dict[str, list[dict[str, Any]]],
+    frames: list[dict[str, Any]],
+) -> list[str]:
+    """**단면이 바디를 지나지 않는** 바디 예압 — 그 까닭 한 줄씩.
+
+    단면은 예압 하중의 좌표계다(원점을 지나고 Z 에 수직인 평면). 치수를 바꾼 설계점에서
+    볼트가 옮겨 가면 평면이 볼트 밖에 남을 수 있다 — 받는 쪽(SimEngBay)은 그 점을 막으므로
+    내보낼 때 알린다. 바디의 경계상자로 본다(상자를 안 지나면 바디도 안 지난다). `frames` ·
+    `regions` 는 도면의 mm 다."""
+    by_name = {str(one.get("name")): one for one in frames}
+    out: list[str] = []
+    for load in (raw or {}).get("loads") or []:
+        if not isinstance(load, dict) or load.get("type") != "bolt_pretension":
+            continue
+        frame = by_name.get(str(load.get("cs")))
+        rows = regions.get(str(load.get("on"))) or []
+        if frame is None or not rows or "volume" not in rows[0]:
+            continue  # 면에 건 예압 · 못 푼 좌표계는 다른 자리가 말한다
+        origin = [float(v) for v in frame.get("origin") or (0, 0, 0)]
+        axis = [float(v) for v in frame.get("z") or (0, 0, 1)]
+        for row in rows:
+            low, high = row.get("bbox") or [[0, 0, 0], [0, 0, 0]]
+            sides = {
+                sum((corner[i] - origin[i]) * axis[i] for i in range(3)) > 0
+                for corner in (
+                    (x, y, z)
+                    for x in (low[0], high[0])
+                    for y in (low[1], high[1])
+                    for z in (low[2], high[2])
+                )
+            }
+            if len(sides) == 1:
+                out.append(
+                    f"볼트 예압 ‘{load.get('name')}’의 단면(좌표계 ‘{load.get('cs')}’)이 "
+                    f"바디 ‘{row.get('name')}’을(를) 지나지 않습니다"
+                )
+    return out
 
 
 def has_global_mesh(raw: dict[str, Any] | None) -> bool:
@@ -2000,6 +2085,24 @@ def _check_load(where: str, load: Load) -> None:
         )
     ):
         raise ConditionError(f"{where}: {label}에 방향이 없습니다.")
+
+
+def _check_section(where: str, load: Load, on_body: bool) -> None:
+    """볼트 예압의 **단면을 누가 정하나** — 바디면 좌표계(Z = 볼트 축, 원점 = 단면 자리),
+    원통면이면 면. 바디 예압에 좌표계가 없으면 받는 쪽이 축 위 어디를 자를지 모르고(머리 ·
+    너트가 한 바디거나 볼트가 짧으면 축도 틀린다 — SimEngBay), 원통면에 좌표계를 함께 주면
+    둘 중 무엇을 따를지 모른다."""
+    label = f"볼트 예압 ‘{load.name}’"
+    if on_body and load.cs in GLOBAL_FRAMES:
+        raise ConditionError(
+            f"{where}: 바디에 건 {label}에는 좌표계가 있어야 합니다 — Z 축이 볼트 축, 원점이 "
+            "단면 자리입니다(축에 수직인 평면이 원점을 지납니다)."
+        )
+    if not on_body and load.cs not in GLOBAL_FRAMES:
+        raise ConditionError(
+            f"{where}: 원통면에 건 {label}은(는) 면이 축과 단면 자리를 정합니다 — 좌표계를 "
+            "비우십시오."
+        )
 
 
 def _check_analysis(analysis: Analysis) -> None:

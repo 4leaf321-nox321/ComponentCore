@@ -494,6 +494,12 @@ export function ConditionForm({
               </option>
             ))}
           </select>
+          {type === 'bolt_pretension' && (
+            <p className="text-muted-foreground text-xs">
+              바디에 건 예압은 단면을 정할 좌표계를 고릅니다 — Z 축이 볼트 축, 원점이 단면 자리입니다. 원통면에 건
+              예압은 면이 정하므로 전역으로 둡니다.
+            </p>
+          )}
         </div>
       )}
 

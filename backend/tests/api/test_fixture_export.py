@@ -776,6 +776,64 @@ BOLT_PRESTRESSED: dict[str, Any] = {
 }
 
 
+#: ⑧-2 같은 체결을 **바디로 건 예압** — 단면은 예압 하중의 좌표계다(Z = 볼트 축, 원점 =
+#: 단면 자리, SimEngBay 와 정한 꼴 2026-10-28). 원점을 자유 몸통의 가운데(z 14)에 둬
+#: 「조건_볼트예압_정적」 과 같은 자리를 자른다 — 두 폴더의 볼트 힘이 같아야 한다.
+BOLT_BODY: dict[str, Any] = {
+    **BOLT_PRETENSION,
+    "name": "조건_볼트예압_바디",
+    "conditions": {
+        **BOLT_PRETENSION["conditions"],
+        "named_selections": [
+            *BOLT_PRETENSION["conditions"]["named_selections"],
+            {"name": "볼트", "entity": "body", "select": {"body": "볼트"}},
+        ],
+        "coordinate_systems": [{"name": "볼트 단면", "origin": [0, 0, 14]}],
+        "loads": [
+            {"name": "볼트 예압", "type": "bolt_pretension", "on": "볼트",
+             "cs": "볼트 단면", "preload": "=예압", "unit": "N"},
+            BOLT_PRETENSION["conditions"]["loads"][1],
+        ],
+    },
+}  # fmt: skip
+
+
+def test_바디_예압_픽스처_단면은_좌표계_바디는_bodies_줄(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    folder = _export(client, member, export_root, BOLT_BODY)
+    points = _points(folder)
+    assert [one["point"]["params"]["예압 방식"] for one in points] == ["N", "mm"]
+    for point in points:
+        assert point["unresolved"] == []
+        bodies = {one["name"]: one for one in point["bodies"]}
+        # 바디 그룹은 `bodies[]` 의 그 줄 그대로다.
+        assert point["regions"]["볼트"] == [bodies["볼트"]]
+        assert bodies["볼트"]["step_product"] == "body_3"
+        frames = {one["name"]: one for one in point["coordinate_systems"]}
+        assert frames["볼트 단면"]["origin"] == [0.0, 0.0, 14.0]
+        assert frames["볼트 단면"]["z"] == [0.0, 0.0, 1.0]
+        loads = {one["name"]: one for one in point["conditions"]["loads"]}
+        assert (loads["볼트 예압"]["on"], loads["볼트 예압"]["cs"]) == ("볼트", "볼트 단면")
+    rows = (folder / "manifest.csv").read_text(encoding="utf-8-sig").splitlines()
+    assert all(row.endswith(",ok,,") for row in rows[1:]), rows
+
+    # 단면이 볼트 밖(z 40 — 볼트는 z 0 ~ 23.3)이면 manifest 의 warnings 가 말한다.
+    above = {
+        **BOLT_BODY,
+        "name": "단면이 볼트 밖",
+        "conditions": {
+            **BOLT_BODY["conditions"],
+            "coordinate_systems": [{"name": "볼트 단면", "origin": [0, 0, 40]}],
+        },
+    }
+    missed = _export(client, member, export_root, above)
+    warned = (missed / "manifest.csv").read_text(encoding="utf-8-sig")
+    said = "볼트 예압 ‘볼트 예압’의 단면(좌표계 ‘볼트 단면’)이 바디 ‘볼트’을(를) 지나지"
+    assert said in warned
+    _copy_fixture(folder)
+
+
 def test_볼트_예압_픽스처_힘과_조임량_정적과_선응력_모달(
     client: TestClient, member: Signed, export_root: Path
 ) -> None:
