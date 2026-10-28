@@ -834,6 +834,48 @@ def test_바디_예압_픽스처_단면은_좌표계_바디는_bodies_줄(
     _copy_fixture(folder)
 
 
+#: ⑧-3 같은 체결의 **판-판을 bonded** 로 — 마찰 접촉이 없어 CalculiX 가 금방 풀고, 두 솔버
+#: 대조(차례 · 볼트 힘)에 바로 쓴다(SimEngBay 의 부탁, 2026-10-28). 그 밖은
+#: 「조건_볼트예압_정적」 과 같다 — 원통면 예압, 점 둘(1000 N · 0.0025 mm), 2 단계 정적.
+BOLT_BONDED: dict[str, Any] = {
+    **BOLT_PRETENSION,
+    "name": "조건_볼트예압_판본딩",
+    "conditions": {
+        **BOLT_PRETENSION["conditions"],
+        "contacts": [
+            {"name": "판-판", "type": "bonded", "source": "위판 밑", "target": "아래판 위"}
+            if one["name"] == "판-판" else one
+            for one in BOLT_PRETENSION["conditions"]["contacts"]
+        ],
+    },
+}  # fmt: skip
+
+
+def test_판본딩_볼트_예압_픽스처_접촉은_모두_bonded(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    folder = _export(client, member, export_root, BOLT_BONDED)
+    points = _points(folder)
+    assert [one["point"]["params"]["예압 방식"] for one in points] == ["N", "mm"]
+    for point in points:
+        assert point["unresolved"] == []
+        conditions = point["conditions"]
+        contacts = {one["name"]: one for one in conditions["contacts"]}
+        assert {one["type"] for one in contacts.values()} == {"bonded"}
+        plates = contacts["판-판"]
+        assert plates.get("friction") is None
+        assert (plates["source"], plates["target"]) == ("위판 밑", "아래판 위")
+        (shank,) = point["regions"]["자유 몸통"]
+        assert shank["centroid"] == [0.0, 0.0, 14.0]
+        assert point["regions"]["위판 밑"][0]["area"] == pytest.approx(2336.38, abs=0.01)
+        loads = {one["name"]: one for one in conditions["loads"]}
+        assert loads["볼트 예압"]["on"] == "자유 몸통"
+        assert conditions["analysis"]["steps"] == 2
+    rows = (folder / "manifest.csv").read_text(encoding="utf-8-sig").splitlines()
+    assert all(row.endswith(",ok,,") for row in rows[1:]), rows
+    _copy_fixture(folder)
+
+
 def test_볼트_예압_픽스처_힘과_조임량_정적과_선응력_모달(
     client: TestClient, member: Signed, export_root: Path
 ) -> None:
