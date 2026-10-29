@@ -80,3 +80,6 @@ disallow_subclassing_any = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "db_clock: DB 시계(now())의 차례에 기댄다 — 시험 중에 시계가 뒤로 튄 실패는 건너뜀으로 적는다",
+]

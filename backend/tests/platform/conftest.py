@@ -7,13 +7,15 @@
 from __future__ import annotations
 
 import contextlib
+import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from dataclasses import dataclass
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
@@ -21,6 +23,51 @@ from app.modules.auth import security
 from app.modules.workspaces.models import Workspace, WorkspaceMember
 
 PASSWORD = "test-account-password"
+
+#: `db_clock` 시험이 시작할 때의 (monotonic, DB 시계).
+_CLOCK_AT_START = pytest.StashKey[tuple[float, float]]()
+#: DB 시계가 이만큼 넘게 뒤처지면 「뒤로 튀었다」 — 두 번 재는 왕복은 몇 ms 다.
+CLOCK_JUMP_SECONDS = 0.05
+
+
+def _db_clock() -> float:
+    from app.database import SessionLocal
+
+    with SessionLocal() as db:
+        return float(db.scalar(text("SELECT extract(epoch FROM clock_timestamp())")))
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item: pytest.Item) -> Generator[None, None, None]:
+    if item.get_closest_marker("db_clock") is not None:
+        item.stash[_CLOCK_AT_START] = (time.monotonic(), _db_clock())
+    return (yield)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(
+    item: pytest.Item, call: pytest.CallInfo[None]
+) -> Generator[None, pytest.TestReport, pytest.TestReport]:
+    """**DB 시계가 뒤로 튄 `db_clock` 시험의 실패는 건너뜀으로 적는다.**
+
+    증분 지표는 「워터마크 뒤에 바뀐 기록」 을 `now()` 로 가른다. 이 PC(WSL)의 시계는 몇 초씩
+    뒤로 튀어(2026-10-08 실측 — 45초에 2.9초), 계산 뒤에 고친 기록이 워터마크보다 앞선 시각을
+    받으면 증분이 그것을 못 본다 — 세 시험이 그때마다 다른 단계에서 떨어졌다. 시계가 튄 시험의
+    결과는 맞다 · 틀리다를 말하지 못하므로 실패로 세지 않는다. 시계가 멀쩡했으면 그대로 실패다
+    (CI 는 시계가 안 튀어 늘 그쪽이다)."""
+    report = yield
+    start = item.stash.get(_CLOCK_AT_START, None)
+    if call.when == "call" and report.failed and start is not None:
+        lost = (time.monotonic() - start[0]) - (_db_clock() - start[1])
+        if lost > CLOCK_JUMP_SECONDS:
+            path, line, _name = item.reportinfo()
+            report.outcome = "skipped"
+            report.longrepr = (
+                str(path),
+                (line or 0) + 1,
+                f"DB 시계가 시험 중에 {lost:.2f}초 뒤로 튀었다 — 실패를 건너뜀으로",
+            )
+    return report
 
 
 @dataclass(frozen=True)

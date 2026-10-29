@@ -20,6 +20,9 @@ from tests.platform.test_metric_incremental import _cells, _ids, _patch, _recoun
 from tests.platform.test_metrics import _define, _listed, _prop, _read, _slug
 from tests.platform.test_ontology import _make_object, _make_type
 
+#: 증분으로 다시 센다 — DB 시계가 뒤로 튄 실패는 건너뜀(`conftest`).
+pytestmark = pytest.mark.db_clock
+
 #: ADR 0015 의 예와 같은 모양 — 차례가 뜻이다. 다섯째 규칙은 **참조 너머의 칸**(모델의 시리즈).
 RULES: list[dict[str, Any]] = [
     {"label": "SW", "when": [{"field": "action", "op": "starts", "value": "SW"}]},

@@ -11,12 +11,16 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from tests.platform.conftest import Signed, finish_job
 from tests.platform.test_metrics import _define, _world
 from tests.platform.test_ontology import _make_object
+
+#: 워터마크와 `now()` 의 차례에 기댄다 — DB 시계가 뒤로 튄 실패는 건너뜀(`conftest`).
+pytestmark = pytest.mark.db_clock
 
 
 def _recount(
