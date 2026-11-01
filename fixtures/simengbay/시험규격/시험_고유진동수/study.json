@@ -1,5 +1,5 @@
 {
-  "id": "d973488b-342b-47a8-9913-53b9aae5eb19",
+  "id": "99660be6-698e-4d05-b8b4-7a53c11d8a06",
   "name": "시험_고유진동수",
   "description": "",
   "method": "factorial",
@@ -257,7 +257,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-323533e3@example.local"
+    "email": "member-2de4aed2@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

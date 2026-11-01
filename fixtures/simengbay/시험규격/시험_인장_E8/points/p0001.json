@@ -86,7 +86,7 @@
     "표점 구간": [
       {
         "centroid": [
-          -0.0,
+          0.0,
           0.0,
           2.0
         ],
@@ -139,7 +139,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "97c13bd6-e12a-418c-a96a-bc57b93f2dfc",
+      "id": "28ffb021-12ab-459c-b6f0-556f15365b5e",
       "name": "시험_인장_E8",
       "method": "factorial",
       "seed": 1

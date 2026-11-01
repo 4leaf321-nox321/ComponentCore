@@ -244,6 +244,16 @@ def test_곡면의_지문은_넓이_무게중심이고_원뿔에도_축이_있�
     assert one["axis_at"] == pytest.approx(one["centroid"], abs=1e-3)
 
 
+def test_면_지문의_중심에는_음의_0_이_없다() -> None:
+    """값은 같아도 `-0.0` 이 섞이면 파일이 바이트로 달라 받는 쪽의 대조가 어긋난다. y = 0 에
+    걸친 면(가운데 구멍 · 판 바닥)의 중심이 그렇게 나왔다."""
+    shape = evaluate(parse(PLATE)).shape
+    found, _ = regions(shape, None)
+    rows = [one for group in found.values() for one in group]
+    assert rows and all(str(v) != "-0.0" for one in rows for v in one["centroid"])
+    assert all(str(v) != "-0.0" for one in rows if "axis_at" in one for v in one["axis_at"])
+
+
 def test_여럿을_묶은_선택_그룹도_영역으로_풀린다() -> None:
     """화면에서 면을 여럿 골라 만든 그룹(`{"any": [...]}`)이 내보낼 때 **각 면의 지문**으로
     나간다 — 받는 쪽은 규칙을 몰라도 면을 짝짓는다."""

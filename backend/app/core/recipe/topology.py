@@ -89,7 +89,7 @@ def _area_center(part: Shape) -> list[float]:
     props = GProp_GProps()
     BRepGProp.SurfaceProperties_s(part.wrapped, props)
     center = props.CentreOfMass()
-    return [round(float(v), 3) for v in (center.X(), center.Y(), center.Z())]
+    return [round(float(v), 3) + 0.0 for v in (center.X(), center.Y(), center.Z())]
 
 
 def bodies(shape: Shape) -> list[dict[str, Any]]:
@@ -129,6 +129,9 @@ def _face_fingerprint(row: dict[str, Any], face: Any) -> dict[str, Any]:
     무게중심이다(구멍이 치우친 판으로 확인).
     """
     centroid = row["center"] if row.get("kind") == "plane" else _area_center(face)
+    # 음의 0(`-0.0`)을 지운다 — `axis_at` 과 같게. 값은 같아도 파일이 바이트로 달라 대조가
+    # 어긋난다(SimEngBay 가 「조건_볼트예압_정적」 자유 몸통 [-0.0, -0.0, 14.0] 에서 봤다).
+    centroid = [one + 0.0 for one in centroid]
     out: dict[str, Any] = {
         "centroid": centroid,
         "area": row["area"],

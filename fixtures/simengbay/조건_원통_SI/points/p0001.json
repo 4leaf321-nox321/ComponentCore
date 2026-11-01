@@ -31,7 +31,7 @@
       {
         "centroid": [
           20.0,
-          -0.0,
+          0.0,
           5.0
         ],
         "area": 314.16,
@@ -104,7 +104,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "a077c129-dc23-418e-be78-332695679602",
+      "id": "e74aefbf-726f-4f9b-adf0-8951ac35515c",
       "name": "조건_원통_SI",
       "method": "factorial",
       "seed": 1

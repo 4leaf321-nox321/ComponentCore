@@ -157,7 +157,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "5c803b1e-0a5c-401b-b639-cd105783c708",
+      "id": "5accc194-6de6-4a6b-95df-2db5b7915585",
       "name": "조건_두바디_두재료",
       "method": "factorial",
       "seed": 1
