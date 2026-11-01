@@ -127,8 +127,16 @@ def _face_row(index: int, face: Face, box_min_z: float, box_max_z: float) -> dic
     if kind == "plane":
         row["normal"] = _xyz(face.normal_at(face.center()))
         row["role"] = _face_role(face, box_min_z, box_max_z)
+    # 반지름과 축을 **따로** 본다. 원뿔은 `face.radius` 가 None 이라 한 try 에 두면
+    # `float(None)` 에서 넘어가며 축까지 빠졌다 — 원뿔 지문에 `axis` 가 없었다(SimEngBay 보고,
+    # 2026-11-01).
     try:
-        row["radius"] = round(float(face.radius), 3)
+        radius = face.radius
+        if radius is not None:
+            row["radius"] = round(float(radius), 3)
+    except Exception:
+        pass
+    try:
         axis = face.axis_of_rotation
         if axis is not None:
             row["axis"] = {"origin": _xyz(axis.position), "direction": _xyz(axis.direction)}

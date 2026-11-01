@@ -1456,3 +1456,84 @@ def test_셸모델_두께_없는_시트_픽스처(
     assert failed["name"] == "전체" and "두께" in failed["error"]
     assert point["conditions"]["body_settings"][0]["thickness"] is None
     _copy_fixture(folder)
+
+
+def _halved_plate() -> Any:
+    """판 80 x 50 x 10(x 0 ~ 80 · y ±25 · z 0 ~ 10)에 관통 구멍 ⌀12(20, 0)와 모서리에 걸친
+    반쪽 구멍 ⌀10(60, 25). **닫힌 원통면(관통 구멍)만 반쪽 둘로 가른다** — 상용 CAD 의 STEP 이
+    흔히 이렇고, STEP 을 오가도 남는다. 모서리 반쪽 구멍은 처음부터 열린 반쪽 하나다."""
+    from build123d import Align, Box, Cylinder, Pos, Solid
+    from OCP.ShapeUpgrade import ShapeUpgrade_ShapeDivideClosed
+
+    bottom = (Align.CENTER, Align.CENTER, Align.MIN)
+    plate = Box(80, 50, 10, align=(Align.MIN, Align.CENTER, Align.MIN))
+    plate -= Pos(20, 0, 0) * Cylinder(6, 10, align=bottom)
+    plate -= Pos(60, 25, 0) * Cylinder(5, 10, align=bottom)
+    divide = ShapeUpgrade_ShapeDivideClosed(plate.wrapped)
+    divide.SetNbSplitPoints(1)
+    divide.Perform()
+    return Solid(divide.Result())
+
+
+#: ⑪ **반쪽 원통면** — 갈린 관통 구멍 둘을 한 그룹에. 원통 지지 · 베어링 하중 · `cs_origin`
+#: 원격 변위가 모두 그 그룹이라 두 솔버가 축 자리를 대조한다(SimEngBay 요청, 2026-11-01).
+HALVED_CONDITIONS: dict[str, Any] = {
+    "units": {"system": "mm_n_tonne"},
+    "named_selections": [
+        _face("구멍", {"kind": "cylinder", "radius": 6}),
+        _face("모서리 반쪽 구멍", {"kind": "cylinder", "radius": 5}),
+    ],
+    "coordinate_systems": [{"name": "구멍 축", "on": "구멍"}],
+    "materials": [_material("M-000138", ["전체"])],
+    "constraints": [
+        {"name": "핀", "type": "cylindrical", "on": "구멍", "tangential": "free"},
+        # 축 위의 원격점을 그 자리에 두고 0.5° 돌린다 — 원격점이 축 위면 원통 지지(반지름
+        # 고정 · 접선 자유)와 어긋나지 않아 판이 강체로 돈다. 축 밖이면 서로 싸운다.
+        {"name": "축 돌림", "type": "remote_displacement", "on": "구멍", "cs": "구멍 축",
+         "location": "cs_origin", "x": 0, "y": 0, "rz": 0.5},
+    ],
+    "loads": [
+        {"name": "핀 하중", "type": "bearing", "on": "구멍", "magnitude": 1000,
+         "direction": [0, -1, 0]},
+        {"name": "홈 누름", "type": "pressure", "on": "모서리 반쪽 구멍", "magnitude": 1.0,
+         "direction": "normal"},
+    ],
+    "mesh_hints": [{"on": "구멍", "element_size": 1.5}],
+    "analysis": {"type": "static"},
+}  # fmt: skip
+
+
+def test_반쪽_구멍_픽스처_축_위의_점과_넓이_무게중심(
+    client: TestClient, member: Signed, export_root: Path, tmp_path: Path
+) -> None:
+    """⑪ 곡면 지문의 `centroid` 는 **넓이 무게중심**(Mechanical 이 내는 것)이고, 회전면에는
+    축 위의 점 `axis_at` 이 따로 있다. 좌표계는 그 점에 선다 — 반쪽 원통면의 넓이 무게중심은
+    축에서 2r/π 밖이다."""
+    import math
+
+    recipe = _upload(client, member, tmp_path, _halved_plate(), "halved_hole")
+    study = {"name": "조건_반쪽구멍", "recipe": recipe, "factors": [],
+             "conditions": HALVED_CONDITIONS}  # fmt: skip
+    folder = _export(client, member, export_root, study)
+    (point,) = _points(folder)
+    assert point["unresolved"] == []
+
+    halves = point["regions"]["구멍"]
+    assert len(halves) == 2
+    for one in halves:
+        assert one["radius"] == pytest.approx(6.0)
+        assert one["area"] == pytest.approx(math.pi * 6 * 10, abs=0.01)  # 188.50
+        assert one["axis_at"] == pytest.approx([20.0, 0.0, 5.0], abs=1e-3)
+        off = math.dist(one["centroid"][:2], [20.0, 0.0])
+        assert off == pytest.approx(2 * 6 / math.pi, abs=1e-3)  # 3.820 — 축 밖
+
+    (notch,) = point["regions"]["모서리 반쪽 구멍"]
+    assert notch["radius"] == pytest.approx(5.0)
+    assert notch["area"] == pytest.approx(math.pi * 5 * 10, abs=0.01)  # 157.08
+    assert notch["axis_at"] == pytest.approx([60.0, 25.0, 5.0], abs=1e-3)
+    assert notch["centroid"] == pytest.approx([60.0, 25 - 2 * 5 / math.pi, 5.0], abs=1e-3)
+
+    (frame,) = [one for one in point["coordinate_systems"] if one["name"] == "구멍 축"]
+    assert frame["origin"] == pytest.approx([20.0, 0.0, 5.0], abs=1e-3)
+    assert abs(frame["z"][2]) == pytest.approx(1.0)
+    _copy_fixture(folder)

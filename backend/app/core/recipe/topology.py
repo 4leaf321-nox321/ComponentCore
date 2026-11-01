@@ -120,12 +120,15 @@ def _face_fingerprint(row: dict[str, Any], face: Any) -> dict[str, Any]:
 
     **평면이 아닌 면은 `center()` 를 쓰지 않는다.** 실측(2026-09-23): 지름 8.5 구멍의
     원통면에서 `face.center()` 가 `[-34.25, -15, 5]` 를 준다 — 축이 아니라
-    **표면 위의 점**(매개변수 한가운데)이다. 해석 쪽은 면의 넓이 무게중심을 내므로 같은
-    구멍을 `[-30, -15, 5]` 로 부르고, 둘은 반지름만큼(4.25 mm) 어긋나 **짝이 안 맞는다.**
-    경계상자 중심이 그 축 위의 점과 같다.
+    **표면 위의 점**(매개변수 한가운데)이다. 해석 쪽(Mechanical)은 면의 넓이 무게중심을 내므로
+    같은 구멍을 `[-30, -15, 5]` 로 부르고, 둘은 반지름만큼(4.25 mm) 어긋나 **짝이 안 맞는다.**
+
+    그래서 곡면도 **넓이 무게중심**이다(2026-11-01). 그 전에는 경계상자 중심이었는데, 통짜
+    원통에서는 같지만 반쪽 원통면이면 축에서 r/2 와 2r/π 로 0.137 r, 통짜 원뿔(R10 → 5, 높이
+    20)도 축 방향으로 1.11 mm 어긋났다(SimEngBay 가 잼). 평면의 `center()` 는 이미 넓이
+    무게중심이다(구멍이 치우친 판으로 확인).
     """
-    box = face.bounding_box()
-    centroid = row["center"] if row.get("kind") == "plane" else _xyz((box.min + box.max) * 0.5)
+    centroid = row["center"] if row.get("kind") == "plane" else _area_center(face)
     out: dict[str, Any] = {
         "centroid": centroid,
         "area": row["area"],

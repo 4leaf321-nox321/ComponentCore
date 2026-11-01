@@ -228,6 +228,22 @@ def test_원통면의_지문은_축_위의_점을_든다(tmp_path: Path) -> None
         assert one["axis_at"][2] == 5.0
 
 
+def test_곡면의_지문은_넓이_무게중심이고_원뿔에도_축이_있다() -> None:
+    """Mechanical 은 면의 넓이 무게중심을 낸다. 경계상자 중심을 쓰면 통짜 원뿔도 축 방향으로
+    어긋나고(아래), 원뿔은 반지름(None)을 읽다 넘어가며 축까지 빠졌다(SimEngBay 보고)."""
+    from build123d import Cone
+
+    # 원뿔대 R10(z -10) → R5(z 10). 옆면의 넓이 무게중심은 큰 밑면에서
+    # h (R1 + 2 R2) / (3 (R1 + R2)) = 20 x 20 / 45 = 8.889 — z = -1.111(경계상자 중심은 z 0).
+    found, _ = regions(
+        Cone(10, 5, 20), [{"name": "옆면", "select": {"what": "faces", "kind": "cone"}}]
+    )
+    (one,) = found["옆면"]
+    assert one["centroid"] == pytest.approx([0.0, 0.0, -1.111], abs=1e-3)
+    assert one["axis"] == [0.0, 0.0, 1.0] and "radius" not in one
+    assert one["axis_at"] == pytest.approx(one["centroid"], abs=1e-3)
+
+
 def test_여럿을_묶은_선택_그룹도_영역으로_풀린다() -> None:
     """화면에서 면을 여럿 골라 만든 그룹(`{"any": [...]}`)이 내보낼 때 **각 면의 지문**으로
     나간다 — 받는 쪽은 규칙을 몰라도 면을 짝짓는다."""

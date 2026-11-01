@@ -1,5 +1,5 @@
 {
-  "id": "5e185554-289e-49ea-b4ba-3d735c608673",
+  "id": "93fbd0b2-680b-4847-9a8d-54cb73df9f81",
   "name": "조건_재료훑기",
   "description": "",
   "method": "factorial",
@@ -465,7 +465,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-6afad462@example.local"
+    "email": "member-8eeffaf5@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

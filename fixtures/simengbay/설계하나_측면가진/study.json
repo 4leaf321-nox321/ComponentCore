@@ -1,5 +1,5 @@
 {
-  "id": "fa897246-391a-4c26-b86b-1d6d819ba671",
+  "id": "671c0418-c6e8-4605-b99b-5746f9bf0c14",
   "name": "설계하나_측면가진",
   "description": "",
   "method": "factorial",
@@ -474,7 +474,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-e24c8245@example.local"
+    "email": "member-fe69c454@example.local"
   },
   "requested_by": null,
   "cloned_from": null,
