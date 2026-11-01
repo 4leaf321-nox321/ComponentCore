@@ -137,7 +137,22 @@ def _face_fingerprint(row: dict[str, Any], face: Any) -> dict[str, Any]:
         out["radius"] = row["radius"]
     if isinstance(row.get("axis"), dict):
         out["axis"] = row["axis"]["direction"]
+        # **축 위의 점** — 면 중심을 축에 내린 자리. 통짜 원통이면 `centroid` 와 같은 점이다.
+        # 원통면이 반쪽 둘로 갈려 있으면(상용 CAD 의 STEP 이 흔히 그렇다 — STEP 을 오가도
+        # 그대로 남는다) 경계상자 중심은 축에서 r/2 벗어나고, 거기 붙인 좌표계가 축 밖에서
+        # 돌았다(실측 2026-11-01, ⌀10 구멍에서 2.5 mm).
+        out["axis_at"] = _on_axis(centroid, row["axis"])
     return out
+
+
+def _on_axis(point: list[float], axis: dict[str, Any]) -> list[float]:
+    """`point` 를 축(지나는 점 `origin` · 방향 `direction`)에 수직으로 내린 자리."""
+    o = [float(one) for one in axis["origin"]]
+    d = [float(one) for one in axis["direction"]]
+    size = sum(one * one for one in d) ** 0.5 or 1.0
+    d = [one / size for one in d]
+    along = sum((p - q) * k for p, q, k in zip(point, o, d, strict=True))
+    return [round(q + along * k, 3) + 0.0 for q, k in zip(o, d, strict=True)]
 
 
 def _edge_fingerprint(row: dict[str, Any]) -> dict[str, Any]:

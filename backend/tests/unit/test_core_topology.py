@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
-from build123d import Box, Compound, Location, Shape
+from build123d import Box, Compound, Location, Shape, Solid, export_step, import_step
 
 from app.core.recipe import RecipeError, evaluate, parse
 from app.core.recipe.topology import bodies, document, regions, slug
@@ -195,6 +196,36 @@ def test_태그로_영역을_내보낸다() -> None:
         got.shape, [{"name": "하중영역", "select": {"what": "faces", "tag": "하중영역"}}]
     )
     assert blind["unresolved"] == ["하중영역"]
+
+
+def _halved_holes(folder: Path) -> Shape:
+    """닫힌 원통면을 반쪽 둘로 가른 판을 **STEP 으로 썼다 다시 읽은 것** — 상용 CAD 의 STEP 이
+    흔히 이렇다. 가른 그대로는 면이 잘린 곡면에 싸여 반지름 · 축이 안 나오고, STEP 을 오가면
+    평범한 원통면 반쪽 둘이 된다(실측)."""
+    from OCP.ShapeUpgrade import ShapeUpgrade_ShapeDivideClosed
+
+    divide = ShapeUpgrade_ShapeDivideClosed(_shape().wrapped)
+    divide.SetNbSplitPoints(1)
+    divide.Perform()
+    path = folder / "반쪽.step"
+    export_step(Solid(divide.Result()), str(path))
+    return import_step(str(path))
+
+
+def test_원통면의_지문은_축_위의_점을_든다(tmp_path: Path) -> None:
+    """반쪽 원통면의 중심(경계상자 중심)은 축에서 r/2 벗어난다 — 그래서 축 위의 점
+    (`axis_at`)을 따로 싣는다. 통짜 원통이면 `centroid` 와 같은 점이다."""
+    query = [{"name": "구멍", "select": {"what": "faces", "kind": "cylinder", "limit": 12}}]
+    whole, _ = regions(_shape(), query)
+    assert all(one["axis_at"] == one["centroid"] for one in whole["구멍"])
+
+    halves, _ = regions(_halved_holes(tmp_path), query)
+    assert len(halves["구멍"]) == 8
+    centers = {(-30.0, -15.0), (30.0, -15.0), (-30.0, 15.0), (30.0, 15.0)}
+    for one in halves["구멍"]:
+        assert tuple(one["centroid"][:2]) not in centers  # 면 중심은 축 밖이다
+        assert tuple(one["axis_at"][:2]) in centers
+        assert one["axis_at"][2] == 5.0
 
 
 def test_여럿을_묶은_선택_그룹도_영역으로_풀린다() -> None:

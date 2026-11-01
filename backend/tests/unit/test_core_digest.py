@@ -83,3 +83,83 @@ def test_질량과_관성은_무게중심_기준으로_낸다() -> None:
     assert here["mass_g"] == pytest.approx(80 * 50 * 10 * 2.70 / 1000)  # 108 g
     assert here["inertia_g_mm2_about_com"] == there["inertia_g_mm2_about_com"]
     assert there["center_of_mass"][0] == 500.0
+
+
+def test_해석에_싣는_질량은_조건의_밀도와_단위계로_낸다() -> None:
+    """`mass_properties` 는 재료 이름 · g 다(AI 의 치수표). 해석에 실을 값은 조건의 물성 밀도
+    (그 계의 값)로, 그 계의 단위로 낸다 — t 단위 질량을 소수 셋째 자리로 자르면 0 이 된다."""
+    from app.core.recipe.digest import body_mass
+
+    box = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "b",
+                        "op": "box",
+                        "length": 10,
+                        "width": 20,
+                        "height": 30,
+                        "at": [100, 0, 0],
+                        "align": ["min", "min", "min"],
+                    }
+                ]
+            }
+        )
+    ).shape
+    m = 10 * 20 * 30 * 7.85e-9  # t
+    got = body_mass(box, 7.85e-9, "mm_n_tonne")
+    assert got["mass"] == pytest.approx(m)
+    assert got["center_of_mass"] == pytest.approx([105.0, 10.0, 15.0])
+    ixx, iyy, izz = (
+        m * (20**2 + 30**2) / 12,
+        m * (10**2 + 30**2) / 12,
+        m * (10**2 + 20**2) / 12,
+    )
+    assert got["inertia"][:3] == pytest.approx([ixx, iyy, izz])
+    assert got["inertia"][3:] == pytest.approx([0, 0, 0], abs=1e-15)
+    assert got["units"] == {"mass": "tonne", "length": "mm", "inertia": "tonne*mm^2"}
+
+    # 같은 몸을 SI 로 — 밀도는 kg/m³, 길이는 m. t·mm² → kg·m² 는 1e3 · 1e-6 = 1e-3 배다.
+    si = body_mass(box, 7850.0, "si")
+    assert si["mass"] == pytest.approx(m * 1e3)
+    assert si["center_of_mass"] == pytest.approx([0.105, 0.010, 0.015])
+    assert si["inertia"][:3] == pytest.approx([v * 1e-3 for v in got["inertia"][:3]])
+    assert si["units"]["inertia"] == "kg*m^2"
+
+
+def test_곱관성은_관성_텐서의_부호다() -> None:
+    """L 자(60 x 10 가로 + 10 x 50 세로, 두께 10)를 손으로 셈하면 ∫(x-x̄)(y-ȳ) dm 이 음수다
+    (질량이 무게중심의 2 · 4 사분면에 있다). 관성 텐서의 Ixy 는 그 반대 부호 — 양수다."""
+    from app.core.recipe.digest import body_mass
+
+    shape = evaluate(
+        parse(
+            {
+                "nodes": [
+                    {
+                        "id": "가로",
+                        "op": "box",
+                        "length": 60,
+                        "width": 10,
+                        "height": 10,
+                        "align": ["min", "min", "min"],
+                    },
+                    {
+                        "id": "세로",
+                        "op": "box",
+                        "length": 10,
+                        "width": 50,
+                        "height": 10,
+                        "at": [0, 10, 0],
+                        "align": ["min", "min", "min"],
+                    },
+                    {"id": "엘", "op": "union", "targets": ["가로", "세로"]},
+                ]
+            }
+        )
+    ).shape
+    got = body_mass(shape, 7.85e-9, "mm_n_tonne")
+    # 손셈: ∫(x-x̄)(y-ȳ) dm = -16056.818 g·mm² = -0.016056818 t·mm²
+    assert got["inertia"][3] == pytest.approx(0.016056818, rel=1e-6)
+    assert got["inertia"][4:] == pytest.approx([0, 0], abs=1e-12)

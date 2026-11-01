@@ -1588,6 +1588,25 @@ def unmaterialed(raw: dict[str, Any] | None, bodies: list[str]) -> list[str]:
     return [one for one in bodies if one not in taken and one not in off]
 
 
+def body_density(resolved: dict[str, Any] | None, body: str) -> float | None:
+    """그 파트의 밀도 — **내보내기 계의 값**(`resolve` 가 채운
+    `materials[].converted.density`).
+
+    바디 하나에 물성은 하나다(`parse` 가 막는다). 「전체」 에 붙은 물성은 모든 파트를 덮는다.
+    밀도가 없으면 None — 질량을 짐작하지 않는다(밀도 없는 강체는 기본값으로 풀려 그럴듯한 답이
+    난다, 설계 문서 동역학 3장)."""
+    if not isinstance(resolved, dict):
+        return None
+    for one in resolved.get("materials") or []:
+        if not isinstance(one, dict):
+            continue
+        where = applied_bodies(one.get("apply_to"))
+        if body in where or ALL_BODIES in where:
+            density = (one.get("converted") or {}).get("density")
+            return float(density) if isinstance(density, int | float) else None
+    return None
+
+
 def body_regions(
     raw: dict[str, Any] | None, bodies: list[dict[str, Any]]
 ) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:

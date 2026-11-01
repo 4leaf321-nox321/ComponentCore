@@ -114,7 +114,8 @@ def condition_frames(
     """해석 조건의 좌표계(식이 풀린 것) → 원점 · 축. 그리고 **못 푼 이름들.**
 
     선택 그룹에 붙인 것은 그 그룹의 **첫 면**(`regions` — 이 설계점에서 푼 지문)에서 원점 ·
-    법선을 얻는다. 원통면이면 축을 Z 로 쓴다. 점 · 엣지 그룹이면 원점만 그 자리, 방향은
+    법선을 얻는다. 원통면이면 축을 Z 로 쓰고 원점을 **축 위**(`axis_at`)에 둔다 — 반쪽으로
+    갈린 원통면의 중심은 축 밖이다(topology 의 지문). 점 · 엣지 그룹이면 원점만 그 자리, 방향은
     전역(정할 방향이 없다). 그룹을 못 풀었으면 이 좌표계도 못 푼 것이다 — 조용히 전역으로
     바꾸면 성분이 딴 방향으로 걸린다.
     """
@@ -141,7 +142,10 @@ def condition_frames(
         if not face or not direction:
             missing.append(name)
             continue
-        out.append(from_face(name, "conditions", face["centroid"], direction))
+        origin = (
+            face["centroid"] if face.get("normal") else face.get("axis_at") or face["centroid"]
+        )
+        out.append(from_face(name, "conditions", origin, direction))
     return out, missing
 
 

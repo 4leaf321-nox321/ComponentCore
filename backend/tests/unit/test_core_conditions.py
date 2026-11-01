@@ -1181,3 +1181,28 @@ def test_단면이_바디를_지나지_않으면_까닭을_말한다() -> None:
     assert "‘조임’의 단면(좌표계 ‘단면’)이 바디 ‘볼트’을(를) 지나지 않습니다" in said
     # 축이 누워 있으면 x = 0 평면이 볼트를 지난다.
     assert conditions.pretension_misses(raw, regions, frame([0, 0, 40], [1, 0, 0])) == []
+
+
+def test_파트의_밀도는_그_파트에_붙은_물성의_내보내기_계_값이다() -> None:
+    """질량 · 관성을 셀 밀도. 「전체」 에 붙은 물성은 모든 파트를 덮고, 없으면 짐작하지
+    않는다."""
+    raw = {
+        "materials": [
+            {"apply_to": ["블록"], "payload": {"density_si": 2700.0}},
+            {"apply_to": ["판"], "payload": {"density": 7.85e-9, "density_unit": "tonne/mm3"}},
+            {"apply_to": ["덮개"], "payload": {}},
+        ]
+    }
+    made = resolve(raw, {})
+    assert conditions.body_density(made, "블록") == pytest.approx(2.7e-9)
+    assert conditions.body_density(made, "판") == pytest.approx(7.85e-9)
+    assert conditions.body_density(made, "덮개") is None
+    assert conditions.body_density(made, "없는 파트") is None
+    assert conditions.body_density(None, "블록") is None
+
+    everything = resolve(
+        {"materials": [{"apply_to": ["전체"], "payload": {"density_si": 7850}}]}, {}
+    )
+    assert conditions.body_density(everything, "아무 파트") == pytest.approx(7.85e-9)
+    si = resolve({**raw, "units": {"system": "si"}}, {})
+    assert conditions.body_density(si, "블록") == pytest.approx(2700.0)

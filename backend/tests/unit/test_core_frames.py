@@ -142,6 +142,25 @@ def test_면에_붙인_좌표계는_그룹을_못_풀면_못_푼_것이다() -> 
     assert [one["name"] for one in rows] == ["수치", "벡터"]
 
 
+def test_원통면에_붙인_좌표계는_원통이_반쪽으로_갈려도_축_위에_선다() -> None:
+    """첫 면의 중심을 원점으로 쓰면, 반쪽으로 갈린 구멍(상용 CAD 의 STEP)에서 원점이 축에서
+    r/2 벗어나 조인트 · 원격 변위 · 회전 속도가 축 밖에서 돌았다(실측 2026-11-01)."""
+    half = {
+        "centroid": [20.0, 2.5, 5.0],
+        "area": 157.08,
+        "radius": 5.0,
+        "axis": [0.0, 0.0, 1.0],
+        "axis_at": [20.0, 0.0, 5.0],
+    }
+    rows, missing = frames.condition_frames([{"name": "축", "on": "구멍"}], {"구멍": [half]})
+    assert missing == [] and rows[0]["origin"] == [20.0, 0.0, 5.0]
+    assert rows[0]["z"] == [0.0, 0.0, 1.0]
+    # 옛 지문(`axis_at` 이 없는 점 파일)은 전처럼 면 중심이다.
+    old = {key: value for key, value in half.items() if key != "axis_at"}
+    rows, _ = frames.condition_frames([{"name": "축", "on": "구멍"}], {"구멍": [old]})
+    assert rows[0]["origin"] == [20.0, 2.5, 5.0]
+
+
 def test_좌표계_원점은_조건의_단위계_길이로_옮기고_축은_그대로다() -> None:
     row = frames.from_rotation("끝", "cad", [40, 0, 5], [0, 0, 90])
     kept, name = frames.in_system([row], "mm_n_tonne")

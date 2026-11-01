@@ -19,6 +19,8 @@ from OCP.BRepGProp import BRepGProp
 from OCP.gp import gp_Pnt
 from OCP.GProp import GProp_GProps
 
+from app.core import units as unit_systems
+
 #: 자주 쓰는 재료의 밀도(g/cm³). 지그는 보통 알루미늄 · 강, 시제품은 수지다.
 DENSITIES: dict[str, float] = {
     "steel": 7.85,
@@ -142,6 +144,53 @@ def _holes(shape: Shape) -> list[dict[str, Any]]:
     return out
 
 
+def _moments(shape: Shape) -> tuple[float, Any, Any]:
+    """밀도 1 일 때의 부피(mm³) · 무게중심 · **무게중심 기준** 관성 행렬(mm⁵).
+
+    행렬은 OCC 의 `MatrixOfInertia` 그대로 — **관성 텐서**다. 곱관성 자리가 -∫xy dm 이다(L 자를
+    손으로 셈해 확인했다, 설계 문서 동역학 14장)."""
+    at_origin = GProp_GProps()
+    BRepGProp.VolumeProperties_s(shape.wrapped, at_origin)
+    center = at_origin.CentreOfMass()
+    about_center = GProp_GProps(gp_Pnt(center.X(), center.Y(), center.Z()))
+    BRepGProp.VolumeProperties_s(shape.wrapped, about_center)
+    return float(at_origin.Mass()), center, about_center.MatrixOfInertia()
+
+
+def _significant(value: float) -> float:
+    """유효숫자 아홉 자리 — t 단위 질량(1e-5 쯤)을 소수 셋째 자리로 자르면 0 이 된다."""
+    return float(f"{value:.9g}") + 0.0
+
+
+def body_mass(shape: Shape, density: float, system: str) -> dict[str, Any]:
+    """**조건의 물성 밀도**와 단위계로 낸 질량 · 무게중심 · 관성 — 동역학의 강체는 이것이 곧
+    모델이다(설계 문서 동역학 3장). `mass_properties` 는 재료 **이름**으로 밀도를 고르고 g 로
+    낸다(AI 의 치수표). 해석에 실을 값은 이것으로 낸다.
+
+    `density` 는 **그 계의 값**이다(`resolve` 가 채운 `materials[].converted.density`,
+    `conditions.body_density`). 형상은 늘 mm 이므로 길이를 그 계로 옮긴다 — 무게중심은 한 번,
+    부피는 세제곱, 관성은 다섯제곱.
+
+    관성은 무게중심 기준 · 전역 축의 `[Ixx, Iyy, Izz, Ixy, Iyz, Ixz]` 이고 관성 텐서의 성분이다
+    (곱관성 = -∫xy dm)."""
+    volume, center, matrix = _moments(shape)
+    target = unit_systems.system_of(system)
+    scale = 1e-3 / target.length  # mm → 이 계의 길이
+
+    def at(i: int, j: int) -> float:
+        return _significant(matrix.Value(i, j) * density * scale**5)
+
+    mass, length = target.names["mass"], target.names["length"]
+    return {
+        "mass": _significant(density * volume * scale**3),
+        "center_of_mass": [
+            _significant(v * scale) for v in (center.X(), center.Y(), center.Z())
+        ],
+        "inertia": [at(1, 1), at(2, 2), at(3, 3), at(1, 2), at(2, 3), at(1, 3)],
+        "units": {"mass": mass, "length": length, "inertia": f"{mass}*{length}^2"},
+    }
+
+
 def mass_properties(shape: Shape, material: str = "aluminum") -> dict[str, Any]:
     """질량 · 무게중심 · **관성 모멘트** — 진동 · 무게 중심 잡기에 쓰는 값.
 
@@ -153,13 +202,7 @@ def mass_properties(shape: Shape, material: str = "aluminum") -> dict[str, Any]:
     if density is None:
         known = ", ".join(sorted(DENSITIES))
         raise ValueError(f"알 수 없는 재료입니다: {material} (사용 가능: {known}).")
-    at_origin = GProp_GProps()
-    BRepGProp.VolumeProperties_s(shape.wrapped, at_origin)
-    center = at_origin.CentreOfMass()
-    about_center = GProp_GProps(gp_Pnt(center.X(), center.Y(), center.Z()))
-    BRepGProp.VolumeProperties_s(shape.wrapped, about_center)
-    matrix = about_center.MatrixOfInertia()
-    volume = float(at_origin.Mass())
+    volume, center, matrix = _moments(shape)
     # g/cm³ 는 mm³ 당 1/1000 g 이다.
     mass = volume * density / 1000.0
     inertia = [
