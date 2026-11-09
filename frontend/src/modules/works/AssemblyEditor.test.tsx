@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 
 import type { Recipe } from '@/modules/cad/api'
@@ -14,8 +14,8 @@ const WORKS = {
   offset: 0,
 }
 
-function Host() {
-  const [recipe, setRecipe] = useState<Recipe>({ version: 1, nodes: [] })
+function Host({ initial = { version: 1, nodes: [] } }: { initial?: Recipe }) {
+  const [recipe, setRecipe] = useState<Recipe>(initial)
   return (
     <>
       <AssemblyEditor value={recipe} onChange={setRecipe} />
@@ -187,4 +187,88 @@ test('공용 부품 · 지그도 제 화면으로 간다', () => {
   expect(sourceLink('jig:j1')).toBe('/jigs/j1')
   // 모르는 꼴이면 단추를 안 그린다 — 엉뚱한 데로 보내는 것보다 없는 편이 낫다.
   expect(sourceLink('알수없음')).toBeNull()
+})
+
+/** AI 가 바퀴 · 상체를 **조립 안에 바로 그린** 작업(로봇 병사) — 가져온 것은 차체 하나뿐이다. */
+const DRAWN_IN_PLACE = {
+  version: 1,
+  params: { 상체_각도: 0 },
+  nodes: [
+    { id: '차체', op: 'component', source: 'work:w-part', label: '센서 브래킷', translate: [0, 0, 0], rotate: [0, 0, 0] },
+    { id: '바퀴', op: 'cylinder', radius: 5, height: 3 },
+    { id: '상체_몸', op: 'box', length: 10, width: 10, height: 10 },
+    { id: '상체', op: 'transform', target: '상체_몸', rotate: [0, '=상체_각도', 0] },
+    { id: '전체', op: 'group', targets: ['차체', '바퀴', '상체'] },
+  ],
+  result: '전체',
+} as unknown as Recipe
+
+function mockCad() {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = String(input)
+    const body = url.includes('/cad/recipe/check')
+      ? { ok: true, problems: [] }
+      : url.includes('/cad/recipe/mesh')
+        ? { summary: { bbox: { size: [1, 1, 1] } }, mesh: { bbox: { min: [0, 0, 0], max: [1, 1, 1] }, faces: [], edges: [] } }
+        : url.includes('/cad/recipe/interference')
+          ? { ok: true, tolerance: 0.5, total_volume: 0, checked_pairs: 3, parts: [], items: [] }
+          : url.includes('/works')
+            ? WORKS
+            : { items: [], total: 0, limit: 100, offset: 0 }
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  })
+}
+const ids = () => recipeNow().nodes.map((one) => one.id)
+const groupOf = () => recipeNow().nodes.find((one) => one.op === 'group') as { id: string; targets: string[] }
+
+test('조립 안에서 직접 그린 형상도 「구성」 에 서고 — 시뮬레이션 조건의 파트 수와 같다 — 3D 와 같은 색이다', async () => {
+  mockCad()
+  render(<Host initial={DRAWN_IN_PLACE} />)
+  expect(screen.getByText('구성 (3)')).toBeInTheDocument()
+  const drawn = within(screen.getByRole('list', { name: '직접 그린 형상' }))
+  expect(drawn.getAllByRole('listitem').map((one) => one.textContent)).toEqual(['바퀴직접 그림', '상체직접 그림'])
+  // 고치는 단추는 없다 — 고치는 길(부품으로 그려 가져오기)을 말해 준다.
+  expect(screen.queryByRole('button', { name: '바퀴 편집' })).toBeNull()
+  expect(screen.getByText(/부품 작업으로 따로 그린 후/)).toBeInTheDocument()
+  await waitFor(() => expect(Object.keys(JSON.parse(screen.getByTestId('viewer').textContent!))).toEqual(['차체', '바퀴', '상체']))
+})
+
+test('구성품을 옮겨도 직접 그린 형상 · 결과 묶음 · result 는 그대로다', async () => {
+  render(<Host initial={DRAWN_IN_PLACE} />)
+  fireEvent.click(screen.getByRole('button', { name: '센서 브래킷 편집' }))
+  fireEvent.change(await screen.findByLabelText('센서 브래킷 Z'), { target: { value: '12' } })
+  expect(ids()).toEqual(['차체', '바퀴', '상체_몸', '상체', '전체'])
+  expect((recipeNow().nodes[0] as { translate: number[] }).translate).toEqual([0, 0, 12])
+  expect(groupOf().targets).toEqual(['차체', '바퀴', '상체'])
+  expect(recipeNow().result).toBe('전체')
+  expect(recipeNow().nodes[3]).toEqual(DRAWN_IN_PLACE.nodes[3])
+
+  // 이름 — 그린 노드의 id 와 겹치면 받지 않는다(id 가 둘이면 레시피가 깨진다). 바꾸면 묶음도 따라간다.
+  fireEvent.change(screen.getByLabelText('센서 브래킷 이름'), { target: { value: '바퀴' } })
+  expect(ids()[0]).toBe('차체')
+  fireEvent.change(screen.getByLabelText('센서 브래킷 이름'), { target: { value: '몸체' } })
+  expect(ids()).toEqual(['몸체', '바퀴', '상체_몸', '상체', '전체'])
+  expect(groupOf().targets).toEqual(['몸체', '바퀴', '상체'])
+})
+
+test('새로 가져온 것은 마지막 구성품 뒤 · 묶음 앞에 서고 묶음에 들며, 빼면 그린 것만 남는다', async () => {
+  render(<Host initial={DRAWN_IN_PLACE} />)
+  fireEvent.click(await screen.findByRole('button', { name: /시험 지그/ }))
+  expect(ids()).toEqual(['차체', '시험_지그', '바퀴', '상체_몸', '상체', '전체'])
+  expect(groupOf().targets).toEqual(['차체', '바퀴', '상체', '시험_지그'])
+
+  fireEvent.click(screen.getByRole('button', { name: '센서 브래킷 제거' }))
+  fireEvent.click(screen.getByRole('button', { name: '시험 지그 제거' }))
+  expect(ids()).toEqual(['바퀴', '상체_몸', '상체', '전체'])
+  expect(groupOf().targets).toEqual(['바퀴', '상체'])
+  expect(recipeNow().result).toBe('전체')
+  expect(screen.getByText('구성 (2)')).toBeInTheDocument()
+})
+
+test('묶음 없이 그린 결과가 있으면, 가져올 때 만드는 묶음에 그것도 든다', async () => {
+  render(<Host initial={{ version: 1, nodes: [{ id: '받침', op: 'box', length: 10, width: 10, height: 2 }] } as unknown as Recipe} />)
+  expect(within(screen.getByRole('list', { name: '직접 그린 형상' })).getByText('받침')).toBeInTheDocument()
+  fireEvent.click(await screen.findByRole('button', { name: /시험 지그/ }))
+  expect(recipeNow().nodes.map((one) => one.op)).toEqual(['box', 'component', 'group'])
+  expect(groupOf()).toMatchObject({ id: '조립', targets: ['시험_지그', '받침'] })
 })

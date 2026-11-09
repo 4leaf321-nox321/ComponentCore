@@ -69,13 +69,82 @@ function nodesOf(recipe: Recipe): Record<string, unknown>[] {
   return (recipe.nodes ?? []) as Record<string, unknown>[]
 }
 
-/** 조립 레시피는 늘 「가져온 것들 + 묶음 한 줄」 이다 — 묶음을 손으로 관리하지 않는다. */
-function withGroup(placed: Placed[], recipe: Recipe): Recipe {
-  const nodes: Record<string, unknown>[] = [...placed]
-  if (placed.length > 0) {
-    nodes.push({ id: '조립', op: 'group', targets: placed.map((one) => one.id) })
+/** 결과로 삼는 노드 — `result` 가 없으면 마지막 노드(서버 `Recipe.result_id` 와 같다). */
+function resultId(recipe: Recipe): string | undefined {
+  return recipe.result ?? (nodesOf(recipe).at(-1)?.id as string | undefined)
+}
+
+/** 바디가 아닌 것 — 가져온 것은 「구성」 목록에 따로 서고, 기준은 형상이 아니다. */
+const NOT_DRAWN = new Set(['component', 'datum_axis', 'datum_plane'])
+
+/**
+ * 조립 안에서 **직접 그린** 바디 — 결과 묶음에 든 것 중 가져온 것이 아닌 것(묶음이 없으면 결과
+ * 노드 하나). 조립은 놓는 것이라 이 화면은 이것을 고치지 않지만, **지워서도 안 된다** — AI 가
+ * 바퀴 · 덮개를 조립 안에 바로 그린 작업이 있었고, 「구성」 에는 가져온 것 하나만 보였다.
+ */
+export function drawnBodies(recipe: Recipe): string[] {
+  const nodes = nodesOf(recipe)
+  const ops = new Map(nodes.map((one) => [one.id as string, one.op as string]))
+  const id = resultId(recipe)
+  const last = nodes.find((one) => one.id === id)
+  if (!last) return []
+  const bodies = last.op === 'group' ? ((last.targets ?? []) as string[]) : [id as string]
+  return bodies.filter((one) => ops.has(one) && !NOT_DRAWN.has(ops.get(one)!))
+}
+
+/**
+ * 구성품 목록을 레시피에 쓴다 — **가져온 것만 바꾸고 나머지는 그대로 둔다.** 묶음은 손으로
+ * 관리하지 않는다: 가져온 것이 늘 모두 결과 묶음에 든다.
+ *
+ * 예전에는 레시피를 「가져온 것들 + 묶음 한 줄」 로 통째로 다시 썼다. 조립 안에서 직접 그린
+ * 형상이 있으면 구성품 하나를 옮기기만 해도 그것들이 빠졌다. 이제는
+ *
+ * - 남은 구성품은 제자리에서 바뀐다(이름을 바꾼 것은 `renamed` 로 짝을 찾는다).
+ * - 새로 가져온 것은 마지막 구성품 뒤, 결과 묶음보다 앞에 선다 — 참조는 앞의 것만 가리킨다.
+ * - 결과 묶음은 가져온 것의 줄만 고친다. 묶음이 없으면 만들고(그린 결과가 있으면 함께 묶는다),
+ *   비면 뺀다.
+ */
+function withGroup(next: Placed[], recipe: Recipe, renamed?: { from: string; to: string }): Recipe {
+  const rename = (id: string) => (renamed && id === renamed.from ? renamed.to : id)
+  const byId = new Map(next.map((one) => [one.id, one]))
+  const nodes = nodesOf(recipe)
+  const was = new Set(nodes.filter((one) => one.op === 'component').map((one) => rename(one.id as string)))
+  const fresh = next.filter((one) => !was.has(one.id))
+  const resultAt = nodes.findIndex((one) => one.id === resultId(recipe))
+  const group = resultAt >= 0 && nodes[resultAt].op === 'group' ? nodes[resultAt] : null
+  const lastComponent = nodes.findLastIndex((one) => one.op === 'component')
+  const afterComponents = lastComponent >= 0 ? lastComponent + 1 : nodes.length
+  const insertAt = group ? Math.min(afterComponents, resultAt) : afterComponents
+
+  let result = recipe.result
+  const out: Record<string, unknown>[] = []
+  nodes.forEach((one, index) => {
+    if (index === insertAt) out.push(...fresh)
+    if (one === group) {
+      const targets = [
+        ...((one.targets ?? []) as string[]).map(rename).filter((id) => byId.has(id) || !was.has(id)),
+        ...fresh.map((made) => made.id),
+      ]
+      if (targets.length > 0) out.push({ ...one, targets })
+    } else if (one.op === 'component') {
+      const now = byId.get(rename(one.id as string))
+      if (now) out.push(now)
+    } else {
+      out.push(one)
+    }
+  })
+  if (insertAt >= nodes.length) out.push(...fresh)
+  if (!group && next.length > 0) {
+    const before = resultAt >= 0 && !NOT_DRAWN.has(nodes[resultAt].op as string) ? [nodes[resultAt].id as string] : []
+    const id = uniqueId('조립', new Set(out.map((one) => one.id as string)))
+    out.push({ id, op: 'group', targets: [...next.map((one) => one.id), ...before] })
+    if (result != null) result = id
   }
-  return { ...recipe, nodes }
+  // 결과로 가리키던 구성품을 뺐으면 마지막 노드로 돌아간다 — 남기면 「피처가 없습니다」.
+  if (result != null && !out.some((one) => one.id === result)) result = undefined
+  const made: Recipe = { ...recipe, nodes: out, result }
+  if (result == null) delete made.result
+  return made
 }
 
 function uniqueId(base: string, taken: Set<string>): string {
@@ -86,6 +155,9 @@ function uniqueId(base: string, taken: Set<string>): string {
 
 export function AssemblyEditor({ value, onChange, conditions }: { value: Recipe; onChange: (next: Recipe) => void; conditions?: unknown }) {
   const placed = useMemo(() => nodesOf(value).filter((one) => one.op === 'component') as Placed[], [value])
+  const drawn = useMemo(() => drawnBodies(value), [value])
+  /** 3D 에 서는 덩어리 수 — 시뮬레이션 조건의 파트 수와 같다. */
+  const total = placed.length + drawn.length
   /** 목록에서 고른 것 — 3D 에서 그것만 또렷하다. */
   const [selected, setSelected] = useState<string | null>(null)
   /** 「편집」 창을 연 것. */
@@ -108,12 +180,12 @@ export function AssemblyEditor({ value, onChange, conditions }: { value: Recipe;
   /** 겹친 구성품 — 3D 에서 빨갛게. 목록에서도 표시한다. */
   const colliding = useMemo(() => new Set((interference?.items ?? []).filter((one) => !one.ok).flatMap((one) => [one.a, one.b])), [interference])
   const partColors = useMemo(
-    () => Object.fromEntries(placed.map((one, index) => [one.id, colliding.has(one.id) ? 0xef4444 : colorOf(index)])),
-    [placed, colliding],
+    () => Object.fromEntries([...placed.map((one) => one.id), ...drawn].map((id, index) => [id, colliding.has(id) ? 0xef4444 : colorOf(index)])),
+    [placed, drawn, colliding],
   )
 
-  function put(next: Placed[]) {
-    emit((current) => withGroup(next, current))
+  function put(next: Placed[], renamed?: { from: string; to: string }) {
+    emit((current) => withGroup(next, current, renamed))
   }
 
   /**
@@ -128,7 +200,8 @@ export function AssemblyEditor({ value, onChange, conditions }: { value: Recipe;
   }
 
   function add(source: string, label: string) {
-    const taken = new Set(placed.map((one) => one.id))
+    // 조립 안에서 그린 노드의 id 도 피한다 — 겹치면 레시피가 깨진다.
+    const taken = new Set(nodesOf(value).map((one) => one.id as string))
     const made: Placed = {
       id: uniqueId(label, taken),
       op: 'component',
@@ -183,6 +256,7 @@ export function AssemblyEditor({ value, onChange, conditions }: { value: Recipe;
         if (!renamed || !next.mates) return next
         return { ...next, mates: next.mates.map((mate) => (mate.to === id ? { ...mate, to: renamed } : mate)) }
       }),
+      renamed ? { from: id, to: renamed } : undefined,
     )
   }
 
@@ -238,7 +312,7 @@ export function AssemblyEditor({ value, onChange, conditions }: { value: Recipe;
     min: 520,
     // 뷰 아래에 문제 목록과 겹침 보고가 붙는다 — 그만큼 남겨 둔다.
     gap: 16,
-    deps: [placed.length, problems.length, mesh !== null, selected],
+    deps: [total, problems.length, mesh !== null, selected],
   })
 
   return (
@@ -246,10 +320,10 @@ export function AssemblyEditor({ value, onChange, conditions }: { value: Recipe;
       {/* 왼쪽 — 구성(놓인 것들) · 가져올 것들 · 변수 */}
       <div className="space-y-3 lg:col-span-3">
         <div className="rounded-md border">
-          <p className="bg-muted/40 border-b px-2 py-1 text-xs font-medium">구성 {placed.length > 0 && `(${placed.length})`}</p>
-          {placed.length === 0 ? (
+          <p className="bg-muted/40 border-b px-2 py-1 text-xs font-medium">구성 {total > 0 && `(${total})`}</p>
+          {total === 0 ? (
             <p className="text-muted-foreground p-2 text-xs">아직 구성품이 없습니다. 아래 ‘가져오기’에서 부품 또는 지그를 선택하십시오.</p>
-          ) : (
+          ) : placed.length === 0 ? null : (
             <>
               {/* **여기서 고치는 것은 자리뿐이다.** 모양을 고치러 온 사람이 「편집」 을
                   눌렀다가 자리 · 회전만 나와 막히는 자리라, 어디로 가야 하는지 적어 둔다. */}
@@ -317,6 +391,29 @@ export function AssemblyEditor({ value, onChange, conditions }: { value: Recipe;
             </ul>
             </>
           )}
+          {/* **조립 안에서 직접 그린 것** — 고치지는 못하지만 보여는 준다. 안 보이면 「구성」 은
+              하나인데 시뮬레이션 조건에는 파트가 열이 되어, 어느 쪽이 맞는지 모른다. */}
+          {drawn.length > 0 && (
+            <>
+              <p className="text-muted-foreground border-y px-2 py-1 text-[11px]">
+                <b>조립 안에서 직접 그린 형상 ({drawn.length})</b> — 이 화면에서는 수정할 수 없으며, 구성품을
+                바꾸어도 그대로 유지됩니다. 형상을 고치려면 부품 작업으로 따로 그린 후 ‘가져오기’로 배치하십시오.
+              </p>
+              <ul className="p-1" aria-label="직접 그린 형상">
+                {drawn.map((id) => (
+                  <li key={id} className="flex items-center gap-1.5 rounded px-1.5 py-1 text-sm">
+                    <span className="size-2.5 shrink-0 rounded-full" style={{ background: cssColor(partColors[id]) }} aria-hidden />
+                    <span className="min-w-0 flex-1 truncate" title={id}>
+                      {id}
+                    </span>
+                    <Badge variant="secondary" className="shrink-0 text-[10px]">
+                      직접 그림
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </div>
 
         <div className="rounded-md border">
@@ -361,7 +458,7 @@ export function AssemblyEditor({ value, onChange, conditions }: { value: Recipe;
         <p className="text-muted-foreground text-xs">
           {drawing
             ? '계산 중…'
-            : placed.length === 0
+            : total === 0
               ? '가져온 부품과 지그가 여기에 표시됩니다.'
               : problems.length > 0
                 ? '수정이 필요한 항목이 있습니다.'
@@ -409,7 +506,7 @@ export function AssemblyEditor({ value, onChange, conditions }: { value: Recipe;
           </Suspense>
         ) : (
           <div className="text-muted-foreground flex h-full items-center justify-center rounded-md border border-dashed text-sm">
-            {placed.length === 0 ? '왼쪽 ‘가져오기’에서 부품 또는 지그를 클릭하십시오.' : problems.length > 0 ? '도면 오류가 해결되면 여기에 표시됩니다.' : '계산 중…'}
+            {total === 0 ? '왼쪽 ‘가져오기’에서 부품 또는 지그를 클릭하십시오.' : problems.length > 0 ? '도면 오류가 해결되면 여기에 표시됩니다.' : '계산 중…'}
           </div>
         )}
         </div>
@@ -421,7 +518,7 @@ export function AssemblyEditor({ value, onChange, conditions }: { value: Recipe;
           </ul>
         )}
         {/* 겹침 — 서버는 겹친 채로도 저장하니 여기서 보여 줘야 한다. */}
-        {mesh && interference && placed.length > 1 && (
+        {mesh && interference && total > 1 && (
           <div className="flex flex-wrap items-center gap-2 text-xs" role="status">
             <StatusBadge kind="interference" value={interference.ok ? 'ok' : 'bad'} />
             {interference.ok ? (
@@ -465,7 +562,8 @@ export function AssemblyEditor({ value, onChange, conditions }: { value: Recipe;
                     value={editingNode.id}
                     onChange={(event) => {
                       const next = event.target.value
-                      if (!next || placed.some((other) => other.id === next && other.id !== editingNode.id)) return
+                      // 조립 안에서 그린 노드와도 겹치면 안 된다 — id 가 둘이면 레시피가 깨진다.
+                      if (!next || nodesOf(value).some((other) => other.id === next && other.id !== editingNode.id)) return
                       update(editingNode.id, { id: next })
                       setEditing(next)
                       setSelected(next)
