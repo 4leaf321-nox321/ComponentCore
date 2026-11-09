@@ -280,6 +280,11 @@
   `{"op":"component","source":"part:<id>|jig:<id>|work:<id>","params":{"두께":"=부품_두께"},
   "translate":[0,0,"=지그_높이"],"rotate":[0,0,0]}` 여럿 + 마지막에
   `{"op":"group","targets":[…]}`(붙이지 않고 묶는다 — 부품과 지그는 따로 남아야 한다).
+  **조립 안에서 형상을 그리지 않는다** — 노드는 `component` · 마지막 `group` · 구속이 가리키는
+  기준(`datum_axis` · `datum_plane`)뿐이다. 새 형상(바퀴 · 덮개 …)이 필요하면 먼저
+  `create_work(kind="part")` 로 따로 그리고 `work:<id>` 로 가져온다. 조립 안에 그린 것은 화면
+  「구성」 에서 옮기거나 고칠 수 없고, 원본이 없어 카탈로그에도 오르지 않는다. 섞어 저장하면
+  `create_work` · `save_version` · `patch_work` 의 답에 `warning` 이 붙는다 — 사용자에게 알린다.
   가져오는 것은 STEP 이 아니라 **살아 있는 레시피**라, `params` 로 구성품의 치수를 조립의
   변수로 움직일 수 있다 → 조립을 그대로 실험계획으로 훑는다.
   **부품 + 지그를 놓는 조립은 `assemble_jig_on_part(part_source, jig_work_id)` 로 만든다** —

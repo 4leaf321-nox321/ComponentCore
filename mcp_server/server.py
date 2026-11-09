@@ -686,7 +686,7 @@ async def patch_work(
 
     **지그 작업이면 제품과의 간섭(`jig_interference`)도 붙는다** — 받침을 옮기거나 높이를
     바꾼 뒤 따로 `jig_check` 를 부르지 않아도 된다. `ok` 가 거짓이면 `hits` 의 요소를 다시
-    옮긴다."""
+    옮긴다. 조립 작업에 그린 노드를 섞었으면 `warning` 이 붙는다(`create_work` 참고)."""
     version = await _post(
         ctx, f"/api/works/{work_id}/patch", {"ops": ops, "note": note or "AI 가 부분 수정"}
     )
@@ -702,6 +702,9 @@ async def patch_work(
     checked = _slim_jig_check(await _post(ctx, f"/api/works/{work_id}/jig-check", {}))
     if checked is not None:
         out["jig_interference"] = checked
+    warning = await _assembly_note(ctx, work_id, version.get("recipe"))
+    if warning:
+        out["warning"] = warning
     return out
 
 
@@ -1885,6 +1888,54 @@ async def step_upload_prepare(
     }
 
 
+#: 조립(`kind="assembly"`)이 담는 노드 — 가져와 놓는 것, 묶음, 구속이 가리키는 기준.
+_ASSEMBLY_OPS = frozenset({"component", "group", "datum_axis", "datum_plane"})
+
+
+def _drawn_in_assembly(recipe: Any) -> list[str]:
+    """레시피에서 **조립에 둘 것이 아닌** 노드의 id — 조립 안에서 바로 그린 형상."""
+    nodes = recipe.get("nodes") if isinstance(recipe, dict) else None
+    return [
+        str(one.get("id"))
+        for one in nodes or []
+        if isinstance(one, dict) and one.get("op") not in _ASSEMBLY_OPS
+    ]
+
+
+def _assembly_warning(drawn: list[str]) -> str:
+    """조립 안에 그린 것이 있으면 **막지 않고 말한다** — 저장은 이미 됐다.
+
+    AI 가 로봇의 바퀴 · 덮개 · 상체를 조립 레시피 안에 바로 그린 일이 있었다. 화면의
+    「구성」 은 가져온 것 하나만 보였고(시뮬레이션 조건은 파트 열), 그린 것은 화면에서
+    옮기지도 고치지도 못한다."""
+    shown = ", ".join(drawn[:6]) + (" …" if len(drawn) > 6 else "")
+    return (
+        f"조립 안에 직접 그린 노드가 {len(drawn)}개 있습니다({shown}). "
+        "조립은 놓는 것입니다 — "
+        '형상은 `create_work(kind="part")` 로 따로 그리고 `component`'
+        '(`"source": "work:<id>"`)로 가져옵니다. 조립 안에 그린 것은 화면에서 옮기거나 '
+        "고칠 수 없고, 원본이 없어 카탈로그에도 등록되지 않습니다. 사용자가 그대로 두기를 "
+        "원하면 두고, 이 사실을 사용자에게 알립니다."
+    )
+
+
+async def _assembly_note(ctx: Context, work_id: str, recipe: Any) -> str | None:
+    """저장한 레시피가 **조립 작업**에 그린 것을 섞었으면 경고 한 줄. 조립이 아니면 None.
+
+    작업 종류를 묻는 GET 은 가져오기 · 묶음이 든 레시피에만 한다 — 부품 저장마다 묻지 않게."""
+    drawn = _drawn_in_assembly(recipe)
+    nodes = recipe.get("nodes") if isinstance(recipe, dict) else None
+    placing = {"component", "group"}
+    if not drawn or not any(
+        isinstance(one, dict) and one.get("op") in placing for one in nodes or []
+    ):
+        return None
+    work = await _get(ctx, f"/api/works/{work_id}")
+    if not isinstance(work, dict) or work.get("kind") != "assembly":
+        return None
+    return _assembly_warning(drawn)
+
+
 @mcp.tool()
 async def create_work(
     ctx: Context,
@@ -1903,7 +1954,12 @@ async def create_work(
     `kind` 는 **무엇을 그렸나**다: `part`(제품 · 부품) 또는 `jig`(지그). 그리는 방법은 같고,
     종류가 **어느 카탈로그에 등록되는지**와 덤으로 쓰는 도구를 정한다(부품엔 지그 생성기,
     지그엔 잡는 부품). 지그를 그렸으면 `kind="jig"` 로 만들고 `jig_for_part_id` 로 어느 부품을
-    잡는지 이어 둔다 — 등록할 때 그대로 따라간다."""
+    잡는지 이어 둔다 — 등록할 때 그대로 따라간다.
+
+    `kind="assembly"`(조립)는 **놓는 것**이다 — 노드는 `component`(다른 작업 · 공용 부품 ·
+    지그를 가져옴)와 마지막 `group`, 구속이 가리키는 기준뿐이다. 새 형상이 필요하면 먼저
+    `kind="part"` 로 따로 만들고 `work:<id>` 로 가져온다. 섞어 넣으면 저장은 되지만 답에
+    `warning` 이 붙는다."""
     work = await _post(
         ctx,
         "/api/works",
@@ -1922,16 +1978,16 @@ async def create_work(
         return work
     current = work.get("current") or {}
     evaluation = await _wait_job(ctx, current.get("job"))
-    return await _linked(
-        {
-            "work_id": work["id"],
-            "name": work["name"],
-            "version": current.get("number"),
-            "evaluation": _slim_job(evaluation),
-        },
-        "works",
-        work["id"],
-    )
+    out: dict[str, Any] = {
+        "work_id": work["id"],
+        "name": work["name"],
+        "version": current.get("number"),
+        "evaluation": _slim_job(evaluation),
+    }
+    drawn = _drawn_in_assembly(recipe) if kind == "assembly" else []
+    if drawn:
+        out["warning"] = _assembly_warning(drawn)
+    return await _linked(out, "works", work["id"])
 
 
 @mcp.tool()
@@ -1940,7 +1996,7 @@ async def save_version(
 ) -> Any:
     """작업에 **새 버전**을 저장한다(출처 "ai"). 옛 버전은 그대로 남고 사람이 화면에서 복원할
     수 있다. 평가가 끝날 때까지 기다려 요약을 돌려준다. `note` 에 무엇을 바꿨는지 한 줄
-    적는다."""
+    적는다. 조립 작업에 그린 노드를 섞었으면 `warning` 이 붙는다(`create_work` 참고)."""
     version = await _post(
         ctx,
         f"/api/works/{work_id}/versions",
@@ -1949,15 +2005,15 @@ async def save_version(
     if not isinstance(version, dict) or "error" in version:
         return version
     evaluation = await _wait_job(ctx, version.get("job"))
-    return await _linked(
-        {
-            "work_id": work_id,
-            "version": version.get("number"),
-            "evaluation": _slim_job(evaluation),
-        },
-        "works",
-        work_id,
-    )
+    out: dict[str, Any] = {
+        "work_id": work_id,
+        "version": version.get("number"),
+        "evaluation": _slim_job(evaluation),
+    }
+    warning = await _assembly_note(ctx, work_id, recipe)
+    if warning:
+        out["warning"] = warning
+    return await _linked(out, "works", work_id)
 
 
 @mcp.tool()

@@ -512,6 +512,71 @@ def test_지그를_고치면_제품과의_간섭을_함께_돌려준다(monkeypa
     assert "jig_interference" not in asyncio.run(server.patch_work(None, "w1", []))
 
 
+# --- 조립 안에 그린 것: 막지 않고 말한다 -------------------------------------------------
+
+#: AI 가 바퀴를 조립 안에 바로 그린 꼴(로봇 병사) — 가져온 것은 차체 하나.
+DRAWN_IN_ASSEMBLY = {
+    "version": 1,
+    "nodes": [
+        {"id": "차체", "op": "component", "source": "work:w-body"},
+        {"id": "바퀴", "op": "cylinder", "radius": 5, "height": 3},
+        {"id": "기준", "op": "datum_plane"},
+        {"id": "전체", "op": "group", "targets": ["차체", "바퀴"]},
+    ],
+}
+
+
+def test_조립에_그린_노드를_섞으면_저장은_되고_warning_이_붙는다(monkeypatch) -> None:
+    async def fake_post(ctx, path, json_body=None, **kw):
+        if path == "/api/works":
+            return {"id": "w1", "name": "로봇", "current": {"number": 1, "job": None}}
+        if path.endswith("/versions"):
+            return {"number": 2, "job": None}
+        if path.endswith("/patch"):
+            return {"number": 3, "recipe": DRAWN_IN_ASSEMBLY, "job": None}
+        return {"available": False}
+
+    kinds = {"w1": "assembly", "w2": "part"}
+    asked: list[str] = []
+
+    async def fake_get(ctx, path, params=None):
+        asked.append(path)
+        return {"kind": kinds[path.rsplit("/", 1)[1]]}
+
+    async def no_wait(ctx, job):
+        return job
+
+    monkeypatch.setattr(server, "_post", fake_post)
+    monkeypatch.setattr(server, "_get", fake_get)
+    monkeypatch.setattr(server, "_wait_job", no_wait)
+
+    made = asyncio.run(server.create_work(None, "로봇", DRAWN_IN_ASSEMBLY, kind="assembly"))
+    assert "1개" in made["warning"] and "바퀴" in made["warning"]
+    # 가져온 것 · 묶음 · 기준은 조립의 것이다.
+    assert "차체" not in made["warning"] and "기준" not in made["warning"]
+    assert "warning" in asyncio.run(server.save_version(None, "w1", DRAWN_IN_ASSEMBLY))
+    assert "warning" in asyncio.run(server.patch_work(None, "w1", []))
+    # 부품이면 말하지 않는다 — 부품은 그리는 것이다.
+    assert "warning" not in asyncio.run(
+        server.create_work(None, "바퀴", DRAWN_IN_ASSEMBLY, kind="part")
+    )
+    assert "warning" not in asyncio.run(server.save_version(None, "w2", DRAWN_IN_ASSEMBLY))
+    # 가져오기 · 묶음이 없는 레시피는 종류를 묻지 않는다 — 부품 저장마다 GET 하지 않게.
+    asked.clear()
+    plain = {"version": 1, "nodes": [{"id": "판", "op": "box"}]}
+    assert "warning" not in asyncio.run(server.save_version(None, "w2", plain))
+    assert asked == []
+    # 놓기만 한 조립은 조용하다.
+    placed = {
+        "version": 1,
+        "nodes": [
+            DRAWN_IN_ASSEMBLY["nodes"][0],
+            {"id": "전체", "op": "group", "targets": ["차체"]},
+        ],
+    }
+    assert "warning" not in asyncio.run(server.save_version(None, "w1", placed))
+
+
 # --- HWAX 게이트웨이: 401 은 다시 받기 신호로(SP ADR 0028 결정 12) ---------------------
 
 GATEWAY_TOKEN_REJECTED = re.compile(
