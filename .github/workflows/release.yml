@@ -78,7 +78,8 @@ jobs:
     if: >-
       !cancelled() && needs.ci-passed.result == 'success'
       && (needs.ci-passed.outputs.passed == 'true' || needs.verify.result == 'success')
-    runs-on: ubuntu-latest
+    # apptainer 를 까는 잡 — ci 의 image 잡과 같은 OS 로 못 박는다(그쪽 주석).
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v5

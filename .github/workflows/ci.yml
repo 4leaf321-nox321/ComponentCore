@@ -126,7 +126,11 @@ jobs:
   image:
     name: 이미지 (apptainer 빌드)
     if: ${{ !inputs.skip_image }}
-    runs-on: ubuntu-latest
+    # **OS 를 못 박는다.** `ubuntu-latest` 는 GitHub 이 옮기는 이름표다(2026-10-19 부터
+    # Ubuntu 26 으로 차례차례). apptainer 는 PPA 에서 오고 새 OS 에는 늦게 오른다. 그 사이
+    # 코드는 그대로인데 이 잡만 apptainer 설치에서 죽은 날이 있다(2026-11-11 — 로그는 관리자만
+    # 받아 원인을 못 박지 못했다). 그렇게 갈리지 않게 고정한다. release 잡도 같게.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
