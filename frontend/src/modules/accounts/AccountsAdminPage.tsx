@@ -1,5 +1,6 @@
 /** 계정 관리 — 시스템 관리자만. 임시 비밀번호는 응답에서 한 번만 나오므로 화면에 바로 띄운다. */
 
+import { Mail } from 'lucide-react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
@@ -32,8 +33,60 @@ import {
   TableHeader,
   TableRow,
 } from '@/shared/components/ui/table'
+import { Textarea } from '@/shared/components/ui/textarea'
 import { useResource } from '@/shared/hooks/useResource'
+import { copyText } from '@/shared/lib/clipboard'
 import { shownDate } from '@/shared/lib/datetime'
+
+const MAIL = /^[^\s@]+@[^\s@]+$/
+
+/**
+ * 받는 사람 칸에 그대로 붙일 주소 목록 — `; ` 로 잇는다(Outlook 은 쌍반점을 늘 받고, Gmail 도
+ * 붙여 넣으면 나눈다). 아이디가 메일 주소가 아닌 계정은 빼고 알려 준다. 같은 주소는 한 번.
+ */
+export function mailList(accounts: Account[]): { text: string; count: number; skipped: string[] } {
+  const seen = new Set<string>()
+  const out: string[] = []
+  const skipped: string[] = []
+  for (const one of accounts) {
+    const address = one.email.trim()
+    if (!MAIL.test(address)) {
+      skipped.push(address)
+      continue
+    }
+    if (seen.has(address.toLowerCase())) continue
+    seen.add(address.toLowerCase())
+    out.push(address)
+  }
+  return { text: out.join('; '), count: out.length, skipped }
+}
+
+/** 자동 복사가 막혔을 때 — 주소를 골라 둔 채로 보여 주고 Ctrl+C 로 복사하게 한다. */
+function ManualCopyDialog({ text, onClose }: { text: string; onClose: () => void }) {
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>메일 주소</DialogTitle>
+          <DialogDescription>
+            브라우저가 자동 복사를 허용하지 않았습니다. 아래 주소가 선택된 상태에서 Ctrl+C(맥은 ⌘+C)로 복사하십시오.
+          </DialogDescription>
+        </DialogHeader>
+        <Textarea
+          readOnly
+          autoFocus
+          value={text}
+          onFocus={(event) => event.currentTarget.select()}
+          className="h-32 font-mono text-xs"
+          aria-label="복사할 메일 주소"
+        />
+        <DialogFooter>
+          <Button onClick={onClose}>닫기</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
 
 function TemporaryPasswordNotice({ value, onClose }: { value: string; onClose: () => void }) {
   return (
@@ -64,6 +117,10 @@ export default function AccountsAdminPage() {
   const [error, setError] = useState<ApiError | Error | null>(null)
   const [temporary, setTemporary] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<Account | null>(null)
+  /** 메일을 보낼 계정 — 고른 것의 주소를 한 번에 복사한다. */
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [mailNote, setMailNote] = useState<string | null>(null)
+  const [manual, setManual] = useState<string | null>(null)
 
   async function create(event: FormEvent) {
     event.preventDefault()
@@ -92,6 +149,29 @@ export default function AccountsAdminPage() {
   }
 
   const rows = accounts.data ?? []
+  const chosen = rows.filter((row) => picked.has(row.id))
+  const allPicked = rows.length > 0 && chosen.length === rows.length
+
+  function pick(next: Set<string>) {
+    setPicked(next)
+    setMailNote(null)
+  }
+
+  async function copyMails() {
+    const { text, count, skipped } = mailList(chosen)
+    const left = skipped.length > 0 ? ` 메일 주소가 아닌 아이디 ${skipped.length}개(${skipped.join(', ')})는 제외했습니다.` : ''
+    if (count === 0) {
+      setMailNote(`복사할 메일 주소가 없습니다.${left}`)
+      return
+    }
+    try {
+      await copyText(text)
+      setMailNote(`메일 주소 ${count}개를 복사했습니다. 메일의 받는 사람 칸에 붙여 넣으십시오.${left}`)
+    } catch {
+      setManual(text)
+      setMailNote(left.trim() || null)
+    }
+  }
 
   return (
     <div>
@@ -105,9 +185,27 @@ export default function AccountsAdminPage() {
       {rows.length === 0 && !accounts.loading ? (
         <EmptyState title="계정이 없습니다" hint="오른쪽 위의 ‘계정 생성’ 버튼으로 첫 계정을 생성하십시오." />
       ) : (
+        <>
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="outline" disabled={chosen.length === 0} onClick={() => void copyMails()}>
+            <Mail className="size-3.5" />
+            메일 주소 복사{chosen.length > 0 && ` (${chosen.length})`}
+          </Button>
+          <span className="text-muted-foreground text-xs" role="status">
+            {mailNote ?? (chosen.length === 0 ? '메일을 보낼 계정을 선택하십시오. 맨 위 칸으로 전체를 선택합니다.' : '')}
+          </span>
+        </div>
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-8">
+                <input
+                  type="checkbox"
+                  aria-label="전체 선택"
+                  checked={allPicked}
+                  onChange={() => pick(allPicked ? new Set() : new Set(rows.map((row) => row.id)))}
+                />
+              </TableHead>
               <TableHead>아이디</TableHead>
               <TableHead>이름</TableHead>
               <TableHead>상태</TableHead>
@@ -121,6 +219,19 @@ export default function AccountsAdminPage() {
               const self = row.id === me?.id
               return (
                 <TableRow key={row.id}>
+                  <TableCell>
+                    <input
+                      type="checkbox"
+                      aria-label={`${row.email} 선택`}
+                      checked={picked.has(row.id)}
+                      onChange={() => {
+                        const next = new Set(picked)
+                        if (next.has(row.id)) next.delete(row.id)
+                        else next.add(row.id)
+                        pick(next)
+                      }}
+                    />
+                  </TableCell>
                   <TableCell className="font-mono text-xs">{row.email}</TableCell>
                   <TableCell>{row.display_name}</TableCell>
                   <TableCell>
@@ -188,7 +299,10 @@ export default function AccountsAdminPage() {
             })}
           </TableBody>
         </Table>
+        </>
       )}
+
+      {manual && <ManualCopyDialog text={manual} onClose={() => setManual(null)} />}
 
       <Dialog open={creating} onOpenChange={(open) => !open && setCreating(false)}>
         <DialogContent>
