@@ -591,10 +591,18 @@ def import_step(
     )
     db.add(artifact)
     db.flush()
+    # `leaf` — 하위 조립 · 멀티바디 · 이름 없음 · 겹침 · 닫힌 셸까지 바디로 가른다
+    # (`step_import`).
     recipe = {
         "version": 1,
         "nodes": [
-            {"id": "imported", "op": "import_step", "label": safe, "file": str(artifact.id)}
+            {
+                "id": "imported",
+                "op": "import_step",
+                "label": safe,
+                "file": str(artifact.id),
+                "bodies": "leaf",
+            }
         ],
     }
     return add_version(db, work, recipe=recipe, source="import", note=f"{safe} 가져옴", by=by)

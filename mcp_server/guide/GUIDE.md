@@ -162,7 +162,11 @@
   `recipe_cutlist(recipe, node_id)` — 부재마다 자를 길이 · 끝의 각(0 = 직각) · 부피. 예 — 600 x 400 탁자 틀:
   `{"op":"frame","profile":{"type":"t_slot","size":40},"corner":"butt",
   "paths":[[[0,0,0],[600,0,0],[600,400,0],[0,400,0],[0,0,0]]]}`) ·
-  `import_step`(file — 사용자가 올린 STEP, 직접 만들지 않는다)
+  `import_step`(file — 사용자가 올린 STEP, 직접 만들지 않는다. `bodies`: `leaf` 면 트리 끝의
+  솔리드 · 시트마다 바디 하나 — 하위 조립을 풀고 멀티바디를 가르고, 이름이 비면 `body_N` ·
+  겹치면 `-2`, 닫힌 셸은 솔리드로, 선뿐인 부품은 뺀다. 칸이 없으면 `top`(맨 위 구성품마다 —
+  옛 레시피). STEP 올리기는 `leaf` 로 만든다. `top` 을 `leaf` 로 바꾸면 바디 이름이 달라지니
+  해석 조건의 `body` 를 `recipe_bodies` 로 다시 맞춘다)
 - 조합 `union`(targets) · `cut`(target, tools) · `intersect`(targets) · `split`(target, plane
   {name, origin | origin, normal}, keep top|bottom|both — 평면으로 자르기)
 - 마감 `fillet`(target, edges, radius, radius_end · start — 화면에서는 「블렌드」. radius_end 를

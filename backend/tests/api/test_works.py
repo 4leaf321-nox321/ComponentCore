@@ -148,6 +148,8 @@ def test_STEP_을_올리면_import_step_버전(
     version = got.json()
     assert version["number"] == 2 and version["source"] == "import"
     assert version["recipe"]["nodes"][0]["op"] == "import_step"
+    # 새로 올린 STEP 은 트리 끝마다 바디로 가른다(`step_import`) — 옛 레시피만 `top`.
+    assert version["recipe"]["nodes"][0]["bodies"] == "leaf"
     # 평가 작업이 그 STEP 을 읽어 냈다.
     assert version["job"]["status"] == "done", version["job"]["error"]
     assert [round(v) for v in version["job"]["summary"]["bbox"]["size"]] == [60, 40, 20]

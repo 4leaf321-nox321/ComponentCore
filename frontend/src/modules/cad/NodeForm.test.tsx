@@ -122,3 +122,10 @@ test('곡면 — 점 격자는 JSON 으로 적고, 읽히면 바로 반영하고
   fireEvent.change(screen.getByLabelText(/점 격자/), { target: { value: '[[[0,0' } })
   expect(screen.getByLabelText(/점 격자/).className).toContain('border-destructive')
 })
+
+test('STEP 가져오기 — 칸이 없는 옛 노드는 「이전 방식」 으로 보인다(서버가 그렇게 읽는다)', () => {
+  // 2026-11-12 전에 가져온 레시피에는 `bodies` 가 없다 — 서버는 그것을 `top` 으로 읽는다.
+  const node: RecipeNode = { id: 'imported', op: 'import_step', file: 'a1' }
+  render(<NodeForm node={node} nodes={[node]} onChange={() => {}} />)
+  expect(screen.getByText('맨 위 구성품마다 (이전 방식)')).toBeInTheDocument()
+})

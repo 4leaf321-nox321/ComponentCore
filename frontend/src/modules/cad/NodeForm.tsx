@@ -828,7 +828,7 @@ export function NodeForm({
             )}
             {field.kind === 'select' && field.key !== 'edges' && (
               <Select
-                value={node[field.key] == null ? '__none__' : String(node[field.key])}
+                value={node[field.key] == null ? (field.fallback ?? '__none__') : String(node[field.key])}
                 onValueChange={(v) => set(field.key, v === '__none__' ? null : v)}
               >
                 <SelectTrigger className="h-8">

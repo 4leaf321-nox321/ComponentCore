@@ -1503,6 +1503,12 @@ class ImportStepNode(_Node):
 
     op: Literal["import_step"]
     file: str = Field(min_length=1)
+    bodies: Literal["top", "leaf"] = "top"
+    """STEP 의 무엇을 바디 하나로 보나. `leaf` — **트리 끝의 솔리드 · 시트마다 하나**: 하위
+    조립을 풀고, 멀티바디를 가르고, 이름이 비면 순번 · 겹치면 `-2`, 닫힌 셸은 솔리드로, 선뿐인
+    부품은 뺀다(`step_import.py`). `top` — 맨 위 자식마다(이름이 모두 있을 때), 아니면 통째로
+    하나. 2026-11-12 전에 가져온 레시피가 `top` 이라 기본이 이것이다 — 바꾸면 바디 이름이
+    달라져 이미 건 해석 조건이 끊긴다. STEP 올리기는 이제 `leaf` 로 만든다."""
 
 
 #: 원점을 지나는 전역 축 — 축 칸에서 기준축 id 대신 쓰는 이름. 피처 id 로 쓰면 이것이 먼저다.

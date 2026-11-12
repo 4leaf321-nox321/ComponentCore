@@ -106,6 +106,8 @@ export interface FieldSpec {
   refKind?: 'sketch' | 'solid' | 'any' | 'axis' | 'plane'
   /** 비워도 되는 칸(ref · 숫자) — 비우면 null 로 보낸다. */
   optional?: boolean
+  /** select 칸이 비었을 때 보일 값 — 서버가 칸이 없으면 그 값으로 읽는 경우(옛 레시피). */
+  fallback?: string
 }
 
 export interface OpSpec {
@@ -1136,9 +1138,21 @@ export const OP_SPECS: OpSpec[] = [
     icon: Import,
     label: 'STEP 가져오기',
     group: '입체',
-    help: '업로드한 STEP(작업물 id)입니다. ‘STEP 업로드’로 생성되므로 직접 입력하지 않습니다.',
-    fields: [{ key: 'file', label: '작업물 id', kind: 'text' }],
-    defaults: { file: '' },
+    help: '업로드한 STEP(작업물 id)입니다. ‘STEP 업로드’로 생성되므로 직접 입력하지 않습니다. 바디 나누기를 ‘부품 · 솔리드마다’로 하면 하위 조립을 풀고 멀티바디를 나누며, 이름이 비거나 겹치면 번호를 붙이고, 닫힌 셸은 솔리드로 읽습니다. 이전 방식으로 가져온 작업을 바꾸면 바디 이름이 달라지므로 해석 조건의 바디 선택을 다시 확인하십시오.',
+    fields: [
+      { key: 'file', label: '작업물 id', kind: 'text' },
+      {
+        key: 'bodies',
+        label: '바디 나누기',
+        kind: 'select',
+        fallback: 'top',
+        options: [
+          { value: 'leaf', label: '부품 · 솔리드마다' },
+          { value: 'top', label: '맨 위 구성품마다 (이전 방식)' },
+        ],
+      },
+    ],
+    defaults: { file: '', bodies: 'leaf' },
   },
 ]
 

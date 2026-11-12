@@ -86,7 +86,16 @@ from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.GeomAbs import GeomAbs_Cylinder
 
 from app.core import fasteners
-from app.core.recipe import blend, datums, defeature, deform, hardware, mates, surfaces
+from app.core.recipe import (
+    blend,
+    datums,
+    defeature,
+    deform,
+    hardware,
+    mates,
+    step_import,
+    surfaces,
+)
 from app.core.recipe import schema as S
 from app.core.recipe.bend import BendError, bend
 from app.core.recipe.frame import FrameError, frame
@@ -1544,6 +1553,11 @@ def _evaluate_node(
             path = resolve_file(node.file)
         except Exception as failure:
             raise RecipeError(node.id, f"파일을 찾지 못했습니다: {failure}") from failure
+        if node.bodies == "leaf":
+            found = step_import.bodies(step_import.read(path), notes)
+            if not found:
+                raise RecipeError(node.id, "STEP 파일에 솔리드도 면도 없습니다.")
+            return step_import.assembled(found)
         shape = import_step(path)
         if shape.solids():
             return _to_part(shape)
@@ -1702,7 +1716,12 @@ def _evaluate_recipe(
                 f"{node.op}을(를) 생성하지 못했습니다"
                 f"({type(failure).__name__}: {str(failure).rstrip('.')}).",
             ) from failure
-        if isinstance(shape, Part) and (not shape.is_valid or shape.volume <= 0):
+        # 가져온 STEP(`leaf`)은 검사에 걸려도 받는다 — 상용 CAD 의 솔리드는 공차 탓에 흔히
+        # 걸리고, 그것으로 파일 전체를 거절하면 가져올 길이 없다. 걸린 바디는 경고로 말한다.
+        imported = isinstance(node, S.ImportStepNode) and node.bodies == "leaf"
+        if isinstance(shape, Part) and (
+            shape.volume <= 0 or (not imported and not shape.is_valid)
+        ):
             raise RecipeError(
                 node.id,
                 f"{node.op}의 결과가 유효한 솔리드가 아닙니다. 면이 정확히 포개지거나 "
