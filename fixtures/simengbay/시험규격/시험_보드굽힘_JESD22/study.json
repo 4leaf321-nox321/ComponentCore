@@ -1,5 +1,5 @@
 {
-  "id": "b52c3402-a3f0-4b93-aa4d-65d33691acd9",
+  "id": "2db8fc5b-a640-419c-8165-b595517df5c7",
   "name": "시험_보드굽힘_JESD22",
   "description": "",
   "method": "factorial",
@@ -433,7 +433,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-0b6a1f64@example.local"
+    "email": "member-c5a35a7a@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

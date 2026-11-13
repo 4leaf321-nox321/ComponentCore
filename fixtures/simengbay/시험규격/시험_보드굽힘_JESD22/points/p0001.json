@@ -297,6 +297,13 @@
     "warnings": [],
     "notes": []
   },
+  "checks": {
+    "enabled": true,
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
+  },
   "mesh_suggestion": {
     "element_size": 2.0,
     "basis": "가장 긴 변(132 mm)의 1/200 — 벽(1 mm)의 절반은 더 작지만 요소 수가 터지지 않게(얇은 벽은 국부 메시로) · 그 크기(0.6 mm)는 절점이 1,176,389개쯤이라 상한(100,000)을 넘어 2 mm 로 키웠다 — 얇은 벽은 국부 메시로 촘촘히",
@@ -320,7 +327,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "b52c3402-a3f0-4b93-aa4d-65d33691acd9",
+      "id": "2db8fc5b-a640-419c-8165-b595517df5c7",
       "name": "시험_보드굽힘_JESD22",
       "method": "factorial",
       "seed": 1

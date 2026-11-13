@@ -259,6 +259,13 @@
     "warnings": [],
     "notes": []
   },
+  "checks": {
+    "enabled": true,
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
+  },
   "mesh_suggestion": {
     "element_size": 4.0,
     "basis": "가장 긴 변(80 mm)의 1/20 — 솔리드로 푸는 파트의 벽이 없다(쉘 · 강체 · 해석 제외만 있다)",
@@ -281,7 +288,7 @@
   "point": {
     "number": 2,
     "study": {
-      "id": "9beb35b4-416b-4b31-bedd-5c385f9d03cf",
+      "id": "63990cda-61ac-49f7-a8cc-db56a20427ce",
       "name": "조건_강체지그_쉘브래킷",
       "method": "factorial",
       "seed": 1

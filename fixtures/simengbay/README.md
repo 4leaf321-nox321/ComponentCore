@@ -546,6 +546,9 @@ gmsh · ccx, 점 파일 · STEP 을 그대로 `topology.json` · `input.step` �
   그래서 「시험_겹치기이음_D1002」 의 「벽 두께 0.2 mm (기준 0.5)」 경고(접착층)가 빠졌다. 지금 폴더에는
   겹침 · 틈이 없어 모두 `contacts: []` 다 — 다시 뽑은 폴더의 차이는 그 줄 · `checks` 값 · 그 경고 ·
   id · 생성일뿐이다.
+  **점 파일 맨 위에도 `checks`** 가 실린다 — `study.json` 의 것과 같은 기준(점검을 꺼도, `enabled:
+  false` 로). 받는 쪽이 `contact_gap` 을 형상 맞춤 허용오차로 쓰므로 점 파일 하나로 닫히게(SimEngBay 의
+  부탁).
 
 - **2026-11-01 — 곡면 지문의 `centroid` 는 넓이 무게중심, 회전면에는 `axis_at`.** 곡면의 `centroid` 가
   경계상자 중심에서 **넓이 무게중심**(Mechanical 이 내는 것)으로 바뀌었다 — 통짜 원통 · 평면은 값이

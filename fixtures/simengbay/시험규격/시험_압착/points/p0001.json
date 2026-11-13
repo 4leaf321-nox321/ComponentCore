@@ -81,6 +81,13 @@
     "warnings": [],
     "notes": []
   },
+  "checks": {
+    "enabled": true,
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
+  },
   "mesh_suggestion": {
     "element_size": 3.0,
     "basis": "최소 벽 두께(6 mm)의 절반 — 가장 얇은 벽에 요소 두 개",
@@ -99,7 +106,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "071419e3-7566-4c5f-87cb-93e5b33d5030",
+      "id": "542011e1-892e-4ff8-96df-370bde64cce7",
       "name": "시험_압착",
       "method": "factorial",
       "seed": 1

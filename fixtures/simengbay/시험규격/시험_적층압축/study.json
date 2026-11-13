@@ -1,5 +1,5 @@
 {
-  "id": "3fdccba9-6303-49bf-ad41-170f9bba3d69",
+  "id": "2e1e09fd-b16d-43a5-b620-7c804fc1b74b",
   "name": "시험_적층압축",
   "description": "",
   "method": "factorial",
@@ -279,7 +279,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-75bd573d@example.local"
+    "email": "member-320a01e1@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

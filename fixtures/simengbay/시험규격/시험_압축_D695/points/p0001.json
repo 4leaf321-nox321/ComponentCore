@@ -81,6 +81,13 @@
     "warnings": [],
     "notes": []
   },
+  "checks": {
+    "enabled": true,
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
+  },
   "mesh_suggestion": {
     "element_size": 1.2,
     "basis": "가장 긴 변(25.4 mm)의 1/20 — 벽(12.7 mm)의 절반보다 작게, 그 방향에 요소 스무 개 이상",
@@ -99,7 +106,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "b551008b-e5cb-429a-87e6-802c4486db0b",
+      "id": "3b13eb41-fdac-49de-a7db-97e9fd0dc36a",
       "name": "시험_압축_D695",
       "method": "factorial",
       "seed": 1

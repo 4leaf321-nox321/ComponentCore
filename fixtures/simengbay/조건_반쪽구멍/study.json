@@ -1,5 +1,5 @@
 {
-  "id": "86b7cfd9-dcc1-4ccc-9d34-404f8bedf818",
+  "id": "a592491f-b734-4c31-9dd9-16e5a4bd5325",
   "name": "조건_반쪽구멍",
   "description": "",
   "method": "factorial",
@@ -21,7 +21,7 @@
       {
         "id": "imported",
         "op": "import_step",
-        "file": "7d9f7597-a6bb-497a-ad48-15f5631a0bf4",
+        "file": "b3ccdb4e-06be-4061-a382-060d3fb9e44b",
         "label": "halved_hole.step",
         "bodies": "leaf"
       }
@@ -241,7 +241,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-84f14471@example.local"
+    "email": "member-4cd3a909@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

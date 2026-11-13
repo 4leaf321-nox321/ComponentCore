@@ -184,6 +184,13 @@
     "warnings": [],
     "notes": []
   },
+  "checks": {
+    "enabled": true,
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
+  },
   "mesh_suggestion": {
     "element_size": 2.5,
     "basis": "최소 벽 두께(3 mm, 「체결구」)의 절반 — 가장 얇은 벽에 요소 두 개 · 그 크기(1.5 mm)는 절점이 301,457개쯤이라 상한(100,000)을 넘어 2.5 mm 로 키웠다 — 얇은 벽은 국부 메시로 촘촘히",
@@ -202,7 +209,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "eadaf4e9-0d6e-40a7-986a-dec6214c1535",
+      "id": "602acf1c-e5ec-4b5a-84d1-5eeeb0faa05e",
       "name": "시험_뽑힘_D7332",
       "method": "factorial",
       "seed": 1

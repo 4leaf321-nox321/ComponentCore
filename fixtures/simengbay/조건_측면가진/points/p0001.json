@@ -150,6 +150,13 @@
     "warnings": [],
     "notes": []
   },
+  "checks": {
+    "enabled": true,
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
+  },
   "mesh_suggestion": {
     "element_size": 4.0,
     "basis": "가장 긴 변(90 mm)의 1/20 — 벽(10 mm)의 절반보다 작게, 그 방향에 요소 스무 개 이상",
@@ -168,7 +175,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "819eb120-66cd-467b-8147-7a4b1dc3ed4c",
+      "id": "2284f315-490c-4bc1-adc2-03f29330207a",
       "name": "조건_측면가진",
       "method": "factorial",
       "seed": 1

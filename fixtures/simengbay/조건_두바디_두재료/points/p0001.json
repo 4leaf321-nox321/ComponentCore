@@ -140,6 +140,13 @@
     "warnings": [],
     "notes": []
   },
+  "checks": {
+    "enabled": true,
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
+  },
   "mesh_suggestion": {
     "element_size": 2.5,
     "basis": "최소 벽 두께(5 mm, 「받침판」)의 절반 — 가장 얇은 벽에 요소 두 개",
@@ -158,7 +165,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "814f39e3-7160-495e-8570-d39225eb8a5b",
+      "id": "fa7b2373-cc3f-4ea5-b1d4-d5706712c0c9",
       "name": "조건_두바디_두재료",
       "method": "factorial",
       "seed": 1

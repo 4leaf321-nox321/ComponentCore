@@ -252,6 +252,13 @@
     "warnings": [],
     "notes": []
   },
+  "checks": {
+    "enabled": true,
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
+  },
   "mesh_suggestion": {
     "element_size": 1.2,
     "basis": "가장 긴 변(24 mm)의 1/20 — 벽(4 mm)의 절반보다 작게, 그 방향에 요소 스무 개 이상",
@@ -274,7 +281,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "02148c1c-ff05-4c55-a304-1150fbfe99a4",
+      "id": "8be11aaa-312f-434c-8514-03f137200525",
       "name": "시험_숏빔전단_D2344",
       "method": "factorial",
       "seed": 1

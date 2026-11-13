@@ -342,6 +342,10 @@ def test_측면_가진_픽스처_공진이_창_안에서_움직인다(
         assert conditions["analysis"]["frequency_range"] == [200, 2000]
         bodies = {one["name"]: one for one in point["bodies"]}
         assert bodies["기둥"]["volume"] == pytest.approx(100 * height)
+        # 점검 기준이 점 파일에도 — 받는 쪽이 `contact_gap` 을 형상 맞춤 허용오차로 쓴다
+        # (점 파일 하나로 닫히게, SimEngBay 의 부탁).
+        assert point["checks"]["contact_gap"] == 0.001
+        assert point["checks"] == json.loads((folder / "study.json").read_text())["checks"]
 
     out = os.environ.get("COMPCORE_FIXTURE_OUT")
     if out:

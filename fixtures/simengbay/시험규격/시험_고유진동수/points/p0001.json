@@ -66,6 +66,13 @@
     "warnings": [],
     "notes": []
   },
+  "checks": {
+    "enabled": true,
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
+  },
   "mesh_suggestion": {
     "element_size": 3.0,
     "basis": "최소 벽 두께(6 mm)의 절반 — 가장 얇은 벽에 요소 두 개",
@@ -84,7 +91,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "4a4779a7-8173-49b7-9459-1e4ef0d70d7f",
+      "id": "e9196595-3982-4760-960f-d88110e6ae09",
       "name": "시험_고유진동수",
       "method": "factorial",
       "seed": 1

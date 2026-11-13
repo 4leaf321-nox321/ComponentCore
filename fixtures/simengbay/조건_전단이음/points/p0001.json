@@ -196,6 +196,13 @@
     "warnings": [],
     "notes": []
   },
+  "checks": {
+    "enabled": true,
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
+  },
   "mesh_suggestion": {
     "element_size": 2.5,
     "basis": "최소 벽 두께(5 mm, 「아래판」)의 절반 — 가장 얇은 벽에 요소 두 개",
@@ -214,7 +221,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "391051c4-7787-4d8c-aecd-6f4faa81f15d",
+      "id": "cd9f23a0-9c81-4a2e-8638-e2aa6b1e4565",
       "name": "조건_전단이음",
       "method": "table",
       "seed": 1

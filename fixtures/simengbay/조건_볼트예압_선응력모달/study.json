@@ -1,5 +1,5 @@
 {
-  "id": "10cfbf35-80ed-41f9-a46c-5637cf052e88",
+  "id": "bac31c67-c4d6-4b2d-8457-ca1188f8d268",
   "name": "조건_볼트예압_선응력모달",
   "description": "",
   "method": "table",
@@ -596,7 +596,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-bd30fc5a@example.local"
+    "email": "member-92ae86ec@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

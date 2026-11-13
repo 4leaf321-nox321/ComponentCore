@@ -141,6 +141,13 @@
     "warnings": [],
     "notes": []
   },
+  "checks": {
+    "enabled": true,
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
+  },
   "mesh_suggestion": {
     "element_size": 5.0,
     "basis": "가장 긴 변(100 mm)의 1/20 — 벽 두께를 모른다(시트만 있거나 형상 점검을 껐다)",
@@ -161,7 +168,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "00716dab-1d5c-486e-a4e4-13e47da0c78d",
+      "id": "b9888904-f12d-48ad-92b3-13f91c1eaf7b",
       "name": "셸모델_시트외팔보",
       "method": "factorial",
       "seed": 1

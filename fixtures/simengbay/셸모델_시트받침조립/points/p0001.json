@@ -205,6 +205,13 @@
     "warnings": [],
     "notes": []
   },
+  "checks": {
+    "enabled": true,
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
+  },
   "mesh_suggestion": {
     "element_size": 5.0,
     "basis": "최소 벽 두께(10 mm, 「base」)의 절반 — 가장 얇은 벽에 요소 두 개",
@@ -225,7 +232,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "a7791382-2731-4a4e-967e-10e25e8680e3",
+      "id": "1531a0cd-aae3-4525-ad8e-f491be2a1d15",
       "name": "셸모델_시트받침조립",
       "method": "factorial",
       "seed": 1

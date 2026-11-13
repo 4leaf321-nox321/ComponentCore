@@ -263,6 +263,13 @@
     "warnings": [],
     "notes": []
   },
+  "checks": {
+    "enabled": true,
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
+  },
   "mesh_suggestion": {
     "element_size": 2.5,
     "basis": "최소 벽 두께(5.3 mm, 「볼트」)의 절반 — 가장 얇은 벽에 요소 두 개",
@@ -281,7 +288,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "4e5fecee-054d-42b9-bc8f-965ca5506e8c",
+      "id": "a2e586af-7ec8-468e-b198-8694eacf00d5",
       "name": "조건_볼트예압_판본딩",
       "method": "table",
       "seed": 1
