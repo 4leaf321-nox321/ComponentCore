@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from build123d import Box, Cylinder, Pos
+from build123d import Box, Cylinder, Part, Pos
 
 from app.core.quality import DEFAULTS, QualityError, compare, inspect, thresholds
 
@@ -49,3 +49,38 @@ def test_기준_형상과_견줘_바디가_쪼개지면_경고_면_수는_알림
     assert split["warnings"] == ["바디 수가 기준과 다릅니다(1 → 2)."]
     assert split["notes"] == ["면 수 6 → 12"]
     assert compare({"solids": 1, "faces": 6, "warnings": []}, None)["notes"] == []
+
+
+def _two(dz: float) -> Part:
+    """큰 판(z 0..20) 위에 작은 블록 — `dz` 만큼 띄우거나(틈) 박는다(겹침)."""
+
+    base = Box(100, 100, 20).moved(Pos(0, 0, 10))
+    base.label = "Base"
+    block = Box(20, 20, 20).moved(Pos(0, 0, 30 + dz))
+    block.label = "Block"
+    return Part(children=[base, block])
+
+
+def test_바디끼리_얇은_겹침과_작은_틈을_그_자리와_함께_잡는다() -> None:
+    # 꼭 맞닿은 것은 적지 않는다 — 받는 쪽이 쪼개 절점을 공유하는 정상이다.
+    assert inspect(_two(0.0))["contacts"] == []
+
+    # 0.01 mm 겹침 — 받는 쪽 쪼개기가 두께 0.01 조각을 따로 만들던 꼴(gmsh 4.12 실측).
+    found = inspect(_two(-0.01))
+    (one,) = found["contacts"]
+    assert one["kind"] == "overlap" and (one["a"], one["b"]) == ("Base", "Block")
+    assert one["size"] == pytest.approx(0.01, abs=1e-4)
+    assert one["volume"] == pytest.approx(4.0, abs=1e-3)
+    assert one["at"] == pytest.approx([0, 0, 19.995], abs=1e-3)
+    assert any("바디 겹침 ‘Base’ · ‘Block’" in line for line in found["warnings"])
+
+    # 0.005 mm 틈 — 절점을 하나도 공유하지 않던 꼴. 자리는 마주 본 면의 가운데다.
+    found = inspect(_two(0.005))
+    (one,) = found["contacts"]
+    assert one["kind"] == "gap" and one["size"] == pytest.approx(0.005, abs=1e-5)
+    assert one["at"] == pytest.approx([0, 0, 20.0025], abs=1e-3)
+    assert any("바디 사이 틈" in line for line in found["warnings"])
+
+    # 기준보다 먼 틈은 틈이 아니다 — 떨어진 바디다. 0 이면 틈은 안 본다.
+    assert inspect(_two(0.5))["contacts"] == []
+    assert inspect(_two(0.005), thresholds({"contact_gap": 0}))["contacts"] == []

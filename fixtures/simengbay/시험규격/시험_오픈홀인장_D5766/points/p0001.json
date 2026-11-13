@@ -118,6 +118,7 @@
     "short_edges": 0,
     "narrowest_face": 3.6,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -139,7 +140,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "6ae3743d-48b5-4d67-8b50-0bbe903f4862",
+      "id": "a472aea7-8861-43f4-b3fa-754ea0896c09",
       "name": "시험_오픈홀인장_D5766",
       "method": "factorial",
       "seed": 1

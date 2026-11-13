@@ -1,5 +1,5 @@
 {
-  "id": "791588de-8864-47c0-a659-89541639414f",
+  "id": "b8b54540-a84d-4459-87db-262445713ed4",
   "name": "시험_보드굽힘_JESD22",
   "description": "",
   "method": "factorial",
@@ -13,7 +13,8 @@
     "enabled": true,
     "min_wall": 0.5,
     "short_edge": 0.1,
-    "narrow_face": 0.1
+    "narrow_face": 0.1,
+    "contact_gap": 0.1
   },
   "recipe": {
     "nodes": [
@@ -432,7 +433,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-ebd033e6@example.local"
+    "email": "member-6572c2e4@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

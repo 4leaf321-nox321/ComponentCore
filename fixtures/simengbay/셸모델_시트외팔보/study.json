@@ -1,5 +1,5 @@
 {
-  "id": "ba34191c-7a1e-461a-b5f1-74b6982c7472",
+  "id": "d3de7f0f-2113-4878-aa96-3ada02d2fd95",
   "name": "셸모델_시트외팔보",
   "description": "",
   "method": "factorial",
@@ -13,15 +13,17 @@
     "enabled": true,
     "min_wall": 0.5,
     "short_edge": 0.1,
-    "narrow_face": 0.1
+    "narrow_face": 0.1,
+    "contact_gap": 0.1
   },
   "recipe": {
     "nodes": [
       {
         "id": "imported",
         "op": "import_step",
-        "file": "bb710d8e-ad7e-4a8c-8936-4c2dffec9751",
-        "label": "sheet_cantilever.step"
+        "file": "ae74c714-9901-4e7f-be5e-df85c97c6ebd",
+        "label": "sheet_cantilever.step",
+        "bodies": "leaf"
       }
     ],
     "version": 1
@@ -221,7 +223,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-f622efab@example.local"
+    "email": "member-0c677290@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

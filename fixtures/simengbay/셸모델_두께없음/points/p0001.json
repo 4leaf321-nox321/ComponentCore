@@ -80,6 +80,7 @@
     "short_edges": 0,
     "narrowest_face": 6.6667,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -103,7 +104,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "2582d317-73a2-424a-97b6-f3b2d40aa141",
+      "id": "bdf6d623-4cee-4568-889e-a850e08fde26",
       "name": "셸모델_두께없음",
       "method": "factorial",
       "seed": 1

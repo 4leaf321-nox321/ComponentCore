@@ -259,6 +259,7 @@
     "short_edges": 0,
     "narrowest_face": 0.5,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -280,7 +281,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "e7a4520c-e201-4163-8a7f-b5d376078012",
+      "id": "2861bdc9-b86f-4253-b6cd-4843e07f36ea",
       "name": "조건_볼트예압_선응력모달",
       "method": "table",
       "seed": 1

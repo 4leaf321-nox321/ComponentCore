@@ -1,5 +1,5 @@
 {
-  "id": "bc2bce49-c05b-460d-8bac-6bdbac66f50e",
+  "id": "7ca24544-0f6d-4315-b3b5-cb6ca074d6ac",
   "name": "시험_정하중_T2",
   "description": "",
   "method": "factorial",
@@ -13,7 +13,8 @@
     "enabled": true,
     "min_wall": 0.5,
     "short_edge": 0.1,
-    "narrow_face": 0.1
+    "narrow_face": 0.1,
+    "contact_gap": 0.1
   },
   "recipe": {
     "nodes": [
@@ -300,7 +301,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-e177a150@example.local"
+    "email": "member-d544471c@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

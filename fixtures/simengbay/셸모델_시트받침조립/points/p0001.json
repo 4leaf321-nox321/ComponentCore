@@ -201,6 +201,7 @@
     "short_edges": 0,
     "narrowest_face": 6.6667,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -224,7 +225,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "2d515617-4dab-4bfd-9bd9-a11cc8bf8aa2",
+      "id": "7eadb102-a527-4c1c-8fdf-152118f49cae",
       "name": "셸모델_시트받침조립",
       "method": "factorial",
       "seed": 1

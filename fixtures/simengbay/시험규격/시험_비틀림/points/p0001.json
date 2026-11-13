@@ -77,6 +77,7 @@
     "short_edges": 0,
     "narrowest_face": 9.6873,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -98,7 +99,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "4a353711-5fb9-46f3-98d1-a63bbdacb33b",
+      "id": "02581e26-49d1-4984-9576-5a4b2b12fba0",
       "name": "시험_비틀림",
       "method": "factorial",
       "seed": 1

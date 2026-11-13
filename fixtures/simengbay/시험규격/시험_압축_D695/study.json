@@ -1,5 +1,5 @@
 {
-  "id": "757bcc97-8fff-4b33-9ed1-ff726522fa8c",
+  "id": "f93c4e5b-e8a3-4106-9e1d-6314c333d1fc",
   "name": "시험_압축_D695",
   "description": "",
   "method": "factorial",
@@ -13,7 +13,8 @@
     "enabled": true,
     "min_wall": 0.5,
     "short_edge": 0.1,
-    "narrow_face": 0.1
+    "narrow_face": 0.1,
+    "contact_gap": 0.1
   },
   "recipe": {
     "nodes": [
@@ -215,7 +216,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-0d531884@example.local"
+    "email": "member-9db7381d@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

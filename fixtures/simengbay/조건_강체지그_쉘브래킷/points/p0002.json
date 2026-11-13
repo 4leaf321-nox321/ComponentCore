@@ -255,6 +255,7 @@
     "short_edges": 0,
     "narrowest_face": 0.9091,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -280,7 +281,7 @@
   "point": {
     "number": 2,
     "study": {
-      "id": "5af9f69c-0f34-4a44-b6df-f1ebabe56422",
+      "id": "a7b941c6-a54e-4dae-983a-50bfba786396",
       "name": "조건_강체지그_쉘브래킷",
       "method": "factorial",
       "seed": 1

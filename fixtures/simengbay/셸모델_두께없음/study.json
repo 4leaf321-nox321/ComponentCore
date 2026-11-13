@@ -1,5 +1,5 @@
 {
-  "id": "2582d317-73a2-424a-97b6-f3b2d40aa141",
+  "id": "bdf6d623-4cee-4568-889e-a850e08fde26",
   "name": "셸모델_두께없음",
   "description": "",
   "method": "factorial",
@@ -13,15 +13,17 @@
     "enabled": true,
     "min_wall": 0.5,
     "short_edge": 0.1,
-    "narrow_face": 0.1
+    "narrow_face": 0.1,
+    "contact_gap": 0.1
   },
   "recipe": {
     "nodes": [
       {
         "id": "imported",
         "op": "import_step",
-        "file": "4acf1b3e-32e9-4fe8-a8e2-94d372218d67",
-        "label": "sheet_no_thickness.step"
+        "file": "d7423bc8-cc5c-4710-9708-6ef6fb3ebf48",
+        "label": "sheet_no_thickness.step",
+        "bodies": "leaf"
       }
     ],
     "version": 1
@@ -220,7 +222,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-673ba1a0@example.local"
+    "email": "member-b58bdb3c@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

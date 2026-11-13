@@ -62,6 +62,7 @@
     "short_edges": 0,
     "narrowest_face": 9.6873,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -83,7 +84,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "b72e69ba-1fec-422f-aa5f-93074df2f5f1",
+      "id": "223e58e2-8481-40a8-b29e-5b0fe63f0565",
       "name": "시험_가속도_15g",
       "method": "factorial",
       "seed": 1

@@ -249,6 +249,7 @@
     "short_edges": 0,
     "narrowest_face": 0.1969,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [
       "벽 두께 0.2 mm (기준 0.5), 위치 (-4.233, -8.467, 1.62) 부근"
     ],
@@ -272,7 +273,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "96efa2f4-e3f7-49f0-a9a5-eb7873f5755a",
+      "id": "a33ce757-f00f-435b-b5bb-8b9897b463ad",
       "name": "시험_겹치기이음_D1002",
       "method": "factorial",
       "seed": 1

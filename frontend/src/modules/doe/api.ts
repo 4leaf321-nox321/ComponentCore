@@ -74,6 +74,8 @@ export interface Quality {
   short_edges?: number
   narrowest_face?: number | null
   narrow_faces?: number
+  /** 바디끼리 겹침 · 작은 틈과 그 자리 — 받는 쪽 메시가 맞닿은 곳에서 깨지는 원인. */
+  contacts?: { kind: 'overlap' | 'gap'; a: string; b: string; size: number | null; volume?: number; at: number[] }[]
   warnings: string[]
   notes?: string[]
 }
@@ -84,10 +86,12 @@ export interface Checks {
   min_wall?: number
   short_edge?: number
   narrow_face?: number
+  /** 바디 사이 틈을 이 거리까지 찾는다(0 이면 틈은 안 본다 — 겹침은 늘 본다). */
+  contact_gap?: number
 }
 
 /** 서버의 기본 기준(core/quality.DEFAULTS)과 같다. */
-export const CHECK_DEFAULTS = { min_wall: 0.5, short_edge: 0.1, narrow_face: 0.1 }
+export const CHECK_DEFAULTS = { min_wall: 0.5, short_edge: 0.1, narrow_face: 0.1, contact_gap: 0.1 }
 
 /** 설계점을 뽑는 방식 — 격자 · LHS · 직접 준 표 · 하나씩 바꾸기 · 중심 합성 · Box-Behnken · Sobol. */
 export type DoeMethod = 'factorial' | 'lhs' | 'table' | 'oat' | 'ccd' | 'bbd' | 'sobol'

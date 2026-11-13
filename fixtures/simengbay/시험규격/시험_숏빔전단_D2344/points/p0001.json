@@ -248,6 +248,7 @@
     "short_edges": 0,
     "narrowest_face": 0.5,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -273,7 +274,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "57255780-7d05-4a3a-871e-7e0cc6bdd084",
+      "id": "923f54c6-6cb3-478f-bc23-ea26ff7c8fd2",
       "name": "시험_숏빔전단_D2344",
       "method": "factorial",
       "seed": 1

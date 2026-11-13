@@ -176,6 +176,7 @@
     "short_edges": 0,
     "narrowest_face": 3.0,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -199,7 +200,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "a451a2ff-f887-4dca-9cf5-8bf781da7dcf",
+      "id": "c854573d-6e80-4c6c-867e-76ea58bda55e",
       "name": "시험_핀베어링_D5961",
       "method": "factorial",
       "seed": 1

@@ -1,5 +1,5 @@
 {
-  "id": "82e7a122-7256-4e89-9ab1-a07abc55bb79",
+  "id": "ae018dc1-174f-4bae-b4c2-576bb01d04d8",
   "name": "시험_손잡이",
   "description": "",
   "method": "factorial",
@@ -13,7 +13,8 @@
     "enabled": true,
     "min_wall": 0.5,
     "short_edge": 0.1,
-    "narrow_face": 0.1
+    "narrow_face": 0.1,
+    "contact_gap": 0.1
   },
   "recipe": {
     "nodes": [
@@ -275,7 +276,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-5cbf0656@example.local"
+    "email": "member-810793e9@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

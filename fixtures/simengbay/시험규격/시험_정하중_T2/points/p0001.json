@@ -77,6 +77,7 @@
     "short_edges": 0,
     "narrowest_face": 6.0,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -98,7 +99,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "bc2bce49-c05b-460d-8bac-6bdbac66f50e",
+      "id": "7ca24544-0f6d-4315-b3b5-cb6ca074d6ac",
       "name": "시험_정하중_T2",
       "method": "factorial",
       "seed": 1

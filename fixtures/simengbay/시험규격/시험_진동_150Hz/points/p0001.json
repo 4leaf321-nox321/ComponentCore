@@ -62,6 +62,7 @@
     "short_edges": 0,
     "narrowest_face": 9.6873,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -83,7 +84,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "7d4d8e37-9772-422a-abb7-6f7af8110890",
+      "id": "5046f4ba-6627-435f-abcc-aae80fd82ec9",
       "name": "시험_진동_150Hz",
       "method": "factorial",
       "seed": 1

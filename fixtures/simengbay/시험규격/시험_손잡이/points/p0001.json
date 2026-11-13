@@ -62,6 +62,7 @@
     "short_edges": 0,
     "narrowest_face": 9.6873,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -83,7 +84,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "82e7a122-7256-4e89-9ab1-a07abc55bb79",
+      "id": "ae018dc1-174f-4bae-b4c2-576bb01d04d8",
       "name": "시험_손잡이",
       "method": "factorial",
       "seed": 1

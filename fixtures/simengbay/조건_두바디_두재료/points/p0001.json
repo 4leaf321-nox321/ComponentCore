@@ -136,6 +136,7 @@
     "short_edges": 0,
     "narrowest_face": 4.6154,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -157,7 +158,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "5accc194-6de6-4a6b-95df-2db5b7915585",
+      "id": "effd6842-3f58-4f88-a720-b077c2a86193",
       "name": "조건_두바디_두재료",
       "method": "factorial",
       "seed": 1

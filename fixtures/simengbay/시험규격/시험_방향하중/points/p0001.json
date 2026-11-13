@@ -77,6 +77,7 @@
     "short_edges": 0,
     "narrowest_face": 9.6873,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -98,7 +99,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "e990228d-8c9a-4d38-b1fb-4a576d8d51f8",
+      "id": "a63bcc71-b892-4453-8733-32402631f90d",
       "name": "시험_방향하중",
       "method": "factorial",
       "seed": 1

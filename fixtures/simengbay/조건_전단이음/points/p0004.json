@@ -192,6 +192,7 @@
     "short_edges": 0,
     "narrowest_face": 4.1667,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -213,7 +214,7 @@
   "point": {
     "number": 4,
     "study": {
-      "id": "d561764c-76f1-466f-b25d-ef31d7b3d6d9",
+      "id": "e8232fcb-84f1-497e-ac24-ce70fe6be59c",
       "name": "조건_전단이음",
       "method": "table",
       "seed": 1

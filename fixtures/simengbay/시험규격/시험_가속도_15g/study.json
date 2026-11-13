@@ -1,5 +1,5 @@
 {
-  "id": "b72e69ba-1fec-422f-aa5f-93074df2f5f1",
+  "id": "223e58e2-8481-40a8-b29e-5b0fe63f0565",
   "name": "시험_가속도_15g",
   "description": "",
   "method": "factorial",
@@ -13,7 +13,8 @@
     "enabled": true,
     "min_wall": 0.5,
     "short_edge": 0.1,
-    "narrow_face": 0.1
+    "narrow_face": 0.1,
+    "contact_gap": 0.1
   },
   "recipe": {
     "nodes": [
@@ -268,7 +269,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-6c1dbdfd@example.local"
+    "email": "member-ffccde8f@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

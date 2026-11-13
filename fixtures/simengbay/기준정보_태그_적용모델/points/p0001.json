@@ -136,6 +136,7 @@
     "short_edges": 0,
     "narrowest_face": 4.6154,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -157,7 +158,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "248ca375-fb9b-4b13-bc87-7b256a2382f4",
+      "id": "a4a63ecf-5287-4d67-ab74-77e0d074a80e",
       "name": "기준정보_태그_적용모델",
       "method": "factorial",
       "seed": 1

@@ -12,6 +12,11 @@ DOE 는 치수를 끝까지 민다. 그러다 보면 형상은 멀쩡히 만들�
 - **짧은 모서리** · **좁은 면**(넓이의 두 배 / 둘레 — 가늘고 긴 띠는 폭이 된다).
 - **형상이 올바른가**(BRepCheck), 솔리드 · 면 수. 기준 형상과 견줘 **바디가 쪼개지거나 합쳐진
   것**은 경고로, 면 수가 달라진 것은 알림으로 둔다(패턴 개수를 훑으면 면 수는 늘 바뀐다).
+- **바디끼리 겹침 · 작은 틈과 그 자리**(`contacts`). 받는 쪽은 맞닿은 바디를 쪼개(fragment)
+  절점을 공유시킨다. 얇게 겹치면 겹친 곳이 따로 조각이 되어 그 두께의 요소가 서고 부피 번호가
+  밀려 파트별 요소 크기가 엉뚱한 부피에 붙었다. 작은 틈이면 쪼개기가 아무것도 안 해 절점을
+  하나도 공유하지 않았다 — 바디가 떠 있다(실측 2026-11-13, gmsh 4.12: 0.01 mm 겹침 · 0.005 mm
+  틈). 「큰 바디와 맞닿는 곳에서 메시가 깨진다」 는데 자리를 모를 때 이것이 그 자리를 말한다.
 
 기준값은 스터디마다 바꾼다(`DoeStudy.checks`). 정밀한 두께 해석이 아니라 **눈에 띄게 나쁜 점을
 거르는 체**다 — 광선을 쏜 곳 사이의 더 얇은 곳은 놓칠 수 있다.
@@ -22,7 +27,19 @@ from __future__ import annotations
 from typing import Any
 
 #: 기준값(mm) — 이보다 작으면 경고. 지그 · 브래킷의 흔한 메시 크기에서 문제가 되는 수준.
-DEFAULTS: dict[str, float] = {"min_wall": 0.5, "short_edge": 0.1, "narrow_face": 0.1}
+#: `contact_gap` 은 바디 사이 틈을 **이 거리까지** 찾는다(0 이면 틈은 안 본다 — 겹침은 늘
+#: 본다).
+DEFAULTS: dict[str, float] = {
+    "min_wall": 0.5,
+    "short_edge": 0.1,
+    "narrow_face": 0.1,
+    "contact_gap": 0.1,
+}
+#: 바디 쌍을 재는 상한 — 경계 상자가 닿는 쌍만 재지만, 수백 바디 조립에서 점 하나가 몇 분을
+#: 넘지 않게.
+MAX_CONTACT_PAIRS = 400
+#: 이보다 작은 겹침 부피(mm³)는 맞닿은 면의 수치 오차다.
+_TOUCHING_VOLUME = 1e-6
 #: 한 형상에 쏘는 광선 수의 상한 — 면이 수천 장인 조립에서도 점 하나가 몇 초를 넘지 않게.
 MAX_RAYS = 6000
 #: 광선의 출발점을 면에서 재료 안으로 이만큼 들여 놓는다 — 제 면에 닿는 것을 피한다.
@@ -166,8 +183,96 @@ def inspect(shape: Any, limits: dict[str, Any] | None = None) -> dict[str, Any]:
     narrow = [one for one in widths if one < limits["narrow_face"]]
     out["narrowest_face"] = round(min(widths), 4) if widths else None
     out["narrow_faces"] = len(narrow)
+    out["contacts"], skipped = _contacts(
+        [(name, solid) for name, part in named_parts(shape) for solid in part.solids()],
+        limits.get("contact_gap", DEFAULTS["contact_gap"]),
+    )
     out["warnings"] = _warnings(out, limits)
+    if skipped:
+        out["warnings"].append(
+            f"바디 쌍이 많아 겹침 · 틈은 처음 {MAX_CONTACT_PAIRS}쌍만 쟀습니다"
+            f"({skipped}쌍 건너뜀)."
+        )
     return out
+
+
+def _contacts(solids: list[tuple[str, Any]], gap: float) -> tuple[list[dict[str, Any]], int]:
+    """솔리드 쌍마다 **겹침**(두께 · 부피 · 자리)과 `gap` 이하의 **틈**(거리 · 자리). 꼭 맞닿은
+    쌍(부피 0 · 거리 0)은 적지 않는다. 두 번째 값은 상한에 걸려 건너뛴 쌍 수."""
+    from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+
+    found: list[dict[str, Any]] = []
+    measured = skipped = 0
+    for i, (name_a, a) in enumerate(solids):
+        box_a = a.bounding_box()
+        for name_b, b in solids[i + 1 :]:
+            if not _near(box_a, b.bounding_box(), gap):
+                continue
+            if measured >= MAX_CONTACT_PAIRS:
+                skipped += 1
+                continue
+            measured += 1
+            try:
+                common = a & b
+                volume = float(getattr(common, "volume", 0.0) or 0.0)
+            except Exception:
+                volume = 0.0
+            if volume > _TOUCHING_VOLUME:
+                area = float(getattr(common, "area", 0.0) or 0.0)
+                found.append(
+                    {
+                        "kind": "overlap",
+                        "a": name_a,
+                        "b": name_b,
+                        # 두께 ≈ 2V/A — 얇은 판 모양 겹침이면 그 두께다.
+                        "size": round(2 * volume / area, 4) if area > 0 else None,
+                        "volume": round(volume, 4),
+                        "at": _xyz(common.center()),
+                    }
+                )
+                continue
+            if gap <= 0:
+                continue
+            distance = BRepExtrema_DistShapeShape(a.wrapped, b.wrapped)
+            if not distance.IsDone() or distance.NbSolution() == 0:
+                continue
+            value = float(distance.Value())
+            if 1e-6 < value <= gap:
+                # 마주 본 면 사이의 틈은 최단 거리 해가 여럿이다(그 면의 꼭짓점마다) — 첫 해만
+                # 쓰면 틈의 한쪽 구석을 가리킨다. 해들의 가운데를 쓴다.
+                count = distance.NbSolution()
+                middle = [0.0, 0.0, 0.0]
+                for k in range(1, count + 1):
+                    p, q = distance.PointOnShape1(k), distance.PointOnShape2(k)
+                    middle[0] += (p.X() + q.X()) / 2 / count
+                    middle[1] += (p.Y() + q.Y()) / 2 / count
+                    middle[2] += (p.Z() + q.Z()) / 2 / count
+                found.append(
+                    {
+                        "kind": "gap",
+                        "a": name_a,
+                        "b": name_b,
+                        "size": round(value, 4),
+                        "at": [round(one, 3) + 0.0 for one in middle],
+                    }
+                )
+    return found, skipped
+
+
+def _near(first: Any, second: Any, gap: float) -> bool:
+    """경계 상자가 `gap` 안으로 다가오나 — 아니면 불리언 · 거리를 잴 이유가 없다."""
+    return not (
+        first.max.X + gap < second.min.X
+        or second.max.X + gap < first.min.X
+        or first.max.Y + gap < second.min.Y
+        or second.max.Y + gap < first.min.Y
+        or first.max.Z + gap < second.min.Z
+        or second.max.Z + gap < first.min.Z
+    )
+
+
+def _xyz(v: Any) -> list[float]:
+    return [round(float(v.X), 3) + 0.0, round(float(v.Y), 3) + 0.0, round(float(v.Z), 3) + 0.0]
 
 
 def _warnings(found: dict[str, Any], limits: dict[str, Any]) -> list[str]:
@@ -194,6 +299,24 @@ def _warnings(found: dict[str, Any], limits: dict[str, Any]) -> list[str]:
             f"좁은 면 {found['narrow_faces']}개 (최소 {narrowest:.3g} mm, "
             f"기준 {limits['narrow_face']:g})"
         )
+    for one in (found.get("contacts") or [])[:5]:
+        where = f"위치 ({', '.join(f'{v:g}' for v in one['at'])}) 부근"
+        pair = f"‘{one['a']}’ · ‘{one['b']}’"
+        if one["kind"] == "overlap":
+            thick = f"두께 약 {one['size']:.3g} mm, " if one.get("size") is not None else ""
+            warnings.append(
+                f"바디 겹침 {pair} ({thick}부피 {one['volume']:.3g} mm³), {where} — 해석이 "
+                "맞닿은 면을 쪼갤 때 겹친 곳이 따로 조각이 되어 메시가 깨지거나 파트별 설정이 "
+                "어긋날 수 있습니다."
+            )
+        else:
+            warnings.append(
+                f"바디 사이 틈 {pair} {one['size']:.3g} mm, {where} — 붙어 있어야 하면 틈을 "
+                "없애십시오. 그대로면 절점을 공유하지 않아 떠 있습니다(접촉을 걸지 않으면)."
+            )
+    more = len(found.get("contacts") or []) - 5
+    if more > 0:
+        warnings.append(f"겹침 · 틈이 {more}곳 더 있습니다(점 파일 quality.contacts).")
     return warnings
 
 

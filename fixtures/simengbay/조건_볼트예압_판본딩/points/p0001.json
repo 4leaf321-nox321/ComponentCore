@@ -259,6 +259,7 @@
     "short_edges": 0,
     "narrowest_face": 0.5,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -280,7 +281,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "546137cd-e3ff-43e2-80f6-b05889680227",
+      "id": "4d633525-d45c-4547-98d9-bff88cc4cd0d",
       "name": "조건_볼트예압_판본딩",
       "method": "table",
       "seed": 1

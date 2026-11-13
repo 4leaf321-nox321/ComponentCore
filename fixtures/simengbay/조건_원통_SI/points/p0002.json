@@ -83,6 +83,7 @@
     "short_edges": 0,
     "narrowest_face": 8.3333,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -104,7 +105,7 @@
   "point": {
     "number": 2,
     "study": {
-      "id": "e74aefbf-726f-4f9b-adf0-8951ac35515c",
+      "id": "afbc46a9-7701-439a-9723-78ac07649907",
       "name": "조건_원통_SI",
       "method": "factorial",
       "seed": 1

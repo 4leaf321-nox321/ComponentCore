@@ -118,6 +118,7 @@
     "short_edges": 0,
     "narrowest_face": 1.6651,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -139,7 +140,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "28ffb021-12ab-459c-b6f0-556f15365b5e",
+      "id": "b429a16a-3f8f-419e-9aab-ba1f8052562f",
       "name": "시험_인장_E8",
       "method": "factorial",
       "seed": 1

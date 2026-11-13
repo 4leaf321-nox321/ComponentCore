@@ -559,7 +559,7 @@ export function DoeForm({
         </span>
       </label>
 
-      {/* 형상 점검 — 해석이 메시를 못 만들 점(얇은 벽 · 짧은 모서리 · 좁은 면 · 쪼개진 바디)을 표에 적는다. */}
+      {/* 형상 점검 — 해석이 메시를 못 만들 점(얇은 벽 · 짧은 모서리 · 좁은 면 · 쪼개진 바디 · 바디끼리 겹침과 작은 틈)을 표에 적는다. */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border px-3 py-2 text-xs" aria-label="형상 점검">
         <label className="flex items-center gap-1.5 font-medium">
           <input type="checkbox" checked={checks.enabled} onChange={(e) => setChecks({ ...checks, enabled: e.target.checked })} />
@@ -570,6 +570,7 @@ export function DoeForm({
             ['min_wall', '최소 벽 두께'],
             ['short_edge', '짧은 모서리'],
             ['narrow_face', '좁은 면'],
+            ['contact_gap', '바디 사이 틈'],
           ] as const
         ).map(([key, label]) => (
           <label key={key} className="flex items-center gap-1">

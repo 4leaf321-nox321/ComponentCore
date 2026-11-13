@@ -1,5 +1,5 @@
 {
-  "id": "99660be6-698e-4d05-b8b4-7a53c11d8a06",
+  "id": "feaab5f1-3acf-4adb-a4cc-b6b5c83db2c7",
   "name": "시험_고유진동수",
   "description": "",
   "method": "factorial",
@@ -13,7 +13,8 @@
     "enabled": true,
     "min_wall": 0.5,
     "short_edge": 0.1,
-    "narrow_face": 0.1
+    "narrow_face": 0.1,
+    "contact_gap": 0.1
   },
   "recipe": {
     "nodes": [
@@ -257,7 +258,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-2de4aed2@example.local"
+    "email": "member-f00f19f4@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

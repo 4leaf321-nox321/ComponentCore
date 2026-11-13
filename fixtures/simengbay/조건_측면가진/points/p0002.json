@@ -146,6 +146,7 @@
     "short_edges": 0,
     "narrowest_face": 5.0,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -167,7 +168,7 @@
   "point": {
     "number": 2,
     "study": {
-      "id": "c9aeded1-5681-4642-9ba8-8131a2da8e43",
+      "id": "117ecab7-7e3c-4f4c-9e8b-009ffab0f93e",
       "name": "조건_측면가진",
       "method": "factorial",
       "seed": 1

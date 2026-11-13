@@ -136,6 +136,7 @@
     "short_edges": 0,
     "narrowest_face": 4.6154,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -157,7 +158,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "76961ba2-16dd-4ad0-bc80-571222bb815e",
+      "id": "2d7f6904-0a8d-4202-a060-7aa8c3db8b72",
       "name": "조건_재료훑기",
       "method": "factorial",
       "seed": 1

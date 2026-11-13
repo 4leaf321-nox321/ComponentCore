@@ -180,6 +180,7 @@
     "short_edges": 0,
     "narrowest_face": 2.8913,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -201,7 +202,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "0d4eda8b-0996-43b3-9e84-1c19f8b14f08",
+      "id": "d592ed8b-9cd8-403d-a6e3-0e8d06a33d8d",
       "name": "시험_뽑힘_D7332",
       "method": "factorial",
       "seed": 1

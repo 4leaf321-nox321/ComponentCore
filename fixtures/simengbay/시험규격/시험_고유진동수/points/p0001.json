@@ -62,6 +62,7 @@
     "short_edges": 0,
     "narrowest_face": 9.6873,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -83,7 +84,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "99660be6-698e-4d05-b8b4-7a53c11d8a06",
+      "id": "feaab5f1-3acf-4adb-a4cc-b6b5c83db2c7",
       "name": "시험_고유진동수",
       "method": "factorial",
       "seed": 1

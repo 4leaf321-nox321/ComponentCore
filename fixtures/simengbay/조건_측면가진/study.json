@@ -1,5 +1,5 @@
 {
-  "id": "c9aeded1-5681-4642-9ba8-8131a2da8e43",
+  "id": "117ecab7-7e3c-4f4c-9e8b-009ffab0f93e",
   "name": "조건_측면가진",
   "description": "",
   "method": "factorial",
@@ -30,7 +30,8 @@
     "enabled": true,
     "min_wall": 0.5,
     "short_edge": 0.1,
-    "narrow_face": 0.1
+    "narrow_face": 0.1,
+    "contact_gap": 0.1
   },
   "recipe": {
     "nodes": [
@@ -491,7 +492,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-1fac00b1@example.local"
+    "email": "member-293275ee@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

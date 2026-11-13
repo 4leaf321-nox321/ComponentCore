@@ -285,6 +285,7 @@
     "short_edges": 0,
     "narrowest_face": 0.5,
     "narrow_faces": 0,
+    "contacts": [],
     "warnings": [],
     "notes": []
   },
@@ -306,7 +307,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "8b3772f2-ed0f-49f3-8f62-314f5a12ef8a",
+      "id": "7f6eac72-0e0c-4c50-aeca-ba8b43359d6b",
       "name": "조건_볼트예압_바디",
       "method": "table",
       "seed": 1

@@ -1,5 +1,5 @@
 {
-  "id": "546137cd-e3ff-43e2-80f6-b05889680227",
+  "id": "4d633525-d45c-4547-98d9-bff88cc4cd0d",
   "name": "조건_볼트예압_판본딩",
   "description": "",
   "method": "table",
@@ -43,7 +43,8 @@
     "enabled": true,
     "min_wall": 0.5,
     "short_edge": 0.1,
-    "narrow_face": 0.1
+    "narrow_face": 0.1,
+    "contact_gap": 0.1
   },
   "recipe": {
     "nodes": [
@@ -588,7 +589,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-b0843553@example.local"
+    "email": "member-21345a66@example.local"
   },
   "requested_by": null,
   "cloned_from": null,
