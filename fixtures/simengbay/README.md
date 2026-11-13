@@ -536,12 +536,16 @@ gmsh · ccx, 점 파일 · STEP 을 그대로 `topology.json` · `input.step` �
 
 ## 읽을 때 알아 둘 것
 
-- **2026-11-13 — 형상 점검에 바디끼리 겹침 · 작은 틈(`quality.contacts`).** 점 파일 `quality` 에
-  `contacts[]` 가 는다 — 솔리드 쌍마다 `{kind: "overlap" | "gap", a, b, size, volume?, at}`. 겹침은 늘
-  찾고(`size` 는 두께 어림 2V/A, `volume` 은 mm³), 틈은 `checks.contact_gap`(기본 0.1 mm) 이하만
-  찾는다(`size` 는 최단 거리). `at` 은 그 자리(겹친 부분의 중심 · 마주 본 면 사이의 가운데). 꼭 맞닿은
-  쌍은 적지 않는다. `warnings` 에도 한 줄씩(다섯까지) 실린다. 지금 폴더에는 겹침 · 틈이 없어 모두
-  `contacts: []` 다 — 다시 뽑은 폴더의 차이는 그 줄 · `checks.contact_gap` · id · 생성일뿐이다.
+- **2026-11-13 — 형상 점검에 바디끼리 겹침 · 작은 틈(`quality.contacts`), 기준은 핸드폰 부품 규모로.**
+  점 파일 `quality` 에 `contacts[]` 가 는다 — 솔리드 쌍마다 `{kind: "overlap" | "gap", a, b, size,
+  volume?, at}`. 겹침은 늘 찾고(`size` 는 두께 어림 2V/A, `volume` 은 mm³), 틈은 `checks.contact_gap`
+  이하만 찾는다(`size` 는 최단 거리). `at` 은 그 자리(겹친 부분의 중심 · 마주 본 면 사이의 가운데). 꼭
+  맞닿은 쌍은 적지 않는다. `warnings` 에도 한 줄씩(다섯까지) 실린다.
+  점검 기준의 기본값이 **핸드폰에 들어가는 부품** 규모로 바뀌었다: `min_wall` 0.5 → 0.1, `short_edge` ·
+  `narrow_face` 0.1 → 0.01, `contact_gap` 0.001(CAD 가 남긴 틈만 — 설계한 틈새 0.05~0.2 mm 는 아니다).
+  그래서 「시험_겹치기이음_D1002」 의 「벽 두께 0.2 mm (기준 0.5)」 경고(접착층)가 빠졌다. 지금 폴더에는
+  겹침 · 틈이 없어 모두 `contacts: []` 다 — 다시 뽑은 폴더의 차이는 그 줄 · `checks` 값 · 그 경고 ·
+  id · 생성일뿐이다.
 
 - **2026-11-01 — 곡면 지문의 `centroid` 는 넓이 무게중심, 회전면에는 `axis_at`.** 곡면의 `centroid` 가
   경계상자 중심에서 **넓이 무게중심**(Mechanical 이 내는 것)으로 바뀌었다 — 통짜 원통 · 평면은 값이

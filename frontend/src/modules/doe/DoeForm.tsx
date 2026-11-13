@@ -578,7 +578,7 @@ export function DoeForm({
             <Input
               type="number"
               min={0}
-              step={0.05}
+              step={0.001}
               disabled={!checks.enabled}
               value={checks[key]}
               onChange={(e) => setChecks({ ...checks, [key]: numberOrNull(e.target.value) ?? 0 })}

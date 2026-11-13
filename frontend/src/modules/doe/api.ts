@@ -91,7 +91,7 @@ export interface Checks {
 }
 
 /** 서버의 기본 기준(core/quality.DEFAULTS)과 같다. */
-export const CHECK_DEFAULTS = { min_wall: 0.5, short_edge: 0.1, narrow_face: 0.1, contact_gap: 0.1 }
+export const CHECK_DEFAULTS = { min_wall: 0.1, short_edge: 0.01, narrow_face: 0.01, contact_gap: 0.001 }
 
 /** 설계점을 뽑는 방식 — 격자 · LHS · 직접 준 표 · 하나씩 바꾸기 · 중심 합성 · Box-Behnken · Sobol. */
 export type DoeMethod = 'factorial' | 'lhs' | 'table' | 'oat' | 'ccd' | 'bbd' | 'sobol'

@@ -1,5 +1,5 @@
 {
-  "id": "bdf7d588-1ba8-4a48-a3d3-0ee84a79ed9d",
+  "id": "1a54f74a-e203-46b2-9c20-4fddc574e642",
   "name": "시험_V노치전단_D5379",
   "description": "",
   "method": "factorial",
@@ -11,10 +11,10 @@
   "batches": [],
   "checks": {
     "enabled": true,
-    "min_wall": 0.5,
-    "short_edge": 0.1,
-    "narrow_face": 0.1,
-    "contact_gap": 0.1
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
   },
   "recipe": {
     "nodes": [
@@ -397,7 +397,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-691d7e1d@example.local"
+    "email": "member-7f96195b@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

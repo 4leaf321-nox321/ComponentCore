@@ -1,5 +1,5 @@
 {
-  "id": "425df871-6caa-4b1d-9345-875d43abaf54",
+  "id": "071419e3-7566-4c5f-87cb-93e5b33d5030",
   "name": "시험_압착",
   "description": "",
   "method": "factorial",
@@ -11,10 +11,10 @@
   "batches": [],
   "checks": {
     "enabled": true,
-    "min_wall": 0.5,
-    "short_edge": 0.1,
-    "narrow_face": 0.1,
-    "contact_gap": 0.1
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
   },
   "recipe": {
     "nodes": [
@@ -294,7 +294,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-23e695e1@example.local"
+    "email": "member-72388659@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

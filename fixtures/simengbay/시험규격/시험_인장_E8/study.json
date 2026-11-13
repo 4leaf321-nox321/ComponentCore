@@ -1,5 +1,5 @@
 {
-  "id": "b429a16a-3f8f-419e-9aab-ba1f8052562f",
+  "id": "9c287d5c-0496-4241-9a6e-6c6b9591bd2a",
   "name": "시험_인장_E8",
   "description": "",
   "method": "factorial",
@@ -11,10 +11,10 @@
   "batches": [],
   "checks": {
     "enabled": true,
-    "min_wall": 0.5,
-    "short_edge": 0.1,
-    "narrow_face": 0.1,
-    "contact_gap": 0.1
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
   },
   "recipe": {
     "nodes": [
@@ -428,7 +428,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-15bad2bb@example.local"
+    "email": "member-71777a25@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

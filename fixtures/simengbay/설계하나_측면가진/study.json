@@ -1,5 +1,5 @@
 {
-  "id": "02708ac9-3631-4bcd-93cf-e27926a82027",
+  "id": "c44d9d77-6c91-4042-be19-f501fcada6fb",
   "name": "설계하나_측면가진",
   "description": "",
   "method": "factorial",
@@ -11,10 +11,10 @@
   "batches": [],
   "checks": {
     "enabled": true,
-    "min_wall": 0.5,
-    "short_edge": 0.1,
-    "narrow_face": 0.1,
-    "contact_gap": 0.1
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
   },
   "recipe": {
     "nodes": [
@@ -475,7 +475,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-3abd4aa3@example.local"
+    "email": "member-d6ab13e7@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

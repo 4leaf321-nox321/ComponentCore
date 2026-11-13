@@ -65,8 +65,9 @@ class PreviewRequest(BaseModel):
     - `{"kind": "distance", "a": "구멍1", "b": "구멍2"}` — 두 선택 그룹 사이 거리.
     - `{"kind": "expr", "expr": "부피 * 7.85e-6"}` — 도면 변수와 앞의 측정값을 부른다."""
     checks: dict[str, Any] | None = None
-    """형상 점검 기준(mm) — `{"min_wall": 0.5, "short_edge": 0.1, "narrow_face": 0.1}` 에서
-    바꿀 것만. `{"enabled": false}` 면 재지 않는다. 기준보다 작은 것은 표의 `warnings` 로."""
+    """형상 점검 기준(mm) — `{"min_wall": 0.1, "short_edge": 0.01, "narrow_face": 0.01,
+    "contact_gap": 0.001}`(`core/quality.DEFAULTS`)에서 바꿀 것만. `{"enabled": false}` 면
+    재지 않는다. 기준보다 작은 것은 표의 `warnings` 로."""
 
 
 class ProbeRequest(PreviewRequest):

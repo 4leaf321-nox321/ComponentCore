@@ -1,5 +1,5 @@
 {
-  "id": "afbc46a9-7701-439a-9723-78ac07649907",
+  "id": "3c9f264e-75cb-40e6-a270-4b45a67fa8e2",
   "name": "조건_원통_SI",
   "description": "",
   "method": "factorial",
@@ -28,10 +28,10 @@
   "batches": [],
   "checks": {
     "enabled": true,
-    "min_wall": 0.5,
-    "short_edge": 0.1,
-    "narrow_face": 0.1,
-    "contact_gap": 0.1
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
   },
   "recipe": {
     "nodes": [
@@ -311,7 +311,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-4663250b@example.local"
+    "email": "member-a2fe2ed4@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

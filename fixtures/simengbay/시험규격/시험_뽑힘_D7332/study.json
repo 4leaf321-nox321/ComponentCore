@@ -1,5 +1,5 @@
 {
-  "id": "d592ed8b-9cd8-403d-a6e3-0e8d06a33d8d",
+  "id": "eadaf4e9-0d6e-40a7-986a-dec6214c1535",
   "name": "시험_뽑힘_D7332",
   "description": "",
   "method": "factorial",
@@ -11,10 +11,10 @@
   "batches": [],
   "checks": {
     "enabled": true,
-    "min_wall": 0.5,
-    "short_edge": 0.1,
-    "narrow_face": 0.1,
-    "contact_gap": 0.1
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
   },
   "recipe": {
     "nodes": [
@@ -397,7 +397,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-2a341e9d@example.local"
+    "email": "member-89506ae6@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

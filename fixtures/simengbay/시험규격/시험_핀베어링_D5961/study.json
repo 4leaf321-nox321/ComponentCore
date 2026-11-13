@@ -1,5 +1,5 @@
 {
-  "id": "c854573d-6e80-4c6c-867e-76ea58bda55e",
+  "id": "52987a79-57d4-4ac2-976c-64badd4e25d7",
   "name": "시험_핀베어링_D5961",
   "description": "",
   "method": "factorial",
@@ -11,10 +11,10 @@
   "batches": [],
   "checks": {
     "enabled": true,
-    "min_wall": 0.5,
-    "short_edge": 0.1,
-    "narrow_face": 0.1,
-    "contact_gap": 0.1
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
   },
   "recipe": {
     "nodes": [
@@ -375,7 +375,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-df0c8615@example.local"
+    "email": "member-a4b064b4@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

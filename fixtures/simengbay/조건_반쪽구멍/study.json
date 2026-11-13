@@ -1,5 +1,5 @@
 {
-  "id": "f717feb9-f693-469c-aa46-a22d4e9f3e00",
+  "id": "86b7cfd9-dcc1-4ccc-9d34-404f8bedf818",
   "name": "조건_반쪽구멍",
   "description": "",
   "method": "factorial",
@@ -11,17 +11,17 @@
   "batches": [],
   "checks": {
     "enabled": true,
-    "min_wall": 0.5,
-    "short_edge": 0.1,
-    "narrow_face": 0.1,
-    "contact_gap": 0.1
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
   },
   "recipe": {
     "nodes": [
       {
         "id": "imported",
         "op": "import_step",
-        "file": "5a2fa6a4-1dff-488f-9710-5a02d5cc2e0a",
+        "file": "7d9f7597-a6bb-497a-ad48-15f5631a0bf4",
         "label": "halved_hole.step",
         "bodies": "leaf"
       }
@@ -241,7 +241,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-7e78b6e1@example.local"
+    "email": "member-84f14471@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

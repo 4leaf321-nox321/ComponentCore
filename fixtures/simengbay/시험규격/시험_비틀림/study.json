@@ -1,5 +1,5 @@
 {
-  "id": "02581e26-49d1-4984-9576-5a4b2b12fba0",
+  "id": "6389048d-cef5-4fbc-a3ee-5878f9c5314e",
   "name": "시험_비틀림",
   "description": "",
   "method": "factorial",
@@ -11,10 +11,10 @@
   "batches": [],
   "checks": {
     "enabled": true,
-    "min_wall": 0.5,
-    "short_edge": 0.1,
-    "narrow_face": 0.1,
-    "contact_gap": 0.1
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
   },
   "recipe": {
     "nodes": [
@@ -294,7 +294,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-bd8bcdf7@example.local"
+    "email": "member-a0f4d9f4@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

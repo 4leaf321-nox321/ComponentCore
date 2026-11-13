@@ -101,8 +101,8 @@ class DoeStudy(Base):
     """변수끼리의 조건(`간격 > 2 * 지름`) — 어긋난 조합은 만들기 **전에** 거른다. 점을 더할
     때도 같은 것이 걸린다."""
     checks: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
-    """형상 점검 기준(mm) — `min_wall` · `short_edge` · `narrow_face`. 비면 기본값
-    (`core/quality.DEFAULTS`). `{"enabled": false}` 면 재지 않는다."""
+    """형상 점검 기준(mm) — `min_wall` · `short_edge` · `narrow_face` · `contact_gap`. 비면
+    기본값(`core/quality.DEFAULTS`). `{"enabled": false}` 면 재지 않는다."""
     measures: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, default=list, server_default="[]"
     )

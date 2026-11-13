@@ -176,6 +176,8 @@ def test_미리_만들어_보기도_형상을_점검한다(client: TestClient, m
                 {"name": "구멍_x", "mode": "range", "start": 0, "end": 20, "steps": 3}
             ],
             "conditions": {},
+            # 기본은 핸드폰 부품 규모(0.1 mm)라 0.2 mm 벽이 정상이다 — 기준을 적어 잡는다.
+            "checks": {"min_wall": 0.5},
         },
         headers=member.headers,
     )

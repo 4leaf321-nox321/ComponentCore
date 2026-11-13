@@ -1,5 +1,5 @@
 {
-  "id": "a4a63ecf-5287-4d67-ab74-77e0d074a80e",
+  "id": "aa41cb96-9591-43fb-a0e8-08f60687d782",
   "name": "기준정보_태그_적용모델",
   "description": "",
   "method": "factorial",
@@ -28,10 +28,10 @@
   "batches": [],
   "checks": {
     "enabled": true,
-    "min_wall": 0.5,
-    "short_edge": 0.1,
-    "narrow_face": 0.1,
-    "contact_gap": 0.1
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
   },
   "recipe": {
     "nodes": [
@@ -464,21 +464,21 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-4f2b9723@example.local"
+    "email": "member-78861e73@example.local"
   },
   "requested_by": null,
   "cloned_from": null,
   "ontology": {
     "tags": [
       {
-        "object_id": "e199aecc-3568-4a01-8ec9-e21e312549d9",
+        "object_id": "fea881e2-e6d2-43f9-9286-7744a5bb6b58",
         "key": null,
         "label": "본딩",
         "type_slug": "cc_tag",
         "type_label": "일반 태그"
       },
       {
-        "object_id": "c5a0f95b-f515-463e-a8df-0388bc0d563a",
+        "object_id": "f5b2618d-889b-42a3-9ced-e4ecce96c60d",
         "key": null,
         "label": "강성 검토",
         "type_slug": "test_purpose",
@@ -489,12 +489,12 @@
       {
         "on": {
           "kind": "part",
-          "id": "ea52d0c6-0aec-4af1-ac86-ad2c31d7013b",
+          "id": "f0333ea0-97b6-493c-be41-42205a1e8d46",
           "name": "두바디 본딩 조립"
         },
         "relation": "model_parts",
         "relation_label": "적용 모델",
-        "object_id": "55544c41-5167-4f34-8b0c-4d7f842ad448",
+        "object_id": "a15ed50e-cc1b-4ae5-b34f-bf5c7261a3fb",
         "key": "SM-P500",
         "label": "P5 플립",
         "type_slug": "base_model",

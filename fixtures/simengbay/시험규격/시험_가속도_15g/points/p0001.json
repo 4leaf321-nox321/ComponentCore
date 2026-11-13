@@ -84,7 +84,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "223e58e2-8481-40a8-b29e-5b0fe63f0565",
+      "id": "df54fcbd-3133-4c23-8ce7-d81fdc69551d",
       "name": "시험_가속도_15g",
       "method": "factorial",
       "seed": 1

@@ -1,5 +1,5 @@
 {
-  "id": "a7b941c6-a54e-4dae-983a-50bfba786396",
+  "id": "9beb35b4-416b-4b31-bedd-5c385f9d03cf",
   "name": "조건_강체지그_쉘브래킷",
   "description": "",
   "method": "factorial",
@@ -28,10 +28,10 @@
   "batches": [],
   "checks": {
     "enabled": true,
-    "min_wall": 0.5,
-    "short_edge": 0.1,
-    "narrow_face": 0.1,
-    "contact_gap": 0.1
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
   },
   "recipe": {
     "nodes": [
@@ -535,7 +535,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-6609ab0a@example.local"
+    "email": "member-f80f8e59@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

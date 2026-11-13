@@ -1,5 +1,5 @@
 {
-  "id": "effd6842-3f58-4f88-a720-b077c2a86193",
+  "id": "814f39e3-7160-495e-8570-d39225eb8a5b",
   "name": "조건_두바디_두재료",
   "description": "",
   "method": "factorial",
@@ -28,10 +28,10 @@
   "batches": [],
   "checks": {
     "enabled": true,
-    "min_wall": 0.5,
-    "short_edge": 0.1,
-    "narrow_face": 0.1,
-    "contact_gap": 0.1
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
   },
   "recipe": {
     "nodes": [
@@ -464,7 +464,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-4663250b@example.local"
+    "email": "member-a2fe2ed4@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

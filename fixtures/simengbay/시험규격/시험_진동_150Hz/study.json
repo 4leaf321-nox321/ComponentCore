@@ -1,5 +1,5 @@
 {
-  "id": "5046f4ba-6627-435f-abcc-aae80fd82ec9",
+  "id": "748b4a2c-6e21-46bd-95f4-209b2446f40e",
   "name": "시험_진동_150Hz",
   "description": "",
   "method": "factorial",
@@ -11,10 +11,10 @@
   "batches": [],
   "checks": {
     "enabled": true,
-    "min_wall": 0.5,
-    "short_edge": 0.1,
-    "narrow_face": 0.1,
-    "contact_gap": 0.1
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
   },
   "recipe": {
     "nodes": [
@@ -275,7 +275,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-bb824df3@example.local"
+    "email": "member-1533bdae@example.local"
   },
   "requested_by": null,
   "cloned_from": null,

@@ -1,5 +1,5 @@
 {
-  "id": "dc37f565-0a15-4ded-9f2d-48a4e4fbe32a",
+  "id": "381bce4e-27b8-49ab-bf51-83cafedf84ea",
   "name": "조건_조건훑기",
   "description": "",
   "method": "factorial",
@@ -50,10 +50,10 @@
   "batches": [],
   "checks": {
     "enabled": true,
-    "min_wall": 0.5,
-    "short_edge": 0.1,
-    "narrow_face": 0.1,
-    "contact_gap": 0.1
+    "min_wall": 0.1,
+    "short_edge": 0.01,
+    "narrow_face": 0.01,
+    "contact_gap": 0.001
   },
   "recipe": {
     "nodes": [
@@ -490,7 +490,7 @@
   },
   "owner": {
     "name": "member",
-    "email": "member-4663250b@example.local"
+    "email": "member-a2fe2ed4@example.local"
   },
   "requested_by": null,
   "cloned_from": null,
