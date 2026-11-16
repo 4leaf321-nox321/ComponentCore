@@ -9536,7 +9536,7 @@
           "notices"
         ],
         "summary": "Publish Drafts",
-        "description": "초안을 **모두** 발행한다 — 처음 배포에 들어온 지난 판의 안내 수십 건을 한 번에.\n팝업은 켜지 않는다(켜 둔 것은 그대로) — 수십 건이 로그인마다 하나씩 뜨면 아무도 안 읽는다.",
+        "description": "초안을 **모두** 발행한다 — 처음 배포에 들어온 지난 판의 안내 수십 건을 한 번에.\n팝업은 켜지 않는다(켜 둔 것은 그대로) — 수십 건이 로그인마다 하나씩 뜨면 아무도 안\n읽는다.",
         "operationId": "publish_drafts_api_notices_publish_drafts_post",
         "responses": {
           "200": {
@@ -55280,6 +55280,10 @@
     {
       "name": "materials",
       "description": "**물성** — MatNexus 에서 골라 온다. 값을 해석하지 않고 payload 를 통째로 나른다 (「어느 것이 영률인가」 는 솔버를 아는 쪽의 일이다). 못 닿으면 관리자가 올려 둔 카탈로그로 넘어가고, **넘어갔다는 사실을 답이 말한다**(`fallback`)."
+    },
+    {
+      "name": "notices",
+      "description": "**공지 게시판** — 위에서 내려오는 안내. 읽기는 로그인한 누구나, 쓰기 · 고치기 · 지우기는 시스템 관리자. 판마다의 업데이트 안내는 배포가 초안으로 넣고 관리자가 발행한다(`publish-drafts`). 읽음은 여는 것과 따로 적는다(`POST …/read`)."
     },
     {
       "name": "voc",
