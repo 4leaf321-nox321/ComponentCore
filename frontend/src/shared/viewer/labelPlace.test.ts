@@ -1,4 +1,5 @@
-import { labelCenter } from '@/shared/viewer/labelPlace'
+import { labelCenter, rulerSide, spreadLabels } from '@/shared/viewer/labelPlace'
+import type { LabelBox } from '@/shared/viewer/labelPlace'
 
 /** 기준점이 `center` 일 때 글자 상자(높이 1, 폭 aspect)가 화면에서 차지하는 자리 — 기준점이 원점. */
 function box(center: [number, number], aspect: number) {
@@ -35,4 +36,46 @@ test('비스듬한 자도 글자 상자가 자의 직선에 닿지 않는다', (
 test('자를 끝에서 보면(화면에서 점) 글자는 위로', () => {
   const up = box(labelCenter([3, 3], [3, 3], [3, 3], 2), 2)
   expect(up.bottom).toBeGreaterThan(0)
+})
+
+const boxOf = (anchor: [number, number], center: [number, number] = [0.5, 0.5]): LabelBox => ({
+  anchor,
+  width: 80,
+  height: 20,
+  center,
+  normal: [0, 1],
+  tangent: [1, 0],
+})
+
+function rect(box: LabelBox, center: [number, number]) {
+  const left = box.anchor[0] - center[0] * box.width
+  const bottom = box.anchor[1] - center[1] * box.height
+  return { left, right: left + box.width, bottom, top: bottom + box.height }
+}
+
+test('글자끼리 겹치면 뒤의 것을 옮겨 놓는다 — 앞의 것은 제자리', () => {
+  const boxes = [boxOf([0, 0]), boxOf([10, 5]), boxOf([5, -3])]
+  const centers = spreadLabels(boxes)
+  expect(centers[0]).toEqual([0.5, 0.5])
+  const rects = boxes.map((box, i) => rect(box, centers[i]))
+  for (let i = 0; i < rects.length; i++)
+    for (let j = i + 1; j < rects.length; j++) {
+      const [a, b] = [rects[i], rects[j]]
+      const apart = a.right <= b.left || b.right <= a.left || a.top <= b.bottom || b.top <= a.bottom
+      expect(apart).toBe(true)
+    }
+})
+
+test('안 겹치는 글자는 옮기지 않는다', () => {
+  const centers = spreadLabels([boxOf([0, 0]), boxOf([500, 0], [0.2, 0.9])])
+  expect(centers).toEqual([
+    [0.5, 0.5],
+    [0.2, 0.9],
+  ])
+})
+
+test('자의 화면 방향 — 직각은 형상 가운데에서 먼 쪽, 끝에서 보면 위', () => {
+  expect(rulerSide([-5, 10], [5, 10], [0, 0])).toEqual({ normal: [-0, 1], tangent: [1, 0] })
+  expect(rulerSide([-5, -10], [5, -10], [0, 0]).normal).toEqual([0, -1])
+  expect(rulerSide([1, 1], [1, 1], [0, 0])).toEqual({ normal: [0, 1], tangent: [1, 0] })
 })

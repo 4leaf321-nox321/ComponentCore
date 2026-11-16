@@ -17,7 +17,8 @@ import type { CameraSync } from '@/shared/viewer/cameraSync'
 import { ViewerToolbar } from '@/shared/viewer/ViewerToolbar'
 import { mountCanvas } from '@/shared/viewer/canvas'
 import { boxPicks, rectOf, triangleCentroids } from '@/shared/viewer/boxSelect'
-import { labelCenter } from '@/shared/viewer/labelPlace'
+import { labelCenter, rulerSide, spreadLabels } from '@/shared/viewer/labelPlace'
+import type { LabelBox } from '@/shared/viewer/labelPlace'
 import type { ScreenPoint, ScreenRect } from '@/shared/viewer/boxSelect'
 
 export interface MeshFace {
@@ -326,24 +327,48 @@ function dimensionLine(
 const _a = new THREE.Vector3()
 const _b = new THREE.Vector3()
 const _c = new THREE.Vector3()
+const _up = new THREE.Vector3()
 
 /**
- * 치수 글자를 **화면에서 자의 옆으로** — 자의 두 끝과 형상 가운데를 화면에 투영해 글자 상자의
- * 기준점(`Sprite.center`)을 정한다(`labelPlace.ts`). 카메라가 돌 때마다 자의 화면 방향이 바뀌어
- * 그릴 때마다 부른다. 글자가 몇 개뿐이라 값싸다.
+ * 표시의 글자들을 **화면에서** 놓는다 — 치수 글자는 자의 옆으로(`labelCenter`), 그리고 모든
+ * 글자를 서로 겹치지 않게(`spreadLabels`). 기준점 · 자의 두 끝 · 형상 가운데를 화면에 투영해
+ * 글자 상자의 기준점(`Sprite.center`)을 정한다(`labelPlace.ts`). 카메라가 돌 때마다 화면 위의
+ * 자리가 바뀌어 그릴 때마다 부른다. 글자가 몇 개뿐이라 값싸다.
  */
 function placeLabels(marks: THREE.Group, camera: THREE.Camera, width: number, height: number) {
   if (width <= 0 || height <= 0) return
-  const toScreen = (v: THREE.Vector3): [number, number] => [v.x * width, v.y * height]
+  // 정규 좌표 → 픽셀(가로 · 세로 같은 단위).
+  const toScreen = (v: THREE.Vector3): [number, number] => [(v.x * width) / 2, (v.y * height) / 2]
+  _up.set(0, 1, 0).applyQuaternion(camera.quaternion)
+  const sprites: THREE.Sprite[] = []
+  const boxes: LabelBox[] = []
   for (const child of marks.children) {
+    if (!(child instanceof THREE.Sprite)) continue
+    // 상자의 화면 높이 — 기준점과 「카메라 위쪽으로 글자 높이만큼」 의 거리(투시 · 정사영 모두).
+    child.getWorldPosition(_a)
+    _b.copy(_a).addScaledVector(_up, child.scale.y)
+    _a.project(camera)
+    _b.project(camera)
+    if (_a.z < -1 || _a.z > 1) continue // 카메라 뒤 · 너무 멀다
+    const anchor = toScreen(_a)
+    const top = toScreen(_b)
+    const boxHeight = Math.hypot(top[0] - anchor[0], top[1] - anchor[1])
+    if (!(boxHeight > 0)) continue
+    const aspect = (child.userData.aspect as number) || 1
+    let center: [number, number] = [0.5, 0.5]
+    let side: { normal: [number, number]; tangent: [number, number] } = { normal: [0, 1], tangent: [1, 0] }
     const ruler = child.userData.ruler as { a: THREE.Vector3; b: THREE.Vector3; away: THREE.Vector3 } | undefined
-    if (!ruler || !(child instanceof THREE.Sprite)) continue
-    marks.localToWorld(_a.copy(ruler.a)).project(camera)
-    marks.localToWorld(_b.copy(ruler.b)).project(camera)
-    marks.localToWorld(_c.copy(ruler.away)).project(camera)
-    const [cx, cy] = labelCenter(toScreen(_a), toScreen(_b), toScreen(_c), (child.userData.aspect as number) || 1)
-    child.center.set(cx, cy)
+    if (ruler) {
+      const a = toScreen(marks.localToWorld(_a.copy(ruler.a)).project(camera))
+      const b = toScreen(marks.localToWorld(_b.copy(ruler.b)).project(camera))
+      const away = toScreen(marks.localToWorld(_c.copy(ruler.away)).project(camera))
+      side = rulerSide(a, b, away)
+      center = labelCenter(a, b, away, aspect)
+    }
+    sprites.push(child)
+    boxes.push({ anchor, width: boxHeight * aspect, height: boxHeight, center, ...side })
   }
+  spreadLabels(boxes).forEach((center, index) => sprites[index].center.set(center[0], center[1]))
 }
 
 /** 동그란 점 무늬 — 네모난 기본 점은 꼭짓점처럼 안 보인다. */
