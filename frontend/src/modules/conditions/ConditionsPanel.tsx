@@ -37,6 +37,8 @@ import {
   Ruler,
   Save,
   Scale,
+  ScanEye,
+  Scissors,
   Settings2,
   TableProperties,
   Thermometer,
@@ -96,7 +98,7 @@ import { Button } from '@/shared/components/ui/button'
 import { Card, CardContent } from '@/shared/components/ui/card'
 import { Skeleton } from '@/shared/components/ui/skeleton'
 import { useResource } from '@/shared/hooks/useResource'
-import type { FrameRow, MeasureMarks, MeasurePick, PickModifiers } from '@/shared/viewer/PickViewer'
+import type { FrameRow, MeasureMarks, MeasurePick, PickModifiers, Section } from '@/shared/viewer/PickViewer'
 import PickViewer from '@/shared/viewer/PickViewer'
 
 /**
@@ -541,6 +543,21 @@ export function ConditionsPanel({
    * 종류가 드러난다. 켰을 때만 푼다(그룹마다 서버에 묻는다).
    */
   const [showContacts, setShowContacts] = useState(false)
+  /**
+   * **단면 · 투시** — 큰 부품에 가려 작은 부품의 접촉면이 안 보일 때. 단면은 축에 수직인 평면으로
+   * 잘라(잘린 쪽은 눌러도 안 잡힌다) 안쪽을 보이고, 투시는 모두 옅게 해 표시를 위에 그린다.
+   */
+  const [section, setSection] = useState<Section | null>(null)
+  const [xray, setXray] = useState(false)
+  const sectionRange = (axis: Section['axis']) => {
+    const at = { x: 0, y: 1, z: 2 }[axis]
+    return mesh ? { min: mesh.bbox.min[at], max: mesh.bbox.max[at] } : { min: 0, max: 1 }
+  }
+  function toggleSection() {
+    if (section) return setSection(null)
+    const { min, max } = sectionRange('x')
+    setSection({ axis: 'x', at: Math.round(((min + max) / 2) * 1000) / 1000 })
+  }
   const contactGroups = useMemo(() => {
     const byName = new Map(names.map((one) => [one.name, one]))
     const out: { select: Record<string, unknown>; kind: ContactKind }[] = []
@@ -948,6 +965,20 @@ export function ConditionsPanel({
             active={showContacts}
             onClick={() => setShowContacts(!showContacts)}
           />
+          <RibbonButton
+            icon={Scissors}
+            label="단면"
+            title="단면: X · Y · Z 축에 수직인 평면으로 잘라 안쪽을 봅니다. 잘라 낸 쪽은 클릭해도 선택되지 않습니다."
+            active={!!section}
+            onClick={toggleSection}
+          />
+          <RibbonButton
+            icon={ScanEye}
+            label="투시"
+            title="투시: 모든 면을 반투명하게 하고 접촉 · 선택 표시를 가려져도 위에 그립니다."
+            active={xray}
+            onClick={() => setXray(!xray)}
+          />
         </RibbonGroup>
         <RibbonGroup title="해석">
           <RibbonButton
@@ -1153,6 +1184,41 @@ export function ConditionsPanel({
                 {draft.contacts.length === 0 && <span className="text-muted-foreground">접촉이 없습니다</span>}
               </div>
             )}
+            {/* 단면 — 축 · 자리 · 뒤집기. 밀대는 형상의 범위 안에서 움직인다. */}
+            {section && (
+              <div className="bg-background/90 absolute bottom-2 left-2 z-10 flex flex-wrap items-center gap-2 rounded border px-2 py-1 text-xs" aria-label="단면">
+                <span className="font-medium">단면</span>
+                {(['x', 'y', 'z'] as const).map((axis) => (
+                  <button
+                    key={axis}
+                    type="button"
+                    aria-pressed={section.axis === axis}
+                    className={`rounded border px-1.5 ${section.axis === axis ? 'border-primary bg-accent font-medium' : 'text-muted-foreground'}`}
+                    onClick={() => {
+                      const { min, max } = sectionRange(axis)
+                      setSection({ ...section, axis, at: Math.round(((min + max) / 2) * 1000) / 1000 })
+                    }}
+                  >
+                    {axis.toUpperCase()}
+                  </button>
+                ))}
+                <input
+                  type="range"
+                  aria-label="단면 위치"
+                  min={sectionRange(section.axis).min}
+                  max={sectionRange(section.axis).max}
+                  step={Math.max((sectionRange(section.axis).max - sectionRange(section.axis).min) / 400, 0.001)}
+                  value={section.at}
+                  onChange={(e) => setSection({ ...section, at: Number(e.target.value) })}
+                  className="w-40"
+                />
+                <span className="w-16 tabular-nums">{section.axis.toUpperCase()} = {section.at.toFixed(2)}</span>
+                <label className="flex items-center gap-1">
+                  <input type="checkbox" checked={!!section.flip} onChange={(e) => setSection({ ...section, flip: e.target.checked })} />
+                  뒤집기
+                </label>
+              </div>
+            )}
             <PickViewer
               mesh={mesh}
               mode="measure"
@@ -1195,6 +1261,8 @@ export function ConditionsPanel({
               partColors={partColors}
               // 트리에서 파트를 누르면 3D 에서도 그 파트만 또렷하게 — 어느 것에 지정하는지 보인다.
               emphasis={tree?.kind === 'part' && bodyNames.length > 1 ? tree.name : null}
+              section={section}
+              xray={xray}
               className="h-full w-full"
             />
           </CardContent>

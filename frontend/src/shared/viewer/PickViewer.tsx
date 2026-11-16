@@ -141,6 +141,14 @@ export interface PickViewerProps {
   partColors?: Record<string, number>
   /** 조립: 이 구성품만 또렷하게, 나머지는 반투명으로 — 어느 것을 고치는지 보인다. */
   emphasis?: string | null
+  /**
+   * **단면** — CAD 좌표의 축(x · y · z)에 수직인 평면으로 잘라 본다. `at` 보다 큰 쪽을 걷어 내고
+   * (`flip` 이면 작은 쪽), 걷어 낸 쪽의 면 · 모서리는 눌러도 잡히지 않는다. 큰 부품 안에 묻혀 안
+   * 보이던 맞닿은 면이 잘린 자리로 드러난다.
+   */
+  section?: Section | null
+  /** **투시** — 모든 면을 반투명하게, 표시(`measureMarks`)는 가려져도 위에 그린다. */
+  xray?: boolean
   /** 나란히 놓인 뷰어끼리 카메라를 맞춘다 — 같은 sync 를 받은 뷰어가 함께 돈다. */
   sync?: CameraSync
   /**
@@ -160,6 +168,31 @@ export interface PickViewerProps {
 }
 
 const round3 = (v: number) => Math.round(v * 1000) / 1000
+
+/** 단면 — CAD 좌표의 축과 자리(mm). */
+export interface Section {
+  axis: 'x' | 'y' | 'z'
+  at: number
+  flip?: boolean
+}
+
+/**
+ * 단면을 **화면 좌표의 절단 평면**으로. 형상은 CAD 의 Z 를 위로 세우려 돌린 묶음(`group`) 안에 있어
+ * CAD 좌표의 평면을 그 변환으로 옮긴다. three 는 평면까지의 거리가 음수인 쪽을 걷어 낸다 — 남길
+ * 쪽(좌표 ≤ `at`, `flip` 이면 ≥)이 양수가 되게 법선을 잡는다.
+ */
+export function sectionPlanes(group: THREE.Object3D, section: Section | null | undefined): THREE.Plane[] {
+  if (!section) return []
+  const normal = new THREE.Vector3(section.axis === 'x' ? 1 : 0, section.axis === 'y' ? 1 : 0, section.axis === 'z' ? 1 : 0)
+  const plane = section.flip ? new THREE.Plane(normal, -section.at) : new THREE.Plane(normal.negate(), section.at)
+  group.updateMatrixWorld(true)
+  return [plane.applyMatrix4(group.matrixWorld)]
+}
+
+/** 걷어 내지 않은 쪽에 맞았나 — 잘린 쪽의 면은 화면에 없으니 눌러도 잡히면 안 된다. */
+export function keptHit(planes: THREE.Plane[], point: THREE.Vector3): boolean {
+  return planes.every((plane) => plane.distanceToPoint(point) >= -1e-6)
+}
 
 /** 이름표(part)마다 묶음 하나 — 없으면 만든다. 이름표 없는 면은 shapes 바로 아래. */
 function partGroup(s: { shapes: THREE.Group; parts: Map<string, THREE.Group> }, part: string | undefined): THREE.Object3D {
@@ -350,7 +383,7 @@ function gatherDots(mesh: MeshData): { at: number[][]; kinds: string[] } {
 }
 
 /** 표준 방향 — 뒤에서 카메라가 설 자리(중심 기준 단위 벡터, CAD Z-up 기준). */
-export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, onBoxSelect, measureKinds, measureMarks, frames, datums, frameHandle, onFrameHandle, partColors, emphasis, sync, dragPart, dragMode = 'translate', onMoved, className }: PickViewerProps) {
+export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, onBoxSelect, measureKinds, measureMarks, frames, datums, frameHandle, onFrameHandle, partColors, emphasis, section, xray, sync, dragPart, dragMode = 'translate', onMoved, className }: PickViewerProps) {
   const syncId = useRef(`viewer-${Math.random().toString(36).slice(2)}`)
   const syncRef = useRef(sync)
   syncRef.current = sync
@@ -384,6 +417,8 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
   callbacks.current = { mode, onPickFace, onPickEdge, onMeasure, onBoxSelect, measureKinds, onMoved }
 
   const rigOf = useCallback(() => state.current?.rig ?? null, [])
+  /** 지금 걸린 절단 평면 — 고르기가 잘린 쪽에 맞은 것을 건너뛴다. */
+  const clips = useRef<THREE.Plane[]>([])
 
   // 한 번만: 장면 · 카메라 · 렌더러.
   useEffect(() => {
@@ -394,6 +429,8 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     scene.background = new THREE.Color(dark ? '#18181b' : '#f4f4f5')
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     renderer.setPixelRatio(window.devicePixelRatio)
+    // 단면 — 재질마다 절단 평면을 건다(`section`).
+    renderer.localClippingEnabled = true
     mountCanvas(container, renderer.domElement)
     scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2))
     const sun = new THREE.DirectionalLight(0xffffff, 1.5)
@@ -459,10 +496,12 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       const pointer = new THREE.Vector2(((event.clientX - box.left) / box.width) * 2 - 1, -((event.clientY - box.top) / box.height) * 2 + 1)
       raycaster.setFromCamera(pointer, rig.camera)
       const { mode: m } = callbacks.current
-      if (m === 'face') return raycaster.intersectObjects(s.faces, false)[0] ?? null
+      // 잘린 쪽에 맞은 것은 건너뛴다 — 화면에 없는 면을 고르면 안 된다.
+      const first = (hits: THREE.Intersection[]) => hits.find((hit) => keptHit(clips.current, hit.point))
+      if (m === 'face') return first(raycaster.intersectObjects(s.faces, false)) ?? null
       if (m === 'edge') {
         raycaster.params.Line = { threshold: Math.max(0.5, (s.group.userData.size as number) / 120) }
-        return raycaster.intersectObjects(s.edges, false)[0] ?? null
+        return first(raycaster.intersectObjects(s.edges, false)) ?? null
       }
       if (m === 'measure') {
         const kinds = callbacks.current.measureKinds ?? { point: true, edge: true, face: true }
@@ -471,11 +510,11 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
         raycaster.params.Points = { threshold: Math.max(0.4, size / 70) }
         // **점이 먼저다.** 점은 가장 정확한 자리라, 엣지 · 면 위에 겹쳐 있어도 점을 고른다.
         if (kinds.point && s.dots.object) {
-          const onDot = raycaster.intersectObject(s.dots.object, false)[0]
+          const onDot = first(raycaster.intersectObject(s.dots.object, false))
           if (onDot) return onDot
         }
-        const onEdge = kinds.edge ? raycaster.intersectObjects(s.edges, false)[0] : undefined
-        const onFace = kinds.face ? raycaster.intersectObjects(s.faces, false)[0] : undefined
+        const onEdge = kinds.edge ? first(raycaster.intersectObjects(s.edges, false)) : undefined
+        const onFace = kinds.face ? first(raycaster.intersectObjects(s.faces, false)) : undefined
         if (onEdge && onFace) return onEdge.distance <= onFace.distance + size / 50 ? onEdge : onFace
         return onEdge ?? onFace ?? null
       }
@@ -682,7 +721,8 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
         const target = world(p)
         const ndc = target.clone().project(camera)
         caster.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), camera)
-        return { hit: caster.intersectObjects(s.faces, false)[0], distance: caster.ray.origin.distanceTo(target) }
+        const hit = caster.intersectObjects(s.faces, false).find((one) => keptHit(clips.current, one.point))
+        return { hit, distance: caster.ray.origin.distanceTo(target) }
       }
       const visiblePoint = (p: number[]) => {
         const { hit, distance } = firstHit(p)
@@ -927,24 +967,25 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
   useEffect(() => {
     const s = state.current
     if (!s) return
+    // 투시(`xray`)면 모두 옅게 — 강조한 파트도 조금 옅어야 그 뒤의 접촉면이 보인다.
     for (const m of s.faces) {
       const face = m.userData.face as MeshFace
       const dim = !!emphasis && face.part !== emphasis
       const material = m.material as THREE.MeshStandardMaterial
-      material.transparent = dim
-      material.opacity = dim ? 0.25 : 1
-      material.depthWrite = !dim
+      material.transparent = dim || !!xray
+      material.opacity = xray ? (dim ? 0.08 : 0.2) : dim ? 0.25 : 1
+      material.depthWrite = !(dim || xray)
       material.needsUpdate = true
     }
     for (const l of s.edges) {
       const edge = l.userData.edge as MeshEdge
       const dim = !!emphasis && edge.part !== emphasis
       const material = l.material as THREE.LineBasicMaterial
-      material.transparent = dim
-      material.opacity = dim ? 0.2 : 1
+      material.transparent = dim || !!xray
+      material.opacity = xray ? (dim ? 0.1 : 0.3) : dim ? 0.2 : 1
       material.needsUpdate = true
     }
-  }, [mesh, emphasis, partColors, highlightEdgesNear])
+  }, [mesh, emphasis, partColors, highlightEdgesNear, xray])
 
   // 모드를 끄면 손이 올라가 있던 표시도 함께 걷는다 — 다음에 마우스를 움직일 때까지 남으면
   // 「아직 측정 중인가?」 싶다.
@@ -1130,6 +1171,32 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       s.marks.add(sprite)
     }
   }, [measureMarks])
+
+  // 단면 · 투시를 **지금 그려진 것 전부에** — 형상 · 측정 표시를 다시 그리면 재질이 새로 나므로
+  // 그 뒤에 다시 건다(이 효과가 그것들보다 뒤에 있다).
+  useEffect(() => {
+    const s = state.current
+    if (!s) return
+    const planes = sectionPlanes(s.group, section)
+    clips.current = planes
+    const each = (root: THREE.Object3D, apply: (material: THREE.Material) => void) =>
+      root.traverse((object) => {
+        const material = (object as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined
+        if (!material) return
+        for (const one of Array.isArray(material) ? material : [material]) apply(one)
+      })
+    const clip = (material: THREE.Material) => {
+      material.clippingPlanes = planes.length ? planes : null
+      material.needsUpdate = true
+    }
+    each(s.shapes, clip)
+    each(s.marks, (material) => {
+      clip(material)
+      // 투시면 표시는 가려져도 위에 — 큰 부품 뒤의 작은 접촉면을 본다.
+      material.depthTest = !xray
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mesh, partColors, highlightEdgesNear, emphasis, measureMarks, section?.axis, section?.at, section?.flip, !!section, xray])
 
   return (
     <div className={`relative ${className ?? 'h-[480px] w-full rounded-md border'}`}>

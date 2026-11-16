@@ -13,6 +13,9 @@ let lastColors: Record<string, number> | undefined
 let lastEmphasis: string | null | undefined
 /** 3D 에 표시한 것 — 담은 것에 번호가 붙는지 본다. */
 let lastMarks: { labels: { text: string }[]; faces: unknown[] } | undefined
+/** 3D 가 받은 단면 · 투시. */
+let lastSection: { axis: string; at: number; flip?: boolean } | null | undefined
+let lastXray: boolean | undefined
 vi.mock('@/shared/viewer/PickViewer', () => ({
   default: ({
     onMeasure,
@@ -21,6 +24,8 @@ vi.mock('@/shared/viewer/PickViewer', () => ({
     measureMarks,
     partColors,
     emphasis,
+    section,
+    xray,
   }: {
     onMeasure?: (pick: unknown, modifiers: { ctrl: boolean; shift: boolean }) => void
     onBoxSelect?: (picks: unknown[], modifiers: { ctrl: boolean; shift: boolean }) => void
@@ -28,7 +33,11 @@ vi.mock('@/shared/viewer/PickViewer', () => ({
     measureMarks?: { labels: { text: string }[]; faces: unknown[] }
     partColors?: Record<string, number>
     emphasis?: string | null
+    section?: { axis: string; at: number; flip?: boolean } | null
+    xray?: boolean
   }) => {
+    lastSection = section
+    lastXray = xray
     lastKinds = measureKinds
     lastColors = partColors
     lastEmphasis = emphasis
@@ -796,4 +805,23 @@ test('접촉 보기를 켜면 본딩 면은 붉게, 접촉 면은 푸르게 3D �
   const colors = (lastMarks!.faces as { color?: number }[]).map((one) => one.color)
   expect(colors).toEqual([0x2563eb, 0x2563eb, 0xdc2626, 0xdc2626])
   expect(screen.getByLabelText('접촉 범례').textContent).toMatch(/본딩\(tie\) 2면.*접촉 2면/)
+})
+
+
+test('단면 · 투시 — 형상 가운데에서 자르고, 축 · 자리 · 뒤집기를 3D 에 넘긴다', async () => {
+  await panel()
+  expect(lastSection ?? null).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: /^단면/ }))
+  // 시험의 메시 경계상자는 0 ~ 1 — 가운데 0.5 에서 X 로 자른다.
+  await waitFor(() => expect(lastSection).toEqual({ axis: 'x', at: 0.5 }))
+  fireEvent.click(screen.getByRole('button', { name: 'Z' }))
+  expect(lastSection).toEqual({ axis: 'z', at: 0.5 })
+  fireEvent.change(screen.getByLabelText('단면 위치'), { target: { value: '0.25' } })
+  fireEvent.click(screen.getByLabelText('뒤집기'))
+  expect(lastSection).toEqual({ axis: 'z', at: 0.25, flip: true })
+  fireEvent.click(screen.getByRole('button', { name: /^단면/ }))
+  expect(lastSection).toBeNull()
+
+  fireEvent.click(screen.getByRole('button', { name: /^투시/ }))
+  expect(lastXray).toBe(true)
 })
