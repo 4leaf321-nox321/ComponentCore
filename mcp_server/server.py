@@ -908,6 +908,27 @@ async def recipe_bodies(ctx: Context, recipe: dict[str, Any]) -> Any:
     return await _post(ctx, "/api/cad/recipe/bodies", {"recipe": recipe})
 
 
+@mcp.tool()
+async def conditions_contacts(
+    ctx: Context, recipe: dict[str, Any], conditions: dict[str, Any]
+) -> Any:
+    """조립의 **맞닿은 바디 쌍과 접촉**을 견준다 — 화면의 「접촉 점검」 과 같다.
+
+    - `touching`: 맞닿은 쌍(넓이 mm² · 자리). 모서리만 닿은 것은 빠진다.
+    - `missing`: 맞닿았는데 **접촉이 없는** 쌍. 접촉을 하나라도 건 모델에서는 이 쌍이 떨어진
+      채로 풀려 부품이 뜬다(CalculiX 실측: 모드 여섯이 모두 0 Hz). 그대로 두지 않는다.
+    - `proposal`: 그 쌍을 **본딩으로 채울 것** — `named_selections`(양쪽 면 그룹, 셀렉터는
+      `recipe_selectors` 의 기본 후보와 같다)와 `contacts`. 조건에 그대로 더해
+      `set_conditions`.
+    - `notes`: 모달 · 조화 응답에서 접촉이 풀리는 법 — 마찰 · 거친 접촉은 붙은 것으로, 마찰
+      없음 · 분리 없음은 미끄러지는 것으로. 미끄럼으로만 이어진 바디는 0 Hz 모드가 생긴다.
+
+    조립에 조건을 다 걸었으면 저장 전에 한 번 부른다."""
+    return await _post(
+        ctx, "/api/cad/conditions/contacts", {"recipe": recipe, "conditions": conditions}
+    )
+
+
 def _condition_item(row: dict[str, Any]) -> dict[str, Any]:
     """재료 한 줄 → 해석 조건의 `materials[]` 항목 — **화면이 싣는 모양 그대로**(payload
     통째로). 어디에 붙일지(`apply_to`)는 비워 둔다 — 바디 이름을 넣거나, 재료 인자의 후보로

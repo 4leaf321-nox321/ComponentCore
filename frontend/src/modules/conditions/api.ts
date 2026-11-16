@@ -394,6 +394,22 @@ export interface ExpressionNote {
   text: string
 }
 
+/** 맞닿은 바디 쌍 — 넓이(mm², 못 쟀으면 null)와 자리. */
+export interface TouchingPair {
+  a: string
+  b: string
+  area: number | null
+  at: number[]
+}
+
+/** `/cad/conditions/contacts` — 맞닿은 쌍, 접촉 없이 맞닿은 쌍, 본딩으로 채울 것, 알림. */
+export interface ContactReport {
+  touching: TouchingPair[]
+  missing: TouchingPair[]
+  proposal: { named_selections: NamedSelection[]; contacts: ConditionItem[] }
+  notes: ExpressionNote[]
+}
+
 export const conditionsApi = {
   /**
    * 이 도면의 **바디 목록** — 물성이 「어디에」 붙는지 고를 손잡이.
@@ -406,6 +422,12 @@ export const conditionsApi = {
   /** 값 칸의 식 중 **풀리지 않는 것** — 저장 · 내보내기에서 막히기 전에 알린다. */
   notes: (conditions: Conditions, recipe: Recipe) =>
     api.post<{ items: ExpressionNote[] }>('/cad/conditions/notes', { conditions, recipe }),
+  /**
+   * 조립의 **맞닿은 쌍과 접촉** — 접촉 없이 맞닿은 쌍(그대로 두면 해석에서 떨어져 부품이 뜬다),
+   * 그 쌍을 본딩으로 채울 그룹 · 접촉, 모달에서 접촉이 풀리는 법. 도면을 만들어야 해서 무겁다.
+   */
+  contacts: (conditions: Conditions, recipe: Recipe) =>
+    api.post<ContactReport>('/cad/conditions/contacts', { conditions, recipe }),
 
   /** 찍은 자리를 말로 되돌려 받는다. `what` 은 faces · edges · vertices, `index` 는 누른 면 · 엣지의 번호. */
   selectors: (recipe: Recipe, what: string, point: number[], index?: number) =>

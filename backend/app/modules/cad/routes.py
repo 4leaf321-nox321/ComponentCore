@@ -200,6 +200,25 @@ def conditions_notes(
     return {"items": items}
 
 
+@router.post("/conditions/contacts")
+def conditions_contacts(
+    payload: ConditionNotesRequest, _: User = Depends(current_user)
+) -> dict[str, Any]:
+    """조립의 **맞닿은 쌍과 접촉**을 견준다 — 접촉 없이 맞닿은 쌍(자리와 함께), 그 쌍을
+    본딩으로 채울 면 그룹 · 접촉, 모달에서 접촉이 풀리는 법(`notes` — 식 알림과 같은 꼴).
+
+    도면을 만들어야 해서 식 알림보다 무겁다 — 화면은 따로, 더 늦게 부른다."""
+    from app.core import contact_check
+
+    evaluation = services.build(payload.recipe)
+    return contact_check.report(
+        evaluation.shape,
+        payload.conditions,
+        payload.recipe.get("params") or {},
+        evaluation.tags,
+    )
+
+
 @router.post("/conditions/frames")
 def conditions_frames(
     payload: FramesRequest, _: User = Depends(current_user)

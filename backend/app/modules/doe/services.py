@@ -31,9 +31,9 @@ from sqlalchemy.sql import ColumnElement
 
 from app.config import get_settings
 from app.core import conditions as condition_model
+from app.core import contact_check, frames, mesh_suggestion
 from app.core import doe as engine
 from app.core import export as shapes
-from app.core import frames, mesh_suggestion
 from app.core import measures as measuring
 from app.core import quality as checking
 from app.core.recipe import RecipeError, evaluate, follow, params, parse, topology
@@ -2012,6 +2012,20 @@ class ShapePoint:
         """이 점의 값으로 옮긴 영역 정의 — 측정값(거리)이 같은 그룹을 다시 찾는다."""
 
 
+def _region_bodies(made: ShapePoint) -> dict[str, list[str]]:
+    """선택 그룹마다 그 면이 속한 바디 — 못 풀면 빈 것(점검을 건너뛸 뿐, 점을 실패로 돌리지
+    않는다)."""
+    if not made.moved:
+        return {}
+    try:
+        found = contact_check.region_bodies(
+            made.evaluation.shape, made.moved, made.evaluation.tags
+        )
+    except Exception:
+        return {}
+    return {name: sorted(bodies) for name, bodies in found.items()}
+
+
 def _shape_point(
     recipe: dict[str, Any],
     values: dict[str, Any],
@@ -2267,6 +2281,8 @@ def _build_shape(task: dict[str, Any]) -> dict[str, Any]:
             "interference": made.interference,
             "frames": made.evaluation.frames,
             "quality": _inspect(made.evaluation.shape, task["limits"], task["reference"]),
+            # 선택 그룹 → 바디 — 부른 쪽이 점의 접촉과 맞닿은 쌍을 견준다(`contact_check`).
+            "region_bodies": _region_bodies(made),
             "measures": geometric,
             "midsurface": mid,
             "ms": int((time.perf_counter() - started) * 1000),
@@ -2529,6 +2545,31 @@ def run_job(
                         # 제안한다(`core/mesh_suggestion.py`). 조건에는 안 넣는다 — 사람이 정한
                         # 값과 섞이지 않게. 받는 쪽은 사람이 정한 값이 없을 때만 쓴다.
                         this_point = _point_conditions(study, point.params)
+                        # **맞닿았는데 접촉이 없는 쌍** — 접촉을 하나라도 건 모델이면 받는 쪽이
+                        # 그 쌍을 떨어진 채로 풀어 부품이 뜬다(CalculiX 실측 2026-11-16: 덮개가
+                        # 떠 모드 여섯이 모두 0 Hz). 표의 「점검」 열과 점 파일 경고에 적는다.
+                        declared = [
+                            one
+                            for one in this_point.get("contacts") or []
+                            if isinstance(one, dict)
+                        ]
+                        if found is not None and declared:
+                            lacking = contact_check.missing(
+                                found.get("touching") or [],
+                                contact_check.declared_pairs(
+                                    declared,
+                                    {
+                                        name: set(bodies)
+                                        for name, bodies in (
+                                            result.get("region_bodies") or {}
+                                        ).items()
+                                    },
+                                ),
+                                contact_check.excluded(this_point),
+                            )
+                            found.setdefault("warnings", []).extend(
+                                contact_check.missing_warnings(lacking)
+                            )
                         skip_wall, skip_size = condition_model.mesh_skips(this_point)
                         mid_bodies = (topo.get("midsurface") or {}).get("bodies") or []
                         suggested = mesh_suggestion.suggest(

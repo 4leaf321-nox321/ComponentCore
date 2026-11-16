@@ -44,6 +44,10 @@ DEFAULTS: dict[str, float] = {
 MAX_CONTACT_PAIRS = 400
 #: 이보다 작은 겹침 부피(mm³)는 맞닿은 면의 수치 오차다.
 _TOUCHING_VOLUME = 1e-6
+#: 이 거리(mm) 안이면 맞닿았다 — 틈(`contact_gap`)과 다르다.
+_TOUCHING_DISTANCE = 1e-6
+#: 이보다 작은 맞닿은 넓이(mm²)는 모서리 · 꼭짓점만 닿은 것이다(접촉을 걸 쌍이 아니다).
+_TOUCHING_AREA = 1e-6
 #: 한 형상에 쏘는 광선 수의 상한 — 면이 수천 장인 조립에서도 점 하나가 몇 초를 넘지 않게.
 MAX_RAYS = 6000
 #: 광선의 출발점을 면에서 재료 안으로 이만큼 들여 놓는다 — 제 면에 닿는 것을 피한다.
@@ -187,7 +191,7 @@ def inspect(shape: Any, limits: dict[str, Any] | None = None) -> dict[str, Any]:
     narrow = [one for one in widths if one < limits["narrow_face"]]
     out["narrowest_face"] = round(min(widths), 4) if widths else None
     out["narrow_faces"] = len(narrow)
-    out["contacts"], skipped = _contacts(
+    out["contacts"], out["touching"], skipped = _contacts(
         [(name, solid) for name, part in named_parts(shape) for solid in part.solids()],
         limits.get("contact_gap", DEFAULTS["contact_gap"]),
     )
@@ -200,12 +204,20 @@ def inspect(shape: Any, limits: dict[str, Any] | None = None) -> dict[str, Any]:
     return out
 
 
-def _contacts(solids: list[tuple[str, Any]], gap: float) -> tuple[list[dict[str, Any]], int]:
-    """솔리드 쌍마다 **겹침**(두께 · 부피 · 자리)과 `gap` 이하의 **틈**(거리 · 자리). 꼭 맞닿은
-    쌍(부피 0 · 거리 0)은 적지 않는다. 두 번째 값은 상한에 걸려 건너뛴 쌍 수."""
+def _contacts(
+    solids: list[tuple[str, Any]], gap: float
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+    """솔리드 쌍마다 **겹침**(두께 · 부피 · 자리)과 `gap` 이하의 **틈**(거리 · 자리), 그리고
+    **맞닿은 쌍**(부피 0 · 거리 0 · 맞닿은 넓이 > 0 — 모서리 · 꼭짓점만 닿은 것은 빼고).
+
+    맞닿은 쌍은 경고가 아니다 — 조립의 정상이다. 다만 그 쌍에 **접촉을 걸지 않으면** 해석이
+    떨어진 채로 풀 수 있다(CalculiX 로 실측 2026-11-16: 접촉 하나를 빠뜨린 덮개가 떠 모드
+    여섯이 모두 0 Hz). 그것을 견주는 쪽이 `contact_check` 다. 세 번째 값은 상한에 걸려 건너뛴
+    쌍 수."""
     from OCP.BRepExtrema import BRepExtrema_DistShapeShape
 
     found: list[dict[str, Any]] = []
+    touching: list[dict[str, Any]] = []
     measured = skipped = 0
     for i, (name_a, a) in enumerate(solids):
         box_a = a.bounding_box()
@@ -235,32 +247,69 @@ def _contacts(solids: list[tuple[str, Any]], gap: float) -> tuple[list[dict[str,
                     }
                 )
                 continue
-            if gap <= 0:
-                continue
             distance = BRepExtrema_DistShapeShape(a.wrapped, b.wrapped)
             if not distance.IsDone() or distance.NbSolution() == 0:
                 continue
             value = float(distance.Value())
-            if 1e-6 < value <= gap:
-                # 마주 본 면 사이의 틈은 최단 거리 해가 여럿이다(그 면의 꼭짓점마다) — 첫 해만
-                # 쓰면 틈의 한쪽 구석을 가리킨다. 해들의 가운데를 쓴다.
-                count = distance.NbSolution()
-                middle = [0.0, 0.0, 0.0]
-                for k in range(1, count + 1):
-                    p, q = distance.PointOnShape1(k), distance.PointOnShape2(k)
-                    middle[0] += (p.X() + q.X()) / 2 / count
-                    middle[1] += (p.Y() + q.Y()) / 2 / count
-                    middle[2] += (p.Z() + q.Z()) / 2 / count
+            if value <= _TOUCHING_DISTANCE:
+                # 한 바디 안의 솔리드끼리는 접촉을 걸 쌍이 아니다.
+                if name_a == name_b:
+                    continue
+                shared = _shared_area(a, b)
+                if shared is None or shared > _TOUCHING_AREA:
+                    touching.append(
+                        {
+                            "a": name_a,
+                            "b": name_b,
+                            "area": None if shared is None else round(shared, 4),
+                            "at": _middle(distance),
+                        }
+                    )
+                continue
+            if gap > 0 and value <= gap:
                 found.append(
                     {
                         "kind": "gap",
                         "a": name_a,
                         "b": name_b,
                         "size": round(value, 4),
-                        "at": [round(one, 3) + 0.0 for one in middle],
+                        "at": _middle(distance),
                     }
                 )
-    return found, skipped
+    return found, touching, skipped
+
+
+def _middle(distance: Any) -> list[float]:
+    """최단 거리 해들의 가운데 — 마주 본 면 사이는 해가 여럿이다(그 면의 꼭짓점마다). 첫 해만
+    쓰면 틈 · 맞닿은 자리의 한쪽 구석을 가리킨다."""
+    from OCP.BRepExtrema import BRepExtrema_SupportType
+
+    edge = BRepExtrema_SupportType.BRepExtrema_IsOnEdge
+    every = range(1, distance.NbSolution() + 1)
+    # 모서리 위의 해는 점이 (0, 0, 0) 으로 온다(실측 — 맞닿은 판 · 블록에서 z 3 이 2.25 로
+    # 끌려 내려갔다). 그런 해는 빼고, 다 모서리 위일 때만 쓴다.
+    picked = [
+        k
+        for k in every
+        if distance.SupportTypeShape1(k) != edge and distance.SupportTypeShape2(k) != edge
+    ] or list(every)
+    middle = [0.0, 0.0, 0.0]
+    for k in picked:
+        p, q = distance.PointOnShape1(k), distance.PointOnShape2(k)
+        middle[0] += (p.X() + q.X()) / 2 / len(picked)
+        middle[1] += (p.Y() + q.Y()) / 2 / len(picked)
+        middle[2] += (p.Z() + q.Z()) / 2 / len(picked)
+    return [round(one, 3) + 0.0 for one in middle]
+
+
+def _shared_area(a: Any, b: Any) -> float | None:
+    """맞닿은 두 솔리드가 나눠 가진 넓이 — (A + B - 합친 것) / 2. 합치기가 깨지면
+    None(모른다)."""
+    try:
+        fused = a + b
+        return (float(a.area) + float(b.area) - float(fused.area)) / 2
+    except Exception:
+        return None
 
 
 def _near(first: Any, second: Any, gap: float) -> bool:

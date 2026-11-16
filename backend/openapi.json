@@ -5800,6 +5800,50 @@
         }
       }
     },
+    "/api/cad/conditions/contacts": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Conditions Contacts",
+        "description": "조립의 **맞닿은 쌍과 접촉**을 견준다 — 접촉 없이 맞닿은 쌍(자리와 함께), 그 쌍을\n본딩으로 채울 면 그룹 · 접촉, 모달에서 접촉이 풀리는 법(`notes` — 식 알림과 같은 꼴).\n\n도면을 만들어야 해서 식 알림보다 무겁다 — 화면은 따로, 더 늦게 부른다.",
+        "operationId": "conditions_contacts_api_cad_conditions_contacts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConditionNotesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Conditions Contacts Api Cad Conditions Contacts Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/cad/conditions/frames": {
       "post": {
         "tags": [

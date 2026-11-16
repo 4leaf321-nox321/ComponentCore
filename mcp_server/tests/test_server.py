@@ -93,6 +93,7 @@ def test_사람이_손으로_하는_일이_도구로_다_있다() -> None:
         "condition_material_search",  # 조건에 붙일 재료 찾기
         "condition_material_get",  # 재료 받기 — 조건에 넣을 항목까지
         "recipe_bodies",  # 물성을 붙일 바디
+        "conditions_contacts",  # 맞닿은 쌍 · 빠뜨린 접촉 · 본딩 채우기 — 화면의 접촉 점검
         "doe_run",  # 조건까지 실어 폴더로
         "doe_probe",  # 끝 점 미리 만들어 보기
         "doe_extend",  # 점 더하기

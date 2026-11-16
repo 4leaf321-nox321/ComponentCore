@@ -56,6 +56,7 @@ import { measureMarks } from '@/modules/cad/measureMarks'
 import { RibbonButton, RibbonGroup } from '@/modules/cad/Ribbon'
 import { useRecipeMesh } from '@/modules/cad/useRecipeMesh'
 import { ConditionForm } from '@/modules/conditions/ConditionForm'
+import { ContactCheck } from '@/modules/conditions/ContactCheck'
 import { FloatingWindow, SelectionMembers } from '@/modules/conditions/ConditionWindows'
 import { bodyMarks, foundMarks } from '@/modules/conditions/highlight'
 import type { FoundRow } from '@/modules/conditions/highlight'
@@ -953,6 +954,9 @@ export function ConditionsPanel({
             ))}
         </ul>
       )}
+
+      {/* 접촉 점검 — 맞닿았는데 접촉이 없는 쌍, 본딩 채우기, 모달에서 접촉이 풀리는 법. */}
+      <ContactCheck recipe={recipe} draft={draft} onApply={setDraft} />
 
       {error && <ErrorNotice error={error} />}
       {(loaded.moved.length > 0 || loaded.kept.length > 0) && (
