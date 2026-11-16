@@ -41,6 +41,7 @@ from app.modules.jobs import routes as jobs_routes
 from app.modules.materials import routes as materials_routes
 from app.modules.metrics import routes as metrics_routes
 from app.modules.metrics import services as metrics_services
+from app.modules.notices import routes as notice_routes
 from app.modules.notifications import routes as notifications_routes
 from app.modules.objects import attachments as objects_attachments
 from app.modules.objects import misses as objects_misses
@@ -115,6 +116,7 @@ def _api_router(settings: Settings) -> APIRouter:
     router.include_router(search_routes.router)
     router.include_router(server_routes.router)
     router.include_router(specimens_routes.router)
+    router.include_router(notice_routes.router)
     router.include_router(voc_routes.router)
     # StandardPlatform 에서 들인 것(ADR 0008) — 부서 · 알림 · 첨부 · 감사 · 데이터 작업 ·
     # 온톨로지 ·

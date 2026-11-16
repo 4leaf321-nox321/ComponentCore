@@ -1,0 +1,262 @@
+/**
+ * 공지 게시판 — **VOC 와 같은 짜임**(MatNexus 의 시험을 옮겼다, 2026-11-16).
+ *
+ *   번호는 게시판의 차례          가장 오래된 것이 1
+ *   안 읽은 글이 보인다           굵게, 「새 글」 — 팝업은 중요한 것에만 켠다
+ *   배포에 실려 온 안내           「알 수 없음」 이 아니라 「배포 안내」
+ *   제목·내용으로 찾고, 안 읽은 것만 고른다
+ *   쓰는 것은 시스템 관리자만
+ *   「모두 읽음」 — 안 읽은 글이 있을 때만, 누르면 목록과 수를 다시 읽는다
+ *   「내용 전체 복사」 — 거른 것 그대로 쪽을 넘겨 전부 모으고, 다 모인 뒤 누르면 복사한다
+ *   (CompCore) 「초안 모두 발행」 — 관리자에게 초안이 있을 때만, 묻고 나서 낸다
+ */
+
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
+
+import NoticesPage from '@/modules/notices/NoticesPage'
+
+const list = vi.fn()
+const unreadCount = vi.fn()
+const readAll = vi.fn()
+const publishDrafts = vi.fn()
+const copyText = vi.fn()
+let admin = false
+
+vi.mock('@/shared/lib/clipboard', () => ({
+  copyText: (text: string) => copyText(text),
+}))
+
+vi.mock('@/modules/notices/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/notices/api')>()),
+  noticesApi: {
+    list: (...args: unknown[]) => list(...args),
+    unreadCount: () => unreadCount(),
+    readAll: () => readAll(),
+    publishDrafts: () => publishDrafts(),
+    create: vi.fn(),
+  },
+}))
+
+vi.mock('@/shared/auth/AuthContext', () => ({
+  useAuth: () => ({ user: { is_system_admin: admin, memberships: [] } }),
+}))
+
+vi.mock('@/shared/api/display', () => ({
+  useDisplay: () => ({ list_page_size: 50, doe_gallery_max: 24 }),
+}))
+
+function notice(over: Record<string, unknown> = {}) {
+  return {
+    id: 'n1',
+    title: '공지',
+    body: '본문',
+    is_published: true,
+    is_popup: false,
+    created_at: '2026-09-20T00:00:00Z',
+    published_at: '2026-09-20T00:00:00Z',
+    is_read: true,
+    created_by: '시스템 관리자',
+    from_release: false,
+    ...over,
+  }
+}
+
+function page(items: unknown[], total = items.length) {
+  return { items, total, limit: 50, offset: 0 }
+}
+
+function show() {
+  render(
+    <MemoryRouter initialEntries={['/notices']}>
+      <NoticesPage />
+    </MemoryRouter>
+  )
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  admin = false
+  unreadCount.mockResolvedValue({ unread: 0 })
+  readAll.mockResolvedValue({ unread: 0 })
+  copyText.mockResolvedValue(undefined)
+  publishDrafts.mockResolvedValue({ published: 0 })
+})
+
+describe('공지 게시판', () => {
+  it('번호는 차례, 안 읽은 글은 「새 글」, 배포에 실려 온 안내는 그렇게 적는다', async () => {
+    list.mockResolvedValue(
+      page([
+        notice({ id: 'n3', title: '새 기능', is_read: false, created_by: null, from_release: true }),
+        notice({ id: 'n2', title: '점검 안내' }),
+        notice({ id: 'n1', title: '첫 공지' }),
+      ])
+    )
+    show()
+    const rows = within(await screen.findByRole('table')).getAllByRole('row').slice(1)
+    expect(rows.map((row) => within(row).getAllByRole('cell')[0].textContent)).toEqual([
+      '3',
+      '2',
+      '1',
+    ])
+    expect(within(rows[0]).getByText('새 글')).toBeInTheDocument()
+    expect(within(rows[0]).getByText('배포 안내')).toBeInTheDocument()
+    expect(within(rows[1]).queryByText('새 글')).toBeNull()
+    expect(within(rows[1]).getByText('시스템 관리자')).toBeInTheDocument()
+  })
+
+  it('제목·내용으로 찾고, 안 읽은 것만 고른다 — 걸러서 없으면 그렇게 말한다', async () => {
+    const user = userEvent.setup()
+    list.mockResolvedValue(page([]))
+    show()
+    await screen.findByText('공지가 없습니다.')
+
+    await user.type(screen.getByLabelText('검색'), '점검')
+    await waitFor(() =>
+      expect(list).toHaveBeenLastCalledWith({ q: '점검', unread: false, limit: 50, offset: 0 })
+    , { timeout: 2000 })
+    await user.click(screen.getByRole('checkbox', { name: '안 읽은 것만' }))
+    await waitFor(() =>
+      expect(list).toHaveBeenLastCalledWith({ q: '점검', unread: true, limit: 50, offset: 0 })
+    )
+    expect(await screen.findByText('거른 조건에 맞는 공지가 없습니다.')).toBeInTheDocument()
+  })
+
+  it('쓰는 것은 시스템 관리자만', async () => {
+    list.mockResolvedValue(page([notice()]))
+    show()
+    await screen.findByRole('table')
+    expect(screen.queryByRole('button', { name: /공지 작성/ })).toBeNull()
+  })
+
+  it('관리자에게는 쓰는 단추가 선다', async () => {
+    admin = true
+    list.mockResolvedValue(page([notice()]))
+    show()
+    await screen.findByRole('table')
+    expect(screen.getByRole('button', { name: /공지 작성/ })).toBeInTheDocument()
+  })
+
+  it('안 읽은 글이 있으면 「모두 읽음」 이 서고, 누르면 목록과 수를 다시 읽는다', async () => {
+    const user = userEvent.setup()
+    list.mockResolvedValue(page([notice({ id: 'n2', title: '새 기능', is_read: false })]))
+    unreadCount.mockResolvedValueOnce({ unread: 7 })
+    show()
+    // 이 쪽에 한 건만 보여도 수는 전체다 — 목록은 쪽으로 잘려 있다.
+    const button = await screen.findByRole('button', { name: /모두 읽음 \(7\)/ })
+
+    list.mockResolvedValue(page([notice({ id: 'n2', title: '새 기능', is_read: true })]))
+    await user.click(button)
+    await waitFor(() => expect(readAll).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /모두 읽음/ })).not.toBeInTheDocument()
+    )
+    const row = within(await screen.findByRole('table')).getAllByRole('row')[1]
+    await waitFor(() => expect(within(row).queryByText('새 글')).toBeNull())
+    expect(list.mock.calls.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('다 읽었으면 「모두 읽음」 이 없다', async () => {
+    list.mockResolvedValue(page([notice()]))
+    show()
+    await screen.findByRole('table')
+    await waitFor(() => expect(unreadCount).toHaveBeenCalled())
+    expect(screen.queryByRole('button', { name: /모두 읽음/ })).toBeNull()
+  })
+})
+
+describe('내용 전체 복사', () => {
+  /** 서버처럼 쪽을 잘라 주는 목록 — `limit` · `offset` 을 지킨다. */
+  function serve(all: unknown[]) {
+    list.mockImplementation(({ limit = 50, offset = 0 }: { limit?: number; offset?: number }) =>
+      Promise.resolve({ items: all.slice(offset, offset + limit), total: all.length, limit, offset })
+    )
+  }
+
+  async function open(user: ReturnType<typeof userEvent.setup>, name: string) {
+    await user.click(await screen.findByRole('button', { name }))
+    const dialog = await screen.findByRole('dialog')
+    const box = within(dialog).getByLabelText('공지 내용') as HTMLTextAreaElement
+    return { dialog, box }
+  }
+
+  it('쪽을 넘겨 전부 모으고, 다 모인 뒤 누르면 그 글을 복사한다', async () => {
+    const user = userEvent.setup()
+    serve(
+      Array.from({ length: 250 }, (_, at) =>
+        notice({ id: `n${250 - at}`, title: `공지 ${250 - at}`, body: `본문 ${250 - at}` })
+      )
+    )
+    show()
+    const { dialog, box } = await open(user, '내용 전체 복사')
+    // 데이터로 그려진 것을 기다린다 — 마지막 쪽의 글까지 모였을 때다.
+    await waitFor(() => expect(box.value).toContain('## 1. 공지 1'))
+    expect(box.value).toContain('## 250. 공지 250\n')
+    expect(list).toHaveBeenCalledWith({ q: undefined, unread: false, limit: 200, offset: 0 })
+    expect(list).toHaveBeenCalledWith({ q: undefined, unread: false, limit: 200, offset: 200 })
+    expect(within(dialog).getByRole('status')).toHaveTextContent('공지 250건')
+
+    await user.click(within(dialog).getByRole('button', { name: '복사' }))
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith(box.value))
+    expect(await within(dialog).findByRole('button', { name: '복사했습니다' })).toBeInTheDocument()
+  })
+
+  it('걸렀으면 단추가 그 수를 말하고, 거른 조건 그대로 모은다', async () => {
+    const user = userEvent.setup()
+    serve([notice({ title: '점검 안내', body: '토요일 점검' })])
+    show()
+    await screen.findByRole('table')
+    await user.type(screen.getByLabelText('검색'), '점검')
+    await waitFor(() => expect(list).toHaveBeenLastCalledWith({ q: '점검', unread: false, limit: 50, offset: 0 }), { timeout: 2000 })
+
+    const { dialog, box } = await open(user, '찾은 1건 복사')
+    await waitFor(() => expect(box.value).toContain('찾기 「점검」'))
+    expect(box.value).toContain('## 1. 점검 안내')
+    expect(list).toHaveBeenCalledWith({ q: '점검', unread: false, limit: 200, offset: 0 })
+    expect(within(dialog).getByText(/지금 거른 조건/)).toBeInTheDocument()
+  })
+
+  it('브라우저가 복사를 막으면 직접 고르는 길을 말한다', async () => {
+    const user = userEvent.setup()
+    copyText.mockRejectedValue(new Error('막힘'))
+    serve([notice({ title: '첫 공지' })])
+    show()
+    const { dialog, box } = await open(user, '내용 전체 복사')
+    await waitFor(() => expect(box.value).toContain('## 1. 첫 공지'))
+    await user.click(within(dialog).getByRole('button', { name: '복사' }))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Ctrl+C')
+  })
+
+  it('공지가 없으면 복사 단추가 없다', async () => {
+    list.mockResolvedValue(page([]))
+    show()
+    await screen.findByText('공지가 없습니다.')
+    expect(screen.queryByRole('button', { name: /복사/ })).toBeNull()
+  })
+})
+
+describe('초안 모두 발행', () => {
+  it('관리자에게 초안이 있으면 서고, 묻고 나서 낸다', async () => {
+    admin = true
+    const user = userEvent.setup()
+    list.mockImplementation((params: { draft?: boolean }) =>
+      Promise.resolve(params.draft ? page([], 47) : page([notice({ is_published: false, title: 'v0.26.0 업데이트' })]))
+    )
+    publishDrafts.mockResolvedValue({ published: 47 })
+    show()
+    await user.click(await screen.findByRole('button', { name: /초안 모두 발행 \(47\)/ }))
+    expect(publishDrafts).not.toHaveBeenCalled()
+    await user.click(await screen.findByRole('button', { name: '모두 발행' }))
+    await waitFor(() => expect(publishDrafts).toHaveBeenCalledTimes(1))
+    expect(list).toHaveBeenCalledWith({ draft: true, limit: 1 })
+  })
+
+  it('관리자가 아니면 묻지도 않는다', async () => {
+    list.mockResolvedValue(page([notice()]))
+    show()
+    await screen.findByRole('table')
+    expect(screen.queryByRole('button', { name: /초안 모두 발행/ })).toBeNull()
+    expect(list).not.toHaveBeenCalledWith({ draft: true, limit: 1 })
+  })
+})

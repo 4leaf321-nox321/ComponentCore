@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from 'react'
 import { Outlet, useLocation, useParams } from 'react-router-dom'
 
+import { NoticePopup } from '@/modules/notices/NoticePopup'
 import { useAuth } from '@/shared/auth/AuthContext'
 
 import { ErrorBoundary } from '@/shared/components/ErrorBoundary'
@@ -55,6 +56,8 @@ export function AppShell() {
           </ErrorBoundary>
         </main>
       </div>
+      {/* 읽지 않은 팝업 공지가 있으면 로그인 뒤 한 번 뜬다(닫으면 읽음). */}
+      <NoticePopup />
     </div>
   )
 }

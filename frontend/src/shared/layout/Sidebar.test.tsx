@@ -9,11 +9,12 @@ afterEach(() => window.localStorage.clear())
 
 interface Served {
   summary?: Record<string, unknown>
+  unread?: Record<string, unknown>
   nav?: unknown[]
   me?: Record<string, unknown>
 }
 
-function serve({ summary = { waiting: 0, to_confirm: 0 }, nav = [], me: extra = {} }: Served) {
+function serve({ summary = { waiting: 0, to_confirm: 0 }, unread = { unread: 0 }, nav = [], me: extra = {} }: Served) {
   const asked: string[] = []
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
     const url = String(input)
@@ -33,6 +34,8 @@ function serve({ summary = { waiting: 0, to_confirm: 0 }, nav = [], me: extra = 
       ? { access_token: 't', expires_in: 900, user: me }
       : url.endsWith('/voc/summary')
         ? summary
+        : url.endsWith('/notices/unread-count')
+          ? unread
         : url.endsWith('/ontology/nav')
           ? nav
           : { status: 'ok', version: 'v0.13.0', app: 'CompCore' }
@@ -60,6 +63,18 @@ test('VOC 메뉴 옆에 접수 대기와 확인 대기를 더해 센다', async 
   const badge = await screen.findByLabelText('접수 대기 2건, 확인 대기 1건')
   expect(badge).toHaveTextContent('3')
   expect(screen.getByRole('link', { name: /VOC/ })).toContainElement(badge)
+})
+
+test('공지는 VOC 옆에 서고, 안 읽은 공지 수를 단다', async () => {
+  serve({ unread: { unread: 4 } })
+  const badge = await screen.findByLabelText('안 읽은 공지 4건')
+  expect(badge).toHaveTextContent('4')
+  const notices = screen.getByRole('link', { name: /공지/ })
+  expect(notices).toContainElement(badge)
+  expect(notices).toHaveAttribute('href', '/notices')
+  // 지원 묶음 안에서 공지가 VOC 바로 앞이다.
+  const voc = screen.getByRole('link', { name: /VOC/ })
+  expect(notices.compareDocumentPosition(voc) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 })
 
 test('온톨로지가 준 묶음이 기준정보 앞에 서고, 기록 타입에는 표가 붙는다', async () => {

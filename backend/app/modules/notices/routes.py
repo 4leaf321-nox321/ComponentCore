@@ -1,0 +1,327 @@
+"""공지 라우터.
+
+읽기는 로그인한 모두, 쓰기는 시스템 관리자. 모듈이 작아 서비스 파일을 따로 두지
+않고 여기서 끝낸다 — 나중에 로직이 붙으면 그때 나눈다. **MatNexus 의 공지를 그대로 옮겼다**
+(2026-11-16) — 같은 회사의 플랫폼끼리 공지 · VOC 가 같은 모양이어야 사람이 헤매지 않는다.
+CompCore 는 버전마다 업데이트 안내를 씨앗으로 싣는다(`seeds/notices/<날짜>-v<판>.md`).
+
+## 카드 더미에서 게시판으로 (2026-09-24)
+
+목록이 본문까지 통째로 한 번에 나갔고, 화면은 그것을 카드로 쌓았다. 공지가 늘면
+찾을 길이 없었다 — VOC 는 이미 게시판이라(번호·검색·쪽 넘기기·한 건 상세) 한 진입점
+안의 두 게시판이 서로 다르게 굴었다. 이제 목록은 쪽으로 나가고(`Page`) 제목·내용으로
+찾으며, 한 건은 `GET /notices/{id}` 로 연다.
+
+## CompCore 에서 더한 둘 (2026-11-16)
+
+- **배포 안내의 발행 시각은 그 판의 날짜다**(`_publish`). 버전 안내는 「언제 이 판이 나왔나」
+  가 뜻이다 — 몇 주 묵은 초안을 오늘 발행했다고 v0.3.0 이 오늘 날짜로 서면 게시판이 버전
+  순서를 잃는다. 관리자가 쓴 공지는 그대로 발행한 그 순간이다.
+- **「초안 모두 발행」**(`POST /notices/publish-drafts`). 처음 배포하면 지난 판의 안내가 수십
+  건 초안으로 들어온다 — 하나씩 열어 발행을 켜라고 하면 아무도 안 한다. 읽어 보고 한 번에
+  낸다.
+"""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Iterable
+from datetime import UTC, datetime
+
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import Select, exists, func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.modules.accounts.models import User
+from app.modules.notices.models import Notice, NoticeRead
+from app.modules.notices.schemas import (
+    NoticeCreateRequest,
+    NoticeOut,
+    NoticePublishedOut,
+    NoticeUnreadOut,
+    NoticeUpdateRequest,
+)
+from app.shared.auth import current_user, require_system_admin
+from app.shared.errors import NotFound, code
+from app.shared.pagination import Page, clamp_limit
+
+router = APIRouter(prefix="/notices", tags=["notices"])
+
+
+def _out(notice: Notice, *, read: bool, names: dict[uuid.UUID, str]) -> NoticeOut:
+    return NoticeOut(
+        id=notice.id,
+        title=notice.title,
+        body=notice.body,
+        is_published=notice.is_published,
+        is_popup=notice.is_popup,
+        created_at=notice.created_at,
+        published_at=notice.published_at,
+        is_read=read,
+        created_by=names.get(notice.created_by_id) if notice.created_by_id else None,
+        from_release=notice.seed_key is not None,
+    )
+
+
+def _names(db: Session, ids: Iterable[uuid.UUID | None]) -> dict[uuid.UUID, str]:
+    """쓴 사람의 표시 이름 — **한 번에 묶어 읽는다**(줄마다 물으면 N+1 이다)."""
+    wanted = {one for one in ids if one is not None}
+    if not wanted:
+        return {}
+    return {
+        user_id: display or email
+        for user_id, display, email in db.execute(
+            select(User.id, User.display_name, User.email).where(User.id.in_(wanted))
+        )
+    }
+
+
+def _read_ids(db: Session, user: User) -> set[uuid.UUID]:
+    return set(
+        db.scalars(select(NoticeRead.notice_id).where(NoticeRead.user_id == user.id)).all()
+    )
+
+
+def _unread_of(user: User) -> Select[tuple[uuid.UUID]]:
+    """**발행된 것** 중 이 사람이 안 읽은 공지. 사이드바의 수와 「모두 읽음」 이 같은 줄을
+    센다 — 둘이 따로 세면 「모두 읽음」 을 눌렀는데 수가 남는다.
+
+    목록의 `unread` 거르개와는 초안에서 갈린다 — 관리자는 목록에서 초안도 보지만, 초안은
+    아직 아무에게도 안 알린 글이라 「새 글」 로 세지 않는다(목록의 「새 글」 표와 같다)."""
+    return select(Notice.id).where(
+        Notice.is_published.is_(True),
+        ~exists().where(NoticeRead.notice_id == Notice.id, NoticeRead.user_id == user.id),
+    )
+
+
+def _visible(db: Session, notice_id: uuid.UUID, user: User) -> Notice:
+    """볼 수 있는 공지 하나. **초안은 시스템 관리자만** — 목록과 같은 규칙이다. 남에게는
+    없는 것과 같다(주소를 알아도 못 연다)."""
+    notice = db.get(Notice, notice_id)
+    if notice is None or (not notice.is_published and not user.is_system_admin):
+        raise NotFound(code("NOTICES", 1), "공지를 찾을 수 없습니다.")
+    return notice
+
+
+def _publish(notice: Notice) -> None:
+    """발행한다. 발행 시각은 **처음 발행할 때만** 찍는다 — 고칠 때마다 갱신하면 「언제
+    알려졌는가」 를 잃는다. 배포 안내(`seed_key`)는 그 판의 날짜(`created_at`, 씨앗의
+    날짜)다."""
+    notice.is_published = True
+    if notice.published_at is None:
+        notice.published_at = notice.created_at if notice.seed_key else datetime.now(UTC)
+
+
+@router.get("", response_model=Page[NoticeOut])
+def list_notices(
+    q: str | None = Query(default=None, max_length=200),
+    unread: bool = Query(default=False),
+    draft: bool = Query(
+        default=False, description="초안만 — 관리자의 「초안 모두 발행」 이 그 수를 센다"
+    ),
+    limit: int | None = Query(default=None, le=1000),
+    offset: int = Query(default=0, ge=0),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> Page[NoticeOut]:
+    """게시판. **최근에 알린 것이 위다** — 발행 시각, 초안은 만든 시각.
+
+    만든 시각으로만 세우면 배포가 초안으로 넣어 둔 안내(`seeds/notices`)를 며칠 뒤에
+    발행했을 때 아래로 묻힌다 — 사람에게는 방금 알린 글이다.
+    """
+    query = select(Notice)
+    if not user.is_system_admin:
+        # 초안은 쓴 사람만 본다.
+        query = query.where(Notice.is_published.is_(True))
+    if q and q.strip():
+        needle = f"%{q.strip()}%"
+        query = query.where(or_(Notice.title.ilike(needle), Notice.body.ilike(needle)))
+    if draft:
+        query = query.where(Notice.is_published.is_(False))
+    if unread:
+        query = query.where(
+            ~exists().where(NoticeRead.notice_id == Notice.id, NoticeRead.user_id == user.id)
+        )
+
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    size = clamp_limit(limit)
+    rows = list(
+        db.scalars(
+            query.order_by(
+                func.coalesce(Notice.published_at, Notice.created_at).desc(),
+                Notice.created_at.desc(),
+            )
+            .limit(size)
+            .offset(offset)
+        )
+    )
+    read = _read_ids(db, user)
+    names = _names(db, (one.created_by_id for one in rows))
+    return Page(
+        items=[_out(one, read=one.id in read, names=names) for one in rows],
+        total=int(total),
+        limit=size,
+        offset=offset,
+    )
+
+
+@router.get("/popup", response_model=list[NoticeOut])
+def popup_notices(
+    user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> list[NoticeOut]:
+    """로그인 후 한 번 띄울 공지. 읽은 것은 빠진다."""
+    read = _read_ids(db, user)
+    query = (
+        select(Notice)
+        .where(Notice.is_published.is_(True), Notice.is_popup.is_(True))
+        .order_by(Notice.published_at.desc())
+    )
+    rows = [n for n in db.scalars(query) if n.id not in read]
+    names = _names(db, (one.created_by_id for one in rows))
+    return [_out(n, read=False, names=names) for n in rows]
+
+
+@router.get("/unread-count", response_model=NoticeUnreadOut)
+def unread_count(
+    user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> NoticeUnreadOut:
+    """사이드바의 「공지 · VOC」 옆 수. **숫자 하나만** 준다 — 화면이 주기적으로 묻는 자리라
+    목록을 통째로 받게 하면 사람이 늘수록 서버가 그만큼 일한다(알림 종과 같은 판단).
+
+    팝업은 중요한 공지에만 켜므로, 나머지 공지는 이 수가 아니면 게시판에 들어가 봐야 안다."""
+    count = db.scalar(select(func.count()).select_from(_unread_of(user).subquery()))
+    return NoticeUnreadOut(unread=int(count or 0))
+
+
+@router.post("/read-all", response_model=NoticeUnreadOut)
+def read_all(
+    user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> NoticeUnreadOut:
+    """안 읽은 공지를 **모두 읽음**으로. 처음 들어온 사람에게는 그동안 쌓인 공지가 전부
+    새 글이라 — 하나씩 열어 끄라고 하면 수를 안 보게 된다.
+
+    같은 공지를 다른 탭에서 방금 읽었을 수 있다. 짝(공지·사람)이 겹치면 **건너뛴다** — 한
+    건이 겹쳤다고 전부를 되돌리면 눌렀는데 아무 일도 안 일어난다."""
+    ids = list(db.scalars(_unread_of(user)))
+    if ids:
+        db.execute(
+            pg_insert(NoticeRead)
+            .values(
+                [{"id": uuid.uuid4(), "notice_id": one, "user_id": user.id} for one in ids]
+            )
+            .on_conflict_do_nothing(constraint="uq_notice_reads_pair")
+        )
+        db.commit()
+    return NoticeUnreadOut(unread=0)
+
+
+@router.post("/publish-drafts", response_model=NoticePublishedOut)
+def publish_drafts(
+    _: User = Depends(require_system_admin), db: Session = Depends(get_db)
+) -> NoticePublishedOut:
+    """초안을 **모두** 발행한다 — 처음 배포에 들어온 지난 판의 안내 수십 건을 한 번에.
+    팝업은 켜지 않는다(켜 둔 것은 그대로) — 수십 건이 로그인마다 하나씩 뜨면 아무도 안
+    읽는다."""
+    drafts = list(db.scalars(select(Notice).where(Notice.is_published.is_(False))))
+    for one in drafts:
+        _publish(one)
+    if drafts:
+        db.commit()
+    return NoticePublishedOut(published=len(drafts))
+
+
+@router.get("/{notice_id}", response_model=NoticeOut)
+def get_notice(
+    notice_id: uuid.UUID,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> NoticeOut:
+    """한 건. **읽음 표시는 따로다**(`POST …/read`) — 여는 것만으로 표시하면 목록을 미리
+    불러 두는 화면이나 스크립트가 남의 읽음을 대신 찍는다."""
+    notice = _visible(db, notice_id, user)
+    read = notice.id in _read_ids(db, user)
+    return _out(notice, read=read, names=_names(db, [notice.created_by_id]))
+
+
+@router.post("", response_model=NoticeOut, status_code=201)
+def create_notice(
+    payload: NoticeCreateRequest,
+    admin: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> NoticeOut:
+    notice = Notice(
+        title=payload.title,
+        body=payload.body,
+        is_popup=payload.is_popup,
+        is_published=payload.is_published,
+        published_at=datetime.now(UTC) if payload.is_published else None,
+        created_by_id=admin.id,
+    )
+    db.add(notice)
+    db.commit()
+    return _out(notice, read=False, names=_names(db, [notice.created_by_id]))
+
+
+@router.patch("/{notice_id}", response_model=NoticeOut)
+def update_notice(
+    notice_id: uuid.UUID,
+    payload: NoticeUpdateRequest,
+    admin: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> NoticeOut:
+    notice = db.get(Notice, notice_id)
+    if notice is None:
+        raise NotFound(code("NOTICES", 1), "공지를 찾을 수 없습니다.")
+
+    if payload.title is not None:
+        notice.title = payload.title
+    if payload.body is not None:
+        notice.body = payload.body
+    if payload.is_popup is not None:
+        notice.is_popup = payload.is_popup
+    if payload.is_published is not None and payload.is_published != notice.is_published:
+        if payload.is_published:
+            _publish(notice)
+        else:
+            notice.is_published = False
+
+    db.commit()
+    return _out(notice, read=False, names=_names(db, [notice.created_by_id]))
+
+
+@router.delete("/{notice_id}", status_code=204)
+def delete_notice(
+    notice_id: uuid.UUID,
+    _: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> None:
+    """**행을 없앤다.** 읽음 기록은 FK 가 CASCADE 로 함께 지운다.
+
+    「내리기」 와 다른 일이다 — 잘못 올린 것을 잠깐 감추려면 발행을 끄면 되고
+    (`PATCH is_published`), 그때 내용과 발행 시각은 남는다. 삭제는 그 공지가
+    있었다는 사실까지 없애는 것이라 화면이 먼저 묻는다.
+    """
+    notice = db.get(Notice, notice_id)
+    if notice is None:
+        raise NotFound(code("NOTICES", 1), "공지를 찾을 수 없습니다.")
+    db.delete(notice)
+    db.commit()
+
+
+@router.post("/{notice_id}/read", status_code=204)
+def mark_read(
+    notice_id: uuid.UUID,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    _visible(db, notice_id, user)
+    exists_row = db.scalar(
+        select(NoticeRead).where(
+            NoticeRead.notice_id == notice_id, NoticeRead.user_id == user.id
+        )
+    )
+    if exists_row is None:
+        db.add(NoticeRead(notice_id=notice_id, user_id=user.id))
+        db.commit()

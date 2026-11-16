@@ -25,6 +25,7 @@ from app.modules.metrics.models import (
     MetricRun,
     MetricValue,
 )
+from app.modules.notices.models import Notice, NoticeRead, NoticeSeedKey
 from app.modules.notifications.models import Notification
 from app.modules.objects.models import (
     ObjectAlias,
@@ -84,6 +85,9 @@ __all__ = [
     "MetricRun",
     "MetricValue",
     "NavGroup",
+    "Notice",
+    "NoticeRead",
+    "NoticeSeedKey",
     "Notification",
     "ObjectAlias",
     "ObjectInstance",

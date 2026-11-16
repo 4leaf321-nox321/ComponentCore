@@ -570,7 +570,8 @@ export function DoeForm({
             ['min_wall', '최소 벽 두께'],
             ['short_edge', '짧은 모서리'],
             ['narrow_face', '좁은 면'],
-            ['contact_gap', '바디 사이 틈'],
+            // 공식 용어 — 점 파일 · 경고 · 공지가 「바디 간 미세 간극」 이라 부른다.
+            ['contact_gap', '미세 간극'],
           ] as const
         ).map(([key, label]) => (
           <label key={key} className="flex items-center gap-1">

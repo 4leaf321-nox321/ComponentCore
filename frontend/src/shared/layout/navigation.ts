@@ -2,7 +2,7 @@
  * 사이드바 메뉴 정의 — **화면 목록의 정본이다.** `router.test.tsx` 가 라우터와 맞는지 검사한다.
  *
  * 순서가 곧 동선이다: 내 활동(새 작업 → 내 작업 → 실행 기록) → 공용 공간(템플릿 · 시험 규격 ·
- * 부품 · 지그) → 온톨로지가 만든 묶음 → 기준정보(검색 · 타입 · 그래프 · 지표) → 내 부서 → 지원(VOC)
+ * 부품 · 지그) → 온톨로지가 만든 묶음 → 기준정보(검색 · 타입 · 그래프 · 지표) → 내 부서 → 지원(공지 · VOC)
  * → 관리. 템플릿 · 시험 규격은 시작점, 부품 · 지그는 승격된 결과다.
  *
  * 온톨로지 · 부서 쪽 항목과 동적 묶음(`mergeDynamic`)은 StandardPlatform 의 것을 그대로
@@ -27,6 +27,7 @@ import {
   Layers,
   ListChecks,
   ListTodo,
+  Megaphone,
   MessagesSquare,
   Ruler,
   ScrollText,
@@ -160,6 +161,15 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     title: '지원',
     items: [
+      // **위에서 내려오는 글**(공지)과 **아래에서 올라가는 글**(VOC)이 나란히 — MatNexus 와 같은
+      // 게시판이다. 판마다 바뀐 내용이 공지로 선다(배포에 실려 온다).
+      {
+        label: '공지',
+        icon: Megaphone,
+        to: '/notices',
+        badge: 'notices',
+        summary: '판마다 바뀐 내용과 운영 안내를 알립니다. 안 읽은 공지 수가 메뉴 옆에 표시됩니다.',
+      },
       {
         label: 'VOC',
         icon: MessagesSquare,
