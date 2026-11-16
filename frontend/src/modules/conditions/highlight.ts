@@ -74,6 +74,13 @@ export function foundMarks(mesh: MeshData, what: string, rows: FoundRow[]): Meas
 export const TIE_COLOR = 0xdc2626
 export const CONTACT_COLOR = 0x2563eb
 
+/**
+ * **접촉을 고치는 창**의 색 — 접촉면(Contact)은 붉게, 대상면(Target)은 푸르게(해석 전처리기의 관례).
+ * 색은 접촉 표시와 같지만 뜻이 다르다 — 그래서 창을 연 동안은 접촉 표시를 끈다.
+ */
+export const SOURCE_COLOR = 0xdc2626
+export const TARGET_COLOR = 0x2563eb
+
 export type ContactKind = 'tie' | 'contact'
 
 export function contactKind(type: unknown): ContactKind {

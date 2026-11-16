@@ -118,11 +118,11 @@ def test_조립에서_빠뜨린_접촉을_말하고_채우면_내보내기에서
         ("받침", "덮개"),
     ]
     assert any(
-        "접촉 없이 맞닿은 바디 ‘받침’ · ‘덮개’" in one for one in point["quality"]["warnings"]
+        "접촉 미정의: 인접 바디 ‘받침’ · ‘덮개’" in one for one in point["quality"]["warnings"]
     )
     with (folder / "manifest.csv").open(encoding="utf-8-sig") as handle:
         (row,) = list(csv.DictReader(handle))
-    assert "접촉 없이 맞닿은" in row["warnings"]
+    assert "접촉 미정의" in row["warnings"]
 
     # 「맞닿은 면으로 본딩 채우기」 — 제안을 그대로 담으면 빠진 쌍도 경고도 없다.
     filled = {
@@ -150,5 +150,8 @@ def test_조립에서_빠뜨린_접촉을_말하고_채우면_내보내기에서
         {"name": "조립_접촉채움", "recipe": recipe, "factors": [], "work_id": assembly},
     )
     point = json.loads(next((folder / "points").glob("p*.json")).read_text(encoding="utf-8"))
-    assert not any("접촉 없이" in one for one in point["quality"]["warnings"])
-    assert {one["name"] for one in point["conditions"]["contacts"]} == {"판-받침", "받침-덮개"}
+    assert not any("접촉 미정의" in one for one in point["quality"]["warnings"])
+    assert {one["name"] for one in point["conditions"]["contacts"]} == {
+        "판-받침",
+        "본딩 받침-덮개",
+    }

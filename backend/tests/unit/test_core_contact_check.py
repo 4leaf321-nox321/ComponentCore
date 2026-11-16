@@ -80,20 +80,20 @@ def test_빠뜨린_접촉을_자리와_함께_말하고_본딩으로_채울_것�
     assert [(one["a"], one["b"]) for one in got["missing"]] == [("받침", "덮개")]
     (warn,) = [one for one in got["notes"] if one["level"] == "warn"]
     assert (
-        "접촉 없이 맞닿은 바디 ‘받침’ · ‘덮개’" in warn["text"]
+        "접촉 미정의: 인접 바디 ‘받침’ · ‘덮개’" in warn["text"]
         and "(0, 0, 13)" in warn["text"]
     )
     # 채울 것 — 화면이 누른 면에 붙이는 것과 같은 규칙(바디 + 방향)으로 양쪽 그룹과 본딩 하나.
     proposal = got["proposal"]
     assert [one["name"] for one in proposal["named_selections"]] == [
-        "받침-덮개 받침쪽",
-        "받침-덮개 덮개쪽",
+        "받침-덮개 접촉면(받침)",
+        "받침-덮개 접촉면(덮개)",
     ]
     assert proposal["named_selections"][0]["select"]["body"] == "받침"
     (contact,) = proposal["contacts"]
     assert contact["type"] == "bonded" and {contact["source"], contact["target"]} == {
-        "받침-덮개 받침쪽",
-        "받침-덮개 덮개쪽",
+        "받침-덮개 접촉면(받침)",
+        "받침-덮개 접촉면(덮개)",
     }
     # 채우면 빠진 쌍이 없다.
     filled = _conditions(BOND, contact)
@@ -119,12 +119,12 @@ def test_모달에서_접촉이_풀리는_법과_미끄럼으로만_이어진_�
     }
     notes = contact_check.report(shape, _conditions(BOND, slide))["notes"]
     texts = {one["where"]: one for one in notes}
-    assert "법선 방향만 묶여" in texts["접촉 ‘받침-덮개’"]["text"]
+    assert "법선 방향만 구속되어" in texts["접촉 ‘받침-덮개’"]["text"]
     assert texts["바디 ‘덮개’"]["level"] == "warn" and "0 Hz" in texts["바디 ‘덮개’"]["text"]
 
     rough = {**slide, "type": "frictional", "friction": 0.2}
     notes = contact_check.report(shape, _conditions(BOND, rough))["notes"]
-    assert any("붙은 것(본딩)으로" in one["text"] for one in notes)
+    assert any("본딩으로 처리됩니다" in one["text"] for one in notes)
     assert not any(one["where"] == "바디 ‘덮개’" for one in notes)
 
     # 정적이면 접촉 안내는 없다(비선형 접촉이 그대로 든다).

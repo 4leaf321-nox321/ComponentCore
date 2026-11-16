@@ -78,10 +78,10 @@ def report(
             {
                 "where": "접촉",
                 "level": "info",
-                "text": f"맞닿은 바디 쌍이 {len(lacking)}개인데 접촉을 하나도 걸지 "
-                "않았습니다 — 받는 쪽(SimEngBay)이 맞닿은 면을 모두 붙여 풉니다. 접촉을 "
-                "하나라도 걸면 나머지 쌍은 떨어진 채로 풀리니, 그때는 「맞닿은 면으로 본딩 "
-                "채우기」 로 함께 거십시오.",
+                "text": f"인접 바디 {len(lacking)}쌍이 있으나 정의된 접촉이 없습니다. 해석 "
+                "플랫폼(SimEngBay)이 인접면을 모두 본딩으로 처리합니다. 접촉을 하나라도 "
+                "정의하면 나머지 인접 바디는 분리된 상태로 해석되므로, 이 경우 「미정의 "
+                "접촉을 본딩으로 생성」으로 함께 정의하십시오.",
             }
         )
     notes += eigen_notes(conditions, bodies_of)
@@ -174,12 +174,13 @@ def missing_warnings(rows: list[dict[str, Any]]) -> list[str]:
     맞닿은 면을 다 붙인다)."""
     out = []
     for one in rows:
-        area = f"넓이 {one['area']:g} mm², " if one.get("area") is not None else ""
+        area = f"접촉 면적 {one['area']:g} mm², " if one.get("area") is not None else ""
         where = ", ".join(f"{v:g}" for v in one["at"])
         out.append(
-            f"접촉 없이 맞닿은 바디 ‘{one['a']}’ · ‘{one['b']}’ ({area}위치 ({where}) 부근) — "
-            "접촉을 건 모델에서는 이 쌍이 떨어진 채로 풀려 부품이 뜹니다. 붙어 있어야 하면 "
-            "본딩을 거십시오(조건 화면의 「맞닿은 면으로 본딩 채우기」)."
+            f"접촉 미정의: 인접 바디 ‘{one['a']}’ · ‘{one['b']}’ ({area}위치 ({where})). "
+            "접촉이 하나 이상 정의된 모델에서는 이 바디 쌍이 분리된 상태로 해석되어 파트가 "
+            "구속되지 않습니다. 결합이 필요하면 본딩 접촉을 정의하십시오(해석 조건 화면의 "
+            "「미정의 접촉을 본딩으로 생성」)."
         )
     return out
 
@@ -201,8 +202,8 @@ def eigen_notes(
                 {
                     "where": where,
                     "level": "info",
-                    "text": "고유치에는 마찰이 들지 않아 붙은 것(본딩)으로 풉니다 — 닫혀 있는 "
-                    "면이면 본딩과 같은 주파수가 나옵니다.",
+                    "text": "모달 · 조화 응답 해석에서는 마찰 접촉이 선형화되어 본딩으로 "
+                    "처리됩니다. 접촉이 닫혀 있으면 본딩과 같은 고유진동수가 산출됩니다.",
                 }
             )
         elif kind in SLIDING:
@@ -210,8 +211,9 @@ def eigen_notes(
                 {
                     "where": where,
                     "level": "info",
-                    "text": "고유치에서는 법선 방향만 묶여 면을 따라 미끄러질 수 있습니다 — "
-                    "이 접촉으로만 이어진 부품에는 0 Hz 모드가 생깁니다.",
+                    "text": "모달 · 조화 응답 해석에서는 법선 방향만 구속되어 접선 방향 "
+                    "미끄러짐이 허용됩니다. 이 접촉으로만 연결된 파트에는 0 Hz 강체 모드가 "
+                    "발생합니다.",
                 }
             )
     held: set[str] = set()
@@ -246,9 +248,9 @@ def eigen_notes(
             {
                 "where": f"바디 ‘{body}’",
                 "level": "warn",
-                "text": "고정된 쪽과 미끄럼 접촉(마찰 없음 · 분리 없음)으로만 이어져 "
-                "있습니다 — 모달에서 이 부품이 면을 따라 미끄러지는 0 Hz 모드가 생깁니다. "
-                "붙어 있어야 하면 본딩으로 바꾸십시오.",
+                "text": "구속된 파트와 무마찰 · 분리 없음 접촉으로만 연결되어 있습니다. 모달 "
+                "해석에서 접선 방향으로 미끄러지는 0 Hz 강체 모드가 발생합니다. 결합이 "
+                "필요하면 본딩으로 변경하십시오.",
             }
         )
     return notes
@@ -285,8 +287,8 @@ def proposal(
         rule_b = _rule(shape, [index[f] for f, _ in side_b if f in index], centers)
         if rule_a is None or rule_b is None:
             continue
-        name_a = _unique(f"{a}-{b} {a}쪽", names)
-        name_b = _unique(f"{a}-{b} {b}쪽", names)
+        name_a = _unique(f"{a}-{b} 접촉면({a})", names)
+        name_b = _unique(f"{a}-{b} 접촉면({b})", names)
         selections += [
             {"name": name_a, "entity": "face", "select": rule_a},
             {"name": name_b, "entity": "face", "select": rule_b},
@@ -296,7 +298,7 @@ def proposal(
         source, target = (name_a, name_b) if area_a <= area_b else (name_b, name_a)
         contacts.append(
             {
-                "name": _unique(f"{a}-{b}", names),
+                "name": _unique(f"본딩 {a}-{b}", names),
                 "type": "bonded",
                 "source": source,
                 "target": target,

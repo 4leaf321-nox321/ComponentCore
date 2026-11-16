@@ -60,7 +60,7 @@ import { useRecipeMesh } from '@/modules/cad/useRecipeMesh'
 import { ConditionForm } from '@/modules/conditions/ConditionForm'
 import { ContactCheck } from '@/modules/conditions/ContactCheck'
 import { FloatingWindow, SelectionMembers } from '@/modules/conditions/ConditionWindows'
-import { bodyMarks, CONTACT_COLOR, contactKind, contactMarks, foundMarks, mergeMarks, TIE_COLOR } from '@/modules/conditions/highlight'
+import { bodyMarks, CONTACT_COLOR, contactKind, contactMarks, emptyMarks, foundMarks, mergeMarks, SOURCE_COLOR, TARGET_COLOR, TIE_COLOR } from '@/modules/conditions/highlight'
 import type { ContactKind } from '@/modules/conditions/highlight'
 import type { FoundRow } from '@/modules/conditions/highlight'
 import type { Member } from '@/modules/conditions/ConditionWindows'
@@ -549,6 +549,8 @@ export function ConditionsPanel({
    */
   const [section, setSection] = useState<Section | null>(null)
   const [xray, setXray] = useState(false)
+  /** 3D 에서 숨긴 파트 — 트리의 눈 단추. 큰 파트를 숨겨 그 안의 작은 파트 · 접촉면을 본다. */
+  const [hiddenParts, setHiddenParts] = useState<string[]>([])
   const sectionRange = (axis: Section['axis']) => {
     const at = { x: 0, y: 1, z: 2 }[axis]
     return mesh ? { min: mesh.bbox.min[at], max: mesh.bbox.max[at] } : { min: 0, max: 1 }
@@ -596,8 +598,57 @@ export function ConditionsPanel({
     tie: contactLayer?.faces.filter((one) => one.color === TIE_COLOR).length ?? 0,
     contact: contactLayer?.faces.filter((one) => one.color === CONTACT_COLOR).length ?? 0,
   }
-  /** 담는 중이면 담은 것, 아니면 트리에서 고른 그룹 — 접촉 보기를 켰으면 그 위에. */
-  const marks = mergeMarks(contactLayer, memberMarks ?? groupMarks)
+  /**
+   * **고치는 조건의 자리** — 창을 연 조건이 가리키는 선택 그룹을 3D 에 비춘다. 접촉은 접촉면(Contact)을
+   * 붉게, 대상면(Target)을 푸르게 — 그 접촉이 어디인지 창을 연 채 보인다. 구속 · 하중은 강조색.
+   */
+  const editRefs = useMemo(() => {
+    if (!editing || editing.group === 'analysis') return []
+    const byName = new Map(names.map((one) => [one.name, one]))
+    return editingTargets.flatMap((field) => {
+      const group = byName.get(String(editing.item[field] ?? ''))
+      return group ? [{ field, group }] : []
+    })
+  }, [editing, names, editingTargets])
+  const editKey = JSON.stringify(editRefs.map((one) => [one.field, one.group.entity, one.group.select]))
+  const [editRows, setEditRows] = useState<{ key: string; items: { field: string; what: string; rows: FoundRow[] }[] } | null>(null)
+  useEffect(() => {
+    const asking = editRefs.filter((one) => one.group.entity !== 'body')
+    if (asking.length === 0) return
+    let alive = true
+    void Promise.all(
+      asking.map((one) =>
+        conditionsApi
+          .resolve(recipe, one.group.select)
+          .then((got) => ({ field: one.field, what: got.what, rows: got.items }))
+          .catch(() => ({ field: one.field, what: '', rows: [] as FoundRow[] })),
+      ),
+    ).then((items) => alive && setEditRows({ key: editKey, items }))
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editKey, recipe])
+  const contactEditing = editing?.group === 'contacts'
+  const editLayer = useMemo<MeasureMarks | undefined>(() => {
+    if (!mesh || editRefs.length === 0) return undefined
+    const out = emptyMarks()
+    for (const ref of editRefs) {
+      const found = editRows?.key === editKey ? editRows.items.find((one) => one.field === ref.field) : undefined
+      const layer = ref.group.entity === 'body' ? bodyMarks(mesh, ref.group.select) : found ? foundMarks(mesh, found.what, found.rows) : undefined
+      if (!layer) continue
+      const color = contactEditing ? (ref.field === 'source' ? SOURCE_COLOR : TARGET_COLOR) : undefined
+      out.faces.push(...layer.faces.map((face) => (color ? { ...face, color, opacity: 0.6 } : face)))
+      out.edges.push(...layer.edges)
+      out.points.push(...layer.points)
+    }
+    return out
+  }, [mesh, editRefs, editRows, editKey, contactEditing])
+  /**
+   * 담는 중이면 담은 것, 아니면 트리에서 고른 그룹 — 그 아래에 고치는 조건의 자리, 접촉 표시.
+   * 접촉을 고치는 동안은 접촉 표시를 끈다(같은 색을 다른 뜻으로 쓴다).
+   */
+  const marks = mergeMarks(contactEditing ? undefined : contactLayer, editLayer, memberMarks ?? groupMarks)
 
   /**
    * 창을 연다 — 초기조건이면 선택 대상을 바디로 바꾼다(바디에만 건다).
@@ -960,22 +1011,22 @@ export function ConditionsPanel({
         <RibbonGroup title="보기">
           <RibbonButton
             icon={Link2}
-            label="접촉 보기"
-            title="접촉 면을 3D에 표시합니다: 본딩(tie)은 붉은색, 그 밖의 접촉(마찰 · 마찰 없음 · 분리 없음 · 거친)은 푸른색."
+            label="접촉 표시"
+            title="접촉 표시: 정의된 접촉의 면을 3D에 표시합니다. 본딩(Tie)은 붉은색, 그 밖의 접촉(마찰 · 무마찰 · 분리 없음 · 거친)은 푸른색입니다."
             active={showContacts}
             onClick={() => setShowContacts(!showContacts)}
           />
           <RibbonButton
             icon={Scissors}
             label="단면"
-            title="단면: X · Y · Z 축에 수직인 평면으로 잘라 안쪽을 봅니다. 잘라 낸 쪽은 클릭해도 선택되지 않습니다."
+            title="단면: X · Y · Z 축에 수직인 평면으로 모델을 잘라 내부를 표시합니다. 잘라 낸 쪽은 선택되지 않습니다."
             active={!!section}
             onClick={toggleSection}
           />
           <RibbonButton
             icon={ScanEye}
-            label="투시"
-            title="투시: 모든 면을 반투명하게 하고 접촉 · 선택 표시를 가려져도 위에 그립니다."
+            label="투명 보기"
+            title="투명 보기: 모든 면을 반투명하게 하고, 접촉 · 선택 표시는 가려진 경우에도 앞에 표시합니다."
             active={xray}
             onClick={() => setXray(!xray)}
           />
@@ -1096,6 +1147,11 @@ export function ConditionsPanel({
               editing={editing}
               selected={tree}
               selectionCount={litCount}
+              hidden={hiddenParts}
+              onToggleHidden={(name) =>
+                setHiddenParts((now) => (now.includes(name) ? now.filter((one) => one !== name) : [...now, name]))
+              }
+              onShowAll={() => setHiddenParts([])}
               onSelect={setTree}
               onAssign={assign}
               onMaterialChange={(index, patch) =>
@@ -1175,13 +1231,13 @@ export function ConditionsPanel({
               <div className="bg-background/85 pointer-events-none absolute top-2 left-2 z-10 space-x-3 rounded border px-2 py-1 text-xs" aria-label="접촉 범례">
                 <span>
                   <span className="mr-1 inline-block size-2.5 rounded-sm" style={{ background: '#dc2626' }} aria-hidden />
-                  본딩(tie) {contactCounts.tie}면
+                  본딩(Tie) {contactCounts.tie}면
                 </span>
                 <span>
                   <span className="mr-1 inline-block size-2.5 rounded-sm" style={{ background: '#2563eb' }} aria-hidden />
-                  접촉 {contactCounts.contact}면
+                  기타 접촉 {contactCounts.contact}면
                 </span>
-                {draft.contacts.length === 0 && <span className="text-muted-foreground">접촉이 없습니다</span>}
+                {draft.contacts.length === 0 && <span className="text-muted-foreground">정의된 접촉이 없습니다</span>}
               </div>
             )}
             {/* 단면 — 축 · 자리 · 뒤집기. 밀대는 형상의 범위 안에서 움직인다. */}
@@ -1263,6 +1319,7 @@ export function ConditionsPanel({
               emphasis={tree?.kind === 'part' && bodyNames.length > 1 ? tree.name : null}
               section={section}
               xray={xray}
+              hiddenParts={hiddenParts}
               className="h-full w-full"
             />
           </CardContent>
@@ -1301,6 +1358,26 @@ export function ConditionsPanel({
       >
         {editing && editingSpec && (
           <>
+            {/* 3D 에 비춘 것이 무엇인지 — 접촉이면 양쪽의 색. */}
+            {editRefs.length > 0 && (
+              <p className="text-muted-foreground flex flex-wrap items-center gap-x-3 text-xs" aria-label="적용 대상 표시">
+                {contactEditing ? (
+                  <>
+                    <span>
+                      <span className="mr-1 inline-block size-2.5 rounded-sm" style={{ background: '#dc2626' }} aria-hidden />
+                      접촉면(Contact)
+                    </span>
+                    <span>
+                      <span className="mr-1 inline-block size-2.5 rounded-sm" style={{ background: '#2563eb' }} aria-hidden />
+                      대상면(Target)
+                    </span>
+                    <span>가려진 경우 「투명 보기」 · 「단면」 · 파트 숨기기로 확인하십시오.</span>
+                  </>
+                ) : (
+                  <span>적용 대상이 3D에 강조되어 있습니다.</span>
+                )}
+              </p>
+            )}
             {members.length > 0 && editingTargets.length > 0 && (
               <SelectionMembers
                 members={members}

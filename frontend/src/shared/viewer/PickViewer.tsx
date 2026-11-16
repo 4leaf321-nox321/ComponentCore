@@ -147,8 +147,10 @@ export interface PickViewerProps {
    * 보이던 맞닿은 면이 잘린 자리로 드러난다.
    */
   section?: Section | null
-  /** **투시** — 모든 면을 반투명하게, 표시(`measureMarks`)는 가려져도 위에 그린다. */
+  /** **투명 보기** — 모든 면을 반투명하게, 표시(`measureMarks`)는 가려져도 위에 그린다. */
   xray?: boolean
+  /** 조립: **숨긴 파트**(`part` 이름표) — 그리지 않고, 눌러도 · 사각형으로도 잡히지 않는다. */
+  hiddenParts?: string[]
   /** 나란히 놓인 뷰어끼리 카메라를 맞춘다 — 같은 sync 를 받은 뷰어가 함께 돈다. */
   sync?: CameraSync
   /**
@@ -383,7 +385,7 @@ function gatherDots(mesh: MeshData): { at: number[][]; kinds: string[] } {
 }
 
 /** 표준 방향 — 뒤에서 카메라가 설 자리(중심 기준 단위 벡터, CAD Z-up 기준). */
-export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, onBoxSelect, measureKinds, measureMarks, frames, datums, frameHandle, onFrameHandle, partColors, emphasis, section, xray, sync, dragPart, dragMode = 'translate', onMoved, className }: PickViewerProps) {
+export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, onBoxSelect, measureKinds, measureMarks, frames, datums, frameHandle, onFrameHandle, partColors, emphasis, section, xray, hiddenParts, sync, dragPart, dragMode = 'translate', onMoved, className }: PickViewerProps) {
   const syncId = useRef(`viewer-${Math.random().toString(36).slice(2)}`)
   const syncRef = useRef(sync)
   syncRef.current = sync
@@ -497,7 +499,8 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       raycaster.setFromCamera(pointer, rig.camera)
       const { mode: m } = callbacks.current
       // 잘린 쪽에 맞은 것은 건너뛴다 — 화면에 없는 면을 고르면 안 된다.
-      const first = (hits: THREE.Intersection[]) => hits.find((hit) => keptHit(clips.current, hit.point))
+      const first = (hits: THREE.Intersection[]) =>
+        hits.find((hit) => hit.object.visible && keptHit(clips.current, hit.point))
       if (m === 'face') return first(raycaster.intersectObjects(s.faces, false)) ?? null
       if (m === 'edge') {
         raycaster.params.Line = { threshold: Math.max(0.5, (s.group.userData.size as number) / 120) }
@@ -721,7 +724,7 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
         const target = world(p)
         const ndc = target.clone().project(camera)
         caster.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), camera)
-        const hit = caster.intersectObjects(s.faces, false).find((one) => keptHit(clips.current, one.point))
+        const hit = caster.intersectObjects(s.faces, false).find((one) => one.object.visible && keptHit(clips.current, one.point))
         return { hit, distance: caster.ray.origin.distanceTo(target) }
       }
       const visiblePoint = (p: number[]) => {
@@ -738,8 +741,8 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
             return (hit.object.userData.face as MeshFace | undefined)?.index === face.index || hit.distance >= distance - tolerance
           })
       return boxPicks({
-        faces: s.faces.map((one) => one.userData.face as MeshFace),
-        edges: s.edges.map((one) => one.userData.edge as MeshEdge),
+        faces: s.faces.filter((one) => one.visible).map((one) => one.userData.face as MeshFace),
+        edges: s.edges.filter((one) => one.visible).map((one) => one.userData.edge as MeshEdge),
         kinds: callbacks.current.measureKinds ?? { point: true, edge: true, face: true },
         rect,
         project,
@@ -967,9 +970,12 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
   useEffect(() => {
     const s = state.current
     if (!s) return
-    // 투시(`xray`)면 모두 옅게 — 강조한 파트도 조금 옅어야 그 뒤의 접촉면이 보인다.
+    // 투명 보기(`xray`)면 모두 옅게 — 강조한 파트도 조금 옅어야 그 뒤의 접촉면이 보인다.
+    // 숨긴 파트는 그리지 않는다(고르기도 `visible` 로 건너뛴다).
+    const hidden = new Set(hiddenParts ?? [])
     for (const m of s.faces) {
       const face = m.userData.face as MeshFace
+      m.visible = !hidden.has(face.part ?? '')
       const dim = !!emphasis && face.part !== emphasis
       const material = m.material as THREE.MeshStandardMaterial
       material.transparent = dim || !!xray
@@ -979,13 +985,15 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     }
     for (const l of s.edges) {
       const edge = l.userData.edge as MeshEdge
+      l.visible = !hidden.has(edge.part ?? '')
       const dim = !!emphasis && edge.part !== emphasis
       const material = l.material as THREE.LineBasicMaterial
       material.transparent = dim || !!xray
       material.opacity = xray ? (dim ? 0.1 : 0.3) : dim ? 0.2 : 1
       material.needsUpdate = true
     }
-  }, [mesh, emphasis, partColors, highlightEdgesNear, xray])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mesh, emphasis, partColors, highlightEdgesNear, xray, (hiddenParts ?? []).join('\u0000')])
 
   // 모드를 끄면 손이 올라가 있던 표시도 함께 걷는다 — 다음에 마우스를 움직일 때까지 남으면
   // 「아직 측정 중인가?」 싶다.

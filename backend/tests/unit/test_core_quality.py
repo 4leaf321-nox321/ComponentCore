@@ -78,7 +78,7 @@ def test_바디끼리_얇은_겹침과_작은_틈을_그_자리와_함께_잡는
     assert one["size"] == pytest.approx(0.01, abs=1e-4)
     assert one["volume"] == pytest.approx(4.0, abs=1e-3)
     assert one["at"] == pytest.approx([0, 0, 19.995], abs=1e-3)
-    assert any("바디 겹침 ‘Base’ · ‘Block’" in line for line in found["warnings"])
+    assert any("바디 간섭 ‘Base’ · ‘Block’" in line for line in found["warnings"])
 
     # 0.0005 mm 틈 — CAD 가 남긴 틈(기본 기준 0.001 mm 안). 절점을 하나도 공유하지 않던 꼴.
     # 자리는 마주 본 면의 가운데다.
@@ -86,7 +86,7 @@ def test_바디끼리_얇은_겹침과_작은_틈을_그_자리와_함께_잡는
     (one,) = found["contacts"]
     assert one["kind"] == "gap" and one["size"] == pytest.approx(0.0005, abs=1e-6)
     assert one["at"] == pytest.approx([0, 0, 20.00025], abs=1e-3)
-    assert any("바디 사이 틈" in line for line in found["warnings"])
+    assert any("바디 간 미세 간극" in line for line in found["warnings"])
 
     # 기준보다 먼 틈은 설계한 틈새로 본다(핸드폰 부품의 0.05~0.2 mm) — 기준을 올리면 잡는다.
     assert inspect(_two(0.005))["contacts"] == []

@@ -42,11 +42,11 @@ export function ContactCheck({ recipe, draft, onApply }: { recipe: Recipe; draft
   const fill = proposal.contacts.length
   const notes = [...(report.notes ?? [])].sort((a, b) => (a.level === b.level ? 0 : a.level === 'warn' ? -1 : 1))
   return (
-    <div className="space-y-1 rounded-md border px-3 py-1.5 text-xs" aria-label="접촉 점검">
+    <div className="space-y-1 rounded-md border px-3 py-1.5 text-xs" aria-label="접촉 검사">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-medium">접촉 점검</span>
+        <span className="font-medium">접촉 검사</span>
         <span className="text-muted-foreground">
-          맞닿은 바디 쌍 {report.touching.length} · 접촉 없음 {report.missing?.length ?? 0}
+          인접 바디 {report.touching.length}쌍 · 접촉 미정의 {report.missing?.length ?? 0}쌍
         </span>
         {fill > 0 && (
           <Button
@@ -62,7 +62,7 @@ export function ContactCheck({ recipe, draft, onApply }: { recipe: Recipe; draft
             }
           >
             <Link2 className="size-3.5" />
-            맞닿은 면으로 본딩 채우기 ({fill}쌍)
+            미정의 접촉을 본딩으로 생성 ({fill}쌍)
           </Button>
         )}
       </div>

@@ -16,6 +16,7 @@ let lastMarks: { labels: { text: string }[]; faces: unknown[] } | undefined
 /** 3D 가 받은 단면 · 투시. */
 let lastSection: { axis: string; at: number; flip?: boolean } | null | undefined
 let lastXray: boolean | undefined
+let lastHidden: string[] | undefined
 vi.mock('@/shared/viewer/PickViewer', () => ({
   default: ({
     onMeasure,
@@ -26,6 +27,7 @@ vi.mock('@/shared/viewer/PickViewer', () => ({
     emphasis,
     section,
     xray,
+    hiddenParts,
   }: {
     onMeasure?: (pick: unknown, modifiers: { ctrl: boolean; shift: boolean }) => void
     onBoxSelect?: (picks: unknown[], modifiers: { ctrl: boolean; shift: boolean }) => void
@@ -35,7 +37,9 @@ vi.mock('@/shared/viewer/PickViewer', () => ({
     emphasis?: string | null
     section?: { axis: string; at: number; flip?: boolean } | null
     xray?: boolean
+    hiddenParts?: string[]
   }) => {
+    lastHidden = hiddenParts
     lastSection = section
     lastXray = xray
     lastKinds = measureKinds
@@ -786,7 +790,7 @@ test('풀리지 않는 식은 **고치는 중에** 알림으로 보인다', asyn
 })
 
 
-test('접촉 보기를 켜면 본딩 면은 붉게, 접촉 면은 푸르게 3D 에 칠하고 범례에 센다', async () => {
+test('접촉 표시를 켜면 본딩 면은 붉게, 기타 접촉 면은 푸르게 3D 에 칠하고 범례에 센다', async () => {
   const face = (name: string, z: number) => ({ name, entity: 'face', select: { what: 'faces', normal: [0, 0, z] } })
   const value = {
     units: { system: 'mm_n_tonne' },
@@ -799,16 +803,16 @@ test('접촉 보기를 켜면 본딩 면은 붉게, 접촉 면은 푸르게 3D �
   render(<ConditionsPanel recipe={RECIPE} value={value} onSave={vi.fn()} />)
   await waitFor(() => screen.getByText('면 찍기'))
   expect(screen.queryByLabelText('접촉 범례')).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: /접촉 보기/ }))
+  fireEvent.click(screen.getByRole('button', { name: /접촉 표시/ }))
   // 서버가 푼 줄은 늘 바닥 면 하나(index 0) — 그룹 넷이 다 그 면이라 푸른 둘 · 붉은 둘.
   await waitFor(() => expect((lastMarks?.faces ?? []).length).toBe(4))
   const colors = (lastMarks!.faces as { color?: number }[]).map((one) => one.color)
   expect(colors).toEqual([0x2563eb, 0x2563eb, 0xdc2626, 0xdc2626])
-  expect(screen.getByLabelText('접촉 범례').textContent).toMatch(/본딩\(tie\) 2면.*접촉 2면/)
+  expect(screen.getByLabelText('접촉 범례').textContent).toMatch(/본딩\(Tie\) 2면.*기타 접촉 2면/)
 })
 
 
-test('단면 · 투시 — 형상 가운데에서 자르고, 축 · 자리 · 뒤집기를 3D 에 넘긴다', async () => {
+test('단면 · 투명 보기 — 형상 가운데에서 자르고, 축 · 위치 · 뒤집기를 3D 에 넘긴다', async () => {
   await panel()
   expect(lastSection ?? null).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: /^단면/ }))
@@ -822,6 +826,50 @@ test('단면 · 투시 — 형상 가운데에서 자르고, 축 · 자리 · �
   fireEvent.click(screen.getByRole('button', { name: /^단면/ }))
   expect(lastSection).toBeNull()
 
-  fireEvent.click(screen.getByRole('button', { name: /^투시/ }))
+  fireEvent.click(screen.getByRole('button', { name: /^투명 보기/ }))
   expect(lastXray).toBe(true)
+})
+
+
+test('파트마다 숨기기 · 보이기 — 3D 에서 빼고, 트리에 표시하고, 한 번에 다시 보인다', async () => {
+  await panel()
+  await waitFor(() => screen.getByRole('button', { name: '숨기기: 기둥' }))
+  expect(lastHidden).toEqual([])
+  fireEvent.click(screen.getByRole('button', { name: '숨기기: 기둥' }))
+  expect(lastHidden).toEqual(['기둥'])
+  // 숨긴 파트는 보이기 단추로 바뀌고, 줄 툴팁에 「숨김」 이 붙는다.
+  expect(screen.getByRole('button', { name: '보이기: 기둥' })).toBeInTheDocument()
+  expect(screen.getByTitle(/^기둥 · .*숨김$/)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '숨기기: 바닥판' }))
+  expect(lastHidden).toEqual(['기둥', '바닥판'])
+  fireEvent.click(screen.getByRole('button', { name: '숨긴 파트 2개 모두 보이기' }))
+  expect(lastHidden).toEqual([])
+})
+
+test('트리의 줄은 이름이 먼저 — 다 보려면 툴팁(이름 · 설정 · 물성, 조건은 이름 — 대상)', async () => {
+  const face = (name: string, z: number) => ({ name, entity: 'face', select: { what: 'faces', normal: [0, 0, z] } })
+  const value = {
+    units: { system: 'mm_n_tonne' },
+    named_selections: [face('아래', -1), face('위', 1)],
+    contacts: [{ name: '본딩', type: 'bonded', source: '아래', target: '위' }],
+  }
+  render(<ConditionsPanel recipe={RECIPE} value={value} onSave={vi.fn()} />)
+  await waitFor(() => screen.getByText('면 찍기'))
+  expect(await screen.findByTitle('바닥판 · 물성 미지정')).toBeInTheDocument()
+  expect(screen.getByTitle('본딩 — 아래 → 위')).toBeInTheDocument()
+})
+
+test('접촉을 고치는 창을 열면 그 접촉의 자리를 3D 에 — 접촉면은 붉게, 대상면은 푸르게', async () => {
+  const face = (name: string, z: number) => ({ name, entity: 'face', select: { what: 'faces', normal: [0, 0, z] } })
+  const value = {
+    units: { system: 'mm_n_tonne' },
+    named_selections: [face('아래', -1), face('위', 1)],
+    contacts: [{ name: '본딩', type: 'bonded', source: '아래', target: '위' }],
+  }
+  render(<ConditionsPanel recipe={RECIPE} value={value} onSave={vi.fn()} />)
+  await waitFor(() => screen.getByText('면 찍기'))
+  fireEvent.click(await screen.findByTitle('본딩 — 아래 → 위'))
+  // 서버가 푼 줄은 늘 바닥 면 하나 — 접촉면(붉게) · 대상면(푸르게)이 그 면에 겹친다.
+  await waitFor(() => expect((lastMarks?.faces as { color?: number }[] | undefined)?.map((one) => one.color)).toEqual([0xdc2626, 0x2563eb]))
+  expect(screen.getByLabelText('적용 대상 표시').textContent).toMatch(/접촉면\(Contact\).*대상면\(Target\)/)
 })

@@ -353,23 +353,24 @@ def _warnings(found: dict[str, Any], limits: dict[str, Any]) -> list[str]:
             f"기준 {limits['narrow_face']:g})"
         )
     for one in (found.get("contacts") or [])[:5]:
-        where = f"위치 ({', '.join(f'{v:g}' for v in one['at'])}) 부근"
+        where = f"위치 ({', '.join(f'{v:g}' for v in one['at'])})"
         pair = f"‘{one['a']}’ · ‘{one['b']}’"
         if one["kind"] == "overlap":
             thick = f"두께 약 {one['size']:.3g} mm, " if one.get("size") is not None else ""
             warnings.append(
-                f"바디 겹침 {pair} ({thick}부피 {one['volume']:.3g} mm³), {where} — 해석이 "
-                "맞닿은 면을 쪼갤 때 겹친 곳이 따로 조각이 되어 메시가 깨지거나 파트별 설정이 "
-                "어긋날 수 있습니다."
+                f"바디 간섭 {pair} ({thick}체적 {one['volume']:.3g} mm³), {where} — 해석 "
+                "플랫폼이 인접면을 분할할 때 간섭 영역이 별도 체적으로 생성되어 메시 오류나 "
+                "파트별 설정 불일치가 발생할 수 있습니다."
             )
         else:
             warnings.append(
-                f"바디 사이 틈 {pair} {one['size']:.3g} mm, {where} — 붙어 있어야 하면 틈을 "
-                "없애십시오. 그대로면 절점을 공유하지 않아 떠 있습니다(접촉을 걸지 않으면)."
+                f"바디 간 미세 간극 {pair} {one['size']:.3g} mm, {where} — 결합되어야 하면 "
+                "간극을 제거하십시오. 제거하지 않으면 절점이 공유되지 않아 파트가 구속되지 "
+                "않습니다(접촉을 정의하지 않은 경우)."
             )
     more = len(found.get("contacts") or []) - 5
     if more > 0:
-        warnings.append(f"겹침 · 틈이 {more}곳 더 있습니다(점 파일 quality.contacts).")
+        warnings.append(f"간섭 · 미세 간극이 {more}곳 더 있습니다(점 파일 quality.contacts).")
     return warnings
 
 

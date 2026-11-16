@@ -13,7 +13,7 @@
  * 회색이다. 어느 파트가 남았는지 3D 에서도 보인다.
  */
 
-import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react'
+import { ChevronDownIcon, ChevronRightIcon, Eye, EyeOff } from 'lucide-react'
 import { useState } from 'react'
 
 import { ALL_BODIES, appliedTo, hasCoordinateOnlyRule, materialsOn, settingOf } from '@/modules/conditions/api'
@@ -106,6 +106,9 @@ export function ModelTree({
   onOpenAnalysis,
   frames = [],
   onOpenFrame,
+  hidden = [],
+  onToggleHidden,
+  onShowAll,
 }: {
   /** `null` 이면 아직 불러오는 중이다. */
   bodies: Body[] | null
@@ -140,6 +143,10 @@ export function ModelTree({
   /** 좌표계 — 도면의 것(읽기만)과 조건의 것(누르면 창). */
   frames?: { name: string; source: 'cad' | 'conditions'; index: number; on?: string }[]
   onOpenFrame?: (index: number) => void
+  /** 3D 에서 숨긴 파트 — 큰 파트를 숨기면 그 안의 작은 파트 · 접촉면이 보인다. */
+  hidden?: string[]
+  onToggleHidden?: (name: string) => void
+  onShowAll?: () => void
 }) {
   const single = bodies?.length === 1 && bodies[0].name === ALL_BODIES
 
@@ -158,28 +165,45 @@ export function ModelTree({
           {(bodies ?? []).map((body) => {
             const on = materialsOn(materials, body.name)
             const open = selected?.kind === 'part' && selected.name === body.name
+            const summary = settingSummary(settingOf(settings, body.name))
+            const material = on.length === 0 ? '미지정' : on.length > 1 ? '물성 중복' : nameOf(materials[on[0]])
+            const isHidden = hidden.includes(body.name)
             return (
               <li key={body.name}>
-                <button
-                  type="button"
-                  aria-expanded={open}
-                  className={`hover:bg-muted flex w-full items-center gap-2 rounded px-2 py-1 text-left ${open ? 'bg-muted' : ''}`}
-                  onClick={() => onSelect(open ? null : { kind: 'part', name: body.name })}
-                >
-                  <Swatch color={on.length ? materialColor(on[0]) : UNASSIGNED_COLOR} />
-                  <span className="truncate">{body.name}</span>
-                  {single && <span className="text-muted-foreground text-xs">단일 파트</span>}
-                  {settingSummary(settingOf(settings, body.name)) && (
-                    <span className="text-muted-foreground shrink-0 rounded border px-1 text-[10px]">
-                      {settingSummary(settingOf(settings, body.name))}
-                    </span>
-                  )}
-                  <span
-                    className={`ml-auto truncate text-xs ${on.length === 1 ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'}`}
+                <div className="flex items-center gap-0.5">
+                  {/* **이름이 먼저다** — 설정 · 물성 이름이 먼저 줄고, 다 보려면 툴팁(줄 전체). */}
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    title={[body.name, summary, `물성 ${material}`, isHidden ? '숨김' : ''].filter(Boolean).join(' · ')}
+                    className={`hover:bg-muted flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left ${open ? 'bg-muted' : ''} ${isHidden ? 'opacity-50' : ''}`}
+                    onClick={() => onSelect(open ? null : { kind: 'part', name: body.name })}
                   >
-                    {on.length === 0 ? '미지정' : on.length > 1 ? '물성 중복' : nameOf(materials[on[0]])}
-                  </span>
-                </button>
+                    <Swatch color={on.length ? materialColor(on[0]) : UNASSIGNED_COLOR} />
+                    <span className="max-w-[70%] shrink-0 truncate">{body.name}</span>
+                    {single && <span className="text-muted-foreground shrink-0 text-xs">단일 파트</span>}
+                    {summary && (
+                      <span className="text-muted-foreground min-w-0 shrink truncate rounded border px-1 text-[10px]">{summary}</span>
+                    )}
+                    <span
+                      className={`ml-auto min-w-0 shrink truncate text-xs ${on.length === 1 ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'}`}
+                    >
+                      {material}
+                    </span>
+                  </button>
+                  {onToggleHidden && !single && (
+                    <button
+                      type="button"
+                      aria-label={`${isHidden ? '보이기' : '숨기기'}: ${body.name}`}
+                      aria-pressed={isHidden}
+                      title={isHidden ? '3D에 다시 표시합니다.' : '3D에서 숨깁니다. 숨긴 파트는 선택되지 않습니다.'}
+                      className="text-muted-foreground hover:text-foreground shrink-0 rounded p-1"
+                      onClick={() => onToggleHidden(body.name)}
+                    >
+                      {isHidden ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                    </button>
+                  )}
+                </div>
                 {open && (
                   <div className="mt-1 mb-2 ml-4 space-y-2 border-l pl-3">
                     {on.length > 1 && (
@@ -233,6 +257,11 @@ export function ModelTree({
             )
           })}
         </ul>
+        {hidden.length > 0 && onShowAll && (
+          <button type="button" className="text-muted-foreground hover:text-foreground px-2 py-0.5 text-xs underline" onClick={onShowAll}>
+            숨긴 파트 {hidden.length}개 모두 보이기
+          </button>
+        )}
       </Branch>
 
       <Branch title="물성" count={materials.length}>
@@ -258,9 +287,10 @@ export function ModelTree({
                   aria-expanded={open}
                   className={`hover:bg-muted flex w-full items-center gap-2 rounded px-2 py-1 text-left ${open ? 'bg-muted' : ''}`}
                   onClick={() => onSelect(open ? null : { kind: 'library', index })}
+                  title={nameOf(material)}
                 >
                   <Swatch color={materialColor(index)} />
-                  <span className="truncate">{nameOf(material)}</span>
+                  <span className="min-w-0 truncate">{nameOf(material)}</span>
                   <span className="text-muted-foreground ml-auto shrink-0 text-xs">
                     {where.includes(ALL_BODIES) && !single ? '전체 파트' : `파트 ${where.length}`}
                     {고른덱.length > 0 && ` · 덱 ${고른덱.length}`}
@@ -337,8 +367,9 @@ export function ModelTree({
                   aria-expanded={open}
                   className={`hover:bg-muted flex w-full items-center gap-2 rounded px-2 py-1 text-left ${open ? 'bg-muted' : ''}`}
                   onClick={() => onSelect(open ? null : { kind: 'selection', index })}
+                  title={one.name}
                 >
-                  <span className="truncate">{one.name}</span>
+                  <span className="min-w-0 truncate">{one.name}</span>
                   {fragile && (
                     <span className="shrink-0 text-xs text-amber-700 dark:text-amber-400" title="좌표 기준 규칙">
                       ⚠
@@ -433,10 +464,12 @@ export function ModelTree({
                     type="button"
                     className={`hover:bg-muted flex w-full items-center gap-2 rounded px-2 py-1 text-left ${open ? 'bg-muted' : ''}`}
                     onClick={() => onOpenItem(group.key, index)}
+                    title={`${String(item.name ?? item.type ?? '')} — ${where || '대상 미지정'}`}
                   >
-                    <span className="truncate">{String(item.name ?? item.type ?? '')}</span>
+                    {/* 이름이 먼저 — 대상(「접촉면 → 대상면」)이 먼저 줄고, 전체는 툴팁. */}
+                    <span className="max-w-[60%] shrink-0 truncate">{String(item.name ?? item.type ?? '')}</span>
                     <span
-                      className={`ml-auto truncate text-xs ${where && !where.includes('?') ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'}`}
+                      className={`ml-auto min-w-0 shrink truncate text-xs ${where && !where.includes('?') ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'}`}
                     >
                       {where || '대상 미지정'}
                     </span>

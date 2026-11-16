@@ -912,10 +912,10 @@ async def recipe_bodies(ctx: Context, recipe: dict[str, Any]) -> Any:
 async def conditions_contacts(
     ctx: Context, recipe: dict[str, Any], conditions: dict[str, Any]
 ) -> Any:
-    """조립의 **맞닿은 바디 쌍과 접촉**을 견준다 — 화면의 「접촉 점검」 과 같다.
+    """조립의 **인접 바디와 정의된 접촉**을 견준다 — 화면의 「접촉 검사」 와 같다.
 
-    - `touching`: 맞닿은 쌍(넓이 mm² · 자리). 모서리만 닿은 것은 빠진다.
-    - `missing`: 맞닿았는데 **접촉이 없는** 쌍. 접촉을 하나라도 건 모델에서는 이 쌍이 떨어진
+    - `touching`: 인접 바디 쌍(접촉 면적 mm² · 위치). 모서리만 닿은 것은 빠진다.
+    - `missing`: **접촉 미정의** 인접 바디 쌍. 접촉을 하나라도 건 모델에서는 이 쌍이 떨어진
       채로 풀려 부품이 뜬다(CalculiX 실측: 모드 여섯이 모두 0 Hz). 그대로 두지 않는다.
     - `proposal`: 그 쌍을 **본딩으로 채울 것** — `named_selections`(양쪽 면 그룹, 셀렉터는
       `recipe_selectors` 의 기본 후보와 같다)와 `contacts`. 조건에 그대로 더해
