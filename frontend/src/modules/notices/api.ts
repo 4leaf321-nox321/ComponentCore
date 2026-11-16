@@ -5,13 +5,46 @@
 
 import { api } from '@/shared/api/client'
 import { refreshNavBadges } from '@/shared/api/navBadges'
-import type { components } from '@/shared/api/schema'
+import type { Page } from '@/shared/api/types'
 
-export type Notice = components['schemas']['NoticeOut']
-export type NoticePage = components['schemas']['Page_NoticeOut_']
-export type NoticeUnread = components['schemas']['NoticeUnreadOut']
-type CreateRequest = components['schemas']['NoticeCreateRequest']
-type UpdateRequest = components['schemas']['NoticeUpdateRequest']
+/*
+ * 서버의 `notices/schemas.py` 와 같은 모양을 **손으로** 적는다. 생성 타입(`@/shared/api/schema`)은
+ * 커밋하지 않는 생성물이라 릴리스 번들 빌드에는 없다 — MatNexus 에서 옮긴 첫 판이 그것을 가져와
+ * v0.27.0 CI 의 번들 빌드가 떨어졌다(2026-11-17, `objects/api.ts` 의 v0.4.50 과 같은 일). 이 PC
+ * 에는 파일이 있어 로컬 검사가 못 봤다.
+ */
+
+/** 공지 한 건 — `NoticeOut`. */
+export interface Notice {
+  id: string
+  title: string
+  body: string
+  is_published: boolean
+  is_popup: boolean
+  created_at: string
+  published_at: string | null
+  /** 이 사용자가 읽었나. */
+  is_read: boolean
+  created_by?: string | null
+  /** 판마다 배포에 실려 온 업데이트 안내인가(씨앗에서 들어왔다). */
+  from_release?: boolean
+}
+export type NoticePage = Page<Notice>
+export interface NoticeUnread {
+  unread: number
+}
+interface CreateRequest {
+  title: string
+  body: string
+  is_popup?: boolean
+  is_published?: boolean
+}
+interface UpdateRequest {
+  title?: string | null
+  body?: string | null
+  is_popup?: boolean | null
+  is_published?: boolean | null
+}
 
 /**
  * **읽음이 바뀌었다** — 사이드바의 수를 곧바로 다시 센다. 주기만 기다리면 공지를 읽고 나왔는데
