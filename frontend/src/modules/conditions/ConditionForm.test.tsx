@@ -393,3 +393,81 @@ test('국부 메시의 대상을 면 그룹으로 바꾸면 「전체」 에만 
   fireEvent.click(screen.getByRole('option', { name: '구멍면' }))
   expect(onChange).toHaveBeenLastCalledWith({ on: '구멍면', method: 'automatic' })
 })
+
+const HARMONIC_LOADS = ['force', 'acceleration']
+const EXCITATION: GroupSchema = {
+  label: '하중',
+  types: ['force', 'acceleration', 'psd_acceleration'],
+  fields: {
+    name: {},
+    type: { enum: ['force', 'acceleration', 'psd_acceleration'] },
+    on: { only_for: ['force'] },
+    cs: { type: 'string', default: 'global', only_for: ['force', 'acceleration', 'psd_acceleration'] },
+    magnitude: { title: '크기', anyOf: [{ type: 'number' }, { type: 'null' }], only_for: ['force', 'acceleration'], unit_by_type: true },
+    direction: { title: '방향', direction: true, only_for: ['force', 'acceleration', 'psd_acceleration'] },
+    frequency_table: {
+      title: '주파수별 배율',
+      only_for: HARMONIC_LOADS,
+      analysis_only: ['harmonic'],
+      table: { columns: [{ title: '주파수', unit: 'Hz' }, { title: '배율' }] },
+    },
+    phase: { title: '위상', anyOf: [{ type: 'number' }, { type: 'null' }], only_for: HARMONIC_LOADS, analysis_only: ['harmonic'], unit: '°' },
+    psd_table: {
+      title: '가속도 PSD',
+      only_for: ['psd_acceleration'],
+      table: { columns: [{ title: '주파수', unit: 'Hz' }, { title: 'PSD', unit: 'g²/Hz' }], grms: true },
+    },
+  },
+  required: [],
+  dimensions: { force: 'force', acceleration: 'acceleration' },
+}
+
+test('주파수별 배율 · 위상은 **조화 응답일 때만** 보인다', () => {
+  const item: ConditionItem = { name: '스윕', type: 'acceleration', magnitude: 9806.65, direction: [1, 0, 0] }
+  const { rerender } = render(<ConditionForm group={EXCITATION} item={item} names={[]} analysis="static" onChange={() => {}} />)
+  expect(screen.queryByText('주파수별 배율')).toBeNull()
+  expect(screen.queryByLabelText('위상 (°)')).toBeNull()
+  rerender(<ConditionForm group={EXCITATION} item={item} names={[]} analysis="harmonic" onChange={() => {}} />)
+  expect(screen.getByText('주파수별 배율')).toBeInTheDocument()
+  expect(screen.getByLabelText('위상 (°)')).toBeInTheDocument()
+})
+
+test('표는 엑셀에서 붙여 넣은 두 열로 채우고, 행을 고치고 지운다', () => {
+  let item: ConditionItem = { name: '스윕', type: 'acceleration', magnitude: 9806.65, direction: [1, 0, 0] }
+  const view = () => <ConditionForm group={EXCITATION} item={item} names={[]} analysis="harmonic" onChange={(next) => (item = next)} />
+  const { rerender } = render(view())
+  // 빈 표 — 붙여 넣을 칸이 있다.
+  fireEvent.change(screen.getByLabelText('주파수별 배율 붙여넣기'), { target: { value: '주파수\t배율\n100\t0.5\n2000\t1' } })
+  expect(item.frequency_table).toEqual([
+    [100, 0.5],
+    [2000, 1],
+  ])
+  rerender(view())
+  fireEvent.change(screen.getByLabelText('주파수별 배율 2행 배율'), { target: { value: '=배율' } })
+  expect(item.frequency_table).toEqual([
+    [100, 0.5],
+    [2000, '=배율'],
+  ])
+  rerender(view())
+  fireEvent.click(screen.getByRole('button', { name: '행 추가' }))
+  expect(item.frequency_table).toHaveLength(3)
+  rerender(view())
+  fireEvent.click(screen.getByRole('button', { name: '주파수별 배율 3행 삭제' }))
+  fireEvent.click(screen.getByRole('button', { name: '주파수별 배율 1행 삭제' }))
+  rerender(view())
+  fireEvent.click(screen.getByRole('button', { name: '모두 지우기' }))
+  expect(item.frequency_table).toBeNull()
+})
+
+test('가속도 PSD 는 선택 그룹 · 크기 없이 방향과 PSD 표를 받고, 표의 Grms 를 보인다', () => {
+  let item: ConditionItem = { name: 'X 랜덤', type: 'psd_acceleration', direction: [1, 0, 0] }
+  const view = () => <ConditionForm group={EXCITATION} item={item} names={[]} analysis="random" onChange={(next) => (item = next)} />
+  const { rerender } = render(view())
+  expect(screen.queryByLabelText('크기')).toBeNull()
+  expect(screen.queryByText('선택 그룹')).toBeNull()
+  fireEvent.change(screen.getByLabelText('가속도 PSD 붙여넣기'), { target: { value: '20\t0.04\n2000\t0.04' } })
+  rerender(view())
+  // √(0.04 × 1980) = 8.90
+  expect(screen.getByText('Grms 8.90 g')).toBeInTheDocument()
+  expect(screen.getByText('PSD (g²/Hz)')).toBeInTheDocument()
+})

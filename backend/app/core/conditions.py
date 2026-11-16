@@ -23,6 +23,8 @@
 
 from __future__ import annotations
 
+import itertools
+import math
 from typing import Any, Literal
 
 from pydantic import (
@@ -452,6 +454,17 @@ LOAD_DIMENSIONS: dict[str, str] = {
 
 #: 몸 전체에 걸리는 하중 — 선택 그룹이 없다.
 BODY_LOADS = ("standard_earth_gravity", "acceleration", "rotational_velocity")
+#: 선택 그룹이 없는 하중 — 몸 전체, 그리고 기저 가진(고정 지지 전부를 흔든다).
+UNTARGETED_LOADS = (*BODY_LOADS, "psd_acceleration")
+
+#: 가속도 PSD 의 단위 — **어느 계로 내보내든 g²/Hz** 다. 진동 시험 규격(MIL-STD-810 ·
+#: IEC 60068-2-64)이 이것으로 적고, (mm/s²)²/Hz 로 받으면 사람이 9.6e7 을 곱해 적어야 한다.
+#: g = 9.80665 m/s². 값에서 단위를 떼지 않으므로 하중의 `unit` 으로 함께 나간다.
+PSD_UNIT = "g^2/Hz"
+
+#: 조화 응답에서 주파수마다 크기를 달리할 수 있는 하중(`frequency_table` · `phase`) — 방향이
+#: 있고 크기가 하나인 것. 중력 · 회전 속도는 가진이 아니다.
+HARMONIC_LOADS = ["pressure", "force", "moment", "bearing", "acceleration"]
 
 #: 방향이 있는 하중(벡터). 압력만 「면의 법선」 을 고를 수 있다.
 DIRECTED_LOADS = [
@@ -462,6 +475,7 @@ DIRECTED_LOADS = [
     "standard_earth_gravity",
     "acceleration",
     "rotational_velocity",
+    "psd_acceleration",
 ]
 
 #: 종류마다 한 줄 — 화면이 종류 아래에 보인다(무엇이고, 방향이 무엇을 뜻하나).
@@ -485,10 +499,16 @@ LOAD_NOTES: dict[str, str] = {
         "모든 바디의 자중입니다(9.80665 m/s²). 밀도가 지정되어야 적용됩니다."
     ),
     "acceleration": (
-        "모델이 이 방향으로 가속됩니다. 관성력은 반대 방향으로 작용하며, 밀도가 필요합니다."
+        "모델이 이 방향으로 가속됩니다. 관성력은 반대 방향으로 작용하며, 밀도가 필요합니다. "
+        "조화 응답에서 고정 지지와 함께 사용하면 기저 가진(지지부 기준 상대 응답)과 같습니다."
     ),
     "rotational_velocity": (
         "좌표계 원점을 지나는 축을 중심으로 회전합니다(원심력). 밀도가 필요합니다."
+    ),
+    "psd_acceleration": (
+        "랜덤 진동 해석에서 모든 고정 지지를 이 방향으로 흔듭니다. 주파수(Hz)마다 가속도 "
+        "PSD(g²/Hz)를 입력하며, 사이 주파수는 로그-로그로 보간합니다. 축마다 따로 시험하는 "
+        "규격이면 축마다 해석을 나누십시오(같은 해석의 여러 PSD는 서로 무관하게 합산됩니다)."
     ),
 }
 
@@ -501,6 +521,7 @@ LOAD_LABELS: dict[str, str] = {
     "standard_earth_gravity": "중력",
     "acceleration": "가속도",
     "rotational_velocity": "회전 속도",
+    "psd_acceleration": "가속도 PSD(기저 가진)",
 }
 
 
@@ -520,6 +541,7 @@ class Load(Base):
         "standard_earth_gravity",
         "acceleration",
         "rotational_velocity",
+        "psd_acceleration",
     ] = Field(json_schema_extra=_extra({"labels": LOAD_LABELS}))
     on: str = Field(
         "",
@@ -546,7 +568,8 @@ class Load(Base):
                 "only_for": [
                     k
                     for k in LOAD_LABELS
-                    if k not in ("bolt_pretension", "standard_earth_gravity")
+                    if k
+                    not in ("bolt_pretension", "standard_earth_gravity", "psd_acceleration")
                 ],
                 "unit_by_type": True,
             }
@@ -574,6 +597,52 @@ class Load(Base):
         json_schema_extra=_extra({"only_for": ["bolt_pretension"], "bolt": True}),
     )
     """`bolt_pretension` — 예압(힘) 또는 조임량(길이), `unit` 이 가른다."""
+    frequency_table: list[list[Number]] | None = Field(
+        None,
+        title="주파수별 배율",
+        description="조화 응답에서 주파수마다 ‘크기’에 곱할 배율입니다. 사이 주파수는 선형 "
+        "보간하며, 표는 해석의 주파수 범위를 모두 포함해야 합니다. 비워 두면 모든 주파수에서 "
+        "배율 1입니다. 예: 가속도 1 g(9806.65 mm/s²)에 200 Hz 0.5, 800 Hz 1.",
+        json_schema_extra=_extra(
+            {
+                "only_for": HARMONIC_LOADS,
+                "analysis_only": ["harmonic"],
+                "table": {"columns": [{"title": "주파수", "unit": "Hz"}, {"title": "배율"}]},
+            }
+        ),
+    )
+    """조화 응답 — `[[주파수(Hz), 배율], …]`, 주파수가 커지는 순서. 크기 * 배율이 그 주파수의
+    진폭이다(CalculiX `*AMPLITUDE` 와 같은 뜻, Ansys 는 곱해서 표로). `None` 이면 배율 1."""
+    phase: Number | None = Field(
+        None,
+        title="위상",
+        description="조화 응답에서 이 하중의 위상각입니다. 비워 두면 0°입니다.",
+        json_schema_extra=_extra(
+            {"only_for": HARMONIC_LOADS, "analysis_only": ["harmonic"], "unit": "°"}
+        ),
+    )
+    psd_table: list[list[Number]] | None = Field(
+        None,
+        title="가속도 PSD",
+        description="주파수(Hz)마다 가속도 PSD(g²/Hz)입니다. 두 행 이상, 주파수가 커지는 "
+        "순서로 입력합니다. 사이 주파수는 로그-로그로 보간하고, 표 밖의 주파수는 가진하지 "
+        "않습니다. 엑셀에서 두 열을 복사해 붙여 넣을 수 있습니다.",
+        json_schema_extra=_extra(
+            {
+                "only_for": ["psd_acceleration"],
+                "table": {
+                    "columns": [
+                        {"title": "주파수", "unit": "Hz"},
+                        {"title": "PSD", "unit": "g²/Hz"},
+                    ],
+                    "grms": True,
+                },
+            }
+        ),
+    )
+    """랜덤 진동 — `[[주파수(Hz), PSD(g²/Hz)], …]`, 로그-로그 보간(규격의 dB/oct 기울기가 곧
+    로그-로그 직선이다). 내보낼 때 `grms`(표의 면적, g)를 함께 싣는다 — 받는 쪽이 적분을 맞춰
+    본다."""
 
 
 CONTACT_LABELS: dict[str, str] = {
@@ -757,6 +826,7 @@ ANALYSIS_LABELS: dict[str, str] = {
     "modal": "모달(고유진동)",
     "static": "정적 구조",
     "harmonic": "조화 응답(주파수 응답)",
+    "random": "랜덤 진동(PSD)",
     "explicit": "명시적 동해석(충돌·낙하)",
     "thermal": "열",
 }
@@ -767,7 +837,11 @@ ANALYSIS_NOTES: dict[str, str] = {
     "static": "하중이 서서히 가해진 뒤 평형 상태의 변형과 응력을 계산합니다. "
     "접촉이나 대변형이 있으면 비선형으로 계산합니다.",
     "harmonic": "지정한 주파수로 가진하는 하중에 대한 응답(진폭, 응력)을 주파수별로 "
-    "계산합니다. 공진을 확인할 때 사용합니다.",
+    "계산합니다. 공진을 확인할 때 사용합니다. 하중마다 ‘주파수별 배율’로 사인 스윕 "
+    "프로파일을 입력할 수 있습니다.",
+    "random": "고정 지지가 가속도 PSD로 흔들릴 때의 응답(변위, 응력의 1σ 값)을 모드 중첩으로 "
+    "계산합니다. 진동 시험 규격(MIL-STD-810, IEC 60068-2-64)의 랜덤 프로파일을 옮길 때 "
+    "사용합니다. 하중 ‘가속도 PSD’가 필요하며, 그 밖의 하중은 사용하지 않습니다.",
     "explicit": "매우 짧은 시간(수 ms) 동안의 충돌, 낙하, 파손을 시간에 따라 "
     "계산합니다. 일반적으로 초기 속도가 필요합니다.",
     "thermal": "열 전달에 따른 온도 분포를 계산합니다. 정상 상태 또는 시간에 따른 "
@@ -791,26 +865,29 @@ class Analysis(Base):
     기본값을 채워 싣는다(`_filled_analysis`) — 받는 쪽이 「이 칸이 없으면 무엇인가」 를
     짐작하지 않게."""
 
-    type: Literal["modal", "static", "harmonic", "explicit", "thermal"] = Field(
+    type: Literal["modal", "static", "harmonic", "random", "explicit", "thermal"] = Field(
         default="modal", json_schema_extra=_extra({"labels": ANALYSIS_LABELS})
     )
     # ── 모달 · 조화 ────────────────────────────────────────────────────────
     modes: Integer | None = Field(
         default=6,
         title="모드 수",
-        description="구할 고유진동 모드의 개수입니다(조화 응답에서는 사용할 모드 수). "
-        "일반적으로 6~20입니다.",
-        json_schema_extra=_extra({"only_for": ["modal", "harmonic"], "integer": True}),
+        description="구할 고유진동 모드의 개수입니다(조화 응답 · 랜덤 진동에서는 겹쳐 쓸 모드 "
+        "수). 일반적으로 6~20이며, 랜덤 진동은 PSD 최대 주파수의 1.5배까지의 모드를 "
+        "포함하십시오.",
+        json_schema_extra=_extra(
+            {"only_for": ["modal", "harmonic", "random"], "integer": True}
+        ),
     )
     frequency_range: list[Number] | None = Field(
         default=None,
         title="주파수 범위",
         description=(
-            "모달: 이 범위 안에서 모드를 구합니다(비워 두면 낮은 차수부터). "
+            "모달 · 랜덤 진동: 이 범위 안에서 모드를 구합니다(비워 두면 낮은 차수부터). "
             "조화 응답: 계산할 주파수 범위입니다(필수)."
         ),
         json_schema_extra=_extra(
-            {"only_for": ["modal", "harmonic"], "unit": "Hz", "range": True}
+            {"only_for": ["modal", "harmonic", "random"], "unit": "Hz", "range": True}
         ),
     )
     prestressed: bool = Field(
@@ -818,7 +895,7 @@ class Analysis(Base):
         title="선응력 반영",
         description="선행 정적 해석의 응력(볼트 체결, 원심력)을 반영하여 계산합니다. "
         "초기조건의 ‘선응력’과 함께 사용합니다.",
-        json_schema_extra=_extra({"only_for": ["modal", "harmonic"]}),
+        json_schema_extra=_extra({"only_for": ["modal", "harmonic", "random"]}),
     )
     # ── 조화 응답 ──────────────────────────────────────────────────────────
     solution_intervals: Integer = Field(
@@ -843,9 +920,10 @@ class Analysis(Base):
     damping_ratio: Number | None = Field(
         default=None,
         title="감쇠비",
-        description="임계 감쇠에 대한 비율입니다. 강 구조물은 0.01~0.03입니다. 비워 두면 "
-        "감쇠가 없어 공진에서 응답이 무한히 커집니다.",
-        json_schema_extra=_extra({"only_for": ["harmonic"]}),
+        description="임계 감쇠에 대한 비율입니다. 강 구조물은 0.01~0.03입니다. 조화 응답에서 "
+        "비워 두면 감쇠가 없어 공진에서 응답이 무한히 커집니다. 랜덤 진동에는 반드시 "
+        "입력해야 합니다.",
+        json_schema_extra=_extra({"only_for": ["harmonic", "random"]}),
     )
     # ── 정적 구조 ──────────────────────────────────────────────────────────
     large_deflection: bool = Field(
@@ -882,7 +960,7 @@ class Analysis(Base):
         ),
         json_schema_extra=_extra(
             {
-                "only_for": ["static", "modal", "harmonic", "thermal"],
+                "only_for": ["static", "modal", "harmonic", "random", "thermal"],
                 "labels": {
                     "program_controlled": "프로그램 제어",
                     "direct": "직접법",
@@ -1429,6 +1507,7 @@ def parse(
             )
         if load.type == "bolt_pretension" and load.on in entity_of:
             _check_section(f"loads[{index}]", load, entity_of[load.on] == "body")
+    _check_excitation(conditions)
 
     # **물성이 붙은 바디가 진짜 있나.** 「전체」 는 늘 된다(모든 바디).
     known = set(bodies) if bodies is not None else None
@@ -2034,7 +2113,8 @@ def resolve(
         factor = source.factor(dimension) / target.factor(dimension)
         item[key] = _times(item.get(key), factor)
     out["units"] = unit_systems.declaration(target.key)
-    out["loads"] = [_filled_load(one, target.key) for one in out.get("loads", [])]
+    kind = str((out.get("analysis") or {}).get("type") or "modal")
+    out["loads"] = [_filled_load(one, target.key, kind) for one in out.get("loads", [])]
     out["initial"] = [_filled_initial(one, target.key) for one in out.get("initial", [])]
     out["analysis"] = _filled_analysis(_integerized(out.get("analysis") or {}, "analysis"))
     out["mesh_hints"] = [
@@ -2063,6 +2143,8 @@ def _load_units(load_type: str, system: str = INPUT_SYSTEM) -> list[str]:
     names = unit_systems.system_of(system).names
     if load_type == "bolt_pretension":
         return [names["force"], names["length"]]
+    if load_type == "psd_acceleration":
+        return [PSD_UNIT]
     dimension = LOAD_DIMENSIONS.get(load_type)
     return [names[dimension]] if dimension else []
 
@@ -2073,8 +2155,14 @@ def _check_load(where: str, load: Load) -> None:
     안 그러면 크기 없는 하중이나 0 벡터가 내보내져, 받는 쪽이 하중 없는 해석을 끝까지 돌린다.
     """
     label = f"{LOAD_LABELS[load.type]} ‘{load.name}’"
-    if load.type not in BODY_LOADS and not load.on:
+    if load.type not in UNTARGETED_LOADS and not load.on:
         raise ConditionError(f"{where}: {label}에 선택 그룹이 없습니다.")
+    if load.type == "psd_acceleration":
+        if not load.psd_table:
+            raise ConditionError(f"{where}: {label}에 PSD 표가 없습니다.")
+        _check_table(f"{where}: {label}의 PSD 표", load.psd_table, low=0.0, positive=True)
+    if load.frequency_table:
+        _check_table(f"{where}: {label}의 주파수별 배율", load.frequency_table, low=None)
     if load.type in LOAD_DIMENSIONS and load.magnitude is None:
         raise ConditionError(f"{where}: {label}에 크기가 없습니다.")
     if load.type == "bolt_pretension" and load.preload is None:
@@ -2104,6 +2192,118 @@ def _check_load(where: str, load: Load) -> None:
         )
     ):
         raise ConditionError(f"{where}: {label}에 방향이 없습니다.")
+
+
+def _check_table(
+    label: str, table: list[list[Any]], *, low: float | None, positive: bool = False
+) -> None:
+    """주파수 표 — 두 열, 두 행 이상, 주파수가 커지는 순서. `low` 는 주파수가 넘어야 할 값
+    (PSD 는 로그라 0 을 못 쓴다), `positive` 면 값도 0 보다 커야 한다(로그-로그 보간). 배율은
+    0 이상(음수는 위상으로 준다). 식(`"=…"`)인 칸은 설계점마다 풀리므로 여기서는 넘어간다."""
+    if len(table) < 2:
+        raise ConditionError(f"{label}는 두 행 이상이어야 합니다.")
+    before: float | None = None
+    for row, one in enumerate(table, start=1):
+        if len(one) != 2:
+            raise ConditionError(f"{label} {row}행은 주파수와 값 두 칸이어야 합니다.")
+        frequency, value = one
+        if any(isinstance(cell, str) and not cell.startswith("=") for cell in one):
+            raise ConditionError(
+                f"{label} {row}행: 빈칸이 있습니다. 수 또는 =식을 입력하십시오."
+            )
+        if not isinstance(frequency, str):
+            if frequency < 0 or (low is not None and frequency <= low):
+                floor = "0보다 커야" if low is not None else "0 이상이어야"
+                raise ConditionError(f"{label} {row}행: 주파수는 {floor} 합니다.")
+            if before is not None and frequency <= before:
+                raise ConditionError(
+                    f"{label} {row}행: 주파수는 위 행보다 커야 합니다({before} → {frequency})."
+                )
+            before = float(frequency)
+        if not isinstance(value, str) and (value <= 0 if positive else value < 0):
+            what = "0보다 커야" if positive else "0 이상이어야"
+            raise ConditionError(f"{label} {row}행: 값은 {what} 합니다.")
+
+
+def _span_of(table: list[list[Any]]) -> tuple[float, float] | None:
+    """표가 덮는 주파수 — 식이 섞이면 모른다(`None`)."""
+    ends = [table[0][0], table[-1][0]] if table else []
+    if len(ends) != 2 or any(isinstance(one, str) for one in ends):
+        return None
+    return float(ends[0]), float(ends[1])
+
+
+def _check_excitation(conditions: Conditions) -> None:
+    """가진 — 해석 종류와 하중이 맞물리는가.
+
+    - 랜덤 진동은 **가속도 PSD 하나 이상 · 고정 지지 하나 이상 · 감쇠비**가 있어야 한다. 기저
+      가진은 고정 지지를 흔드는 것이고, 감쇠가 없으면 공진에서 응답이 무한하다.
+    - 가속도 PSD 는 랜덤 진동에서만 — 다른 해석에 실리면 받는 쪽이 무엇으로 풀지 모른다.
+    - 조화 응답의 주파수별 배율은 해석의 주파수 범위를 **다 덮어야** 한다 — 표 밖을 0 으로
+      읽을지 끝값으로 읽을지 솔버마다 다르다.
+    """
+    analysis = conditions.analysis
+    psd = [one for one in conditions.loads if one.type == "psd_acceleration"]
+    if analysis.type != "random":
+        if psd:
+            raise ConditionError(
+                f"loads: 가속도 PSD ‘{psd[0].name}’은(는) 랜덤 진동 해석에서만 사용할 수 "
+                "있습니다. 해석 종류를 랜덤 진동으로 바꾸거나 이 하중을 삭제하십시오."
+            )
+    else:
+        if not psd:
+            raise ConditionError(
+                "loads: 랜덤 진동에는 하중 ‘가속도 PSD(기저 가진)’가 하나 이상 있어야 합니다."
+            )
+        if not any(one.type == "fixed_support" for one in conditions.constraints):
+            raise ConditionError(
+                "constraints: 랜덤 진동은 고정 지지를 가진합니다. 고정 지지가 하나 이상 "
+                "있어야 합니다."
+            )
+        damping = analysis.damping_ratio
+        if damping is None or (not isinstance(damping, str) and damping <= 0):
+            raise ConditionError(
+                "analysis: 랜덤 진동에는 감쇠비가 필요합니다(예: 0.02). 감쇠가 없으면 "
+                "공진에서 응답이 무한히 커집니다."
+            )
+    span = analysis.frequency_range
+    if analysis.type != "harmonic" or not span or len(span) != 2:
+        return
+    low, high = span
+    if isinstance(low, str) or isinstance(high, str):
+        return
+    for index, load in enumerate(conditions.loads):
+        if not load.frequency_table:
+            continue
+        covered = _span_of(load.frequency_table)
+        if covered and (covered[0] > low or covered[1] < high):
+            raise ConditionError(
+                f"loads[{index}]: {LOAD_LABELS[load.type]} ‘{load.name}’의 주파수별 배율"
+                f"({covered[0]:g}~{covered[1]:g} Hz)이 해석의 주파수 범위"
+                f"({float(low):g}~{float(high):g} Hz)를 모두 포함하지 않습니다."
+            )
+
+
+def psd_grms(table: list[list[Any]]) -> float | None:
+    """가속도 PSD 표의 **실효값**(g) — 로그-로그 보간한 면적의 제곱근. 규격이 함께 적는
+    「Grms 6.06」 과 맞춰 보는 값이다. 식이 섞여 있으면 `None`.
+
+    구간마다 PSD 가 `f^n` 꼴(로그-로그 직선)이므로 면적은 `P1·f1/(n+1)·((f2/f1)^(n+1) - 1)`,
+    `n = -1` 이면 `P1·f1·ln(f2/f1)` 이다."""
+    rows = [(one[0], one[1]) for one in table]
+    if len(rows) < 2 or any(isinstance(x, str) or isinstance(y, str) for x, y in rows):
+        return None
+    area = 0.0
+    for (f1, p1), (f2, p2) in itertools.pairwise(rows):
+        f1, p1, f2, p2 = float(f1), float(p1), float(f2), float(p2)
+        if f1 <= 0 or f2 <= f1 or p1 <= 0 or p2 <= 0:
+            return None
+        n = math.log(p2 / p1) / math.log(f2 / f1)
+        if abs(n + 1) < 1e-9:
+            area += p1 * f1 * math.log(f2 / f1)
+        else:
+            area += p1 * f1 / (n + 1) * ((f2 / f1) ** (n + 1) - 1)
+    return math.sqrt(area)
 
 
 def _check_section(where: str, load: Load, on_body: bool) -> None:
@@ -2140,7 +2340,7 @@ def _check_analysis(analysis: Analysis) -> None:
         low, high = span
         if not isinstance(low, str) and not isinstance(high, str) and not 0 <= low < high:
             raise ConditionError("analysis: 주파수 범위는 0 ≤ 최소 < 최대를 만족해야 합니다.")
-    if analysis.type == "modal" and not positive(analysis.modes):
+    if analysis.type in ("modal", "random") and not positive(analysis.modes):
         raise ConditionError(f"analysis: {label}의 모드 수는 1 이상이어야 합니다.")
     if analysis.type == "harmonic":
         if span is None:
@@ -2256,11 +2456,19 @@ def _filled_initial(initial: dict[str, Any], system: str) -> dict[str, Any]:
     return out
 
 
-def _filled_load(load: dict[str, Any], system: str) -> dict[str, Any]:
+def _filled_load(load: dict[str, Any], system: str, analysis: str = "") -> dict[str, Any]:
     """내보낼 하중 — 단위는 **내보내기 계의 이름**으로, 비운 방향은 **뜻대로 채운다.** 받는
     쪽이 기본값을 짐작하지 않게. 볼트는 적힌 단위(입력 계의 N · mm)로 예압 · 조임량을
-    가른다."""
+    가른다. 조화 응답이면 비운 위상을 0 으로, 가속도 PSD 는 표의 실효값(`grms`, g)을 싣는다."""
     out = dict(load)
+    if (
+        analysis == "harmonic"
+        and out.get("type") in HARMONIC_LOADS
+        and out.get("phase") is None
+    ):
+        out["phase"] = 0.0
+    if out.get("type") == "psd_acceleration":
+        out["grms"] = psd_grms(out.get("psd_table") or [])
     kind = str(out.get("type"))
     target = _load_units(kind, system)
     if kind == "bolt_pretension":

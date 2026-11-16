@@ -920,8 +920,9 @@ async def conditions_contacts(
     - `proposal`: 그 쌍을 **본딩으로 채울 것** — `named_selections`(양쪽 면 그룹, 셀렉터는
       `recipe_selectors` 의 기본 후보와 같다)와 `contacts`. 조건에 그대로 더해
       `set_conditions`.
-    - `notes`: 모달 · 조화 응답에서 접촉이 풀리는 법 — 마찰 · 거친 접촉은 붙은 것으로, 마찰
-      없음 · 분리 없음은 미끄러지는 것으로. 미끄럼으로만 이어진 바디는 0 Hz 모드가 생긴다.
+    - `notes`: 모달 · 조화 응답 · 랜덤 진동에서 접촉이 풀리는 법 — 마찰 · 거친 접촉은 붙은
+      것으로, 마찰 없음 · 분리 없음은 미끄러지는 것으로. 미끄럼으로만 이어진 바디는 0 Hz 모드가
+      생긴다.
 
     조립에 조건을 다 걸었으면 저장 전에 한 번 부른다."""
     return await _post(

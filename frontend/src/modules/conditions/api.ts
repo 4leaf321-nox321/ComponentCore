@@ -50,6 +50,12 @@ export interface FieldSchema {
   whole_only?: boolean
   /** 종류 안에서 다른 칸의 값에 따라 보인다 — `{종류: {칸: 값}}`(열 과도의 시간 칸). */
   when?: Record<string, Record<string, unknown>>
+  /** 해석 종류가 이것일 때만 보인다 — 하중의 「주파수별 배율」 · 「위상」 은 조화 응답만. */
+  analysis_only?: string[]
+  /**
+   * 표 칸 — 행마다 `[주파수, 값]`(가진 프로파일). `grms` 면 가속도 PSD 라 표의 실효값을 보인다.
+   */
+  table?: { columns: { title: string; unit?: string }[]; grms?: boolean }
 }
 
 export interface GroupSchema {

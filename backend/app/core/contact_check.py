@@ -31,8 +31,8 @@ from app.core.recipe.query import (
 SLIDING = frozenset({"frictionless", "no_separation"})
 #: 고유치에서 붙은 것으로 풀리는 비선형 접촉.
 STUCK_IN_EIGEN = frozenset({"frictional", "rough"})
-#: 고유치를 푸는 해석 — 조화 응답도 모드를 겹쳐 푼다.
-EIGEN_ANALYSES = frozenset({"modal", "harmonic"})
+#: 고유치를 푸는 해석 — 조화 응답 · 랜덤 진동도 모드를 겹쳐 푼다.
+EIGEN_ANALYSES = frozenset({"modal", "harmonic", "random"})
 #: 이보다 작은 맞닿은 넓이(mm²)는 모서리 · 꼭짓점만 닿은 것이다.
 _SHARED = 1e-6
 _NAME = 60
@@ -188,8 +188,8 @@ def missing_warnings(rows: list[dict[str, Any]]) -> list[str]:
 def eigen_notes(
     conditions: dict[str, Any], bodies_of: dict[str, set[str]]
 ) -> list[dict[str, str]]:
-    """모달 · 조화 응답에서 접촉이 **어떻게 풀리나** — 접촉마다 한 줄, 그리고 미끄럼 접촉으로만
-    고정된 쪽에 이어진 바디(0 Hz 모드가 생긴다)."""
+    """모달 · 조화 응답 · 랜덤 진동에서 접촉이 **어떻게 풀리나** — 접촉마다 한 줄, 그리고
+    미끄럼 접촉으로만 고정된 쪽에 이어진 바디(0 Hz 모드가 생긴다)."""
     analysis = (conditions.get("analysis") or {}).get("type")
     if analysis not in EIGEN_ANALYSES:
         return []
@@ -202,8 +202,9 @@ def eigen_notes(
                 {
                     "where": where,
                     "level": "info",
-                    "text": "모달 · 조화 응답 해석에서는 마찰 접촉이 선형화되어 본딩으로 "
-                    "처리됩니다. 접촉이 닫혀 있으면 본딩과 같은 고유진동수가 산출됩니다.",
+                    "text": "모달 · 조화 응답 · 랜덤 진동 해석에서는 마찰 접촉이 선형화되어 "
+                    "본딩으로 처리됩니다. 접촉이 닫혀 있으면 본딩과 같은 고유진동수가 "
+                    "산출됩니다.",
                 }
             )
         elif kind in SLIDING:
@@ -211,9 +212,9 @@ def eigen_notes(
                 {
                     "where": where,
                     "level": "info",
-                    "text": "모달 · 조화 응답 해석에서는 법선 방향만 구속되어 접선 방향 "
-                    "미끄러짐이 허용됩니다. 이 접촉으로만 연결된 파트에는 0 Hz 강체 모드가 "
-                    "발생합니다.",
+                    "text": "모달 · 조화 응답 · 랜덤 진동 해석에서는 법선 방향만 구속되어 "
+                    "접선 방향 미끄러짐이 허용됩니다. 이 접촉으로만 연결된 파트에는 0 Hz 강체 "
+                    "모드가 발생합니다.",
                 }
             )
     held: set[str] = set()

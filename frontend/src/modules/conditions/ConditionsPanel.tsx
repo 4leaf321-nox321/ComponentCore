@@ -249,7 +249,16 @@ export function ConditionsPanel({
   }
 
   /** 창에서 고치는 조건이 3D 선택을 받는가 — 선택 그룹을 가리키는 칸이 있어야 한다. */
-  const editingTargets = editing ? targetFields(schema.data?.groups[editing.group]) : []
+  /**
+   * 열린 조건의 **대상 칸** — 그 종류가 쓰는 것만(`only_for`). 중력 · 가속도 · 가속도 PSD 는 대상이
+   * 없다 — 그런데도 창이 「3D에서 선택하면 적용 대상」 이라 말하고, 누르면 숨은 칸에 그룹을 넣었다.
+   */
+  const editingTargets = editing
+    ? targetFields(schema.data?.groups[editing.group]).filter((key) => {
+        const only = schema.data?.groups[editing.group]?.fields[key]?.only_for
+        return !only || only.includes(String(editing.item.type ?? ''))
+      })
+    : []
 
   /** 같은 것을 다시 눌렀는지 가르는 열쇠 — 면 · 엣지는 번호, 점은 좌표, 바디는 이름. */
   function memberKey(pick: MeasurePick): string {
@@ -1403,6 +1412,7 @@ export function ConditionsPanel({
               names={editing.group === 'analysis' ? names : namesFor(editing.group)}
               frames={frameNames}
               units={inputOf}
+              analysis={editing.group === 'loads' ? String(draft.analysis?.type ?? 'modal') : undefined}
               onChange={(next) => setEditing({ ...editing, item: next })}
             />
           </>

@@ -105,8 +105,15 @@ const SCHEMA = {
     },
     loads: {
       label: '하중',
-      types: ['pressure', 'bolt_pretension'],
-      fields: { name: {}, type: { enum: ['pressure'] }, on: {}, magnitude: { anyOf: [{ type: 'number' }] }, unit: { type: 'string' } },
+      types: ['pressure', 'bolt_pretension', 'standard_earth_gravity'],
+      fields: {
+        name: {},
+        type: { enum: ['pressure', 'bolt_pretension', 'standard_earth_gravity'] },
+        // 중력은 대상이 없다 — 서버 사양표처럼 `on` 은 쓰는 종류만.
+        on: { only_for: ['pressure', 'bolt_pretension'] },
+        magnitude: { anyOf: [{ type: 'number' }] },
+        unit: { type: 'string' },
+      },
       required: [],
     },
     contacts: { label: '접촉', types: ['bonded'], fields: { name: {}, type: { enum: ['bonded'] }, source: {}, target: {} }, required: [] },
@@ -629,6 +636,16 @@ test('조건 창을 띄운 채 형상을 선택하면 **그 조건의 적용 대
   fireEvent.click(screen.getByRole('button', { name: '확인' }))
 
   expect((await save(onSave)).constraints[0].on).toBe('바닥')
+})
+
+test('대상이 없는 하중(중력 · 가속도 PSD)은 3D 선택을 적용 대상으로 받지 않는다고 안내한다', async () => {
+  await panel()
+  fireEvent.click(screen.getByRole('button', { name: '하중' }))
+  const dialog = await waitFor(() => screen.getByRole('dialog', { name: '하중 추가' }))
+  expect(within(dialog).getByText(/3D에서 형상을 선택하면 적용 대상으로/)).toBeInTheDocument()
+  fireEvent.click(within(dialog).getAllByRole('combobox')[0])
+  fireEvent.click(await screen.findByRole('option', { name: 'standard_earth_gravity' }))
+  await waitFor(() => expect(within(dialog).queryByText(/3D에서 형상을 선택하면 적용 대상으로/)).toBeNull())
 })
 
 test('트리의 조건을 누르면 **수정 창**이 뜨고, 거기서 삭제한다', async () => {

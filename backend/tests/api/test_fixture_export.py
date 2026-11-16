@@ -393,6 +393,90 @@ def test_설계_하나_픽스처_인자가_없어도_같은_폴더다(
         shutil.copytree(folder, target)
 
 
+def _keep(folder: Path) -> None:
+    """`COMPCORE_FIXTURE_OUT` 이 있으면 그 자리에 폴더를 복사한다(스터디 id 는 뗀다)."""
+    out = os.environ.get("COMPCORE_FIXTURE_OUT")
+    if out:
+        target = Path(out) / folder.name.rsplit("-", 1)[0]
+        shutil.rmtree(target, ignore_errors=True)
+        shutil.copytree(folder, target)
+
+
+#: ⑤-2 **사인 스윕 · 기저 가진** — 「측면 가진」 의 기둥을 이번에는 **바닥째** X 로 흔든다.
+#: 고정 지지 + 가속도 하중 1 g(9806.65 mm/s²) = 지지부 기준 상대 응답, 진폭은 주파수마다
+#: 배율(100 Hz 0.5 → 800 Hz 1 → 2000 Hz 1, 사이는 선형). 위상은 비워 두어 0 으로 나간다. 진동
+#: 시험 규격의 사인 스윕을 옮기는 꼴(2026-11-17, 가진 프로파일).
+SINE_SWEEP: dict[str, Any] = {
+    **LATERAL,
+    "name": "조건_사인스윕",
+    "conditions": {
+        **LATERAL["conditions"],
+        "loads": [
+            {"name": "X 사인 스윕", "type": "acceleration", "magnitude": 9806.65,
+             "direction": [1, 0, 0], "frequency_table": [[100, 0.5], [800, 1], [2000, 1]]}
+        ],
+    },
+}  # fmt: skip
+
+
+def test_사인_스윕_픽스처_배율_표와_위상이_실린다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    folder = _export(client, member, export_root, SINE_SWEEP)
+    for point in _points(folder):
+        conditions = point["conditions"]
+        (load,) = conditions["loads"]
+        assert load["type"] == "acceleration" and load["unit"] == "mm/s^2"
+        assert load["magnitude"] == 9806.65
+        assert load["frequency_table"] == [[100, 0.5], [800, 1], [2000, 1]]
+        assert load["phase"] == 0.0, "조화 응답이면 비운 위상을 0 으로 채운다"
+        assert conditions["analysis"]["type"] == "harmonic"
+        assert conditions["analysis"]["frequency_range"] == [200, 2000]
+        assert [one["type"] for one in conditions["constraints"]] == ["fixed_support"]
+    _keep(folder)
+
+
+#: ⑤-3 **랜덤 진동 · 가속도 PSD** — 같은 기둥의 바닥(고정 지지 전부)을 X 로 IEC 60068-2-64 꼴
+#: 프로파일로 흔든다: 20 Hz 0.01 → 80 Hz 0.04(오르막) · 350 Hz 까지 평평 · 2000 Hz
+#: 0.007(내리막, 기울기 정확히 -1). Grms 6.06 g. 모드 6, 감쇠비 0.02(2026-11-17, 가진
+#: 프로파일).
+RANDOM_PSD: dict[str, Any] = {
+    **LATERAL,
+    "name": "조건_랜덤진동",
+    "conditions": {
+        **LATERAL["conditions"],
+        "loads": [
+            {"name": "X 랜덤", "type": "psd_acceleration", "direction": [1, 0, 0],
+             "psd_table": [[20, 0.01], [80, 0.04], [350, 0.04], [2000, 0.007]]}
+        ],
+        "analysis": {"type": "random", "modes": 6, "damping_ratio": 0.02},
+    },
+}  # fmt: skip
+
+
+def test_랜덤_진동_픽스처_PSD_는_g2_Hz_로_실효값과_함께(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    folder = _export(client, member, export_root, RANDOM_PSD)
+    for point in _points(folder):
+        conditions = point["conditions"]
+        (load,) = conditions["loads"]
+        assert load["type"] == "psd_acceleration"
+        assert load["unit"] == "g^2/Hz" and load["on"] == ""
+        assert load["psd_table"] == [[20, 0.01], [80, 0.04], [350, 0.04], [2000, 0.007]]
+        assert load["grms"] == pytest.approx(6.0582, abs=1e-3)
+        analysis = conditions["analysis"]
+        assert analysis == {
+            "type": "random",
+            "modes": 6,
+            "frequency_range": None,
+            "prestressed": False,
+            "damping_ratio": 0.02,
+            "solver": "program_controlled",
+        }
+    _keep(folder)
+
+
 #: ⑥ **전단을 받는 이음 — 마찰이 할 일이 있는 자리.** 강판(SECC) 위에 알루미늄 판(Al5052)을
 #: 40 mm 겹쳐 놓고(겹침 이음), 겹친 자리를 위에서 누른 채(클램프 압력 P, 40 x 20 자리) 위판
 #: 끝을 X 로 당긴다(변위 제어 — 미끄러져도 강체 운동이 아니다). 지금까지의 픽스처는 이음이
