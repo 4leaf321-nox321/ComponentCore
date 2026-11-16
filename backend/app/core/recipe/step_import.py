@@ -29,6 +29,7 @@ from pathlib import Path
 
 from build123d import Compound, Location, Part, Shape, Solid, import_step
 from OCP.BRep import BRep_Tool
+from OCP.gp import gp_TrsfForm
 from OCP.ShapeFix import ShapeFix_Solid
 from OCP.TopoDS import TopoDS
 
@@ -145,11 +146,24 @@ def _walk(node: Shape, above: Location, out: list[tuple[str, Shape]]) -> None:
         return
     kids = list(getattr(node, "children", ()) or ())
     if not kids:
-        out.append((str(getattr(node, "label", "") or ""), node.moved(above)))
+        # **자리가 없으면 옮기지 않는다.** 빈 `Location()` 도 「항등 변환」 이라는 자리를
+        # 붙이고, STEP 쓰기는 자리가 붙은 형상을 부품 하나로 싸 조립을 한 겹 더 만든다 —
+        # 시트 하나짜리 셸 모델 STEP 이 「model 안의 model」 로 나갔다(SimEngBay 가 픽스처에서
+        # 봄, 2026-11-16).
+        label = str(getattr(node, "label", "") or "")
+        out.append((label, node if _identity(above) else node.moved(above)))
         return
-    here = above * node.location
+    here = node.location if _identity(above) else above * node.location
     for kid in kids:
         _walk(kid, here, out)
+
+
+def _identity(where: Location) -> bool:
+    """옮기지도 돌리지도 않는 자리인가 — 표식(`IsIdentity`)이 없어도 변환이 항등이면."""
+    return bool(
+        where.wrapped.IsIdentity()
+        or where.wrapped.Transformation().Form() == gp_TrsfForm.gp_Identity
+    )
 
 
 def _pieces(leaf: Shape) -> tuple[list[tuple[Shape, bool]], int]:

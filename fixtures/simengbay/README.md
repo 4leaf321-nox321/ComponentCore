@@ -536,6 +536,14 @@ gmsh · ccx, 점 파일 · STEP 을 그대로 `topology.json` · `input.step` �
 
 ## 읽을 때 알아 둘 것
 
+- **2026-11-16 — 셸모델 두 폴더의 STEP 구조를 v0.22.0 때로 되돌렸다.** v0.24.0 에서 STEP 가져오기가
+  트리 끝까지 바디를 가르게 바뀌면서(`import_step` 의 `bodies: "leaf"`), 빈 자리(`Location()`)까지 곱해
+  시트 하나짜리 형상에 「항등 변환」 자리가 붙었다. STEP 쓰기는 그것을 부품 하나로 싸 「model 안의
+  model」(`NEXT_ASSEMBLY_USAGE_OCCURRENCE` 하나 더)로 냈다 — 형상 엔티티는 같고 포장만 한 겹 늘었다
+  (SimEngBay 가 v0.25.1 픽스처에서 봄). 자리가 항등이면 곱하지 않게 고쳐 「셸모델_두께없음」 ·
+  「셸모델_시트외팔보」 의 `p0001.step` 이 v0.22.0 과 시각 줄 말고는 같다. 이 두 폴더만 다시 뽑았다.
+  솔리드는 예전에도 조립으로 나가서 바뀌지 않았다.
+
 - **2026-11-13 — 형상 점검에 바디끼리 겹침 · 작은 틈(`quality.contacts`), 기준은 핸드폰 부품 규모로.**
   점 파일 `quality` 에 `contacts[]` 가 는다 — 솔리드 쌍마다 `{kind: "overlap" | "gap", a, b, size,
   volume?, at}`. 겹침은 늘 찾고(`size` 는 두께 어림 2V/A, `volume` 은 mm³), 틈은 `checks.contact_gap`

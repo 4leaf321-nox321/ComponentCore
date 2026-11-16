@@ -139,3 +139,18 @@ def test_CP949_로_적힌_한글_이름을_읽는다(tmp_path: Path) -> None:
     path.write_bytes(data)
     rows, _ = _bodies(path)
     assert _names(rows) == ["블록", "핀"]
+
+
+def test_시트_하나는_내보낼_때_조립으로_싸지_않는다(tmp_path: Path) -> None:
+    """트리를 내려가며 빈 자리까지 곱하면 STEP 쓰기가 부품 하나로 싸 「model 안의 model」 이
+    됐다 — 셸 모델 픽스처의 STEP 이 형상은 같은데 구조가 바뀌었다(SimEngBay, 2026-11-16)."""
+    from app.core import export
+
+    source = _write(Shell(Box(10, 10, 10).faces()[:5]), tmp_path / "sheet.step")
+    written = {}
+    for mode in ("top", "leaf"):
+        node = {"id": "s", "op": "import_step", "file": source.name, "bodies": mode}
+        made = evaluate(parse({"nodes": [node]}), resolve_file=lambda key: tmp_path / key)
+        text = export.write_step(made.shape, tmp_path / f"{mode}.step").read_text()
+        written[mode] = (text.count("PRODUCT("), text.count("NEXT_ASSEMBLY_USAGE_OCCURRENCE"))
+    assert written["leaf"] == written["top"] == (1, 0)
