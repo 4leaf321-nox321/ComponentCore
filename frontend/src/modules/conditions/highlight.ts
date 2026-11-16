@@ -65,3 +65,47 @@ export function foundMarks(mesh: MeshData, what: string, rows: FoundRow[]): Meas
   }
   return out
 }
+
+/**
+ * **접촉 보기**의 색 — 본딩(tie)은 붉게, 그 밖의 접촉(마찰 · 마찰 없음 · 분리 없음 · 거친)은 푸르게.
+ * 조립에서 어느 면이 붙고 어느 면이 미끄러지는지가 한눈에 보여야 빠뜨린 접촉 · 잘못 고른 종류가
+ * 드러난다(모달에서 미끄럼 접촉은 0 Hz 모드를 낳는다).
+ */
+export const TIE_COLOR = 0xdc2626
+export const CONTACT_COLOR = 0x2563eb
+
+export type ContactKind = 'tie' | 'contact'
+
+export function contactKind(type: unknown): ContactKind {
+  return type === 'bonded' ? 'tie' : 'contact'
+}
+
+/**
+ * 접촉의 양쪽 면 그룹을 서버가 푼 줄들 → 종류별 색으로 칠한 면. 푸른 것을 먼저, 붉은 것을 나중에
+ * 그린다 — 한 면이 둘에 들면 본딩이 보인다.
+ */
+export function contactMarks(mesh: MeshData, groups: { what: string; rows: FoundRow[]; kind: ContactKind }[]): MeasureMarks {
+  const out = emptyMarks()
+  const ordered = [...groups.filter((one) => one.kind === 'contact'), ...groups.filter((one) => one.kind === 'tie')]
+  for (const group of ordered) {
+    if (group.what !== 'faces') continue
+    const color = group.kind === 'tie' ? TIE_COLOR : CONTACT_COLOR
+    for (const face of foundMarks(mesh, 'faces', group.rows).faces) out.faces.push({ ...face, color, opacity: 0.55 })
+  }
+  return out
+}
+
+/** 겹쳐 그린다 — 앞의 것 위에 뒤의 것. 다 비면 undefined(그릴 것이 없다). */
+export function mergeMarks(...layers: (MeasureMarks | undefined)[]): MeasureMarks | undefined {
+  const present = layers.filter((one): one is MeasureMarks => !!one)
+  if (present.length <= 1) return present[0]
+  const out = emptyMarks()
+  for (const one of present) {
+    out.points.push(...one.points)
+    out.segments.push(...one.segments)
+    out.labels.push(...one.labels)
+    out.edges.push(...one.edges)
+    out.faces.push(...one.faces)
+  }
+  return out
+}

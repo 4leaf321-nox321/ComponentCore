@@ -1,4 +1,4 @@
-import { bodyMarks, foundMarks } from '@/modules/conditions/highlight'
+import { bodyMarks, CONTACT_COLOR, contactKind, contactMarks, foundMarks, mergeMarks, TIE_COLOR } from '@/modules/conditions/highlight'
 import type { MeshData, MeshFace } from '@/shared/viewer/PickViewer'
 
 function face(index: number, center: number[], part?: string): MeshFace {
@@ -26,4 +26,26 @@ test('서버가 푼 면을 **번호로** 짝짓고, 번호가 안 맞으면 자�
 test('바디 그룹은 그 파트의 면을 다 칠한다 — 여럿을 묶었으면 그 파트들', () => {
   expect(bodyMarks(MESH, { body: '기둥' }).faces).toHaveLength(2)
   expect(bodyMarks(MESH, { any: [{ body: '기둥' }, { body: '받침' }] }).faces).toHaveLength(3)
+})
+
+test('접촉 보기 — 본딩은 붉게, 그 밖의 접촉은 푸르게, 한 면이 둘에 들면 본딩이 위에', () => {
+  expect([contactKind('bonded'), contactKind('frictional'), contactKind('no_separation')]).toEqual(['tie', 'contact', 'contact'])
+  const marks = contactMarks(MESH, [
+    { what: 'faces', rows: [{ index: 0, center: [0, 0, 0] }], kind: 'tie' },
+    { what: 'faces', rows: [{ index: 1, center: [5, 0, 9] }, { index: 0, center: [0, 0, 0] }], kind: 'contact' },
+  ])
+  // 푸른 것 먼저, 붉은 것 나중 — 면 0 은 둘에 들어 붉은 것이 위에 그려진다.
+  expect(marks.faces.map((one) => [one.vertices[0], one.color])).toEqual([
+    [1, CONTACT_COLOR],
+    [0, CONTACT_COLOR],
+    [0, TIE_COLOR],
+  ])
+})
+
+test('표시는 겹쳐 그린다 — 접촉 위에 고른 그룹, 없으면 있는 것만', () => {
+  const contacts = contactMarks(MESH, [{ what: 'faces', rows: [{ index: 0, center: [0, 0, 0] }], kind: 'tie' }])
+  const lit = foundMarks(MESH, 'faces', [{ index: 1, center: [5, 0, 9] }])
+  expect(mergeMarks(contacts, lit)?.faces.map((one) => one.vertices[0])).toEqual([0, 1])
+  expect(mergeMarks(undefined, lit)).toBe(lit)
+  expect(mergeMarks(undefined, undefined)).toBeUndefined()
 })

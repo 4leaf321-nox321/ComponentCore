@@ -58,7 +58,8 @@ import { useRecipeMesh } from '@/modules/cad/useRecipeMesh'
 import { ConditionForm } from '@/modules/conditions/ConditionForm'
 import { ContactCheck } from '@/modules/conditions/ContactCheck'
 import { FloatingWindow, SelectionMembers } from '@/modules/conditions/ConditionWindows'
-import { bodyMarks, foundMarks } from '@/modules/conditions/highlight'
+import { bodyMarks, CONTACT_COLOR, contactKind, contactMarks, foundMarks, mergeMarks, TIE_COLOR } from '@/modules/conditions/highlight'
+import type { ContactKind } from '@/modules/conditions/highlight'
 import type { FoundRow } from '@/modules/conditions/highlight'
 import type { Member } from '@/modules/conditions/ConditionWindows'
 import { materialColor, ModelTree, UNASSIGNED_COLOR } from '@/modules/conditions/ModelTree'
@@ -534,8 +535,52 @@ export function ConditionsPanel({
       : lit?.key === litKey
         ? lit.rows.length
         : null
-  /** 담는 중이면 담은 것, 아니면 트리에서 고른 그룹. */
-  const marks = memberMarks ?? groupMarks
+  /**
+   * **접촉 보기** — 접촉마다 양쪽 면 그룹을 지금 형상에서 풀어 본딩(tie)은 붉게, 그 밖의 접촉은
+   * 푸르게 칠한다. 조립에서 어느 면이 붙고 어느 면이 미끄러지는지가 보여야 빠뜨린 접촉 · 잘못 고른
+   * 종류가 드러난다. 켰을 때만 푼다(그룹마다 서버에 묻는다).
+   */
+  const [showContacts, setShowContacts] = useState(false)
+  const contactGroups = useMemo(() => {
+    const byName = new Map(names.map((one) => [one.name, one]))
+    const out: { select: Record<string, unknown>; kind: ContactKind }[] = []
+    for (const one of draft.contacts) {
+      for (const side of [one.source, one.target]) {
+        const group = byName.get(String(side ?? ''))
+        if (group && group.entity !== 'body') out.push({ select: group.select, kind: contactKind(one.type) })
+      }
+    }
+    return out
+  }, [draft.contacts, names])
+  const contactsKey = JSON.stringify(contactGroups)
+  const [contactRows, setContactRows] = useState<{ key: string; items: { what: string; rows: FoundRow[]; kind: ContactKind }[] } | null>(null)
+  useEffect(() => {
+    if (!showContacts || contactGroups.length === 0) return
+    let alive = true
+    void Promise.all(
+      contactGroups.map((group) =>
+        conditionsApi
+          .resolve(recipe, group.select)
+          .then((got) => ({ what: got.what, rows: got.items, kind: group.kind }))
+          // 못 푼 그룹은 칠하지 않을 뿐이다.
+          .catch(() => ({ what: 'faces', rows: [] as FoundRow[], kind: group.kind })),
+      ),
+    ).then((items) => alive && setContactRows({ key: contactsKey, items }))
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showContacts, contactsKey, recipe])
+  const contactLayer = useMemo(
+    () => (showContacts && mesh && contactRows?.key === contactsKey ? contactMarks(mesh, contactRows.items) : undefined),
+    [showContacts, mesh, contactRows, contactsKey],
+  )
+  const contactCounts = {
+    tie: contactLayer?.faces.filter((one) => one.color === TIE_COLOR).length ?? 0,
+    contact: contactLayer?.faces.filter((one) => one.color === CONTACT_COLOR).length ?? 0,
+  }
+  /** 담는 중이면 담은 것, 아니면 트리에서 고른 그룹 — 접촉 보기를 켰으면 그 위에. */
+  const marks = mergeMarks(contactLayer, memberMarks ?? groupMarks)
 
   /**
    * 창을 연다 — 초기조건이면 선택 대상을 바디로 바꾼다(바디에만 건다).
@@ -895,6 +940,15 @@ export function ConditionsPanel({
             }}
           />
         </RibbonGroup>
+        <RibbonGroup title="보기">
+          <RibbonButton
+            icon={Link2}
+            label="접촉 보기"
+            title="접촉 면을 3D에 표시합니다: 본딩(tie)은 붉은색, 그 밖의 접촉(마찰 · 마찰 없음 · 분리 없음 · 거친)은 푸른색."
+            active={showContacts}
+            onClick={() => setShowContacts(!showContacts)}
+          />
+        </RibbonGroup>
         <RibbonGroup title="해석">
           <RibbonButton
             icon={Settings2}
@@ -1084,7 +1138,21 @@ export function ConditionsPanel({
                   : '3D에서 선택하면 선택 그룹이 생성됩니다.'}
             </span>
           </div>
-          <CardContent className="min-h-0 flex-1 p-0">
+          <CardContent className="relative min-h-0 flex-1 p-0">
+            {/* 접촉 보기의 범례 — 무엇이 붉고 무엇이 푸른지, 몇 면인지. */}
+            {showContacts && (
+              <div className="bg-background/85 pointer-events-none absolute top-2 left-2 z-10 space-x-3 rounded border px-2 py-1 text-xs" aria-label="접촉 범례">
+                <span>
+                  <span className="mr-1 inline-block size-2.5 rounded-sm" style={{ background: '#dc2626' }} aria-hidden />
+                  본딩(tie) {contactCounts.tie}면
+                </span>
+                <span>
+                  <span className="mr-1 inline-block size-2.5 rounded-sm" style={{ background: '#2563eb' }} aria-hidden />
+                  접촉 {contactCounts.contact}면
+                </span>
+                {draft.contacts.length === 0 && <span className="text-muted-foreground">접촉이 없습니다</span>}
+              </div>
+            )}
             <PickViewer
               mesh={mesh}
               mode="measure"

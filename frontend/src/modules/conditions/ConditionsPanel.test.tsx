@@ -775,3 +775,25 @@ test('풀리지 않는 식은 **고치는 중에** 알림으로 보인다', asyn
   await waitFor(() => screen.getByRole('list', { name: '식 알림' }), { timeout: 2000 })
   expect(screen.getByRole('list', { name: '식 알림' })).toHaveTextContent("모르는 이름 '없는것'")
 })
+
+
+test('접촉 보기를 켜면 본딩 면은 붉게, 접촉 면은 푸르게 3D 에 칠하고 범례에 센다', async () => {
+  const face = (name: string, z: number) => ({ name, entity: 'face', select: { what: 'faces', normal: [0, 0, z] } })
+  const value = {
+    units: { system: 'mm_n_tonne' },
+    named_selections: [face('아래', -1), face('위', 1)],
+    contacts: [
+      { name: '본딩', type: 'bonded', source: '아래', target: '위' },
+      { name: '미끄럼', type: 'frictionless', source: '위', target: '아래' },
+    ],
+  }
+  render(<ConditionsPanel recipe={RECIPE} value={value} onSave={vi.fn()} />)
+  await waitFor(() => screen.getByText('면 찍기'))
+  expect(screen.queryByLabelText('접촉 범례')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: /접촉 보기/ }))
+  // 서버가 푼 줄은 늘 바닥 면 하나(index 0) — 그룹 넷이 다 그 면이라 푸른 둘 · 붉은 둘.
+  await waitFor(() => expect((lastMarks?.faces ?? []).length).toBe(4))
+  const colors = (lastMarks!.faces as { color?: number }[]).map((one) => one.color)
+  expect(colors).toEqual([0x2563eb, 0x2563eb, 0xdc2626, 0xdc2626])
+  expect(screen.getByLabelText('접촉 범례').textContent).toMatch(/본딩\(tie\) 2면.*접촉 2면/)
+})

@@ -62,7 +62,11 @@ export interface MeasureMarks {
   segments: { from: number[]; to: number[]; text?: string; tone?: 'live' | 'kept' }[]
   labels: { at: number[]; text: string; tone: 'distance' | 'entity' }[]
   edges: { points: number[]; tone?: 'live' | 'kept' }[]
-  faces: { vertices: number[]; triangles: number[]; tone?: 'live' | 'kept' }[]
+  /**
+   * `color` · `opacity` 를 주면 `tone` 대신 그것으로 칠한다 — 조건 화면의 「접촉 보기」 가
+   * 본딩(붉게) · 접촉(푸르게)을 가른다.
+   */
+  faces: { vertices: number[]; triangles: number[]; tone?: 'live' | 'kept'; color?: number; opacity?: number }[]
 }
 
 /** 측정으로 고른 것 하나 — 점(꼭짓점 · 중점 · 원 중심에 스냅) · 엣지 · 면. */
@@ -1093,9 +1097,9 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       const m = new THREE.Mesh(
         g,
         new THREE.MeshBasicMaterial({
-          color: toneColor(face.tone),
+          color: face.color ?? toneColor(face.tone),
           transparent: true,
-          opacity: face.tone === 'kept' ? 0.2 : 0.35,
+          opacity: face.opacity ?? (face.tone === 'kept' ? 0.2 : 0.35),
           side: THREE.DoubleSide,
           depthWrite: false,
         }),
