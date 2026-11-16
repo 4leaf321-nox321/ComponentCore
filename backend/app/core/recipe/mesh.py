@@ -93,6 +93,16 @@ def _labeled_children(shape: Shape) -> list[Shape]:
     return []
 
 
+def ordered_faces(shape: Shape) -> list[Face]:
+    """면을 **메시의 번호 순서로** — 조립은 구성품마다 이어서. 메시 밖에서 면 번호를 말하는
+    것(`core/param_dims` 의 「이 변수가 움직이는 면」)이 이 순서를 같이 써야 화면의 면과
+    맞는다."""
+    children = _labeled_children(shape)
+    if not children:
+        return list(shape.faces())
+    return [face for child in children for face in child.faces()]
+
+
 def mesh(shape: Shape) -> dict[str, Any]:
     box = shape.bounding_box()
     out: dict[str, Any] = {"bbox": {"min": _xyz(box.min), "max": _xyz(box.max)}}

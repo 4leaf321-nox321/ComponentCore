@@ -6,8 +6,21 @@ import { DoeStudyView } from '@/modules/doe/DoeStudyView'
 import { mergeMeshes } from '@/modules/doe/PointsGallery'
 
 vi.mock('@/shared/viewer/PickViewer', () => ({
-  default: ({ mesh, emphasis }: { mesh: { faces: { part?: string }[] }; emphasis?: string | null }) => (
-    <div data-testid="viewer" data-emphasis={emphasis ?? ''}>
+  default: ({
+    mesh,
+    emphasis,
+    measureMarks,
+  }: {
+    mesh: { faces: { part?: string }[] }
+    emphasis?: string | null
+    measureMarks?: { segments: { text?: string; tone?: string }[]; faces: unknown[] }
+  }) => (
+    <div
+      data-testid="viewer"
+      data-emphasis={emphasis ?? ''}
+      data-segments={(measureMarks?.segments ?? []).map((one) => `${one.text}:${one.tone}`).join('|')}
+      data-faces={measureMarks?.faces.length ?? 0}
+    >
       {[...new Set(mesh.faces.map((f) => f.part ?? '-'))].join(',')}
     </div>
   ),
@@ -155,4 +168,48 @@ test('고른 점이 상한을 넘으면 쪽으로 넘겨 가며 다 본다', asy
   fireEvent.click(screen.getAllByText('p0003').find((el) => el.closest('tr'))!)
   await waitFor(() => expect(screen.getByText('1–24 / 30')).toBeInTheDocument())
   expect(screen.getByTestId('grid').getAttribute('data-highlight')).toBe('p0003')
+})
+
+test('하나씩 볼 때 변수마다 치수선을 긋고, 표 머리글에 마우스를 올리면 그 변수만 긋는다', async () => {
+  window.localStorage.clear()
+  const study = {
+    ...STUDY,
+    factors: [
+      { name: '두께', mode: 'list', values: [2, 4] },
+      { name: '폭', mode: 'list', values: [10, 20] },
+      { name: '재료', mode: 'material', values: ['강', '알루미늄'], bodies: ['전체'] },
+    ],
+    points: [{ id: 'a', number: 1, params: { 두께: 2, 폭: 10, 재료: '강' }, status: 'ok', error: '', metrics: null, step_file: 'points/p0001.step' }],
+  } as unknown as DoeStudy
+  const one = (name: string, value: number) => ({ name, value, status: 'dimension', kind: 'distance', from: [0, 0, 0], to: [0, 0, value], at: [0, 0, 1], faces: [0], places: 1, message: null })
+  const asked: string[] = []
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = decodeURIComponent(String(input))
+    asked.push(url)
+    const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    if (url.includes('/server/display')) return json({ doe_gallery_max: 24, list_page_size: 20 })
+    if (url.includes('/dims')) return json({ number: 1, face_count: 1, dims: [one('두께', 2), one('폭', 10)] })
+    return json(meshOf(1))
+  })
+  render(
+    <MemoryRouter>
+      <DoeStudyView study={study} onReload={() => {}} />
+    </MemoryRouter>,
+  )
+  fireEvent.click(screen.getAllByText('p0001').find((el) => el.closest('tr'))!)
+  await waitFor(() => expect(screen.getByTestId('viewer').getAttribute('data-segments')).toBe('두께 = 2:live|폭 = 10:live'))
+  // 형상 인자만 묻는다 — 재료는 형상에 없다.
+  expect(asked.filter((url) => url.includes('/dims'))).toEqual(['/api/doe/s1/points/1/dims?name=두께&name=폭'])
+  expect(screen.getByRole('button', { name: /폭 10 면 간 거리/ })).toBeInTheDocument()
+
+  // 머리글에 마우스 — 그 변수만 긋고 그 면을 칠한다.
+  fireEvent.mouseEnter(screen.getByRole('columnheader', { name: '폭' }))
+  expect(screen.getByTestId('viewer').getAttribute('data-segments')).toBe('폭 = 10:live')
+  expect(screen.getByTestId('viewer').getAttribute('data-faces')).toBe('1')
+  fireEvent.mouseLeave(screen.getByRole('columnheader', { name: '폭' }))
+  expect(screen.getByTestId('viewer').getAttribute('data-faces')).toBe('0')
+
+  // 끄면 긋지 않는다.
+  fireEvent.click(screen.getByRole('button', { name: '치수 표시' }))
+  expect(screen.getByTestId('viewer').getAttribute('data-segments')).toBe('')
 })

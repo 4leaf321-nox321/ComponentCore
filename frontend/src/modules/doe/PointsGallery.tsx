@@ -12,11 +12,18 @@
  *
  * 표의 줄을 누르면(체크 말고) 그 점이 **도드라진다**: 하나씩이면 그 점을 보고, 겹쳐 보기면
  * 그 점만 또렷하고 나머지는 반투명, 나란히면 그 칸에 테두리. 같은 줄을 다시 누르면 푼다.
+ *
+ * **하나씩 볼 때는 변수마다 치수선을 긋는다**(「치수 표시」 — `cad/paramDims`). 표에는 `두께 3.2 ·
+ * 간격 40` 이 있는데 3D 에는 어느 것이 어디인지 없었다(2026-11-16 사용자 요청). 그 점의 형상 위에
+ * 그 점의 값으로 긋고, 표 머리글이나 범례에 마우스를 올리면 그 변수만 남는다(`dimFocus`). 겹쳐 ·
+ * 나란히 보기는 점마다 다시 찾아야 해서 긋지 않는다.
  */
 
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { dimMarks, useDimsToggle, useParamDims } from '@/modules/cad/paramDims'
+import { ParamDimsLegend } from '@/modules/cad/ParamDimsLegend'
 import { useDisplay } from '@/shared/api/display'
 import { doeApi } from '@/modules/doe/api'
 import type { DoePoint, DoeStudy, PointMesh } from '@/modules/doe/api'
@@ -65,6 +72,9 @@ export function PointsGallery({
   onPicked,
   mode,
   onMode,
+  dimNames = [],
+  dimFocus = null,
+  onDimFocus = () => {},
 }: {
   study: DoeStudy
   /** 하나씩 볼 때의 점(번호). 표에서 줄을 누르거나 `PointsNav` 가 바꾼다. */
@@ -75,6 +85,11 @@ export function PointsGallery({
   /** 보기 방식 — 표가 체크를 보일지 말지도 이것이 정한다. */
   mode: GalleryMode
   onMode: (next: GalleryMode) => void
+  /** 치수선을 그을 변수 — 형상을 바꾸는 인자(표의 열). 없으면 「치수 표시」 도 없다. */
+  dimNames?: string[]
+  /** 그 치수만 남길 변수 — 표 머리글이나 범례에 마우스를 올린 것. */
+  dimFocus?: string | null
+  onDimFocus?: (name: string | null) => void
 }) {
   const galleryMax = useDisplay().doe_gallery_max
   const [meshes, setMeshes] = useState<Record<number, PointMesh>>({})
@@ -126,6 +141,14 @@ export function PointsGallery({
   useEffect(() => {
     for (const number of shown) if (ready.includes(number)) void load(number)
   }, [shown, ready, load])
+
+  // 변수 치수 — 하나씩 볼 때 그 점의 형상 위에. 형상이 있는 점만 묻는다.
+  const [showDims, setShowDims] = useDimsToggle('doeGallery', true)
+  const dimsKey =
+    showDims && mode === 'single' && focus !== null && ready.includes(focus) && dimNames.length > 0 ? JSON.stringify([study.id, focus, dimNames]) : null
+  const dims = useParamDims(dimsKey, () => doeApi.pointDims(study.id, focus as number, dimNames))
+  const focusMesh = focus !== null ? (meshes[focus]?.mesh ?? null) : null
+  const marks = useMemo(() => dimMarks(dims.data, focusMesh, dimFocus), [dims.data, focusMesh, dimFocus])
 
   // 색은 이 쪽 안의 자리로 — 쪽마다 처음부터 다시 색을 매긴다(열두 색을 수백에 돌리면 뜻이 없다).
   const colorOf = (number: number) => POINT_COLORS[Math.max(0, shown.indexOf(number)) % POINT_COLORS.length]
@@ -185,6 +208,18 @@ export function PointsGallery({
             </button>
           ))}
         </div>
+        {dimNames.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowDims(!showDims)}
+            aria-pressed={showDims}
+            disabled={mode !== 'single'}
+            title={mode === 'single' ? '변수마다 해당 치수를 3D에 표시합니다.' : '치수 표시는 개별 보기에서 제공합니다.'}
+            className={`rounded-md border px-2 py-1 text-xs disabled:opacity-50 ${showDims && mode === 'single' ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-accent'}`}
+          >
+            치수 표시
+          </button>
+        )}
         {mode === 'single' ? (
           <span className="text-muted-foreground text-xs">오른쪽 표에서 행을 클릭하거나 ◀ ▶ 버튼으로 이동합니다. 카메라 시점이 유지되므로 비교하기 쉽습니다.</span>
         ) : (
@@ -212,6 +247,8 @@ export function PointsGallery({
         )}
       </div>
 
+      {mode === 'single' && showDims && dimsKey !== null && <ParamDimsLegend state={dims} focus={dimFocus} onFocus={onDimFocus} />}
+
       {mode !== 'single' && shown.length > 0 && (
         <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
           {shown.map((n) => (
@@ -234,7 +271,7 @@ export function PointsGallery({
           <Empty height={viewerHeight} text={failed[focus]} />
         ) : meshes[focus] ? (
           <Suspense fallback={<Skeleton className={`${viewerHeight} w-full`} />}>
-            <PickViewer mesh={meshes[focus].mesh} mode="none" className={`${viewerHeight} w-full rounded-md border`} />
+            <PickViewer mesh={meshes[focus].mesh} mode="none" measureMarks={showDims ? marks : undefined} className={`${viewerHeight} w-full rounded-md border`} />
           </Suspense>
         ) : (
           <Skeleton className={`${viewerHeight} w-full`} />

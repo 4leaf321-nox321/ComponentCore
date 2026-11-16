@@ -103,3 +103,23 @@ test('식으로 정의된 변수는 식 그대로 보이고, 이름을 바꾸면
   recipe = JSON.parse(screen.getByTestId('json').textContent!) as Recipe
   expect(recipe.params?.지지_간격).toBe(60)
 })
+
+test('「치수 표시」 를 켜면 행에 마우스를 올린 변수를 짚고, 3D 에 그을 것이 없는 변수는 까닭을 적는다', () => {
+  const onToggle = vi.fn()
+  const onFocus = vi.fn()
+  const state = {
+    loading: false,
+    error: null,
+    data: { face_count: 6, dims: [{ name: '판_길이', value: 80, status: 'unused' as const, kind: null, from: null, to: null, at: null, faces: [], places: 0, message: '값을 바꾸어도 형상이 바뀌지 않습니다.' }] },
+  }
+  const { rerender } = render(<ParamsPanel value={RECIPE} onChange={() => {}} dims={{ on: false, onToggle, state, focus: null, onFocus }} />)
+  // 꺼 두면 까닭도 짚기도 없다.
+  expect(screen.queryByText('형상에 쓰이지 않는 변수입니다.')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '치수 표시' }))
+  expect(onToggle).toHaveBeenCalledWith(true)
+
+  rerender(<ParamsPanel value={RECIPE} onChange={() => {}} dims={{ on: true, onToggle, state, focus: null, onFocus }} />)
+  expect(screen.getByText('형상에 쓰이지 않는 변수입니다.')).toBeInTheDocument()
+  fireEvent.mouseEnter(screen.getByLabelText('변수 판_길이').closest('li')!)
+  expect(onFocus).toHaveBeenCalledWith('판_길이')
+})

@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react'
 
 import type { Recipe } from '@/modules/cad/api'
+import { ParamDimsView } from '@/modules/cad/ParamDimsView'
 import { appliedTo, conditionsApi } from '@/modules/conditions/api'
 import type { BodySetting, MaterialItem } from '@/modules/conditions/api'
 import { choiceFactor, choiceTargets, factorName, propertyNames } from '@/modules/doe/conditionFactors'
@@ -248,6 +249,8 @@ export function DoeForm({
   const [probe, setProbe] = useState<{ result: ProbeResult; signature: string } | null>(null)
   const [probing, setProbing] = useState(false)
   const [probeError, setProbeError] = useState<ApiError | Error | null>(null)
+  /** 도면에서 강조할 변수 — 변수 행에 마우스를 올린 것. */
+  const [dimFocus, setDimFocus] = useState<string | null>(null)
 
   /**
    * 보낼 인자 — 표로 넣으면 표가 값을 주는 변수는 서버가 표에 맞추고, 표에 없는 치수는 **고정**
@@ -416,6 +419,9 @@ export function DoeForm({
         <Textarea id="doe-desc" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="예: 세트 공진 440 Hz에 맞는 두께 선정" />
       </div>
 
+      {/* 변수가 도면의 어느 치수인지 — 이름만 보고 범위를 주면 편집기에 가서 찾아야 했다. */}
+      {params.length > 0 && <ParamDimsView recipe={recipe} names={params.map(([key]) => key)} focus={dimFocus} onFocus={setDimFocus} />}
+
       <div className="rounded-md border">
         <div className="bg-muted/40 grid grid-cols-[1fr_auto_2fr] items-center gap-2 border-b px-3 py-2 text-xs font-medium">
           <span>변수</span>
@@ -428,7 +434,12 @@ export function DoeForm({
             // 표로 넣을 때 — 표에 있는 변수는 표가 값을 주고, 없는 것은 고정값 하나.
             const fromTable = parsed.columns.includes(key)
             return (
-              <div key={key} className="grid grid-cols-[minmax(6rem,1fr)_auto_minmax(0,3fr)] items-center gap-3 border-b px-3 py-2 last:border-b-0">
+              <div
+                key={key}
+                className={`grid grid-cols-[minmax(6rem,1fr)_auto_minmax(0,3fr)] items-center gap-3 border-b px-3 py-2 last:border-b-0 ${dimFocus === key ? 'bg-accent/40' : ''}`}
+                onMouseEnter={() => setDimFocus(key)}
+                onMouseLeave={() => setDimFocus(null)}
+              >
                 <span className="truncate font-mono text-xs" title={key}>
                   {key}
                 </span>
@@ -442,7 +453,12 @@ export function DoeForm({
             )
           }
           return (
-            <div key={key} className="grid grid-cols-[minmax(6rem,1fr)_auto_minmax(0,3fr)] items-center gap-3 border-b px-3 py-2 last:border-b-0">
+            <div
+                key={key}
+                className={`grid grid-cols-[minmax(6rem,1fr)_auto_minmax(0,3fr)] items-center gap-3 border-b px-3 py-2 last:border-b-0 ${dimFocus === key ? 'bg-accent/40' : ''}`}
+                onMouseEnter={() => setDimFocus(key)}
+                onMouseLeave={() => setDimFocus(null)}
+              >
               <span className="truncate font-mono text-xs" title={key}>
                 {key}
               </span>

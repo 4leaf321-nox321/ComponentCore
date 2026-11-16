@@ -9,15 +9,18 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import uuid
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core import export, shape_index
+from app.core import export, param_dims, shape_index
 from app.core.recipe import Evaluation, RecipeError, evaluate, parse
 from app.core.recipe.digest import digest
 from app.core.recipe.schema import RecipeValidationError
@@ -425,6 +428,35 @@ def build(raw: dict[str, Any], *, allow_sketch: bool = False) -> Evaluation:
             f"형상을 생성하지 못했습니다: {failure.message}",
             details={"node_id": failure.node_id},
         ) from failure
+
+
+#: 변수 치수 — 같은 도면 · 같은 변수면 다시 찾지 않는다. 변수 하나에 형상을 한 번 더
+#: 만드는 일이라 무겁고, 화면은 같은 것을 여러 번 묻는다(설계점을 오갈 때 · 다시 열 때).
+_DIMS_CACHE: OrderedDict[str, dict[str, Any]] = OrderedDict()
+_DIMS_CACHE_SIZE = 64
+
+
+def find_param_dims(
+    raw: dict[str, Any], names: list[str] | None = None, *, allow_sketch: bool = True
+) -> dict[str, Any]:
+    """변수마다 **형상 위의 치수**(`core/param_dims`). 면 번호는 같은 `allow_sketch` 로 만든
+    메시와 맞는다 — 편집기 미리보기는 스케치도 받고(`True`), DOE 설계점은 입체만(`False`)."""
+    key = hashlib.sha256(
+        json.dumps(
+            [raw, names, allow_sketch], sort_keys=True, ensure_ascii=False, default=str
+        ).encode("utf-8")
+    ).hexdigest()
+    if key in _DIMS_CACHE:
+        _DIMS_CACHE.move_to_end(key)
+        return _DIMS_CACHE[key]
+    base = build(raw, allow_sketch=allow_sketch).shape
+    made = param_dims.find(
+        raw, names, lambda one: build(one, allow_sketch=allow_sketch).shape, base=base
+    )
+    _DIMS_CACHE[key] = made
+    if len(_DIMS_CACHE) > _DIMS_CACHE_SIZE:
+        _DIMS_CACHE.popitem(last=False)
+    return made
 
 
 # --- Job kind="cad" -------------------------------------------------------------

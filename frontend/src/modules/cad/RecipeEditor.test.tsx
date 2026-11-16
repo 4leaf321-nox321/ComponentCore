@@ -219,3 +219,25 @@ test('스케치 도형 칸에서 만든 변수도 남는다', async () => {
   expect(recipe.params).toEqual({ 판_폭: 40 })
   expect((recipe.nodes[0].shapes as { width: unknown }[])[0].width).toBe('=판_폭')
 })
+
+test('변수 목록의 「치수 표시」 — 미리보기와 같은 레시피로 변수 치수를 묻고, 그을 것이 없는 변수는 까닭을 적는다', async () => {
+  window.localStorage.clear()
+  const recipe: Recipe = { ...BOX, params: { 압력: 2 } }
+  const asked: { url: string; body: unknown }[] = []
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input)
+    asked.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null })
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+    if (url.endsWith('/cad/recipe/check')) return json({ ok: true, problems: [] })
+    if (url.endsWith('/cad/recipe/param-dims')) {
+      return json({ face_count: 6, dims: [{ name: '압력', value: 2, status: 'unused', kind: null, from: null, to: null, at: null, faces: [], places: 0, message: '값을 바꾸어도 형상이 바뀌지 않습니다.' }] })
+    }
+    return json({ error: { code: 'CCR-TEST-0001', message: '없음' } }, 500)
+  })
+  render(<RecipeEditor value={recipe} onChange={() => {}} />)
+  // 꺼져 있으면 묻지 않는다 — 칸을 고칠 때마다 형상을 변수 수만큼 더 만드는 일이다.
+  expect(screen.getByRole('button', { name: '치수 표시' })).toHaveAttribute('aria-pressed', 'false')
+  fireEvent.click(screen.getByRole('button', { name: '치수 표시' }))
+  await waitFor(() => expect(screen.getByText('형상에 쓰이지 않는 변수입니다.')).toBeInTheDocument(), { timeout: 3000 })
+  expect(asked.find((one) => one.url.endsWith('/param-dims'))?.body).toEqual({ recipe, names: ['압력'] })
+})

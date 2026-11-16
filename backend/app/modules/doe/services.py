@@ -1095,20 +1095,10 @@ _MESH_CACHE: OrderedDict[tuple[uuid.UUID, int | str], dict[str, Any]] = OrderedD
 _MESH_CACHE_SIZE = 64
 
 
-def point_mesh(db: Session, study: DoeStudy, number: int) -> dict[str, Any]:
-    """설계점 하나의 형상 — 스냅샷 레시피에 그 점의 값을 넣어 **다시 만든다.**
-
-    형상이 같은 점끼리는 한 번만 만든다(`shape_digest`) — 조건만 훑으면 모든 점이 같은
-    형상이라, 나란히 보기로 스물넷을 열면 같은 것을 스물네 번 만들게 된다.
-
-    STEP 을 읽는 것보다 **빠르지는 않다**(구멍 24 짜리 판에서 만들기 257 ms 대 읽기 28 ms; 둘
-    다 여기에 메시 144 ms 가 더 붙는다). 그런데도 다시 만드는 이유는 **STEP 이 없을 수 있기
-    때문이다** — 공유 폴더는 전달 큐라 기한이 지나면 치워지고, 그때도 화면은 떠야 한다.
-    레시피는 DB 에 남으므로 이 길은 언제나 있다. 면마다 어느 점인지는 화면이 붙인다."""
-    key = (study.id, number)
-    if key in _MESH_CACHE:
-        _MESH_CACHE.move_to_end(key)
-        return _MESH_CACHE[key]
+def _point_recipe(
+    db: Session, study: DoeStudy, number: int
+) -> tuple[DoePoint, dict[str, Any]]:
+    """설계점 하나와 그 점의 레시피 — 스냅샷 레시피에 그 점의 형상 값을 넣은 것."""
     point = db.scalar(
         select(DoePoint).where(DoePoint.study_id == study.id, DoePoint.number == number)
     )
@@ -1123,6 +1113,43 @@ def point_mesh(db: Session, study: DoeStudy, number: int) -> dict[str, Any]:
         **study.recipe,
         "params": {**(study.recipe.get("params") or {}), **_shape_params(study, point.params)},
     }
+    return point, recipe
+
+
+def point_dims(
+    db: Session, study: DoeStudy, number: int, names: list[str] | None = None
+) -> dict[str, Any]:
+    """설계점 하나의 **변수 치수** — 그 점의 형상 위에서 변수마다 어느 치수인가
+    (`cad.find_param_dims`). 면 번호는 `point_mesh` 의 메시와 같다(같은 레시피 · 입체).
+
+    찾는 것은 **형상 인자**뿐이다 — 재료 · 고르기 · 배율 인자는 형상에 없다. `names` 를 주면 그
+    중에서만(화면은 표의 열, 곧 바꾼 변수만 묻는다)."""
+    _, recipe = _point_recipe(db, study, number)
+    params = recipe.get("params") or {}
+    shape = [
+        str(one.get("name"))
+        for one in study.factors or []
+        if one.get("mode") not in engine.NON_SHAPE and one.get("name") in params
+    ]
+    wanted = shape if not names else [one for one in names if one in shape]
+    return {"number": number, **cad.find_param_dims(recipe, wanted, allow_sketch=False)}
+
+
+def point_mesh(db: Session, study: DoeStudy, number: int) -> dict[str, Any]:
+    """설계점 하나의 형상 — 스냅샷 레시피에 그 점의 값을 넣어 **다시 만든다.**
+
+    형상이 같은 점끼리는 한 번만 만든다(`shape_digest`) — 조건만 훑으면 모든 점이 같은
+    형상이라, 나란히 보기로 스물넷을 열면 같은 것을 스물네 번 만들게 된다.
+
+    STEP 을 읽는 것보다 **빠르지는 않다**(구멍 24 짜리 판에서 만들기 257 ms 대 읽기 28 ms; 둘
+    다 여기에 메시 144 ms 가 더 붙는다). 그런데도 다시 만드는 이유는 **STEP 이 없을 수 있기
+    때문이다** — 공유 폴더는 전달 큐라 기한이 지나면 치워지고, 그때도 화면은 떠야 한다.
+    레시피는 DB 에 남으므로 이 길은 언제나 있다. 면마다 어느 점인지는 화면이 붙인다."""
+    key = (study.id, number)
+    if key in _MESH_CACHE:
+        _MESH_CACHE.move_to_end(key)
+        return _MESH_CACHE[key]
+    point, recipe = _point_recipe(db, study, number)
     # **형상이 같은 점은 만들지 않는다.** 조건만 훑으면 모든 점의 형상이 같다 — 나란히 보기로
     # 스물넷을 열면 같은 것을 스물네 번 만들게 된다. 지문은 식을 푸는 산수라 거저다.
     digest = shape_digest(recipe)

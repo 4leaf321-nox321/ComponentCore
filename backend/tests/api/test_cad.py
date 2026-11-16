@@ -471,3 +471,41 @@ def test_구조_프레임의_절단_목록(client: TestClient, member: Signed) -
         headers=member.headers,
     )
     assert wrong.status_code == 400 and "구조 프레임" in wrong.json()["error"]["message"]
+
+
+def test_변수마다_형상_위의_치수를_찾는다(client: TestClient, member: Signed) -> None:
+    """편집기 · 새 DOE 가 「이 변수가 어느 치수인가」 를 3D 에 긋는다 — 면 번호는 같은 레시피의
+    메시와 맞는다."""
+    recipe = {
+        "params": {"두께": 8, "압력": 2},
+        "nodes": [{"id": "b", "op": "box", "length": 40, "width": 30, "height": "=두께"}],
+    }
+    got = client.post(
+        "/api/cad/recipe/param-dims", json={"recipe": recipe}, headers=member.headers
+    )
+    assert got.status_code == 200, got.text
+    body = got.json()
+    shown = client.post(
+        "/api/cad/recipe/mesh", json={"recipe": recipe}, headers=member.headers
+    )
+    assert body["face_count"] == len(shown.json()["mesh"]["faces"])
+    dims = {one["name"]: one for one in body["dims"]}
+    assert dims["두께"]["status"] == "dimension" and dims["두께"]["kind"] == "distance"
+    assert abs(dims["두께"]["from"][2] - dims["두께"]["to"][2]) == 8
+    assert dims["압력"]["status"] == "unused"
+
+    # 고른 변수만 — 화면이 마우스를 올린 것 하나를 물을 때.
+    only = client.post(
+        "/api/cad/recipe/param-dims",
+        json={"recipe": recipe, "names": ["압력"]},
+        headers=member.headers,
+    ).json()
+    assert [one["name"] for one in only["dims"]] == ["압력"]
+
+    # 지금 형상이 안 만들어지면 사람 말로 — 미리보기와 같은 오류다.
+    broken = client.post(
+        "/api/cad/recipe/param-dims",
+        json={"recipe": {"nodes": [{"id": "c", "op": "cut", "target": "x", "tools": ["y"]}]}},
+        headers=member.headers,
+    )
+    assert broken.status_code in (400, 422), broken.text

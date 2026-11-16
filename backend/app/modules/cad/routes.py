@@ -34,6 +34,7 @@ from app.modules.cad.schemas import (
     MatePickRequest,
     MeasureRequest,
     MidSurfaceRequest,
+    ParamDimsRequest,
     PatchRequest,
     PlaceRequest,
     RecipeInfoOut,
@@ -366,6 +367,21 @@ def recipe_mesh(payload: RecipeRequest, _: User = Depends(current_user)) -> dict
         # 기준축 · 기준면 — 형상이 아니라 3D 에 따로 그린다.
         "datums": evaluation.datums,
     }
+
+
+@router.post("/recipe/param-dims")
+def recipe_param_dims(
+    payload: ParamDimsRequest, _: User = Depends(current_user)
+) -> dict[str, Any]:
+    """변수마다 **형상 위의 치수** — 「이 변수가 어느 치수인가」 를 3D 에 긋는다.
+
+    변수 값을 조금 바꿔 한 번 더 만들고 견준다(`core/param_dims`): 지금 값과 같고 함께 변한
+    치수(면 사이 · 지름 · 반지름 · 축 사이 · 축과 면 · 각)가 있으면 `dimension` 과 치수선의 두
+    끝, 없으면 그 변수가 움직이는 면(`moved`), 형상이 그대로면 `unused`. `faces` 는
+    `/recipe/mesh` 의 면 번호다 — 같은 레시피로 만든 메시에 칠한다(`face_count` 가 다르면
+    칠하지 않는다).
+    변수 하나에 형상을 한 번 더 만들어서 느릴 수 있다. 같은 요청은 서버가 들고 있다."""
+    return services.find_param_dims(payload.recipe, payload.names)
 
 
 @router.post("/recipe/step")

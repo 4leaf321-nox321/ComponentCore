@@ -121,6 +121,13 @@ export function DoeStudyView({
   const names = study.factors
     .filter((one) => one.mode !== 'fixed' || batches.some((batch) => batch.factors.some((other) => other.name === one.name && other.mode !== 'fixed')))
     .map((one) => one.name)
+  /** 치수선을 그을 변수 — 바꾼 변수 중 **형상을 바꾸는 것**(재료 · 조건 인자는 형상에 없다). */
+  const shapeNames = names.filter((name) => {
+    const mode = study.factors.find((one) => one.name === name)?.mode
+    return mode !== 'material' && mode !== 'choice' && mode !== 'scale'
+  })
+  /** 3D 에 그 치수만 남길 변수 — 표 머리글에 마우스를 올린 것. */
+  const [dimFocus, setDimFocus] = useState<string | null>(null)
   /** 측정값 열 — 스터디가 정한 것(점마다 형상에서 잰 값). */
   const measureNames = (study.measures ?? []).map((one) => one.name)
   /** 이 점은 몇째 묶음인가 — 더한 묶음이 없으면 묻지 않는다. */
@@ -333,7 +340,17 @@ export function DoeStudyView({
       {/* 왼쪽 도면 · 오른쪽 목록, 3:1. 목록은 세로로 길어지니 제 안에서 스크롤한다. */}
       <div className="grid gap-4 lg:grid-cols-4">
         <div className="lg:col-span-3">
-          <PointsGallery study={study} focus={focus} picked={picked} onPicked={setPicked} mode={galleryMode} onMode={setGalleryMode} />
+          <PointsGallery
+            study={study}
+            focus={focus}
+            picked={picked}
+            onPicked={setPicked}
+            mode={galleryMode}
+            onMode={setGalleryMode}
+            dimNames={shapeNames}
+            dimFocus={dimFocus}
+            onDimFocus={setDimFocus}
+          />
         </div>
         <div className="space-y-2 lg:col-span-1">
           {galleryMode === 'single' ? (
@@ -362,7 +379,13 @@ export function DoeStudyView({
                   <TableHead className="w-14">설계점</TableHead>
                   {batches.length > 0 && <TableHead title="설계점이 추가된 배치 번호">배치</TableHead>}
                   {names.map((name) => (
-                    <TableHead key={name} className="font-mono text-xs">
+                    <TableHead
+                      key={name}
+                      className={`font-mono text-xs ${dimFocus === name ? 'bg-accent' : ''}`}
+                      onMouseEnter={() => shapeNames.includes(name) && setDimFocus(name)}
+                      onMouseLeave={() => setDimFocus(null)}
+                      title={shapeNames.includes(name) ? '마우스를 올리면 왼쪽 3D에서 해당 치수를 강조합니다(개별 보기).' : undefined}
+                    >
                       {name}
                     </TableHead>
                   ))}

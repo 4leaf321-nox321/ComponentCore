@@ -9,25 +9,43 @@
  * 빈칸으로 보이고, 숫자를 치는 순간 식이 지워졌다. 쓰인 곳은 입력란 · 다른 변수 · 해석 조건을 다
  * 센다(`paramUsage.ts`) — 조건이나 다른 변수가 쓰는 변수는 지우지 못하고, 조건이 쓰는 변수는 이름도
  * 못 바꾼다(조건은 이 화면이 고치지 않는다).
+ *
+ * 「치수 표시」 를 켜면 변수마다 형상 위의 치수가 3D 에 그어진다(`paramDims.ts`, 그리는 것은
+ * 편집기의 뷰어). 행에 마우스를 올리면 그 변수만 남는다. 3D 에 그릴 것이 없는 변수(형상에 안
+ * 쓰는 변수 · 값과 같은 치수가 없는 변수)는 행 아래에 그렇다고 적는다.
  */
 
 import { Plus, Ruler, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 
 import type { Recipe } from '@/modules/cad/api'
+import { dimNote } from '@/modules/cad/paramDims'
+import type { ParamDimsState } from '@/modules/cad/paramDims'
 import { namePattern, paramUses, useLabel, useTitle } from '@/modules/cad/paramUsage'
 import { Button } from '@/shared/components/ui/button'
 import { Input } from '@/shared/components/ui/input'
+
+/** 「치수 표시」 — 켬 · 끔과 서버의 답, 그 치수만 남길 변수. 편집기가 쥐고 뷰어에 그린다. */
+export interface ParamsDims {
+  on: boolean
+  onToggle: (next: boolean) => void
+  state: ParamDimsState
+  focus: string | null
+  onFocus: (name: string | null) => void
+}
 
 export function ParamsPanel({
   value,
   onChange,
   conditions,
+  dims,
 }: {
   value: Recipe
   onChange: (next: Recipe) => void
   /** 이 도면의 해석 조건 — 주면 조건이 쓰는 변수도 「쓰임」 으로 센다. */
   conditions?: unknown
+  /** 주면 「치수 표시」 단추가 생긴다. */
+  dims?: ParamsDims
 }) {
   const params = (value.params ?? {}) as Record<string, number | string>
   const names = Object.keys(params)
@@ -62,9 +80,21 @@ export function ParamsPanel({
     <div className="mb-2 rounded-md border p-2">
       <div className="mb-1 flex items-center gap-1">
         <Ruler className="text-muted-foreground size-3.5" />
-        <span className="text-xs font-medium">변수</span>
-        <span className="text-muted-foreground truncate text-[11px]">입력란의 fx로 생성하거나 선택합니다.</span>
-        <Button size="sm" variant="ghost" className="ml-auto h-6 px-1" onClick={() => setAdding(true)} aria-label="변수 생성">
+        <span className="shrink-0 text-xs font-medium whitespace-nowrap">변수</span>
+        <span className="text-muted-foreground min-w-0 truncate text-[11px]">입력란의 fx로 생성하거나 선택합니다.</span>
+        {dims && names.length > 0 && (
+          <Button
+            size="sm"
+            variant={dims.on ? 'secondary' : 'ghost'}
+            className="ml-auto h-6 shrink-0 px-1.5 text-[11px]"
+            onClick={() => dims.onToggle(!dims.on)}
+            aria-pressed={dims.on}
+            title="변수마다 해당 치수를 3D에 표시합니다. 행에 마우스를 올리면 해당 치수를 강조합니다."
+          >
+            치수 표시
+          </Button>
+        )}
+        <Button size="sm" variant="ghost" className={`${dims && names.length > 0 ? '' : 'ml-auto'} h-6 px-1`} onClick={() => setAdding(true)} aria-label="변수 생성">
           <Plus className="size-3.5" />
         </Button>
       </div>
@@ -73,9 +103,27 @@ export function ParamsPanel({
           변수가 없습니다. 피처(또는 스케치 도형)를 열고 변경할 숫자 입력란의 <b>fx</b>를 누른 뒤 <b>이름</b>을 입력하면 해당 값이 변수가 됩니다. 이곳의 <b>+</b>로 미리 생성할 수도 있습니다.
         </p>
       )}
+      {dims?.on && dims.state.loading && (
+        <p className="text-muted-foreground mb-1 text-[11px]" role="status">
+          치수 위치 계산 중…
+        </p>
+      )}
+      {dims?.on && dims.state.error && (
+        <p className="text-destructive mb-1 text-[11px]" role="alert">
+          치수 위치를 찾지 못했습니다: {dims.state.error.message}
+        </p>
+      )}
       <ul className="space-y-1">
-        {names.map((key) => (
-          <li key={key} className="flex items-center gap-1">
+        {names.map((key) => {
+          const found = dims?.on ? dims.state.data?.dims.find((one) => one.name === key) : undefined
+          return (
+          <li
+            key={key}
+            onMouseEnter={dims?.on ? () => dims.onFocus(key) : undefined}
+            onMouseLeave={dims?.on ? () => dims.onFocus(null) : undefined}
+            className={`rounded ${dims?.on && dims.focus === key ? 'bg-accent/60' : ''}`}
+          >
+          <div className="flex items-center gap-1">
             <Input
               defaultValue={key}
               readOnly={uses[key].conditions > 0}
@@ -126,8 +174,19 @@ export function ParamsPanel({
             >
               <Trash2 className="size-3.5" />
             </button>
+          </div>
+          {/* 3D 에 그을 것이 없는 변수는 까닭을 적는다 — 안 보이면 고장 난 줄 안다. */}
+          {found && found.status !== 'dimension' && (
+            <p
+              className={`truncate px-1 text-[10px] ${found.status === 'moved' ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'}`}
+              title={found.message ?? undefined}
+            >
+              {dimNote(found)}
+            </p>
+          )}
           </li>
-        ))}
+          )
+        })}
       </ul>
       {adding && (
         <form

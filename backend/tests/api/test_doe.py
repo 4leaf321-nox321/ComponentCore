@@ -1299,6 +1299,41 @@ def test_형상이_같은_점은_메시도_한_번만_만든다(client: TestClie
     assert 첫째["mesh"] == 둘째["mesh"]
 
 
+def test_설계점마다_변수가_어느_치수인지_보인다(client: TestClient, member: Signed) -> None:
+    """DOE 결과의 3D 에 「두께 = 4」 를 긋는다 — 그 점의 형상 위에서, 그 점의 값으로.
+
+    재료 · 조건 인자는 형상에 없으니 묻지 않는다."""
+    recipe = {**JIG, "params": {**JIG["params"], "압력": 2.0}}
+    made = client.post(
+        "/api/doe",
+        json={
+            "name": "치수 보기",
+            "recipe": recipe,
+            "factors": [
+                {"name": "두께", "mode": "list", "values": [4, 8]},
+                {"name": "압력", "mode": "list", "values": [2, 3]},
+            ],
+        },
+        headers=member.headers,
+    ).json()
+    study = client.get(f"/api/doe/{made['id']}", headers=member.headers).json()
+    point = next(one for one in study["points"] if one["params"]["두께"] == 8)
+    base = f"/api/doe/{made['id']}/points/{point['number']}"
+    got = client.get(f"{base}/dims", headers=member.headers)
+    assert got.status_code == 200, got.text
+    body = got.json()
+    shape = client.get(f"{base}/mesh", headers=member.headers).json()
+    assert body["number"] == point["number"]
+    assert body["face_count"] == len(shape["mesh"]["faces"])
+    dims = {one["name"]: one for one in body["dims"]}
+    assert dims["두께"]["status"] == "dimension" and dims["두께"]["value"] == 8
+    assert dims["압력"]["status"] == "unused", "형상에 안 쓰는 변수는 그렇다고 말한다"
+
+    # 표의 열만 묻는다 — 없는 이름 · 형상 아닌 이름은 버린다.
+    only = client.get(f"{base}/dims?name=두께&name=없는것", headers=member.headers).json()
+    assert [one["name"] for one in only["dims"]] == ["두께"]
+
+
 def test_솔버_덱을_덤으로_함께_보낸다(
     client: TestClient, member: Signed, export_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

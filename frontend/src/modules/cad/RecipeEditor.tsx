@@ -11,6 +11,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { DownloadFormat } from '@/modules/cad/download'
+import { cadApi } from '@/modules/cad/api'
 import type { Recipe } from '@/modules/cad/api'
 import type { WorkKind } from '@/modules/works/api'
 import { elementOf, movable, moveElement, withProduct } from '@/modules/works/jigEdit'
@@ -23,6 +24,7 @@ import { keptLabel, MeasureDialog } from '@/modules/cad/MeasureDialog'
 import type { KeptMeasure, PickKind } from '@/modules/cad/MeasureDialog'
 import type { Pick } from '@/modules/cad/measure'
 import { measureMarks } from '@/modules/cad/measureMarks'
+import { dimMarks, mergeMarks, useDimsToggle, useParamDims } from '@/modules/cad/paramDims'
 import { useRecipeEmit } from '@/modules/cad/useRecipeEmit'
 import { useRecipeMesh } from '@/modules/cad/useRecipeMesh'
 import { RibbonButton, RibbonGroup } from '@/modules/cad/Ribbon'
@@ -385,6 +387,13 @@ export function RecipeEditor({
   }
 
   const valid = problems.length === 0
+  // 변수 치수 — 켜 두면 변수마다 형상 위의 치수를 긋는다. 미리보기와 **같은 레시피**로 물어야
+  // 면 번호가 맞는다. 칸을 고칠 때마다 도면이 바뀌니 쉬었다 묻는다(메시보다 늦게).
+  const [showDims, setShowDims] = useDimsToggle('editor', false)
+  const [dimFocus, setDimFocus] = useState<string | null>(null)
+  const paramNames = useMemo(() => Object.keys(value.params ?? {}), [value.params])
+  const dimsKey = showDims && valid && nodes.length > 0 && paramNames.length > 0 ? JSON.stringify([preview, paramNames]) : null
+  const dims = useParamDims(dimsKey, () => cadApi.paramDims(preview, paramNames), 800)
   const failedNode = error instanceof ApiError ? (error.details.node_id as string | undefined) : undefined
 
   /**
@@ -662,7 +671,14 @@ export function RecipeEditor({
         <div className={`grid gap-3 lg:grid-cols-12 ${fullscreen ? 'min-h-0 flex-1' : ''}`}>
           {/* 피처 트리 — 누르면 모달에서 고친다 */}
           <div className={`lg:col-span-3 ${fullscreen ? 'max-h-[calc(100vh-10rem)] overflow-y-auto' : ''}`}>
-            {nodes.length > 0 && <ParamsPanel value={value} onChange={onChange} conditions={conditions} />}
+            {nodes.length > 0 && (
+              <ParamsPanel
+                value={value}
+                onChange={onChange}
+                conditions={conditions}
+                dims={{ on: showDims, onToggle: setShowDims, state: dims, focus: dimFocus, onFocus: setDimFocus }}
+              />
+            )}
             {nodes.length === 0 ? (
               <div className="text-muted-foreground rounded-md border border-dashed p-3 text-xs">
                 빈 도면입니다. ‘스케치’ 탭의 스케치 버튼을 먼저 누르십시오. ‘파일’ 탭에서 템플릿이나 기존 작업을 불러올 수도 있습니다. 스케치를 작성한 뒤 ‘돌출’을 추가하면
@@ -867,7 +883,10 @@ export function RecipeEditor({
                       : null
                   }
                   onFrameHandle={setFrame}
-                  measureMarks={pickMode === 'measure' || kept.length > 0 ? measureMarks(measures, kept) : undefined}
+                  measureMarks={mergeMarks(
+                    pickMode === 'measure' || kept.length > 0 ? measureMarks(measures, kept) : undefined,
+                    showDims ? dimMarks(dims.data, mesh, dimFocus) : undefined,
+                  )}
                   frames={frames}
                   datums={datums}
                   partColors={jigColors}

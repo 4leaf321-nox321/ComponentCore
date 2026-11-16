@@ -11,6 +11,11 @@ class RecipeRequest(BaseModel):
     recipe: dict[str, Any]
 
 
+class ParamDimsRequest(RecipeRequest):
+    names: list[str] | None = Field(default=None, max_length=40)
+    """찾을 변수 — 없으면 도면의 변수 전부. 변수 하나에 형상을 한 번 더 만든다."""
+
+
 class ViewsRequest(RecipeRequest):
     views: list[str] = Field(default_factory=lambda: ["iso", "front", "top", "right"])
     width: int = Field(default=640, ge=120, le=2000)

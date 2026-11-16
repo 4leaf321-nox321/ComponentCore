@@ -472,6 +472,20 @@ def point_mesh(
     return services.point_mesh(db, services.get_study(db, study_id, user), number)
 
 
+@router.get("/{study_id}/points/{number}/dims")
+def point_dims(
+    study_id: uuid.UUID,
+    number: int,
+    name: list[str] = Query(default=[]),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """설계점 하나의 **변수 치수** — 그 점의 형상 위에서 변수마다 어느 치수인가(값을 조금 바꿔
+    한 번 더 만들고 견준다, `POST /cad/recipe/param-dims` 와 같다). `faces` 는 같은 점의 `mesh`
+    의 면 번호다. `name` 을 주면 그 변수만(형상 인자 중에서), 없으면 형상 인자 전부."""
+    return services.point_dims(db, services.get_study(db, study_id, user), number, name)
+
+
 @router.get("/{study_id}/manifest.csv")
 def manifest(
     study_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)

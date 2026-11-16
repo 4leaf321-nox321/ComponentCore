@@ -6240,6 +6240,50 @@
         }
       }
     },
+    "/api/cad/recipe/param-dims": {
+      "post": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Recipe Param Dims",
+        "description": "변수마다 **형상 위의 치수** — 「이 변수가 어느 치수인가」 를 3D 에 긋는다.\n\n변수 값을 조금 바꿔 한 번 더 만들고 견준다(`core/param_dims`): 지금 값과 같고 함께 변한\n치수(면 사이 · 지름 · 반지름 · 축 사이 · 축과 면 · 각)가 있으면 `dimension` 과 치수선의 두\n끝, 없으면 그 변수가 움직이는 면(`moved`), 형상이 그대로면 `unused`. `faces` 는\n`/recipe/mesh` 의 면 번호다 — 같은 레시피로 만든 메시에 칠한다(`face_count` 가 다르면\n칠하지 않는다).\n변수 하나에 형상을 한 번 더 만들어서 느릴 수 있다. 같은 요청은 서버가 들고 있다.",
+        "operationId": "recipe_param_dims_api_cad_recipe_param_dims_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParamDimsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Recipe Param Dims Api Cad Recipe Param Dims Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/cad/recipe/step": {
       "post": {
         "tags": [
@@ -8068,6 +8112,74 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Point Mesh Api Doe  Study Id  Points  Number  Mesh Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/doe/{study_id}/points/{number}/dims": {
+      "get": {
+        "tags": [
+          "doe"
+        ],
+        "summary": "Point Dims",
+        "description": "설계점 하나의 **변수 치수** — 그 점의 형상 위에서 변수마다 어느 치수인가(값을 조금 바꿔\n한 번 더 만들고 견준다, `POST /cad/recipe/param-dims` 와 같다). `faces` 는 같은 점의 `mesh`\n의 면 번호다. `name` 을 주면 그 변수만(형상 인자 중에서), 없으면 형상 인자 전부.",
+        "operationId": "point_dims_api_doe__study_id__points__number__dims_get",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Number"
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [],
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Point Dims Api Doe  Study Id  Points  Number  Dims Get"
                 }
               }
             }
@@ -40423,6 +40535,35 @@
           "offset"
         ],
         "title": "Page[WorkSummaryOut]"
+      },
+      "ParamDimsRequest": {
+        "properties": {
+          "recipe": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Recipe"
+          },
+          "names": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Names"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipe"
+        ],
+        "title": "ParamDimsRequest"
       },
       "ParetoCompareItemOut": {
         "properties": {

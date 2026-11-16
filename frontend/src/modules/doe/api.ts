@@ -1,4 +1,5 @@
 import type { Recipe } from '@/modules/cad/api'
+import type { ParamDims } from '@/modules/cad/paramDims'
 import type { Job } from '@/modules/jobs/api'
 import type { TagUse } from '@/modules/tagging/api'
 import { api } from '@/shared/api/client'
@@ -330,6 +331,11 @@ export const doeApi = {
   }) => api.post<DoeStudy>('/doe', body),
   /** 설계점 하나의 형상 — 화면이 점마다 3D 로 본다. */
   pointMesh: (id: string, number: number) => api.get<PointMesh>(`/doe/${id}/points/${number}/mesh`),
+  /** 설계점 하나의 변수 치수 — 그 점의 형상 위에서 변수마다 어느 치수인가. 면 번호는 `pointMesh` 와 같다. */
+  pointDims: (id: string, number: number, names: string[] = []) =>
+    api.get<ParamDims & { number: number }>(
+      `/doe/${id}/points/${number}/dims${names.length ? `?${names.map((one) => `name=${encodeURIComponent(one)}`).join('&')}` : ''}`,
+    ),
   /**
    * **점을 더한다** — 번호를 이어서 같은 폴더에. 스터디의 제약이 걸리고 이미 있는 값은 뺀다.
    * `dryRun` 이면 세기만 한다.

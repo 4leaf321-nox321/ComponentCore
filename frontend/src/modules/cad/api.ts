@@ -1,3 +1,4 @@
+import type { ParamDims } from '@/modules/cad/paramDims'
 import { api, postForBlob } from '@/shared/api/client'
 import type { DatumRow, FrameRow, MeshData } from '@/shared/viewer/PickViewer'
 
@@ -127,6 +128,11 @@ export const cadApi = {
   preview: (recipe: Recipe) => postForBlob('/cad/recipe/preview', { recipe }),
   mesh: (recipe: Recipe) =>
     api.post<{ summary: RecipeSummary; mesh: MeshData; frames?: FrameRow[]; datums?: DatumRow[] }>('/cad/recipe/mesh', { recipe }),
+  /**
+   * 변수마다 형상 위의 치수 — 「이 변수가 어느 치수인가」(`paramDims.ts`). 면 번호는 같은 레시피의
+   * `mesh` 와 맞는다. 변수 하나에 형상을 한 번 더 만들어 느릴 수 있다.
+   */
+  paramDims: (recipe: Recipe, names?: string[]) => api.post<ParamDims>('/cad/recipe/param-dims', { recipe, names }),
   /** 구성품을 다른 것의 면에 얹는 translate — 서버가 경계 상자로 잰다. */
   place: (recipe: Recipe, body: { mover: string; onto: string; face: string; offset: number; align: string }) =>
     api.post<{ recipe: Recipe; translate: number[]; problems: string[] }>('/cad/recipe/place', { recipe, ...body }),
