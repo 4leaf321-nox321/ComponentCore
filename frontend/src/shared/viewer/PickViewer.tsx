@@ -17,6 +17,7 @@ import type { CameraSync } from '@/shared/viewer/cameraSync'
 import { ViewerToolbar } from '@/shared/viewer/ViewerToolbar'
 import { mountCanvas } from '@/shared/viewer/canvas'
 import { boxPicks, rectOf, triangleCentroids } from '@/shared/viewer/boxSelect'
+import { labelCenter } from '@/shared/viewer/labelPlace'
 import type { ScreenPoint, ScreenRect } from '@/shared/viewer/boxSelect'
 
 export interface MeshFace {
@@ -275,12 +276,12 @@ function dimensionLine(
   size: number,
   color: number,
   resolution: THREE.Vector2,
-): { group: THREE.Group; labelAt: THREE.Vector3 } {
+): { group: THREE.Group; labelAt: THREE.Vector3; a: THREE.Vector3; b: THREE.Vector3 } {
   const group = new THREE.Group()
   const direction = new THREE.Vector3().subVectors(to, from)
   const span = direction.length()
   const middle = new THREE.Vector3().addVectors(from, to).multiplyScalar(0.5)
-  if (span < 1e-6) return { group, labelAt: middle }
+  if (span < 1e-6) return { group, labelAt: middle, a: middle, b: middle }
   direction.normalize()
 
   // 비켜설 쪽: 형상 중심에서 멀어지는 방향을 선과 직각으로 뽑는다.
@@ -319,7 +320,30 @@ function dimensionLine(
     cone.renderOrder = 9
     group.add(cone)
   }
-  return { group, labelAt: new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5) }
+  return { group, labelAt: new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5), a, b }
+}
+
+const _a = new THREE.Vector3()
+const _b = new THREE.Vector3()
+const _c = new THREE.Vector3()
+
+/**
+ * 치수 글자를 **화면에서 자의 옆으로** — 자의 두 끝과 형상 가운데를 화면에 투영해 글자 상자의
+ * 기준점(`Sprite.center`)을 정한다(`labelPlace.ts`). 카메라가 돌 때마다 자의 화면 방향이 바뀌어
+ * 그릴 때마다 부른다. 글자가 몇 개뿐이라 값싸다.
+ */
+function placeLabels(marks: THREE.Group, camera: THREE.Camera, width: number, height: number) {
+  if (width <= 0 || height <= 0) return
+  const toScreen = (v: THREE.Vector3): [number, number] => [v.x * width, v.y * height]
+  for (const child of marks.children) {
+    const ruler = child.userData.ruler as { a: THREE.Vector3; b: THREE.Vector3; away: THREE.Vector3 } | undefined
+    if (!ruler || !(child instanceof THREE.Sprite)) continue
+    marks.localToWorld(_a.copy(ruler.a)).project(camera)
+    marks.localToWorld(_b.copy(ruler.b)).project(camera)
+    marks.localToWorld(_c.copy(ruler.away)).project(camera)
+    const [cx, cy] = labelCenter(toScreen(_a), toScreen(_b), toScreen(_c), (child.userData.aspect as number) || 1)
+    child.center.set(cx, cy)
+  }
 }
 
 /** 동그란 점 무늬 — 네모난 기본 점은 꼭짓점처럼 안 보인다. */
@@ -784,6 +808,7 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       controls.update()
       const gizmo = state.current?.gizmo
       if (gizmo && gizmo.camera !== rig.camera) gizmo.camera = rig.camera // 투시 ↔ 정사영을 바꿔도 손잡이가 따라온다
+      placeLabels(marks, rig.camera, renderer.domElement.clientWidth, renderer.domElement.clientHeight)
       renderer.render(scene, rig.camera)
     }
     animate()
@@ -1112,8 +1137,11 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     s.marks.clear()
     if (!measureMarks) return
     const size = (s.group.userData.size as number) || 50
+    // 상자는 세계 좌표다(CAD 의 Z 위를 Y 위로 돌려 그린다). 자 · 글자는 `marks` 안(CAD 좌표)이라
+    // 그 좌표로 옮긴다 — 섞어 쓰던 때는 형상이 원점에서 멀면 자가 엉뚱한 쪽으로 비켜 섰다.
+    s.group.updateMatrixWorld(true)
     const box = new THREE.Box3().setFromObject(s.shapes)
-    const center = box.isEmpty() ? new THREE.Vector3() : box.getCenter(new THREE.Vector3())
+    const center = box.isEmpty() ? new THREE.Vector3() : s.marks.worldToLocal(box.getCenter(new THREE.Vector3()))
     const toneColor = (tone?: 'live' | 'kept') => (tone === 'kept' ? KEPT_COLOR : MEASURE_COLOR)
 
     // 고른 점 — 흰 테를 두른 구. 잡을 점(파랑)과 한눈에 구별된다.
@@ -1154,6 +1182,8 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
         }),
       )
       m.renderOrder = 4
+      // 면 강조만 형상에 가린다 — 투시를 켜면 가려져도 위에(아래 단면 · 투시 효과).
+      m.material.userData.followsXray = true
       s.marks.add(m)
     }
     // 잰 자리 — 자로 그린다.
@@ -1163,11 +1193,13 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       const drawn = dimensionLine(from, to, center, size, toneColor(seg.tone), s.resolution)
       s.marks.add(drawn.group)
       if (seg.text) {
-        // 값은 자 **위**에 — 잰 자리 한가운데에 두면 형상에 파묻힌다.
+        // 값은 자 **옆**에 — 잰 자리 한가운데에 두면 형상에 파묻히고, 자 위에 얹으면 짧은 치수에서
+        // 화살표를 덮는다. 화면에서 어느 쪽으로 비킬지는 그릴 때마다 정한다(`placeLabels`).
         const sprite = makeLabel(seg.text, seg.tone === 'kept' ? 'entity' : 'distance')
         const height = size / 13
         sprite.scale.set(height * (sprite.userData.aspect as number), height, 1)
         sprite.position.copy(drawn.labelAt)
+        sprite.userData.ruler = { a: drawn.a, b: drawn.b, away: center.clone() }
         s.marks.add(sprite)
       }
     }
@@ -1199,9 +1231,13 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     }
     each(s.shapes, clip)
     each(s.marks, (material) => {
+      // 글자는 늘 **온전히 · 맨 앞에** — 잘리거나 가리면 무엇을 잰 것인지 못 읽는다.
+      if (material instanceof THREE.SpriteMaterial) return
       clip(material)
-      // 투시면 표시는 가려져도 위에 — 큰 부품 뒤의 작은 접촉면을 본다.
-      material.depthTest = !xray
+      // **면 강조만** 투시를 따른다 — 투시면 가려져도 위에(큰 부품 뒤의 작은 접촉면을 본다). 자 ·
+      // 화살표 · 점은 처음부터 늘 위다(`depthTest: false`). 여기서 모든 표시에 `!xray` 를 걸었더니
+      // 투시를 끈 화면에서 치수 글자와 화살표가 형상에 가렸다(2026-11-17 사용자 지적).
+      if (material.userData.followsXray) material.depthTest = !xray
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mesh, partColors, highlightEdgesNear, emphasis, measureMarks, section?.axis, section?.at, section?.flip, !!section, xray])
