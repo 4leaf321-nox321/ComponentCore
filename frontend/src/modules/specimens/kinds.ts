@@ -376,8 +376,17 @@ export function crossover(setup: VibrationPreset['setup']): number | null {
   return Math.sqrt((setup.acceleration_g * G_MM) / displacement) / (2 * Math.PI)
 }
 
+/** 구간별 가속도의 구간들 — `[시작 Hz, 끝 Hz, g]`(끝 행은 최대 주파수까지). 서버 `step_table` 과 같은 경계. 없으면 null. */
+export function sineSteps(setup: VibrationPreset['setup']): [number, number, number][] | null {
+  const steps = setup.steps
+  if (!steps || steps.length === 0) return null
+  return steps.map(([start, level], index) => [start, steps[index + 1]?.[0] ?? setup.freq_max, level])
+}
+
 function sineLevel(setup: VibrationPreset['setup']): string {
   const span = `${setup.freq_min}~${setup.freq_max} Hz`
+  const steps = sineSteps(setup)
+  if (steps) return `구간마다 가속도를 바꿔 훑습니다(${steps.map(([start, end, level]) => `${start}~${end} Hz ${level} g`).join(', ')})`
   const at = crossover(setup)
   if (at === null || at <= setup.freq_min) return `${setup.acceleration_g} g를 ${span}에서 가진합니다`
   if (at >= setup.freq_max) return `변위 ${setup.displacement_mm} mm를 ${span}에서 가진합니다(범위 전체가 교차 주파수 ${at.toFixed(1)} Hz 아래)`
@@ -387,11 +396,11 @@ function sineLevel(setup: VibrationPreset['setup']): string {
 const VIBRATION = kind<VibrationPreset>({
   test: 'vibration',
   label: '진동',
-  hint: '제품의 아랫면(또는 고른 면)을 가진대에 고정하고 한 축으로 정현파를 주어 주파수를 훑습니다(조화 응답). 변위 진폭을 적으면 교차 주파수 아래는 변위가 일정합니다.',
+  hint: '제품의 아랫면(또는 고른 면)을 가진대에 고정하고 한 축으로 정현파를 주어 주파수를 훑습니다(조화 응답). 변위 진폭을 적으면 교차 주파수 아래는 변위가 일정합니다. 구간별 가속도를 적으면 구간마다 가속도가 다릅니다(1행은 최소 주파수, 한 행은 다음 행의 주파수까지 — 변위 진폭은 비웁니다).',
   product: true,
   columns: [
     { head: '주파수 (Hz)', text: (p) => `${p.setup.freq_min}~${p.setup.freq_max}` },
-    { head: '가속도 (g)', text: (p) => `${p.setup.acceleration_g}` },
+    { head: '가속도 (g)', text: (p) => sineSteps(p.setup)?.map((one) => one[2]).join(' · ') ?? `${p.setup.acceleration_g}` },
     { head: '변위 (mm)', text: (p) => mm(p.setup.displacement_mm) },
     { head: '감쇠비', text: (p) => `${p.setup.damping_ratio}` },
   ],
@@ -403,6 +412,17 @@ const VIBRATION = kind<VibrationPreset>({
     { group: 'setup', key: 'damping_ratio', label: '감쇠비' },
     { group: 'setup', key: 'modes', label: '모드 수', type: 'int' },
     { group: 'setup', key: 'points', label: '주파수 점 수', type: 'int' },
+    {
+      group: 'setup',
+      key: 'steps',
+      label: '구간별 가속도 (선택)',
+      type: 'table',
+      columns: [
+        { title: '시작 주파수', unit: 'Hz' },
+        { title: '가속도', unit: 'g' },
+      ],
+      optional: true,
+    },
   ],
   slots: () => [support()],
   summary: (p) => `받침을 고정하고 한 축으로 ${sineLevel(p.setup)}(감쇠비 ${p.setup.damping_ratio}).`,

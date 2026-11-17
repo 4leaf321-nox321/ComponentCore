@@ -109,6 +109,57 @@ def test_변위를_주면_0_Hz_에서_시작할_수_없다() -> None:
         VibrationSetup(freq_min=0, freq_max=150, acceleration_g=1, displacement_mm=0.075)
 
 
+def test_구간별_가속도는_구간마다_평평하고_바뀌는_자리만_짧게_잇는다() -> None:
+    """계단형 사양(2026-11-18) — 「5~20 Hz 1 g, 20~200 Hz 2 g, 200~500 Hz 1 g」."""
+    preset = _sine("sine-steps-example")
+    setup = preset.setup
+    assert setup.steps == [(5, 1), (20, 2), (200, 1)] and setup.acceleration_g == 2
+    table = product.step_table(setup)
+    assert table is not None
+    assert table[0][0] == 5 and table[-1][0] == 500, "시험 범위를 끝까지 덮는다"
+    frequencies = [row[0] for row in table]
+    assert frequencies == sorted(frequencies) and len(set(frequencies)) == len(frequencies)
+    # 배율에 기준 가속도(2 g)를 곱하면 그 구간의 가속도.
+    for frequency, level in ((5, 1), (12, 1), (20, 1), (21, 2), (150, 2), (200, 2), (201, 1)):
+        assert _at(table, frequency) * setup.acceleration_g == pytest.approx(level), frequency
+    assert product.sweep_table(setup) is None, "변위가 없으니 스윕 표는 없다"
+
+    made = product.apply(preset, PLATE, None, bbox=_bbox(PLATE))
+    _check(made)
+    resolved = conditions.resolve(made.conditions, resolve_params(made.recipe))
+    (load,) = resolved["loads"]
+    assert load["magnitude"] * _at(load["frequency_table"], 100) == pytest.approx(2 * G_MM)
+    assert load["magnitude"] * _at(load["frequency_table"], 300) == pytest.approx(G_MM)
+    assert any("5~20 Hz 1 g, 20~200 Hz 2 g, 200~500 Hz 1 g" in one for one in made.notes)
+    assert any("모든 구간의 가속도가 같은 비로" in one for one in made.notes)
+
+
+@pytest.mark.parametrize(
+    ("setup", "message"),
+    [
+        ({"steps": [[10, 1], [50, 2]], "displacement_mm": 0.075}, "함께 쓰지 않습니다"),
+        ({"steps": [[12, 1], [50, 2]]}, "1행의 주파수"),
+        ({"steps": [[10, 1], [10.05, 2]]}, "2행: 주파수는 위 행"),
+        ({"steps": [[10, 1], [149.5, 2]]}, "마지막 행의 주파수"),
+        ({"steps": [[10, 1], [50, 0]]}, "0보다 커야"),
+        ({"steps": [[10, 1]]}, "at least 2"),
+    ],
+)
+def test_구간별_가속도가_틀리면_왜인지_말한다(setup: dict[str, Any], message: str) -> None:
+    base = {"freq_min": 10, "freq_max": 150, "acceleration_g": 1}
+    with pytest.raises(ValidationError, match=message):
+        VibrationSetup(**{**base, **setup})
+
+
+def test_ASTM_D4169_꼴_트럭_예시는_예시값이라고_말한다() -> None:
+    preset = specimens.find_builtin("astm-d4169-truck-example")
+    assert isinstance(preset, RandomPreset)
+    assert not preset.verified and "예시" in preset.source
+    assert preset.setup.psd[0][0] == 1 and preset.setup.psd[-1][0] == 200
+    made = product.apply(preset, PLATE, None, bbox=_bbox(PLATE))
+    _check(made)
+
+
 def test_랜덤_진동_규격은_PSD_표를_그대로_건다() -> None:
     preset = specimens.find_builtin("iec-60068-2-64-example-6g")
     assert isinstance(preset, RandomPreset)

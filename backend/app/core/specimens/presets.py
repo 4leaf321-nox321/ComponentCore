@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import math
 from functools import lru_cache
@@ -217,6 +218,10 @@ class ForcePreset(_Common):
     analysis: ForceAnalysis = Field(default_factory=ForceAnalysis)
 
 
+#: 구간별 가속도의 한 구간의 최소 폭(끝 / 시작).
+STEP_MIN_RATIO = 1.01
+
+
 class VibrationSetup(_Base):
     """정현파 진동 — 아랫면을 가진대에 고정하고 한 축으로 주파수를 훑는다. 규격의 심각도는
     **교차 주파수 아래는 변위 진폭, 위는 가속도 진폭**이 일정하다(IEC 60068-2-6). 변위를 비우면
@@ -229,6 +234,11 @@ class VibrationSetup(_Base):
     displacement_mm: float | None = Field(default=None, gt=0, le=100)
     """변위 진폭(mm, 0 에서 꼭짓점까지) — 교차 주파수 아래. 교차 주파수는
     `√(가속도 / 변위) / 2π`(0.075 mm · 1 g 이면 57.5 Hz)."""
+    steps: list[tuple[float, float]] | None = Field(default=None, min_length=2, max_length=50)
+    """**구간마다 다른 가속도**(계단형 사양 — 차량 · 운송 규격에 흔하다, 2026-11-18):
+    `[시작 주파수 Hz, 가속도 g]` 행들. 한 행은 그 주파수부터 다음 행의 주파수(끝 행은
+    `freq_max`)까지. 첫 행은 `freq_min` 이다. 변위 진폭과 함께 쓰지 않는다. `acceleration_g` 는
+    배율의 기준(크기)이다."""
     damping_ratio: float = Field(default=0.02, gt=0, lt=1)
     modes: int = Field(default=30, ge=1, le=200)
     """모드 중첩에 쓸 모드 수 — 최대 주파수의 1.5배까지 덮을 만큼."""
@@ -242,6 +252,31 @@ class VibrationSetup(_Base):
         if self.displacement_mm is not None and self.freq_min <= 0:
             # 변위 일정 구간의 가속도는 f² 에 비례한다 — 0 Hz 에서 시작하는 스윕은 없다.
             raise ValueError("변위 진폭(displacement_mm)을 주면 freq_min은 0보다 커야 합니다.")
+        if self.steps is not None:
+            if self.displacement_mm is not None:
+                raise ValueError(
+                    "구간별 가속도(steps)와 변위 진폭(displacement_mm)은 함께 쓰지 않습니다."
+                )
+            starts = [one[0] for one in self.steps]
+            if starts[0] != self.freq_min:
+                raise ValueError(
+                    f"구간별 가속도 1행의 주파수({starts[0]:g})는 최소 주파수"
+                    f"({self.freq_min:g})여야 합니다."
+                )
+            # 구간은 1 % 보다 넓어야 한다 — 배율 표가 구간이 바뀌는 자리를 0.1 % 경사로 잇는다.
+            for row, (before, after) in enumerate(itertools.pairwise(starts), 2):
+                if after < before * STEP_MIN_RATIO:
+                    raise ValueError(
+                        f"구간별 가속도 {row}행: 주파수는 위 행({before:g})보다 1% 넘게 커야"
+                        " 합니다."
+                    )
+            if self.freq_max < starts[-1] * STEP_MIN_RATIO:
+                raise ValueError(
+                    f"구간별 가속도 마지막 행의 주파수({starts[-1]:g})는 최대 주파수"
+                    f"({self.freq_max:g})보다 1% 넘게 작아야 합니다."
+                )
+            if any(one[1] <= 0 for one in self.steps):
+                raise ValueError("구간별 가속도의 가속도는 0보다 커야 합니다.")
         return self
 
     @property

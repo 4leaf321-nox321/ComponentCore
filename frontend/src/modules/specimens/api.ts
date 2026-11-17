@@ -54,10 +54,21 @@ export interface ForcePreset extends PresetCommon {
 /**
  * 정현파 진동 프리셋(IEC 60068-2-6) — 아랫면을 고정하고 한 축으로 주파수를 훑는다. 교차 주파수
  * `√(가속도 / 변위) / 2π` 아래는 변위 진폭, 위는 가속도 진폭이 일정하다(변위를 비우면 가속도만).
+ * 구간별 가속도(`steps`)를 주면 구간마다 가속도가 다르다(계단형 사양).
  */
 export interface VibrationPreset extends PresetCommon {
   test: 'vibration'
-  setup: { freq_min: number; freq_max: number; acceleration_g: number; displacement_mm?: number | null; damping_ratio: number; modes: number; points: number }
+  setup: {
+    freq_min: number
+    freq_max: number
+    acceleration_g: number
+    displacement_mm?: number | null
+    /** 구간별 가속도 — `[시작 주파수 Hz, 가속도 g]`, 한 행은 다음 행(끝 행은 `freq_max`)까지. 변위 진폭과 함께 쓰지 않는다. */
+    steps?: [number, number][] | null
+    damping_ratio: number
+    modes: number
+    points: number
+  }
 }
 
 /** 랜덤 진동 프리셋(IEC 60068-2-64 · ASTM D4169) — 아랫면을 고정하고 한 축으로 가속도 PSD(`[Hz, g²/Hz]`)를 준다. */

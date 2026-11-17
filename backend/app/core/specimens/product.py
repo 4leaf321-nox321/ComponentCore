@@ -101,6 +101,27 @@ class ProductTestError(ValueError):
 SWEEP_STEP = 2 ** (1 / 12)
 
 
+#: 계단의 너비 — 조건의 배율 표는 행 사이를 직선으로 이으므로(주파수는 커지기만 한다) 구간이
+#: 바뀌는 자리를 이 비율만큼의 짧은 경사로 잇는다(20 Hz 면 20 → 20.02 Hz).
+STEP_RAMP = 1e-3
+
+
+def step_table(setup: VibrationSetup) -> list[list[float]] | None:
+    """구간별 가속도(`steps`)의 **배율 표** — 기준 가속도(`acceleration_g`)에 곱하는 값.
+    구간마다 평평하고, 구간이 바뀌는 자리는 `STEP_RAMP` 만큼의 경사. 첫 행 · 끝 행은 시험
+    범위의 끝 그대로(표가 범위를 다 덮어야 한다). 구간이 없으면 `None`."""
+    if not setup.steps:
+        return None
+    rows: list[list[float]] = []
+    bounds = [one[0] for one in setup.steps[1:]] + [setup.freq_max]
+    for index, ((start, level), end) in enumerate(zip(setup.steps, bounds, strict=True)):
+        factor = round(level / setup.acceleration_g, 6)
+        begin = start if index == 0 else round(start * (1 + STEP_RAMP), 6)
+        rows.append([begin, factor])
+        rows.append([end, factor])
+    return rows
+
+
 def sweep_table(setup: VibrationSetup) -> list[list[float]] | None:
     """정현파 스윕의 **주파수별 배율** — 가속도 진폭(`acceleration_g`)에 곱하는 값.
 
@@ -570,10 +591,17 @@ class _Test:
             }
         )
         support = self.support()
-        table = sweep_table(setup)
+        table = step_table(setup) or sweep_table(setup)
         span = f"{setup.freq_min:g}~{setup.freq_max:g} Hz"
         crossover = setup.crossover
-        if crossover is None:
+        if setup.steps:
+            bounds = [one[0] for one in setup.steps[1:]] + [setup.freq_max]
+            parts = [
+                f"{start:g}~{end:g} Hz {level:g} g"
+                for (start, level), end in zip(setup.steps, bounds, strict=True)
+            ]
+            level = f"구간마다 가속도를 바꿔 훑습니다 — {', '.join(parts)}(구간별 배율 표)"
+        elif crossover is None:
             level = f"{setup.acceleration_g:g} g 를 {span} 에서 훑습니다"
         elif table is None:
             level = (
@@ -597,7 +625,11 @@ class _Test:
             f"받침을 가진대에 고정하고 {axis.upper()}축으로 {level}(감쇠비 "
             f"{setup.damping_ratio:g}). {_OTHER_AXES.format(load='가진')}"
         )
-        if table is not None:
+        if table is not None and setup.steps:
+            self.notes.append(
+                f"변수 ‘{PREFIX}가속도_g’ 를 바꾸면 모든 구간의 가속도가 같은 비로 바뀝니다."
+            )
+        elif table is not None:
             self.notes.append(
                 f"변수 ‘{PREFIX}가속도_g’ 를 바꾸면 변위 구간도 같은 비로 바뀝니다(교차 "
                 "주파수는 그대로). 변위만 바꾸려면 규격을 고쳐 다시 적용하십시오."

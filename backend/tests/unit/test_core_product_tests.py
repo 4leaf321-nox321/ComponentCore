@@ -115,7 +115,9 @@ def test_공개_규격의_제품_시험은_조건과_자리가_모두_맞는다(
         assert analysis["type"] == "harmonic"
         assert analysis["frequency_range"] == [preset.setup.freq_min, preset.setup.freq_max]
         table = made.conditions["loads"][0].get("frequency_table")
-        assert (table is not None) == (preset.setup.displacement_mm is not None)
+        # 배율 표는 변위 진폭(교차 주파수 아래)이나 구간별 가속도가 있을 때만.
+        shaped = preset.setup.displacement_mm is not None or bool(preset.setup.steps)
+        assert (table is not None) == shaped
     elif isinstance(preset, RandomPreset):
         assert len(found[product.SUPPORT]) == 1
         load = made.conditions["loads"][0]

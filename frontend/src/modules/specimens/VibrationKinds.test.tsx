@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 
 import type { RandomPreset, VibrationPreset } from '@/modules/specimens/api'
-import { crossover, kindOf } from '@/modules/specimens/kinds'
+import { crossover, kindOf, sineSteps } from '@/modules/specimens/kinds'
 import SpecimensPage from '@/modules/specimens/SpecimensPage'
 import { AuthProvider } from '@/shared/auth/AuthContext'
 
@@ -50,6 +50,19 @@ test('정현파의 교차 주파수는 서버와 같은 식이다', () => {
   expect(sine.summary(SINE)).toContain('교차 주파수 57.6 Hz 아래는 변위 0.075 mm, 위는 1 g가 일정합니다')
   expect(sine.summary({ ...SINE, setup: { ...SINE.setup, displacement_mm: null } })).toContain('1 g를 10~150 Hz에서 가진합니다')
   expect(sine.summary({ ...SINE, setup: { ...SINE.setup, freq_min: 5, freq_max: 40 } })).toContain('범위 전체가 교차 주파수 57.6 Hz 아래')
+})
+
+test('구간별 가속도는 구간마다 — 끝 행은 최대 주파수까지(서버 step_table 과 같은 경계)', () => {
+  const stepped = { ...SINE, setup: { ...SINE.setup, freq_min: 5, freq_max: 500, acceleration_g: 2, displacement_mm: null, steps: [[5, 1], [20, 2], [200, 1]] as [number, number][] } }
+  expect(sineSteps(stepped.setup)).toEqual([
+    [5, 20, 1],
+    [20, 200, 2],
+    [200, 500, 1],
+  ])
+  expect(sineSteps(SINE.setup)).toBeNull()
+  const sine = kindOf('vibration')!
+  expect(sine.summary(stepped)).toBe('받침을 고정하고 한 축으로 구간마다 가속도를 바꿔 훑습니다(5~20 Hz 1 g, 20~200 Hz 2 g, 200~500 Hz 1 g)(감쇠비 0.02).')
+  expect(sine.columns.map((one) => one.text(stepped))[1]).toBe('1 · 2 · 1')
 })
 
 test('랜덤 진동은 표의 범위와 Grms 를 보인다', () => {
@@ -193,4 +206,22 @@ test('관리자는 정현파 규격의 변위 진폭을 비울 수 있다', asyn
   await waitFor(() => expect(sent.some((one) => one.method === 'POST' && one.url.endsWith('/specimens/presets'))).toBe(true))
   const preset = sent.find((one) => one.method === 'POST' && one.url.endsWith('/specimens/presets'))!.body?.preset
   expect(preset.setup).toMatchObject({ acceleration_g: 1, displacement_mm: null })
+})
+
+test('관리자는 정현파 규격에 구간별 가속도 표를 붙여 넣는다 — 변위 진폭은 비운다', async () => {
+  const sent = serve(true)
+  show()
+  await press(SINE.name, '사내 규격으로 복사')
+  fireEvent.change(screen.getByLabelText(/변위 진폭 \(mm\)/), { target: { value: '' } })
+  fireEvent.change(screen.getByLabelText('구간별 가속도 (선택) 붙여넣기'), { target: { value: 'Hz\tg\n10\t1\n50\t2' } })
+  fireEvent.click(screen.getByRole('button', { name: '저장' }))
+  await waitFor(() => expect(sent.some((one) => one.method === 'POST' && one.url.endsWith('/specimens/presets'))).toBe(true))
+  const preset = sent.find((one) => one.method === 'POST' && one.url.endsWith('/specimens/presets'))!.body?.preset
+  expect(preset.setup).toMatchObject({
+    displacement_mm: null,
+    steps: [
+      [10, 1],
+      [50, 2],
+    ],
+  })
 })
