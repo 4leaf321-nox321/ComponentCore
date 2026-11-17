@@ -13,14 +13,17 @@
  * - 안 보이는 탭은 키보드 단축키 · 3D 그리기를 쉰다(`useTabActive`). 그러지 않으면 숨은 편집기가 Ctrl+Z 를
  *   받아 되돌린다.
  * - 새로 고침해도 탭 목록은 남는다(sessionStorage). 남은 탭은 눌렀을 때 그린다.
+ * - **어느 화면의 링크든 Ctrl(⌘)+클릭 · 가운데 단추(휠) 클릭이면 탭으로 연다**(브라우저 탭과 같은 손버릇).
+ *   그냥 누르면 지금 탭에서 옮긴다. 브라우저 새 탭은 오른쪽 단추 메뉴로 — 링크 주소에 접두어가 붙어 있다.
  */
 
-import { createContext, Suspense, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { UNSAFE_RouteContext as RouteContext, useLocation, useNavigate, useRoutes } from 'react-router-dom'
 import type { Location, RouteObject } from 'react-router-dom'
 import { X } from 'lucide-react'
 
+import { PUBLIC_PATH } from '@/shared/base'
 import { STORAGE_PREFIX } from '@/shared/branding'
 import { ErrorBoundary } from '@/shared/components/ErrorBoundary'
 import { NAV_GROUPS } from '@/shared/layout/navigation'
@@ -152,6 +155,29 @@ export function TabsProvider({ children }: { children: ReactNode }) {
     [navigate, state.activeId, state.tabs],
   )
 
+  // **어느 화면의 링크든 Ctrl · 가운데 단추 클릭이면 탭으로** — 화면마다 단추를 달지 않고 링크 하나하나가 된다.
+  // 문서에서 먼저(capture) 받아 브라우저 새 탭을 막는다. 탭이 꽉 차면 브라우저에 맡긴다.
+  const openRef = useRef(open)
+  openRef.current = open
+  useEffect(() => {
+    function onClick(event: MouseEvent) {
+      const viaModifier = event.type === 'click' && event.button === 0 && (event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey
+      const viaMiddle = event.type === 'auxclick' && event.button === 1
+      if (event.defaultPrevented || !(viaModifier || viaMiddle)) return
+      const found = linkTarget(event.target)
+      if (found && openRef.current(found.path, found.title)) {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+    }
+    document.addEventListener('click', onClick, true)
+    document.addEventListener('auxclick', onClick, true)
+    return () => {
+      document.removeEventListener('click', onClick, true)
+      document.removeEventListener('auxclick', onClick, true)
+    }
+  }, [])
+
   const setTitle = useCallback((id: string, title: string, pathname: string) => {
     setState((now) =>
       now.tabs.some((one) => one.id === id && (one.title !== title || one.titleFor !== pathname))
@@ -162,6 +188,22 @@ export function TabsProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<TabsValue>(() => ({ ...state, mounted, open, activate, close, setTitle }), [state, mounted, open, activate, close, setTitle])
   return <TabsContext.Provider value={value}>{children}</TabsContext.Provider>
+}
+
+/**
+ * 누른 것이 **CompCore 안의 화면 링크**면 그 라우터 주소와 임시 이름 — 다른 곳(외부 · API 내려받기 · 파일 받기)이나
+ * `data-no-tab` 이 붙은 링크면 `null`.
+ */
+export function linkTarget(target: EventTarget | null): { path: string; title?: string } | null {
+  const anchor = target instanceof Element ? target.closest('a[href]') : null
+  if (!(anchor instanceof HTMLAnchorElement) || anchor.hasAttribute('download') || anchor.hasAttribute('data-no-tab')) return null
+  const url = new URL(anchor.href, window.location.href)
+  if (url.origin !== window.location.origin) return null
+  if (PUBLIC_PATH && url.pathname !== PUBLIC_PATH && !url.pathname.startsWith(`${PUBLIC_PATH}/`)) return null
+  const path = (PUBLIC_PATH ? url.pathname.slice(PUBLIC_PATH.length) : url.pathname) || '/'
+  if (path === '/api' || path.startsWith('/api/')) return null
+  const text = (anchor.textContent || anchor.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ')
+  return { path: `${path}${url.search}`, title: text ? text.slice(0, 40) : undefined }
 }
 
 export function useTabs(): TabsValue | null {

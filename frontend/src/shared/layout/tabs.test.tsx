@@ -4,7 +4,7 @@ import { Link, RouterProvider, createMemoryRouter, useParams } from 'react-route
 import type { RouteObject } from 'react-router-dom'
 
 import { useTabActive } from '@/shared/layout/tabActive'
-import { MAX_TABS, TabBar, TabPanes, TabsProvider, menuLabel, useTabTitle, useTabs } from '@/shared/layout/tabs'
+import { MAX_TABS, TabBar, TabPanes, TabsProvider, linkTarget, menuLabel, useTabTitle, useTabs } from '@/shared/layout/tabs'
 
 // 화면 탭(2026-11-17) — 탭마다 화면이 살아 있고, 보이는 탭이 주소를 따른다.
 
@@ -142,4 +142,41 @@ test('화면이 이름을 안 주면 메뉴 이름 — 주소의 가장 긴 앞�
   expect(menuLabel('/works/abc')).toBe('내 작업')
   expect(menuLabel('/assemblies/x?y=1')).toBe('조립')
   expect(menuLabel('/nowhere')).toBe('/nowhere')
+})
+
+test('어느 화면의 링크든 Ctrl+클릭 · 가운데 단추면 탭으로 — 그냥 누르면 지금 탭에서', async () => {
+  const router = show()
+  fireEvent.click(screen.getByRole('button', { name: '더하기 0' }))
+  fireEvent.click(screen.getByRole('link', { name: '부품 9로' }), { ctrlKey: true })
+  expect(await screen.findByText('부품 화면 9')).toBeVisible()
+  expect(router.state.location.pathname).toBe('/b/9')
+  expect(screen.getAllByRole('tab').map((one) => one.textContent)).toEqual(['/a', '부품 9'])
+  // 링크가 있던 탭은 그대로 — 고치던 것이 남는다.
+  fireEvent.click(screen.getAllByRole('tab')[0])
+  expect(screen.getByRole('button', { name: '더하기 1' })).toBeVisible()
+
+  // 가운데 단추(휠) — 같은 주소면 새로 만들지 않고 그 탭으로.
+  fireEvent(screen.getByRole('link', { name: '부품 9로' }), new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 }))
+  expect(router.state.location.pathname).toBe('/b/9')
+  expect(screen.getAllByRole('tab')).toHaveLength(2)
+})
+
+test('밖으로 가는 링크 · API 내려받기 · 파일 받기는 탭으로 열지 않는다', () => {
+  const link = (href: string, extra: Record<string, string> = {}) => {
+    const one = document.createElement('a')
+    one.href = href
+    one.textContent = '  부품 \n 목록  '
+    for (const [key, value] of Object.entries(extra)) one.setAttribute(key, value)
+    document.body.appendChild(one)
+    return one
+  }
+  expect(linkTarget(link('/parts?folder=a'))).toEqual({ path: '/parts?folder=a', title: '부품 목록' })
+  expect(linkTarget(link('https://example.com/parts'))).toBeNull()
+  expect(linkTarget(link('/api/works/w1/step'))).toBeNull()
+  expect(linkTarget(link('/parts', { download: '' }))).toBeNull()
+  expect(linkTarget(link('/parts', { 'data-no-tab': '' }))).toBeNull()
+  // 링크 안의 아이콘을 눌러도 링크를 찾는다.
+  const inner = document.createElement('span')
+  link('/jigs/j1').appendChild(inner)
+  expect(linkTarget(inner)?.path).toBe('/jigs/j1')
 })

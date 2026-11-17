@@ -12,9 +12,10 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Annotated, Any, BinaryIO
 
 from build123d import Shape
+from pydantic import Field, TypeAdapter, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -24,7 +25,7 @@ from app.core.geometry import GeometryError
 from app.core.model import count_features
 from app.core.options import JigOptions
 from app.core.planning import PlanningError
-from app.core.recipe import RecipeError, evaluate, parse
+from app.core.recipe import RecipeError, evaluate, parse, step_import
 from app.core.recipe.mesh import mesh
 from app.core.recipe.schema import RecipeValidationError
 from app.core.standard import LibraryPart
@@ -556,10 +557,11 @@ def create_work_from_step(
 def import_step(
     db: Session, work: Work, *, filename: str, stream: BinaryIO, by: User
 ) -> WorkVersion:
-    """STEP 을 올리면 작업물이 되고, `import_step` 노드 하나짜리 **새 버전**이 된다.
+    """STEP 을 올리면 작업물이 되고, 그것을 가져오는 레시피가 **새 버전**이 된다.
 
     그래서 제품은 늘 「이 작업의 형상」 이고, 올린 STEP 위에 구멍 하나 더 같은 편집도 레시피로
-    쌓인다."""
+    쌓인다. 바디가 여럿이면 **바디마다 `import_step` 노드 하나**(`body`)에 끝을 `group` 으로
+    묶는다(`step_recipe`) — 이력에 바디가 하나씩 선다."""
     safe = filestore.safe_filename(filename)
     if not safe.lower().endswith((".step", ".stp")):
         raise AppError(code("WORKS", 5), "STEP 파일(.step, .stp)만 업로드할 수 있습니다.")
@@ -576,9 +578,16 @@ def import_step(
     try:
         # 읽히는지 **지금** 본다 — 솔리드든 시트 바디(셸 모델)든. 지그는 그때 따로 본다.
         geometry.read_step(target)
+        # 바디 이름 — 평가가 가르는 것과 같은 규칙(이름의 한글 인코딩까지)으로.
+        names = [one.name for one in step_import.split(target)[0]]
     except GeometryError as failure:
         target.unlink(missing_ok=True)
         raise AppError(code("WORKS", 7), str(failure)) from failure
+    except Exception as failure:
+        target.unlink(missing_ok=True)
+        raise AppError(
+            code("WORKS", 7), f"STEP 파일을 읽지 못했습니다: {failure}"
+        ) from failure
 
     artifact = Artifact(
         job_id=None,
@@ -592,21 +601,88 @@ def import_step(
     )
     db.add(artifact)
     db.flush()
-    # `leaf` — 하위 조립 · 멀티바디 · 이름 없음 · 겹침 · 닫힌 셸까지 바디로 가른다
-    # (`step_import`).
-    recipe = {
-        "version": 1,
-        "nodes": [
-            {
-                "id": "imported",
-                "op": "import_step",
-                "label": safe,
-                "file": str(artifact.id),
-                "bodies": "leaf",
-            }
-        ],
-    }
-    return add_version(db, work, recipe=recipe, source="import", note=f"{safe} 가져옴", by=by)
+    recipe = step_recipe(safe, str(artifact.id), names)
+    split = len(recipe["nodes"]) > 1
+    note = f"{safe} 가져옴" + (f" — 바디 {len(names)}개" if split else "")
+    if len(names) > MAX_SPLIT_BODIES:
+        note += f"(바디가 {MAX_SPLIT_BODIES}개를 넘어 한 노드로 가져옴)"
+    return add_version(db, work, recipe=recipe, source="import", note=note, by=by)
+
+
+#: 바디마다 노드로 가를 상한 — 넘으면 한 노드(`leaf`)로 가져온다(레시피는 노드 500개까지,
+#: 편집할 자리를 남긴다).
+MAX_SPLIT_BODIES = 200
+#: 피처 id 의 규칙 — 레시피 스키마와 **같은 엔진**(pydantic)으로 본다. 파이썬 `re` 의 `\w` 는
+#: `²` 같은 글자를 받지만 스키마(러스트 정규식)는 받지 않는다 — 실측(깨진 이름의 STEP).
+_NODE_ID: TypeAdapter[str] = TypeAdapter(
+    Annotated[str, Field(min_length=1, max_length=40, pattern=r"^[^\W\d][\w-]*$")]
+)
+
+
+def _valid_id(text: str) -> bool:
+    try:
+        _NODE_ID.validate_python(text)
+    except ValidationError:
+        return False
+    return True
+
+
+def _body_node_id(name: str, taken: set[str]) -> str:
+    """바디 이름 → 피처 id — 글자 · 숫자 · `_` · `-` 만, 글자로 시작하게, 40자 안에서 겹치지
+    않게. 사람이 보는 이름은 `label` 이 그대로 든다. 그래도 스키마가 받지 않으면 `body_N`."""
+    kept = "".join(
+        one if one.isalpha() or one.isdecimal() or one in "_-" else "_" for one in name
+    )
+    base = kept.strip("_") or "body"
+    if not (base[0].isalpha() or base[0] == "_"):
+        base = f"b_{base}"
+    base = base[:34]
+    if not _valid_id(base):
+        base = f"body_{len(taken)}"
+    made, number = base, 2
+    while made in taken:
+        made, number = f"{base}_{number}", number + 1
+    taken.add(made)
+    return made
+
+
+def step_recipe(label: str, file: str, names: list[str]) -> dict[str, Any]:
+    """올린 STEP 의 첫 레시피. 바디가 여럿이면 **바디마다 노드 하나**(`import_step` + `body`)에
+    끝을 `group`(`names: "body"` — 바디 이름은 STEP 의 이름 그대로)으로 묶는다. 이력(피처
+    트리)에 바디가 하나씩 서서 바디 하나만 고치거나 빼기 쉽다(2026-11-17, 사용자 요청). 바디가
+    하나면, 또는 너무 많으면 예전처럼 한 노드(`bodies: "leaf"` — 하위 조립 · 멀티바디 · 이름
+    없음 · 겹침 · 닫힌 셸까지 바디로 가른다)."""
+    if len(names) < 2 or len(names) > MAX_SPLIT_BODIES:
+        node = {
+            "id": "imported",
+            "op": "import_step",
+            "label": label,
+            "file": file,
+            "bodies": "leaf",
+        }
+        return {"version": 1, "nodes": [node]}
+    taken = {"imported"}
+    nodes: list[dict[str, Any]] = [
+        {
+            "id": _body_node_id(name, taken),
+            "op": "import_step",
+            "label": name,
+            "file": file,
+            "bodies": "leaf",
+            "body": name,
+        }
+        for name in names
+    ]
+    nodes.append(
+        {
+            "id": "imported",
+            "op": "group",
+            "label": label,
+            "targets": [one["id"] for one in nodes],
+            "names": "body",
+        }
+    )
+    return {"version": 1, "nodes": nodes}
 
 
 # --- 지그 생성 ----------------------------------------------------------------

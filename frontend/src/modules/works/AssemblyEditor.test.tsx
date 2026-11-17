@@ -184,7 +184,7 @@ test('구성품마다 **원본 도면으로 가는 길**이 있다 — 여기선
   expect(screen.getByText(/위치, 회전, 치수 덮어쓰기/)).toBeTruthy()
 })
 
-test('원본 열기는 **화면 탭**으로 연다 — 이 조립 탭은 그대로 남는다. Ctrl+클릭은 브라우저 새 탭', async () => {
+test('원본 열기는 **화면 탭**으로 연다 — 이 조립 탭은 그대로 남는다', async () => {
   const placed: Recipe = {
     version: 1,
     nodes: [{ id: 'c1', op: 'component', source: 'part:p1@3', label: '받침' }],
@@ -212,8 +212,9 @@ test('원본 열기는 **화면 탭**으로 연다 — 이 조립 탭은 그대�
   expect(link.getAttribute('href')).toBe('/parts/p1')
   fireEvent.click(link)
   expect(opened).toEqual([['/parts/p1', '받침']])
+  // Ctrl+클릭은 이 단추가 아니라 화면 탭 장치가 받는다(어느 링크든 같다 — `tabs.test.tsx`).
   fireEvent.click(link, { ctrlKey: true })
-  expect(opened).toHaveLength(1) // Ctrl+클릭은 브라우저에 맡긴다
+  expect(opened).toHaveLength(1)
 })
 
 test('공용 부품 · 지그도 제 화면으로 간다', () => {

@@ -793,7 +793,13 @@ export function NodeForm({
               />
             )}
             {field.kind === 'text' && (
-              <Input id={`node-${field.key}`} value={String(node[field.key] ?? '')} onChange={(e) => set(field.key, e.target.value)} className="h-8 font-mono text-xs" />
+              <Input
+                id={`node-${field.key}`}
+                value={String(node[field.key] ?? '')}
+                // 비워 둘 수 있는 칸은 비우면 없는 것(null) — 빈 글자는 서버가 받지 않는 칸이 있다(STEP 의 바디 이름).
+                onChange={(e) => set(field.key, e.target.value || (field.optional ? null : ''))}
+                className="h-8 font-mono text-xs"
+              />
             )}
             {field.kind === 'checkbox' && (
               <input type="checkbox" aria-label={field.label} checked={Boolean(node[field.key])} onChange={(e) => set(field.key, e.target.checked)} />

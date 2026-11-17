@@ -1502,7 +1502,9 @@ def _evaluate_node(
         children = []
         for target in node.targets:
             child = copy.copy(made[target])
-            child.label = target
+            # STEP 을 바디마다 가른 묶음은 제 이름 — 피처 id 에 못 쓰는 글자가 있다.
+            own = str(getattr(made[target], "label", "") or "")
+            child.label = own if node.names == "body" and own else target
             children.append(child)
         return Compound(children=children)
     if isinstance(node, S.ComponentNode):
@@ -1554,10 +1556,23 @@ def _evaluate_node(
         except Exception as failure:
             raise RecipeError(node.id, f"파일을 찾지 못했습니다: {failure}") from failure
         if node.bodies == "leaf":
-            found = step_import.bodies(step_import.read(path), notes)
+            # 한 STEP 을 바디마다 노드로 가르면 같은 파일을 여러 번 읽는다 — 읽은 것을 둔다.
+            found, file_notes = step_import.split(path)
             if not found:
                 raise RecipeError(node.id, "STEP 파일에 솔리드도 면도 없습니다.")
-            return step_import.assembled(found)
+            if node.body is None:
+                notes.extend(file_notes)
+                return step_import.assembled(found)
+            picked = next((one for one in found if one.name == node.body), None)
+            if picked is None:
+                raise RecipeError(
+                    node.id,
+                    f"STEP 에 ‘{node.body}’ 바디가 없습니다"
+                    f"(있는 바디: {step_import.few([one.name for one in found])}).",
+                )
+            if picked is found[0]:
+                notes.extend(file_notes)  # 파일에 대한 말은 한 번만
+            return step_import.single(picked)
         shape = import_step(path)
         if shape.solids():
             return _to_part(shape)

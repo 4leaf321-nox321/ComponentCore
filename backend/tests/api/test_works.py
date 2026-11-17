@@ -327,6 +327,56 @@ def test_STEP_에서_작업_시작(client: TestClient, member: Signed, tmp_path:
     assert work["current"]["job"]["status"] == "done", work["current"]["job"]["error"]
 
 
+def test_바디가_여럿인_STEP_은_바디마다_이력_하나(
+    client: TestClient, member: Signed, tmp_path: Path
+) -> None:
+    """올린 STEP 의 바디마다 `import_step` 노드 하나, 끝은 `group` — 피처 트리에 바디가
+    하나씩 선다(2026-11-17). 바디 이름은 STEP 의 이름 그대로라 조건 화면 · 내보내기가 같은
+    이름을 본다."""
+    from build123d import Box, Compound, Cylinder, Location, Shape, export_step
+
+    def put(shape: Shape, label: str, at: tuple[float, float, float]) -> Shape:
+        one = shape.moved(Location(at))
+        one.label = label
+        return one
+
+    path = tmp_path / "jig.step"
+    export_step(
+        Compound(
+            children=[
+                put(Box(60, 40, 5), "Plate", (0, 0, 0)),
+                put(Cylinder(3, 20), "Pin", (20, 0, 12)),
+                put(Cylinder(3, 20), "Pin", (-20, 0, 12)),
+            ]
+        ),
+        path,
+    )
+    with path.open("rb") as stream:
+        got = client.post(
+            "/api/works/from-step",
+            files={"file": ("jig.step", stream, "application/step")},
+            headers=member.headers,
+        )
+    assert got.status_code == 201, got.text
+    current = got.json()["current"]
+    assert current["job"]["status"] == "done", current["job"]["error"]
+    nodes = current["recipe"]["nodes"]
+    assert [(one["op"], one.get("label")) for one in nodes] == [
+        ("import_step", "Plate"),
+        ("import_step", "Pin"),
+        ("import_step", "Pin-2"),
+        ("group", "jig.step"),
+    ]
+    assert [one["id"] for one in nodes] == ["Plate", "Pin", "Pin-2", "imported"]
+    assert [one["body"] for one in nodes[:3]] == ["Plate", "Pin", "Pin-2"]
+    assert "바디 3개" in current["note"]
+    bodies = client.post(
+        "/api/cad/recipe/bodies", json={"recipe": current["recipe"]}, headers=member.headers
+    ).json()["items"]
+    # 바디 이름은 노드의 이름표(STEP 의 이름) 그대로 — 한 노드로 가져올 때와 같다.
+    assert [one["name"] for one in bodies] == ["Plate", "Pin", "Pin-2"]
+
+
 def test_손으로_그린_지그도_지그_카탈로그로(client: TestClient, member: Signed) -> None:
     """생성기가 만들 수 없는 지그(공진 튜닝 시험 지그 같은 것)는 **그린다** — 그린 것이니
     변수를 심을 수 있고, 그대로 지그로 올라가야 한다."""

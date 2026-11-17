@@ -185,7 +185,8 @@ def create_work_from_step(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> WorkOut:
-    """STEP 파일에서 작업을 시작한다 — 첫 버전이 `import_step` 노드 하나다."""
+    """STEP 파일에서 작업을 시작한다 — 첫 버전이 STEP 을 가져오는 레시피다. 바디가 여럿이면
+    바디마다 `import_step` 노드(`body`)에 끝을 `group` 으로 묶는다(이력에 바디가 하나씩)."""
     filename = file.filename or "import.step"
     work = services.create_work_from_step(
         db,

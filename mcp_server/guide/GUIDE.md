@@ -166,7 +166,10 @@
   솔리드 · 시트마다 바디 하나 — 하위 조립을 풀고 멀티바디를 가르고, 이름이 비면 `body_N` ·
   겹치면 `-2`, 닫힌 셸은 솔리드로, 선뿐인 부품은 뺀다. 칸이 없으면 `top`(맨 위 구성품마다 —
   옛 레시피). STEP 올리기는 `leaf` 로 만든다. `top` 을 `leaf` 로 바꾸면 바디 이름이 달라지니
-  해석 조건의 `body` 를 `recipe_bodies` 로 다시 맞춘다)
+  해석 조건의 `body` 를 `recipe_bodies` 로 다시 맞춘다. **바디가 여럿인 STEP 을 올리면 바디마다
+  노드 하나**(`body`: 그 바디 이름 — `leaf` 로 가른 것 중 하나만)에 끝이 `group`(`names: "body"` —
+  바디 이름은 STEP 의 이름 그대로, 조립의 `group` 은 피처 id). 바디 하나만 고치려면 그 노드를
+  대상으로 피처를 더하고 묶음의 `targets` 에서 그 노드를 새 피처로 바꾼다)
 - 조합 `union`(targets) · `cut`(target, tools) · `intersect`(targets) · `split`(target, plane
   {name, origin | origin, normal}, keep top|bottom|both — 평면으로 자르기)
 - 마감 `fillet`(target, edges, radius, radius_end · start — 화면에서는 「블렌드」. radius_end 를

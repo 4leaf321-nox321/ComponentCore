@@ -1233,7 +1233,7 @@
           "works"
         ],
         "summary": "Create Work From Step",
-        "description": "STEP 파일에서 작업을 시작한다 — 첫 버전이 `import_step` 노드 하나다.",
+        "description": "STEP 파일에서 작업을 시작한다 — 첫 버전이 STEP 을 가져오는 레시피다. 바디가 여럿이면\n바디마다 `import_step` 노드(`body`)에 끝을 `group` 으로 묶는다(이력에 바디가 하나씩).",
         "operationId": "create_work_from_step_api_works_from_step_post",
         "requestBody": {
           "content": {

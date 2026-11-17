@@ -1434,6 +1434,10 @@ class GroupNode(_Node):
 
     op: Literal["group"]
     targets: list[str] = Field(min_length=1)
+    names: Literal["id", "body"] = "id"
+    """묶음 안 바디의 이름 — `id` 는 대상 피처 id(조립: 구성품마다), `body` 는 대상 형상이 든
+    제 이름(STEP 을 바디마다 가른 것 — 피처 id 에 못 쓰는 글자가 있어도 STEP 의 이름
+    그대로)."""
 
 
 MATE_KINDS = ("touch", "flush", "concentric", "parallel", "perpendicular", "angle")
@@ -1509,6 +1513,16 @@ class ImportStepNode(_Node):
     부품은 뺀다(`step_import.py`). `top` — 맨 위 자식마다(이름이 모두 있을 때), 아니면 통째로
     하나. 2026-11-12 전에 가져온 레시피가 `top` 이라 기본이 이것이다 — 바꾸면 바디 이름이
     달라져 이미 건 해석 조건이 끊긴다. STEP 올리기는 이제 `leaf` 로 만든다."""
+    body: str | None = Field(default=None, min_length=1, max_length=200)
+    """`leaf` 로 가른 바디 중 **이 이름 하나만**(2026-11-17). STEP 올리기가 바디마다 이 노드를
+    하나씩 만들고 끝에 `group`(`names: "body"`)으로 묶는다 — 이력(피처 트리)에 바디가 하나씩
+    서서, 바디 하나만 고치거나 빼기가 쉽다. 바디 이름은 `leaf` 와 같다."""
+
+    @model_validator(mode="after")
+    def _one_body(self) -> ImportStepNode:
+        if self.body is not None and self.bodies != "leaf":
+            raise ValueError("body(바디 하나 고르기)는 bodies='leaf' 와 함께 씁니다.")
+        return self
 
 
 #: 원점을 지나는 전역 축 — 축 칸에서 기준축 id 대신 쓰는 이름. 피처 id 로 쓰면 이것이 먼저다.

@@ -772,8 +772,20 @@ export const OP_SPECS: OpSpec[] = [
     icon: Group,
     label: '그룹',
     group: '조합',
-    help: '여러 형상을 결합하지 않고 하나의 그룹으로 구성합니다. 주로 조립 레시피의 마지막 단계에 사용합니다. 결합(union)과 달리 각 솔리드가 개별로 유지됩니다.',
-    fields: [{ key: 'targets', label: '대상', kind: 'refs', refKind: 'any' }],
+    help: '여러 형상을 결합하지 않고 하나의 그룹으로 구성합니다. 주로 조립 레시피의 마지막 단계에 사용합니다. 결합(union)과 달리 각 솔리드가 개별로 유지됩니다. 바디 이름은 대상 피처 id를 쓰고, STEP을 바디마다 가져온 그룹은 STEP의 바디 이름을 그대로 씁니다.',
+    fields: [
+      { key: 'targets', label: '대상', kind: 'refs', refKind: 'any' },
+      {
+        key: 'names',
+        label: '바디 이름',
+        kind: 'select',
+        fallback: 'id',
+        options: [
+          { value: 'id', label: '대상 피처 id' },
+          { value: 'body', label: '대상이 든 이름 (STEP 바디 이름)' },
+        ],
+      },
+    ],
     defaults: { targets: [] },
   },
   {
@@ -1138,9 +1150,10 @@ export const OP_SPECS: OpSpec[] = [
     icon: Import,
     label: 'STEP 가져오기',
     group: '입체',
-    help: '업로드한 STEP(작업물 id)입니다. ‘STEP 업로드’로 생성되므로 직접 입력하지 않습니다. 바디 나누기를 ‘부품 · 솔리드마다’로 하면 하위 조립을 풀고 멀티바디를 나누며, 이름이 비거나 겹치면 번호를 붙이고, 닫힌 셸은 솔리드로 읽습니다. 이전 방식으로 가져온 작업을 바꾸면 바디 이름이 달라지므로 해석 조건의 바디 선택을 다시 확인하십시오.',
+    help: '업로드한 STEP(작업물 id)입니다. ‘STEP 업로드’로 생성되므로 직접 입력하지 않습니다. 바디 나누기를 ‘부품 · 솔리드마다’로 하면 하위 조립을 풀고 멀티바디를 나누며, 이름이 비거나 겹치면 번호를 붙이고, 닫힌 셸은 솔리드로 읽습니다. 바디가 여럿인 STEP을 올리면 바디마다 이 피처가 하나씩 생기고(‘바디’에 그 이름), 마지막 그룹이 모두 묶습니다. 이전 방식으로 가져온 작업을 바꾸면 바디 이름이 달라지므로 해석 조건의 바디 선택을 다시 확인하십시오.',
     fields: [
       { key: 'file', label: '작업물 id', kind: 'text' },
+      { key: 'body', label: '바디 (하나만 가져올 때)', kind: 'text', optional: true },
       {
         key: 'bodies',
         label: '바디 나누기',

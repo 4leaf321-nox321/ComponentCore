@@ -368,9 +368,9 @@ export function AssemblyEditor({ value, onChange, conditions }: { value: Recipe;
                       {/* **원본으로 가는 길.** 여기서 고치는 것은 「어디에 놓나」 뿐이고,
                           모양 자체는 가져온 도면의 것이다 — 그 도면이 어디 있는지 모르면
                           사용자는 조립 화면에서 모양을 고치려다 막힌다. **화면 탭**으로 연다:
-                          이 조립 탭은 그대로 살아 있어 고치던 배치를 잃지 않는다. Ctrl · 가운데
-                          단추로 누르면(또는 탭이 꽉 차면) 브라우저 새 탭 — 주소 접두어를 붙인다
-                          (포털의 `/compcore/` 가 빠져 열리지 않던 것). */}
+                          이 조립 탭은 그대로 살아 있어 고치던 배치를 잃지 않는다. 탭이 꽉 차면
+                          브라우저 새 탭 — 주소 접두어를 붙인다(포털의 `/compcore/` 가 빠져 열리지
+                          않던 것). Ctrl · 가운데 단추는 어느 링크든 화면 탭이다(`tabs.tsx`). */}
                       {sourceLink(one.source) && (
                         <a
                           className="text-muted-foreground hover:text-foreground rounded p-1"
@@ -378,7 +378,7 @@ export function AssemblyEditor({ value, onChange, conditions }: { value: Recipe;
                           target="_blank"
                           rel="noreferrer"
                           aria-label={`${one.label ?? one.id} 원본 열기`}
-                          title="원본 도면을 탭으로 엽니다. 형상은 원본 도면에서 수정하십시오. (Ctrl+클릭: 브라우저 새 탭)"
+                          title="원본 도면을 탭으로 엽니다. 형상은 원본 도면에서 수정하십시오."
                           onClick={(e) => {
                             e.stopPropagation()
                             if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return

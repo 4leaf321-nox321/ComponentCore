@@ -121,6 +121,42 @@ def bodies(shape: Shape, notes: list[str]) -> list[Body]:
     return out
 
 
+#: 읽어 가른 STEP — (경로, 고친 시각, 크기) 마다. 바디마다 노드로 가르면 노드 수만큼 읽게 되고,
+#: 큰 조립 STEP 은 한 번에 몇 초다. 꺼낸 형상은 복사해서 쓴다(`single` · `assembled`).
+_SPLIT_CACHE: dict[tuple[str, int, int], tuple[list[Body], list[str]]] = {}
+_SPLIT_CACHE_SIZE = 4
+
+
+def split(path: Path) -> tuple[list[Body], list[str]]:
+    """STEP 을 읽어 바디로 가른 것과 파일에 대한 말(`bodies` 의 notes). 같은 파일이면 다시 읽지
+    않는다 — 파일이 바뀌면(시각 · 크기) 다시 읽는다."""
+    stat = path.stat()
+    key = (str(path), stat.st_mtime_ns, stat.st_size)
+    got = _SPLIT_CACHE.get(key)
+    if got is None:
+        notes: list[str] = []
+        got = (bodies(read(path), notes), notes)
+        if len(_SPLIT_CACHE) >= _SPLIT_CACHE_SIZE:
+            _SPLIT_CACHE.pop(next(iter(_SPLIT_CACHE)))
+        _SPLIT_CACHE[key] = got
+    found, notes = got
+    return list(found), list(notes)
+
+
+def few(names: list[str]) -> str:
+    return _few(names)
+
+
+def single(body: Body) -> Shape:
+    """바디 하나를 레시피가 쓰는 꼴로 — 제 이름을 든다(`group` 의 `names: "body"` 가 그것을
+    쓴다)."""
+    made: Shape = (
+        Compound(body.shape.wrapped) if body.sheet else Part(children=[copy.copy(body.shape)])
+    )
+    made.label = body.name
+    return made
+
+
 def assembled(found: list[Body]) -> Shape:
     """바디들을 레시피가 쓰는 꼴로 — 여럿이면 바디마다 이름표 붙은 자식, 하나면 이름표 없이."""
     if len(found) == 1:
