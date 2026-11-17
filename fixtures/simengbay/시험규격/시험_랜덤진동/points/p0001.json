@@ -92,7 +92,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "986f223a-2450-42b6-a98a-fba3817e4f0e",
+      "id": "ce12687d-9971-4bc3-b8ef-69a1d8e85abf",
       "name": "시험_랜덤진동",
       "method": "factorial",
       "seed": 1
@@ -407,7 +407,7 @@
     ],
     "loads": [
       {
-        "name": "랜덤 가진 (Z축)",
+        "name": "랜덤 가진",
         "type": "psd_acceleration",
         "on": "",
         "cs": "global",

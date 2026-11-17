@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 
 import type { RandomPreset, VibrationPreset } from '@/modules/specimens/api'
 import { crossover, kindOf } from '@/modules/specimens/kinds'
@@ -84,6 +84,11 @@ function serve(admin = false) {
   return sent
 }
 
+function Where() {
+  const location = useLocation()
+  return <p>새 DOE {location.search}</p>
+}
+
 function show() {
   render(
     <AuthProvider>
@@ -91,6 +96,7 @@ function show() {
         <Routes>
           <Route path="/specimens" element={<SpecimensPage />} />
           <Route path="/works/:id" element={<p>작업 화면</p>} />
+          <Route path="/doe/new" element={<Where />} />
         </Routes>
       </MemoryRouter>
     </AuthProvider>,
@@ -113,6 +119,20 @@ test('랜덤 진동 규격도 가진 축을 골라 제품에 건다', async () =
   fireEvent.click(screen.getByRole('button', { name: '생성' }))
   await waitFor(() => expect(sent.some((one) => one.url.endsWith('/specimens/product-tests'))).toBe(true))
   expect(sent.find((one) => one.url.endsWith('/specimens/product-tests'))!.body).toMatchObject({ preset_id: RANDOM.id, axis: 'y' })
+})
+
+test('「X · Y · Z 모두」 는 Z 로 만들고 축을 훑는 새 DOE 로 간다', async () => {
+  const sent = serve()
+  show()
+  await press(RANDOM.name, '제품에 적용')
+  const select = await screen.findByLabelText('제품')
+  await screen.findByRole('option', { name: '휴대폰 케이스 (v2)' })
+  fireEvent.change(select, { target: { value: 'work:w1' } })
+  fireEvent.change(screen.getByLabelText('가진 축'), { target: { value: 'all' } })
+  expect(screen.getByText(/축을 여럿 넣으면 동시에 흔든 것으로 합산됩니다/)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '생성' }))
+  expect(await screen.findByText('새 DOE ?work=w9&axes=1')).toBeInTheDocument()
+  expect(sent.find((one) => one.url.endsWith('/specimens/product-tests'))!.body).toMatchObject({ preset_id: RANDOM.id, axis: 'z' })
 })
 
 test('관리자는 랜덤 규격을 복사해 PSD 표를 붙여 넣고 고친다', async () => {

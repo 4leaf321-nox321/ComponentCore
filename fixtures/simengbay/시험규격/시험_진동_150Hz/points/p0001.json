@@ -92,7 +92,7 @@
   "point": {
     "number": 1,
     "study": {
-      "id": "a1757054-2d0c-452b-a636-53326ce6c496",
+      "id": "be59fa02-130c-40b0-af37-77edda8ee36c",
       "name": "시험_진동_150Hz",
       "method": "factorial",
       "seed": 1
@@ -407,7 +407,7 @@
     ],
     "loads": [
       {
-        "name": "가진 (Z축)",
+        "name": "가진",
         "type": "acceleration",
         "on": "",
         "cs": "global",

@@ -1,7 +1,7 @@
 {
   "loads": [
     {
-      "name": "랜덤 가진 (Z축)",
+      "name": "랜덤 가진",
       "type": "psd_acceleration",
       "direction": [
         0,

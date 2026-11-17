@@ -2,7 +2,8 @@
  * DOE 의 **조건 인자** — 시뮬레이션 조건에서 「바꿔 볼 수 있는 칸」 을 뽑는다.
  *
  * - 고르기(`choice`): 고르는 칸 하나(구속 · 하중 · 접촉의 종류, 정식화, 선택 그룹, 해석 종류,
- *   켬 · 끔, 변위의 자유 ↔ 고정 …)를 후보 중에서 설계점마다 하나씩.
+ *   켬 · 끔, 변위의 자유 ↔ 고정, 하중의 축 …)를 후보 중에서 설계점마다 하나씩. X · Y · Z 를 한 축씩
+ *   거는 진동 시험은 하중 방향을 축으로 훑는다 — 한 조건의 가진은 동시라 축 셋을 한 조건에 넣지 않는다.
  * - 배율(`scale`): 바디에 붙은 재료의 물성 하나에 곱할 수.
  *
  * 칸 목록은 서버의 사양표(`conditions_schema`)에서 나온다 — 종류를 더해도 여기는 안 고친다.
@@ -49,6 +50,11 @@ function optionsOf(key: string, field: FieldSchema, type: string, group: GroupSc
     const accepts = group?.accepts?.[type] ?? group?.accepts?.['*']
     const ok = accepts ? names.filter((one) => accepts.some((a) => a.entity === one.entity)) : names
     return [...(field.whole ? [{ value: field.whole, label: field.whole }] : []), ...ok.map((one) => ({ value: one.name, label: one.name }))]
+  }
+  // 하중의 방향 — 축 이름(서버가 성분으로 바꾼다), 압력이면 「면의 법선」 도.
+  if (field.direction && field.axes) {
+    const axes = Object.entries(field.axes).map(([value, label]) => ({ value: value as unknown, label }))
+    return field.normal_for?.includes(type) ? [{ value: 'normal', label: '면의 법선' }, ...axes] : axes
   }
   const values = enumOf(field)
   if (values) return values.map((value) => ({ value, label: field.labels?.[value] ?? value }))
@@ -145,4 +151,15 @@ export function propertyNames(materials: MaterialItem[]): string[] {
     for (const row of (payload.values ?? []) as { property_name?: string }[]) if (row.property_name) out.add(row.property_name)
   }
   return [...out]
+}
+
+/**
+ * 축을 설계점마다 나누는 고르기 인자(X · Y · Z) — 방향이 있는 하중이 **하나뿐**일 때 그 하중에. 진동 ·
+ * 등가 가속도 시험을 「X · Y · Z 모두」 로 걸면 새 DOE 가 이것을 미리 채운다. 하중이 여럿이면 어느
+ * 것을 훑을지 모르니 `null`(사람이 「조건 변경」 에서 고른다).
+ */
+export function axesFactor(conditions: Record<string, unknown> | null | undefined): Factor | null {
+  const loads = ((conditions?.loads ?? []) as Record<string, unknown>[]).filter((one) => Array.isArray(one.direction) && typeof one.name === 'string')
+  if (loads.length !== 1) return null
+  return { name: '가진 축', mode: 'choice', target: { group: 'loads', item: String(loads[0].name), field: 'direction' }, values: ['x', 'y', 'z'] }
 }

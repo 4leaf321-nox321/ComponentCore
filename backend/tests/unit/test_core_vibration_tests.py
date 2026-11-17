@@ -116,7 +116,7 @@ def test_랜덤_진동_규격은_PSD_표를_그대로_건다() -> None:
     _check(made)
     (load,) = made.conditions["loads"]
     assert load == {
-        "name": "랜덤 가진 (Y축)",
+        "name": "랜덤 가진",
         "type": "psd_acceleration",
         "direction": [0, 1, 0],
         "psd_table": [[20, 0.01], [80, 0.04], [350, 0.04], [2000, 0.007]],
@@ -159,3 +159,53 @@ def test_적힌_Grms_와_표가_다르면_옮겨_적다_틀린_것이다() -> No
     assert specimens.parse_preset(_random(grms=8.9))
     with pytest.raises(ValidationError, match=r"8\.9 g가 적힌 Grms 7\.7 g"):
         specimens.parse_preset(_random(grms=7.7))
+
+
+def test_DOE_의_축_인자는_설계점마다_방향_성분이_된다() -> None:
+    """X · Y · Z 를 한 축씩 거는 시험 — 한 조건의 가진은 동시라 축은 설계점으로 나눈다."""
+    from app.core import doe
+
+    (factor,) = doe.parse_factors(
+        [
+            {
+                "name": "가진 축",
+                "mode": "choice",
+                "target": {"group": "loads", "item": "랜덤 가진", "field": "direction"},
+                "values": ["X", "y", "-z"],
+            }
+        ]
+    )
+    assert factor.choices == ("x", "y", "-z"), "대문자로 써도 같은 축"
+    made = product.apply(
+        specimens.find_builtin("iec-60068-2-64-example-6g"),  # type: ignore[arg-type]
+        PLATE,
+        None,
+        bbox=_bbox(PLATE),
+    )
+    seen = []
+    for value in factor.choices:
+        point = conditions.with_choice(made.conditions, factor.target, value)
+        conditions.parse(point)
+        seen.append(point["loads"][0]["direction"])
+    assert seen == [[1, 0, 0], [0, 1, 0], [0, 0, -1]]
+    assert made.conditions["loads"][0]["direction"] == [0, 0, 1], "원본은 그대로"
+    # 다른 칸은 그대로 — 축 이름을 바꾸는 것은 방향 칸뿐이다.
+    assert conditions.choice_value("type", "x") == "x"
+
+
+@pytest.mark.parametrize(
+    ("target", "values", "message"),
+    [
+        ({"group": "loads", "item": "가진", "field": "direction"}, ["x", "w"], "값: w"),
+        ({"group": "constraints", "item": "고정", "field": "direction"}, ["x"], "하중의 축"),
+    ],
+)
+def test_축_인자가_틀리면_고를_수_있는_축을_말한다(
+    target: dict[str, Any], values: list[str], message: str
+) -> None:
+    from app.core import doe
+
+    with pytest.raises(doe.DoeError, match=message):
+        doe.parse_factors(
+            [{"name": "축", "mode": "choice", "target": target, "values": values}]
+        )

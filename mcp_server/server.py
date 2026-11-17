@@ -1218,7 +1218,8 @@ async def doe_create(
     바디는 `recipe_bodies` 의 이름(단품이면 「전체」). 형상은 그대로라 한 벌을 나눠 쓴다.
     **조건의 고르는 칸**: `{"mode": "choice", "target": {"group": "contacts",
     "item": "블록-판", "field": "type"}, "values": ["bonded", "frictional"]}` — 종류 · 선택
-    그룹 · 켬끔 · 자유(null) ↔ 고정(0) 등. **물성 배율**: `{"mode": "scale", "bodies":
+    그룹 · 켬끔 · 자유(null) ↔ 고정(0) · 하중의 축(`"field": "direction"`, `["x", "y", "z"]` —
+    점마다 한 축으로 가진) 등. **물성 배율**: `{"mode": "scale", "bodies":
     ["블록"], "property": "탄성계수", "values": [0.9, 1.1]}`. 숫자 칸(하중 크기 …)은 도면
     변수를 조건에 `=변수` 로 적어 훑는다.
     **제약식** `constraints`(`["구멍_간격 > 2 * 구멍_지름"]`) — 어긴 조합은 만들지 않는다.
@@ -1315,7 +1316,8 @@ async def doe_run(
     바디는 `recipe_bodies` 의 이름(단품이면 「전체」). 형상은 그대로라 한 벌을 나눠 쓴다.
     **조건의 고르는 칸**: `{"mode": "choice", "target": {"group": "contacts",
     "item": "블록-판", "field": "type"}, "values": ["bonded", "frictional"]}` — 종류 · 선택
-    그룹 · 켬끔 · 자유(null) ↔ 고정(0) 등. **물성 배율**: `{"mode": "scale", "bodies":
+    그룹 · 켬끔 · 자유(null) ↔ 고정(0) · 하중의 축(`"field": "direction"`, `["x", "y", "z"]` —
+    점마다 한 축으로 가진) 등. **물성 배율**: `{"mode": "scale", "bodies":
     ["블록"], "property": "탄성계수", "values": [0.9, 1.1]}`. 숫자 칸(하중 크기 …)은 도면
     변수를 조건에 `=변수` 로 적어 훑는다.
     **제약식** `constraints` — 어긴 조합은 만들지 않는다(`doe_create` 와 같다).

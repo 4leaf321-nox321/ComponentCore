@@ -341,6 +341,12 @@ def _check_condition_factors(
         name = str(one.get("name"))
         if not conditions:
             raise AppError(code("DOE", 22), f"선택 인자 ‘{name}’: 해석 조건이 없습니다.")
+        # 인자 자체의 검사(축 이름 · 같은 값 두 번 …)를 먼저 — 조건 검사는 틀린 값을
+        # 「목록이 아니다」 같은 칸 모양의 말로 돌려준다.
+        try:
+            engine.parse_factors([one])
+        except engine.DoeError as failure:
+            raise AppError(code("DOE", 22), str(failure)) from failure
         for value in one.get("values") or []:
             try:
                 condition_model.parse(

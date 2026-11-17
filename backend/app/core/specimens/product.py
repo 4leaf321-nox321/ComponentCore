@@ -131,6 +131,13 @@ def sweep_table(setup: VibrationSetup) -> list[list[float]] | None:
     return rows
 
 
+#: 축을 하나씩 거는 시험의 안내 — 한 조건의 가진은 동시라 축 셋을 한 조건에 넣지 않는다.
+_OTHER_AXES = (
+    "다른 축은 DOE 의 「조건 변경」 에서 하중 「{load}」 · 방향을 X · Y · Z 로 고르면 "
+    "설계점마다 한 축씩 나뉩니다(한 조건에 축을 여럿 넣으면 동시에 흔든 것으로 합산됩니다)."
+)
+
+
 def _shaking(axis: str) -> list[int]:
     direction = AXES.get(axis.lower())
     if direction is None:
@@ -588,7 +595,7 @@ class _Test:
             )
         self.notes.append(
             f"받침을 가진대에 고정하고 {axis.upper()}축으로 {level}(감쇠비 "
-            f"{setup.damping_ratio:g}). 다른 축은 다시 적용해 한 벌씩 만듭니다."
+            f"{setup.damping_ratio:g}). {_OTHER_AXES.format(load='가진')}"
         )
         if table is not None:
             self.notes.append(
@@ -596,7 +603,7 @@ class _Test:
                 "주파수는 그대로). 변위만 바꾸려면 규격을 고쳐 다시 적용하십시오."
             )
         load: dict[str, Any] = {
-            "name": f"가진 ({axis.upper()}축)",
+            "name": "가진",
             "type": "acceleration",
             "magnitude": f"={PREFIX}가속도",
             "direction": direction,
@@ -625,8 +632,8 @@ class _Test:
         support = self.support()
         self.notes.append(
             f"받침을 가진대에 고정하고 {axis.upper()}축으로 가속도 PSD {low:g}~{high:g} Hz"
-            f"(Grms {grms:.2f} g)를 겁니다(감쇠비 {setup.damping_ratio:g}). 다른 축은 다시 "
-            "적용해 한 벌씩 만듭니다."
+            f"(Grms {grms:.2f} g)를 겁니다(감쇠비 {setup.damping_ratio:g}). "
+            f"{_OTHER_AXES.format(load='랜덤 가진')}"
         )
         self.notes.append(
             f"모드 {setup.modes}개로 모드 중첩을 합니다. 모드가 PSD 최고 주파수의 1.5배"
@@ -636,7 +643,7 @@ class _Test:
             "constraints": [{"name": "가진대 고정", "type": "fixed_support", "on": support}],
             "loads": [
                 {
-                    "name": f"랜덤 가진 ({axis.upper()}축)",
+                    "name": "랜덤 가진",
                     "type": "psd_acceleration",
                     "direction": direction,
                     "psd_table": table,
@@ -742,7 +749,7 @@ class _Test:
             "constraints": [{"name": "받침 고정", "type": "fixed_support", "on": support}],
             "loads": [
                 {
-                    "name": f"가속도 ({axis.upper()}축)",
+                    "name": "가속도",
                     "type": "acceleration",
                     "magnitude": f"={PREFIX}가속도",
                     "direction": direction,

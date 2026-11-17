@@ -1,7 +1,7 @@
 {
   "loads": [
     {
-      "name": "가진 (Z축)",
+      "name": "가진",
       "type": "acceleration",
       "direction": [
         0,

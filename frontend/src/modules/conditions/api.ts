@@ -30,6 +30,8 @@ export interface FieldSchema {
   /** 방향 칸 — 좌표계의 X · Y · Z 성분, `normal_for` 종류면 「면의 법선」 도. */
   direction?: boolean
   normal_for?: string[]
+  /** DOE 가 이 방향 칸을 설계점마다 고를 때의 축 이름 → 이름표(`x` → 「X축」). 점 파일에는 성분으로 나간다. */
+  axes?: Record<string, string>
   /** 볼트 예압 — 예압(힘) · 조임량(길이)을 `unit` 으로 고른다. */
   bolt?: boolean
   /** 크기 — 단위는 종류의 차원(`GroupSchema.dimensions`)과 단위계가 정한다. */

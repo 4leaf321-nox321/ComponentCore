@@ -466,6 +466,20 @@ PSD_UNIT = "g^2/Hz"
 #: 있고 크기가 하나인 것. 중력 · 회전 속도는 가진이 아니다.
 HARMONIC_LOADS = ["pressure", "force", "moment", "bearing", "acceleration"]
 
+#: DOE 고르기 인자가 하중의 `direction` 칸에 줄 수 있는 **축 이름** → 좌표계(`cs`) 성분.
+#: X · Y · Z 를 한 축씩 따로 거는 진동 · 충격 시험(IEC)을 설계점마다 한 축으로 나눈다 — 한
+#: 조건의 가진은 동시라 축 셋을 한 조건에 넣으면 합산된다(SimEngBay, 2026-11-17). 점 파일에는
+#: 성분으로 나간다.
+AXIS_CHOICES: dict[str, list[int]] = {
+    "x": [1, 0, 0],
+    "y": [0, 1, 0],
+    "z": [0, 0, 1],
+    "-x": [-1, 0, 0],
+    "-y": [0, -1, 0],
+    "-z": [0, 0, -1],
+}
+AXIS_LABELS = {"x": "X축", "y": "Y축", "z": "Z축", "-x": "-X축", "-y": "-Y축", "-z": "-Z축"}
+
 #: 방향이 있는 하중(벡터). 압력만 「면의 법선」 을 고를 수 있다.
 DIRECTED_LOADS = [
     "pressure",
@@ -586,6 +600,7 @@ class Load(Base):
                 "direction": True,
                 "only_for": DIRECTED_LOADS,
                 "normal_for": ["pressure"],
+                "axes": AXIS_LABELS,
             }
         ),
     )
@@ -2573,7 +2588,8 @@ def _target_item(out: dict[str, Any], group: str, item: Any) -> dict[str, Any]:
 def with_choice(raw: dict[str, Any], target: Any, value: Any) -> dict[str, Any]:
     """설계점 하나의 조건 — `target`(묶음 · 항목 · 칸)의 값을 `value` 로 바꾼 **사본**.
 
-    접촉 종류(본딩 ↔ 마찰), 구속 종류, 해석 종류, 선택 그룹, 정식화 … 고르는 칸이면 무엇이든.
+    접촉 종류(본딩 ↔ 마찰), 구속 종류, 해석 종류, 선택 그룹, 정식화, 하중의 축(`direction` 에
+    `"x"` · `"y"` · `"z"` — `AXIS_CHOICES`) … 고르는 칸이면 무엇이든.
     바꾼 한 벌이 조건으로서 온전한지는 부르는 쪽이 `parse` 로 본다(마찰로 바꾸면 마찰계수가
     있어야 한다 — 그것은 미리 적어 둔다)."""
     from copy import deepcopy
@@ -2584,8 +2600,16 @@ def with_choice(raw: dict[str, Any], target: Any, value: Any) -> dict[str, Any]:
         else target
     )
     out = deepcopy(raw or {})
-    _target_item(out, str(group), item)[str(field)] = value
+    _target_item(out, str(group), item)[str(field)] = choice_value(str(field), value)
     return out
+
+
+def choice_value(field: str, value: Any) -> Any:
+    """고르기 인자의 값을 칸에 넣을 값으로 — 하중 `direction` 의 축 이름(`"x"` · `"-z"` …)은
+    성분으로 바꾼다. 나머지는 그대로."""
+    if field == "direction" and isinstance(value, str) and value.lower() in AXIS_CHOICES:
+        return list(AXIS_CHOICES[value.lower()])
+    return value
 
 
 #: 배율 인자가 부르는 물성 — 밀도 · 푸아송비는 `converted` 의 칸이고, 나머지는

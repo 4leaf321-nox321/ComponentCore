@@ -4,11 +4,14 @@
  * 부품 · 지그 · 조립은 저장할 때까지 「그리기 + 변수 심기」 만 한다. 여러 벌을 만드는 일은
  * 여기서 한다 — 대상 하나에 인스턴스(설계점)를 여럿 묶는 것이 DOE 다.
  * `?from=<DOE id>` 로 오면 그 DOE 의 대상과 설정을 채워 시작한다 — 범위를 좁혀 다시 돌릴 때.
+ * `?axes=1` 이면 하중 방향을 X · Y · Z 로 훑는 인자를 채운다(진동 시험을 축마다 한 설계점으로).
  */
 
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { doeApi } from '@/modules/doe/api'
+import type { Factor } from '@/modules/doe/api'
+import { axesFactor } from '@/modules/doe/conditionFactors'
 import { DoeForm } from '@/modules/doe/DoeForm'
 import { worksApi } from '@/modules/works/api'
 import type { WorkSummary } from '@/modules/works/api'
@@ -29,6 +32,8 @@ export default function NewDoePage() {
   const from = useResource(() => (fromId ? doeApi.get(fromId) : Promise.resolve(null)), [fromId])
   // 지난 DOE 에서 왔으면 그 대상이 곧 대상이다 — 다시 고르게 하지 않는다.
   const workId = params.get('work') ?? from.data?.work_id ?? null
+  // 진동 · 등가 가속도 시험을 「X · Y · Z 모두」 로 걸고 왔다 — 하중 방향을 축으로 훑는 인자를 채워 둔다.
+  const sweepAxes = params.get('axes') === '1'
   const works = useResource(() => worksApi.list(0, 100), [])
   const target = useResource(() => (workId ? worksApi.get(workId) : Promise.resolve(null)), [workId])
 
@@ -102,7 +107,7 @@ export default function NewDoePage() {
           conditions={w.current.conditions}
           workId={w.id}
           defaultName={`${w.name} 탐색`}
-          initial={from.data ?? undefined}
+          initial={from.data ?? axesInitial(sweepAxes ? axesFactor(w.current.conditions) : null, `${w.name} 축별`)}
           onCreated={(id) => navigate(`/doe/${id}`)}
           onEditRecipe={() => navigate(`/works/${w.id}`)}
         />
@@ -126,4 +131,10 @@ function TargetCard({ work, onPick }: { work: WorkSummary; onPick: () => void })
       </button>
     </li>
   )
+}
+
+/** 축 인자 하나만 채운 처음 설정 — 축마다 설계점 하나(격자). 인자를 못 정하면 빈 폼. */
+function axesInitial(factor: Factor | null, name: string) {
+  if (!factor) return undefined
+  return { name, description: '', factors: [factor], method: 'factorial' as const, samples: 20, seed: 1, constraints: [], measures: [] }
 }

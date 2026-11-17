@@ -180,3 +180,59 @@ def test_시험_규격마다_설계_하나_폴더가_온전히_나간다(
         target = Path(out) / name
         shutil.rmtree(target, ignore_errors=True)
         shutil.copytree(folder, target)
+
+
+def test_랜덤_진동의_축을_설계점마다_나눈_폴더(
+    client: TestClient,
+    member: Signed,
+    export_root: Path,  # noqa: F811
+) -> None:
+    """IEC 처럼 X · Y · Z 를 한 축씩 거는 시험 — 한 조건의 가진은 동시라(PSD 여럿은 합산) 축은
+    설계점으로 나눈다. 고르기 인자가 하중 방향에 축 이름을 주고, 점 파일에는 성분으로 나간다
+    (2026-11-17, SimEngBay 가 「축을 어떻게 나타내는지」 물었다)."""
+    source = _product(client, member)
+    work = _ok(
+        client.post(
+            "/api/specimens/product-tests",
+            json={"preset_id": "iec-60068-2-64-example-6g", "source": source},
+            headers=member.headers,
+        )
+    )
+    first = _ok(client.get(f"/api/works/{work['id']}/versions/1", headers=member.headers))
+    (load,) = first["conditions"]["loads"]
+    axis = {"group": "loads", "item": load["name"], "field": "direction"}
+    factor = {"name": "가진 축", "mode": "choice", "target": axis, "values": ["x", "y", "z"]}
+    body = {
+        "name": "시험_랜덤진동_축셋",
+        "recipe": first["recipe"],
+        "conditions": first["conditions"],
+        "factors": [factor],
+    }
+    wrong = client.post(
+        "/api/doe",
+        json={**body, "factors": [{**factor, "values": ["x", "w"]}]},
+        headers=member.headers,
+    )
+    assert wrong.status_code == 400
+    assert "받을 수 없는 값: w" in wrong.json()["error"]["message"]
+    study = _ok(client.post("/api/doe", json=body, headers=member.headers))
+    _ok(client.post(f"/api/doe/{study['id']}/export", headers=member.headers))
+    folder = next(one for one in export_root.iterdir() if one.name.startswith(body["name"]))
+
+    points = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted((folder / "points").glob("p*.json"))
+    ]
+    directions = [one["conditions"]["loads"][0]["direction"] for one in points]
+    assert directions == [[1, 0, 0], [0, 1, 0], [0, 0, 1]], "한 점에 한 축 — 성분으로"
+    assert all(len(one["conditions"]["loads"]) == 1 for one in points)
+    assert all(one["unresolved"] == [] for one in points)
+    manifest = (folder / "manifest.csv").read_text(encoding="utf-8-sig").splitlines()
+    assert [line.split(",")[2] for line in manifest[1:]] == ["x", "y", "z"]
+    assert len({line.split(",")[3] for line in manifest[1:]}) == 1, "형상은 하나를 나눠 쓴다"
+
+    out = os.environ.get("COMPCORE_FIXTURE_OUT")
+    if out:
+        target = Path(out) / body["name"]
+        shutil.rmtree(target, ignore_errors=True)
+        shutil.copytree(folder, target)

@@ -80,3 +80,54 @@ test('지난 DOE 에서 「설정 바꿔 다시 만들기」 로 오면 대상�
   expect(screen.getByLabelText('지그_높이 끝')).toHaveValue(30)
   expect(screen.getByLabelText(/^표본 수/)).toHaveValue(12)
 })
+
+test('진동 시험을 「X · Y · Z 모두」 로 걸고 오면 하중 방향을 축으로 훑는 인자가 채워져 있다', async () => {
+  const WORK9 = {
+    id: 'w9',
+    name: '케이스 — 랜덤',
+    kind: 'part',
+    current_version: 1,
+    description: '',
+    current: {
+      recipe: { params: {}, nodes: [] },
+      conditions: {
+        constraints: [{ name: '가진대 고정', type: 'fixed_support', on: '시험 받침면' }],
+        loads: [{ name: '랜덤 가진', type: 'psd_acceleration', direction: [0, 0, 1], psd_table: [[20, 0.04], [2000, 0.04]] }],
+        analysis: { type: 'random', modes: 40, damping_ratio: 0.02 },
+      },
+    },
+  }
+  const SCHEMA = {
+    unit_systems: [],
+    entities: [],
+    analysis: { properties: {} },
+    groups: {
+      loads: {
+        label: '하중',
+        types: ['psd_acceleration'],
+        fields: { name: {}, type: { enum: ['psd_acceleration'] }, direction: { title: '방향', direction: true, axes: { x: 'X축', y: 'Y축', z: 'Z축' } } },
+        required: [],
+      },
+    },
+  }
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = String(input)
+    const body = url.endsWith('/works/w9')
+      ? WORK9
+      : url.endsWith('/cad/conditions/schema')
+        ? SCHEMA
+        : url.includes('/doe/preview')
+          ? { count: 3, max: 200, max_samples: 500, too_many: false, points: [], varying: ['하중 「랜덤 가진」 · 방향'] }
+          : WORKS
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  })
+  render(
+    <MemoryRouter initialEntries={['/doe/new?work=w9&axes=1']}>
+      <Routes>
+        <Route path="/doe/new" element={<NewDoePage />} />
+      </Routes>
+    </MemoryRouter>,
+  )
+  expect(await screen.findByLabelText('이름')).toHaveValue('케이스 — 랜덤 축별')
+  for (const axis of ['X축', 'Y축', 'Z축']) expect(await screen.findByLabelText(`하중 「랜덤 가진」 · 방향 후보 ${axis}`)).toBeChecked()
+})

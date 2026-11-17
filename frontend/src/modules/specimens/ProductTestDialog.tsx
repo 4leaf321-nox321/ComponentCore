@@ -157,6 +157,10 @@ export function ProductTestDialog({ row, onClose }: { row: PresetRow<ProductPres
     ),
   }
 
+  /** 한 축으로 거는 시험 — 정현파 · 랜덤 진동 · 등가 가속도. 축을 설계점마다 나눌 수 있다. */
+  const shaken = preset.test === 'vibration' || preset.test === 'random' || preset.test === 'acceleration'
+  const allAxes = shaken && axis === 'all'
+
   async function apply() {
     setBusy(true)
     setError(null)
@@ -168,14 +172,15 @@ export function ProductTestDialog({ row, onClose }: { row: PresetRow<ProductPres
         x: force ? number(x) : null,
         y: force ? number(y) : null,
         z: force && loadPicked ? number(z) : null,
-        axis: axis ? (axis as 'x' | 'y' | 'z') : preset.test === 'vibration' || preset.test === 'random' || preset.test === 'acceleration' ? 'z' : null,
+        // 「X · Y · Z 모두」 는 Z 로 만들고 DOE 에서 축을 훑는다(한 조건의 가진은 동시라 축 셋을 한 조건에 넣지 않는다).
+        axis: allAxes ? 'z' : axis ? (axis as 'x' | 'y' | 'z') : shaken ? 'z' : null,
         faces,
         mass: needsMass ? number(mass) : null,
         direction: directed ? vector : null,
         name: name.trim() || undefined,
         folder: folder.trim(),
       })
-      navigate(`/works/${work.id}`)
+      navigate(allAxes ? `/doe/new?work=${work.id}&axes=1` : `/works/${work.id}`)
     } catch (caught) {
       setError(caught instanceof Error ? caught : new Error('알 수 없는 오류가 발생했습니다.'))
     } finally {
@@ -237,6 +242,7 @@ export function ProductTestDialog({ row, onClose }: { row: PresetRow<ProductPres
               <option value="z">Z축</option>
               <option value="x">X축</option>
               <option value="y">Y축</option>
+              <option value="all">X · Y · Z 모두 (축마다 설계점 하나)</option>
             </select>
           </div>
         )}
@@ -247,8 +253,15 @@ export function ProductTestDialog({ row, onClose }: { row: PresetRow<ProductPres
               <option value="z">Z축</option>
               <option value="x">X축</option>
               <option value="y">Y축</option>
+              <option value="all">X · Y · Z 모두 (축마다 설계점 하나)</option>
             </select>
           </div>
+        )}
+        {allAxes && (
+          <p className="text-muted-foreground text-xs sm:col-span-2">
+            시험은 축을 하나씩 겁니다. 작업을 만든 뒤 새 DOE 화면으로 이동하며, 하중 방향을 X · Y · Z로 바꾸는 인자를 미리 채웁니다(설계점 3개, 형상은 하나). 한
+            조건에 축을 여럿 넣으면 동시에 흔든 것으로 합산됩니다.
+          </p>
         )}
         {directed && (
           <div className="space-y-1">

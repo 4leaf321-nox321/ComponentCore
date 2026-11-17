@@ -229,6 +229,8 @@ def _choice_factor(one: dict[str, Any], name: str) -> Factor:
         raise DoeError(f"‘{name}’: 후보 값이 없습니다.")
     if any(isinstance(v, dict | list) for v in values):
         raise DoeError(f"‘{name}’: 후보 값은 문자열, 숫자, 불리언, null 중 하나여야 합니다.")
+    if field == "direction":
+        values = _axis_values(values, name, group)
     if len({json.dumps(v, ensure_ascii=False) for v in values}) != len(values):
         raise DoeError(f"‘{name}’: 같은 값이 두 번 지정되었습니다.")
     return Factor(
@@ -237,6 +239,22 @@ def _choice_factor(one: dict[str, Any], name: str) -> Factor:
         choices=tuple(values),
         target=(group, None if group == "analysis" else item, field),
     )
+
+
+def _axis_values(values: list[Any], name: str, group: str) -> list[Any]:
+    """하중 방향을 고르는 인자 — 후보는 축 이름(설계점마다 한 축으로 가진 · 가속)이나 압력의
+    `normal`. 소문자로 맞춘다(「X」 와 「x」 가 다른 값이 되지 않게)."""
+    from app.core.conditions import AXIS_CHOICES
+
+    allowed = [*AXIS_CHOICES, "normal"]
+    picked = [str(one).strip().lower() for one in values]
+    wrong = [str(one) for one, low in zip(values, picked, strict=True) if low not in allowed]
+    if group != "loads" or wrong:
+        raise DoeError(
+            f"‘{name}’: 방향 인자는 하중의 축 {', '.join(allowed)} 중에서 고릅니다"
+            + (f"(받을 수 없는 값: {', '.join(wrong)})." if wrong else ".")
+        )
+    return picked
 
 
 def _scale_factor(one: dict[str, Any], name: str) -> Factor:
