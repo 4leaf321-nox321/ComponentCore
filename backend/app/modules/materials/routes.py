@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -134,6 +135,23 @@ def material_decks(
         return {"items": matnexus.deck_formats(material_id), "note": ""}
     except matnexus.MatNexusUnavailable as failure:
         return {"items": [], "note": str(failure)}
+
+
+class ConvertRequest(BaseModel):
+    payloads: list[dict[str, Any]] = Field(max_length=services.CONVERT_LIMIT)
+    """조건의 `materials[].payload` 들 — 순서대로 환산한다."""
+    system: str = Field(default="mm_n_tonne", max_length=20)
+
+
+@router.post("/converted")
+def converted_materials(
+    body: ConvertRequest, _: User = Depends(current_user)
+) -> dict[str, Any]:
+    """조건에 **담아 둔** 재료를 내보낼 단위계로 환산한 값 — 내보낼 때와 같은 함수다.
+    `items[i]` 는 `payloads[i]` 의 `converted`(밀도 · 푸아송비 · 물성 줄, 빠진 구조 물성
+    `missing_structural`, 못 바꾼 단위 `unconverted`). `dictionary=false` 면 물성 사전을 못
+    받아 등록 재료의 줄에 표준 열쇠가 없다."""
+    return services.converted(body.payloads, body.system)
 
 
 @router.get("/{code_or_id}")

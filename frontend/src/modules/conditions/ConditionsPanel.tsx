@@ -842,6 +842,18 @@ export function ConditionsPanel({
     }
   }, [draft.materials, deckChoices])
 
+  /**
+   * 담아 둔 재료의 **내보낼 단위계 값** — 트리에서 무엇이 있는지, 탄성계수가 빠지지 않았는지, 단위를 못
+   * 바꾼 것이 없는지 본다. 내보낼 때와 같은 함수(서버)로 바꾸고, 재료나 단위계가 바뀔 때만 다시 묻는다.
+   * 고를 때만 말하고 담은 뒤에는 조용했다(2026-11-17).
+   */
+  const exportSystem = draft.units?.system ?? 'mm_n_tonne'
+  const materialsKey = JSON.stringify(draft.materials.map((one) => [one.ref ?? null, Object.keys(one.payload ?? {}).length]))
+  const converted = useResource(
+    () => (draft.materials.length > 0 ? materialsApi.converted(draft.materials.map((one) => one.payload ?? {}), exportSystem) : Promise.resolve(null)),
+    [materialsKey, exportSystem],
+  )
+
   const bodyNames = useMemo(() => (bodies.data?.items ?? []).map((one) => one.name), [bodies.data])
 
   /**
@@ -1143,6 +1155,10 @@ export function ConditionsPanel({
               bodies={bodies.data?.items ?? null}
               bodiesError={bodies.error}
               materials={draft.materials}
+              // 다시 묻는 동안은 비운다 — 지난 답은 지금 목록과 순서가 다를 수 있다(물성을 뺀 직후).
+              converted={converted.loading ? null : (converted.data?.items ?? null)}
+              convertedError={converted.error}
+              dictionary={converted.data?.dictionary ?? true}
               decks={deckChoices}
               names={names}
               groups={GROUP_KEYS.map((key) => ({

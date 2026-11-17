@@ -14,6 +14,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core import conditions
+from app.core import units as unit_systems
 from app.modules.materials.models import CatalogMaterial
 from app.shared.clients import matnexus
 from app.shared.errors import AppError, NotFound, code
@@ -53,6 +54,40 @@ def _row(payload: dict[str, Any], source: str, system: str = "") -> dict[str, An
             payload, system, matnexus.property_keys()
         )
     return made
+
+
+#: 한 번에 환산할 재료 수 — 조건 하나에 담는 재료는 많아야 수십이다.
+CONVERT_LIMIT = 50
+
+
+def converted(payloads: list[Any], system: str) -> dict[str, Any]:
+    """조건에 **담아 둔** 재료(payload)를 그 계로 환산한 값 — 내보낼 때와 같은 함수
+    (`conditions.converted_material`)다. 트리에서 「이 재료에 무엇이 있나 · 탄성계수가 빠지지
+    않았나 · 단위를 못 바꾼 것이 없나」 를 본다. MatNexus 에서 다시 받지 않는다 — 내보내는 것은
+    담아 둔 payload 이므로 그것을 보여야 한다.
+
+    `dictionary` 는 물성 사전을 받았나 — 못 받으면 등록 재료의 줄에 표준 열쇠가 안 붙어
+    받는 쪽이 「어느 것이 탄성계수인가」 를 못 푼다."""
+    if system not in unit_systems.SYSTEMS:
+        raise AppError(
+            code("MATERIALS", 8),
+            f"알 수 없는 단위계입니다: {system} ({', '.join(unit_systems.SYSTEMS)} 중 하나)",
+        )
+    if len(payloads) > CONVERT_LIMIT:
+        raise AppError(
+            code("MATERIALS", 8), f"재료는 한 번에 {CONVERT_LIMIT}개까지 환산합니다."
+        )
+    keys = matnexus.property_keys()
+    return {
+        "system": system,
+        "dictionary": bool(keys),
+        "items": [
+            conditions.converted_material(one, system, keys)
+            if isinstance(one, dict) and one
+            else None
+            for one in payloads
+        ],
+    }
 
 
 def _from_catalog(

@@ -18,6 +18,8 @@ import { useState } from 'react'
 
 import { ALL_BODIES, appliedTo, hasCoordinateOnlyRule, materialsOn, settingOf } from '@/modules/conditions/api'
 import type { Body, BodySetting, ConditionItem, MaterialItem, NamedSelection } from '@/modules/conditions/api'
+import type { MaterialConverted } from '@/modules/materials/api'
+import { MaterialProperties, materialProblems } from '@/modules/materials/MaterialProperties'
 import { Button } from '@/shared/components/ui/button'
 import { Label } from '@/shared/components/ui/label'
 import { Skeleton } from '@/shared/components/ui/skeleton'
@@ -87,6 +89,9 @@ export function ModelTree({
   bodies,
   bodiesError,
   materials,
+  converted = null,
+  convertedError = null,
+  dictionary = true,
   decks,
   names,
   groups,
@@ -114,6 +119,14 @@ export function ModelTree({
   bodies: Body[] | null
   bodiesError?: Error | null
   materials: MaterialItem[]
+  /**
+   * 담아 둔 물성의 **내보낼 단위계 값**(서버가 내보낼 때와 같은 함수로) — `materials` 와 같은 순서. 펼치면
+   * 무엇이 있는지 보이고, 탄성계수가 빠졌거나 단위를 못 바꾼 물성은 ⚠ 로 표시한다. `null` 이면 아직 불러오는 중.
+   */
+  converted?: (MaterialConverted | null)[] | null
+  convertedError?: Error | null
+  /** 물성 사전을 받았나 — 못 받으면 등록 재료의 줄에 표준 열쇠가 없다. */
+  dictionary?: boolean
   /** 물성(그쪽 id)마다 생성 가능한 솔버 덱 형식. */
   decks: Record<string, { key: string; ready: boolean }[]>
   selected: TreeSelection
@@ -149,6 +162,8 @@ export function ModelTree({
   onShowAll?: () => void
 }) {
   const single = bodies?.length === 1 && bodies[0].name === ALL_BODIES
+  /** 물성마다 「그대로 풀면 틀리는 것」 — 파트 줄 · 물성 줄의 ⚠ 와 툴팁. */
+  const problems = materials.map((_, index) => materialProblems(converted?.[index]))
 
   return (
     <div className="space-y-2">
@@ -167,6 +182,7 @@ export function ModelTree({
             const open = selected?.kind === 'part' && selected.name === body.name
             const summary = settingSummary(settingOf(settings, body.name))
             const material = on.length === 0 ? '미지정' : on.length > 1 ? '물성 중복' : nameOf(materials[on[0]])
+            const warned = on.length === 1 ? problems[on[0]] : []
             const isHidden = hidden.includes(body.name)
             return (
               <li key={body.name}>
@@ -175,7 +191,7 @@ export function ModelTree({
                   <button
                     type="button"
                     aria-expanded={open}
-                    title={[body.name, summary, `물성 ${material}`, isHidden ? '숨김' : ''].filter(Boolean).join(' · ')}
+                    title={[body.name, summary, `물성 ${material}`, ...warned, isHidden ? '숨김' : ''].filter(Boolean).join(' · ')}
                     className={`hover:bg-muted flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left ${open ? 'bg-muted' : ''} ${isHidden ? 'opacity-50' : ''}`}
                     onClick={() => onSelect(open ? null : { kind: 'part', name: body.name })}
                   >
@@ -186,8 +202,9 @@ export function ModelTree({
                       <span className="text-muted-foreground min-w-0 shrink truncate rounded border px-1 text-[10px]">{summary}</span>
                     )}
                     <span
-                      className={`ml-auto min-w-0 shrink truncate text-xs ${on.length === 1 ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'}`}
+                      className={`ml-auto min-w-0 shrink truncate text-xs ${on.length === 1 && warned.length === 0 ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'}`}
                     >
+                      {warned.length > 0 && <span aria-label="물성 경고">⚠ </span>}
                       {material}
                     </span>
                   </button>
@@ -291,6 +308,11 @@ export function ModelTree({
                 >
                   <Swatch color={materialColor(index)} />
                   <span className="min-w-0 truncate">{nameOf(material)}</span>
+                  {problems[index].length > 0 && (
+                    <span className="shrink-0 text-xs text-amber-700 dark:text-amber-400" aria-label="물성 경고" title={problems[index].join(' · ')}>
+                      ⚠
+                    </span>
+                  )}
                   <span className="text-muted-foreground ml-auto shrink-0 text-xs">
                     {where.includes(ALL_BODIES) && !single ? '전체 파트' : `파트 ${where.length}`}
                     {고른덱.length > 0 && ` · 덱 ${고른덱.length}`}
@@ -299,7 +321,27 @@ export function ModelTree({
                 {open && (
                   <div className="mt-1 mb-2 ml-4 space-y-2 border-l pl-3 text-xs">
                     <p className="text-muted-foreground">{[ref.code, ref.source].filter(Boolean).join(' · ')}</p>
-                    <p className="text-muted-foreground">값은 물성 플랫폼이 제공한 그대로 전달됩니다.</p>
+                    {/*
+                      **무엇이 실리는지 본다** — 내보낼 단위계로 바꾼 값. 원본(payload)도 함께 나간다. 고를 때만
+                      보이면 담은 뒤에 탄성계수가 빠진 것을 알 길이 없다.
+                    */}
+                    <div className="space-y-1" aria-label={`${nameOf(material)} 물성값`}>
+                      <p className="text-muted-foreground">내보낼 단위계로 변환한 값입니다. 원본 값도 함께 전달됩니다.</p>
+                      {convertedError ? (
+                        <p className="text-amber-700 dark:text-amber-400">물성값을 불러오지 못했습니다: {convertedError.message}</p>
+                      ) : converted === null ? (
+                        <Skeleton className="h-12 w-full" />
+                      ) : converted[index] ? (
+                        <MaterialProperties converted={converted[index]} />
+                      ) : (
+                        <p className="text-amber-700 dark:text-amber-400">⚠ 물성값이 없습니다. 물성을 다시 선택하십시오.</p>
+                      )}
+                      {!dictionary && (
+                        <p className="text-amber-700 dark:text-amber-400">
+                          ⚠ 물성 사전을 받지 못해 등록 재료의 항목에 표준 열쇠가 없습니다. 해석 쪽이 탄성계수 등을 알아보지 못할 수 있습니다. MatNexus 연결을 확인하십시오.
+                        </p>
+                      )}
+                    </div>
                     <p>
                       <span className="text-muted-foreground">적용 파트 </span>
                       {where.length === 0 ? '없음. 파트 목록에서 지정하십시오.' : where.join(', ')}

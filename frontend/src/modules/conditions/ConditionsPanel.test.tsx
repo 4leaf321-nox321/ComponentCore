@@ -224,6 +224,33 @@ MATERIALS.items.push({
   grade: '6061-T6',
 })
 
+/** 서버가 내보낼 단위계로 바꾼 값(`/materials/converted`) — 화면은 그리기만 한다. */
+const FULL = {
+  system: 'mm_n_tonne',
+  density: 7.85e-9,
+  density_unit: 'tonne/mm3',
+  poisson_ratio: 0.3,
+  properties: [
+    {
+      item: '탄성계수',
+      key: 'mechanical.youngs_modulus',
+      unit: 'MPa',
+      points: [
+        { temperature_C: 22, value: 206000 },
+        { temperature_C: 400, value: 170000 },
+      ],
+    },
+  ],
+}
+const NO_MODULUS = {
+  system: 'mm_n_tonne',
+  density: 2.7e-9,
+  density_unit: 'tonne/mm3',
+  poisson_ratio: 0.33,
+  properties: [{ item: '비열', unit: 'mJ/(tonne.K)', points: [{ temperature_C: null, value: 9e8 }] }],
+  missing_structural: ['탄성계수'],
+}
+
 /** 쪽(族) · 갈래 — 탐색기가 좁혀 들어갈 두 칸. 개수는 그쪽이 세어 준다. */
 const CLASSES = { fallback: false, items: [{ family: '강판', category: '냉연', count: 1 }] }
 
@@ -251,6 +278,11 @@ vi.mock('@/shared/api/client', async () => {
       // 바디 목록과 셀렉터 후보는 **다른 길**이다 — 물성이 어디에 붙는지가 바디에서 나온다.
       post: vi.fn(async (path: string, body?: { pick?: { point?: number[] }; picks?: { point: number[] }[] }) => {
         if (path.startsWith('/cad/recipe/bodies')) return BODIES
+        // 담아 둔 물성의 내보낼 값 — 첫째는 다 있고, 둘째는 탄성계수가 빠졌다(트리가 ⚠ 로 알린다).
+        if (path.startsWith('/materials/converted')) {
+          const { payloads } = body as unknown as { payloads: unknown[] }
+          return { system: 'mm_n_tonne', dictionary: true, items: payloads.map((_, index) => (index === 0 ? FULL : NO_MODULUS)) }
+        }
         // 좌표계 — 서버가 지금 치수로 푼 축(화면은 그리기만 한다).
         if (path.startsWith('/cad/conditions/frames')) return { items: [], missing: [] }
         // 식 알림 — 풀리지 않는 식만(서버가 헤아린다).
@@ -552,6 +584,40 @@ test('여러 물성을 한 번에 담고, **트리에서 파트를 누르며** �
 
   const saved = await save(onSave)
   expect(saved.materials.map((one: { apply_to: string[] }) => one.apply_to)).toEqual([['바닥판'], ['기둥']])
+})
+
+test('트리에서 물성을 펼치면 **내보낼 값**이 보이고, 탄성계수가 빠진 물성은 ⚠ 로 알린다', async () => {
+  const calls = vi.mocked((await import('@/shared/api/client')).api.post)
+  calls.mockClear() // 앞 시험이 남긴 호출은 지운다(구현은 그대로)
+  await panel()
+  await openPicker()
+  fireEvent.click(screen.getByRole('checkbox', { name: '냉연강판 선택' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: '알루미늄 6061 선택' }))
+  fireEvent.click(screen.getByRole('button', { name: '물성 추가 (2)' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
+  // 담아 둔 payload 를 내보낼 단위계로 — MatNexus 에 다시 묻지 않는다.
+  await waitFor(() => expect(calls.mock.calls.some(([path]) => path === '/materials/converted')).toBe(true))
+  const asked = [...calls.mock.calls].reverse().find(([path]) => path === '/materials/converted')![1] as { payloads: { code: string }[]; system: string }
+  expect(asked.system).toBe('mm_n_tonne')
+  expect(asked.payloads.map((one) => one.code)).toEqual(['M-000123', 'M-000123'])
+
+  // 펼치지 않아도 ⚠ — 탄성계수가 빠진 물성(둘째)에만.
+  const aluminium = await screen.findByTitle('AL6061-T6')
+  await waitFor(() => expect(aluminium).toHaveTextContent('⚠'))
+  expect(screen.getByTitle('SPCC 1.2t')).not.toHaveTextContent('⚠')
+
+  fireEvent.click(screen.getByTitle('SPCC 1.2t'))
+  const steel = await screen.findByLabelText('SPCC 1.2t 물성값')
+  expect(steel).toHaveTextContent('7.8500e-9 tonne/mm3')
+  expect(steel).toHaveTextContent('22 °C 206000 MPa · 400 °C 170000 MPa')
+  expect(steel).toHaveTextContent('✓ 탄성계수, 푸아송비, 밀도가 모두 있습니다.')
+
+  fireEvent.click(aluminium)
+  const bare = await screen.findByLabelText('AL6061-T6 물성값')
+  expect(bare).toHaveTextContent('⚠ 구조 해석에 필요한 항목 누락: 탄성계수')
+  // 표준 열쇠가 없는 줄은 받는 쪽이 이름으로만 짐작한다.
+  expect(bare).toHaveTextContent('열쇠 없음')
 })
 
 test('파트 하나에는 물성 하나 — 다른 물성을 고르면 먼저 것에서 빠진다', async () => {

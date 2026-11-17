@@ -407,3 +407,50 @@ def test_문헌은_사본이_없으니_못_닿으면_빈손으로_말한다(
     assert got.json()["items"] == []
     assert got.json()["fallback"] is True
     assert "문헌 물성은 MatNexus에서만" in got.json()["detail"]
+
+
+def test_담아_둔_재료를_내보낼_계로_환산해_보인다(
+    client: TestClient, member: Signed, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """트리에서 「이 재료에 무엇이 있나」 — MatNexus 에 다시 묻지 않고 **담아 둔 payload** 를
+    내보낼 때와 같은 함수로 환산한다(2026-11-17)."""
+    from pathlib import Path
+
+    fixtures = Path(__file__).parents[1] / "fixtures" / "matnexus"
+    keys = json.loads((fixtures / "property_keys.json").read_text(encoding="utf-8"))
+    monkeypatch.setattr(matnexus, "property_keys", lambda: keys)
+    secc = json.loads((fixtures / "M-000138.json").read_text(encoding="utf-8"))["payload"]
+    bare = {"density": 2700.0, "density_unit": "kg/m3", "declared_properties": []}
+    got = client.post(
+        "/api/materials/converted",
+        json={"payloads": [secc, bare, {}], "system": "mm_n_tonne"},
+        headers=member.headers,
+    )
+    assert got.status_code == 200, got.text
+    body = got.json()
+    assert body["dictionary"] is True and body["system"] == "mm_n_tonne"
+    first, second, third = body["items"]
+    (E,) = [
+        one for one in first["properties"] if one.get("key") == "mechanical.youngs_modulus"
+    ]
+    assert (E["points"][0]["value"], E["unit"]) == (205000.0, "MPa")
+    assert first["density"] == pytest.approx(7.85e-9)
+    assert second["missing_structural"] == ["탄성계수", "푸아송비"]
+    assert third is None, "빈 payload 는 환산하지 않는다"
+
+    # 사전을 못 받으면 그렇다고 말한다 — 등록 재료의 줄에 표준 열쇠가 안 붙는다.
+    monkeypatch.setattr(matnexus, "property_keys", lambda: {})
+    blind = client.post(
+        "/api/materials/converted",
+        json={"payloads": [secc], "system": "si"},
+        headers=member.headers,
+    ).json()
+    assert blind["dictionary"] is False
+    assert "탄성계수" in blind["items"][0]["missing_structural"]
+
+    wrong = client.post(
+        "/api/materials/converted",
+        json={"payloads": [secc], "system": "furlong"},
+        headers=member.headers,
+    )
+    assert wrong.status_code == 400 and "MATERIALS-0008" in wrong.text

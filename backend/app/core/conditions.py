@@ -1911,6 +1911,19 @@ def _points_of(one: dict[str, Any]) -> list[dict[str, Any]]:
     return [p for p in (one.get("points") or []) if isinstance(p, dict)]
 
 
+def _celsius(point: dict[str, Any]) -> float | None:
+    """물성 점의 온도(°C). **MatNexus 는 켈빈으로 준다**(`temperature_k`) — 그것을 안 읽어
+    온도별 값이 모두 「온도 없음」 으로 나가, 받는 쪽이 여러 값 중 아무것이나 고를 수 있었다
+    (2026-11-17). `temperature_C` 가 있으면 그것."""
+    celsius = point.get("temperature_C")
+    if isinstance(celsius, int | float):
+        return float(celsius)
+    kelvin = point.get("temperature_k")
+    if isinstance(kelvin, int | float):
+        return round(float(kelvin) - 273.15, 6)
+    return None
+
+
 #: **선형 탄성 해석이 필요로 하는 것.** 이 셋이 없으면 해석은 기본값(구조용 강)으로 풀고,
 #: 그 사실은 고유진동수가 틀린 뒤에야 드러난다 — 고를 때 말해 주는 편이 낫다.
 STRUCTURAL_KEYS: dict[str, str] = {
@@ -2018,7 +2031,7 @@ def converted_material(
         _, unit_name, ok = unit_systems.convert(1.0, unit, system)
         points = [
             {
-                "temperature_C": point.get("temperature_C"),
+                "temperature_C": _celsius(point),
                 "value": unit_systems.convert(float(point["value_si"]), unit, system)[0],
             }
             for point in _points_of(one)
@@ -2067,6 +2080,35 @@ def converted_material(
         if 빠진것:
             made["missing_structural"] = 빠진것
     return made
+
+
+def material_warnings(resolved: dict[str, Any] | None) -> list[str]:
+    """풀린 조건의 재료 중 **그대로 풀면 틀리는 것** — 내보낸 점의 경고(manifest `warnings`).
+
+    - 구조 해석인데 탄성계수 · 푸아송비 · 밀도가 빠졌다(`missing_structural`). 받는 쪽이
+      재료를 거절하거나 기본값(구조용 강)으로 풀고, 그것은 고유진동수가 틀린 뒤에야 드러난다.
+      고를 때만 말하고 그 뒤에는 조용했다(2026-11-17).
+    - 단위를 못 바꾼 물성(`unconverted`) — 값이 원래 단위 그대로라 계가 섞인다.
+
+    파트에 붙지 않은 재료는 내보내도 쓰이지 않으므로 뺀다. 열 해석은 탄성계수가 필요 없다."""
+    if not isinstance(resolved, dict):
+        return []
+    structural = (resolved.get("analysis") or {}).get("type") != "thermal"
+    out: list[str] = []
+    for one in resolved.get("materials") or []:
+        if not isinstance(one, dict) or not one.get("apply_to"):
+            continue
+        converted = one.get("converted") or {}
+        ref = one.get("ref") or {}
+        name = str(ref.get("name") or ref.get("code") or "이름 없음")
+        missing = converted.get("missing_structural") or []
+        if structural and missing:
+            out.append(f"재료 ‘{name}’: {', '.join(missing)} 없음 — 구조 해석에 필요합니다")
+        if converted.get("unconverted"):
+            out.append(
+                f"재료 ‘{name}’: 단위를 바꾸지 못한 물성 {', '.join(converted['unconverted'])}"
+            )
+    return out
 
 
 def _with_converted(

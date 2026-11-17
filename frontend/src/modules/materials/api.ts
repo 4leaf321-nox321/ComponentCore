@@ -79,7 +79,22 @@ export interface MaterialRow {
   }
 }
 
+/** 내보낼 단위계로 바꾼 재료 한 벌 — 서버 `conditions.converted_material`. */
+export type MaterialConverted = NonNullable<MaterialRow['converted']>
+
+/** 담아 둔 재료들의 환산 — `dictionary` 가 거짓이면 물성 사전을 못 받아 등록 재료에 표준 열쇠가 없다. */
+export interface ConvertedMaterials {
+  system: string
+  dictionary: boolean
+  items: (MaterialConverted | null)[]
+}
+
 export const materialsApi = {
+  /**
+   * 조건에 **담아 둔** 재료(payload)를 내보낼 단위계로 — 내보낼 때와 같은 함수다. MatNexus 에 다시 묻지
+   * 않는다(내보내는 것은 담아 둔 payload 이므로 그것을 보여야 한다).
+   */
+  converted: (payloads: Record<string, unknown>[], system: string) => api.post<ConvertedMaterials>('/materials/converted', { payloads, system }),
   /**
    * 물성 찾기 — **서버가 중계한다**(그쪽 CORS 는 자기 주소만 허용하고, 토큰이 화면에
    * 나가면 안 된다). 못 닿으면 `fallback` 이 참이고 `detail` 에 까닭이 온다.

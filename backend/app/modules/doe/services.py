@@ -2222,6 +2222,8 @@ def _point_warnings(geometry: dict[str, Any] | None) -> list[str]:
         )
     # 받는 쪽은 단면이 바디를 안 지나는 바디 예압을 막는다(SimEngBay, 2026-10-28).
     found.extend((geometry or {}).get("pretension_misses") or [])
+    # 탄성계수가 빠진 재료 · 단위를 못 바꾼 물성(2026-11-17).
+    found.extend((geometry or {}).get("materials") or [])
     return found
 
 
@@ -2754,6 +2756,11 @@ def run_job(
                             "mid_error": mid_error or None,
                             "unmaterialed": bare or None,
                             "pretension_misses": misses or None,
+                            # 재료 — 구조 물성이 빠졌거나 단위를 못 바꾼 것.
+                            "materials": condition_model.material_warnings(
+                                topo.get("conditions")
+                            )
+                            or None,
                         }
                         made += 1
                         rows.append(
