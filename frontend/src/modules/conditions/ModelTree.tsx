@@ -14,7 +14,7 @@
  */
 
 import { ChevronDownIcon, ChevronRightIcon, Eye, EyeOff } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { ALL_BODIES, appliedTo, hasCoordinateOnlyRule, materialsOn, settingOf } from '@/modules/conditions/api'
 import type { Body, BodySetting, ConditionItem, MaterialItem, NamedSelection } from '@/modules/conditions/api'
@@ -162,6 +162,14 @@ export function ModelTree({
   onShowAll?: () => void
 }) {
   const single = bodies?.length === 1 && bodies[0].name === ALL_BODIES
+  /** 고른 파트를 **보이는 자리로** — 3D 에서 바디를 누르면 트리가 그 줄까지 내려간다(긴 조립). */
+  const partsRef = useRef<HTMLUListElement>(null)
+  const pickedPart = selected?.kind === 'part' ? selected.name : null
+  useEffect(() => {
+    if (!pickedPart) return
+    const row = [...(partsRef.current?.querySelectorAll<HTMLElement>('[data-part]') ?? [])].find((one) => one.dataset.part === pickedPart)
+    row?.scrollIntoView?.({ block: 'nearest' })
+  }, [pickedPart])
   /** 물성마다 「그대로 풀면 틀리는 것」 — 파트 줄 · 물성 줄의 ⚠ 와 툴팁. */
   const problems = materials.map((_, index) => materialProblems(converted?.[index]))
 
@@ -176,7 +184,7 @@ export function ModelTree({
             파트 목록을 불러오지 못했습니다. ‘도면’ 탭에서 도면을 확인하십시오.
           </p>
         )}
-        <ul className="space-y-0.5">
+        <ul ref={partsRef} className="space-y-0.5" aria-label="파트 목록">
           {(bodies ?? []).map((body) => {
             const on = materialsOn(materials, body.name)
             const open = selected?.kind === 'part' && selected.name === body.name
@@ -185,8 +193,9 @@ export function ModelTree({
             const warned = on.length === 1 ? problems[on[0]] : []
             const isHidden = hidden.includes(body.name)
             return (
-              <li key={body.name}>
-                <div className="flex items-center gap-0.5">
+              <li key={body.name} data-part={body.name}>
+                {/* 고른 파트는 테두리까지 — 3D 에서 바디를 누르면 어느 줄인지 바로 보이고, 옆의 눈 단추로 숨긴다. */}
+                <div className={`flex items-center gap-0.5 rounded ${open ? 'ring-primary/50 bg-primary/5 ring-1' : ''}`}>
                   {/* **이름이 먼저다** — 설정 · 물성 이름이 먼저 줄고, 다 보려면 툴팁(줄 전체). */}
                   <button
                     type="button"

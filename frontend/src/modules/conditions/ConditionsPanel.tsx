@@ -1324,7 +1324,12 @@ export function ConditionsPanel({
                   setPlacing(null)
                   return
                 }
-                if (!measuring) return void ask(pick, mods)
+                if (!measuring) {
+                  // 바디를 누르면 왼쪽 트리에서도 그 파트를 고른다 — 줄이 밝아지고 펼쳐져, 그 자리의 눈 단추로
+                  // 바로 숨긴다(2026-11-17, 사용자 요청).
+                  if (pick.kind === 'body') setTree({ kind: 'part', name: pick.name })
+                  return void ask(pick, mods)
+                }
                 if (pick.kind === 'body') return
                 setMeasures((now) => (now.length >= 3 ? [pick] : [...now, pick]))
               }}

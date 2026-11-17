@@ -21,6 +21,7 @@ import { labelCenter, rulerSide, spreadLabels } from '@/shared/viewer/labelPlace
 import type { LabelBox } from '@/shared/viewer/labelPlace'
 import type { ScreenPoint, ScreenRect } from '@/shared/viewer/boxSelect'
 import { useTabActive } from '@/shared/layout/tabActive'
+import { addLighting } from '@/shared/viewer/lighting'
 
 export interface MeshFace {
   index: number
@@ -488,10 +489,8 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     // 단면 — 재질마다 절단 평면을 건다(`section`).
     renderer.localClippingEnabled = true
     mountCanvas(container, renderer.domElement)
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2))
-    const sun = new THREE.DirectionalLight(0xffffff, 1.5)
-    sun.position.set(1, 2, 3)
-    scene.add(sun)
+    // 어느 방향에서 봐도 보이게 — 머리 조명이 카메라를 따라간다(`lighting.ts`).
+    const lighting = addLighting(scene)
     const rig = new CameraRig(renderer.domElement)
     const controls = rig.controls
     const group = new THREE.Group()
@@ -573,7 +572,9 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
           if (onDot) return onDot
         }
         const onEdge = kinds.edge ? first(raycaster.intersectObjects(s.edges, false)) : undefined
-        const onFace = kinds.face ? first(raycaster.intersectObjects(s.faces, false)) : undefined
+        // **바디도 면으로 고른다** — 면 고르기를 끈 바디 고르기에서 면을 안 쏘아, 3D 에서 바디를 누르면
+        // 아무것도 안 잡혔다(2026-11-17 실측 — 시험은 뷰어를 흉내 내 몰랐다).
+        const onFace = kinds.face || kinds.body ? first(raycaster.intersectObjects(s.faces, false)) : undefined
         if (onEdge && onFace) return onEdge.distance <= onFace.distance + size / 50 ? onEdge : onFace
         return onEdge ?? onFace ?? null
       }
@@ -842,6 +843,7 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
       const gizmo = state.current?.gizmo
       if (gizmo && gizmo.camera !== rig.camera) gizmo.camera = rig.camera // 투시 ↔ 정사영을 바꿔도 손잡이가 따라온다
       placeLabels(marks, rig.camera, renderer.domElement.clientWidth, renderer.domElement.clientHeight)
+      lighting.follow(rig.camera, rig.target)
       renderer.render(scene, rig.camera)
     }
     animate()

@@ -14,6 +14,8 @@ import { CameraRig } from '@/shared/viewer/cameraRig'
 import type { MeshData } from '@/shared/viewer/PickViewer'
 import { ViewerToolbar } from '@/shared/viewer/ViewerToolbar'
 import { mountCanvas } from '@/shared/viewer/canvas'
+import { addLighting } from '@/shared/viewer/lighting'
+import type { Lighting } from '@/shared/viewer/lighting'
 
 export interface GridItem {
   key: string
@@ -31,10 +33,8 @@ const EDGE_COLOR = 0x1f2937
 function sceneOf(mesh: MeshData, color: number, background: THREE.Color): THREE.Scene {
   const scene = new THREE.Scene()
   scene.background = background
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2))
-  const sun = new THREE.DirectionalLight(0xffffff, 1.5)
-  sun.position.set(1, 2, 3)
-  scene.add(sun)
+  // 어느 방향에서 봐도 보이게 — 머리 조명이 카메라를 따라간다(`lighting.ts`). 칸마다 장면이라 장면에 둔다.
+  scene.userData.lighting = addLighting(scene)
   const group = new THREE.Group()
   group.rotation.x = -Math.PI / 2 // CAD Z-up → three Y-up
   scene.add(group)
@@ -126,6 +126,7 @@ export function GridViewer({ items, columns, cellClass, className }: { items: Gr
         renderer.setViewport(left, bottom, w, h)
         renderer.setScissor(left, bottom, w, h)
         rig.setAspect(w / h)
+        ;(scene.userData.lighting as Lighting | undefined)?.follow(rig.camera, rig.target)
         renderer.render(scene, rig.camera)
       }
     }

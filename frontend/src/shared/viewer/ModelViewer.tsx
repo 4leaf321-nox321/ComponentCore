@@ -15,6 +15,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { CameraRig } from '@/shared/viewer/cameraRig'
 import { ViewerToolbar } from '@/shared/viewer/ViewerToolbar'
 import { mountCanvas } from '@/shared/viewer/canvas'
+import { addLighting } from '@/shared/viewer/lighting'
 
 export interface ViewerModel {
   /** Blob URL 또는 내려받을 수 있는 주소. */
@@ -40,10 +41,8 @@ export function ModelViewer({ models, className }: { models: ViewerModel[]; clas
     renderer.setPixelRatio(window.devicePixelRatio)
     mountCanvas(container, renderer.domElement)
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2))
-    const sun = new THREE.DirectionalLight(0xffffff, 1.5)
-    sun.position.set(1, 2, 3)
-    scene.add(sun)
+    // 어느 방향에서 봐도 보이게 — 머리 조명이 카메라를 따라간다(`lighting.ts`).
+    const lighting = addLighting(scene)
 
     const rig = new CameraRig(renderer.domElement)
     rigRef.current = rig
@@ -119,6 +118,7 @@ export function ModelViewer({ models, className }: { models: ViewerModel[]; clas
     function animate() {
       frame = requestAnimationFrame(animate)
       controls.update()
+      lighting.follow(rig.camera, rig.target)
       renderer.render(scene, rig.camera)
     }
     animate()

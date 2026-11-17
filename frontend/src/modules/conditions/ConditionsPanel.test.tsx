@@ -929,6 +929,32 @@ test('파트마다 숨기기 · 보이기 — 3D 에서 빼고, 트리에 표시
   expect(lastHidden).toEqual([])
 })
 
+test('3D 에서 바디를 누르면 트리에서 그 파트가 밝아지고, 그 자리의 눈 단추로 숨긴다', async () => {
+  const scrolled: string[] = []
+  const before = Element.prototype.scrollIntoView
+  Element.prototype.scrollIntoView = function (this: Element) {
+    scrolled.push((this as HTMLElement).dataset.part ?? '')
+  }
+  try {
+    await panel()
+    await waitFor(() => screen.getByRole('button', { name: '숨기기: 기둥' }))
+    fireEvent.click(screen.getByRole('button', { name: '바디' }))
+    fireEvent.click(screen.getByText('바디 찍기'))
+    // 그 파트 줄이 펼쳐지고(밝아지고) 보이는 자리로 내려간다 — 3D 에서도 그 파트만 또렷하다.
+    await waitFor(() => expect(screen.getByRole('button', { name: /^기둥/, expanded: true })).toBeInTheDocument())
+    expect(scrolled).toContain('기둥')
+    expect(lastEmphasis).toBe('기둥')
+    const row = within(screen.getByRole('list', { name: '파트 목록' }))
+      .getAllByRole('listitem')
+      .find((one) => one.dataset.part === '기둥')!
+    // 그 줄의 눈 단추로 바로 숨긴다.
+    fireEvent.click(within(row).getByRole('button', { name: '숨기기: 기둥' }))
+    expect(lastHidden).toEqual(['기둥'])
+  } finally {
+    Element.prototype.scrollIntoView = before
+  }
+})
+
 test('트리의 줄은 이름이 먼저 — 다 보려면 툴팁(이름 · 설정 · 물성, 조건은 이름 — 대상)', async () => {
   const face = (name: string, z: number) => ({ name, entity: 'face', select: { what: 'faces', normal: [0, 0, z] } })
   const value = {
