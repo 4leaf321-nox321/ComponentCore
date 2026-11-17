@@ -133,3 +133,18 @@ def test_단위를_못_바꾼_물성도_경고한다() -> None:
     }
     (warning,) = conditions.material_warnings(_resolved(odd))
     assert warning == "재료 ‘시험재’: 단위를 바꾸지 못한 물성 열전도율(BTU/(h.ft.F))"
+
+
+def test_환경_온도는_하나_물성의_온도별_값을_고르는_기준이다() -> None:
+    """받는 쪽(SimEngBay)은 온도별 물성에서 환경 온도(없으면 22 °C)에 가장 가까운 점 하나를
+    쓴다 — 둘이면 어느 것을 기준으로 할지 모른다."""
+    one = {"type": "environment_temperature", "value": 85}
+    conditions.parse({"initial": [one]})
+    with pytest.raises(conditions.ConditionError, match="환경 온도가 2개"):
+        conditions.parse({"initial": [one, {**one, "value": 22}]})
+    # 설계점마다 바꿀 수 있다 — 식으로 적으면 풀린 값이 그 점의 기준 온도.
+    resolved = conditions.resolve(
+        {"initial": [{**one, "value": "=시험_온도"}]}, {"시험_온도": 60.0}
+    )
+    assert resolved["initial"][0]["value"] == 60.0
+    assert "가장 가까운 값" in conditions.INITIAL_NOTES["environment_temperature"]

@@ -92,6 +92,7 @@ export function ModelTree({
   converted = null,
   convertedError = null,
   dictionary = true,
+  materialTemperature,
   decks,
   names,
   groups,
@@ -127,6 +128,8 @@ export function ModelTree({
   convertedError?: Error | null
   /** 물성 사전을 받았나 — 못 받으면 등록 재료의 줄에 표준 열쇠가 없다. */
   dictionary?: boolean
+  /** 온도별 물성을 고르는 기준(°C) — 초기조건 「환경 온도」, 없으면 22. 식이면 `'formula'`. */
+  materialTemperature?: number | 'formula'
   /** 물성(그쪽 id)마다 생성 가능한 솔버 덱 형식. */
   decks: Record<string, { key: string; ready: boolean }[]>
   selected: TreeSelection
@@ -341,7 +344,7 @@ export function ModelTree({
                       ) : converted === null ? (
                         <Skeleton className="h-12 w-full" />
                       ) : converted[index] ? (
-                        <MaterialProperties converted={converted[index]} />
+                        <MaterialProperties converted={converted[index]} temperature={materialTemperature} />
                       ) : (
                         <p className="text-amber-700 dark:text-amber-400">⚠ 물성값이 없습니다. 물성을 다시 선택하십시오.</p>
                       )}

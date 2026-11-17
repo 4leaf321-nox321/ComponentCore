@@ -30,6 +30,19 @@ export function propertyText(one: Pick<Property, 'unit' | 'points'>): string {
   return points.map((p) => `${p.temperature_C ?? '?'} °C ${show(p.value ?? NaN)} ${unit}`.trim()).join(' · ')
 }
 
+/** 받는 쪽이 온도별 값을 고르는 기준(°C) — 초기조건 「환경 온도」 가 없을 때(Ansys 의 기본값). */
+export const DEFAULT_MATERIAL_TEMPERATURE = 22
+
+/**
+ * 온도별 값 중 **해석에 쓰이는 점** — 기준 온도에 가장 가까운 것(받는 쪽은 보간하지 않는다, SimEngBay
+ * 2026-11-17). 온도가 적힌 점이 둘 이상일 때만 — 아니면 `null`.
+ */
+export function usedPoint(points: Property['points'], temperature: number): number | null {
+  const dated = (points ?? []).map((one, index) => ({ index, at: one.temperature_C })).filter((one): one is { index: number; at: number } => typeof one.at === 'number')
+  if (dated.length < 2) return null
+  return dated.reduce((best, one) => (Math.abs(one.at - temperature) < Math.abs(best.at - temperature) ? one : best)).index
+}
+
 /** 해석에 그대로 넘기면 틀리는 것 — 트리의 ⚠ 표시와 툴팁에 쓴다. 없으면 빈 목록. */
 export function materialProblems(converted: MaterialConverted | null | undefined): string[] {
   if (!converted) return []
@@ -39,8 +52,21 @@ export function materialProblems(converted: MaterialConverted | null | undefined
   return out
 }
 
-export function MaterialProperties({ converted, poisson }: { converted: MaterialConverted | null | undefined; poisson?: number | null }) {
+export function MaterialProperties({
+  converted,
+  poisson,
+  temperature,
+}: {
+  converted: MaterialConverted | null | undefined
+  poisson?: number | null
+  /**
+   * 온도별 값을 고르는 기준 온도(°C) — 주면 해석에 쓰일 점을 표시한다. `'formula'` 면 환경 온도가 식이라 설계점마다
+   * 다르다고만 말한다. 비우면 표시하지 않는다(탐색기).
+   */
+  temperature?: number | 'formula'
+}) {
   const poissonRatio = converted?.poisson_ratio ?? poisson
+  const anyDated = (converted?.properties ?? []).some((one) => (one.points ?? []).filter((p) => typeof p.temperature_C === 'number').length >= 2)
   return (
     <dl className="space-y-2 p-1">
       <div>
@@ -64,7 +90,21 @@ export function MaterialProperties({ converted, poisson }: { converted: Material
               </span>
             )}
           </dt>
-          <dd className="text-sm break-words">{propertyText(one)}</dd>
+          {typeof temperature === 'number' && usedPoint(one.points, temperature) !== null ? (
+            <dd className="text-sm break-words">
+              {/* 해석에 쓰이는 점을 굵게 — 받는 쪽은 기준 온도에 가장 가까운 점 하나를 쓴다(보간 없음). */}
+              {one.points.map((p, at) => (
+                <span key={at}>
+                  {at > 0 && ' · '}
+                  <span className={at === usedPoint(one.points, temperature) ? 'font-semibold underline' : 'text-muted-foreground'} title={at === usedPoint(one.points, temperature) ? '해석에 쓰는 값' : undefined}>
+                    {`${p.temperature_C ?? '?'} °C ${show(p.value ?? NaN)} ${one.unit ?? ''}`.trim()}
+                  </span>
+                </span>
+              ))}
+            </dd>
+          ) : (
+            <dd className="text-sm break-words">{propertyText(one)}</dd>
+          )}
           {/*
             **조건이 값의 일부다.** 「85°C/85%RH 168hr」 에서 잰 흡습률을 상온 값으로 쓰면 틀린다 — 안
             보이면 그것을 알 길이 없다.
@@ -78,6 +118,13 @@ export function MaterialProperties({ converted, poisson }: { converted: Material
           )}
         </div>
       ))}
+      {anyDated && temperature !== undefined && (
+        <p className="text-muted-foreground text-xs">
+          {temperature === 'formula'
+            ? '온도별 값은 환경 온도에 가장 가까운 값으로 계산합니다. 환경 온도가 식이라 설계점마다 다릅니다.'
+            : `온도별 값은 ${temperature} °C(초기조건 ‘환경 온도’, 없으면 ${DEFAULT_MATERIAL_TEMPERATURE} °C)에 가장 가까운 값으로 계산합니다 — 굵게 표시한 값입니다.`}
+        </p>
+      )}
       {/*
         **해석에 바로 쓸 수 있나.** 탄성계수 · 푸아송비 · 밀도 중 빠진 것이 있으면 해석이 기본값(구조용
         강)으로 풀고, 그 사실은 고유진동수가 틀린 뒤에야 드러난다. 문헌 2663건 중 탄성계수를 가진 것은

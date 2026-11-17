@@ -785,7 +785,8 @@ INITIAL_LABELS: dict[str, str] = {
 
 INITIAL_NOTES: dict[str, str] = {
     "environment_temperature": (
-        "모델 전체의 기준 온도로, 열팽창이 0인 온도입니다(일반적으로 22 °C)."
+        "모델 전체의 기준 온도로, 열팽창이 0인 온도입니다(일반적으로 22 °C). 물성에 온도별 "
+        "값이 있으면 이 온도에 가장 가까운 값으로 계산합니다(없으면 22 °C)."
     ),
     "temperature": "선택한 바디의 시작 온도입니다. 과도 열 해석의 초기 상태로 사용합니다.",
     "velocity": (
@@ -1512,6 +1513,13 @@ def parse(
         _check_contact(f"contacts[{index}]", contact)
     for index, initial in enumerate(conditions.initial):
         _check_initial(f"initial[{index}]", initial)
+    # 환경 온도는 모델에 하나 — 물성의 온도별 값을 고르는 기준이기도 해서 둘이면 받는 쪽이
+    # 어느 것을 쓸지 모른다(2026-11-17).
+    environments = [one for one in conditions.initial if one.type == "environment_temperature"]
+    if len(environments) > 1:
+        raise ConditionError(
+            f"환경 온도가 {len(environments)}개입니다. 모델 전체의 기준 온도라 하나만 둡니다."
+        )
     entity_of = {one.name: one.entity for one in conditions.named_selections}
     for index, load in enumerate(conditions.loads):
         _check_load(f"loads[{index}]", load)

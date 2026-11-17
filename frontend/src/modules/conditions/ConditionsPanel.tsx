@@ -100,6 +100,7 @@ import { Skeleton } from '@/shared/components/ui/skeleton'
 import { useResource } from '@/shared/hooks/useResource'
 import type { FrameRow, MeasureMarks, MeasurePick, PickModifiers, Section } from '@/shared/viewer/PickViewer'
 import PickViewer from '@/shared/viewer/PickViewer'
+import { DEFAULT_MATERIAL_TEMPERATURE } from '@/modules/materials/MaterialProperties'
 
 /**
  * 창에서 고치는 조건 하나 — **확인을 눌러야 한 벌에 들어간다.** `index` 가 `null` 이면 새로
@@ -1159,6 +1160,7 @@ export function ConditionsPanel({
               converted={converted.loading ? null : (converted.data?.items ?? null)}
               convertedError={converted.error}
               dictionary={converted.data?.dictionary ?? true}
+              materialTemperature={materialTemperatureOf(draft.initial)}
               decks={deckChoices}
               names={names}
               groups={GROUP_KEYS.map((key) => ({
@@ -1567,3 +1569,16 @@ export function ConditionsPanel({
 }
 
 export type { NamedSelection }
+
+/**
+ * 온도별 물성을 고르는 기준 온도 — 초기조건 「환경 온도」 의 값, 없으면 22 °C(받는 쪽도 같다). 식이면 설계점마다
+ * 다르니 `'formula'`.
+ */
+function materialTemperatureOf(initial: ConditionItem[] | undefined): number | 'formula' {
+  const environment = (initial ?? []).find((one) => one.type === 'environment_temperature')
+  const value = environment?.value
+  if (typeof value === 'number') return value
+  if (typeof value === 'string' && value.trim().startsWith('=')) return 'formula'
+  if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) return Number(value)
+  return DEFAULT_MATERIAL_TEMPERATURE
+}

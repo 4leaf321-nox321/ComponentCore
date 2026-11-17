@@ -611,6 +611,8 @@ test('트리에서 물성을 펼치면 **내보낼 값**이 보이고, 탄성계
   const steel = await screen.findByLabelText('SPCC 1.2t 물성값')
   expect(steel).toHaveTextContent('7.8500e-9 tonne/mm3')
   expect(steel).toHaveTextContent('22 °C 206000 MPa · 400 °C 170000 MPa')
+  // 환경 온도가 없으면 22 °C 기준 — 받는 쪽이 쓰는 값을 굵게.
+  expect(within(steel).getByTitle('해석에 쓰는 값')).toHaveTextContent('22 °C 206000 MPa')
   expect(steel).toHaveTextContent('✓ 탄성계수, 푸아송비, 밀도가 모두 있습니다.')
 
   fireEvent.click(aluminium)
