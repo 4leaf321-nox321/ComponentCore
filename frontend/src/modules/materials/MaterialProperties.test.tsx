@@ -30,8 +30,9 @@ test('기준 온도에 가장 가까운 점 — 온도가 둘 이상 적혔을 �
   expect(usedPoint(points, 22)).toBe(0)
   expect(usedPoint(points, 150)).toBe(1)
   expect(usedPoint(points, 1000)).toBe(2)
-  // 같은 거리면 앞(낮은 온도) 쪽 — 받는 쪽의 규칙과 맞춘다.
+  // 같은 거리면 **낮은 온도** — 받는 쪽(SimEngBay)의 규칙. 표가 내림차순이어도 같다(차례에 기대지 않는다).
   expect(usedPoint(points, 300)).toBe(1)
+  expect(usedPoint([...points].reverse(), 300)).toBe(1) // 400 · 200 · 22 순서에서도 200 °C
   expect(usedPoint(STEEL.properties![1].points, 22)).toBeNull()
 })
 

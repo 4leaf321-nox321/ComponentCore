@@ -34,13 +34,17 @@ export function propertyText(one: Pick<Property, 'unit' | 'points'>): string {
 export const DEFAULT_MATERIAL_TEMPERATURE = 22
 
 /**
- * 온도별 값 중 **해석에 쓰이는 점** — 기준 온도에 가장 가까운 것(받는 쪽은 보간하지 않는다, SimEngBay
- * 2026-11-17). 온도가 적힌 점이 둘 이상일 때만 — 아니면 `null`.
+ * 온도별 값 중 **해석에 쓰이는 점** — 기준 온도에 가장 가까운 것, 같은 거리면 **낮은 온도**(받는 쪽과 같은 규칙,
+ * SimEngBay 2026-11-18 — 보간하지 않는다). 표의 차례에 기대지 않는다(내림차순 표도 있다). 온도가 적힌 점이 둘
+ * 이상일 때만 — 아니면 `null`.
  */
 export function usedPoint(points: Property['points'], temperature: number): number | null {
   const dated = (points ?? []).map((one, index) => ({ index, at: one.temperature_C })).filter((one): one is { index: number; at: number } => typeof one.at === 'number')
   if (dated.length < 2) return null
-  return dated.reduce((best, one) => (Math.abs(one.at - temperature) < Math.abs(best.at - temperature) ? one : best)).index
+  return dated.reduce((best, one) => {
+    const gap = Math.abs(one.at - temperature) - Math.abs(best.at - temperature)
+    return gap < 0 || (gap === 0 && one.at < best.at) ? one : best
+  }).index
 }
 
 /** 해석에 그대로 넘기면 틀리는 것 — 트리의 ⚠ 표시와 툴팁에 쓴다. 없으면 빈 목록. */
