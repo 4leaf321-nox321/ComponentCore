@@ -2462,7 +2462,7 @@ async def list_test_presets(ctx: Context, test: str = "") -> Any:
     - 제품에 건다(`apply_product_test`): `force` 정하중 · `directed` 방향 하중(코드 당김 ·
       커넥터 렌칭) · `handle` 손잡이·벽걸이 · `crush` 압착 · `compression` 적층 압축 ·
       `pressure` 수압 · `torsion` 비틀림 · `acceleration` 등가 정적 가속도(충격 근사) ·
-      `vibration` 정현파 진동 · `modal` 고유진동수
+      `vibration` 정현파 진동 · `random` 랜덤 진동(가속도 PSD) · `modal` 고유진동수
 
     프리셋마다 시편 치수(`specimen`) 또는 시험 설정(`setup`), 해석 기본값(`analysis`),
     출처(`source`). `verified=false` 면 규격서와 아직 대조하지 않은 값이다 — 사용자에게
@@ -2583,14 +2583,15 @@ async def apply_product_test(
 ) -> Any:
     """**제품에 시험 규격을 건다** — 정하중(`force`) · 방향 하중(`directed`) · 손잡이·
     벽걸이(`handle`) · 압착(`crush`) · 적층 압축(`compression`) · 수압(`pressure`) ·
-    비틀림(`torsion`) · 등가 가속도(`acceleration`) · 정현파 진동(`vibration`) ·
-    고유진동수(`modal`). `source` 는 `work:<내 부품 작업 id>` 또는 `part:<공용 부품 id>`. 제품
-    레시피를 그대로 쓴 **새 내 작업**이 생기고, 제품의 물성 · 접촉 · 파트별 설정은 그대로,
-    구속 · 하중 · 해석 설정은 시험의 것이 붙는다.
+    비틀림(`torsion`) · 등가 가속도(`acceleration`) · 정현파 진동(`vibration`) · 랜덤
+    진동(`random`) · 고유진동수(`modal`). `source` 는 `work:<내 부품 작업 id>` 또는
+    `part:<공용 부품 id>`. 제품 레시피를 그대로 쓴 **새 내 작업**이 생기고, 제품의 물성 ·
+    접촉 · 파트별 설정은 그대로, 구속 · 하중 · 해석 설정은 시험의 것이 붙는다.
 
     기본 자리: 받침은 아랫면(-Z), 정하중은 윗면(+Z)의 (`x`, `y`)(비우면 가운데)를 원으로
     누르고, 압축 · 압착은 윗면 전체, 수압은 모든 면, 비틀림은 `axis`(비우면 가장 긴 축)의
-    양 끝 면. 진동 · 등가 가속도는 `axis`(비우면 z) 한 축 — 다른 축은 다시 부른다.
+    양 끝 면. 진동(정현파 · 랜덤) · 등가 가속도는 `axis`(비우면 z) 한 축 — 다른 축은 다시
+    부른다.
 
     `faces` 로 면을 고른다 — `{"support": [...], "load": [...], "twist": [...]}`, 한 면은
     `{"point": [x, y, z], "normal": [nx, ny, nz], "kind": "plane"}`(면 위의 점 · 법선 ·

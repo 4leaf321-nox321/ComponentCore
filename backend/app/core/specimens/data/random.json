@@ -1,0 +1,58 @@
+[
+  {
+    "id": "iec-60068-2-64-example-6g",
+    "test": "random",
+    "standard": "IEC 60068-2-64",
+    "name": "IEC 60068-2-64 꼴 예시 20~2000 Hz, 6.06 Grms",
+    "setup": {
+      "psd": [
+        [
+          20,
+          0.01
+        ],
+        [
+          80,
+          0.04
+        ],
+        [
+          350,
+          0.04
+        ],
+        [
+          2000,
+          0.007
+        ]
+      ],
+      "grms": 6.06,
+      "damping_ratio": 0.02,
+      "modes": 40
+    },
+    "source": "IEC 60068-2-64의 시험 프로파일 꼴(20~80 Hz +3 dB/oct, 80~350 Hz 평탄 0.04 g²/Hz, 350~2000 Hz -3 dB/oct)을 따른 예시값 — 규격의 심각도 표 값이 아니다",
+    "verified": false,
+    "note": "예시값입니다. 사내 규격으로 복사해 시험 사양서의 PSD 표를 넣으십시오."
+  },
+  {
+    "id": "iec-60068-2-64-flat-example",
+    "test": "random",
+    "standard": "IEC 60068-2-64",
+    "name": "IEC 60068-2-64 평탄 예시 10~500 Hz, 0.02 g²/Hz",
+    "setup": {
+      "psd": [
+        [
+          10,
+          0.02
+        ],
+        [
+          500,
+          0.02
+        ]
+      ],
+      "grms": 3.13,
+      "damping_ratio": 0.02,
+      "modes": 20
+    },
+    "source": "IEC 60068-2-64의 평탄한 PSD 꼴을 따른 예시값 — Grms = √(0.02 x 490) = 3.13 g",
+    "verified": false,
+    "note": "예시값입니다. 사내 규격으로 복사해 시험 사양서의 PSD 표를 넣으십시오."
+  }
+]

@@ -51,10 +51,19 @@ export interface ForcePreset extends PresetCommon {
   analysis: { large_deflection: boolean }
 }
 
-/** 정현파 진동 프리셋(IEC 60068-2-6) — 아랫면을 고정하고 한 축으로 가속도를 준다. */
+/**
+ * 정현파 진동 프리셋(IEC 60068-2-6) — 아랫면을 고정하고 한 축으로 주파수를 훑는다. 교차 주파수
+ * `√(가속도 / 변위) / 2π` 아래는 변위 진폭, 위는 가속도 진폭이 일정하다(변위를 비우면 가속도만).
+ */
 export interface VibrationPreset extends PresetCommon {
   test: 'vibration'
-  setup: { freq_min: number; freq_max: number; acceleration_g: number; damping_ratio: number; modes: number; points: number }
+  setup: { freq_min: number; freq_max: number; acceleration_g: number; displacement_mm?: number | null; damping_ratio: number; modes: number; points: number }
+}
+
+/** 랜덤 진동 프리셋(IEC 60068-2-64 · ASTM D4169) — 아랫면을 고정하고 한 축으로 가속도 PSD(`[Hz, g²/Hz]`)를 준다. */
+export interface RandomPreset extends PresetCommon {
+  test: 'random'
+  setup: { psd: [number, number][]; grms?: number | null; damping_ratio: number; modes: number }
 }
 
 /** 인장 프리셋(ASTM E8 · D638 · D3039, ISO 527) — 도그본은 평행부 · 반지름이 있고 띠는 없다. */
@@ -188,6 +197,7 @@ export type AnyPreset =
   | TorsionPreset
   | AccelerationPreset
   | VibrationPreset
+  | RandomPreset
   | ModalPreset
 export type TestKey = AnyPreset['test']
 /** 저장할 프리셋 — id 는 서버가 정한다. 종류마다 나눠 뺀다(합친 타입에 Omit 을 걸면 공통 칸만 남는다). */
@@ -195,7 +205,7 @@ export type NewPreset<P extends AnyPreset = AnyPreset> = P extends AnyPreset ? O
 /** 시편을 그리는 시험. */
 export type SpecimenPreset = BendingPreset | CouponPreset
 /** 제품에 거는 시험 — 시편을 그리지 않는다. */
-export type ProductPreset = ForcePreset | DirectedPreset | HandlePreset | CrushPreset | CompressionPreset | PressurePreset | TorsionPreset | AccelerationPreset | VibrationPreset | ModalPreset
+export type ProductPreset = ForcePreset | DirectedPreset | HandlePreset | CrushPreset | CompressionPreset | PressurePreset | TorsionPreset | AccelerationPreset | VibrationPreset | RandomPreset | ModalPreset
 /** 굽힘이 아닌 시편 — 칸 정의(`kinds.ts`)로 그린다. */
 export type CouponPreset = TensilePreset | CompressivePreset | ShearPreset | LapPreset | FastenerPreset
 
@@ -211,7 +221,7 @@ export interface PresetRow<P extends AnyPreset = AnyPreset> {
 }
 
 /** 제품에 거는 시험의 종류 — 서버 `core.specimens.PRODUCT_TESTS` 와 같다. */
-export const PRODUCT_TESTS: TestKey[] = ['force', 'directed', 'handle', 'crush', 'compression', 'pressure', 'torsion', 'acceleration', 'vibration', 'modal']
+export const PRODUCT_TESTS: TestKey[] = ['force', 'directed', 'handle', 'crush', 'compression', 'pressure', 'torsion', 'acceleration', 'vibration', 'random', 'modal']
 /** 굽힘이 아닌 시편 시험. */
 export const COUPON_TESTS: TestKey[] = ['tensile', 'compressive', 'shear', 'lap', 'fastener']
 
@@ -236,7 +246,7 @@ export interface ProductTestRequest {
   x?: number | null
   y?: number | null
   z?: number | null
-  /** 진동 · 등가 가속도 방향(비우면 Z) · 비틀림 축(비우면 가장 긴 축). */
+  /** 진동(정현파 · 랜덤) · 등가 가속도 방향(비우면 Z) · 비틀림 축(비우면 가장 긴 축). */
   axis?: 'x' | 'y' | 'z' | null
   faces?: Partial<Record<FaceSlot, FacePick[]>>
   /** 제품 무게(kg) — 적층 압축. */
@@ -282,6 +292,7 @@ export const TESTS: { value: TestKey; label: string }[] = [
   { value: 'torsion', label: '비틀림' },
   { value: 'acceleration', label: '등가 가속도' },
   { value: 'vibration', label: '진동' },
+  { value: 'random', label: '랜덤 진동' },
   { value: 'modal', label: '고유진동수' },
 ]
 

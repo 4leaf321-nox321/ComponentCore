@@ -379,6 +379,50 @@ def test_정하중_진동도_사내_규격으로_복사해_쓴다(
     assert first["recipe"]["params"]["시험_하중"] == 300
 
 
+def test_사내_랜덤_진동_규격은_PSD_표를_검사하고_제품에_건다(
+    client: TestClient, member: Signed, admin: Signed
+) -> None:
+    """시험 사양서의 PSD 표를 옮겨 적는 자리 — 적힌 Grms 와 맞지 않으면 저장하지 않는다."""
+    from tests.api.test_works import _plate
+
+    base = dict(
+        _ok(
+            client.get(
+                "/api/specimens/presets/iec-60068-2-64-flat-example", headers=member.headers
+            )
+        )["preset"]
+    )
+    assert base["setup"]["psd"] == [[10, 0.02], [500, 0.02]], "JSON 에서도 [주파수, 값] 행"
+    base.pop("id")
+    spec = [[20, 0.01], [80, 0.04], [350, 0.04], [2000, 0.007]]
+    typo = {**base, "name": "사내 랜덤", "setup": {**base["setup"], "psd": spec, "grms": 7.7}}
+    bad = client.post("/api/specimens/presets", json={"preset": typo}, headers=admin.headers)
+    assert bad.status_code == 400
+    assert "Grms" in " ".join(bad.json()["error"]["details"]["problems"])
+    fixed = {**typo, "setup": {**typo["setup"], "grms": 6.06}}
+    made = _ok(
+        client.post("/api/specimens/presets", json={"preset": fixed}, headers=admin.headers)
+    )
+    assert made["test"] == "random"
+
+    product = _work(client, member, _plate(client, member))
+    work = _ok(
+        client.post(
+            "/api/specimens/product-tests",
+            json={"preset_id": made["id"], "source": f"work:{product['id']}", "axis": "x"},
+            headers=member.headers,
+        )
+    )
+    first = _ok(client.get(f"/api/works/{work['id']}/versions/1", headers=member.headers))
+    (load,) = first["conditions"]["loads"]
+    assert (load["type"], load["direction"], load["psd_table"]) == (
+        "psd_acceleration",
+        [1, 0, 0],
+        spec,
+    )
+    assert first["conditions"]["analysis"]["type"] == "random"
+
+
 def test_인장_전단_이음_시편은_치수를_바꿔_만든다(client: TestClient, member: Signed) -> None:
     preview = _ok(
         client.post(

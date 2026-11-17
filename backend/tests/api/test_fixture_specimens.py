@@ -42,6 +42,7 @@ CASES: list[tuple[str, str, dict[str, Any] | None]] = [
     # 제품에 거는 시험
     ("시험_정하중_T2", "iec-62368-1-t2", {}),
     ("시험_진동_150Hz", "iec-60068-2-6-150-1g", {}),
+    ("시험_랜덤진동", "iec-60068-2-64-example-6g", {}),
     ("시험_고유진동수", "iec-60068-2-6-vri-150", {}),
     ("시험_적층압축", "ista-stack-5x3", {"mass": 1.5}),
     ("시험_비틀림", "twist-example-6deg", {}),
@@ -165,7 +166,7 @@ def test_시험_규격마다_설계_하나_폴더가_온전히_나간다(
 
     point = json.loads((folder / "points" / "p0001.json").read_text(encoding="utf-8"))
     assert point["unresolved"] == [], f"{name}: 영역을 못 찾았다 {point['unresolved']}"
-    assert point["conditions"]["analysis"]["type"] in ("static", "modal", "harmonic")
+    assert point["conditions"]["analysis"]["type"] in ("static", "modal", "harmonic", "random")
     assert point["conditions"]["materials"], f"{name}: 물성이 없다"
     bodies = [one["name"] for one in point["bodies"]]
     assert condition_model.unmaterialed(point["conditions"], bodies) == [], (

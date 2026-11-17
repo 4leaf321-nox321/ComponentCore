@@ -7,6 +7,8 @@
  * 굽힘은 칸이 많고 두께별 반지름 같은 규칙이 있어 따로 그린다(`PresetDialog` · `SpecimenDialog`).
  */
 
+import { psdGrms } from '@/modules/conditions/excitation'
+import type { FrequencyColumn } from '@/modules/conditions/FrequencyTable'
 import type {
   AccelerationPreset,
   AnyPreset,
@@ -21,6 +23,7 @@ import type {
   LapPreset,
   ModalPreset,
   PressurePreset,
+  RandomPreset,
   ShearPreset,
   TensilePreset,
   TestKey,
@@ -35,10 +38,15 @@ export interface Field {
   group: FieldGroup
   key: string
   label: string
-  type?: 'number' | 'int' | 'bool' | 'select'
+  /** `table` 은 `[[주파수, 값], …]` 표(랜덤 진동의 PSD). */
+  type?: 'number' | 'int' | 'bool' | 'select' | 'table'
   /** 비워도 되는 칸 — 빈칸은 null 로 보낸다. */
   optional?: boolean
   options?: { value: string; label: string }[]
+  /** 표의 열 — `table` 만. */
+  columns?: FrequencyColumn[]
+  /** 표의 실효값(Grms)을 보인다 — 가속도 PSD 표만. */
+  grms?: boolean
   /** 이 계열(도그본 · 띠 · 구멍 띠 …)에서만. */
   families?: string[]
 }
@@ -358,26 +366,82 @@ const TORSION = kind<TorsionPreset>({
   summary: (p) => `한쪽 끝을 고정하고 다른 끝을 ${p.setup.angle}° 비틉니다.`,
 })
 
+/** g → mm/s². */
+const G_MM = 9806.65
+
+/** 정현파의 교차 주파수(Hz) — 변위 진폭과 가속도 진폭이 만나는 자리. 변위가 없으면 null. 서버 `VibrationSetup.crossover` 와 같은 식. */
+export function crossover(setup: VibrationPreset['setup']): number | null {
+  const displacement = setup.displacement_mm
+  if (!displacement || displacement <= 0) return null
+  return Math.sqrt((setup.acceleration_g * G_MM) / displacement) / (2 * Math.PI)
+}
+
+function sineLevel(setup: VibrationPreset['setup']): string {
+  const span = `${setup.freq_min}~${setup.freq_max} Hz`
+  const at = crossover(setup)
+  if (at === null || at <= setup.freq_min) return `${setup.acceleration_g} g를 ${span}에서 가진합니다`
+  if (at >= setup.freq_max) return `변위 ${setup.displacement_mm} mm를 ${span}에서 가진합니다(범위 전체가 교차 주파수 ${at.toFixed(1)} Hz 아래)`
+  return `${span}를 훑습니다. 교차 주파수 ${at.toFixed(1)} Hz 아래는 변위 ${setup.displacement_mm} mm, 위는 ${setup.acceleration_g} g가 일정합니다`
+}
+
 const VIBRATION = kind<VibrationPreset>({
   test: 'vibration',
   label: '진동',
-  hint: '제품의 아랫면(또는 고른 면)을 가진대에 고정하고 한 축으로 정현파 가속도를 주어 주파수를 훑습니다(조화 응답).',
+  hint: '제품의 아랫면(또는 고른 면)을 가진대에 고정하고 한 축으로 정현파를 주어 주파수를 훑습니다(조화 응답). 변위 진폭을 적으면 교차 주파수 아래는 변위가 일정합니다.',
   product: true,
   columns: [
     { head: '주파수 (Hz)', text: (p) => `${p.setup.freq_min}~${p.setup.freq_max}` },
     { head: '가속도 (g)', text: (p) => `${p.setup.acceleration_g}` },
+    { head: '변위 (mm)', text: (p) => mm(p.setup.displacement_mm) },
     { head: '감쇠비', text: (p) => `${p.setup.damping_ratio}` },
   ],
   fields: [
     { group: 'setup', key: 'freq_min', label: '최소 주파수 (Hz)' },
     { group: 'setup', key: 'freq_max', label: '최대 주파수 (Hz)' },
-    { group: 'setup', key: 'acceleration_g', label: '가속도 (g)' },
+    { group: 'setup', key: 'acceleration_g', label: '가속도 진폭 (g)' },
+    { group: 'setup', key: 'displacement_mm', label: '변위 진폭 (mm)', optional: true },
     { group: 'setup', key: 'damping_ratio', label: '감쇠비' },
     { group: 'setup', key: 'modes', label: '모드 수', type: 'int' },
     { group: 'setup', key: 'points', label: '주파수 점 수', type: 'int' },
   ],
   slots: () => [support()],
-  summary: (p) => `받침을 고정하고 한 축으로 ${p.setup.acceleration_g} g를 ${p.setup.freq_min}~${p.setup.freq_max} Hz에서 가진합니다(감쇠비 ${p.setup.damping_ratio}).`,
+  summary: (p) => `받침을 고정하고 한 축으로 ${sineLevel(p.setup)}(감쇠비 ${p.setup.damping_ratio}).`,
+})
+
+const psdSpan = (p: RandomPreset) => (p.setup.psd.length >= 2 ? `${p.setup.psd[0][0]}~${p.setup.psd[p.setup.psd.length - 1][0]}` : '—')
+const psdLevel = (p: RandomPreset) => {
+  const got = psdGrms(p.setup.psd)
+  return got === null ? '—' : got.toFixed(2)
+}
+
+const RANDOM = kind<RandomPreset>({
+  test: 'random',
+  label: '랜덤 진동',
+  hint: '제품의 아랫면(또는 고른 면)을 가진대에 고정하고 한 축으로 가속도 PSD(g²/Hz)를 줍니다(랜덤 진동 해석). PSD 표는 로그-로그로 보간합니다.',
+  product: true,
+  columns: [
+    { head: '주파수 (Hz)', text: psdSpan },
+    { head: 'Grms (g)', text: psdLevel },
+    { head: '감쇠비', text: (p) => `${p.setup.damping_ratio}` },
+  ],
+  fields: [
+    {
+      group: 'setup',
+      key: 'psd',
+      label: 'PSD 표',
+      type: 'table',
+      columns: [
+        { title: '주파수', unit: 'Hz' },
+        { title: 'PSD', unit: 'g²/Hz' },
+      ],
+      grms: true,
+    },
+    { group: 'setup', key: 'grms', label: '규격의 Grms (g)', optional: true },
+    { group: 'setup', key: 'damping_ratio', label: '감쇠비' },
+    { group: 'setup', key: 'modes', label: '모드 수', type: 'int' },
+  ],
+  slots: () => [support()],
+  summary: (p) => `받침을 고정하고 한 축으로 가속도 PSD ${psdSpan(p)} Hz(Grms ${psdLevel(p)} g)를 겁니다(감쇠비 ${p.setup.damping_ratio}).`,
 })
 
 const MODAL = kind<ModalPreset>({
@@ -413,7 +477,7 @@ const MODAL = kind<ModalPreset>({
 })
 
 /** 굽힘을 뺀 종류 — 표에 보이는 순서. */
-export const KINDS: Kind[] = [TENSILE, COMPRESSIVE, SHEAR, LAP, FASTENER, FORCE, DIRECTED, HANDLE, CRUSH, COMPRESSION, PRESSURE, TORSION, ACCELERATION, VIBRATION, MODAL]
+export const KINDS: Kind[] = [TENSILE, COMPRESSIVE, SHEAR, LAP, FASTENER, FORCE, DIRECTED, HANDLE, CRUSH, COMPRESSION, PRESSURE, TORSION, ACCELERATION, VIBRATION, RANDOM, MODAL]
 
 export function kindOf(test: TestKey): Kind | undefined {
   return KINDS.find((one) => one.test === test)

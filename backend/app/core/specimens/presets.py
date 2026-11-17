@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import math
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -19,6 +20,8 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 DATA = Path(__file__).parent / "data"
+#: g → mm/s²(입력 단위계는 mm · N · t).
+G_MM = 9806.65
 
 #: 시험 종류 — 화면의 이름(이 순서로 보인다). 종류를 더하면 프리셋 모델과
 #: `data/<종류>.json` 을 더한다. 시편 시험은 시편을 그리고(`bending` · `tensile` …), 제품
@@ -39,6 +42,7 @@ TESTS: dict[str, str] = {
     "torsion": "비틀림",
     "acceleration": "등가 가속도",
     "vibration": "진동",
+    "random": "랜덤 진동",
     "modal": "고유진동수",
 }
 #: 시편을 그리는 시험.
@@ -54,6 +58,7 @@ PRODUCT_TESTS = (
     "torsion",
     "acceleration",
     "vibration",
+    "random",
     "modal",
 )
 
@@ -213,12 +218,17 @@ class ForcePreset(_Common):
 
 
 class VibrationSetup(_Base):
-    """정현파 진동 — 아랫면을 가진대에 고정하고 한 축으로 일정 가속도를 준다(주파수 훑기)."""
+    """정현파 진동 — 아랫면을 가진대에 고정하고 한 축으로 주파수를 훑는다. 규격의 심각도는
+    **교차 주파수 아래는 변위 진폭, 위는 가속도 진폭**이 일정하다(IEC 60068-2-6). 변위를 비우면
+    범위 전체에서 가속도가 일정하다."""
 
     freq_min: float = Field(ge=0)
     freq_max: float = Field(gt=0)
     acceleration_g: float = Field(gt=0)
-    """가속도 진폭(g = 9.80665 m/s²). 교차 주파수 아래의 변위 일정 구간은 나타내지 않는다."""
+    """가속도 진폭(g = 9.80665 m/s²) — 교차 주파수 위."""
+    displacement_mm: float | None = Field(default=None, gt=0, le=100)
+    """변위 진폭(mm, 0 에서 꼭짓점까지) — 교차 주파수 아래. 교차 주파수는
+    `√(가속도 / 변위) / 2π`(0.075 mm · 1 g 이면 57.5 Hz)."""
     damping_ratio: float = Field(default=0.02, gt=0, lt=1)
     modes: int = Field(default=30, ge=1, le=200)
     """모드 중첩에 쓸 모드 수 — 최대 주파수의 1.5배까지 덮을 만큼."""
@@ -229,7 +239,18 @@ class VibrationSetup(_Base):
     def _range(self) -> VibrationSetup:
         if self.freq_min >= self.freq_max:
             raise ValueError("freq_min은 freq_max보다 작아야 합니다.")
+        if self.displacement_mm is not None and self.freq_min <= 0:
+            # 변위 일정 구간의 가속도는 f² 에 비례한다 — 0 Hz 에서 시작하는 스윕은 없다.
+            raise ValueError("변위 진폭(displacement_mm)을 주면 freq_min은 0보다 커야 합니다.")
         return self
+
+    @property
+    def crossover(self) -> float | None:
+        """교차 주파수(Hz) — 변위와 가속도 진폭이 만나는 자리. 변위가 없으면 `None`."""
+        if self.displacement_mm is None:
+            return None
+        acceleration = self.acceleration_g * G_MM
+        return math.sqrt(acceleration / self.displacement_mm) / (2 * math.pi)
 
 
 class VibrationPreset(_Common):
@@ -237,6 +258,53 @@ class VibrationPreset(_Common):
 
     test: Literal["vibration"]
     setup: VibrationSetup
+
+
+#: PSD 표의 행 수 상한 — 규격의 프로파일은 많아야 수십 행이다.
+PSD_ROWS = 200
+#: 적힌 Grms 와 표의 Grms 가 이만큼(비)까지 다르면 받아 준다 — 규격은 두세 자리로 적는다.
+GRMS_TOLERANCE = 0.05
+
+
+class RandomSetup(_Base):
+    """랜덤 진동 — 아랫면을 가진대에 고정하고 한 축으로 가속도 PSD 를 준다(IEC 60068-2-64 ·
+    ASTM D4169). 표는 `[주파수 Hz, g²/Hz]`, 로그-로그로 보간하고 표 밖은 0 이다."""
+
+    psd: list[tuple[float, float]] = Field(min_length=2, max_length=PSD_ROWS)
+    """가속도 PSD 표 — 주파수가 커지는 순서, 주파수 · 값 모두 0 보다 크다."""
+    grms: float | None = Field(default=None, gt=0)
+    """규격에 적힌 실효값(g) — 주면 표의 실효값과 맞춰 본다(옮겨 적다 틀린 표를 잡는다)."""
+    damping_ratio: float = Field(default=0.02, gt=0, lt=1)
+    modes: int = Field(default=40, ge=1, le=400)
+    """모드 중첩에 쓸 모드 수 — 표의 최고 주파수의 1.5배까지 덮을 만큼."""
+
+    @model_validator(mode="after")
+    def _table(self) -> RandomSetup:
+        from app.core.conditions import psd_grms
+
+        before = 0.0
+        for row, (frequency, value) in enumerate(self.psd, start=1):
+            if frequency <= before:
+                what = "0보다 커야" if row == 1 else f"위 행({before:g})보다 커야"
+                raise ValueError(f"PSD 표 {row}행: 주파수는 {what} 합니다.")
+            if value <= 0:
+                raise ValueError(f"PSD 표 {row}행: 값은 0보다 커야 합니다(로그로 보간합니다).")
+            before = frequency
+        if self.grms is not None:
+            got = psd_grms([list(one) for one in self.psd]) or 0.0
+            if abs(got - self.grms) > GRMS_TOLERANCE * self.grms:
+                raise ValueError(
+                    f"PSD 표의 실효값 {got:.3g} g가 적힌 Grms {self.grms:g} g와 "
+                    "다릅니다. 표를 다시 확인하십시오."
+                )
+        return self
+
+
+class RandomPreset(_Common):
+    """랜덤 진동 시험(IEC 60068-2-64 · ASTM D4169) — 제품에 건다."""
+
+    test: Literal["random"]
+    setup: RandomSetup
 
 
 # --- 시편: 인장 · 전단 · 접착 이음 -------------------------------------------------
@@ -644,6 +712,7 @@ Preset = (
     | TorsionPreset
     | AccelerationPreset
     | VibrationPreset
+    | RandomPreset
     | ModalPreset
 )
 #: 시편을 그리는 프리셋.
@@ -666,6 +735,7 @@ ProductTestPreset = (
     | TorsionPreset
     | AccelerationPreset
     | VibrationPreset
+    | RandomPreset
     | ModalPreset
 )
 

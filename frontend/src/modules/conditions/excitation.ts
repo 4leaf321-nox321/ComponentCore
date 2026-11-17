@@ -51,3 +51,14 @@ export function psdGrms(rows: Row[]): number | null {
   }
   return Math.sqrt(area)
 }
+
+/** (m/s²)²/Hz → g²/Hz 의 나눗수 — 9.80665² ≈ 96.17. */
+export const G_SQUARED = 9.80665 ** 2
+
+/**
+ * IEC 60068-2-64 는 PSD 를 (m/s²)²/Hz 로 적는다. 조건 · 내보내기는 늘 g²/Hz 이므로 값 열을 9.80665² 로
+ * 나눈다(유효숫자 여섯). 식 · 빈칸은 그대로 둔다.
+ */
+export function toG2(rows: Row[]): Row[] {
+  return rows.map(([frequency, value]): Row => [frequency, typeof value === 'number' ? Number((value / G_SQUARED).toPrecision(6)) : value])
+}

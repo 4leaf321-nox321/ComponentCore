@@ -1,5 +1,5 @@
 """제품 시험 — 사용자의 제품에 정하중 · 손잡이·벽걸이 · 적층 압축 · 비틀림 · 정현파 진동 ·
-고유진동수를 건다.
+랜덤 진동 · 고유진동수를 건다. 진동의 가진 프로파일은 `test_core_vibration_tests.py`.
 
 공개 규격 프리셋은 **전부** 구멍판 제품에 걸어 본다 — 조건 검증과 선택 그룹이 실제 면을 찾는지.
 3D 에서 고른 면(`FacePick`)이 받침 · 누를 면 · 끝 면이 되는지도 본다.
@@ -26,6 +26,7 @@ from app.core.specimens.presets import (
     HandlePreset,
     ModalPreset,
     PressurePreset,
+    RandomPreset,
     TorsionPreset,
     VibrationPreset,
 )
@@ -113,6 +114,17 @@ def test_공개_규격의_제품_시험은_조건과_자리가_모두_맞는다(
         assert len(found[product.SUPPORT]) == 1
         assert analysis["type"] == "harmonic"
         assert analysis["frequency_range"] == [preset.setup.freq_min, preset.setup.freq_max]
+        table = made.conditions["loads"][0].get("frequency_table")
+        assert (table is not None) == (preset.setup.displacement_mm is not None)
+    elif isinstance(preset, RandomPreset):
+        assert len(found[product.SUPPORT]) == 1
+        load = made.conditions["loads"][0]
+        assert (load["type"], load["direction"]) == ("psd_acceleration", [0, 0, 1])
+        assert analysis == {
+            "type": "random",
+            "modes": preset.setup.modes,
+            "damping_ratio": preset.setup.damping_ratio,
+        }
     else:
         assert isinstance(preset, ModalPreset)
         assert analysis["type"] == "modal"

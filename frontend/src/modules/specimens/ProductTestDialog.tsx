@@ -168,7 +168,7 @@ export function ProductTestDialog({ row, onClose }: { row: PresetRow<ProductPres
         x: force ? number(x) : null,
         y: force ? number(y) : null,
         z: force && loadPicked ? number(z) : null,
-        axis: axis ? (axis as 'x' | 'y' | 'z') : preset.test === 'vibration' || preset.test === 'acceleration' ? 'z' : null,
+        axis: axis ? (axis as 'x' | 'y' | 'z') : preset.test === 'vibration' || preset.test === 'random' || preset.test === 'acceleration' ? 'z' : null,
         faces,
         mass: needsMass ? number(mass) : null,
         direction: directed ? vector : null,
@@ -230,7 +230,7 @@ export function ProductTestDialog({ row, onClose }: { row: PresetRow<ProductPres
             )}
           </div>
         )}
-        {preset.test === 'vibration' && (
+        {(preset.test === 'vibration' || preset.test === 'random') && (
           <div className="space-y-1">
             <Label htmlFor="test-axis">가진 축</Label>
             <select id="test-axis" className={SELECT} value={axis || 'z'} onChange={(event) => setAxis(event.target.value)}>

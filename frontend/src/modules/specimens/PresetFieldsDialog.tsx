@@ -6,6 +6,7 @@
 
 import { useState } from 'react'
 
+import { FrequencyTable } from '@/modules/conditions/FrequencyTable'
 import { fieldsFor, kindOf } from '@/modules/specimens/kinds'
 import type { Field } from '@/modules/specimens/kinds'
 import { specimensApi } from '@/modules/specimens/api'
@@ -25,13 +26,16 @@ const SELECT = 'bg-background h-9 w-full rounded-md border px-2 text-sm'
 const id = (one: Field) => `preset-${one.group}-${one.key}`
 const slot = (one: Field) => `${one.group}.${one.key}`
 
+/** 칸의 값을 글로 — 표는 JSON 으로 들고 있는다(편집 중에는 빈칸 · 식이 섞일 수 있다). */
 function read(preset: AnyPreset, one: Field): string {
   const group = (preset as unknown as Groups)[one.group] ?? {}
   const value = group[one.key]
+  if (one.type === 'table') return JSON.stringify(value ?? null)
   return value === null || value === undefined ? '' : String(value)
 }
 
 function parsed(one: Field, text: string): unknown {
+  if (one.type === 'table') return text ? JSON.parse(text) : null
   if (one.type === 'bool') return text === 'true'
   if (one.type === 'select') return text
   if (!text.trim()) return one.optional ? null : Number.NaN
@@ -80,8 +84,9 @@ export function PresetFieldsDialog({ row, mode, onClose, onSaved }: { row: Prese
     }
   }
 
-  const inputs = fields.filter((one) => one.type !== 'bool')
+  const inputs = fields.filter((one) => one.type !== 'bool' && one.type !== 'table')
   const checks = fields.filter((one) => one.type === 'bool')
+  const tables = fields.filter((one) => one.type === 'table')
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
@@ -130,6 +135,16 @@ export function PresetFieldsDialog({ row, mode, onClose, onSaved }: { row: Prese
               </div>
             ))}
           </div>
+          {tables.map((one) => (
+            <FrequencyTable
+              key={slot(one)}
+              title={one.label}
+              columns={one.columns}
+              grms={one.grms}
+              value={JSON.parse(values[slot(one)] || 'null')}
+              onChange={(next) => set(one, JSON.stringify(next))}
+            />
+          ))}
           {checks.map((one) => (
             <label key={slot(one)} className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={values[slot(one)] === 'true'} onChange={(event) => set(one, String(event.target.checked))} />

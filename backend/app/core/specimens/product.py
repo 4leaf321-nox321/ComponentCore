@@ -1,8 +1,8 @@
 """제품 시험 — 사용자의 제품(부품 · 작업의 형상)에 규격 시험을 건다: 정하중(IEC 62368-1
 부속서 T) · 방향 하중(코드 당김 · 커넥터 렌칭) · 손잡이 · 벽걸이(IEC 62368-1 8.7 · 8.8) ·
 압착(IEC 62133-2 · UN 38.3) · 적층 압축(ASTM D642, ISO 12048, ISTA) · 수압(IEC 60529) ·
-비틀림 · 등가 정적 가속도(IEC 60068-2-27 · ISO 16750-3) · 정현파 진동(IEC 60068-2-6) ·
-고유진동수(진동 응답 조사, ASTM E1876).
+비틀림 · 등가 정적 가속도(IEC 60068-2-27 · ISO 16750-3) · 정현파 진동(IEC 60068-2-6) · 랜덤
+진동(IEC 60068-2-64) · 고유진동수(진동 응답 조사, ASTM E1876).
 
 시편과 달리 형상을 새로 그리지 않는다 — **제품의 레시피를 그대로 쓴다.** 바디 이름이 같아서
 제품에 붙어 있던 물성 · 파트별 설정 · 접촉이 그대로 맞는다. 더하는 것은 시험의 변수(`시험_…`),
@@ -21,7 +21,9 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.core.conditions import psd_grms
 from app.core.specimens.presets import (
+    G_MM,
     TESTS,
     AccelerationPreset,
     CompressionPreset,
@@ -32,14 +34,14 @@ from app.core.specimens.presets import (
     ModalPreset,
     Preset,
     PressurePreset,
+    RandomPreset,
     TorsionPreset,
     VibrationPreset,
+    VibrationSetup,
 )
 
 #: 시험이 더하는 변수 · 노드 · 태그의 머리말 — 제품의 이름과 겹치지 않게.
 PREFIX = "시험_"
-#: g → mm/s²(입력 단위계는 mm · N · t).
-G_MM = 9806.65
 #: kg → N.
 G = 9.80665
 #: 시험이 쓰는 선택 그룹의 이름 — 모두 「시험 」 으로 시작한다(서버가 그것으로 가린다).
@@ -69,6 +71,7 @@ FACE_SLOTS: dict[str, tuple[str, ...]] = {
     "torsion": ("support", "twist"),
     "acceleration": ("support",),
     "vibration": ("support",),
+    "random": ("support",),
     "modal": ("support",),
 }
 #: 자리를 못 찾았을 때 사람에게 하는 말.
@@ -90,6 +93,49 @@ KEPT = (
 
 class ProductTestError(ValueError):
     """사람이 고칠 수 있는 실패 — 메시지가 그대로 화면에 간다."""
+
+
+#: 변위 일정 구간을 나눌 때 이웃 행의 주파수 비 상한 — 1/12 옥타브. 행 사이를 직선으로 이으면
+#: f² 를 많아야 ((r - 1) / (r + 1))² ≈ 0.08 % 크게 읽는다(1/6 옥타브면 0.3 %, 1 옥타브면 11 % —
+#: SimEngBay 가 1/12 옥타브 이하를 부탁했다, 2026-11-17).
+SWEEP_STEP = 2 ** (1 / 12)
+
+
+def sweep_table(setup: VibrationSetup) -> list[list[float]] | None:
+    """정현파 스윕의 **주파수별 배율** — 가속도 진폭(`acceleration_g`)에 곱하는 값.
+
+    교차 주파수 f_c 아래는 변위가 일정하므로 가속도가 (2πf)² · d = a · (f / f_c)² 이다.
+    조건의 배율 표는 행 사이를 직선으로 이으므로 그 곡선을 로그 간격(이웃 비 ≤
+    `SWEEP_STEP`)의 행으로 나눈다. f_c 위는 1 이다. 첫 행 · 끝 행은 시험 범위의 끝
+    그대로(표가 범위를 다 덮어야 한다). 변위가 없거나 f_c 가 시험 범위 아래면 `None` —
+    배율 표가 필요 없다."""
+    crossover = setup.crossover
+    if crossover is None or crossover <= setup.freq_min:
+        return None
+    top = min(crossover, setup.freq_max)
+    steps = max(1, math.ceil(math.log(top / setup.freq_min) / math.log(SWEEP_STEP)))
+    rows: list[list[float]] = []
+    for step in range(steps + 1):
+        if step == 0:
+            frequency = setup.freq_min
+        elif step == steps:
+            frequency = top if top == setup.freq_max else round(top, 3)
+        else:
+            frequency = round(setup.freq_min * (top / setup.freq_min) ** (step / steps), 3)
+        if rows and frequency <= rows[-1][0]:
+            continue
+        rows.append([frequency, round(min(1.0, (frequency / crossover) ** 2), 6)])
+    if top < setup.freq_max:
+        rows[-1][1] = 1.0
+        rows.append([setup.freq_max, 1.0])
+    return rows
+
+
+def _shaking(axis: str) -> list[int]:
+    direction = AXES.get(axis.lower())
+    if direction is None:
+        raise ProductTestError(f"진동 방향은 X, Y, Z 중 하나여야 합니다: {axis}")
+    return direction
 
 
 @dataclass(frozen=True)
@@ -175,9 +221,10 @@ def apply(
     """제품 레시피 · 조건에 시험을 더한 새 한 벌.
 
     `bbox` 는 제품의 경계 상자(서버가 만들어 본 것), `point` 는 정하중을 누르는 자리(X, Y[, Z]
-    — 빈 칸은 고른 점이나 윗면 가운데), `axis` 는 진동 · 비틀림 축(비우면 진동 Z, 비틀림은
-    가장 긴 축, 등가 가속도는 Z), `faces` 는 3D 에서 고른 자리(`FACE_SLOTS`), `mass` 는 적층
-    압축의 제품 무게(kg), `direction` 은 방향 하중의 방향(비우면 고른 면에서 바깥으로)."""
+    — 빈 칸은 고른 점이나 윗면 가운데), `axis` 는 진동(정현파 · 랜덤) · 비틀림 축(비우면
+    진동 Z, 비틀림은 가장 긴 축, 등가 가속도는 Z), `faces` 는 3D 에서 고른
+    자리(`FACE_SLOTS`), `mass` 는 적층 압축의 제품 무게(kg), `direction` 은 방향 하중의
+    방향(비우면 고른 면에서 바깥으로)."""
     if preset.test not in FACE_SLOTS:
         raise ProductTestError(f"‘{preset.name}’은(는) 제품에 거는 시험이 아닙니다.")
     given = dict(conditions or {})
@@ -221,6 +268,8 @@ def apply(
         rules = test.torsion(preset, axis)
     elif isinstance(preset, VibrationPreset):
         rules = test.vibration(preset, axis or "z")
+    elif isinstance(preset, RandomPreset):
+        rules = test.random(preset, axis or "z")
     elif isinstance(preset, CrushPreset):
         rules = test.crush(preset)
     elif isinstance(preset, PressurePreset):
@@ -505,9 +554,7 @@ class _Test:
         }
 
     def vibration(self, preset: VibrationPreset, axis: str) -> dict[str, Any]:
-        direction = AXES.get(axis.lower())
-        if direction is None:
-            raise ProductTestError(f"진동 방향은 X, Y, Z 중 하나여야 합니다: {axis}")
+        direction = _shaking(axis)
         setup = preset.setup
         self.made["params"].update(
             {
@@ -516,26 +563,87 @@ class _Test:
             }
         )
         support = self.support()
+        table = sweep_table(setup)
+        span = f"{setup.freq_min:g}~{setup.freq_max:g} Hz"
+        crossover = setup.crossover
+        if crossover is None:
+            level = f"{setup.acceleration_g:g} g 를 {span} 에서 훑습니다"
+        elif table is None:
+            level = (
+                f"{setup.acceleration_g:g} g 를 {span} 에서 훑습니다(교차 주파수 "
+                f"{crossover:.1f} Hz 가 범위 아래라 변위 일정 구간이 없습니다)"
+            )
+        elif crossover >= setup.freq_max:
+            peak = setup.acceleration_g * (setup.freq_max / crossover) ** 2
+            level = (
+                f"변위 {setup.displacement_mm:g} mm 를 {span} 에서 훑습니다(범위 전체가 교차 "
+                f"주파수 {crossover:.1f} Hz 아래 — 가속도는 {setup.freq_max:g} Hz 에서 최대 "
+                f"{peak:.3g} g)"
+            )
+        else:
+            level = (
+                f"{span} 를 훑습니다. 교차 주파수 {crossover:.1f} Hz 아래는 변위 "
+                f"{setup.displacement_mm:g} mm 일정(가속도 = (2πf)² x 변위 — 주파수별 배율 "
+                f"표), 위는 {setup.acceleration_g:g} g 일정입니다"
+            )
         self.notes.append(
-            f"받침을 가진대에 고정하고 {axis.upper()}축으로 {setup.acceleration_g:g} g 를 "
-            f"{setup.freq_min:g}~{setup.freq_max:g} Hz 에서 훑습니다(감쇠비 "
+            f"받침을 가진대에 고정하고 {axis.upper()}축으로 {level}(감쇠비 "
             f"{setup.damping_ratio:g}). 다른 축은 다시 적용해 한 벌씩 만듭니다."
         )
+        if table is not None:
+            self.notes.append(
+                f"변수 ‘{PREFIX}가속도_g’ 를 바꾸면 변위 구간도 같은 비로 바뀝니다(교차 "
+                "주파수는 그대로). 변위만 바꾸려면 규격을 고쳐 다시 적용하십시오."
+            )
+        load: dict[str, Any] = {
+            "name": f"가진 ({axis.upper()}축)",
+            "type": "acceleration",
+            "magnitude": f"={PREFIX}가속도",
+            "direction": direction,
+        }
+        if table is not None:
+            load["frequency_table"] = table
         return {
             "constraints": [{"name": "가진대 고정", "type": "fixed_support", "on": support}],
-            "loads": [
-                {
-                    "name": f"가진 ({axis.upper()}축)",
-                    "type": "acceleration",
-                    "magnitude": f"={PREFIX}가속도",
-                    "direction": direction,
-                }
-            ],
+            "loads": [load],
             "analysis": {
                 "type": "harmonic",
                 "frequency_range": [setup.freq_min, setup.freq_max],
                 "solution_intervals": setup.points,
                 "method": "mode_superposition",
+                "modes": setup.modes,
+                "damping_ratio": setup.damping_ratio,
+            },
+        }
+
+    def random(self, preset: RandomPreset, axis: str) -> dict[str, Any]:
+        direction = _shaking(axis)
+        setup = preset.setup
+        table = [[frequency, value] for frequency, value in setup.psd]
+        grms = psd_grms(table) or 0.0
+        low, high = table[0][0], table[-1][0]
+        support = self.support()
+        self.notes.append(
+            f"받침을 가진대에 고정하고 {axis.upper()}축으로 가속도 PSD {low:g}~{high:g} Hz"
+            f"(Grms {grms:.2f} g)를 겁니다(감쇠비 {setup.damping_ratio:g}). 다른 축은 다시 "
+            "적용해 한 벌씩 만듭니다."
+        )
+        self.notes.append(
+            f"모드 {setup.modes}개로 모드 중첩을 합니다. 모드가 PSD 최고 주파수의 1.5배"
+            f"({1.5 * high:g} Hz)까지 덮지 못하면 응답이 작게 나오니 모드 수를 늘리십시오."
+        )
+        return {
+            "constraints": [{"name": "가진대 고정", "type": "fixed_support", "on": support}],
+            "loads": [
+                {
+                    "name": f"랜덤 가진 ({axis.upper()}축)",
+                    "type": "psd_acceleration",
+                    "direction": direction,
+                    "psd_table": table,
+                }
+            ],
+            "analysis": {
+                "type": "random",
                 "modes": setup.modes,
                 "damping_ratio": setup.damping_ratio,
             },

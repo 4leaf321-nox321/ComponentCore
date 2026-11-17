@@ -16,7 +16,7 @@
 | **제품을 기준으로 지그 그리기** | `part_geometry(part_id)` · `work_geometry(work_id)` — 치수표 + STEP id |
 | **해석 조건 붙이기** | `conditions_schema` → `recipe_find` · `recipe_selectors` → `set_conditions` — `get_guide("conditions")` |
 | **물성 붙이기** | `condition_material_search` → `condition_material_get`(→ `condition_item`) · `recipe_bodies` → `set_conditions`. 재료의 물성 값 · 출처를 묻는 질문은 이 도구가 아니라 MatNexus(`search_materials` · `get_material`). 사본으로만 나오면 `condition_material_status`, 솔버 덱(`deck_formats`)을 담을 때는 `condition_material_decks` |
-| **규격 시험 해석 모델** | 시편(굽힘 · 인장 · 압축 · 전단 · 접착 이음 · 체결부): `list_test_presets(test=…)` → (`preview_specimen` 으로 미리) → `create_specimen_work(preset_id, thickness, dimensions …)` — 답의 `notes` 를 사용자에게 전한다. 제품(정하중 · 방향 하중 · 손잡이 · 압착 · 적층 압축 · 수압 · 비틀림 · 등가 가속도 · 진동 · 고유진동수): `apply_product_test(preset_id, source, faces, direction …)`. 물성만 붙이면 `doe_create` 로 훑는다. 아래 「jig」 의 시험 규격 |
+| **규격 시험 해석 모델** | 시편(굽힘 · 인장 · 압축 · 전단 · 접착 이음 · 체결부): `list_test_presets(test=…)` → (`preview_specimen` 으로 미리) → `create_specimen_work(preset_id, thickness, dimensions …)` — 답의 `notes` 를 사용자에게 전한다. 제품(정하중 · 방향 하중 · 손잡이 · 압착 · 적층 압축 · 수압 · 비틀림 · 등가 가속도 · 진동 · 랜덤 진동 · 고유진동수): `apply_product_test(preset_id, source, faces, direction …)`. 물성만 붙이면 `doe_create` 로 훑는다. 아래 「jig」 의 시험 규격 |
 | **형상 여러 벌 만들기(DOE)** | `doe_preview` → `doe_probe`(끝 점 미리) → `doe_create` → `doe_points` → `doe_export` — 공유 폴더에 STEP 이 쌓인다. 더 뽑을 때 `doe_extend`. 답에 **`unmaterialed`** 가 있으면 재료가 빈 파트라 해석 쪽이 걸지 않는다 — 재료를 붙이고 다시 내보낸다. 누가 보나는 `doe_visibility` |
 | **다른 사람의 DOE 이어서 하기** | `doe_studies(scope="all")` → `doe_clone(study_id)` — 같은 설계점 · 조건으로 내 DOE 가 생긴다(원본은 그대로). 남의 것은 보내기 · 점 더하기가 안 된다 |
 | **2D 도면(가공 맡길 때)** | `recipe_drawing(recipe, title, material)` — 3각법 세 뷰 · 전체 치수 · 구멍표 · 표제란. 답은 요약 + 그림. PDF · DXF 는 화면의 「파일 › 도면」 |
@@ -419,7 +419,12 @@ DB 에(`save_test_preset`) 둔다 — 같은 모양이다. 프리셋은 시편 �
     받침은 강체 운동만 막는다.
   - 등가 가속도(`acceleration`, IEC 60068-2-27 · ISO 16750-3): 충격을 정적 가속도 g x 배율로
     근사. 받침 고정, `axis` 로 방향.
-  - 정현파 진동(`vibration`, IEC 60068-2-6): 한 축(`axis`) 가속도 · 주파수 범위 · 감쇠비.
+  - 정현파 진동(`vibration`, IEC 60068-2-6): 한 축(`axis`) 가속도 · 주파수 범위 · 감쇠비. 프리셋에
+    변위 진폭(`displacement_mm`)이 있으면 교차 주파수 √(가속도 / 변위) / 2π 아래는 변위가 일정하다 —
+    하중의 `frequency_table` 로 실린다(답의 `notes` 가 교차 주파수를 말한다).
+  - 랜덤 진동(`random`, IEC 60068-2-64 꼴 예시): 한 축(`axis`) 가속도 PSD 표(`setup.psd`,
+    `[Hz, g²/Hz]`) · 감쇠비 · 모드 수. 공개 프리셋은 **예시값**이라 시험 사양서의 표는 사내 규격으로
+    넣는다(적힌 `grms` 와 표의 실효값이 5 % 넘게 다르면 저장하지 않는다).
   - 고유진동수(`modal`, IEC 60068-2-6 진동 응답 조사 · ASTM E1876 자유-자유): 받침 고정 또는
     구속 없음(강체 모드 6개를 더해 구한다).
   면을 고르는 말: `{"point": [x, y, z], "normal": [nx, ny, nz], "kind": "plane"}` — `recipe_find`
