@@ -148,3 +148,16 @@ def test_환경_온도는_하나_물성의_온도별_값을_고르는_기준이�
     )
     assert resolved["initial"][0]["value"] == 60.0
     assert "가장 가까운 값" in conditions.INITIAL_NOTES["environment_temperature"]
+
+
+def test_초기_온도는_열_해석에서만_구조_해석은_받는_쪽이_거절한다() -> None:
+    """구조 해석에 건 바디 온도는 열 하중인데, 받는 쪽은 열팽창을 넣지 않아 아직 거절한다
+    (SimEngBay, 2026-11-18) — 보내고 나서가 아니라 저장할 때 말한다."""
+    body = {
+        "named_selections": [{"name": "몸", "entity": "body", "select": {"what": "bodies"}}],
+        "initial": [{"type": "temperature", "on": "몸", "value": 80}],
+    }
+    for kind in ("static", "modal"):
+        with pytest.raises(conditions.ConditionError, match=r"열 해석에서만.*환경 온도"):
+            conditions.parse({**body, "analysis": {"type": kind}})
+    conditions.parse({**body, "analysis": {"type": "thermal"}})

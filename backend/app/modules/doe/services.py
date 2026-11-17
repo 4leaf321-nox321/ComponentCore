@@ -2257,7 +2257,8 @@ def _build_shape(task: dict[str, Any]) -> dict[str, Any]:
         )
         path = Path(task["step_path"])
         path.parent.mkdir(parents=True, exist_ok=True)
-        shapes.write_step(made.evaluation.shape, path)
+        # 해석 쪽과의 계약 — 구성품 이름은 `bodies[].step_product` 와 같은 ASCII.
+        shapes.write_step(made.evaluation.shape, path, names="ascii")
         mid: dict[str, Any] | None = None
         # **시트 바디(셸 모델)가 있으면 늘** — 형상이 곧 중간면이고, 두께는 조건이 준 것이다.
         shape = made.evaluation.shape
@@ -2281,7 +2282,7 @@ def _build_shape(task: dict[str, Any]) -> dict[str, Any]:
                 summary = surface.summary()
                 if surface.bodies:
                     mid_path = path.with_name(f"{path.stem}_mid.step")
-                    shapes.write_step(labeled_mid(surface), mid_path)
+                    shapes.write_step(labeled_mid(surface), mid_path, names="ascii")
                     mid = {"name": mid_path.name, "summary": summary}
                     # 쉘 파트에 걸린 영역을 중간면 기준으로도(지문마다 `mid`) — 쉘 요소에
                     # 하중 · 구속을 거는 자리다.

@@ -3,7 +3,10 @@
 해석(SimEngBay → Ansys Mechanical)은 우리가 보낸 STEP 을 임포트해 경계조건을 붙인다. 그런데
 **STEP 은 이름표를 못 나른다.** 실측(2026-09-23): 이름표 붙은 조립을 `export_step` 으로 쓰면
 조립 구조(`PRODUCT` · `NEXT_ASSEMBLY_USAGE_OCCURRENCE`)는 남고 ASCII 이름도 읽히지만,
-**한글 이름은 깨진다** — 파일에 UTF-8 바이트가 아예 없고 되살릴 수 없었다.
+**한글 이름은 깨진다** — 파일에 UTF-8 바이트가 아예 없고 되살릴 수 없었다. (원인은
+build123d 가 이름을 OCC 에 넘길 때의 이중 인코딩이었다 — 2026-11-18 부터 사람이 받는 STEP 은
+표준 이스케이프로 한글을 나른다(`export.write_step`). 해석 쪽과의 계약은 그대로 ASCII
+`step_product` 와 지문이다.)
 
 그래서 이름에 기대지 않는다. 면은 **중심 · 법선 · 넓이**로, 바디는 **부피 · 무게중심 ·
 경계상자**로 적어 보내고, 받는 쪽이 허용오차 안에서 짝짓는다. 규칙이 하나라 배울 것도 하나다.
@@ -43,7 +46,8 @@ _ASCII_OK = re.compile(r"[^A-Za-z0-9_]+")
 def slug(name: str, *, fallback: str) -> str:
     """STEP 에 내보낼 ASCII 이름. **뜻을 나르는 것은 JSON 이고, 이것은 손잡이일 뿐이다.**
 
-    한글 이름은 STEP 에서 깨지므로(모듈 머리말) 아스키만 남긴다. 남는 게 없으면 `fallback`
+    DOE 폴더의 STEP 은 이것으로 쓴다 — 해석 쪽이 이 글자로 바디를 짝짓는다(사람이 받는 STEP 은
+    한글 그대로, `export.write_step`). 아스키만 남긴다. 남는 게 없으면 `fallback`
     (`body_1` 같은 순번)을 쓴다 — 뜻은 `topology.json` 의 `name` 이 들고 있고, 여기서 필요한
     것은 **그 파일과 STEP 을 잇는 고유하고 안정된 글자**뿐이다.
     """

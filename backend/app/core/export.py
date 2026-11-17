@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from build123d import (
     Compound,
@@ -25,9 +25,10 @@ def ascii_names(shape: Shape) -> Shape:
     """조립이면 구성품 이름을 **ASCII 로 바꾼 사본** — `topology.bodies[].step_product` 와 같은
     글자.
 
-    한글 이름은 STEP 에서 깨져(`ì¡°ë¦½`) 되살릴 수 없다. 받는 쪽이 이름으로 짝지을 수 있게
-    문서(해석 조건 설계 5장)가 약속한 대로 `slug` 를 붙인다 — 2026-10-04 점검 전에는 약속만
-    있고 실제로는 한글 그대로 나갔다. 원본의 이름표는 건드리지 않는다(사본의 이름만 바꾼다)."""
+    DOE 폴더(`write_step(names="ascii")`)만 쓴다 — 받는 쪽이 이름으로 짝지을 수 있게
+    문서(해석 조건 설계 5장)가 약속한 대로 `slug` 를 붙인다. 사람이 받는 STEP 은 한글 이름
+    그대로다(2026-11-18 — 깨지던 원인이 build123d 의 이중 인코딩이었다). 원본의 이름표는
+    건드리지 않는다."""
     from app.core.recipe.topology import _labeled_children, slug
 
     children = _labeled_children(shape)
@@ -43,11 +44,80 @@ def ascii_names(shape: Shape) -> Shape:
     return whole
 
 
-def write_step(shape: Shape, path: Path) -> Path:
+def write_step(
+    shape: Shape, path: Path, *, names: Literal["original", "ascii"] = "original"
+) -> Path:
+    """STEP 으로 쓴다. 이름은 둘 중 하나다:
+
+    - `original`(사람이 받는 STEP — 작업 · 지그 내려받기): **이름표 그대로**, 한글도.
+      build123d 는 이름을 OCC 에 넘길 때 UTF-8 바이트를 Latin-1 글자로 읽어 두 번 인코딩했다
+      (`센서` → `ì¼ì…` — 파일에 이미 깨져 들어가 되살릴 수 없었다, 2026-11-18 원인 확인).
+      그래서 그런 이름은 잠시 ASCII 자리표로 바꿔 쓰고, 다 쓴 파일에서 자리표를 표준
+      이스케이프(ISO 10303-21 의 X2 · X4)로 바꾼다. 파일은 ASCII 그대로이고 CAD · OCC · 우리
+      `step_import` 가 이름을 되살린다(읽을 때 build123d 가 공백 · 괄호 · 점을 `_` 로 바꾸는
+      것은 그대로 — 이미 가져온 바디 이름이 바뀌지 않게).
+    - `ascii`(DOE 폴더 — 해석 쪽과의 계약): 구성품 이름을 `topology.bodies[].step_product` 와
+      같은 ASCII 로(`ascii_names`). 받는 쪽이 이 이름으로 바디를 짝짓는다.
+    """
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    if not export_step(ascii_names(shape), path):
-        raise RuntimeError(f"STEP 파일을 저장하지 못했습니다: {path.name}")
+    target = ascii_names(shape) if names == "ascii" else shape
+    swapped = _placeholder_labels(target)
+    try:
+        if not export_step(target, path):
+            raise RuntimeError(f"STEP 파일을 저장하지 못했습니다: {path.name}")
+    finally:
+        for node, label in swapped:
+            node.label = label
+    if swapped:
+        text = path.read_text(encoding="ascii")
+        for index, (_, label) in enumerate(swapped):
+            text = text.replace(_placeholder(index), step_text(label))
+        path.write_text(text, encoding="ascii")
     return path
+
+
+def _placeholder(index: int) -> str:
+    # 대문자 · 숫자만 — OCC 가 그대로 쓰고, STEP 의 다른 낱말과 겹치지 않을 만큼 길다.
+    return f"CCSTEPNAME{index:06d}X"
+
+
+def _placeholder_labels(shape: Shape) -> list[tuple[Any, str]]:
+    """아스키가 아니거나 STEP 문자열에서 바꿔 써야 할 글자(`'` · `\\`)가 든 이름표를 자리표로 —
+    (형상, 원래 이름) 목록. 트리 끝까지(조립 안의 조립). 쓰고 나서 되돌린다."""
+    swapped: list[tuple[Any, str]] = []
+    stack: list[Any] = [shape]
+    seen: set[int] = set()
+    while stack:
+        node = stack.pop()
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        label = str(getattr(node, "label", "") or "")
+        if label and (not label.isascii() or "'" in label or "\\" in label):
+            node.label = _placeholder(len(swapped))
+            swapped.append((node, label))
+        stack.extend(getattr(node, "children", ()) or ())
+    return swapped
+
+
+def step_text(name: str) -> str:
+    """STEP 문자열 안에 쓸 이름 — `'` 는 `''`, `\\` 는 `\\\\`, 아스키 밖은 `\\X2\\HHHH\\X0\\`
+    (BMP 밖은 `\\X4\\`). ISO 10303-21 의 표준 이스케이프다."""
+    out: list[str] = []
+    for char in name:
+        code = ord(char)
+        if char == "'":
+            out.append("''")
+        elif char == "\\":
+            out.append("\\\\")
+        elif code < 0x80:
+            out.append(char)
+        elif code <= 0xFFFF:
+            out.append(f"\\X2\\{code:04X}\\X0\\")
+        else:
+            out.append(f"\\X4\\{code:08X}\\X0\\")
+    return "".join(out)
 
 
 def write_gltf(shape: Shape, path: Path) -> Path:

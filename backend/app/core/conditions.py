@@ -788,7 +788,8 @@ INITIAL_NOTES: dict[str, str] = {
         "모델 전체의 기준 온도로, 열팽창이 0인 온도입니다(일반적으로 22 °C). 물성에 온도별 "
         "값이 있으면 이 온도에 가장 가까운 값으로 계산합니다(없으면 22 °C)."
     ),
-    "temperature": "선택한 바디의 시작 온도입니다. 과도 열 해석의 초기 상태로 사용합니다.",
+    "temperature": "선택한 바디의 시작 온도입니다. 과도 열 해석의 초기 상태로 사용하며, 열 "
+    "해석에서만 지정할 수 있습니다.",
     "velocity": (
         "선택한 바디가 이 속도로 움직이는 상태에서 시작합니다. 낙하·충돌(explicit) "
         "해석에 사용합니다."
@@ -1520,6 +1521,16 @@ def parse(
         raise ConditionError(
             f"환경 온도가 {len(environments)}개입니다. 모델 전체의 기준 온도라 하나만 둡니다."
         )
+    # 바디 온도(초기 온도)는 열 해석의 시작 상태다. 구조 해석에 걸면 열 하중이 되는데, 받는
+    # 쪽은 열팽창을 넣지 않아 아직 거절한다(SimEngBay, 2026-11-18) — 보내기 전에 말한다.
+    if conditions.analysis.type != "thermal":
+        for index, initial in enumerate(conditions.initial):
+            if initial.type == "temperature":
+                raise ConditionError(
+                    f"initial[{index}]: 초기 온도(바디)는 열 해석에서만 씁니다 — 구조 해석의 "
+                    "바디 온도(열 하중)는 해석 쪽이 아직 받지 않습니다. 온도에 따른 물성을 "
+                    "쓰려면 ‘환경 온도’를 지정하십시오."
+                )
     entity_of = {one.name: one.entity for one in conditions.named_selections}
     for index, load in enumerate(conditions.loads):
         _check_load(f"loads[{index}]", load)
