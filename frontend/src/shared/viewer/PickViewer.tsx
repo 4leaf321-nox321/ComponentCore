@@ -20,6 +20,7 @@ import { boxPicks, rectOf, triangleCentroids } from '@/shared/viewer/boxSelect'
 import { labelCenter, rulerSide, spreadLabels } from '@/shared/viewer/labelPlace'
 import type { LabelBox } from '@/shared/viewer/labelPlace'
 import type { ScreenPoint, ScreenRect } from '@/shared/viewer/boxSelect'
+import { useTabActive } from '@/shared/layout/tabActive'
 
 export interface MeshFace {
   index: number
@@ -436,6 +437,10 @@ function gatherDots(mesh: MeshData): { at: number[][]; kinds: string[] } {
 /** 표준 방향 — 뒤에서 카메라가 설 자리(중심 기준 단위 벡터, CAD Z-up 기준). */
 export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace, onPickEdge, onMeasure, onBoxSelect, measureKinds, measureMarks, frames, datums, frameHandle, onFrameHandle, partColors, emphasis, section, xray, hiddenParts, sync, dragPart, dragMode = 'translate', onMoved, className }: PickViewerProps) {
   const syncId = useRef(`viewer-${Math.random().toString(36).slice(2)}`)
+  /** 숨은 화면 탭이면 그리기를 쉰다 — 탭마다 3D 가 살아 있어 다 그리면 보이지 않는 것에 GPU 를 쓴다. */
+  const tabActive = useTabActive()
+  const tabActiveRef = useRef(tabActive)
+  tabActiveRef.current = tabActive
   const syncRef = useRef(sync)
   syncRef.current = sync
   const mount = useRef<HTMLDivElement | null>(null)
@@ -519,6 +524,8 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
 
     function resize() {
       const { clientWidth: w, clientHeight: h } = container!
+      // 숨은 탭(display: none)은 0 으로 잰다 — 그대로 줄이면 비율이 0 이 된다. 다시 보일 때 제 크기로 잰다.
+      if (w === 0 || h === 0) return
       renderer.setSize(w, h, false)
       rig.setAspect(w / Math.max(h, 1))
       const s = state.current
@@ -830,6 +837,7 @@ export default function PickViewer({ mesh, mode, highlightEdgesNear, onPickFace,
     let frame = 0
     const animate = () => {
       frame = requestAnimationFrame(animate)
+      if (!tabActiveRef.current) return
       controls.update()
       const gizmo = state.current?.gizmo
       if (gizmo && gizmo.camera !== rig.camera) gizmo.camera = rig.camera // 투시 ↔ 정사영을 바꿔도 손잡이가 따라온다

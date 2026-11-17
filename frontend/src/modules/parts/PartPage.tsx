@@ -1,4 +1,7 @@
-/** 부품 하나 — 버전 이력 · 3D · STEP · 해석 조건 · 이 부품의 지그들 · 내 공간으로 복사. */
+/**
+ * 부품 하나 — 버전 이력 · 3D · STEP · 해석 조건 · 이 부품의 지그들 · 내 공간으로 복사. **공용 조립**(`kind='assembly'`)도
+ * 이 화면이다 — 지그 · 규격 사양 대신 구성품(고정된 공용 부품 · 지그 버전)을 보인다.
+ */
 
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -24,12 +27,14 @@ import { Button } from '@/shared/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card'
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
+import { useTabTitle } from '@/shared/layout/tabs'
 
 export default function PartPage() {
   const { id = '' } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { user } = useAuth()
   const part = useResource(() => partsApi.get(id), [id])
+  useTabTitle(part.data?.name)
   const versions = useResource(() => partsApi.versions(id), [id])
   const jigs = useResource(() => jigsApi.list({ part_id: id }), [id])
   const [selected, setSelected] = useState<PartVersion | null>(null)
@@ -45,6 +50,9 @@ export default function PartPage() {
   if (part.error) return <ErrorNotice error={part.error} />
   if (!p) return null
   const editable = canEditProject(user, p.owner_id)
+  const assembly = p.kind === 'assembly'
+  const noun = assembly ? '조립' : '부품'
+  const listPath = assembly ? '/assemblies' : '/parts'
 
   async function copy(number?: number) {
     setBusy(true)
@@ -64,7 +72,7 @@ export default function PartPage() {
       <PageHeader
         title={p.name}
         description={p.description || `${p.owner_name} · v${p.current_version} · ${shownDateTime(p.updated_at)}`}
-        back={{ to: '/parts', label: '부품' }}
+        back={{ to: listPath, label: noun }}
         actions={
           <>
             <Button variant="outline" onClick={() => void copy(selected?.number)} disabled={busy}>
@@ -82,7 +90,7 @@ export default function PartPage() {
       <FolderLine
         folder={p.folder}
         editable={editable}
-        suggestions={partsApi.folders}
+        suggestions={() => partsApi.folders(assembly ? 'assembly' : 'part')}
         onMove={async (folder) => {
           await partsApi.update(id, { folder })
           part.reload()
@@ -126,6 +134,8 @@ export default function PartPage() {
               </ul>
             </CardContent>
           </Card>
+          {assembly && selected && <ComponentsCard recipe={selected.recipe} />}
+          {!assembly && (
           <Card>
             <CardHeader>
               <CardTitle>이 부품의 지그</CardTitle>
@@ -146,8 +156,9 @@ export default function PartPage() {
               )}
             </CardContent>
           </Card>
+          )}
           <SourceLinksCard source="part" id={id} canEdit={editable} />
-          <StandardCard part={p} admin={isSystemAdmin(user)} onChanged={part.reload} />
+          {!assembly && <StandardCard part={p} admin={isSystemAdmin(user)} onChanged={part.reload} />}
           {selected && <ConditionsCard conditions={selected.conditions} />}
           {p.current_version > 0 && <SimilarCard source={`part:${id}`} />}
         </div>
@@ -160,16 +171,57 @@ export default function PartPage() {
 
       <ConfirmDialog
         open={deleting}
-        title="부품 등록을 해제하시겠습니까?"
-        description={`‘${p.name}’이(가) 카탈로그에서 삭제됩니다. 이 부품을 참조하는 지그는 유지되지만 부품 연결은 해제됩니다.`}
+        title={`${noun} 등록을 해제하시겠습니까?`}
+        description={
+          assembly
+            ? `‘${p.name}’이(가) 카탈로그에서 삭제됩니다. 구성품으로 쓰인 공용 부품 · 지그는 그대로 남습니다.`
+            : `‘${p.name}’이(가) 카탈로그에서 삭제됩니다. 이 부품을 참조하는 지그는 유지되지만 부품 연결은 해제됩니다.`
+        }
         confirmLabel="등록 해제"
         destructive
         onConfirm={async () => {
           await partsApi.remove(id)
-          navigate('/parts')
+          navigate(listPath)
         }}
         onClose={() => setDeleting(false)}
       />
     </div>
+  )
+}
+
+/** 공용 조립의 구성품 — 등록할 때 고정한 공용 부품 · 지그 버전. 누르면 그 카탈로그로 간다. */
+function ComponentsCard({ recipe }: { recipe: PartVersion['recipe'] }) {
+  const components = ((recipe?.nodes ?? []) as { id?: string; op?: string; label?: string; source?: string }[]).filter((one) => one.op === 'component')
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>구성품 {components.length}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ul className="space-y-1 text-sm" aria-label="구성품">
+          {components.map((one) => {
+            const [kind, rest = ''] = String(one.source ?? '').split(':')
+            const [target, version] = rest.split('@')
+            const to = kind === 'part' ? `/parts/${target}` : kind === 'jig' ? `/jigs/${target}` : null
+            const label = one.label || one.id
+            return (
+              <li key={one.id} className="flex items-center gap-2">
+                {to ? (
+                  <Link to={to} className="min-w-0 truncate hover:underline">
+                    {label}
+                  </Link>
+                ) : (
+                  <span className="min-w-0 truncate">{label}</span>
+                )}
+                <span className="text-muted-foreground ml-auto shrink-0 text-xs">
+                  {kind === 'jig' ? '지그' : '부품'}
+                  {version ? ` v${version}` : ''}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      </CardContent>
+    </Card>
   )
 }

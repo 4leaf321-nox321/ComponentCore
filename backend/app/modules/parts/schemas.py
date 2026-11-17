@@ -32,6 +32,8 @@ class PartOut(BaseModel):
 
     id: uuid.UUID
     name: str
+    kind: str = "part"
+    """part | assembly — 공용 조립도 부품 카탈로그에 있다."""
     tags: list[str] = Field(default_factory=list)
     """꼬리표 — 승격이 내 작업의 것을 물려받는다. 목록에서 이것으로 거른다(`?tag=`)."""
     description: str
@@ -55,6 +57,8 @@ class PartSummaryOut(BaseModel):
 
     id: uuid.UUID
     name: str
+    kind: str = "part"
+    """part | assembly — 공용 조립도 부품 카탈로그에 있다."""
     tags: list[str] = Field(default_factory=list)
     """꼬리표 — **목록에도 보여야 한다.** 거르개로 쓰는 자리가 목록이다."""
     description: str

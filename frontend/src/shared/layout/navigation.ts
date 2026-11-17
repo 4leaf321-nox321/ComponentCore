@@ -29,6 +29,7 @@ import {
   ListTodo,
   Megaphone,
   MessagesSquare,
+  Puzzle,
   Ruler,
   ScrollText,
   Search,
@@ -130,6 +131,12 @@ export const NAV_GROUPS: NavGroup[] = [
       },
       { label: '부품', icon: Layers, to: '/parts', summary: '등록된 부품입니다. 모든 사용자가 조회할 수 있으며, 내 작업 공간으로 복사하여 사용할 수 있습니다.' },
       { label: '지그', icon: Boxes, to: '/jigs', summary: '등록된 지그입니다. 대상 부품과 그 버전을 함께 표시합니다.' },
+      {
+        label: '조립',
+        icon: Puzzle,
+        to: '/assemblies',
+        summary: '등록된 조립입니다. 구성품은 공용 부품 · 지그의 정해진 버전을 가리키며, 내 작업 공간으로 복사하여 사용할 수 있습니다.',
+      },
     ],
   },
   {

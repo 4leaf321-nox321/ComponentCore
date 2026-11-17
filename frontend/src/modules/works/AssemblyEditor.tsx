@@ -32,6 +32,8 @@ import { Skeleton } from '@/shared/components/ui/skeleton'
 import { useFillHeight } from '@/shared/hooks/useFillHeight'
 import { useResource } from '@/shared/hooks/useResource'
 import type { MeshFace } from '@/shared/viewer/PickViewer'
+import { PUBLIC_PATH } from '@/shared/base'
+import { useTabs } from '@/shared/layout/tabs'
 
 const PickViewer = lazy(() => import('@/shared/viewer/PickViewer'))
 
@@ -59,7 +61,9 @@ const SOURCE_LABEL: Record<string, string> = { work: '내 도면', part: '공용
 
 /** `work:… · part:… · jig:…` → 그 화면의 주소. 모르는 꼴이면 null(단추를 안 그린다). */
 export function sourceLink(source: string): string | null {
-  const [kind, id] = source.split(':')
+  const [kind, rest] = source.split(':')
+  // `part:<id>@3` — 버전은 주소가 아니다(공용 조립은 구성품을 버전으로 고정한다).
+  const id = rest?.split('@')[0]
   if (!id) return null
   const path = { work: 'works', part: 'parts', jig: 'jigs' }[kind]
   return path ? `/${path}/${id}` : null
@@ -160,6 +164,8 @@ export function AssemblyEditor({ value, onChange, conditions }: { value: Recipe;
   const total = placed.length + drawn.length
   /** 목록에서 고른 것 — 3D 에서 그것만 또렷하다. */
   const [selected, setSelected] = useState<string | null>(null)
+  /** 화면 탭 — 구성품의 원본을 여기서 연다(탭 밖이면 브라우저 새 탭). */
+  const tabs = useTabs()
   /** 「편집」 창을 연 것. */
   const [editing, setEditing] = useState<string | null>(null)
   /** 3D 손잡이 — 고른 구성품을 화살표로 옮기거나 고리로 돌린다. */
@@ -361,17 +367,23 @@ export function AssemblyEditor({ value, onChange, conditions }: { value: Recipe;
                       </button>
                       {/* **원본으로 가는 길.** 여기서 고치는 것은 「어디에 놓나」 뿐이고,
                           모양 자체는 가져온 도면의 것이다 — 그 도면이 어디 있는지 모르면
-                          사용자는 조립 화면에서 모양을 고치려다 막힌다. 새 탭으로 연다:
-                          여기 고치던 배치를 잃지 않게. */}
+                          사용자는 조립 화면에서 모양을 고치려다 막힌다. **화면 탭**으로 연다:
+                          이 조립 탭은 그대로 살아 있어 고치던 배치를 잃지 않는다. Ctrl · 가운데
+                          단추로 누르면(또는 탭이 꽉 차면) 브라우저 새 탭 — 주소 접두어를 붙인다
+                          (포털의 `/compcore/` 가 빠져 열리지 않던 것). */}
                       {sourceLink(one.source) && (
                         <a
                           className="text-muted-foreground hover:text-foreground rounded p-1"
-                          href={sourceLink(one.source)!}
+                          href={`${PUBLIC_PATH}${sourceLink(one.source)}`}
                           target="_blank"
                           rel="noreferrer"
                           aria-label={`${one.label ?? one.id} 원본 열기`}
-                          title="원본 도면을 새 탭에서 엽니다. 형상은 원본 도면에서 수정하십시오."
-                          onClick={(e) => e.stopPropagation()}
+                          title="원본 도면을 탭으로 엽니다. 형상은 원본 도면에서 수정하십시오. (Ctrl+클릭: 브라우저 새 탭)"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return
+                            if (tabs?.open(sourceLink(one.source)!, one.label || one.id)) e.preventDefault()
+                          }}
                         >
                           <ExternalLink className="size-3.5" />
                         </a>

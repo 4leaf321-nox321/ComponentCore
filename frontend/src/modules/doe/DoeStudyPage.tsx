@@ -21,12 +21,14 @@ import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
 import { Skeleton } from '@/shared/components/ui/skeleton'
 import { useResource } from '@/shared/hooks/useResource'
+import { useTabTitle } from '@/shared/layout/tabs'
 
 export default function DoeStudyPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
   const { user } = useAuth()
   const study = useResource(() => doeApi.get(id), [id])
+  useTabTitle(study.data?.name)
   /** 복제 대화상자 — 열려 있으면 새 이름. */
   const [cloneName, setCloneName] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)

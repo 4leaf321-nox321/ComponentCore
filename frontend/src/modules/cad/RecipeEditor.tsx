@@ -49,6 +49,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Skeleton } from '@/shared/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/shared/components/ui/tabs'
 import { Textarea } from '@/shared/components/ui/textarea'
+import { useTabActive } from '@/shared/layout/tabActive'
 
 const PickViewer = lazy(() => import('@/shared/viewer/PickViewer'))
 
@@ -195,7 +196,10 @@ export function RecipeEditor({
     h.at = 0
     emit(() => next)
   }
+  /** 숨은 화면 탭의 편집기는 되돌리기 단축키를 받지 않는다 — 안 그러면 보이지 않는 도면이 되돌아간다. */
+  const tabActive = useTabActive()
   useEffect(() => {
+    if (!tabActive) return
     function onKey(event: KeyboardEvent) {
       if (!(event.ctrlKey || event.metaKey)) return
       const target = event.target as HTMLElement | null

@@ -141,6 +141,21 @@ export interface JigPreview {
   mesh: MeshData
 }
 
+/**
+ * 공용 조립으로 올릴 때 구성품 하나 — `pin` 공용 것을 지금 버전으로 고정 · `keep` 이미 버전을 집은 공용 참조 ·
+ * `reuse` 이미 공용에 올린 내 작업의 그 버전 · `register` 공용에 없는 내 작업이라 **함께 등록**.
+ */
+export interface ComponentPlan {
+  node: string
+  label: string
+  kind: 'part' | 'jig' | 'assembly'
+  name: string
+  action: 'pin' | 'keep' | 'reuse' | 'register'
+  source: string
+  target: string | null
+  version: number | null
+}
+
 export const worksApi = {
   jigOptions: () => api.get<Record<string, unknown>>('/works/jig-options'),
   list: (offset = 0, limit = 50, filter: WorkFilter = {}) => {
@@ -237,6 +252,11 @@ export const worksApi = {
   jigProduct: (id: string) => api.get<JigProduct>(`/works/${id}/jig-product`),
   promotePart: (id: string, body: { name?: string; note?: string; conditions?: boolean }) =>
     api.post<{ part_id: string; number: number }>(`/works/${id}/promote/part`, body),
+  /** 공용 조립으로 올리면 구성품마다 무엇이 일어나나 — 쓰지 않는다. */
+  assemblyPlan: (id: string) => api.get<{ components: ComponentPlan[] }>(`/works/${id}/promote/assembly`),
+  /** 조립을 공용 조립으로 — 구성품 참조가 공용 것으로 바뀌고, 공용에 없는 내 구성품은 함께 등록된다. */
+  promoteAssembly: (id: string, body: { name?: string; note?: string; conditions?: boolean }) =>
+    api.post<{ part_id: string; part_version: number; components: ComponentPlan[] }>(`/works/${id}/promote/assembly`, body),
   /** 손으로 그린 지그(레시피 버전)를 지그 카탈로그로 — 생성기를 거치지 않는 길. */
   /** 생성기가 만든 지그를 **지그 작업으로** — 그 다음부터는 그냥 그린다. */
   promoteJigRecipe: (id: string, body: { number?: number; name?: string; note?: string; part_id?: string | null; conditions?: boolean }) =>

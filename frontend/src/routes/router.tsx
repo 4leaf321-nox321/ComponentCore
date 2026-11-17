@@ -5,6 +5,7 @@
 
 import { lazy } from 'react'
 import { Navigate, createBrowserRouter } from 'react-router-dom'
+import type { RouteObject } from 'react-router-dom'
 
 import ForcePasswordChangePage from '@/modules/auth/ForcePasswordChangePage'
 import { ById } from '@/routes/ById'
@@ -68,6 +69,87 @@ const MembersPage = lazy(() => import('@/modules/workspaces/MembersPage'))
 const WebhooksPage = lazy(() => import('@/modules/webhooks/WebhooksPage'))
 const DataSourcesPage = lazy(() => import('@/modules/datasources/DataSourcesPage'))
 
+/**
+ * 본문의 라우트 표 — 라우터의 `/` 자식이자, **화면 탭**이 탭마다 그 탭의 주소로 그리는 표(`AppShell` 의
+ * `routes`). 한 벌이라 탭에서 열 수 있는 화면과 주소로 갈 수 있는 화면이 같다.
+ */
+const shellRoutes: RouteObject[] = [
+  { index: true, element: <Navigate to="/works" replace /> },
+  { path: 'draw', element: <DrawPage /> },
+  { path: 'draw/jig-from-part', element: <JigFromPartPage /> },
+  { path: 'works', element: <WorksPage /> },
+  { path: 'works/:id', element: <ById><WorkPage /></ById> },
+  { path: 'templates', element: <TemplatesPage /> },
+  { path: 'specimens', element: <SpecimensPage /> },
+  { path: 'doe', element: <DoeStudiesPage /> },
+  { path: 'doe/new', element: <NewDoePage /> },
+  { path: 'doe/:id', element: <ById><DoeStudyPage /></ById> },
+  { path: 'parts', element: <PartsPage /> },
+  { path: 'parts/:id', element: <ById><PartPage /></ById> },
+  { path: 'assemblies', element: <PartsPage kind="assembly" /> },
+  { path: 'assemblies/:id', element: <ById><PartPage /></ById> },
+  { path: 'jigs', element: <JigsPage /> },
+  { path: 'jigs/:id', element: <ById><JigPage /></ById> },
+  { path: 'jobs', element: <JobsPage /> },
+  { path: 'me', element: <ProfilePage /> },
+  { path: 'notices', element: <NoticesPage /> },
+  { path: 'notices/:id', element: <ById><NoticeDetailPage /></ById> },
+  { path: 'voc', element: <VocPage /> },
+  { path: 'voc/:id', element: <ById><VocDetailPage /></ById> },
+  { path: 'tasks', element: <TasksPage /> },
+  { path: 'notifications', element: <NotificationsPage /> },
+
+  // 기준정보 — **정의가 만드는 화면.** 타입이 늘어도 라우트는 안 늘어난다.
+  { path: 'search', element: <SearchPage /> },
+  { path: 'o', element: <ObjectTypesPage /> },
+  { path: 'o/:typeSlug', element: <ObjectListPage /> },
+  { path: 'o/:typeSlug/:objectId', element: <ObjectProfilePage /> },
+  { path: 'graph', element: <GraphPage /> },
+  { path: 'metrics', element: <MetricsPage /> },
+  { path: 'metrics/:slug', element: <MetricDetailPage /> },
+  { path: 'audit', element: <AuditPage /> },
+  { path: 'quality', element: <QualityPage /> },
+  { path: 'review', element: <ReviewPage /> },
+
+  // 부서 스코프
+  {
+    path: 'w/:slug',
+    children: [
+      { index: true, element: <WorkspaceHomePage /> },
+      { path: 'members', element: <MembersPage /> },
+    ],
+  },
+
+  { path: 'admin/works', element: <AllWorksPage /> },
+  { path: 'admin/accounts', element: <AccountsAdminPage /> },
+  { path: 'admin/workspaces', element: <WorkspacesAdminPage /> },
+  {
+    // **두 번째 사이드바.** 묶음과 타입을 각각 제 화면에서 본다.
+    path: 'admin/ontology',
+    element: <OntologyLayout />,
+    children: [
+      { index: true, element: <Navigate to="groups" replace /> },
+      { path: 'groups', element: <OntologyGroupsPage /> },
+      { path: 'types', element: <OntologyTypesPage /> },
+      { path: 'interfaces', element: <OntologyInterfacesPage /> },
+      { path: 'relations', element: <OntologyRelationsPage /> },
+      { path: 'tags', element: <OntologyTagsPage /> },
+      { path: 'import', element: <OntologyImportPage /> },
+      { path: 'core', element: <OntologyCorePage /> },
+    ],
+  },
+  { path: 'admin/server', element: <ServerPage /> },
+  { path: 'admin/charts', element: <ChartGalleryPage /> },
+  { path: 'admin/webhooks', element: <WebhooksPage /> },
+  { path: 'admin/datasources', element: <DataSourcesPage /> },
+  {
+    path: '*',
+    element: (
+      <Placeholder title="페이지를 찾을 수 없습니다" phase="—" description="주소를 확인하십시오." />
+    ),
+  },
+]
+
 export const router = createBrowserRouter(
   [
     { path: '/login', element: <LoginPage /> },
@@ -75,84 +157,7 @@ export const router = createBrowserRouter(
       element: <ProtectedRoute />,
       children: [
         { path: '/force-password-change', element: <ForcePasswordChangePage /> },
-        {
-          path: '/',
-          element: <AppShell />,
-          children: [
-            { index: true, element: <Navigate to="/works" replace /> },
-            { path: 'draw', element: <DrawPage /> },
-            { path: 'draw/jig-from-part', element: <JigFromPartPage /> },
-            { path: 'works', element: <WorksPage /> },
-            { path: 'works/:id', element: <ById><WorkPage /></ById> },
-            { path: 'templates', element: <TemplatesPage /> },
-            { path: 'specimens', element: <SpecimensPage /> },
-            { path: 'doe', element: <DoeStudiesPage /> },
-            { path: 'doe/new', element: <NewDoePage /> },
-            { path: 'doe/:id', element: <ById><DoeStudyPage /></ById> },
-            { path: 'parts', element: <PartsPage /> },
-            { path: 'parts/:id', element: <ById><PartPage /></ById> },
-            { path: 'jigs', element: <JigsPage /> },
-            { path: 'jigs/:id', element: <ById><JigPage /></ById> },
-            { path: 'jobs', element: <JobsPage /> },
-            { path: 'me', element: <ProfilePage /> },
-            { path: 'notices', element: <NoticesPage /> },
-            { path: 'notices/:id', element: <ById><NoticeDetailPage /></ById> },
-            { path: 'voc', element: <VocPage /> },
-            { path: 'voc/:id', element: <ById><VocDetailPage /></ById> },
-            { path: 'tasks', element: <TasksPage /> },
-            { path: 'notifications', element: <NotificationsPage /> },
-
-            // 기준정보 — **정의가 만드는 화면.** 타입이 늘어도 라우트는 안 늘어난다.
-            { path: 'search', element: <SearchPage /> },
-            { path: 'o', element: <ObjectTypesPage /> },
-            { path: 'o/:typeSlug', element: <ObjectListPage /> },
-            { path: 'o/:typeSlug/:objectId', element: <ObjectProfilePage /> },
-            { path: 'graph', element: <GraphPage /> },
-            { path: 'metrics', element: <MetricsPage /> },
-            { path: 'metrics/:slug', element: <MetricDetailPage /> },
-            { path: 'audit', element: <AuditPage /> },
-            { path: 'quality', element: <QualityPage /> },
-            { path: 'review', element: <ReviewPage /> },
-
-            // 부서 스코프
-            {
-              path: 'w/:slug',
-              children: [
-                { index: true, element: <WorkspaceHomePage /> },
-                { path: 'members', element: <MembersPage /> },
-              ],
-            },
-
-            { path: 'admin/works', element: <AllWorksPage /> },
-            { path: 'admin/accounts', element: <AccountsAdminPage /> },
-            { path: 'admin/workspaces', element: <WorkspacesAdminPage /> },
-            {
-              // **두 번째 사이드바.** 묶음과 타입을 각각 제 화면에서 본다.
-              path: 'admin/ontology',
-              element: <OntologyLayout />,
-              children: [
-                { index: true, element: <Navigate to="groups" replace /> },
-                { path: 'groups', element: <OntologyGroupsPage /> },
-                { path: 'types', element: <OntologyTypesPage /> },
-                { path: 'interfaces', element: <OntologyInterfacesPage /> },
-                { path: 'relations', element: <OntologyRelationsPage /> },
-                { path: 'tags', element: <OntologyTagsPage /> },
-                { path: 'import', element: <OntologyImportPage /> },
-                { path: 'core', element: <OntologyCorePage /> },
-              ],
-            },
-            { path: 'admin/server', element: <ServerPage /> },
-            { path: 'admin/charts', element: <ChartGalleryPage /> },
-            { path: 'admin/webhooks', element: <WebhooksPage /> },
-            { path: 'admin/datasources', element: <DataSourcesPage /> },
-            {
-              path: '*',
-              element: (
-                <Placeholder title="페이지를 찾을 수 없습니다" phase="—" description="주소를 확인하십시오." />
-              ),
-            },
-          ],
-        },
+        { path: '/', element: <AppShell routes={shellRoutes} />, children: shellRoutes },
       ],
     },
   ],

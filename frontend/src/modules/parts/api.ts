@@ -102,9 +102,14 @@ export interface StandardSpec {
   mount_thickness?: number | null
 }
 
+/** 부품 카탈로그의 종류 — **공용 조립**도 같은 카탈로그에 있다(서버 `parts.kind`). */
+export type PartKind = 'part' | 'assembly'
+
 export interface Part {
   id: string
   name: string
+  /** part · assembly — 공용 조립이면 「내 작업 공간으로 복사」 가 조립 작업을 만든다. */
+  kind?: PartKind
   description: string
   owner_id: string
   owner_name: string
@@ -126,6 +131,7 @@ export interface PartSummary {
   tags: string[]
   id: string
   name: string
+  kind?: PartKind
   description: string
   owner_id: string
   owner_name: string
@@ -141,6 +147,8 @@ export interface PartSummary {
 
 /** 목록을 거르는 폴더 — null 이면 전부, '' 이면 폴더 없는 것만(그때는 하위를 안 본다). */
 export interface FolderFilter {
+  /** 부품 · 공용 조립 — 비우면 부품만(서버 기본). */
+  kind?: PartKind
   /** 규격 부품만 — `any` 또는 종류. */
   standard?: '' | 'any' | StandardKind
   folder?: string | null
@@ -160,6 +168,7 @@ export const partsApi = {
     if (tag) query.set('tag', tag)
     if (filter.folder != null) query.set('folder', filter.folder)
     if (filter.folder === '') query.set('subfolders', 'false')
+    if (filter.kind) query.set('kind', filter.kind)
     addShapeParams(query, filter.shape)
     if (filter.standard) query.set('standard', filter.standard)
     if (filter.tagId) query.set('tag_id', filter.tagId)
@@ -177,8 +186,8 @@ export const partsApi = {
   /** 묶음을 가져온다 — 시스템 관리자만. `dryRun` 이면 아무것도 바꾸지 않고 할 일만 돌려준다. */
   importStandard: (bundle: StandardBundle, dryRun: boolean) =>
     api.post<StandardImportResult>(`/parts/standard/import?dry_run=${dryRun}`, bundle),
-  /** 카탈로그의 폴더들 — 경로와 바로 그 폴더의 부품 수. */
-  folders: () => api.get<FolderRow[]>('/parts/folders'),
+  /** 카탈로그의 폴더들 — 경로와 바로 그 폴더의 부품 수. 공용 조립은 `kind='assembly'` 로 따로 센다. */
+  folders: (kind: PartKind = 'part') => api.get<FolderRow[]>(`/parts/folders?kind=${kind}`),
   /** 폴더째 옮기기 · 이름 바꾸기(하위까지). 남의 부품이 든 폴더는 관리자만. */
   renameFolder: (path: string, to: string) => api.post<{ moved: number }>('/parts/folders/rename', { path, to }),
   /** 부품 여럿을 한 폴더로 — 올린 사람 · 관리자만. */

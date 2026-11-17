@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import uuid
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -1143,12 +1144,22 @@ def promote_part(
     name: str | None,
     note: str,
     conditions: bool = True,
+    version: WorkVersion | None = None,
+    recipe: dict[str, Any] | None = None,
+    kind: str = "part",
 ) -> PartVersion:
     """현재 형상 버전을 부품으로. 이 작업에서 이미 승격한 부품이 있으면 거기에 다음 버전.
 
     `conditions` 면 그 버전의 해석 조건도 **스냅샷으로** 싣는다 — 복사한 사람이 같은 조건으로
-    바로 해석 · DOE 를 돌린다. 작업의 조건은 제자리에서 바뀌므로 가리키지 않고 복사한다."""
-    version = current_version(db, work)
+    바로 해석 · DOE 를 돌린다. 작업의 조건은 제자리에서 바뀌므로 가리키지 않고 복사한다.
+
+    `version` 은 올릴 버전(비우면 현재 — 조립이 구성품의 옛 버전을 가리킬 때), `recipe` 는
+    실을 레시피(비우면 그 버전의 것 — 공용 조립은 구성품을 공용 참조로 바꾼 것), `kind` 는
+    카탈로그의 종류(`part` · `assembly`)."""
+    if work.kind == "assembly" and kind != "assembly":
+        # 조립을 부품으로 올리면 구성품의 `work:` 참조가 그대로 나가 남이 열지 못한다.
+        raise AppError(code("WORKS", 41), "조립 작업은 ‘공용 조립으로 등록’으로 등록하십시오.")
+    version = version or current_version(db, work)
     if version is None:
         raise AppError(code("WORKS", 8), "형상이 없습니다.")
     already = _promoted_part_version(db, version.id)
@@ -1165,6 +1176,7 @@ def promote_part(
         part = Part(
             name=(name or work.name).strip(),
             description=work.description,
+            kind=kind,
             owner_id=by.id,
             work_id=work.id,
             # **폴더는** 처음 한 번만 — 카탈로그에서 옮긴 뒤 다시 올려도 제자리로 끌고 오지
@@ -1184,7 +1196,7 @@ def promote_part(
         part_id=part.id,
         number=part.current_version + 1,
         work_version_id=version.id,
-        recipe=version.recipe,
+        recipe=recipe if recipe is not None else version.recipe,
         conditions=deepcopy(version.conditions or {}) if conditions else {},
         job_id=version.job_id,
         note=note.strip() or f"작업 v{version.number}에서",
@@ -1262,6 +1274,263 @@ def promote_jig_recipe(
         part_version=part_version.number if part_version else None,
         part_promoted_now=False,
     )
+
+
+# --- 공용 조립 ------------------------------------------------------------------
+
+
+@dataclass
+class ComponentPlan:
+    """공용 조립으로 올릴 때 구성품 하나가 어떻게 되나.
+
+    - `pin` — 이미 공용(부품 · 지그)이다. 지금 버전으로 **고정**한다(`@n`). 고정하지 않으면 그
+      부품이 v2 가 되는 날 등록된 조립의 모양이 바뀐다 — 등록된 버전은 바뀌지 않아야 한다.
+    - `keep` — 이미 버전을 집은 공용 참조. 그대로.
+    - `reuse` — 내 작업인데 그 버전이 이미 공용에 있다. 그것을 가리킨다.
+    - `register` — 내 작업이고 공용에 없다. **함께 등록**한다(지그를 올릴 때 대상 부품을 함께
+      올리는 것과 같다). 남은 남의 비공개 작업을 못 읽는다 — 조립에 `work:` 가 남으면 복사한
+      사람이 열지 못한다.
+    """
+
+    node: str
+    label: str
+    kind: str
+    name: str
+    action: str
+    source: str
+    target: str | None
+    version: int | None
+
+    def out(self) -> dict[str, Any]:
+        return {
+            "node": self.node,
+            "label": self.label,
+            "kind": self.kind,
+            "name": self.name,
+            "action": self.action,
+            "source": self.source,
+            "target": self.target,
+            "version": self.version,
+        }
+
+
+def _split_source(source: str) -> tuple[str, uuid.UUID, int | None]:
+    kind, _, rest = source.partition(":")
+    name, _, raw_number = rest.partition("@")
+    try:
+        return kind, uuid.UUID(name), int(raw_number) if raw_number else None
+    except ValueError as failure:
+        raise AppError(
+            code("WORKS", 38), f"구성품 참조({source})의 모양이 틀렸습니다."
+        ) from failure
+
+
+def _published_jig_version(db: Session, work: Work, version: WorkVersion) -> JigVersion | None:
+    """이 지그 작업 버전의 레시피가 이미 지그 카탈로그에 있나 — 지그 버전은 작업 버전을
+    가리키지 않으므로 레시피로 맞춘다."""
+    jig = db.scalar(select(Jig).where(Jig.work_id == work.id, Jig.deleted_at.is_(None)))
+    if jig is None:
+        return None
+    for one in db.scalars(
+        select(JigVersion)
+        .where(JigVersion.jig_id == jig.id)
+        .order_by(JigVersion.number.desc())
+    ):
+        if one.recipe == version.recipe:
+            return one
+    return None
+
+
+def _component_plan(
+    db: Session, node: dict[str, Any], by: User, seen: frozenset[uuid.UUID]
+) -> tuple[ComponentPlan, Work | None, WorkVersion | None]:
+    """구성품 하나의 계획 — 쓰지 않는다. 함께 등록할 것이면 그 작업 · 버전도 돌려준다."""
+    source = str(node.get("source") or "")
+    kind, identifier, number = _split_source(source)
+    node_id = str(node.get("id") or "")
+    label = str(node.get("label") or node_id)
+    if kind == "part":
+        part = db.get(Part, identifier)
+        if part is None or part.deleted_at is not None:
+            raise NotFound(code("WORKS", 39), f"‘{label}’이(가) 가리키는 부품이 없습니다.")
+        pinned = number or part.current_version
+        target = f"part:{part.id}@{pinned}"
+        action = "keep" if number else "pin"
+        return (
+            ComponentPlan(
+                node_id, label, part.kind, part.name, action, source, target, pinned
+            ),
+            None,
+            None,
+        )
+    if kind == "jig":
+        jig = db.get(Jig, identifier)
+        if jig is None or jig.deleted_at is not None:
+            raise NotFound(code("WORKS", 39), f"‘{label}’이(가) 가리키는 지그가 없습니다.")
+        pinned = number or jig.current_version
+        target = f"jig:{jig.id}@{pinned}"
+        action = "keep" if number else "pin"
+        return (
+            ComponentPlan(node_id, label, "jig", jig.name, action, source, target, pinned),
+            None,
+            None,
+        )
+    if kind != "work":
+        raise AppError(
+            code("WORKS", 38), f"‘{label}’: 알 수 없는 구성품 참조({source})입니다."
+        )
+    work = db.get(Work, identifier)
+    if work is None or work.deleted_at is not None:
+        raise NotFound(code("WORKS", 39), f"‘{label}’이(가) 가리키는 작업이 없습니다.")
+    if work.owner_id != by.id and not by.is_system_admin:
+        raise Forbidden(
+            code("WORKS", 40),
+            f"‘{label}’은(는) 다른 사용자의 작업입니다. 그 사용자가 부품으로 등록한 뒤 "
+            "가져오십시오.",
+        )
+    if work.id in seen:
+        raise AppError(code("WORKS", 38), f"‘{label}’: 조립이 자기 자신을 가리킵니다.")
+    version = get_version(db, work, number) if number else current_version(db, work)
+    if version is None:
+        raise AppError(code("WORKS", 8), f"‘{label}’({work.name})에 형상이 없습니다.")
+    if work.kind == "jig":
+        published = _published_jig_version(db, work, version)
+        if published is not None:
+            target = f"jig:{published.jig_id}@{published.number}"
+            plan = ComponentPlan(
+                node_id, label, "jig", work.name, "reuse", source, target, published.number
+            )
+            return plan, None, None
+        plan = ComponentPlan(
+            node_id, label, "jig", work.name, "register", source, None, version.number
+        )
+        return plan, work, version
+    promoted = _promoted_part_version(db, version.id)
+    catalog = "assembly" if work.kind == "assembly" else "part"
+    if promoted is not None:
+        target = f"part:{promoted.part_id}@{promoted.number}"
+        plan = ComponentPlan(
+            node_id, label, catalog, work.name, "reuse", source, target, promoted.number
+        )
+        return plan, None, None
+    plan = ComponentPlan(
+        node_id, label, catalog, work.name, "register", source, None, version.number
+    )
+    return plan, work, version
+
+
+def assembly_plan(
+    db: Session, work: Work, *, by: User, seen: frozenset[uuid.UUID] = frozenset()
+) -> list[ComponentPlan]:
+    """공용 조립으로 올리면 구성품마다 무엇이 일어나나 — **쓰지 않는다.** 화면이 등록 창에
+    보여 준다(무엇이 함께 공용으로 나가는지 사람이 안다). 함께 등록할 작업은 평가가 끝나 있어야
+    한다 — 반쯤 올리고 멈추지 않게 여기서 먼저 본다."""
+    if work.kind != "assembly":
+        raise AppError(code("WORKS", 41), "조립 작업만 공용 조립으로 등록할 수 있습니다.")
+    version = current_version(db, work)
+    if version is None:
+        raise AppError(code("WORKS", 8), "형상이 없습니다.")
+    inner = seen | {work.id}
+    plans: list[ComponentPlan] = []
+    for node in version.recipe.get("nodes") or []:
+        if not isinstance(node, dict) or node.get("op") != "component":
+            continue
+        plan, child, child_version = _component_plan(db, node, by, inner)
+        if child is not None and child_version is not None:
+            job = db.get(Job, child_version.job_id) if child_version.job_id else None
+            if job is None or job.status != "done":
+                # 옮겨 온 옛 버전처럼 평가가 없는 구성품이 있다 — 무엇을 하면 되는지 말한다.
+                raise AppError(
+                    code("WORKS", 9),
+                    f"구성품 ‘{plan.label}’({child.name} v{child_version.number})의 형상 "
+                    "평가가 끝나지 않았거나 실패했습니다. 그 작업을 열어 다시 저장(평가)한 뒤 "
+                    "등록하십시오.",
+                )
+            if child.kind == "assembly":
+                assembly_plan(db, child, by=by, seen=inner)  # 안쪽 조립도 올릴 수 있어야
+        plans.append(plan)
+    return plans
+
+
+def promote_assembly(
+    db: Session,
+    work: Work,
+    *,
+    by: User,
+    name: str | None,
+    note: str,
+    conditions: bool = True,
+    version: WorkVersion | None = None,
+    seen: frozenset[uuid.UUID] = frozenset(),
+) -> tuple[PartVersion, list[ComponentPlan]]:
+    """조립을 **공용 조립**으로 — 부품 카탈로그의 `kind=assembly`.
+
+    구성품 참조를 공용 것으로 바꾼 레시피를 싣는다(`assembly_plan`): 공용 부품 · 지그는 지금
+    버전으로 고정하고, 내 작업은 이미 올린 버전을 가리키거나 함께 등록한다. 남이 「내 작업
+    공간으로 복사」 해도 모든 구성품이 열린다. 형상은 같다 — 같은 버전을 가리킬 뿐이다."""
+    if work.kind != "assembly":
+        raise AppError(code("WORKS", 41), "조립 작업만 공용 조립으로 등록할 수 있습니다.")
+    version = version or current_version(db, work)
+    if version is None:
+        raise AppError(code("WORKS", 8), "형상이 없습니다.")
+    if version.number == work.current_version:
+        assembly_plan(db, work, by=by, seen=seen)  # 다 올릴 수 있나 — 쓰기 전에
+    inner = seen | {work.id}
+    recipe = deepcopy(version.recipe)
+    done: list[ComponentPlan] = []
+    for node in recipe.get("nodes") or []:
+        if not isinstance(node, dict) or node.get("op") != "component":
+            continue
+        plan, child, child_version = _component_plan(db, node, by, inner)
+        if child is not None and child_version is not None:
+            along = f"조립 ‘{work.name}’ 등록과 함께"
+            if child.kind == "jig":
+                made = promote_jig_recipe(
+                    db,
+                    child,
+                    by=by,
+                    number=child_version.number,
+                    name=None,
+                    note=along,
+                    part_id=None,
+                )
+                plan.target, plan.version = (
+                    f"jig:{made.jig_id}@{made.jig_version}",
+                    made.jig_version,
+                )
+            else:
+                if child.kind == "assembly":
+                    promoted, _ = promote_assembly(
+                        db,
+                        child,
+                        by=by,
+                        name=None,
+                        note=along,
+                        version=child_version,
+                        seen=inner,
+                    )
+                else:
+                    promoted = promote_part(
+                        db, child, by=by, name=None, note=along, version=child_version
+                    )
+                plan.target, plan.version = (
+                    f"part:{promoted.part_id}@{promoted.number}",
+                    promoted.number,
+                )
+        node["source"] = plan.target
+        done.append(plan)
+    promoted = promote_part(
+        db,
+        work,
+        by=by,
+        name=name,
+        note=note,
+        conditions=conditions,
+        version=version,
+        recipe=recipe,
+        kind="assembly",
+    )
+    return promoted, done
 
 
 def _jig_for(

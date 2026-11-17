@@ -1,9 +1,14 @@
-/** 부품 카탈로그 — 승격된 부품. 로그인한 누구나 보고, 폴더로 나눠 둔다(옮기는 것은 올린 사람 · 관리자). */
+/**
+ * 부품 카탈로그 — 승격된 부품. 로그인한 누구나 보고, 폴더로 나눠 둔다(옮기는 것은 올린 사람 · 관리자).
+ * **공용 조립**(`kind='assembly'`)도 같은 화면이다 — 버전 · 폴더 · 태그 · 복사가 똑같다. 규격 부품 · 지그 수는
+ * 조립에 뜻이 없어 뺀다.
+ */
 
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { partsApi } from '@/modules/parts/api'
+import type { PartKind } from '@/modules/parts/api'
 import { StandardExportButton, StandardImportDialog } from '@/modules/parts/StandardTransfer'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { canEditProject, isSystemAdmin } from '@/shared/auth/roles'
@@ -35,7 +40,30 @@ import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
 
-export default function PartsPage() {
+/** 종류마다 화면의 말 — 부품 · 공용 조립. */
+const WORDS: Record<PartKind, { title: string; noun: string; all: string; description: string; empty: string; base: string }> = {
+  part: {
+    title: '부품',
+    noun: '부품',
+    all: '전체 부품',
+    description: '내 작업에서 등록된 부품입니다. 등록된 버전은 변경할 수 없으며, 수정하려면 내 작업 공간으로 복사하십시오.',
+    empty: '내 작업에서 ‘공용 부품으로 등록’을 실행하면 이 목록에 표시됩니다.',
+    base: '/parts',
+  },
+  assembly: {
+    title: '조립',
+    noun: '조립',
+    all: '전체 조립',
+    description:
+      '내 작업에서 등록된 조립입니다. 구성품은 공용 부품 · 지그의 정해진 버전을 가리킵니다. 수정하려면 내 작업 공간으로 복사하십시오.',
+    empty: '조립 작업에서 ‘공용 조립으로 등록’을 실행하면 이 목록에 표시됩니다.',
+    base: '/assemblies',
+  },
+}
+
+export default function PartsPage({ kind = 'part' }: { kind?: PartKind }) {
+  const words = WORDS[kind]
+  const assembly = kind === 'assembly'
   const [offset, setOffset] = useState(0)
   const [q, setQ] = useState('')
   /** 고른 꼬리표 — 빈 문자열이면 안 거른다. */
@@ -49,10 +77,11 @@ export default function PartsPage() {
   /** 규격 부품 묶음 가져오기 창 — 시스템 관리자만. */
   const [importing, setImporting] = useState(false)
   const PAGE = useDisplay().list_page_size
-  const space = useFolderSpace('parts', partsApi, { onRefilter: () => setOffset(0) })
+  const space = useFolderSpace(assembly ? 'assemblies' : 'parts', { ...partsApi, folders: () => partsApi.folders(kind) }, { onRefilter: () => setOffset(0) })
   const page = useResource(
     () =>
       partsApi.list(offset, PAGE, q, '', {
+        kind,
         folder: space.folder,
         shape,
         standard: standardOnly ? 'any' : '',
@@ -60,7 +89,7 @@ export default function PartsPage() {
         linkObject: linked?.objectId,
         linkRelation: linked?.relation,
       }),
-    [offset, q, tagId, linked, shape, PAGE, space.folder, space.version, standardOnly],
+    [offset, q, tagId, linked, shape, PAGE, space.folder, space.version, standardOnly, kind],
   )
   const tags = useResource(() => tagsApi.used('part'), [page.data])
   const rows = page.data?.items ?? []
@@ -74,19 +103,20 @@ export default function PartsPage() {
 
   return (
     <div>
-      <PageHeader title="부품" description="내 작업에서 등록된 부품입니다. 등록된 버전은 변경할 수 없으며, 수정하려면 내 작업 공간으로 복사하십시오." />
+      <PageHeader title={words.title} description={words.description} />
       <div className="flex gap-4">
         {/* 폴더 — 넓은 화면에서 왼쪽에. 좁으면 위의 고르개로. */}
         <aside className="hidden w-56 shrink-0 md:block">
-          <FolderTree space={space} allLabel="전체 부품" noun="부품" />
+          <FolderTree space={space} allLabel={words.all} noun={words.noun} />
         </aside>
         <div className="min-w-0 flex-1">
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <FolderSelect space={space} allLabel="전체 부품" />
+        <FolderSelect space={space} allLabel={words.all} />
         <SearchBox value={q} onChange={(next) => { setQ(next); setOffset(0) }} />
         <TypedTagFilter tags={tags.data ?? []} value={tagId} onChange={(next) => { setTagId(next); setOffset(0) }} />
         <LinkFilter base="parts" value={linked} onChange={(next) => { setLinked(next); setOffset(0) }} />
         <ShapeFilter value={shape} onChange={(next) => { setShape(next); setOffset(0) }} />
+        {!assembly && (
         <Button
           size="sm"
           variant={standardOnly ? 'default' : 'outline'}
@@ -98,20 +128,21 @@ export default function PartsPage() {
         >
           규격 부품
         </Button>
-        {admin && (
+        )}
+        {admin && !assembly && (
           <Button size="sm" variant="outline" onClick={() => setImporting(true)}>
             규격 부품 가져오기
           </Button>
         )}
       </div>
-      <FolderCrumbs space={space} allLabel="전체 부품" />
+      <FolderCrumbs space={space} allLabel={words.all} />
       <ChosenBar space={space}>{admin && <StandardExportButton ids={chosenStandard} />}</ChosenBar>
       <ErrorNotice error={page.error} className="mb-4" />
       {rows.length === 0 && !page.loading ? (
         filtered ? (
-          <EmptyState title="조건에 맞는 부품이 없습니다" hint="검색어, 태그, 폴더, 형상 조건을 변경하십시오. 빈 폴더에는 부품을 끌어다 놓아 이동할 수 있습니다." />
+          <EmptyState title={`조건에 맞는 ${words.noun}이 없습니다`} hint={`검색어, 태그, 폴더, 형상 조건을 변경하십시오. 빈 폴더에는 ${words.noun}을 끌어다 놓아 이동할 수 있습니다.`} />
         ) : (
-          <EmptyState title="등록된 부품이 없습니다" hint="내 작업에서 ‘공용 부품으로 등록’을 실행하면 이 목록에 표시됩니다." />
+          <EmptyState title={`등록된 ${words.noun}이 없습니다`} hint={words.empty} />
         )
       ) : (
         <>
@@ -123,7 +154,7 @@ export default function PartsPage() {
                 </TableHead>
                 <TableHead>이름</TableHead>
                 <TableHead>버전</TableHead>
-                <TableHead>지그</TableHead>
+                {!assembly && <TableHead>지그</TableHead>}
                 <TableHead>등록자</TableHead>
                 <TableHead>수정일</TableHead>
               </TableRow>
@@ -140,7 +171,7 @@ export default function PartsPage() {
                     <PickBox space={space} id={row.id} name={row.name} disabled={!movable(row.owner_id)} />
                   </TableCell>
                   <TableCell>
-                    <Link to={`/parts/${row.id}`} className="font-medium hover:underline">
+                    <Link to={`${words.base}/${row.id}`} className="font-medium hover:underline">
                       {row.name}
                     </Link>
                     {row.standard && <span className="ml-1 rounded border px-1 text-[10px]" title="규격 부품 — 지그 생성기가 고를 수 있습니다.">규격 {row.standard.part_no}</span>}
@@ -149,7 +180,7 @@ export default function PartsPage() {
                     {row.shape && <p className="text-muted-foreground font-mono text-[11px]">{describeShape(row.shape)}</p>}
                   </TableCell>
                   <TableCell>v{row.current_version}</TableCell>
-                  <TableCell>{row.jig_count}</TableCell>
+                  {!assembly && <TableCell>{row.jig_count}</TableCell>}
                   <TableCell>{row.owner_name}</TableCell>
                   <TableCell className="text-sm">{shownDateTime(row.updated_at)}</TableCell>
                 </TableRow>
@@ -163,7 +194,7 @@ export default function PartsPage() {
       )}
         </div>
       </div>
-      <FolderDialogs space={space} noun="부품" shared />
+      <FolderDialogs space={space} noun={words.noun} shared />
       {importing && (
         <StandardImportDialog
           onClose={() => setImporting(false)}

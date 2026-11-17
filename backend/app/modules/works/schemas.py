@@ -226,6 +226,38 @@ class PromoteJigRecipeRequest(BaseModel):
     """그 버전의 해석 조건도 함께 올린다(기본) — 부품 등록과 같은 규칙. 끄면 형상만."""
 
 
+class ComponentPlanOut(BaseModel):
+    """공용 조립으로 올릴 때 구성품 하나가 어떻게 되나 — `action`:
+
+    - `pin` 이미 공용(부품 · 지그) — 지금 버전으로 고정한다.
+    - `keep` 이미 버전을 집은 공용 참조 — 그대로.
+    - `reuse` 내 작업인데 그 버전이 이미 공용에 있다 — 그것을 가리킨다.
+    - `register` 내 작업이고 공용에 없다 — 함께 등록한다."""
+
+    node: str
+    label: str
+    kind: str
+    """part · jig · assembly — 공용에서 무엇이 되나."""
+    name: str
+    action: str
+    source: str
+    """조립에 적힌 참조(`work:` · `part:` · `jig:`)."""
+    target: str | None
+    """공용 조립에 실릴 참조 — 함께 등록할 것은 등록한 뒤에 정해진다(계획에서는 비어 있다)."""
+    version: int | None
+
+
+class AssemblyPlanOut(BaseModel):
+    components: list[ComponentPlanOut]
+
+
+class PromoteAssemblyOut(BaseModel):
+    part_id: uuid.UUID
+    part_version: int
+    components: list[ComponentPlanOut]
+    """구성품마다 한 일 — `register` 는 함께 등록한 것."""
+
+
 class PromoteJigOut(BaseModel):
     jig_id: uuid.UUID
     jig_version: int

@@ -93,6 +93,7 @@ def part_out(db: Session, part: Part) -> PartOut:
     return PartOut(
         id=part.id,
         name=part.name,
+        kind=part.kind,
         description=part.description,
         owner_id=part.owner_id,
         owner_name=owner.display_name if owner else "(삭제된 계정)",
@@ -115,6 +116,7 @@ def part_summary(db: Session, part: Part) -> PartSummaryOut:
     return PartSummaryOut(
         id=part.id,
         name=part.name,
+        kind=part.kind,
         description=part.description,
         owner_id=part.owner_id,
         owner_name=owner.display_name if owner else "(삭제된 계정)",
@@ -142,8 +144,12 @@ def list_parts(
     subfolders: bool = True,
     shape: shape_search.ShapeFilter | None = None,
     standard: str = "",
+    kind: str = "part",
 ) -> tuple[list[Part], int]:
     base = select(Part).where(Part.deleted_at.is_(None))
+    # 부품과 공용 조립은 한 표다 — 기본은 부품만(`all` 이면 둘 다).
+    if kind != "all":
+        base = base.where(Part.kind == kind)
     # 규격 부품만 — `any` 면 종류를 안 가린다.
     if standard == "any":
         base = base.where(Part.standard.is_not(None))
@@ -179,9 +185,11 @@ def list_parts(
 _BAD_FOLDER = code("PARTS", 4)
 
 
-def part_folders(db: Session) -> list[folders.FolderOut]:
-    """카탈로그의 폴더들 — 지운 부품은 세지 않는다."""
-    return folders.tree(db, Part.folder, Part.deleted_at.is_(None))
+def part_folders(db: Session, kind: str = "part") -> list[folders.FolderOut]:
+    """카탈로그의 폴더들 — 지운 부품은 세지 않는다. 부품 · 공용 조립은 따로 센다."""
+    alive = Part.deleted_at.is_(None)
+    where = alive if kind == "all" else alive & (Part.kind == kind)
+    return folders.tree(db, Part.folder, where)
 
 
 def rename_folder(db: Session, user: User, *, path: str, to: str) -> int:

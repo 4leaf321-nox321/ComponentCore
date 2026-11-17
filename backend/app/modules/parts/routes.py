@@ -31,6 +31,9 @@ from app.shared.errors import NotFound, code
 from app.shared.pagination import Page, clamp_limit
 from app.shared.shape_search import ShapeFilter, shape_query
 
+#: 부품 카탈로그의 종류 — 공용 조립도 같은 표다.
+PartKind = Literal["part", "assembly", "all"]
+
 router = APIRouter(prefix="/parts", tags=["parts"])
 
 
@@ -46,10 +49,13 @@ def part_tags(_: User = Depends(current_user), db: Session = Depends(get_db)) ->
 
 @router.get("/folders", response_model=list[folders.FolderOut])
 def part_folders(
-    _: User = Depends(current_user), db: Session = Depends(get_db)
+    kind: PartKind = Query(default="part"),
+    _: User = Depends(current_user),
+    db: Session = Depends(get_db),
 ) -> list[folders.FolderOut]:
-    """카탈로그의 폴더들 — 경로와 바로 그 폴더의 부품 수. 위 폴더도 빠짐없이."""
-    return services.part_folders(db)
+    """카탈로그의 폴더들 — 경로와 바로 그 폴더의 부품 수. 위 폴더도 빠짐없이. `kind` 는
+    부품(`part`) · 공용 조립(`assembly`) · 둘 다(`all`)."""
+    return services.part_folders(db, kind)
 
 
 @router.post("/folders/rename", response_model=folders.MovedOut)
@@ -104,6 +110,10 @@ def list_parts(
     subfolders: bool = Query(default=True),
     shape: ShapeFilter = Depends(shape_query),
     standard: Literal["", "any", "support", "pin", "clamp"] = Query(default=""),
+    kind: PartKind = Query(
+        default="part",
+        description="부품(`part`) · 공용 조립(`assembly`) · 둘 다(`all`). 기본은 부품만.",
+    ),
     _: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> Page[PartSummaryOut]:
@@ -124,6 +134,7 @@ def list_parts(
         subfolders=subfolders,
         shape=shape,
         standard=standard,
+        kind=kind,
     )
     return Page(
         items=[services.part_summary(db, one) for one in rows],
@@ -244,6 +255,7 @@ def copy_to_work(
     )
     if version is None:
         raise NotFound(code("PARTS", 3), "버전이 없습니다.")
+    noun = "조립" if part.kind == "assembly" else "부품"
     work = works.create_work(
         db,
         owner=user,
@@ -251,8 +263,10 @@ def copy_to_work(
         description=part.description,
         recipe=version.recipe,
         source="copy",
-        note=f"부품 {part.name} v{version.number}에서 복사",
+        note=f"{noun} {part.name} v{version.number}에서 복사",
         conditions=version.conditions if payload.conditions else None,
+        # 공용 조립은 조립 작업으로 — 구성품 참조가 이미 공용이라 누구나 연다.
+        kind="assembly" if part.kind == "assembly" else "part",
     )
     return works.work_out(db, work)
 

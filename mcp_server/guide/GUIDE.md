@@ -33,7 +33,7 @@
 | 버전 복원 | `list_versions` → `restore_version` |
 | 부품에서 지그 생성 | `jig_preview(source, options)` 로 계획을 보고 → `run_jig` → 지그 작업이 생긴다 |
 | **생성된 지그 고치기** | 받침 · 핀 · 클램프는 노드 id(`받침_1` · `위치_핀_1` · `클램프_1` …)로 `patch_work` — 답의 `jig_interference` 가 제품과의 간섭을 말한다(`ok` 거짓이면 `hits` 의 요소를 다시 옮긴다). 고치기 전에 보려면 `jig_check(work_id, recipe)`. 받침 높이(`받침_높이`)를 바꾸면 제품도 따라 오른다 |
-| 공용 부품 · 지그로 등록(다른 사용자에게 공개) | `promote_part` · `promote_jig_recipe` — **사용자가 시킬 때만**. 부품은 해석 조건도 함께 올린다(`with_conditions=False` 면 형상만) |
+| 공용 부품 · 지그 · 조립으로 등록(다른 사용자에게 공개) | `promote_part` · `promote_jig_recipe` · `promote_assembly` — **사용자가 시킬 때만**. 부품은 해석 조건도 함께 올린다(`with_conditions=False` 면 형상만). 조립은 `preview=true` 로 먼저 보고 **함께 등록될 내 구성품**(`register`)을 사용자에게 말한다 — 구성품 참조는 공용 것(지금 버전 고정)으로 바뀌어 실린다. 공용 조립은 `list_parts(kind="assembly")` |
 | 다른 사용자의 부품 가져오기 | `list_parts` → `copy_part_to_work` — 부품에 실린 **해석 조건도 옮긴다**(`get_part` 의 `conditions`). 복사한 작업으로 바로 `doe_run(work_id=…)` |
 | 다른 사용자의 지그 가져오기 | `list_jigs` → `copy_jig_to_work` — 부품과 같다(레시피 · 잡는 부품 · 해석 조건). `get_jig` 의 `has_recipe` 가 거짓이면 생성기로 만든 이전 버전이라 복사할 수 없다 |
 | 폴더로 나눠 보기 | `list_folders(space)` 로 나무를 보고 `list_works` · `list_parts` · `list_jigs` · `list_templates` 의 `folder`(그 아래까지)로 거른다. 만들 때 `create_work(folder)` · `save_template(folder)` |

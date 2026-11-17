@@ -51,6 +51,11 @@ class Part(Base):
     )
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(Text, default="", server_default="")
+    kind: Mapped[str] = mapped_column(
+        String(10), default="part", server_default="part", index=True
+    )
+    """part | assembly — **공용 조립**도 이 표에 있다(마이그레이션 0040). 버전 · 복사 · 태그 ·
+    폴더 · STEP 이 부품과 같다. 부품 목록은 기본이 `part`."""
     owner_id: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), index=True
     )

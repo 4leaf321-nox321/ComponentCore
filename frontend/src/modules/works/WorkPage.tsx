@@ -31,7 +31,7 @@ import { JigResultView } from '@/modules/jigs/JigResultView'
 import { jobsApi } from '@/modules/jobs/api'
 import { doeApi } from '@/modules/doe/api'
 import { worksApi } from '@/modules/works/api'
-import type { WorkVersion } from '@/modules/works/api'
+import type { ComponentPlan, WorkVersion } from '@/modules/works/api'
 import { ApiError, downloadFile } from '@/shared/api/client'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
@@ -50,7 +50,9 @@ import { DuplicateDialog, hasConditions } from '@/modules/works/DuplicateDialog'
 import { TagField } from '@/modules/tagging/TagField'
 import { SimilarCard } from '@/modules/search/SimilarCard'
 import { useResource } from '@/shared/hooks/useResource'
+import type { Resource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
+import { useTabTitle } from '@/shared/layout/tabs'
 
 const SOURCE_LABELS: Record<string, string> = {
   template: '템플릿',
@@ -66,6 +68,7 @@ export default function WorkPage() {
   const { id = '' } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const work = useResource(() => worksApi.get(id), [id])
+  useTabTitle(work.data?.name)
   /** 생성된 지그 — 편집기가 옆에 놓고 간섭을 볼 제품. 지그가 아니면 묻지 않는다. */
   const jigProduct = useResource(
     () => (work.data?.kind === 'jig' ? worksApi.jigProduct(id) : Promise.resolve(null)),
@@ -89,7 +92,12 @@ export default function WorkPage() {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState<Recipe | null>(null)
   const [note, setNote] = useState('')
-  const [promoting, setPromoting] = useState<'part' | 'jig-recipe' | null>(null)
+  const [promoting, setPromoting] = useState<'part' | 'jig-recipe' | 'assembly' | null>(null)
+  /** 공용 조립으로 올릴 때 구성품마다 무엇이 일어나나 — 창을 열면 서버에 묻는다(쓰지 않는다). */
+  const assemblyPlan = useResource(
+    () => (promoting === 'assembly' ? worksApi.assemblyPlan(id) : Promise.resolve(null)),
+    [promoting, id],
+  )
   const [promoteName, setPromoteName] = useState('')
   const [promoteNote, setPromoteNote] = useState('')
   /** 부품으로 올릴 때 해석 조건도 함께 — 복사한 사람이 같은 조건으로 바로 해석한다. */
@@ -198,6 +206,15 @@ export default function WorkPage() {
         setPromoting(null)
         reloadAll()
         navigate(`/jigs/${made.jig_id}`)
+      } else if (promoting === 'assembly') {
+        const made = await worksApi.promoteAssembly(id, {
+          name: promoteName || undefined,
+          note: promoteNote,
+          conditions: hasConditions(w?.current?.conditions) && promoteConditions,
+        })
+        setPromoting(null)
+        reloadAll()
+        navigate(`/assemblies/${made.part_id}`)
       }
     })
   }
@@ -240,24 +257,36 @@ export default function WorkPage() {
             >
               해석용으로 내보내기
             </Button>
-            {!isAssembly && (
-              <Button
-                variant="outline"
-                disabled={busy || w.current_version === 0 || (!isJig && currentPromoted)}
-                onClick={() => {
-                  setPromoteName(w.name)
-                  setPromoteNote('')
-                  setPromoteConditions(true)
-                  setPromoting(isJig ? 'jig-recipe' : 'part')
-                }}
-                title={isJig ? '이 지그 도면을 공용 지그로 등록합니다.' : currentPromoted ? '현재 버전은 이미 공용 부품으로 등록되어 있습니다.' : undefined}
-              >
-                {isJig ? '공용 지그로 등록' : currentPromoted ? `부품 v${w.current?.promoted_part_version} 등록됨` : '공용 부품으로 등록'}
-              </Button>
-            )}
+            <Button
+              variant="outline"
+              disabled={busy || w.current_version === 0 || (!isJig && currentPromoted)}
+              onClick={() => {
+                setPromoteName(w.name)
+                setPromoteNote('')
+                setPromoteConditions(true)
+                setPromoting(isJig ? 'jig-recipe' : isAssembly ? 'assembly' : 'part')
+              }}
+              title={
+                isJig
+                  ? '이 지그 도면을 공용 지그로 등록합니다.'
+                  : currentPromoted
+                    ? `현재 버전은 이미 공용 ${isAssembly ? '조립' : '부품'}으로 등록되어 있습니다.`
+                    : isAssembly
+                      ? '이 조립을 공용 조립으로 등록합니다. 공용에 없는 구성품은 함께 등록됩니다.'
+                      : undefined
+              }
+            >
+              {isJig
+                ? '공용 지그로 등록'
+                : currentPromoted
+                  ? `${isAssembly ? '조립' : '부품'} v${w.current?.promoted_part_version} 등록됨`
+                  : isAssembly
+                    ? '공용 조립으로 등록'
+                    : '공용 부품으로 등록'}
+            </Button>
             {w.promoted_part_id && (
-              <Link to={`/parts/${w.promoted_part_id}`} className="text-muted-foreground text-xs hover:underline">
-                부품으로 등록됨
+              <Link to={`/${isAssembly ? 'assemblies' : 'parts'}/${w.promoted_part_id}`} className="text-muted-foreground text-xs hover:underline">
+                {isAssembly ? '조립으로 등록됨' : '부품으로 등록됨'}
               </Link>
             )}
             {w.promoted_jig_id && (
@@ -629,14 +658,17 @@ export default function WorkPage() {
             className="space-y-4"
           >
             <DialogHeader>
-              <DialogTitle>{promoting === 'part' ? '공용 부품으로 등록' : '공용 지그로 등록'}</DialogTitle>
+              <DialogTitle>{promoting === 'part' ? '공용 부품으로 등록' : promoting === 'assembly' ? '공용 조립으로 등록' : '공용 지그로 등록'}</DialogTitle>
               <DialogDescription>
                 {promoting === 'part'
                   ? `현재 버전(v${w.current_version})을 공용 부품으로 등록합니다. 등록된 버전은 변경되지 않으므로, 수정하려면 이 작업에서 수정한 후 다시 등록하십시오.`
-                  : `현재 도면(v${w.current_version})을 공용 지그로 등록합니다. 형상과 STEP이 등록되며, 고정 대상 부품이 연결되어 있으면 함께 기록됩니다.`}
+                  : promoting === 'assembly'
+                    ? `현재 버전(v${w.current_version})을 공용 조립으로 등록합니다. 다른 사용자가 열 수 있도록 구성품은 공용 부품 · 지그의 정해진 버전을 가리키게 바뀝니다. 등록된 버전은 변경되지 않습니다.`
+                    : `현재 도면(v${w.current_version})을 공용 지그로 등록합니다. 형상과 STEP이 등록되며, 고정 대상 부품이 연결되어 있으면 함께 기록됩니다.`}
               </DialogDescription>
             </DialogHeader>
-            {!(promoting === 'part' ? w.promoted_part_id : w.promoted_jig_id) && (
+            {promoting === 'assembly' && <AssemblyPlanList plan={assemblyPlan} />}
+            {!(promoting === 'jig-recipe' ? w.promoted_jig_id : w.promoted_part_id) && (
               <div className="space-y-2">
                 <Label htmlFor="promote-name">카탈로그 이름</Label>
                 <Input id="promote-name" value={promoteName} onChange={(e) => setPromoteName(e.target.value)} />
@@ -652,7 +684,7 @@ export default function WorkPage() {
                 <span>
                   해석 조건도 함께 등록
                   <span className="text-muted-foreground block text-xs">
-                    이 {promoting === 'part' ? '부품을' : '지그를'} 복사한 사용자가 같은 해석 조건(구속, 하중, 접촉, 물성 등)으로 바로 해석하거나 DOE를 실행할 수 있습니다. 형상만 공개하려면 해제하십시오.
+                    이 {promoting === 'part' ? '부품을' : promoting === 'assembly' ? '조립을' : '지그를'} 복사한 사용자가 같은 해석 조건(구속, 하중, 접촉, 물성 등)으로 바로 해석하거나 DOE를 실행할 수 있습니다. 형상만 공개하려면 해제하십시오.
                   </span>
                 </span>
               </label>
@@ -661,7 +693,8 @@ export default function WorkPage() {
               <Button type="button" variant="outline" onClick={() => setPromoting(null)} disabled={busy}>
                 취소
               </Button>
-              <Button type="submit" disabled={busy}>
+              {/* 조립은 구성품 계획을 받아야 올린다 — 무엇이 함께 공용으로 나가는지 보고 누른다. */}
+              <Button type="submit" disabled={busy || (promoting === 'assembly' && (!assemblyPlan.data || !!assemblyPlan.error))}>
                 {busy ? '등록 중…' : '등록'}
               </Button>
             </DialogFooter>
@@ -741,6 +774,50 @@ export default function WorkPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+/** 구성품마다 할 일 — 화면의 말. */
+const PLAN_TEXT: Record<ComponentPlan['action'], string> = {
+  pin: '공용 · 현재 버전으로 고정',
+  keep: '공용 · 지정 버전 그대로',
+  reuse: '이미 등록된 버전 사용',
+  register: '함께 등록',
+}
+const PLAN_KIND: Record<ComponentPlan['kind'], string> = { part: '부품', jig: '지그', assembly: '조립' }
+
+/**
+ * 공용 조립으로 올리기 전에 **구성품마다 무엇이 일어나나** — 공용에 없는 내 구성품은 함께 공용으로 나간다.
+ * 보지 않고 누르면 비공개로 두려던 부품이 공개된다.
+ */
+function AssemblyPlanList({ plan }: { plan: Resource<{ components: ComponentPlan[] } | null> }) {
+  if (plan.error) return <ErrorNotice error={plan.error} />
+  if (!plan.data) return <p className="text-muted-foreground text-sm">구성품을 확인하는 중…</p>
+  const components = plan.data.components
+  const along = components.filter((one) => one.action === 'register')
+  return (
+    <div className="space-y-1">
+      <Label>구성품 {components.length}</Label>
+      <ul className="max-h-48 space-y-0.5 overflow-y-auto rounded border p-2 text-xs" aria-label="구성품 등록 계획">
+        {components.map((one) => (
+          <li key={one.node} className="flex items-center gap-2">
+            <span className="min-w-0 truncate" title={one.source}>
+              {one.label}
+              {one.name && one.name !== one.label && <span className="text-muted-foreground"> · {one.name}</span>}
+            </span>
+            <span className={`ml-auto shrink-0 ${one.action === 'register' ? 'font-medium text-amber-700 dark:text-amber-400' : 'text-muted-foreground'}`}>
+              {PLAN_KIND[one.kind]} · {PLAN_TEXT[one.action]}
+              {one.version ? ` (v${one.version})` : ''}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {along.length > 0 && (
+        <p className="text-xs text-amber-700 dark:text-amber-400">
+          공용에 없는 구성품 {along.length}개({along.map((one) => one.name).join(', ')})가 공용 부품 · 지그로 함께 등록되어 모든 사용자에게 공개됩니다.
+        </p>
+      )}
     </div>
   )
 }

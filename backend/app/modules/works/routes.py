@@ -27,6 +27,8 @@ from app.modules.works.models import Work
 from app.modules.works.schemas import (
     AssembleOut,
     AssembleRequest,
+    AssemblyPlanOut,
+    ComponentPlanOut,
     ConditionsRequest,
     FolderOut,
     FolderRenameRequest,
@@ -34,6 +36,7 @@ from app.modules.works.schemas import (
     JigFromPartOut,
     JigFromPartRequest,
     MovedOut,
+    PromoteAssemblyOut,
     PromoteJigOut,
     PromoteJigRecipeRequest,
     PromotePartRequest,
@@ -625,6 +628,45 @@ def promote_part(
         conditions=payload.conditions,
     )
     return parts.version_out(db, promoted)
+
+
+@router.get("/{work_id}/promote/assembly", response_model=AssemblyPlanOut)
+def assembly_plan(
+    work_id: uuid.UUID,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> AssemblyPlanOut:
+    """공용 조립으로 올리면 구성품마다 무엇이 일어나나 — 쓰지 않는다. 공용 부품 · 지그는 지금
+    버전으로 고정하고, 내 작업은 이미 올린 버전을 가리키거나 함께 등록한다."""
+    work = _mine(db, work_id, user)
+    plans = services.assembly_plan(db, work, by=user)
+    return AssemblyPlanOut(components=[ComponentPlanOut(**one.out()) for one in plans])
+
+
+@router.post("/{work_id}/promote/assembly", response_model=PromoteAssemblyOut, status_code=201)
+def promote_assembly(
+    work_id: uuid.UUID,
+    payload: PromotePartRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> PromoteAssemblyOut:
+    """현재 조립 버전을 **공용 조립**(부품 카탈로그의 `kind=assembly`)으로 올린다. 구성품
+    참조는 공용 것으로 바뀌어 실린다 — 공용에 없는 내 구성품은 함께 등록된다(`GET` 이 미리
+    보인다)."""
+    work = _mine(db, work_id, user)
+    promoted, plans = services.promote_assembly(
+        db,
+        work,
+        by=user,
+        name=payload.name,
+        note=payload.note,
+        conditions=payload.conditions,
+    )
+    return PromoteAssemblyOut(
+        part_id=promoted.part_id,
+        part_version=promoted.number,
+        components=[ComponentPlanOut(**one.out()) for one in plans],
+    )
 
 
 @router.post("/{work_id}/promote/jig-recipe", response_model=PromoteJigOut, status_code=201)

@@ -22,12 +22,14 @@ import { Button } from '@/shared/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card'
 import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
+import { useTabTitle } from '@/shared/layout/tabs'
 
 export default function JigPage() {
   const { id = '' } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { user } = useAuth()
   const jig = useResource(() => jigsApi.get(id), [id])
+  useTabTitle(jig.data?.name)
   const versions = useResource(() => jigsApi.versions(id), [id])
   const [selected, setSelected] = useState<JigVersion | null>(null)
   const [deleting, setDeleting] = useState(false)

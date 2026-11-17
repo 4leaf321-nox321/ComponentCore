@@ -10,6 +10,7 @@
  */
 
 import { useEffect } from 'react'
+import { useTabActive } from '@/shared/layout/tabActive'
 
 export type ShortcutMap = Record<string, (event: KeyboardEvent) => void>
 
@@ -21,8 +22,10 @@ function inEditable(target: EventTarget | null): boolean {
 }
 
 export function useShortcuts(map: ShortcutMap, enabled = true): void {
+  // 숨은 화면 탭이면 단축키를 쉰다.
+  const tabActive = useTabActive()
   useEffect(() => {
-    if (!enabled) return undefined
+    if (!enabled || !tabActive) return undefined
     const onKey = (event: KeyboardEvent) => {
       if (event.ctrlKey || event.metaKey || event.altKey) return
       const key = `${event.shiftKey && event.key.length > 1 ? 'shift+' : ''}${event.key}`
@@ -33,5 +36,5 @@ export function useShortcuts(map: ShortcutMap, enabled = true): void {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [map, enabled])
+  }, [map, enabled, tabActive])
 }

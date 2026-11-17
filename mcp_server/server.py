@@ -2207,6 +2207,32 @@ async def promote_part(
 
 
 @mcp.tool()
+async def promote_assembly(
+    ctx: Context,
+    work_id: str,
+    name: str | None = None,
+    note: str = "",
+    with_conditions: bool = True,
+    preview: bool = False,
+) -> Any:
+    """조립 작업의 현재 버전을 **공용 조립**으로 등록한다(부품 카탈로그의 `kind=assembly`,
+    누구나 본다, 불변). **사용자가 시킬 때만.** 구성품 참조는 공용 것으로 바뀌어 실린다 —
+    공용 부품 · 지그는 지금 버전으로 고정(`pin`), 이미 올린 내 작업은 그 버전(`reuse`), 공용에
+    없는 내 구성품은 **함께 등록**(`register`). `preview=true` 면 등록하지 않고 구성품마다
+    무엇이 일어나는지만 돌려준다 — 함께 등록될 것을 사용자에게 먼저 말한다."""
+    if preview:
+        return await _get(ctx, f"/api/works/{work_id}/promote/assembly")
+    made = await _post(
+        ctx,
+        f"/api/works/{work_id}/promote/assembly",
+        {"name": name, "note": note, "conditions": with_conditions},
+    )
+    return await _linked(
+        made, "parts", made.get("part_id") if isinstance(made, dict) else None
+    )
+
+
+@mcp.tool()
 async def promote_jig_recipe(
     ctx: Context,
     work_id: str,
@@ -2348,8 +2374,10 @@ async def list_parts(
     linked_object: str | None = None,
     linked_relation: str = "",
     standard: str = "",
+    kind: str = "part",
 ) -> Any:
     """부품 카탈로그(누구나 보는 것). 고치려면 `copy_part_to_work` 로 내 작업 공간에 복사한다.
+    `kind` 는 `part`(기본) · `assembly`(공용 조립 — 복사하면 조립 작업이 된다) · `all`.
     `folder`(`고객A/2026` 같은 경로 — 그 아래까지) · `query`(이름 · 설명) · `tag`(이름) ·
     `tag_id`(태그 객체 — 같은 이름의 다른 타입을 가른다)로 거른다.
     `standard` 면 **규격 부품**만 — `any` 또는 종류(`support` 받침 · `pin` 위치 핀 · `clamp`
@@ -2357,7 +2385,7 @@ async def list_parts(
     곳, `owner_id` 가 등록한 사용자(옮기기 · 고치기는 그 사용자 · 관리자).
     **기준정보로**: `linked_object`(SP 에서 받은 모델 같은 객체 — `object_resolve` 의 id)와
     이은 부품만, `linked_relation`(`ontology_links` 의 `relation`)으로 관계를 좁힌다."""
-    params: dict[str, Any] = {"limit": limit}
+    params: dict[str, Any] = {"limit": limit, "kind": kind}
     if standard:
         params["standard"] = standard
     if folder is not None:

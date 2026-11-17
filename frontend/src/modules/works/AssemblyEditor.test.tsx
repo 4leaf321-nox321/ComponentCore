@@ -3,6 +3,8 @@ import { useState } from 'react'
 
 import type { Recipe } from '@/modules/cad/api'
 import { AssemblyEditor, sourceLink } from '@/modules/works/AssemblyEditor'
+import { TabsProvider, TabsSpy, useTabs } from '@/shared/layout/tabs'
+import { MemoryRouter } from 'react-router-dom'
 
 const WORKS = {
   items: [
@@ -182,8 +184,41 @@ test('구성품마다 **원본 도면으로 가는 길**이 있다 — 여기선
   expect(screen.getByText(/위치, 회전, 치수 덮어쓰기/)).toBeTruthy()
 })
 
+test('원본 열기는 **화면 탭**으로 연다 — 이 조립 탭은 그대로 남는다. Ctrl+클릭은 브라우저 새 탭', async () => {
+  const placed: Recipe = {
+    version: 1,
+    nodes: [{ id: 'c1', op: 'component', source: 'part:p1@3', label: '받침' }],
+  } as unknown as Recipe
+  const opened: [string, string | undefined][] = []
+  function Opener() {
+    const tabs = useTabs()!
+    // 화면 탭의 `open` 을 엿본다 — 실제 탭은 `tabs.test.tsx` 가 본다.
+    const spy = { ...tabs, open: (path: string, title?: string) => (opened.push([path, title]), true) }
+    return (
+      <TabsSpy value={spy}>
+        <AssemblyEditor value={placed} onChange={vi.fn()} />
+      </TabsSpy>
+    )
+  }
+  render(
+    <MemoryRouter initialEntries={['/works/w1']}>
+      <TabsProvider>
+        <Opener />
+      </TabsProvider>
+    </MemoryRouter>,
+  )
+  const link = await screen.findByRole('link', { name: /원본 열기/ })
+  // 버전(@3)은 주소가 아니다. 주소 접두어(포털의 /compcore/)는 PUBLIC_PATH — 시험에서는 빈 것.
+  expect(link.getAttribute('href')).toBe('/parts/p1')
+  fireEvent.click(link)
+  expect(opened).toEqual([['/parts/p1', '받침']])
+  fireEvent.click(link, { ctrlKey: true })
+  expect(opened).toHaveLength(1) // Ctrl+클릭은 브라우저에 맡긴다
+})
+
 test('공용 부품 · 지그도 제 화면으로 간다', () => {
   expect(sourceLink('part:p1')).toBe('/parts/p1')
+  expect(sourceLink('part:p1@3')).toBe('/parts/p1')
   expect(sourceLink('jig:j1')).toBe('/jigs/j1')
   // 모르는 꼴이면 단추를 안 그린다 — 엉뚱한 데로 보내는 것보다 없는 편이 낫다.
   expect(sourceLink('알수없음')).toBeNull()

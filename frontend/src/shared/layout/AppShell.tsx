@@ -1,15 +1,19 @@
-/** 앱 껍데기 — 사이드바 + 헤더 + 본문. **본문만 스크롤한다.** */
+/**
+ * 앱 껍데기 — 사이드바 + 헤더 + 본문. **본문만 스크롤한다.** 본문은 **화면 탭**이다(`tabs.tsx`) — 탭마다 화면이
+ * 살아 있고 제 스크롤을 가진다. 탭이 하나면 탭 줄은 안 보인다.
+ */
 
-import { Suspense, useEffect, useState } from 'react'
-import { Outlet, useLocation, useParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useLocation, useParams } from 'react-router-dom'
+import type { RouteObject } from 'react-router-dom'
 
 import { NoticePopup } from '@/modules/notices/NoticePopup'
 import { useAuth } from '@/shared/auth/AuthContext'
 
-import { ErrorBoundary } from '@/shared/components/ErrorBoundary'
 import { Skeleton } from '@/shared/components/ui/skeleton'
 import { Header } from '@/shared/layout/Header'
 import { Sidebar, SidebarDrawer } from '@/shared/layout/Sidebar'
+import { TabBar, TabPanes, TabsProvider } from '@/shared/layout/tabs'
 import { rememberPage } from '@/shared/lib/lastPage'
 
 function PageSkeleton() {
@@ -22,7 +26,8 @@ function PageSkeleton() {
   )
 }
 
-export function AppShell() {
+/** `routes` 는 본문의 라우트 표 — 탭마다 그 탭의 주소로 이것을 그린다(라우터의 자식 경로와 같은 표). */
+export function AppShell({ routes }: { routes: RouteObject[] }) {
   const [collapsed, setCollapsed] = useState(false)
   const [drawer, setDrawer] = useState(false)
   const { pathname } = useLocation()
@@ -47,14 +52,13 @@ export function AppShell() {
             else setDrawer(true)
           }}
         />
-        <main className="flex-1 overflow-auto p-6">
-          {/* 경계는 본문에만 — 사이드바와 헤더는 살아 있어야 나갈 길이 남는다. */}
-          <ErrorBoundary resetKey={pathname}>
-            <Suspense fallback={<PageSkeleton />}>
-              <Outlet />
-            </Suspense>
-          </ErrorBoundary>
-        </main>
+        <TabsProvider>
+          <TabBar />
+          {/* 경계는 탭마다 본문에만 — 사이드바와 헤더는 살아 있어야 나갈 길이 남는다. */}
+          <main className="relative min-h-0 flex-1">
+            <TabPanes routes={routes} fallback={<PageSkeleton />} />
+          </main>
+        </TabsProvider>
       </div>
       {/* 읽지 않은 팝업 공지가 있으면 로그인 뒤 한 번 뜬다(닫으면 읽음). */}
       <NoticePopup />

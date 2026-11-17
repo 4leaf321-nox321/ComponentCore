@@ -2592,6 +2592,102 @@
         }
       }
     },
+    "/api/works/{work_id}/promote/assembly": {
+      "get": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Assembly Plan",
+        "description": "공용 조립으로 올리면 구성품마다 무엇이 일어나나 — 쓰지 않는다. 공용 부품 · 지그는 지금\n버전으로 고정하고, 내 작업은 이미 올린 버전을 가리키거나 함께 등록한다.",
+        "operationId": "assembly_plan_api_works__work_id__promote_assembly_get",
+        "parameters": [
+          {
+            "name": "work_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Work Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssemblyPlanOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Promote Assembly",
+        "description": "현재 조립 버전을 **공용 조립**(부품 카탈로그의 `kind=assembly`)으로 올린다. 구성품\n참조는 공용 것으로 바뀌어 실린다 — 공용에 없는 내 구성품은 함께 등록된다(`GET` 이 미리\n보인다).",
+        "operationId": "promote_assembly_api_works__work_id__promote_assembly_post",
+        "parameters": [
+          {
+            "name": "work_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Work Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromotePartRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoteAssemblyOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/works/{work_id}/promote/jig-recipe": {
       "post": {
         "tags": [
@@ -2678,19 +2774,46 @@
           "parts"
         ],
         "summary": "Part Folders",
-        "description": "카탈로그의 폴더들 — 경로와 바로 그 폴더의 부품 수. 위 폴더도 빠짐없이.",
+        "description": "카탈로그의 폴더들 — 경로와 바로 그 폴더의 부품 수. 위 폴더도 빠짐없이. `kind` 는\n부품(`part`) · 공용 조립(`assembly`) · 둘 다(`all`).",
         "operationId": "part_folders_api_parts_folders_get",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "part",
+                "assembly",
+                "all"
+              ],
+              "type": "string",
+              "default": "part",
+              "title": "Kind"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
+                  "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/FolderOut"
                   },
-                  "type": "array",
                   "title": "Response Part Folders Api Parts Folders Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -2935,6 +3058,23 @@
               "default": "",
               "title": "Standard"
             }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "part",
+                "assembly",
+                "all"
+              ],
+              "type": "string",
+              "description": "부품(`part`) · 공용 조립(`assembly`) · 둘 다(`all`). 기본은 부품만.",
+              "default": "part",
+              "title": "Kind"
+            },
+            "description": "부품(`part`) · 공용 조립(`assembly`) · 둘 다(`all`). 기본은 부품만."
           },
           {
             "name": "has",
@@ -8649,6 +8789,50 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Material Decks Api Materials  Material Id  Decks Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/materials/converted": {
+      "post": {
+        "tags": [
+          "materials"
+        ],
+        "summary": "Converted Materials",
+        "description": "조건에 **담아 둔** 재료를 내보낼 단위계로 환산한 값 — 내보낼 때와 같은 함수다.\n`items[i]` 는 `payloads[i]` 의 `converted`(밀도 · 푸아송비 · 물성 줄, 빠진 구조 물성\n`missing_structural`, 못 바꾼 단위 `unconverted`). `dictionary=false` 면 물성 사전을 못\n받아 등록 재료의 줄에 표준 열쇠가 없다.",
+        "operationId": "converted_materials_api_materials_converted_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConvertRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Converted Materials Api Materials Converted Post"
                 }
               }
             }
@@ -25795,6 +25979,22 @@
         "title": "AssembleRequest",
         "description": "부품 + 지그를 맞는 자리에 놓은 조립 작업."
       },
+      "AssemblyPlanOut": {
+        "properties": {
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentPlanOut"
+            },
+            "type": "array",
+            "title": "Components"
+          }
+        },
+        "type": "object",
+        "required": [
+          "components"
+        ],
+        "title": "AssemblyPlanOut"
+      },
       "AssocClusterOut": {
         "properties": {
           "members": {
@@ -28662,6 +28862,69 @@
         ],
         "title": "CohortRowOut"
       },
+      "ComponentPlanOut": {
+        "properties": {
+          "node": {
+            "type": "string",
+            "title": "Node"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "node",
+          "label",
+          "kind",
+          "name",
+          "action",
+          "source",
+          "target",
+          "version"
+        ],
+        "title": "ComponentPlanOut",
+        "description": "공용 조립으로 올릴 때 구성품 하나가 어떻게 되나 — `action`:\n\n- `pin` 이미 공용(부품 · 지그) — 지금 버전으로 고정한다.\n- `keep` 이미 버전을 집은 공용 참조 — 그대로.\n- `reuse` 내 작업인데 그 버전이 이미 공용에 있다 — 그것을 가리킨다.\n- `register` 내 작업이고 공용에 없다 — 함께 등록한다."
+      },
       "ConcentrationOut": {
         "properties": {
           "categories": {
@@ -29284,6 +29547,30 @@
           "label"
         ],
         "title": "ControlRuleOut"
+      },
+      "ConvertRequest": {
+        "properties": {
+          "payloads": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Payloads"
+          },
+          "system": {
+            "type": "string",
+            "maxLength": 20,
+            "title": "System",
+            "default": "mm_n_tonne"
+          }
+        },
+        "type": "object",
+        "required": [
+          "payloads"
+        ],
+        "title": "ConvertRequest"
       },
       "CopyToWorkRequest": {
         "properties": {
@@ -41072,6 +41359,11 @@
             "type": "string",
             "title": "Name"
           },
+          "kind": {
+            "type": "string",
+            "title": "Kind",
+            "default": "part"
+          },
           "tags": {
             "items": {
               "type": "string"
@@ -42571,6 +42863,33 @@
         ],
         "title": "ProfileValueOut",
         "description": "함께 나온 값 하나 — 그 값의 기록 중 몫과 향상도(전체에서보다 몇 배 자주)."
+      },
+      "PromoteAssemblyOut": {
+        "properties": {
+          "part_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Part Id"
+          },
+          "part_version": {
+            "type": "integer",
+            "title": "Part Version"
+          },
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentPlanOut"
+            },
+            "type": "array",
+            "title": "Components"
+          }
+        },
+        "type": "object",
+        "required": [
+          "part_id",
+          "part_version",
+          "components"
+        ],
+        "title": "PromoteAssemblyOut"
       },
       "PromoteJigOut": {
         "properties": {
@@ -55080,6 +55399,11 @@
           "name": {
             "type": "string",
             "title": "Name"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind",
+            "default": "part"
           },
           "tags": {
             "items": {

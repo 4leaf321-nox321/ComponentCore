@@ -49,6 +49,7 @@ import {
 } from '@/shared/components/ui/dropdown-menu'
 import { Input } from '@/shared/components/ui/input'
 import { useResource } from '@/shared/hooks/useResource'
+import { useTabActive } from '@/shared/layout/tabActive'
 
 const PAGE = 50
 const DEFAULT_THRESHOLD = 0.9
@@ -323,11 +324,14 @@ export default function ReviewPage() {
     }
     event.preventDefault()
   }
+  // 숨은 화면 탭이면 단축키를 쉰다.
+  const tabActive = useTabActive()
   useEffect(() => {
+    if (!tabActive) return
     const listener = (event: KeyboardEvent) => keys.current(event)
     window.addEventListener('keydown', listener)
     return () => window.removeEventListener('keydown', listener)
-  }, [])
+  }, [tabActive])
   useEffect(() => {
     const row = items[focus]
     if (row) rowRefs.current.get(rowKey(row))?.scrollIntoView?.({ block: 'nearest' })

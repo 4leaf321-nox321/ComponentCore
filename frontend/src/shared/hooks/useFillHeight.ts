@@ -49,7 +49,8 @@ export function useFillHeight<T extends HTMLElement>(options: { min?: number; ga
   useLayoutEffect(() => {
     const el = element
     if (!el) return
-    const scroller = (el.closest('main') as HTMLElement | null) ?? document.documentElement
+    // 스크롤 영역 — 화면 탭마다 제 스크롤을 가진다(`data-scroll-root`). 탭 밖이면 <main>.
+    const scroller = (el.closest('[data-scroll-root]') as HTMLElement | null) ?? (el.closest('main') as HTMLElement | null) ?? document.documentElement
     function measure() {
       if (!el) return
       const outer = scroller.getBoundingClientRect()
