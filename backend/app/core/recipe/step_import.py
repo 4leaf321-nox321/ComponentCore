@@ -103,11 +103,13 @@ def _import_original(path: Path) -> Shape:
     reader.Transfer(doc)
 
     def name_of(label: TDF_Label) -> str:
+        # 제어 문자를 빼고 **앞뒤 공백을 지운다** — 바디 이름은 해석 쪽이 `apply_to` ·
+        # `body_settings` 와 견줘 짝짓는다(SimEngBay, 2026-11-18). 가운데 공백은 그대로.
         found = TDataStd_Name()
         name = ""
         if label.FindAttribute(TDataStd_Name.GetID_s(), found):
             name = TCollection_AsciiString(found.Get()).ToCString()
-        return "".join(ch for ch in name if unicodedata.category(ch)[0] != "C")
+        return "".join(ch for ch in name if unicodedata.category(ch)[0] != "C").strip()
 
     def build(parent: TDF_Label | None) -> list[Shape]:
         labels = TDF_LabelSequence()

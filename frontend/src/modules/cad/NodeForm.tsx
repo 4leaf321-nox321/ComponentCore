@@ -761,7 +761,21 @@ export function NodeForm({
           <Label htmlFor="node-label" className="text-xs">
             이름
           </Label>
-          <Input id="node-label" value={node.label ?? ''} onChange={(e) => set('label', e.target.value)} className="h-8" placeholder="표시 이름" />
+          {/*
+            앞뒤 공백은 칸을 떠날 때 지운다 — 이름은 바디 이름이 되고, 해석 쪽은 바디 이름을 서로 견줘 짝짓는다(2026-11-18).
+            치는 동안 지우면 낱말 사이의 공백을 칠 수 없다.
+          */}
+          <Input
+            id="node-label"
+            value={node.label ?? ''}
+            onChange={(e) => set('label', e.target.value)}
+            onBlur={(e) => {
+              const trimmed = e.target.value.trim()
+              if (trimmed !== e.target.value) set('label', trimmed)
+            }}
+            className="h-8"
+            placeholder="표시 이름"
+          />
         </div>
       </div>
       <p className="text-muted-foreground text-xs">{spec.help}</p>

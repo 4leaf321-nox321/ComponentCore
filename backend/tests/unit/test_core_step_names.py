@@ -161,3 +161,18 @@ def test_이름_그대로_읽어도_이름_말고는_build123d_와_같다(tmp_pa
 def test_이름_그대로는_leaf_와만() -> None:
     with pytest.raises(RecipeValidationError, match="bodies='leaf'"):
         parse({"nodes": [{"id": "b", "op": "import_step", "file": "f", "names": "original"}]})
+
+
+def test_앞뒤_공백은_지우고_공백뿐인_이름은_순번(tmp_path: Path) -> None:
+    """해석 쪽은 바디 이름을 서로 견줘 짝짓는다 — 앞뒤 공백이 남으면 사람 눈에는 같아 보여도
+    다른 이름이다(SimEngBay, 2026-11-18)."""
+    whole = Compound(
+        children=[
+            _named(Box(2, 2, 2), "  판  "),
+            _named(Box(2, 2, 2), "   ", (5, 0, 0)),
+            _named(Box(2, 2, 2), "가운데  두 칸", (10, 0, 0)),
+        ]
+    )
+    path = export.write_step(whole, tmp_path / "space.step")
+    names = [one.name for one in step_import.split(path, "original")[0]]
+    assert names == ["판", "body_2", "가운데  두 칸"]

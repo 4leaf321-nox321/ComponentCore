@@ -129,3 +129,20 @@ test('STEP 가져오기 — 칸이 없는 옛 노드는 「이전 방식」 으�
   render(<NodeForm node={node} nodes={[node]} onChange={() => {}} />)
   expect(screen.getByText('맨 위 구성품마다 (이전 방식)')).toBeInTheDocument()
 })
+
+test('STEP 가져오기 — 칸이 없는 옛 노드의 바디 이름도 「이전 방식」(서버가 그렇게 읽는다)', () => {
+  const node: RecipeNode = { id: 'imported', op: 'import_step', file: 'a1', bodies: 'leaf' }
+  render(<NodeForm node={node} nodes={[node]} onChange={() => {}} />)
+  expect(screen.getByText('공백 · 점 · 괄호를 _ 로 (이전 방식)')).toBeInTheDocument()
+})
+
+test('이름의 앞뒤 공백은 칸을 떠날 때 지운다 — 치는 동안은 낱말 사이 공백을 친다', () => {
+  let node: RecipeNode = { id: '판', op: 'box', label: '' }
+  const view = () => <NodeForm node={node} nodes={[node]} onChange={(next) => (node = next)} />
+  const { rerender } = render(view())
+  fireEvent.change(screen.getByLabelText('이름'), { target: { value: ' 덮개 ' } })
+  expect(node.label).toBe(' 덮개 ')
+  rerender(view())
+  fireEvent.blur(screen.getByLabelText('이름'))
+  expect(node.label).toBe('덮개')
+})
