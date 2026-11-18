@@ -2214,12 +2214,20 @@ async def promote_assembly(
     note: str = "",
     with_conditions: bool = True,
     preview: bool = False,
+    evaluate: bool = False,
 ) -> Any:
     """조립 작업의 현재 버전을 **공용 조립**으로 등록한다(부품 카탈로그의 `kind=assembly`,
     누구나 본다, 불변). **사용자가 시킬 때만.** 구성품 참조는 공용 것으로 바뀌어 실린다 —
     공용 부품 · 지그는 지금 버전으로 고정(`pin`), 이미 올린 내 작업은 그 버전(`reuse`), 공용에
     없는 내 구성품은 **함께 등록**(`register`). `preview=true` 면 등록하지 않고 구성품마다
-    무엇이 일어나는지만 돌려준다 — 함께 등록될 것을 사용자에게 먼저 말한다."""
+    무엇이 일어나는지만 돌려준다 — 함께 등록될 것을 사용자에게 먼저 말한다.
+
+    함께 등록할 구성품은 형상 평가가 끝나 있어야 한다 — `preview` 의 `evaluations` 가 끝나지
+    않은 것(`missing` · `failed` · `queued` · `running`)이다. 비어 있지 않으면
+    `evaluate=true` 로 평가를 걸고(등록하지 않는다), `preview` 로 빌 때까지 본 뒤 등록한다.
+    `failed` 가 남으면 그 `error` 를 사용자에게 말한다."""
+    if evaluate:
+        return await _post(ctx, f"/api/works/{work_id}/promote/assembly/evaluate", {})
     if preview:
         return await _get(ctx, f"/api/works/{work_id}/promote/assembly")
     made = await _post(

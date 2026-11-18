@@ -1495,12 +1495,49 @@ def _component_plan(
     return plan, work, version
 
 
+@dataclass
+class PendingEvaluation:
+    """함께 등록할 구성품 버전의 **형상 평가** — 등록된 부품 · 지그는 그 평가의 STEP · 3D 를
+    가리키므로, 끝나 있어야 올린다. 옮겨 온 옛 버전은 평가가 없고(`missing`), 그때 실패한
+    것도 있다(`failed`). `assembly_plan` 이 모으고 `evaluate_components` 가 건다."""
+
+    work: Work
+    version: WorkVersion
+    label: str
+    job: Job | None
+
+    @property
+    def status(self) -> str:
+        return "missing" if self.job is None else self.job.status
+
+    def out(self) -> dict[str, Any]:
+        """JSON 으로 그대로 — 오류의 `details` 에도 실린다(UUID 는 글로)."""
+        return {
+            "work_id": str(self.work.id),
+            "name": self.work.name,
+            "label": self.label,
+            "version": self.version.number,
+            "status": self.status,
+            "job_id": str(self.job.id) if self.job else None,
+            "error": self.job.error if self.job and self.job.status == "failed" else None,
+        }
+
+
 def assembly_plan(
-    db: Session, work: Work, *, by: User, seen: frozenset[uuid.UUID] = frozenset()
+    db: Session,
+    work: Work,
+    *,
+    by: User,
+    seen: frozenset[uuid.UUID] = frozenset(),
+    pending: list[PendingEvaluation] | None = None,
 ) -> list[ComponentPlan]:
     """공용 조립으로 올리면 구성품마다 무엇이 일어나나 — **쓰지 않는다.** 화면이 등록 창에
-    보여 준다(무엇이 함께 공용으로 나가는지 사람이 안다). 함께 등록할 작업은 평가가 끝나 있어야
-    한다 — 반쯤 올리고 멈추지 않게 여기서 먼저 본다."""
+    보여 준다(무엇이 함께 공용으로 나가는지 사람이 안다).
+
+    함께 등록할 작업 버전은 평가가 끝나 있어야 한다 — 끝나지 않은 것은 `pending` 에 모은다
+    (안쪽 조립의 구성품까지). 그 전에는 여기서 거절했다(2026-11-18 까지) — 사람이 구성품
+    작업마다 열어 다시 저장해야 했다. 이제 등록 창이 `evaluate_components` 로 평가를 걸고
+    끝나기를 기다려 잇는다."""
     if work.kind != "assembly":
         raise AppError(code("WORKS", 41), "조립 작업만 공용 조립으로 등록할 수 있습니다.")
     version = current_version(db, work)
@@ -1514,18 +1551,48 @@ def assembly_plan(
         plan, child, child_version = _component_plan(db, node, by, inner)
         if child is not None and child_version is not None:
             job = db.get(Job, child_version.job_id) if child_version.job_id else None
-            if job is None or job.status != "done":
-                # 옮겨 온 옛 버전처럼 평가가 없는 구성품이 있다 — 무엇을 하면 되는지 말한다.
-                raise AppError(
-                    code("WORKS", 9),
-                    f"구성품 ‘{plan.label}’({child.name} v{child_version.number})의 형상 "
-                    "평가가 끝나지 않았거나 실패했습니다. 그 작업을 열어 다시 저장(평가)한 뒤 "
-                    "등록하십시오.",
-                )
+            if pending is not None and (job is None or job.status != "done"):
+                pending.append(PendingEvaluation(child, child_version, plan.label, job))
             if child.kind == "assembly":
-                assembly_plan(db, child, by=by, seen=inner)  # 안쪽 조립도 올릴 수 있어야
+                # 안쪽 조립도 올릴 수 있어야 — 그 구성품의 평가도 모은다.
+                assembly_plan(db, child, by=by, seen=inner, pending=pending)
         plans.append(plan)
     return plans
+
+
+def pending_evaluations(db: Session, work: Work, *, by: User) -> list[PendingEvaluation]:
+    """공용 조립으로 올리기 전에 끝나야 할 구성품 평가 — 같은 버전이 두 자리에 있어도 한 번."""
+    pending: list[PendingEvaluation] = []
+    assembly_plan(db, work, by=by, pending=pending)
+    unique: dict[uuid.UUID, PendingEvaluation] = {}
+    for one in pending:
+        unique.setdefault(one.version.id, one)
+    return list(unique.values())
+
+
+def evaluate_components(db: Session, work: Work, *, by: User) -> list[PendingEvaluation]:
+    """끝나지 않은 구성품 평가를 **건다** — 평가가 없거나(`missing`) 실패한 것(`failed`)만.
+    걸려 있는 것(`queued` · `running`)은 그대로 둔다(두 번 걸지 않는다). 그 버전의 레시피를
+    다시 평가해 버전이 새 작업을 가리키게 한다 — 저장할 때 거는 것과 같은 작업이다. 실패한
+    것을 다시 거는 까닭: 그때는 없던 구성품이 이제 있거나, 워커가 죽었을 수 있다. 또 실패하면
+    그 까닭(`error`)이 화면에 간다."""
+    pending = pending_evaluations(db, work, by=by)
+    for one in pending:
+        if one.status not in ("missing", "failed"):
+            continue
+        job = jobs.enqueue(
+            db,
+            kind=cad.JOB_KIND,
+            requested_by=by,
+            work_id=one.work.id,
+            input={"work_version_id": str(one.version.id), "recipe": one.version.recipe},
+            options={},
+        )
+        one.version.job_id = job.id
+        db.commit()
+        db.refresh(job)
+        one.job = job
+    return pending
 
 
 def promote_assembly(
@@ -1550,7 +1617,21 @@ def promote_assembly(
     if version is None:
         raise AppError(code("WORKS", 8), "형상이 없습니다.")
     if version.number == work.current_version:
-        assembly_plan(db, work, by=by, seen=seen)  # 다 올릴 수 있나 — 쓰기 전에
+        # 다 올릴 수 있나 — 쓰기 전에. 반쯤 올리고 멈추지 않게.
+        pending: list[PendingEvaluation] = []
+        assembly_plan(db, work, by=by, seen=seen, pending=pending)
+        if pending:
+            first = pending[0]
+            state = {"missing": "평가가 없습니다", "failed": "평가가 실패했습니다"}.get(
+                first.status, "평가 중입니다"
+            )
+            raise AppError(
+                code("WORKS", 9),
+                f"구성품 ‘{first.label}’({first.work.name} v{first.version.number})의 형상 "
+                f"{state}. 등록 창의 「평가하고 등록」 으로 평가를 마친 뒤 등록하십시오"
+                f"(평가가 끝나지 않은 구성품 {len(pending)}개).",
+                details={"pending": [one.out() for one in pending]},
+            )
     inner = seen | {work.id}
     recipe = deepcopy(version.recipe)
     done: list[ComponentPlan] = []

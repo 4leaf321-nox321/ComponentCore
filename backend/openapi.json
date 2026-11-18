@@ -2688,6 +2688,50 @@
         }
       }
     },
+    "/api/works/{work_id}/promote/assembly/evaluate": {
+      "post": {
+        "tags": [
+          "works"
+        ],
+        "summary": "Evaluate Assembly Components",
+        "description": "공용 조립으로 올리기 전에 **구성품의 형상 평가를 건다** — 평가가 없거나 실패한 함께\n등록할 버전만(걸려 있는 것은 그대로). 돌려주는 `evaluations` 를 `GET` 으로 다시 보며\n모두 끝나기(빈 목록)를 기다린 뒤 등록한다. 평가는 워커가 돌린다.",
+        "operationId": "evaluate_assembly_components_api_works__work_id__promote_assembly_evaluate_post",
+        "parameters": [
+          {
+            "name": "work_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Work Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssemblyPlanOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/works/{work_id}/promote/jig-recipe": {
       "post": {
         "tags": [
@@ -25987,6 +26031,14 @@
             },
             "type": "array",
             "title": "Components"
+          },
+          "evaluations": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentEvaluationOut"
+            },
+            "type": "array",
+            "title": "Evaluations",
+            "default": []
           }
         },
         "type": "object",
@@ -28861,6 +28913,66 @@
           "cells"
         ],
         "title": "CohortRowOut"
+      },
+      "ComponentEvaluationOut": {
+        "properties": {
+          "work_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Work Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "work_id",
+          "name",
+          "label",
+          "version",
+          "status",
+          "job_id",
+          "error"
+        ],
+        "title": "ComponentEvaluationOut",
+        "description": "함께 등록할 구성품 버전의 형상 평가 — 끝나야(`done`) 공용 조립으로 올린다.\n`status`: `missing`(평가가 없다 — 옮겨 온 옛 버전) · `queued` · `running` ·\n`failed`(`error` 가 까닭)."
       },
       "ComponentPlanOut": {
         "properties": {

@@ -119,3 +119,68 @@ test('이미 등록한 버전이면 단추가 잠기고 공용 조립으로 가�
   await waitFor(() => expect(screen.getByRole('button', { name: '조립 v1 등록됨' })).toBeDisabled())
   expect(screen.getByRole('link', { name: '조립으로 등록됨' })).toHaveAttribute('href', '/assemblies/p9')
 })
+
+// 평가가 없는 구성품(2026-11-18) — 그 전에는 「그 작업을 열어 다시 저장하라」 며 막혔다. 이제 등록 창이 평가를 걸고 기다려 잇는다.
+const MISSING = { work_id: 'w2', name: '판', label: '판', version: 1, status: 'missing', job_id: null, error: null }
+
+/** 계획(GET) · 평가(POST evaluate) 의 답을 차례로 준다 — 마지막 것은 되풀이. */
+function serveEvaluations(plans: unknown[][], evaluated: unknown[]) {
+  const sent: Sent[] = []
+  let gets = 0
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input)
+    const method = init?.method ?? 'GET'
+    sent.push({ method, url })
+    let status = 200
+    let body: unknown
+    if (url.endsWith('/auth/refresh')) body = { access_token: 't', expires_in: 900, user: ME }
+    else if (url.endsWith('/promote/assembly/evaluate')) body = { components: PLAN.components, evaluations: evaluated }
+    else if (url.endsWith('/promote/assembly') && method === 'GET') {
+      body = { components: PLAN.components, evaluations: plans[Math.min(gets, plans.length - 1)] }
+      gets += 1
+    } else if (url.endsWith('/promote/assembly')) {
+      status = 201
+      body = { part_id: 'p9', part_version: 1, components: PLAN.components }
+    } else if (url.includes('/works/w1/versions')) body = [WORK.current]
+    else if (url.includes('/works/w1/jig-runs')) body = []
+    else if (url.includes('/works/tags') || url.includes('/works/folders')) body = []
+    else if (url.includes('/works/w1')) body = WORK
+    else body = { items: [], total: 0, limit: 50, offset: 0 }
+    return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+  })
+  return sent
+}
+
+test('평가가 없는 구성품은 「평가하고 등록」 이 평가를 걸고 끝나기를 기다려 등록한다', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    // 처음 계획: 평가 없음 → 걸면 평가 중 → 다시 보면 끝(빈 목록).
+    const sent = serveEvaluations([[MISSING], []], [{ ...MISSING, status: 'running', job_id: 'j1' }])
+    show()
+    fireEvent.click(await screen.findByRole('button', { name: '공용 조립으로 등록' }))
+    const pending = await screen.findByRole('list', { name: '구성품 평가' })
+    expect(within(pending).getByText('평가 없음')).toBeInTheDocument()
+    expect(screen.getByText(/형상 평가가 끝나지 않은 구성품 1개/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '평가하고 등록' }))
+    expect(await screen.findByRole('button', { name: '구성품 평가 중…' })).toBeDisabled()
+    expect(within(screen.getByRole('list', { name: '구성품 평가' })).getByText('평가 중')).toBeInTheDocument()
+    await vi.advanceTimersByTimeAsync(2500)
+    expect(await screen.findByText('공용 조립 화면')).toBeInTheDocument()
+    const order = sent.filter((one) => one.url.includes('/promote/assembly')).map((one) => `${one.method} ${one.url.split('/promote/')[1]}`)
+    expect(order).toEqual(['GET assembly', 'POST assembly/evaluate', 'GET assembly', 'POST assembly'])
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('구성품 평가가 실패하면 등록하지 않고 까닭을 창 안에 보인다', async () => {
+  const failed = { ...MISSING, status: 'failed', job_id: 'j1', error: '구성품 ‘볼트’를 찾을 수 없습니다.' }
+  const sent = serveEvaluations([[MISSING]], [failed])
+  show()
+  fireEvent.click(await screen.findByRole('button', { name: '공용 조립으로 등록' }))
+  fireEvent.click(await screen.findByRole('button', { name: '평가하고 등록' }))
+  // 까닭은 창 안에 — 창 뒤의 화면에만 두면 안 보인다.
+  expect(await within(screen.getByRole('dialog')).findByText(/구성품 ‘판’\(판 v1\)의 형상 평가가 실패했습니다: 구성품 ‘볼트’를 찾을 수 없습니다/)).toBeInTheDocument()
+  expect(within(screen.getByRole('list', { name: '구성품 평가' })).getByText('평가 실패')).toBeInTheDocument()
+  expect(sent.some((one) => one.method === 'POST' && one.url.endsWith('/promote/assembly'))).toBe(false)
+})

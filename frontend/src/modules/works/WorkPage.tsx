@@ -15,7 +15,7 @@
  * 그래서 「이 도면을 무엇으로 올릴까」 를 물을 일이 없다 — 종류가 이미 답이다.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import type { Recipe } from '@/modules/cad/api'
@@ -31,7 +31,7 @@ import { JigResultView } from '@/modules/jigs/JigResultView'
 import { jobsApi } from '@/modules/jobs/api'
 import { doeApi } from '@/modules/doe/api'
 import { worksApi } from '@/modules/works/api'
-import type { ComponentPlan, WorkVersion } from '@/modules/works/api'
+import type { AssemblyPlan, ComponentEvaluation, ComponentPlan, WorkVersion } from '@/modules/works/api'
 import { ApiError, downloadFile } from '@/shared/api/client'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
@@ -97,6 +97,16 @@ export default function WorkPage() {
   const assemblyPlan = useResource(
     () => (promoting === 'assembly' ? worksApi.assemblyPlan(id) : Promise.resolve(null)),
     [promoting, id],
+  )
+  /** 등록 전에 건 구성품 평가 — 기다리는 동안 상태가 바뀌는 것을 보인다(비면 계획의 것). */
+  const [evaluations, setEvaluations] = useState<ComponentEvaluation[] | null>(null)
+  /** 화면을 떠나면 기다리기를 멈춘다(평가는 서버에서 계속된다). */
+  const alive = useRef(true)
+  useEffect(
+    () => () => {
+      alive.current = false
+    },
+    [],
   )
   const [promoteName, setPromoteName] = useState('')
   const [promoteNote, setPromoteNote] = useState('')
@@ -186,6 +196,32 @@ export default function WorkPage() {
     })
   }
 
+  /**
+   * 함께 등록할 구성품의 형상 평가를 걸고 **끝나기를 기다린다**(2026-11-18 — 그 전에는 「그 작업을 열어 다시 저장하라」
+   * 며 거절했다). 끝나지 않은 것이 남으면 까닭과 함께 멈춘다. 화면을 떠났으면 `false`(등록하지 않는다).
+   */
+  async function evaluateComponents(): Promise<boolean> {
+    if (!assemblyPlan.data?.evaluations?.length) return true
+    // 옛 서버의 답에는 `evaluations` 가 없다 — 없으면 끝난 것으로 본다(등록이 다시 거절하면 그 말이 나온다).
+    let left = (await worksApi.evaluateAssembly(id)).evaluations ?? []
+    const deadline = Date.now() + EVALUATION_WAIT_MS
+    while (left.some((one) => one.status === 'queued' || one.status === 'running')) {
+      setEvaluations(left)
+      if (Date.now() > deadline) throw new Error('구성품 평가가 오래 걸립니다. 평가는 서버에서 계속되므로 잠시 뒤 다시 등록하십시오.')
+      await new Promise((done) => setTimeout(done, EVALUATION_POLL_MS))
+      if (!alive.current) return false
+      left = (await worksApi.assemblyPlan(id)).evaluations ?? []
+    }
+    setEvaluations(left)
+    const first = left[0]
+    if (first) {
+      throw new Error(
+        `구성품 ‘${first.label}’(${first.name} v${first.version})의 형상 평가가 실패했습니다${first.error ? `: ${first.error}` : ''}. 그 작업을 열어 고친 뒤 다시 등록하십시오.`,
+      )
+    }
+    return true
+  }
+
   async function promote() {
     await act(async () => {
       if (promoting === 'part') {
@@ -207,6 +243,7 @@ export default function WorkPage() {
         reloadAll()
         navigate(`/jigs/${made.jig_id}`)
       } else if (promoting === 'assembly') {
+        if (!(await evaluateComponents())) return
         const made = await worksApi.promoteAssembly(id, {
           name: promoteName || undefined,
           note: promoteNote,
@@ -264,6 +301,7 @@ export default function WorkPage() {
                 setPromoteName(w.name)
                 setPromoteNote('')
                 setPromoteConditions(true)
+                setEvaluations(null)
                 setPromoting(isJig ? 'jig-recipe' : isAssembly ? 'assembly' : 'part')
               }}
               title={
@@ -667,7 +705,7 @@ export default function WorkPage() {
                     : `현재 도면(v${w.current_version})을 공용 지그로 등록합니다. 형상과 STEP이 등록되며, 고정 대상 부품이 연결되어 있으면 함께 기록됩니다.`}
               </DialogDescription>
             </DialogHeader>
-            {promoting === 'assembly' && <AssemblyPlanList plan={assemblyPlan} />}
+            {promoting === 'assembly' && <AssemblyPlanList plan={assemblyPlan} evaluations={evaluations} />}
             {!(promoting === 'jig-recipe' ? w.promoted_jig_id : w.promoted_part_id) && (
               <div className="space-y-2">
                 <Label htmlFor="promote-name">카탈로그 이름</Label>
@@ -689,13 +727,15 @@ export default function WorkPage() {
                 </span>
               </label>
             )}
+            {/* 등록이 막힌 까닭(구성품 평가 실패 등)은 창 안에서 — 창 뒤의 화면에 두면 안 보인다. */}
+            <ErrorNotice error={error} />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setPromoting(null)} disabled={busy}>
                 취소
               </Button>
               {/* 조립은 구성품 계획을 받아야 올린다 — 무엇이 함께 공용으로 나가는지 보고 누른다. */}
               <Button type="submit" disabled={busy || (promoting === 'assembly' && (!assemblyPlan.data || !!assemblyPlan.error))}>
-                {busy ? '등록 중…' : '등록'}
+                {busy ? ((evaluations?.length ?? 0) > 0 ? '구성품 평가 중…' : '등록 중…') : promoting === 'assembly' && (assemblyPlan.data?.evaluations?.length ?? 0) > 0 ? '평가하고 등록' : '등록'}
               </Button>
             </DialogFooter>
           </form>
@@ -791,11 +831,25 @@ const PLAN_KIND: Record<ComponentPlan['kind'], string> = { part: '부품', jig: 
  * 공용 조립으로 올리기 전에 **구성품마다 무엇이 일어나나** — 공용에 없는 내 구성품은 함께 공용으로 나간다.
  * 보지 않고 누르면 비공개로 두려던 부품이 공개된다.
  */
-function AssemblyPlanList({ plan }: { plan: Resource<{ components: ComponentPlan[] } | null> }) {
+/** 구성품 평가의 상태 — 등록 창의 말. */
+const EVALUATION_TEXT: Record<ComponentEvaluation['status'], string> = {
+  missing: '평가 없음',
+  queued: '평가 대기',
+  running: '평가 중',
+  failed: '평가 실패',
+  done: '평가 완료',
+}
+/** 구성품 평가를 기다리는 간격 · 한도 — 넘으면 멈추고 다시 누르게 한다(평가는 서버에서 계속된다). */
+const EVALUATION_POLL_MS = 2000
+const EVALUATION_WAIT_MS = 5 * 60 * 1000
+
+function AssemblyPlanList({ plan, evaluations }: { plan: Resource<AssemblyPlan | null>; evaluations: ComponentEvaluation[] | null }) {
   if (plan.error) return <ErrorNotice error={plan.error} />
   if (!plan.data) return <p className="text-muted-foreground text-sm">구성품을 확인하는 중…</p>
   const components = plan.data.components
   const along = components.filter((one) => one.action === 'register')
+  // 옛 서버의 답에는 `evaluations` 가 없다 — 배포하는 사이에도 창이 깨지지 않게.
+  const pending = evaluations ?? plan.data.evaluations ?? []
   return (
     <div className="space-y-1">
       <Label>구성품 {components.length}</Label>
@@ -817,6 +871,25 @@ function AssemblyPlanList({ plan }: { plan: Resource<{ components: ComponentPlan
         <p className="text-xs text-amber-700 dark:text-amber-400">
           공용에 없는 구성품 {along.length}개({along.map((one) => one.name).join(', ')})가 공용 부품 · 지그로 함께 등록되어 모든 사용자에게 공개됩니다.
         </p>
+      )}
+      {/* 함께 등록할 구성품은 평가가 끝나야 올린다 — 「평가하고 등록」 이 먼저 평가를 걸고 기다린다. */}
+      {pending.length > 0 && (
+        <div className="space-y-0.5 text-xs">
+          <p className="text-amber-700 dark:text-amber-400">형상 평가가 끝나지 않은 구성품 {pending.length}개 — 「평가하고 등록」 을 누르면 먼저 평가한 뒤 이어서 등록합니다.</p>
+          <ul className="space-y-0.5 rounded border p-2" aria-label="구성품 평가">
+            {pending.map((one) => (
+              <li key={`${one.work_id}@${one.version}`} className="flex items-center gap-2">
+                <span className="min-w-0 truncate">
+                  {one.label}
+                  {one.name !== one.label && <span className="text-muted-foreground"> · {one.name}</span>} (v{one.version})
+                </span>
+                <span className={`ml-auto shrink-0 ${one.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'}`} title={one.error ?? undefined}>
+                  {EVALUATION_TEXT[one.status]}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   )

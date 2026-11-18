@@ -28,6 +28,7 @@ from app.modules.works.schemas import (
     AssembleOut,
     AssembleRequest,
     AssemblyPlanOut,
+    ComponentEvaluationOut,
     ComponentPlanOut,
     ConditionsRequest,
     FolderOut,
@@ -641,7 +642,33 @@ def assembly_plan(
     버전으로 고정하고, 내 작업은 이미 올린 버전을 가리키거나 함께 등록한다."""
     work = _mine(db, work_id, user)
     plans = services.assembly_plan(db, work, by=user)
-    return AssemblyPlanOut(components=[ComponentPlanOut(**one.out()) for one in plans])
+    return AssemblyPlanOut(
+        components=[ComponentPlanOut(**one.out()) for one in plans],
+        evaluations=[
+            ComponentEvaluationOut(**one.out())
+            for one in services.pending_evaluations(db, work, by=user)
+        ],
+    )
+
+
+@router.post("/{work_id}/promote/assembly/evaluate", response_model=AssemblyPlanOut)
+def evaluate_assembly_components(
+    work_id: uuid.UUID,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> AssemblyPlanOut:
+    """공용 조립으로 올리기 전에 **구성품의 형상 평가를 건다** — 평가가 없거나 실패한 함께
+    등록할 버전만(걸려 있는 것은 그대로). 돌려주는 `evaluations` 를 `GET` 으로 다시 보며
+    모두 끝나기(빈 목록)를 기다린 뒤 등록한다. 평가는 워커가 돌린다."""
+    work = _mine(db, work_id, user)
+    pending = services.evaluate_components(db, work, by=user)
+    plans = services.assembly_plan(db, work, by=user)
+    return AssemblyPlanOut(
+        components=[ComponentPlanOut(**one.out()) for one in plans],
+        evaluations=[
+            ComponentEvaluationOut(**one.out()) for one in pending if one.status != "done"
+        ],
+    )
 
 
 @router.post("/{work_id}/promote/assembly", response_model=PromoteAssemblyOut, status_code=201)

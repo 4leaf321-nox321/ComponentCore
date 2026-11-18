@@ -247,8 +247,26 @@ class ComponentPlanOut(BaseModel):
     version: int | None
 
 
+class ComponentEvaluationOut(BaseModel):
+    """함께 등록할 구성품 버전의 형상 평가 — 끝나야(`done`) 공용 조립으로 올린다.
+    `status`: `missing`(평가가 없다 — 옮겨 온 옛 버전) · `queued` · `running` ·
+    `failed`(`error` 가 까닭)."""
+
+    work_id: uuid.UUID
+    name: str
+    label: str
+    """조립 안의 이름 — 안쪽 조립의 구성품이면 그 조립 안의 이름."""
+    version: int
+    status: str
+    job_id: uuid.UUID | None
+    error: str | None
+
+
 class AssemblyPlanOut(BaseModel):
     components: list[ComponentPlanOut]
+    evaluations: list[ComponentEvaluationOut] = []
+    """끝나지 않은 구성품 평가(안쪽 조립까지) — 비어 있어야 등록된다. `POST
+    …/promote/assembly/evaluate` 가 건다."""
 
 
 class PromoteAssemblyOut(BaseModel):

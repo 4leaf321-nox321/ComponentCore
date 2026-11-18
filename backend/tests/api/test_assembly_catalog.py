@@ -7,11 +7,15 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.modules.jobs.models import Job
+from app.modules.works.models import Work, WorkVersion
 from tests.api.conftest import Signed, _login, make_user
 from tests.api.test_assembly import BASE, PLATE, _work
 
@@ -148,3 +152,103 @@ def test_조립은_부품으로_올리지_않고_부품은_조립으로_올리�
         f"/api/works/{made['plate']['id']}/promote/assembly", headers=member.headers
     )
     assert plate.status_code == 400 and "조립 작업만" in plate.text
+
+
+def _drop_evaluation(db: Session, work_id: str) -> None:
+    """옮겨 온 옛 버전처럼 — 지금 버전에 평가 작업이 없다."""
+    work = db.get(Work, uuid.UUID(work_id))
+    assert work is not None
+    version = db.scalar(
+        select(WorkVersion).where(
+            WorkVersion.work_id == work.id, WorkVersion.number == work.current_version
+        )
+    )
+    assert version is not None
+    version.job_id = None
+    db.commit()
+
+
+def test_평가가_없는_구성품은_등록_창이_평가를_걸고_이어서_올린다(
+    client: TestClient, member: Signed, db: Session
+) -> None:
+    """2026-11-18 — 그 전에는 「그 작업을 열어 다시 저장하라」 며 계획부터 거절했다."""
+    made = _assembly(client, member)
+    work_id = made["assembly"]["id"]
+    _drop_evaluation(db, made["plate"]["id"])
+
+    plan = _ok(client.get(f"/api/works/{work_id}/promote/assembly", headers=member.headers))
+    assert [one["node"] for one in plan["components"]] == ["받침", "판"], (
+        "계획은 그대로 보인다"
+    )
+    (pending,) = plan["evaluations"]
+    assert (pending["label"], pending["name"], pending["status"]) == ("판", "판", "missing")
+    assert pending["job_id"] is None
+
+    refused = client.post(
+        f"/api/works/{work_id}/promote/assembly", json={}, headers=member.headers
+    )
+    assert refused.status_code == 400
+    error = refused.json()["error"]
+    assert "평가가 없습니다" in error["message"] and "평가하고 등록" in error["message"]
+    assert [one["label"] for one in error["details"]["pending"]] == ["판"]
+
+    # 평가를 건다 — 시험은 워커 없이 요청 안에서 끝난다.
+    started = _ok(
+        client.post(f"/api/works/{work_id}/promote/assembly/evaluate", headers=member.headers)
+    )
+    assert started["evaluations"] == []
+    plate = _ok(client.get(f"/api/works/{made['plate']['id']}", headers=member.headers))
+    assert plate["current"]["job"]["status"] == "done", "버전이 새 평가를 가리킨다"
+    again = _ok(client.get(f"/api/works/{work_id}/promote/assembly", headers=member.headers))
+    assert again["evaluations"] == []
+
+    promoted = _ok(
+        client.post(f"/api/works/{work_id}/promote/assembly", json={}, headers=member.headers)
+    )
+    assert promoted["part_version"] == 1
+
+
+def test_안쪽_조립의_구성품_평가도_모으고_한_번만_건다(
+    client: TestClient, member: Signed, db: Session
+) -> None:
+    made = _assembly(client, member)
+    inner_id = made["assembly"]["id"]
+    outer = _work(
+        client,
+        member,
+        "바깥 조립",
+        {
+            "nodes": [
+                {"id": "안쪽", "op": "component", "source": f"work:{inner_id}"},
+                # 같은 판을 바깥에도 하나 더 — 평가는 한 번만 건다.
+                {
+                    "id": "판2",
+                    "op": "component",
+                    "source": f"work:{made['plate']['id']}",
+                    "translate": [100, 0, 0],
+                },
+                {"id": "전체", "op": "group", "targets": ["안쪽", "판2"]},
+            ]
+        },
+        "assembly",
+    )
+    _drop_evaluation(db, made["plate"]["id"])
+    plan = _ok(
+        client.get(f"/api/works/{outer['id']}/promote/assembly", headers=member.headers)
+    )
+    assert [one["name"] for one in plan["evaluations"]] == ["판"], "같은 버전은 한 번"
+
+    _ok(
+        client.post(
+            f"/api/works/{outer['id']}/promote/assembly/evaluate", headers=member.headers
+        )
+    )
+    jobs = db.scalars(select(Job).where(Job.work_id == uuid.UUID(made["plate"]["id"]))).all()
+    assert len(jobs) == 2, "저장할 때 하나 + 이번에 하나"
+    promoted = _ok(
+        client.post(
+            f"/api/works/{outer['id']}/promote/assembly", json={}, headers=member.headers
+        )
+    )
+    kinds = {one["node"]: one["kind"] for one in promoted["components"]}
+    assert kinds == {"안쪽": "assembly", "판2": "part"}

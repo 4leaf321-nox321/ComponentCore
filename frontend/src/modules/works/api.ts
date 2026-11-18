@@ -156,6 +156,27 @@ export interface ComponentPlan {
   version: number | null
 }
 
+/**
+ * 함께 등록할 구성품 버전의 **형상 평가** — 끝나야 공용 조립으로 올린다(등록된 부품은 그 평가의 STEP · 3D 를
+ * 가리킨다). 옮겨 온 옛 버전은 평가가 없다(`missing`).
+ */
+export interface ComponentEvaluation {
+  work_id: string
+  name: string
+  /** 조립 안의 이름 — 안쪽 조립의 구성품이면 그 조립 안의 이름. */
+  label: string
+  version: number
+  status: 'missing' | 'queued' | 'running' | 'failed' | 'done'
+  job_id: string | null
+  error: string | null
+}
+
+/** 공용 조립 등록 계획 — `evaluations` 는 끝나지 않은 구성품 평가(안쪽 조립까지), 비어 있어야 올린다. */
+export interface AssemblyPlan {
+  components: ComponentPlan[]
+  evaluations: ComponentEvaluation[]
+}
+
 export const worksApi = {
   jigOptions: () => api.get<Record<string, unknown>>('/works/jig-options'),
   list: (offset = 0, limit = 50, filter: WorkFilter = {}) => {
@@ -253,7 +274,9 @@ export const worksApi = {
   promotePart: (id: string, body: { name?: string; note?: string; conditions?: boolean }) =>
     api.post<{ part_id: string; number: number }>(`/works/${id}/promote/part`, body),
   /** 공용 조립으로 올리면 구성품마다 무엇이 일어나나 — 쓰지 않는다. */
-  assemblyPlan: (id: string) => api.get<{ components: ComponentPlan[] }>(`/works/${id}/promote/assembly`),
+  assemblyPlan: (id: string) => api.get<AssemblyPlan>(`/works/${id}/promote/assembly`),
+  /** 끝나지 않은 구성품 평가를 건다(없거나 실패한 것만) — 등록하지 않는다. `assemblyPlan` 으로 다시 보며 기다린다. */
+  evaluateAssembly: (id: string) => api.post<AssemblyPlan>(`/works/${id}/promote/assembly/evaluate`, {}),
   /** 조립을 공용 조립으로 — 구성품 참조가 공용 것으로 바뀌고, 공용에 없는 내 구성품은 함께 등록된다. */
   promoteAssembly: (id: string, body: { name?: string; note?: string; conditions?: boolean }) =>
     api.post<{ part_id: string; part_version: number; components: ComponentPlan[] }>(`/works/${id}/promote/assembly`, body),
