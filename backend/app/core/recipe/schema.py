@@ -1517,11 +1517,21 @@ class ImportStepNode(_Node):
     """`leaf` 로 가른 바디 중 **이 이름 하나만**(2026-11-17). STEP 올리기가 바디마다 이 노드를
     하나씩 만들고 끝에 `group`(`names: "body"`)으로 묶는다 — 이력(피처 트리)에 바디가 하나씩
     서서, 바디 하나만 고치거나 빼기가 쉽다. 바디 이름은 `leaf` 와 같다."""
+    names: Literal["legacy", "original"] = "legacy"
+    """바디 이름 규칙(2026-11-18). `original` — **STEP 의 이름 그대로**(`1번 판`).
+    `legacy` — build123d 가 읽는 대로 공백 · 점 · 괄호를 `_` 로(`1번_판`). 그 전에 가져온
+    레시피가 `legacy` 라 기본이 이것이다 — 바꾸면 바디 이름이 달라져 이미 건 해석 조건 ·
+    `body` 가 끊긴다. STEP 올리기는 이제 `original` 로 만든다(내보낸 STEP 을 다시 올려도
+    이름이 같다). `leaf` 만."""
 
     @model_validator(mode="after")
     def _one_body(self) -> ImportStepNode:
         if self.body is not None and self.bodies != "leaf":
             raise ValueError("body(바디 하나 고르기)는 bodies='leaf' 와 함께 씁니다.")
+        if self.names != "legacy" and self.bodies != "leaf":
+            raise ValueError(
+                "names='original'(STEP 이름 그대로)은 bodies='leaf' 와 함께 씁니다."
+            )
         return self
 
 

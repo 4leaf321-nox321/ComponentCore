@@ -18,20 +18,40 @@ build123d 의 `import_step` 은 STEP 의 조립 트리를 자식으로 돌려준
 
 **옛 레시피는 옛 규칙 그대로다**(`evaluate.py`) — 바디 이름이 바뀌면 이미 건 해석 조건이
 끊긴다.
+
+**이름 규칙**(`names`, 2026-11-18): build123d 의 `import_step` 은 이름의 공백 · 점 · 괄호를 `_`
+로 바꾼다(그쪽 뷰어가 그런 이름에서 죽어서) — `1번 판` 이 `1번_판` 이 됐다. 내보낼 때는 이제
+이름이 그대로 나가므로(`export.write_step`) 다시 올리면 이름이 달라졌다. `original` 은 STEP 의
+이름 그대로 읽는다(`_import_original`). 이미 가져온 레시피는 `legacy`(기본)라 그대로다.
 """
 
 from __future__ import annotations
 
 import copy
 import tempfile
+import unicodedata
 from dataclasses import dataclass
+from os import fsdecode
 from pathlib import Path
+from typing import Literal
 
 from build123d import Compound, Location, Part, Shape, Solid, import_step
+from build123d.importers import topods_lut
+from build123d.topology import downcast
 from OCP.BRep import BRep_Tool
 from OCP.gp import gp_TrsfForm
 from OCP.ShapeFix import ShapeFix_Solid
+from OCP.STEPCAFControl import STEPCAFControl_Reader
+from OCP.TCollection import TCollection_AsciiString, TCollection_ExtendedString
+from OCP.TDataStd import TDataStd_Name
+from OCP.TDF import TDF_Label, TDF_LabelSequence
+from OCP.TDocStd import TDocStd_Document
 from OCP.TopoDS import TopoDS
+from OCP.XCAFDoc import XCAFDoc_DocumentTool
+
+#: 바디 이름 규칙 — `legacy` 는 build123d 그대로(공백 · 점 · 괄호 → `_`), `original` 은 STEP 의
+#: 이름 그대로.
+Names = Literal["legacy", "original"]
 
 
 @dataclass
@@ -41,18 +61,19 @@ class Body:
     sheet: bool
 
 
-def read(path: Path) -> Shape:
+def read(path: Path, names: Names = "legacy") -> Shape:
     """STEP 을 읽는다 — 이름이 **CP949 원문**이면 표준 이스케이프(`\\X2\\`)로 바꿔 읽는다.
 
     OCC 는 원문 바이트를 UTF-8 로 본다. 한글 윈도의 CAD 가 쓴 CP949 원문은 UTF-8 이 아니라
     「블록」 이 `º` 로 깨졌다(실측) — 깨진 이름끼리는 겹치기도 한다. 둘 다 아니면 Latin-1 이다.
     """
+    reader = _import_original if names == "original" else import_step
     data = path.read_bytes()
     if data.isascii():
-        return import_step(path)
+        return reader(path)
     try:
         data.decode("utf-8")
-        return import_step(path)
+        return reader(path)
     except UnicodeDecodeError:
         pass
     try:
@@ -62,7 +83,61 @@ def read(path: Path) -> Shape:
     with tempfile.TemporaryDirectory() as folder:
         escaped = Path(folder) / "escaped.step"
         escaped.write_bytes(_escaped(text).encode("ascii"))
-        return import_step(escaped)
+        return reader(escaped)
+
+
+def _import_original(path: Path) -> Shape:
+    """build123d `import_step`(0.11.1)과 같은 트리 · 자리 — **이름만 STEP 그대로**.
+
+    build123d 는 이름의 공백 · 점 · 괄호를 `_` 로 바꾸고, 그 함수 안의 함수라 바꿔 끼울 수
+    없다. 그래서 같은 순서로 같은 것을 읽되 이름은 제어 문자만 뺀다. 색은 읽지 않는다 — 바디로
+    가르면(`bodies`) 어차피 남지 않고, 쓰는 곳도 없다(읽는 값이 비싸다). build123d 를 올리면
+    `test_core_step_names` 가 둘이 이름 말고는 같은지(바디 수 · 부피 · 자리) 본다."""
+    if not path.exists():
+        raise FileNotFoundError(path)
+    doc = TDocStd_Document(TCollection_ExtendedString("XCAF"))
+    shape_tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
+    reader = STEPCAFControl_Reader()
+    reader.SetNameMode(True)
+    reader.ReadFile(fsdecode(path))
+    reader.Transfer(doc)
+
+    def name_of(label: TDF_Label) -> str:
+        found = TDataStd_Name()
+        name = ""
+        if label.FindAttribute(TDataStd_Name.GetID_s(), found):
+            name = TCollection_AsciiString(found.Get()).ToCString()
+        return "".join(ch for ch in name if unicodedata.category(ch)[0] != "C")
+
+    def build(parent: TDF_Label | None) -> list[Shape]:
+        labels = TDF_LabelSequence()
+        if parent is None:
+            shape_tool.GetFreeShapes(labels)
+        else:
+            shape_tool.GetComponents_s(parent, labels)
+        out: list[Shape] = []
+        for index in range(labels.Length()):
+            here = labels.Value(index + 1)
+            referred = here
+            if shape_tool.IsReference_s(here):
+                referred = TDF_Label()
+                shape_tool.GetReferredShape_s(here, referred)
+            made: Shape
+            if shape_tool.IsAssembly_s(referred):
+                made = Compound()
+                made.children = build(referred)
+            else:
+                topo = downcast(shape_tool.GetShape_s(referred))
+                made = topods_lut[type(topo)](topo)
+            made.label = name_of(referred)
+            made.move(Location(shape_tool.GetLocation_s(here)))
+            out.append(made)
+        return out
+
+    root = Compound()
+    root.children = build(None)
+    # 맨 위가 하나면 감싼 Compound 를 벗긴다 — build123d 와 같게.
+    return root.children[0] if len(root.children) == 1 else root
 
 
 def _escaped(text: str) -> str:
@@ -123,19 +198,19 @@ def bodies(shape: Shape, notes: list[str]) -> list[Body]:
 
 #: 읽어 가른 STEP — (경로, 고친 시각, 크기) 마다. 바디마다 노드로 가르면 노드 수만큼 읽게 되고,
 #: 큰 조립 STEP 은 한 번에 몇 초다. 꺼낸 형상은 복사해서 쓴다(`single` · `assembled`).
-_SPLIT_CACHE: dict[tuple[str, int, int], tuple[list[Body], list[str]]] = {}
+_SPLIT_CACHE: dict[tuple[str, int, int, str], tuple[list[Body], list[str]]] = {}
 _SPLIT_CACHE_SIZE = 4
 
 
-def split(path: Path) -> tuple[list[Body], list[str]]:
+def split(path: Path, names: Names = "legacy") -> tuple[list[Body], list[str]]:
     """STEP 을 읽어 바디로 가른 것과 파일에 대한 말(`bodies` 의 notes). 같은 파일이면 다시 읽지
-    않는다 — 파일이 바뀌면(시각 · 크기) 다시 읽는다."""
+    않는다 — 파일이 바뀌면(시각 · 크기) 다시 읽는다. 이름 규칙(`names`)마다 따로 둔다."""
     stat = path.stat()
-    key = (str(path), stat.st_mtime_ns, stat.st_size)
+    key = (str(path), stat.st_mtime_ns, stat.st_size, names)
     got = _SPLIT_CACHE.get(key)
     if got is None:
         notes: list[str] = []
-        got = (bodies(read(path), notes), notes)
+        got = (bodies(read(path, names), notes), notes)
         if len(_SPLIT_CACHE) >= _SPLIT_CACHE_SIZE:
             _SPLIT_CACHE.pop(next(iter(_SPLIT_CACHE)))
         _SPLIT_CACHE[key] = got

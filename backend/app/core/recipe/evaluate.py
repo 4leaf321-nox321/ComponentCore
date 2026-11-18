@@ -1557,7 +1557,7 @@ def _evaluate_node(
             raise RecipeError(node.id, f"파일을 찾지 못했습니다: {failure}") from failure
         if node.bodies == "leaf":
             # 한 STEP 을 바디마다 노드로 가르면 같은 파일을 여러 번 읽는다 — 읽은 것을 둔다.
-            found, file_notes = step_import.split(path)
+            found, file_notes = step_import.split(path, node.names)
             if not found:
                 raise RecipeError(node.id, "STEP 파일에 솔리드도 면도 없습니다.")
             if node.body is None:

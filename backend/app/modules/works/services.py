@@ -578,8 +578,9 @@ def import_step(
     try:
         # 읽히는지 **지금** 본다 — 솔리드든 시트 바디(셸 모델)든. 지그는 그때 따로 본다.
         geometry.read_step(target)
-        # 바디 이름 — 평가가 가르는 것과 같은 규칙(이름의 한글 인코딩까지)으로.
-        names = [one.name for one in step_import.split(target)[0]]
+        # 바디 이름 — 평가가 가르는 것과 같은 규칙(이름의 한글 인코딩까지)으로. STEP 의 이름
+        # 그대로(`original`, 2026-11-18) — 내보낸 STEP 을 다시 올려도 이름이 같다.
+        names = [one.name for one in step_import.split(target, "original")[0]]
     except GeometryError as failure:
         target.unlink(missing_ok=True)
         raise AppError(code("WORKS", 7), str(failure)) from failure
@@ -651,7 +652,7 @@ def step_recipe(label: str, file: str, names: list[str]) -> dict[str, Any]:
     끝을 `group`(`names: "body"` — 바디 이름은 STEP 의 이름 그대로)으로 묶는다. 이력(피처
     트리)에 바디가 하나씩 서서 바디 하나만 고치거나 빼기 쉽다(2026-11-17, 사용자 요청). 바디가
     하나면, 또는 너무 많으면 예전처럼 한 노드(`bodies: "leaf"` — 하위 조립 · 멀티바디 · 이름
-    없음 · 겹침 · 닫힌 셸까지 바디로 가른다)."""
+    없음 · 겹침 · 닫힌 셸까지 바디로 가른다). 이름은 STEP 그대로(`names: "original"`)."""
     if len(names) < 2 or len(names) > MAX_SPLIT_BODIES:
         node = {
             "id": "imported",
@@ -659,6 +660,7 @@ def step_recipe(label: str, file: str, names: list[str]) -> dict[str, Any]:
             "label": label,
             "file": file,
             "bodies": "leaf",
+            "names": "original",
         }
         return {"version": 1, "nodes": [node]}
     taken = {"imported"}
@@ -670,6 +672,7 @@ def step_recipe(label: str, file: str, names: list[str]) -> dict[str, Any]:
             "file": file,
             "bodies": "leaf",
             "body": name,
+            "names": "original",
         }
         for name in names
     ]

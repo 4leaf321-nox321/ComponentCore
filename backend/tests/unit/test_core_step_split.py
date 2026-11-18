@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 from build123d import Box, Compound, Cylinder, Edge, Location, Shape, export_step
 
+from app.core import export
 from app.core.recipe import RecipeError, evaluate, parse, step_import, topology
 from app.core.recipe.schema import RecipeValidationError
 from app.modules.works.services import MAX_SPLIT_BODIES, _body_node_id, step_recipe
@@ -38,7 +39,8 @@ def _step(tmp_path: Path) -> Path:
             _put(Compound([Edge.make_line((0, 0, 0), (0, 0, 10))]), "축선"),
         ]
     )
-    export_step(shape, path)
+    # 우리 `write_step` 으로 — build123d 의 `export_step` 은 한글 이름을 깨뜨려 쓴다.
+    export.write_step(shape, path)
     return path
 
 
@@ -49,8 +51,8 @@ def _run(recipe: dict[str, Any], path: Path) -> tuple[list[dict[str, Any]], list
 
 def test_바디마다_노드_하나_끝에_묶음_이름_부피_자리가_한_노드와_같다(tmp_path: Path) -> None:
     path = _step(tmp_path)
-    names = [one.name for one in step_import.split(path)[0]]
-    assert len(names) == 4
+    names = [one.name for one in step_import.split(path, "original")[0]]
+    assert names == ["1번 판", "M6 볼트(1)", "Bolt", "Bolt-2"], "STEP 의 이름 그대로"
     recipe = step_recipe("assy.step", path.name, names)
     nodes = recipe["nodes"]
     assert [one["op"] for one in nodes] == ["import_step"] * 4 + ["group"]
@@ -58,6 +60,7 @@ def test_바디마다_노드_하나_끝에_묶음_이름_부피_자리가_한_�
         "사람이 보는 이름은 STEP 의 이름 그대로"
     )
     assert all(one["body"] == one["label"] for one in nodes[:4])
+    assert all(one["names"] == "original" for one in nodes[:4])
     ids = [one["id"] for one in nodes[:4]]
     assert len(set(ids)) == 4 and "imported" not in ids
     assert nodes[-1] == {
@@ -131,16 +134,16 @@ def test_같은_파일은_한_번만_읽는다(tmp_path: Path, monkeypatch: pyte
     reads: list[Path] = []
     real = step_import.read
 
-    def counted(one: Path) -> Shape:
+    def counted(one: Path, names: step_import.Names = "legacy") -> Shape:
         reads.append(one)
-        return real(one)
+        return real(one, names)
 
     monkeypatch.setattr(step_import, "read", counted)
     step_import._SPLIT_CACHE.clear()
-    names = [one.name for one in step_import.split(path)[0]]
+    names = [one.name for one in step_import.split(path, "original")[0]]
     _run(step_recipe("assy.step", path.name, names), path)
     assert len(reads) == 1, "바디 넷을 노드 넷으로 가져와도 STEP 은 한 번 읽는다"
     # 파일이 바뀌면 다시 읽는다.
     export_step(Box(5, 5, 5), path)
-    step_import.split(path)
+    step_import.split(path, "original")
     assert len(reads) == 2
