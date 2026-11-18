@@ -2,8 +2,8 @@
 
 v0.30.0 부터 새로 올린 STEP 은 이름 그대로 읽는다 — 공백 · 점 · 괄호 · 작은따옴표가
 남는다. 받는 쪽(SimEngBay)은 `bodies[].name` · `materials[].apply_to` ·
-`body_settings[].name` · `midsurface.bodies[].name` 을 **서로 견줘** 짝짓는다. 하나라도 옛
-규칙(`_`)이거나 앞뒤 공백이 남으면 짝이 끊긴다.
+`body_settings[].name` · `midsurface.bodies[].name` · 면 지문의 `body` 를 **서로 견줘**
+짝짓는다. 하나라도 옛 규칙(`_`)이거나 앞뒤 공백이 남으면 짝이 끊긴다.
 """
 
 from __future__ import annotations
@@ -91,6 +91,23 @@ def test_새_이름이_점_파일의_모든_자리에서_같다(
                     {"name": plate, "representation": "shell"},
                     {"name": bolt, "behavior": "rigid"},
                 ],
+                # 면 그룹 — 점 파일의 면 지문(`regions[…][].body`)에도 바디 이름이 간다.
+                "named_selections": [
+                    {
+                        "name": "판 아랫면",
+                        "entity": "face",
+                        "select": {"what": "faces", "body": plate, "normal": [0, 0, -1]},
+                    },
+                    {
+                        "name": "볼트 윗면",
+                        "entity": "face",
+                        "select": {"what": "faces", "body": bolt, "normal": [0, 0, 1]},
+                    },
+                ],
+                "constraints": [
+                    {"name": "고정", "type": "fixed_support", "on": "판 아랫면"},
+                    {"name": "볼트 고정", "type": "fixed_support", "on": "볼트 윗면"},
+                ],
             },
         },
         headers=member.headers,
@@ -108,6 +125,10 @@ def test_새_이름이_점_파일의_모든_자리에서_같다(
     conditions = point["conditions"]
     assert [one["apply_to"] for one in conditions["materials"]] == [[plate], [bolt]]
     assert [one["name"] for one in conditions["body_settings"]] == [plate, bolt]
+    # 다섯째 자리 — 면 지문의 `body`(SimEngBay 가 견주는 자리, 2026-11-18).
+    regions = point["regions"]
+    assert {one["body"] for one in regions["판 아랫면"]} == {plate}
+    assert {one["body"] for one in regions["볼트 윗면"]} == {bolt}
     (mid,) = point["midsurface"]["bodies"]
     assert mid["name"] == plate
     step_products = {one["name"]: one["step_product"] for one in point["bodies"]}
