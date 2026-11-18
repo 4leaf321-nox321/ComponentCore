@@ -38,6 +38,9 @@ def test_한글_이름이_STEP_에_표준_이스케이프로_들어가고_되살
     assert "PRODUCT('1\\X2\\BC88\\X0\\ \\X2\\D310\\X0\\'" in text
     assert "M6 (A''\\X2\\AE09\\X0\\)" in text, "작은따옴표는 두 번"
     assert "CCSTEPNAME" not in text, "자리표가 남지 않는다"
+    assert "PRODUCT('\\X2\\C13CC11C\\X0\\ \\X2\\C870B9BD\\X0\\'" in text, (
+        "이어진 글자는 한 묶음"
+    )
     # 읽으면 이름이 돌아온다 — 공백 · 괄호의 `_` 는 build123d 가 읽을 때의 약속이다.
     names = [one.name for one in step_import.split(path)[0]]
     assert names == ["1번_판", "볼트_M6__A'급_", "Plain"]
@@ -61,3 +64,19 @@ def test_아스키_이름은_그대로_쓴다(tmp_path: Path) -> None:
     pin.label = "Pin"
     path = export.write_step(Compound(children=[plate, pin]), tmp_path / "a.step")
     assert [one.name for one in step_import.split(path)[0]] == ["Plate", "Pin"]
+
+
+def test_이스케이프는_이어진_글자를_묶고_BMP_밖은_X4() -> None:
+    assert export.step_text("센서") == "\\X2\\C13CC11C\\X0\\"
+    assert export.step_text("a\\b'c") == "a\\\\b''c"
+    assert export.step_text("판😀") == "\\X2\\D310\\X0\\\\X4\\0001F600\\X0\\"
+    assert export.step_text("plain") == "plain"
+
+
+def test_BMP_밖의_글자도_되살아난다(tmp_path: Path) -> None:
+    one = Box(2, 2, 2)
+    one.label = "판😀"
+    other = Box(2, 2, 2).moved(Location((5, 0, 0)))
+    other.label = "핀"
+    path = export.write_step(Compound(children=[one, other]), tmp_path / "e.step")
+    assert [child.label for child in import_step(path).children] == ["판😀", "핀"]

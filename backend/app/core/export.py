@@ -102,21 +102,31 @@ def _placeholder_labels(shape: Shape) -> list[tuple[Any, str]]:
 
 
 def step_text(name: str) -> str:
-    """STEP 문자열 안에 쓸 이름 — `'` 는 `''`, `\\` 는 `\\\\`, 아스키 밖은 `\\X2\\HHHH\\X0\\`
-    (BMP 밖은 `\\X4\\`). ISO 10303-21 의 표준 이스케이프다."""
+    """STEP 문자열 안에 쓸 이름 — `'` 는 `''`, `\\` 는 `\\\\`, 아스키 밖은 ISO 10303-21 의 표준
+    이스케이프. **이어진 글자는 한 묶음**(`센서` → `\\X2\\C13CC11C\\X0\\`, BMP 밖은 `\\X4\\`) —
+    글자마다 따로 쓰면 `\\X0\\\\X2\\` 처럼 역슬래시가 겹쳐 덜 꼼꼼한 리더가 `\\\\` 로
+    읽을 수 있다. FreeCAD 1.0 · SpaceClaim 2025 R2 로 열어 확인했다(2026-11-18)."""
     out: list[str] = []
+    run: list[int] = []
+    wide = False
+
+    def flush() -> None:
+        if run:
+            width, mark = (8, "X4") if wide else (4, "X2")
+            out.append(f"\\{mark}\\" + "".join(f"{code:0{width}X}" for code in run) + "\\X0\\")
+            run.clear()
+
     for char in name:
         code = ord(char)
-        if char == "'":
-            out.append("''")
-        elif char == "\\":
-            out.append("\\\\")
-        elif code < 0x80:
-            out.append(char)
-        elif code <= 0xFFFF:
-            out.append(f"\\X2\\{code:04X}\\X0\\")
-        else:
-            out.append(f"\\X4\\{code:08X}\\X0\\")
+        if code < 0x80:
+            flush()
+            out.append("''" if char == "'" else "\\\\" if char == "\\" else char)
+            continue
+        if run and wide != (code > 0xFFFF):
+            flush()
+        wide = code > 0xFFFF
+        run.append(code)
+    flush()
     return "".join(out)
 
 
