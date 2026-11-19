@@ -11,7 +11,7 @@ from app.modules.accounts.models import User
 from app.modules.audit.models import AccessLog, AuditEntry, RequestTiming
 from app.modules.auth.models import PersonalAccessToken, RefreshToken, SsoUsedJti
 from app.modules.bundles.models import BundleRun, BundleUndoEntry
-from app.modules.datasources.models import DataSource, DataSourceRun
+from app.modules.datasources.models import CoreSubscription, DataSource, DataSourceRun
 from app.modules.doe.models import DoePoint, DoeStudy
 from app.modules.files.models import Attachment, AttachmentTicket
 from app.modules.jigs.models import Jig, JigVersion
@@ -71,6 +71,7 @@ __all__ = [
     "BundleRun",
     "BundleUndoEntry",
     "CatalogMaterial",
+    "CoreSubscription",
     "DataSource",
     "DataSourceRun",
     "DoePoint",

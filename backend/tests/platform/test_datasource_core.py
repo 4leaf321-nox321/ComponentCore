@@ -699,6 +699,9 @@ def test_상한에서_끊기면_받은_만큼_넣고_다음_차례가_끊은_자
     받아 **영영 앞으로 못 갔다** — 안내는 「`$filter` 로 나눠」 였는데 코어 소스는 그 칸을
     쓰지도 않는다(2026-10-08)."""
     monkeypatch.setattr(odata, "MAX_ROWS", 3)
+    # 차례마다의 규칙(끊은 자리 · 시계)을 본다 — 한 작업이 끝까지 잇는 것(`sync_through`)은
+    # 끈다. 그것은 아래 `test_끊기면_같은_작업이_끝까지_잇는다` 가 본다.
+    monkeypatch.setattr(services, "CATCH_UP_ROUNDS", 1)
     vendor = _vendor_type(client, admin)
     sibling.items = [
         _item(f"V-00{n}", f"공급사 {n}", f"2026-09-0{n}T00:00:00.000000Z") for n in range(1, 6)
@@ -727,12 +730,35 @@ def test_상한에서_끊기면_받은_만큼_넣고_다음_차례가_끊은_자
     assert _saved(client, admin, source["slug"])["since_mark"] == first_clock
 
 
+def test_끊기면_같은_작업이_끝까지_잇는다(
+    client: TestClient, admin: Signed, sibling: FakeCore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**끊긴 받기를 다음 간격까지 기다리지 않는다**(SP ADR 0055 `sync_through`) — 큰
+    기준정보의 처음 받기가 간격 1시간이면 며칠씩 걸렸다. 같은 작업이 차례를 이어 끝까지 받고,
+    시계는 처음 끊었을 때 상대의 시계다."""
+    monkeypatch.setattr(odata, "MAX_ROWS", 3)
+    vendor = _vendor_type(client, admin)
+    sibling.items = [
+        _item(f"V-00{n}", f"공급사 {n}", f"2026-09-0{n}T00:00:00.000000Z") for n in range(1, 6)
+    ]
+    source = _source(client, admin, vendor, page_size=2)
+
+    done = _sync(client, admin, source["slug"])
+    assert done["rounds"] == 2, done
+    assert done["run"]["status"] == "ok", done["run"]
+    assert sorted(_rows(client, admin, vendor)) == [f"V-00{n}" for n in range(1, 6)]
+    assert _saved(client, admin, source["slug"])["since_mark"] == sibling.as_of
+
+
 def test_선도_상한에서_끊기면_받은_만큼_넣고_다음_차례가_잇는다(
     client: TestClient, admin: Signed, sibling: FakeCore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """선 쪽도 같았다 — 끊기면 시계를 그대로 두어, 다음 차례가 같은 줄만 다시 받고 「다음
     동기화가 같은 자리에서 잇습니다」 는 사실이 아니었다(2026-10-08)."""
     monkeypatch.setattr(odata, "MAX_ROWS", 3)
+    # 차례마다의 규칙(끊은 자리 · 시계)을 본다 — 한 작업이 끝까지 잇는 것(`sync_through`)은
+    # 끈다. 그것은 아래 `test_끊기면_같은_작업이_끝까지_잇는다` 가 본다.
+    monkeypatch.setattr(services, "CATCH_UP_ROUNDS", 1)
     vendor = _vendor_type(client, admin)
     kind = _partner_kind(client, admin, vendor)
     sibling.items = [

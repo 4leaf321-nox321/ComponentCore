@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -35,7 +36,7 @@ from app.modules.audit.models import AuditEntry
 from app.modules.bundles import tombstones as graves
 from app.modules.bundles.schemas import RelationTombstoneIn, TombstonesIn
 from app.modules.datasources import fetchers, odata, ra_reports
-from app.modules.datasources.models import DataSource, DataSourceRun
+from app.modules.datasources.models import CoreSubscription, DataSource, DataSourceRun
 from app.modules.datasources.schemas import (
     CoreSuggestOut,
     CoreSuggestProperty,
@@ -416,6 +417,21 @@ def map_row(
     elif mirror and alias_mapped:
         out["aliases"] = bulk.NULL_MARK
     return Mapped(external_id=external, row=out)
+
+
+def _carry_core(mapped: list[Mapped], raws: list[dict[str, Any]]) -> None:
+    """형제 코어의 봉투에서 **대응을 안 타는 것**을 행에 얹는다 — 옛 식별자(`renamed_from` ·
+    `previous_keys`). 일괄 입력이 그것으로 제 행을 찾아 식별자를 옮긴다. 안 실으면 허브에서
+    품번을 바꿀 때 이쪽에 같은 것이 하나 더 생긴다(SP ADR 0055 — 그쪽의 `extra` 는 기본
+    모양으로 받는 CompCore 에는 오지 않는다)."""
+    for one, raw in zip(mapped, raws, strict=True):
+        if one.error:
+            continue
+        if raw.get("renamed_from"):
+            one.row["renamed_from"] = str(raw["renamed_from"])
+        previous = raw.get("previous_keys")
+        if isinstance(previous, list) and previous:
+            one.row["previous_keys"] = [str(x) for x in previous]
 
 
 def _clears(target: str, name: str, keep: frozenset[str]) -> bool:
@@ -818,6 +834,60 @@ def sync(db: Session, user: User | None, source: DataSource, *, apply: bool) -> 
         return _sync_announced(db, user, source, apply=True)
 
 
+#: 끊긴 형제 코어를 한 작업 안에서 잇는 상한 — 한 차례 5만 줄씩 400번이면 2,000만 줄이다.
+CATCH_UP_ROUNDS = 400
+
+
+def resumable(source: DataSource) -> bool:
+    """형제 코어가 **끊은 자리를 들고 있나**(객체 · 선 어느 쪽이든) — 다음 차례가 잇는다."""
+    options = source.options or {}
+    return source.kind == "sp_core" and any(
+        isinstance(options.get(key), dict) and bool(options[key].get("next"))
+        for key in (RESUME, RESUME_EDGES)
+    )
+
+
+def sync_through(
+    db: Session,
+    user: User | None,
+    source: DataSource,
+    *,
+    apply: bool,
+    between: Callable[[int], None] | None = None,
+) -> tuple[SyncResult, int]:
+    """동기화하고, 적용에 성공했는데 **끊은 자리가 남았으면 바로 잇는다** — `(마지막 결과,
+    차례 수)`(SP ADR 0055).
+
+    형제 코어는 한 차례에 5만 줄까지 받는다(`odata.MAX_ROWS` — 메모리를 묶어 두는 상한).
+    그 전에는 다음 차례가 **동기화 간격만큼** 기다려, 큰 기준정보의 처음 받기가 간격 1시간이면
+    며칠씩 걸렸다. 이제는 같은 작업이 이어서 돌고, 차례마다 커밋하므로 도중에 멈춰도(취소 ·
+    워커 재시작) 받은 만큼은 남고 다음 작업이 끊은 자리에서 잇는다.
+
+    **끝점을 기다리는 선이 줄어드는 동안에도 잇는다.** 같은 타입 안의 선(부품 → 부품)은 끝
+    객체가 뒤 차례에 오면 기다리고(`relations_waiting`), 끊은 자리가 다 없어진 뒤에 남은 것은
+    다음 간격까지 기다렸다. 한 차례에 기다리던 것이 하나도 안 줄면 멈춘다 — 끝내 안 올
+    끝점이면 같은 일을 되풀이할 뿐이다.
+
+    `between(차례)` 는 차례 사이에 부른다 — 작업의 진행률 · 취소 확인 자리. 실패한 차례에서는
+    멈춘다(같은 자리를 되풀이해 부르지 않게 — 다음 간격이 다시 해 본다).
+    """
+    waiting = len(source.relations_waiting or [])
+    result = sync(db, user, source, apply=apply)
+    rounds = 1
+    while (
+        apply and result.run.applied and result.run.status == "ok" and rounds < CATCH_UP_ROUNDS
+    ):
+        now = len(source.relations_waiting or [])
+        if not (resumable(source) or 0 < now < waiting):
+            break
+        waiting = now
+        if between is not None:
+            between(rounds)
+        result = sync(db, user, source, apply=True)
+        rounds += 1
+    return result, rounds
+
+
 def _sync_announced(
     db: Session, user: User | None, source: DataSource, *, apply: bool
 ) -> SyncResult:
@@ -1078,6 +1148,8 @@ def _sync_body(
     mirror = mirrors(source)
     keep = frozenset(one.key for one in defs if one.required)
     mapped = [map_row(mapping, raw, source.slug, mirror=mirror, keep=keep) for raw in alive]
+    if source.kind == "sp_core":
+        _carry_core(mapped, alive)
     # 거울이면 별칭을 **맞춘다**(뺀 것을 뺀다) — 아니면 더하기만(사람이 붙인 것을 지우지 않게).
     aliases_mode = "replace" if mirror else "add"
     run.rows_seen = len(fetched.rows)
@@ -1364,6 +1436,25 @@ def public_options(options: dict[str, Any] | None) -> dict[str, Any]:
 def internal_options(options: dict[str, Any] | None) -> dict[str, Any]:
     """동기화가 적어 두는 칸 — 정의를 고쳐도 지킨다(화면은 이것을 모른다)."""
     return {key: value for key, value in (options or {}).items() if key.startswith("_")}
+
+
+def restart(row: DataSource, *, edges_only: bool = False) -> None:
+    """**처음부터 다시 받게** — 받은 자리와 끊은 자리를 비운다(다음 동기화가 전량을 받는다).
+
+    점의 시계를 비우면 **선의 시계도 함께 비운다** — 하나만 처음부터 받으면 점과 선이 어긋난다.
+    기다리던 선도 — 전량이 다시 온다. 끊어 둔 자리도 버린다(옛 시계에서 시작한 것이다).
+    `edges_only` 는 선만(코어 구독이 받는 관계 종류가 늘었을 때)."""
+    row.relations_since_mark = ""
+    row.relations_waiting = []
+    if edges_only:
+        row.options = {
+            key: value for key, value in (row.options or {}).items() if key != RESUME_EDGES
+        }
+        return
+    row.since_mark = ""
+    row.options = public_options(row.options)
+    # RA 보고서는 처음부터 = 본문까지 전량, 그리고 대조.
+    row.reconciled_at = None
 
 
 def _earlier(floor: Any, as_of: str) -> str:
@@ -1847,6 +1938,30 @@ def _waiting_note(waiting: list[Waiting]) -> str:
     )
 
 
+def _known_kinds(
+    db: Session,
+    rows: list[dict[str, Any]],
+    gone: list[dict[str, Any]],
+    errors: list[str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """**코어 구독의 소스**는 이 설치에 없는 관계 종류의 선을 건너뛴다 — 구독이 그 종류를
+    일부러 안 세웠다(끝이 이 설치가 만든 같은 이름의 타입이거나, 이 설치가 그 정의를 아직 못
+    받음 — 까닭은 구독의 알림에 있다). 건너뛰지 않으면 그 선 하나로 소스가 동기화마다
+    실패한다(`모르는 관계 종류`). 손으로 만든 소스는 예전처럼 실패해 사람에게 알린다."""
+    wanted = {str(one.get("relation") or "") for one in [*rows, *gone]}
+    known = set(db.scalars(select(RelationType.slug).where(RelationType.slug.in_(wanted))))
+    unknown = wanted - known
+    if not unknown:
+        return rows, gone
+    kept = [one for one in rows if str(one.get("relation") or "") in known]
+    skipped = len(rows) - len(kept)
+    errors.append(
+        f"이 설치에 없는 관계 종류({', '.join(sorted(unknown))})의 선 {skipped}개는 받지 "
+        "않았습니다 — 코어 구독의 알림에 까닭이 있습니다."
+    )
+    return kept, [one for one in gone if str(one.get("relation") or "") in known]
+
+
 def _sync_relations(
     db: Session,
     user: User | None,
@@ -1937,6 +2052,8 @@ def _sync_relations(
 
     rows = [_edge_row(one) for one in got.rows if not one.get(fetchers.CORE_DELETED)]
     gone = [one for one in got.rows if one.get(fetchers.CORE_DELETED)]
+    if source.subscription_id is not None:
+        rows, gone = _known_kinds(db, rows, gone, errors)
     # **기다리던 선을 다시 싣는다**(끝점이 지난번에 없었다). 이번에 같은 선이 다시 왔으면 새
     # 줄을 쓰고, 상대가 끊었다고 왔으면 버린다. 첫 쪽부터 전량을 다시 받는 세대의 첫 차례면
     # 기다리던 것도 그 안에 다시 오므로 버린다. 한 번에 넣는 상한을 넘기지 않게 남는 자리만큼만
@@ -2526,7 +2643,24 @@ def suggest_core_mapping(
             f"그 설치가 연 코어 타입이 아닙니다: {wanted}. 열려 있는 것: {opened or '없음'}",
             status=422,
         )
+    mapping, shown, notes = core_mapping(db, remote, object_type)
+    return CoreSuggestOut(
+        system=str(body.get("system") or ""),
+        revision=str(body.get("revision") or ""),
+        type_slug=wanted,
+        type_label=str(remote.get("label") or wanted),
+        count=int(remote.get("count") or 0),
+        mapping=mapping,
+        properties=shown,
+        notes=notes,
+    )
 
+
+def core_mapping(
+    db: Session, remote: dict[str, Any], object_type: ObjectType
+) -> tuple[dict[str, Any], list[CoreSuggestProperty], list[str]]:
+    """상대 카탈로그의 타입 하나 → (칸 대응, 칸마다 어떻게 이었나, 못 이은 것) — 대응 제안과
+    코어 구독이 함께 쓴다."""
     defs = [one for one in properties_of(db, object_type.id) if one.data_type != "file"]
     by_key = {one.key: one for one in defs}
     by_label = {one.label.strip(): one for one in defs}
@@ -2568,18 +2702,109 @@ def suggest_core_mapping(
                 note=note,
             )
         )
+    # **식별자는 상대의 `key` 다.** 그것이 다음 동기화가 같은 객체를 다시 찾는 근거다.
+    return {"external_key": "key", "columns": columns}, shown, notes
 
-    return CoreSuggestOut(
-        system=str(body.get("system") or ""),
-        revision=str(body.get("revision") or ""),
-        type_slug=wanted,
-        type_label=str(remote.get("label") or wanted),
-        count=int(remote.get("count") or 0),
-        # **식별자는 상대의 `key` 다.** 그것이 다음 동기화가 같은 객체를 다시 찾는 근거다.
-        mapping={"external_key": "key", "columns": columns},
-        properties=shown,
-        notes=notes,
+
+def sibling_mapping(
+    db: Session, found: dict[str, Any], object_type: ObjectType
+) -> tuple[dict[str, Any], list[str]]:
+    """형제 코어 소스의 칸 대응 — 대응 제안과 같은 규칙에 **식별자 key → key** 를 더한다.
+
+    기준정보는 허브의 식별자가 곧 이쪽 식별자다. 참조 칸 · 선의 끝점이 그 식별자로 풀리고,
+    식별자가 필수인 타입은 안 이으면 한 행도 안 들어간다. (대응 제안은 식별자 칸이 없는 타입에
+    잇지 않는다 — 이쪽에 다른 식별자 체계가 있을 수 있다. 구독은 허브의 정의를 그대로 세우므로
+    식별자 칸이 같다.)"""
+    mapping, _, notes = core_mapping(db, found, object_type)
+    if not any(one.get("target") == "key" for one in mapping["columns"]):
+        mapping["columns"].insert(0, {"source": "key", "target": "key"})
+    return mapping, notes
+
+
+def opens_edges(found: dict[str, Any]) -> bool:
+    """상대가 그 타입에서 나가는 선을 열어 줬나(카탈로그의 한 타입)."""
+    return bool(found.get("relations_endpoint") and found.get("relations"))
+
+
+#: 구독이 만드는 소스의 한 쪽 — 코어 창구의 상한(SP `coreapi.services.MAX_LIMIT`)과 같다.
+SUBSCRIBE_PAGE = 2_000
+
+
+def core_source(
+    db: Session,
+    user: User | None,
+    *,
+    base_url: str,
+    auth: dict[str, Any],
+    object_type: ObjectType,
+    found: dict[str, Any],
+    system: str,
+    source_name: str,
+    interval_minutes: int,
+    via: str,
+    subscription_id: uuid.UUID | None = None,
+) -> DataSource:
+    """형제 코어 소스 하나(쪽 2,000) — 코어 구독이 만든다. 출처 이름은 그 타입을 관리하는
+    이름이어야 한다 — 다르면 허브 관리 타입에 아무것도 안 들어간다.
+
+    **기본 모양(`core`)으로 받는다** — SP 는 형제 SP 에 `shape=sp`(선의 기간 전부 · 계보 고정 ·
+    별칭의 출처)를 주지만, CompCore 는 관계의 유효 기간 · 계보(SP ADR 0039 · 0041)를 아직 안
+    들였다. 기본 모양은 오늘 유효한 선만 준다 — 그동안 손으로 만든 형제 코어 소스와 같다."""
+    mapping, _ = sibling_mapping(db, found, object_type)
+    slug = _free_slug(db, f"{object_type.slug}_core")
+    row = DataSource(
+        slug=slug,
+        name=f"{found.get('label') or object_type.label} ({system})",
+        kind="sp_core",
+        base_url=base_url,
+        entity_set=object_type.slug,
+        options={"relations": opens_edges(found)},
+        filter="",
+        select="",
+        auth=dict(auth),
+        page_size=SUBSCRIBE_PAGE,
+        type_id=object_type.id,
+        workspace_id=None,
+        mapping=mapping,
+        source_name=source_name,
+        deprecate_missing=False,
+        interval_minutes=interval_minutes,
+        is_active=True,
+        created_by_id=user.id if user is not None else None,
+        subscription_id=subscription_id,
     )
+    db.add(row)
+    db.flush()
+    audit.record(
+        db,
+        action="datasource.create",
+        actor=user,
+        target_table="data_sources",
+        target_id=row.id,
+        target_label=slug,
+        changes={
+            "base_url": base_url,
+            "entity_set": object_type.slug,
+            "type": object_type.slug,
+            "via": via,
+        },
+    )
+    return row
+
+
+def _free_slug(db: Session, wanted: str) -> str:
+    """안 쓰인 소스 slug — 32자 안에서 뒤에 `_2` · `_3` 을 붙인다."""
+    base = wanted[:32].rstrip("_")
+    taken = set(
+        db.scalars(select(DataSource.slug).where(DataSource.slug.like(f"{base[:28]}%")))
+    )
+    if base not in taken:
+        return base
+    for number in range(2, 1000):
+        candidate = f"{base[: 32 - len(str(number)) - 1]}_{number}"
+        if candidate not in taken:
+            return candidate
+    raise Conflict(code("DATASOURCES", 6), f"소스 slug 를 정하지 못했습니다: {base}")
 
 
 #: 타이머가 깨는 간격(`deploy/sync.timer.template` 의 `OnUnitActiveSec`) — 그만큼은 봐준다.
@@ -2594,9 +2819,14 @@ def due(db: Session, now: datetime | None = None) -> list[DataSource]:
     지난 것."""
     now = now or datetime.now(UTC)
     out: list[DataSource] = []
+    # **코어 구독의 소스는 여기서 안 고른다** — 구독이 차례가 될 때 구독을 확인한 뒤 함께 돈다
+    # (`subscriptions.due` · 차례 작업). 따로 돌면 허브에 새 칸이 생긴 직후 소스가 먼저 받고,
+    # 나중에 구독이 그 칸을 이을 때 이미 받은 행을 처음부터 다시 받게 된다.
     for source in db.scalars(
         select(DataSource).where(
-            DataSource.is_active.is_(True), DataSource.interval_minutes > 0
+            DataSource.is_active.is_(True),
+            DataSource.interval_minutes > 0,
+            DataSource.subscription_id.is_(None),
         )
     ):
         every = timedelta(minutes=source.interval_minutes)
@@ -2785,6 +3015,9 @@ def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
         + timedelta(minutes=one.interval_minutes * STALE_FACTOR)
         < now
     ]
+    subscriptions = list(
+        db.scalars(select(CoreSubscription).where(CoreSubscription.is_active.is_(True)))
+    )
     return [
         extensions.MaintenanceItem(
             key="datasource_failed",
@@ -2799,6 +3032,22 @@ def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
             key="datasource_stale",
             label="정해진 간격보다 오래 안 돈 데이터 소스",
             count=len(stale),
+            link="/admin/datasources",
+            severity="warning",
+        ),
+        # 코어 구독 — 검토 대기는 받기를 막지 않아 아무도 모르는 채 쌓인다. 허브가 바꾼 정의가
+        # 이 설치에 안 들어온 채로 남아 있다는 뜻이다.
+        extensions.MaintenanceItem(
+            key="core_subscription_held",
+            label="정의 검토 대기 코어 구독",
+            count=sum(1 for one in subscriptions if one.held),
+            link="/admin/datasources",
+            severity="warning",
+        ),
+        extensions.MaintenanceItem(
+            key="core_subscription_failed",
+            label="확인 실패 코어 구독",
+            count=sum(1 for one in subscriptions if one.last_status == "failed"),
             link="/admin/datasources",
             severity="warning",
         ),

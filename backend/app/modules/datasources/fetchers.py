@@ -100,7 +100,18 @@ def fetch(
 # 안 받는다 — 상대도 그래서 `next` 가 있으면 `as_of` 를 안 준다.
 
 #: 봉투의 자리. 펼친 행에서 **이 이름이 이긴다** — 같은 이름의 속성이 있으면 봉투가 남는다.
-CORE_ENVELOPE = ("key", "label", "status", "updated_at", "deleted", "merged_into")
+CORE_ENVELOPE = (
+    "key",
+    "label",
+    "status",
+    "updated_at",
+    "deleted",
+    "merged_into",
+    # 식별자가 바뀐 행 — 받는 쪽은 옛 식별자로 제 것을 찾아 옮긴다(`bulk.renamed_history`).
+    # 안 실으면 허브에서 품번을 바꿀 때 이쪽에 같은 것이 새로 하나 더 생긴다(SP ADR 0055).
+    "renamed_from",
+    "previous_keys",
+)
 
 #: 무덤 표시 — `services.py` 가 이 열을 보고 「사라진 것」 으로 다룬다.
 CORE_DELETED = "deleted"
@@ -116,9 +127,37 @@ def core_row(item: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+#: 형제 SP 의 코어에 **연결하는 데** 기다리는 초 — 응답을 읽는 대기(`odata.TIMEOUT_SECONDS`,
+#: 60초)와 따로다. 주소를 잘못 적으면(응답하지 않는 호스트 · 포트) 연결이 60초를 다 기다렸고,
+#: 그 사이 앞단(게이트웨이 · nginx)의 시간 제한이 먼저 끝나 화면에는 「504 Gateway Time-out」
+#: 만 떴다 — 주소가 틀렸다는 까닭이 화면에 닿지 않았다(SP 운영, 2026-11-18). 같은 사내망의
+#: SP 는 연결이 1초 안에 선다 — 10초면 느린 망도 넉넉하다.
+CONNECT_SECONDS = 10.0
+
+
+def unreachable(caught: httpx.HTTPError) -> str:
+    """코어 창구에 닿지 못한 까닭 — 연결이 안 선 것과 응답이 늦은 것을 사람의 말로 가른다."""
+    if isinstance(caught, httpx.ConnectTimeout):
+        return (
+            f"코어 창구에 {CONNECT_SECONDS:.0f}초 안에 연결하지 못했습니다 — 주소(호스트 · "
+            "포트)가 맞는지, 이 서버에서 그 주소로 나가는 길(방화벽)이 열려 있는지 확인하세요."
+        )
+    if isinstance(caught, httpx.ConnectError):
+        return (
+            "코어 창구에 연결하지 못했습니다 — 주소(호스트 이름 · 포트)를 확인하세요. "
+            f"까닭: {caught}"
+        )
+    if isinstance(caught, httpx.ReadTimeout):
+        return (
+            f"코어 창구가 {odata.TIMEOUT_SECONDS:.0f}초 안에 답하지 않았습니다 — 상대 설치가 "
+            "바쁘거나 멈췄을 수 있습니다. 잠시 뒤에 다시 하세요."
+        )
+    return f"코어 창구에 닿지 못했습니다: {caught}"
+
+
 def _core_client(auth: Auth, transport: httpx.BaseTransport | None) -> httpx.Client:
     return httpx.Client(
-        timeout=odata.TIMEOUT_SECONDS,
+        timeout=httpx.Timeout(odata.TIMEOUT_SECONDS, connect=CONNECT_SECONDS),
         transport=transport,
         headers={"Accept": "application/json", **auth.headers()},
         auth=auth.basic(),
@@ -202,9 +241,7 @@ def _core_pages(
                     out.next = str(current)
                     return out
     except httpx.HTTPError as caught:
-        raise AppError(
-            code("DATASOURCES", 38), f"코어 창구에 닿지 못했습니다: {caught}", status=502
-        ) from caught
+        raise AppError(code("DATASOURCES", 38), unreachable(caught), status=502) from caught
     out.truncated = True
     out.next = str(current) if current else None
     return out
@@ -355,13 +392,52 @@ def core_catalog(
             _raise_for_core(response)
             body = _core_body(response, "/api/core")
     except httpx.HTTPError as caught:
-        raise AppError(
-            code("DATASOURCES", 38), f"코어 창구에 닿지 못했습니다: {caught}", status=502
-        ) from caught
+        raise AppError(code("DATASOURCES", 38), unreachable(caught), status=502) from caught
     if not isinstance(body, dict) or not isinstance(body.get("types"), list):
         raise AppError(
             code("DATASOURCES", 37),
             "코어 카탈로그를 읽지 못했습니다 — 주소가 그 설치의 `/api/core` 인지 확인하세요.",
+            status=502,
+        )
+    return body
+
+
+def _said_code(response: httpx.Response) -> str:
+    """상대 오류 봉투의 코드(`APP-CORE-0004`) — 못 읽으면 빈 값. 접두사는 설치마다 다르다."""
+    try:
+        return str((response.json().get("error") or {}).get("code") or "")
+    except (ValueError, AttributeError):
+        return ""
+
+
+def core_definitions(
+    *,
+    base_url: str,
+    auth: Auth,
+    transport: httpx.BaseTransport | None,
+    groups: list[str],
+    known: str,
+) -> dict[str, Any] | None:
+    """상대의 **공개 타입 정의**(`/api/core/sp-definitions`, SP 0.4.91 부터 — 코어 구독). 그
+    창구가 없는 설치(SP 0.4.90 까지)는 None — 404 를 「코어 타입이 아님」 으로 답한다(그 주소를
+    타입으로 읽는다). 상대에 없는 사이드바 묶음을 적은 404 는 그대로 오류다(상대의 말을
+    옮긴다)."""
+    params: dict[str, str] = {"known": known}
+    if groups:
+        params["groups"] = ",".join(groups)
+    try:
+        with _core_client(auth, transport) as client:
+            response = client.get(f"{base_url.rstrip('/')}/core/sp-definitions", params=params)
+            if response.status_code == 404 and not _said_code(response).endswith("-CORE-0004"):
+                return None
+            _raise_for_core(response)
+            body = _core_body(response, "/api/core/sp-definitions")
+    except httpx.HTTPError as caught:
+        raise AppError(code("DATASOURCES", 38), unreachable(caught), status=502) from caught
+    if not isinstance(body, dict) or "mark" not in body:
+        raise AppError(
+            code("DATASOURCES", 37),
+            "상대의 정의 응답을 읽지 못했습니다 — 주소가 그 설치의 `/api` 인지 확인하세요.",
             status=502,
         )
     return body

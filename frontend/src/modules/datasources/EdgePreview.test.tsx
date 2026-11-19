@@ -10,6 +10,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 const datasourceApi = vi.hoisted(() => ({
+  coreSubscriptions: vi.fn(async () => []),
   list: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),

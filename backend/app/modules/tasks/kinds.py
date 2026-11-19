@@ -608,22 +608,179 @@ def datasource_sync(work: Work) -> dict[str, Any]:
     if source is None:
         raise NotFound(code("DATASOURCES", 1), f"데이터 소스를 찾을 수 없습니다: {slug}")
     work.progress("읽기", 0, 0)
-    result = datasource_services.sync(
-        work.db, work.user, source, apply=bool(work.params.get("apply"))
+    # **끊긴 자리가 남으면 이 작업이 바로 잇는다**(형제 코어 — 차례마다 5만 줄, SP ADR 0055).
+    result, rounds = datasource_services.sync_through(
+        work.db,
+        work.user,
+        source,
+        apply=bool(work.params.get("apply")),
+        between=lambda done: work.progress(f"이어 받기 {done + 1}차례", done, 0),
     )
     if result.run.applied and _changed(result.run.counts or {}):
         _after_ingest(work.db, source.type_id, f"datasource:{slug}")
-    return datasource_services.sync_out(result).model_dump(mode="json")
+    out = datasource_services.sync_out(result).model_dump(mode="json")
+    if rounds > 1:
+        out["rounds"] = rounds
+    return out
+
+
+def _catching_up(work: Work, slug: str, at: int, total: int) -> Callable[[int], None]:
+    """차례 사이의 진행률 — 「part · 이어 받기 3차례」. 취소면 거기서 멈춘다(`Cancelled`)."""
+
+    def tick(done: int) -> None:
+        work.progress(f"{slug} · 이어 받기 {done + 1}차례", at, total)
+
+    return tick
 
 
 def datasource_sync_round(work: Work) -> dict[str, Any]:
-    """타이머의 한 차례 — 차례가 된 소스들을 **가리키는 쪽부터 한 줄로** 돌린다.
+    """타이머의 한 차례 — 차례가 된 코어 구독을 먼저 확인하고(SP ADR 0085), 차례가 된 소스들을
+    **가리키는 쪽부터 한 줄로** 돌린다.
 
     예전에는 소스마다 작업을 따로 넣었다 — 워커가 둘이면 둘씩, 하나여도 넣은 순서(아무
     순서)대로 돌아, 「고장 모드」 가 「메커니즘」 보다 먼저 돌면 그 선이 끝점을 못 찾았다.
     순서는 `datasources/services.sync_order` 가 정의에서 읽는다. **한 소스가 실패해도 다음
     소스로 간다** — 실패는 그 소스의 실행 기록 · 알림에 남는다(`services.sync` 가 무엇이 나도
     기록을 닫는다).
+
+    **구독을 소스보다 먼저.** 구독이 정의를 맞추고 칸 대응을 고친 뒤에 받아야 새 칸의 값이 이
+    차례에 들어온다. 구독의 소스는 구독과 같은 차례에 돈다(새로 만들었거나 다시 활성화한 것도).
+    계획만 보는 차례(`apply` 거짓)는 구독을 확인하지 않는다 — 확인은 정의를 적용한다.
+    """
+    from app.modules.datasources.models import DataSource
+
+    slugs = [str(one) for one in work.params.get("slugs") or []]
+    apply = bool(work.params.get("apply"))
+    checked: list[dict[str, Any]] = []
+    if apply:
+        checked, more = _reconcile_all(
+            work, [str(one) for one in work.params.get("subscriptions") or []]
+        )
+        slugs.extend(one for one in more if one not in slugs)
+    found = list(work.db.scalars(select(DataSource).where(DataSource.slug.in_(slugs))))
+    ordered, done = _sync_in_order(work, found, apply=apply)
+    return {
+        "order": [one.slug for one in ordered],
+        "sources": done,
+        "failed": sum(1 for one in done if one["status"] == "failed")
+        + sum(1 for one in checked if one["status"] == "failed"),
+        "missing": sorted(set(slugs) - {one.slug for one in found}),
+        "subscriptions": checked,
+    }
+
+
+def core_subscription_sync(work: Work) -> dict[str, Any]:
+    """코어 구독 하나의 확인(SP ADR 0085) — 허브의 정의 · 공개 타입에 맞추고, 그 구독의 활성
+    소스를 가리키는 쪽부터 끝까지 받는다. 화면의 「동기화」 · 생성 직후 · 정의 검토 대기의
+    적용이 넣는다 (`approve` — 검토한 지문)."""
+    from app.modules.datasources import subscriptions
+    from app.modules.datasources.models import DataSource
+
+    row = subscriptions.find(work.db, str(work.params.get("id") or ""))
+    work.progress("허브 확인", 0, 0)
+    done = _reconcile_one(work, row, approve=str(work.params.get("approve") or ""))
+    found = list(
+        work.db.scalars(
+            select(DataSource).where(
+                DataSource.subscription_id == row.id, DataSource.is_active.is_(True)
+            )
+        )
+    )
+    ordered, synced = _sync_in_order(work, found, apply=True)
+    return {
+        **done.summary(),
+        "system": row.system,
+        "status": row.last_status,
+        "order": [one.slug for one in ordered],
+        "sources": synced,
+        "failed": sum(1 for one in synced if one["status"] == "failed"),
+    }
+
+
+def _reconcile_one(work: Work, row: Any, *, approve: str = "") -> Any:
+    """구독 하나의 확인 — 실패는 구독에 적고(`reconcile` · `mark_failed`) 다시 던진다. 빼앗김 ·
+    취소는 그대로 올린다."""
+    from app.modules.datasources import subscriptions
+    from app.modules.tasks.services import Cancelled
+    from app.shared.errors import AppError
+
+    try:
+        return subscriptions.reconcile(
+            work.db, work.user, row, approve=approve, commit_check=work.still_mine
+        )
+    except (Cancelled, AppError):
+        raise
+    except Exception as caught:
+        subscriptions.mark_failed(work.db, row, str(caught))
+        raise
+
+
+def _reconcile_all(work: Work, ids: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
+    """차례가 된 구독들 — (결과, 이 차례에 돌릴 그 구독들의 활성 소스). 구독의 소스는 구독과
+    같은 차례에 돈다(`datasources/services.due` 는 그것을 안 고른다). 한 구독의 실패가 차례를
+    멈추지 않는다(까닭은 그 구독에 남는다) — 확인이 실패해도 소스는 받던 대로 돈다. 다른 작업이
+    그 구독을 확인하고 있으면 그 소스도 그 작업이 돌린다."""
+    from app.modules.datasources import subscriptions
+    from app.modules.datasources.models import CoreSubscription
+    from app.modules.tasks.services import Cancelled
+    from app.shared.errors import AppError
+
+    out: list[dict[str, Any]] = []
+    more: list[str] = []
+    for raw in ids:
+        try:
+            row = work.db.get(CoreSubscription, uuid.UUID(raw), populate_existing=True)
+        except ValueError:
+            row = None
+        if row is None or not row.is_active:
+            out.append({"id": raw, "status": "skipped"})
+            continue
+        work.progress(f"코어 구독 {row.system or row.base_url}", 0, 0)
+        try:
+            got = _reconcile_one(work, row)
+        except Cancelled:
+            raise
+        except AppError as caught:
+            # 다른 작업이 이 구독을 지금 확인하고 있다 — 그 작업이 한다(실패가 아니다).
+            busy = caught.code == subscriptions.BUSY
+            out.append(
+                {
+                    "id": raw,
+                    "status": "skipped" if busy else "failed",
+                    "error": caught.message[:500],
+                }
+            )
+            if not busy:
+                more.extend(_active_sources(work, row.id))
+            continue
+        except Exception as caught:  # 구독 하나의 실패가 차례 전체를 멈추지 않는다
+            out.append({"id": raw, "status": "failed", "error": str(caught)[:500]})
+            more.extend(_active_sources(work, row.id))
+            continue
+        more.extend(_active_sources(work, row.id))
+        out.append(
+            {"id": raw, "system": row.system, "status": row.last_status, **got.summary()}
+        )
+    return out, more
+
+
+def _active_sources(work: Work, subscription_id: uuid.UUID) -> list[str]:
+    from app.modules.datasources.models import DataSource
+
+    return list(
+        work.db.scalars(
+            select(DataSource.slug).where(
+                DataSource.subscription_id == subscription_id,
+                DataSource.is_active.is_(True),
+            )
+        )
+    )
+
+
+def _sync_in_order(
+    work: Work, found: list[Any], *, apply: bool
+) -> tuple[list[Any], list[dict[str, Any]]]:
+    """소스들을 **가리키는 쪽부터 한 줄로** — (차례, 소스마다의 결과).
 
     **소스마다 커밋 경계를 맞춘다.** 지표 다시 세기 작업(`_after_ingest`)은 그 소스가 끝난
     자리에서 커밋한다 — 예전에는 flush 만 해서, 다음 소스의 예외 · 취소가 부른 롤백이 앞
@@ -636,9 +793,6 @@ def datasource_sync_round(work: Work) -> dict[str, Any]:
     from app.modules.tasks.services import Cancelled, Lost
     from app.shared.errors import AppError
 
-    slugs = [str(one) for one in work.params.get("slugs") or []]
-    apply = bool(work.params.get("apply"))
-    found = list(work.db.scalars(select(DataSource).where(DataSource.slug.in_(slugs))))
     ordered = datasource_services.sync_order(work.db, found)
     done: list[dict[str, Any]] = []
     try:
@@ -654,7 +808,15 @@ def datasource_sync_round(work: Work) -> dict[str, Any]:
                 done.append({"slug": source.slug, "status": "skipped"})
                 continue
             try:
-                result = datasource_services.sync(work.db, work.user, source, apply=apply)
+                # 끊긴 자리가 남으면 다음 소스로 가기 전에 잇는다 — 가리키는 쪽부터 다 들어와야
+                # 뒤 소스의 참조 · 선이 끝점을 찾는다(SP ADR 0055).
+                result, _ = datasource_services.sync_through(
+                    work.db,
+                    work.user,
+                    source,
+                    apply=apply,
+                    between=_catching_up(work, source.slug, index, len(ordered)),
+                )
             except Cancelled:
                 raise
             except AppError as caught:
@@ -695,12 +857,7 @@ def datasource_sync_round(work: Work) -> dict[str, Any]:
             )
         raise
     work.progress("끝", len(ordered), len(ordered))
-    return {
-        "order": [one.slug for one in ordered],
-        "sources": done,
-        "failed": sum(1 for one in done if one["status"] == "failed"),
-        "missing": sorted(set(slugs) - {one.slug for one in found}),
-    }
+    return ordered, done
 
 
 def filestore_gc(work: Work) -> dict[str, Any]:
@@ -979,6 +1136,17 @@ register(
         False,
         False,
         datasource_sync_round,
+        allow_system=True,
+        admin_only=True,
+    )
+)
+register(
+    Kind(
+        "core_subscription_sync",
+        "코어 구독 동기화",
+        False,
+        False,
+        core_subscription_sync,
         allow_system=True,
         admin_only=True,
     )

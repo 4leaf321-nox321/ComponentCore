@@ -231,6 +231,21 @@ def export_group(
     }
 
 
+def types_in(db: Session, groups: list[NavGroup]) -> list[ObjectType]:
+    """묶음들에 든 타입 — 원 표를 비추는 타입(`system`)은 빼고, 사이드바 차례대로(SP 와 같은
+    함수 — 코어 구독이 정의 창구 없는 허브의 범위를 이 설치의 묶음으로 읽을 때 쓴다)."""
+    return list(
+        db.scalars(
+            select(ObjectType)
+            .where(
+                ObjectType.nav_group_id.in_([one.id for one in groups]),
+                ObjectType.kind_class != "system",
+            )
+            .order_by(ObjectType.sort_order, ObjectType.slug)
+        )
+    )
+
+
 def _tombstones(
     db: Session,
     type_of: dict[uuid.UUID, ObjectType],
