@@ -19,6 +19,7 @@ import type {
   CoreSubscription,
   CoreSubscriptionPlan,
   CoreSubscriptionType,
+  CoreTaken,
 } from '@/modules/datasources/api'
 import type { Job } from '@/modules/tasks/api'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
@@ -42,7 +43,19 @@ const ACTION: Record<CoreSubscriptionType['action'], string> = {
   define: '정의 생성 후 수신',
   create: '소스 생성',
   adopt: '기존 소스 사용',
+  take: '허브 관리로 넘기고 수신',
   skip: '받지 않음',
+}
+
+/** 넘기면 무엇이 바뀌나 — 생성 창과 목록이 같은 말을 쓴다. */
+const TAKE_OVER_NOTE =
+  '허브 관리로 넘긴 타입은 이 설치에서 정의와 객체를 고칠 수 없고 허브의 변경을 따라갑니다. 같은 허브를 가리키는 기존 소스는 구독이 맡아 그대로 이어 받습니다(받은 자료는 남습니다). 「되돌리기」 로 돌릴 수 있습니다.'
+
+function takenText(taken: CoreTaken): string {
+  const parts = [`타입 ${taken.types.join(', ')}`]
+  if (taken.relation_types.length > 0) parts.push(`관계 종류 ${taken.relation_types.join(', ')}`)
+  if (taken.interfaces.length > 0) parts.push(`인터페이스 ${taken.interfaces.join(', ')}`)
+  return parts.join(' · ')
 }
 
 function interval(minutes: number): string {
@@ -84,6 +97,10 @@ export function CoreSubscriptions({
   const [editing, setEditing] = useState<CoreSubscription | null>(null)
   const [removing, setRemoving] = useState<CoreSubscription | null>(null)
   const [applying, setApplying] = useState<CoreSubscription | null>(null)
+  /** 구독마다 넘기려고 고른 타입. */
+  const [picked, setPicked] = useState<Record<string, string[]>>({})
+  const [taking, setTaking] = useState<CoreSubscription | null>(null)
+  const [releasing, setReleasing] = useState<CoreSubscription | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<Error | null>(null)
   const [said, setSaid] = useState<{ id: string; text: string } | null>(null)
@@ -194,6 +211,54 @@ export function CoreSubscriptions({
                   </Button>
                 </div>
               )}
+              {(row.adoptable ?? []).length > 0 && (
+                <div className="space-y-2 rounded-md border p-3" aria-label="허브 관리로 넘길 수 있는 타입">
+                  <p className="text-sm">
+                    이 설치가 만든 같은 이름의 타입 {(row.adoptable ?? []).length}개는 받지 않습니다 — 허브 관리로
+                    넘기면 구독이 맡습니다.
+                  </p>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    {(row.adoptable ?? []).map((one) => (
+                      <label key={one.type_slug} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          className="size-4"
+                          checked={(picked[row.id] ?? []).includes(one.type_slug)}
+                          onChange={(event) =>
+                            setPicked({
+                              ...picked,
+                              [row.id]: event.target.checked
+                                ? [...(picked[row.id] ?? []), one.type_slug]
+                                : (picked[row.id] ?? []).filter((slug) => slug !== one.type_slug),
+                            })
+                          }
+                        />
+                        {one.type_label}
+                        <span className="text-muted-foreground font-mono text-xs">
+                          {one.type_slug}
+                          {one.source_slug && ` · 소스 ${one.source_slug}`}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={(picked[row.id] ?? []).length === 0 || busy === row.id}
+                    onClick={() => setTaking(row)}
+                  >
+                    허브 관리로 넘기기
+                  </Button>
+                </div>
+              )}
+              {row.taken && row.taken.types.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="text-muted-foreground">허브 관리로 넘긴 것 — {takenText(row.taken)}</span>
+                  <Button size="sm" variant="ghost" onClick={() => setReleasing(row)}>
+                    되돌리기
+                  </Button>
+                </div>
+              )}
               {row.notes.length > 0 && (
                 <details className="text-xs">
                   <summary className="text-muted-foreground cursor-pointer">
@@ -248,6 +313,44 @@ export function CoreSubscriptions({
           onChanged()
         }}
         onClose={() => setApplying(null)}
+      />
+      <ConfirmDialog
+        open={taking !== null}
+        title="허브 관리로 넘기기"
+        description={
+          <div className="space-y-2">
+            <p>
+              이 설치의 타입 {(taking ? (picked[taking.id] ?? []) : []).join(', ')} 을(를) 「
+              {taking?.system || '허브'}」 관리로 넘깁니다. 허브의 같은 이름 관계 종류 · 인터페이스 중 이 설치가 만든 것도
+              함께 넘깁니다.
+            </p>
+            <p>{TAKE_OVER_NOTE}</p>
+          </div>
+        }
+        confirmLabel="넘기기"
+        onConfirm={async () => {
+          if (!taking) return
+          const job = await datasourceApi.coreTakeOver(taking.id, picked[taking.id] ?? [])
+          setSaid({ id: taking.id, text: checkSummary(job) })
+          setPicked({ ...picked, [taking.id]: [] })
+          list.reload()
+          onChanged()
+        }}
+        onClose={() => setTaking(null)}
+      />
+      <ConfirmDialog
+        open={releasing !== null}
+        title="넘긴 것 되돌리기"
+        description={`이 구독이 허브 관리로 넘겨받은 것(${releasing?.taken ? takenText(releasing.taken) : ''})의 관리 이름을 비웁니다. 그 타입의 소스는 구독에서 떨어져 넘길 때의 출처 이름으로 하던 대로 받습니다. 넘겨받은 동안 들어온 칸과 값은 남습니다.`}
+        confirmLabel="되돌리기"
+        onConfirm={async () => {
+          if (!releasing) return
+          const job = await datasourceApi.coreRelease(releasing.id)
+          setSaid({ id: releasing.id, text: checkSummary(job) })
+          list.reload()
+          onChanged()
+        }}
+        onClose={() => setReleasing(null)}
       />
       <ConfirmDialog
         open={removing !== null}
@@ -388,6 +491,8 @@ export function CoreSubscribeDialog({
   const [secret, setSecret] = useState('')
   const [sourceName, setSourceName] = useState('hub')
   const [picked, setPicked] = useState<string[]>([])
+  /** 허브 관리로 넘길 이 설치의 같은 이름 타입. */
+  const [adopt, setAdopt] = useState<string[]>([])
   const [every, setEvery] = useState('60')
   const [plan, setPlan] = useState<CoreSubscriptionPlan | null>(null)
   const [groupChoices, setGroupChoices] = useState<CoreSubscriptionPlan['groups']>([])
@@ -422,6 +527,7 @@ export function CoreSubscribeDialog({
         groups: picked,
         interval_minutes: minutes,
         apply,
+        ...(adopt.length > 0 ? { adopt } : {}),
       })
       setPlan(got)
       if (got.groups.length > 0) setGroupChoices(got.groups)
@@ -559,12 +665,38 @@ export function CoreSubscribeDialog({
                       <td className="px-3 py-1.5 text-right tabular-nums">
                         {one.count.toLocaleString()}
                       </td>
-                      <td className="text-muted-foreground px-3 py-1.5 text-xs">{one.reason}</td>
+                      <td className="text-muted-foreground px-3 py-1.5 text-xs">
+                        {one.reason}
+                        {(one.adoptable || one.action === 'take') && (
+                          <label className="text-foreground mt-1 flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              className="size-4"
+                              disabled={busy}
+                              checked={adopt.includes(one.type_slug)}
+                              onChange={(event) =>
+                                changed(setAdopt)(
+                                  event.target.checked
+                                    ? [...adopt, one.type_slug]
+                                    : adopt.filter((slug) => slug !== one.type_slug),
+                                )
+                              }
+                            />
+                            허브 관리로 넘기기
+                          </label>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            {plan.taken && plan.taken.types.length > 0 && (
+              <div className="space-y-1 rounded-md border p-3 text-sm">
+                <p className="font-medium">허브 관리로 넘길 것 — {takenText(plan.taken)}</p>
+                <p className="text-muted-foreground text-xs">{TAKE_OVER_NOTE}</p>
+              </div>
+            )}
             {plan.held.length > 0 && (
               <div className="space-y-1 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
                 <p className="text-sm font-medium">정의 검토 대기로 남길 변경</p>

@@ -25,6 +25,7 @@ from app.modules.datasources.schemas import (
     CoreSubscriptionPlanOut,
     CoreSubscriptionRequest,
     CoreSuggestOut,
+    CoreTakeOverRequest,
     DataSourceOut,
     DataSourcePatchRequest,
     DataSourceWriteRequest,
@@ -283,7 +284,7 @@ def create_core_subscription(
         db.rollback()  # 계획은 아무것도 남기지 않는다
         return out
     row = subscriptions.create(
-        db, user, payload, base_url=base_url, source_name=out.source_name
+        db, user, payload, base_url=base_url, source_name=out.source_name, taken=out.taken
     )
     job = job_services.enqueue(
         db,
@@ -414,6 +415,69 @@ def apply_core_held(
             "검토한 정의가 지금 검토 대기와 다릅니다 — 화면을 새로 읽고 다시 보세요.",
         )
     return _enqueue_check(db, user, row, approve=payload.mark)
+
+
+@router.post(
+    "/core-subscriptions/{subscription_id}/take-over", response_model=JobOut, status_code=202
+)
+def take_over_core_types(
+    subscription_id: str,
+    payload: CoreTakeOverRequest,
+    user: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> JobOut:
+    """**허브 관리로 넘기기** — 이 설치가 만든 같은 이름의 타입(구독의 `adoptable`)을 허브
+    관리로 넘기고 확인 작업을 넣는다. 함께: 그 타입이 구현한 허브의 인터페이스, 양끝이 모두
+    허브 관리가 되는 관계 종류(같은 이름 · 관리 이름 없음). 같은 허브를 가리키는 기존 소스는
+    구독이 맡아 출처 이름을 맞춘다. 그 뒤로 이 설치는 그 정의 · 객체를 못 고친다 — `release`
+    가 되돌린다."""
+    row = subscriptions.find(db, subscription_id)
+    _require_idle(db, row)
+    subscriptions.take_over_for(db, user, row, payload.types)
+    db.commit()
+    return _enqueue_check(db, user, row, approve="")
+
+
+@router.post(
+    "/core-subscriptions/{subscription_id}/release", response_model=JobOut, status_code=202
+)
+def release_core_types(
+    subscription_id: str,
+    user: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> JobOut:
+    """**넘긴 것 되돌리기** — 이 구독이 허브 관리로 넘겨받은 정의의 관리 이름을 비우고, 그
+    타입의 소스는 구독에서 떼어 넘길 때의 출처 이름으로 돌린다(하던 대로 받는다). 넘겨받은 동안
+    들어온 칸 · 값은 남는다."""
+    row = subscriptions.find(db, subscription_id)
+    _require_idle(db, row)
+    if not any(((row.state or {}).get("taken") or {}).values()):
+        raise AppError(
+            code("DATASOURCES", 68),
+            "이 구독이 허브 관리로 넘겨받은 것이 없습니다.",
+            status=422,
+        )
+    subscriptions.release_for(db, user, row)
+    db.commit()
+    return _enqueue_check(db, user, row, approve="")
+
+
+def _require_idle(db: Session, row: CoreSubscription) -> None:
+    """확인 작업이 줄에 있으면 넘기기 · 되돌리기를 받지 않는다 — 돌던 확인이 바꾸기 전의 정의로
+    소스를 맞춘다."""
+    busy = job_services.pending_for(db, "core_subscription_sync", id=str(row.id))
+    rounds = db.scalars(
+        select(Job).where(
+            Job.kind == "datasource_sync_round", Job.status.in_(("queued", "running"))
+        )
+    )
+    if busy is not None or any(
+        str(row.id) in ((one.params or {}).get("subscriptions") or []) for one in rounds
+    ):
+        raise Conflict(
+            code("DATASOURCES", 65),
+            "이 구독을 확인하는 작업이 줄에 있습니다 — 그 작업이 끝난 뒤에 다시 하세요.",
+        )
 
 
 def _enqueue_check(db: Session, user: User, row: CoreSubscription, *, approve: str) -> JobOut:

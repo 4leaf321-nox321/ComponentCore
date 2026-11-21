@@ -58,6 +58,7 @@ from app.modules.datasources import fetchers, odata
 from app.modules.datasources import services as source_services
 from app.modules.datasources.models import CoreSubscription, DataSource, DataSourceRun
 from app.modules.datasources.schemas import (
+    CoreAdoptableOut,
     CoreGroupChoiceOut,
     CoreHeldOut,
     CoreSubscriptionOut,
@@ -65,6 +66,7 @@ from app.modules.datasources.schemas import (
     CoreSubscriptionRequest,
     CoreSubscriptionSourceOut,
     CoreSubscriptionTypeOut,
+    CoreTakenOut,
 )
 from app.modules.ontology import importer, managed
 from app.modules.ontology.models import ObjectInterface, ObjectType, RelationType
@@ -531,6 +533,251 @@ def settle(
     return out
 
 
+# --- 허브 관리로 넘기기 -------------------------------------------------------------
+#
+# **이 설치가 만든 같은 이름의 타입**은 받지 않는다(남의 정의를 이름이 같다고 빼앗지 않는다 —
+# SP 의 규칙). 그런데 CompCore 의 SP 타입은 구독이 생기기 전에 SP 의 정의를 관리 이름 없이 들여
+# 손으로 만든 소스로 받아 왔다(2026-10-13 — `part` · `sku` · `base_model` · `country` ·
+# `defect_code`). 그대로면 구독이 그 타입들을 영영 안 맡는다. 그래서 **시스템 관리자가
+# 고른 것만** 허브 관리로 넘긴다(CompCore, 2026-11-22): 관리 이름을 구독의 것으로 — 그 뒤로
+# 이 설치는 그 정의 · 객체를 못 고치고 허브를 따라간다. 넘길 때의 값은 구독에 적어
+# 두고(`state.taken` · `state.renamed`), 「되돌리기」 가 그것으로 돌린다. 둘 다 감사 기록에
+# 남는다.
+
+#: 허브 관리로 넘기지 못한다 — 까닭이 줄마다 온다.
+NOT_ADOPTABLE = code("DATASOURCES", 67)
+
+
+def adoptable(
+    db: Session, catalog: dict[str, Any], scope: set[str] | None
+) -> dict[str, ObjectType]:
+    """허브가 공개한(범위 안) 타입과 같은 slug 의 **이 설치가 만든(관리 이름 없는)** 타입."""
+    slugs = {slug for slug in _slugs(catalog) if scope is None or slug in scope}
+    if not slugs:
+        return {}
+    rows = db.scalars(select(ObjectType).where(ObjectType.slug.in_(sorted(slugs))))
+    return {one.slug: one for one in rows if not managed.owner_of(one)}
+
+
+@dataclass
+class Taken:
+    """허브 관리로 넘긴 정의."""
+
+    types: list[str] = field(default_factory=list)
+    relation_types: list[str] = field(default_factory=list)
+    interfaces: list[str] = field(default_factory=list)
+
+    def out(self) -> CoreTakenOut:
+        return CoreTakenOut(
+            types=list(self.types),
+            relation_types=list(self.relation_types),
+            interfaces=list(self.interfaces),
+        )
+
+    def lines(self) -> str:
+        parts = [f"타입 {', '.join(self.types)}"]
+        if self.relation_types:
+            parts.append(f"관계 종류 {', '.join(self.relation_types)}")
+        if self.interfaces:
+            parts.append(f"인터페이스 {', '.join(self.interfaces)}")
+        return " · ".join(parts)
+
+
+def _handed(
+    db: Session,
+    user: User | None,
+    row: ObjectType | RelationType | ObjectInterface,
+    table: str,
+    *,
+    before: str,
+    after: str,
+    action: str,
+) -> None:
+    row.managed_by = after
+    audit.record(
+        db,
+        action=action,
+        actor=user,
+        target_table=table,
+        target_id=row.id,
+        target_label=row.slug,
+        changes=audit.diff({"managed_by": before}, {"managed_by": after}),
+    )
+
+
+def take_over(
+    db: Session,
+    user: User | None,
+    *,
+    source_name: str,
+    base_url: str,
+    slugs: list[str],
+    catalog: dict[str, Any],
+    scope: set[str] | None,
+    ontology: dict[str, Any] | None,
+) -> Taken:
+    """고른 타입을 **허브 관리로 넘긴다** — 커밋은 부르는 쪽이 한다.
+
+    함께 넘기는 것(허브의 정의가 있을 때): 넘긴 타입이 구현한 허브의 인터페이스, 그리고 끝이
+    넘긴 것에 닿고 **양끝이 모두 허브 관리가 되는** 허브의 관계 종류 — 이 설치에 같은 이름으로
+    있고 관리 이름이 없는 것만. 안 넘기면 구독이 그것을 「이 설치가 만든 같은 이름」 으로
+    건너뛰어 넘긴 타입의 선이 안 들어온다.
+
+    넘기지 않는 것(그 까닭으로 거절): 이 설치에 없는 타입 · 이미 관리 이름이 있는 타입(다른
+    구독 · 묶음의 것) · 허브가 공개하지 않았거나 범위 밖 · 다른 주소의 형제 코어 소스가 받는
+    타입(넘기면 그 소스는 출처 이름이 달라 더 못 받는다 — 주소를 구독과 같게 고치면 구독이
+    맡는다)."""
+    candidates = adoptable(db, catalog, scope)
+    wanted = sorted({one.strip() for one in slugs if one.strip()})
+    problems: list[str] = []
+    for slug in wanted:
+        if slug not in candidates:
+            local = db.scalar(select(ObjectType).where(ObjectType.slug == slug))
+            if local is None:
+                problems.append(f"{slug}: 이 설치에 없는 타입입니다.")
+            elif managed.owner_of(local):
+                problems.append(f"{slug}: 이미 {managed.owner_of(local)} 가 관리합니다.")
+            else:
+                problems.append(
+                    f"{slug}: 허브가 이 이름으로 공개하지 않았거나 구독 범위 밖입니다."
+                )
+            continue
+        other = rival(db, candidates[slug], base_url)
+        if other is not None:
+            problems.append(f"{slug}: {rival_reason(other)}")
+    if not wanted:
+        problems.append("넘길 타입을 고르세요.")
+    if problems:
+        raise AppError(
+            NOT_ADOPTABLE, "허브 관리로 넘기지 못합니다 — " + " ".join(problems), status=422
+        )
+    out = Taken(types=wanted)
+    action = "core_subscription.take_over"
+    for slug in wanted:
+        _handed(
+            db,
+            user,
+            candidates[slug],
+            "object_types",
+            before="",
+            after=source_name,
+            action=action,
+        )
+    if ontology:
+        hub_types = {str(one.get("slug")): one for one in ontology.get("types") or []}
+        hub_ifaces = {str(one.get("slug")) for one in ontology.get("interfaces") or []}
+        implemented = {
+            str(name)
+            for slug in wanted
+            for name in (hub_types.get(slug) or {}).get("interface_slugs") or []
+            if str(name) in hub_ifaces
+        }
+        for iface in db.scalars(
+            select(ObjectInterface).where(ObjectInterface.slug.in_(sorted(implemented)))
+        ):
+            if not managed.owner_of(iface):
+                _handed(
+                    db,
+                    user,
+                    iface,
+                    "object_interfaces",
+                    before="",
+                    after=source_name,
+                    action=action,
+                )
+                out.interfaces.append(iface.slug)
+        local_types = {one.slug: one for one in db.scalars(select(ObjectType))}
+        local_ifaces = {one.slug: one for one in db.scalars(select(ObjectInterface))}
+        # 끝이 설 수 있는 것 — 허브 관리가 된(될) 것과, 이 설치에 아직 없어 구독이 세울
+        # 허브의 것.
+        reachable = {
+            slug for slug, one in local_types.items() if managed.owner_of(one) == source_name
+        } | {
+            slug for slug, one in local_ifaces.items() if managed.owner_of(one) == source_name
+        }
+        reachable |= {slug for slug in hub_types if slug not in local_types}
+        reachable |= {slug for slug in hub_ifaces if slug not in local_ifaces}
+        touched = set(wanted) | set(out.interfaces)
+        kinds = {one.slug: one for one in db.scalars(select(RelationType))}
+        for kind in ontology.get("relation_types") or []:
+            ends = {*(kind.get("src_type_slugs") or []), *(kind.get("dst_type_slugs") or [])}
+            same = kinds.get(str(kind.get("slug")))
+            if (
+                same is None
+                or managed.owner_of(same)
+                or not ends & touched
+                or not ends <= reachable
+            ):
+                continue
+            _handed(
+                db, user, same, "relation_types", before="", after=source_name, action=action
+            )
+            out.relation_types.append(same.slug)
+    db.flush()
+    return out
+
+
+def remember(row: CoreSubscription, taken: Taken) -> None:
+    """넘긴 것을 구독에 적는다 — 「되돌리기」 가 이것만 돌린다. 정의를 다시 받아 넘긴 타입까지
+    맞추게 지문도 비운다."""
+    state = dict(row.state or {})
+    before = state.get("taken") or {}
+    state["taken"] = {
+        key: sorted({*(before.get(key) or []), *getattr(taken, key)})
+        for key in ("types", "relation_types", "interfaces")
+    }
+    row.state = state
+    row.definitions_mark = ""
+
+
+def release(db: Session, user: User | None, row: CoreSubscription) -> Taken:
+    """**넘긴 것을 되돌린다** — 이 구독이 넘겨받은 정의의 관리 이름을 비우고(지금도 구독의 관리
+    이름일 때만), 그 타입의 소스는 구독에서 떼어 넘길 때의 출처 이름으로 돌린다(하던 대로
+    받는다). 넘겨받은 동안 허브에서 들어온 칸 · 값은 남는다(가져오기는 지우지 않는다)."""
+    state = dict(row.state or {})
+    recorded = state.get("taken") or {}
+    out = Taken()
+    action = "core_subscription.release"
+    released_ids: set[uuid.UUID] = set()
+    parts: list[
+        tuple[type[ObjectType] | type[RelationType] | type[ObjectInterface], str, str]
+    ] = [
+        (ObjectType, "types", "object_types"),
+        (RelationType, "relation_types", "relation_types"),
+        (ObjectInterface, "interfaces", "object_interfaces"),
+    ]
+    for model, key, table in parts:
+        names = [str(one) for one in recorded.get(key) or []]
+        if not names:
+            continue
+        found: list[ObjectType | RelationType | ObjectInterface] = list(
+            db.scalars(select(model).where(model.slug.in_(names)))
+        )
+        for one in found:
+            if managed.owner_of(one) != row.source_name:
+                continue
+            _handed(db, user, one, table, before=row.source_name, after="", action=action)
+            getattr(out, key).append(one.slug)
+            if model is ObjectType:
+                released_ids.add(one.id)
+    renamed = dict(state.get("renamed") or {})
+    if released_ids:
+        for source in db.scalars(
+            select(DataSource).where(
+                DataSource.subscription_id == row.id, DataSource.type_id.in_(released_ids)
+            )
+        ):
+            if source.slug in renamed:
+                source.source_name = str(renamed.pop(source.slug))
+            source.subscription_id = None
+    state["taken"] = {}
+    state["renamed"] = renamed
+    row.state = state
+    row.definitions_mark = ""
+    db.flush()
+    return out
+
+
 # --- 소스 -----------------------------------------------------------------------
 
 
@@ -742,6 +989,18 @@ def _sources(
         if source.subscription_id != row.id:
             source.subscription_id = row.id
             out.adopted.append(source.slug)
+        if (source.source_name or "") != row.source_name:
+            # **허브 관리 타입에는 그 관리 이름으로만 넣는다**(`managed.objects_refusal`) —
+            # 손으로 만든 소스(출처 이름 없음)를 맡으면 이름을 맞춘다. 넘길 때의 이름은 적어
+            # 둔다.
+            renamed = dict(state.get("renamed") or {})
+            renamed.setdefault(source.slug, source.source_name or "")
+            state["renamed"] = renamed
+            source.source_name = row.source_name
+            out.notes.append(
+                f"{source.slug}: 출처 이름을 구독의 관리 이름 「{row.source_name}」 으로 "
+                "맞췄습니다 — 허브 관리 타입에는 그 이름으로만 넣습니다."
+            )
         if (source.auth or {}) != (row.auth or {}):
             source.auth = dict(row.auth or {})
         if source.interval_minutes != row.interval_minutes:
@@ -807,6 +1066,8 @@ def _sources(
             )
     state["paused"] = sorted(paused)
     state["kinds"] = kinds_seen
+    # 허브 관리로 넘길 수 있는 이 설치의 타입 — 화면이 「허브 관리로 넘기기」 로 보인다.
+    state["local"] = sorted(adoptable(db, catalog, scope))
     row.state = state
 
 
@@ -1007,6 +1268,7 @@ def _last_success(db: Session, source: DataSource) -> datetime | None:
 
 def out_of(db: Session, row: CoreSubscription) -> CoreSubscriptionOut:
     auth = row.auth or {}
+    recorded: dict[str, list[str]] = dict((row.state or {}).get("taken") or {})
     paused = set((row.state or {}).get("paused") or [])
     held = row.held or {}
     types = {
@@ -1056,7 +1318,97 @@ def out_of(db: Session, row: CoreSubscription) -> CoreSubscriptionOut:
             )
         ],
         created_at=row.created_at,
+        adoptable=_adoptable_out(db, row),
+        taken=CoreTakenOut(**recorded) if any(recorded.values()) else None,
     )
+
+
+def _adoptable_out(db: Session, row: CoreSubscription) -> list[CoreAdoptableOut]:
+    """마지막 확인에서 본 「이 설치가 만든 같은 이름의 타입」 중 지금도 관리 이름이 없는 것."""
+    slugs = [str(one) for one in (row.state or {}).get("local") or []]
+    if not slugs:
+        return []
+    sources = {
+        one.entity_set.strip(): one.slug
+        for one in db.scalars(
+            select(DataSource).where(
+                DataSource.kind == "sp_core", DataSource.base_url == row.base_url
+            )
+        )
+    }
+    return [
+        CoreAdoptableOut(
+            type_slug=one.slug, type_label=one.label, source_slug=sources.get(one.slug, "")
+        )
+        for one in db.scalars(
+            select(ObjectType).where(ObjectType.slug.in_(slugs)).order_by(ObjectType.slug)
+        )
+        if not managed.owner_of(one)
+    ]
+
+
+def _plan_scope(
+    db: Session, groups: list[str], definitions: dict[str, Any] | None
+) -> set[str] | None:
+    """받을 허브 타입 — 정의가 왔으면 그 타입들, 정의 창구가 없으면 범위의 묶음에 든 이 설치의
+    타입, 묶음도 없으면 None(카탈로그 전부)."""
+    if definitions is not None:
+        return {
+            str(one.get("slug"))
+            for one in (definitions.get("ontology") or {}).get("types") or []
+        }
+    if not groups:
+        return None
+    from app.modules.bundles.export import types_in
+    from app.modules.ontology.models import NavGroup
+
+    rows = list(db.scalars(select(NavGroup).where(NavGroup.slug.in_(groups))))
+    return {one.slug for one in types_in(db, rows)}
+
+
+def take_over_for(db: Session, user: User, row: CoreSubscription, slugs: list[str]) -> Taken:
+    """있는 구독에서 **허브 관리로 넘긴다** — 허브의 카탈로그 · 정의를 새로 읽어 맞춰 보고
+    넘긴 뒤 구독에 적는다. 커밋은 부르는 쪽이 한다(그 뒤 확인 작업이 정의 · 소스를 맞춘다)."""
+    auth = auth_of(row)
+    catalog = _catalog(row.base_url, auth)
+    groups = list(row.groups or [])
+    definitions = _definitions(row.base_url, auth, groups, "")
+    taken = take_over(
+        db,
+        user,
+        source_name=row.source_name,
+        base_url=row.base_url,
+        slugs=slugs,
+        catalog=catalog,
+        scope=_plan_scope(db, groups, definitions),
+        ontology=(definitions or {}).get("ontology") if definitions is not None else None,
+    )
+    remember(row, taken)
+    audit.record(
+        db,
+        action="core_subscription.take_over",
+        actor=user,
+        target_table="core_subscriptions",
+        target_id=row.id,
+        target_label=row.base_url,
+        changes={"taken": taken.lines()},
+    )
+    return taken
+
+
+def release_for(db: Session, user: User, row: CoreSubscription) -> Taken:
+    """있는 구독에서 **넘긴 것을 되돌린다**(`release`) — 감사 기록과 함께. 커밋은 부르는 쪽."""
+    done = release(db, user, row)
+    audit.record(
+        db,
+        action="core_subscription.release",
+        actor=user,
+        target_table="core_subscriptions",
+        target_id=row.id,
+        target_label=row.base_url,
+        changes={"released": done.lines() if done.types else ""},
+    )
+    return done
 
 
 def plan(
@@ -1100,25 +1452,35 @@ def plan(
             "이 설치의 허브 타입이 그 이름으로 관리되고 있어 그대로 넘겨받습니다."
         )
     prepared: Prepared | None = None
+    scope = _plan_scope(db, groups, definitions)
+    # **넘길 수 있는 것을 넘기기 전에** 본다 — 넘긴 뒤에는 관리 이름이 있어 안 보인다.
+    local_types = adoptable(db, catalog, scope)
+    taken_now: Taken | None = None
+    if payload.adopt:
+        # 이 세션에서 넘긴다 — 미리 보기는 경로가 물리고(아무것도 남지 않는다), 생성은
+        # 커밋한다.
+        taken_now = take_over(
+            db,
+            user,
+            source_name=name,
+            base_url=base_url,
+            slugs=payload.adopt,
+            catalog=catalog,
+            scope=scope,
+            ontology=(definitions or {}).get("ontology") if definitions is not None else None,
+        )
+        out.taken = taken_now.out()
+        out.notes.append(
+            f"허브 관리로 넘깁니다 — {taken_now.lines()}. 그 뒤로 이 설치에서는 그 정의 · "
+            "객체를 고치지 못하고 허브를 따라갑니다(「되돌리기」 로 돌릴 수 있습니다)."
+        )
     if definitions is not None:
         prepared = prepare(db, definitions.get("ontology") or {}, name)
         out.notes.extend(prepared.notes)
         settled = settle(db, source_services._actor(db, user), prepared, name, apply=False)
         out.held = settled.held
-        scope: set[str] | None = {
-            str(one.get("slug"))
-            for one in (definitions.get("ontology") or {}).get("types") or []
-        }
     else:
         out.notes.append(NO_DEFINITIONS)
-        if groups:
-            from app.modules.bundles.export import types_in
-            from app.modules.ontology.models import NavGroup
-
-            rows = list(db.scalars(select(NavGroup).where(NavGroup.slug.in_(groups))))
-            scope = {one.slug for one in types_in(db, rows)}
-        else:
-            scope = None
     taken = {
         one.entity_set.strip(): one
         for one in db.scalars(
@@ -1154,8 +1516,15 @@ def plan(
         local = db.scalar(select(ObjectType).where(ObjectType.slug == slug))
         existing = taken.get(slug)
         target = db.get(ObjectType, existing.type_id) if existing is not None else local
-        if prepared is not None and slug in prepared.skipped:
+        if taken_now is not None and slug in taken_now.types:
+            item.action = "take"
+            item.reason = "이 설치의 같은 이름 타입을 허브 관리로 넘기고 받습니다" + (
+                f" — 기존 소스 {existing.slug} 를 구독이 맡습니다." if existing else "."
+            )
+            item.source_slug = existing.slug if existing else ""
+        elif prepared is not None and slug in prepared.skipped:
             item.action = "skip"
+            item.adoptable = slug in local_types
             item.reason = prepared.skipped[slug] + (
                 f" 기존 소스 {existing.slug} 는 하던 대로 받습니다." if existing else ""
             )
@@ -1164,6 +1533,7 @@ def plan(
                 item.action = "adopt"
             else:
                 item.action = "skip"
+                item.adoptable = slug in local_types
                 owner = managed.owner_of(target) or "이 설치"
                 item.reason = (
                     f"이 설치의 같은 이름 타입은 {owner} 가 관리합니다(구독의 관리 이름 "
@@ -1178,6 +1548,7 @@ def plan(
                 item.action = "define"
         elif managed.owner_of(local) != name:
             item.action = "skip"
+            item.adoptable = slug in local_types
             owner = managed.owner_of(local) or "이 설치"
             item.reason = (
                 f"이 설치의 같은 이름 타입은 {owner} 가 관리합니다(구독의 관리 이름 {name})."
@@ -1196,8 +1567,10 @@ def create(
     *,
     base_url: str,
     source_name: str | None = None,
+    taken: CoreTakenOut | None = None,
 ) -> CoreSubscription:
-    """`source_name` — 미리 본 관리 이름(`plan` 이 허브의 이름으로 맞췄을 수 있다)."""
+    """`source_name` — 미리 본 관리 이름(`plan` 이 허브의 이름으로 맞췄을 수 있다). `taken` —
+    `plan` 이 같은 세션에서 허브 관리로 넘긴 것(되돌리기가 읽는다)."""
     row = CoreSubscription(
         base_url=base_url,
         auth={
@@ -1211,6 +1584,15 @@ def create(
         is_active=True,
         created_by_id=user.id,
     )
+    if taken is not None:
+        remember(
+            row,
+            Taken(
+                types=list(taken.types),
+                relation_types=list(taken.relation_types),
+                interfaces=list(taken.interfaces),
+            ),
+        )
     db.add(row)
     db.flush()
     audit.record(

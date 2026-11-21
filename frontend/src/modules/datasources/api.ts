@@ -228,6 +228,8 @@ export interface CoreSubscriptionRequest {
   interval_minutes: number
   /** 거짓이면 무엇을 할지만 본다. */
   apply: boolean
+  /** 허브 관리로 넘길 이 설치의 같은 이름 타입 — 미리 보기가 `adoptable` 로 보인 것 중에서. */
+  adopt?: string[]
 }
 
 export interface CoreHeld {
@@ -266,16 +268,37 @@ export interface CoreSubscription {
   notes: string[]
   sources: CoreSubscriptionSource[]
   created_at: string
+  /** 이 설치가 만든 같은 이름의 타입이라 받지 않는 것 — 허브 관리로 넘기면 받는다. */
+  adoptable?: CoreAdoptable[]
+  /** 이 구독이 허브 관리로 넘겨받은 것 — 「되돌리기」 가 관리 이름을 비운다. */
+  taken?: CoreTaken | null
 }
 
 export interface CoreSubscriptionType {
   type_slug: string
   type_label: string
-  /** 정의를 세우고 소스 생성 · 소스 생성 · 있는 소스를 맡음 · 받지 않음(`reason`). */
-  action: 'define' | 'create' | 'adopt' | 'skip'
+  /** 정의를 세우고 소스 생성 · 소스 생성 · 있는 소스를 맡음 · 허브 관리로 넘기고 받음 · 받지 않음(`reason`). */
+  action: 'define' | 'create' | 'adopt' | 'take' | 'skip'
   reason: string
   source_slug: string
   count: number
+  /** 이 설치가 만든 같은 이름의 타입이라 받지 않지만, 허브 관리로 넘기면 받는다. */
+  adoptable?: boolean
+}
+
+/** 이 구독이 허브 관리로 넘겨받은(넘길) 이 설치의 정의. */
+export interface CoreTaken {
+  types: string[]
+  relation_types: string[]
+  interfaces: string[]
+}
+
+/** 허브 관리로 넘길 수 있는 이 설치의 타입 — 허브가 같은 이름으로 공개했다. */
+export interface CoreAdoptable {
+  type_slug: string
+  type_label: string
+  /** 같은 허브를 가리키는 기존 소스 — 넘기면 구독이 맡는다. */
+  source_slug: string
 }
 
 export interface CoreGroupChoice {
@@ -298,6 +321,8 @@ export interface CoreSubscriptionPlan {
   notes: string[]
   subscription: CoreSubscription | null
   job_id: string | null
+  /** `adopt` 로 허브 관리로 넘길(넘긴) 것 — 함께 넘어가는 관계 종류 · 인터페이스까지. */
+  taken?: CoreTaken | null
 }
 
 export interface CoreSubscriptionPatch {
@@ -332,6 +357,12 @@ export const datasourceApi = {
   /** 지금 확인 — 정의 · 소스를 맞추고 그 구독의 소스를 끝까지 받는다(작업을 기다린다). */
   coreSubscriptionSync: async (id: string): Promise<Job> =>
     finished((await api.post<Job>(`/datasources/core-subscriptions/${id}/sync`)).id),
+  /** 허브 관리로 넘긴다 — 넘기고 확인 작업을 기다린다. */
+  coreTakeOver: async (id: string, types: string[]): Promise<Job> =>
+    finished((await api.post<Job>(`/datasources/core-subscriptions/${id}/take-over`, { types })).id),
+  /** 넘긴 것을 되돌린다 — 관리 이름을 비우고 소스를 넘길 때의 출처 이름으로. */
+  coreRelease: async (id: string): Promise<Job> =>
+    finished((await api.post<Job>(`/datasources/core-subscriptions/${id}/release`)).id),
   /** 정의 검토 대기를 적용 — 검토한 지문으로(그 사이 허브가 바뀌었으면 거절). */
   coreHeldApply: async (id: string, mark: string): Promise<Job> =>
     finished(

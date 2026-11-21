@@ -24235,6 +24235,102 @@
         }
       }
     },
+    "/api/datasources/core-subscriptions/{subscription_id}/take-over": {
+      "post": {
+        "tags": [
+          "datasources"
+        ],
+        "summary": "Take Over Core Types",
+        "description": "**허브 관리로 넘기기** — 이 설치가 만든 같은 이름의 타입(구독의 `adoptable`)을 허브\n관리로 넘기고 확인 작업을 넣는다. 함께: 그 타입이 구현한 허브의 인터페이스, 양끝이 모두\n허브 관리가 되는 관계 종류(같은 이름 · 관리 이름 없음). 같은 허브를 가리키는 기존 소스는\n구독이 맡아 출처 이름을 맞춘다. 그 뒤로 이 설치는 그 정의 · 객체를 못 고친다 — `release`\n가 되돌린다.",
+        "operationId": "take_over_core_types_api_datasources_core_subscriptions__subscription_id__take_over_post",
+        "parameters": [
+          {
+            "name": "subscription_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Subscription Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoreTakeOverRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__modules__tasks__schemas__JobOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/datasources/core-subscriptions/{subscription_id}/release": {
+      "post": {
+        "tags": [
+          "datasources"
+        ],
+        "summary": "Release Core Types",
+        "description": "**넘긴 것 되돌리기** — 이 구독이 허브 관리로 넘겨받은 정의의 관리 이름을 비우고, 그\n타입의 소스는 구독에서 떼어 넘길 때의 출처 이름으로 돌린다(하던 대로 받는다). 넘겨받은 동안\n들어온 칸 · 값은 남는다.",
+        "operationId": "release_core_types_api_datasources_core_subscriptions__subscription_id__release_post",
+        "parameters": [
+          {
+            "name": "subscription_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Subscription Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__modules__tasks__schemas__JobOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/datasources/{slug}": {
       "get": {
         "tags": [
@@ -29969,6 +30065,30 @@
         "title": "CopyToWorkRequest",
         "description": "부품(버전)의 레시피로 내 작업을 새로 만든다 — 「내 공간으로 복사」."
       },
+      "CoreAdoptableOut": {
+        "properties": {
+          "type_slug": {
+            "type": "string",
+            "title": "Type Slug"
+          },
+          "type_label": {
+            "type": "string",
+            "title": "Type Label"
+          },
+          "source_slug": {
+            "type": "string",
+            "title": "Source Slug",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "type_slug",
+          "type_label"
+        ],
+        "title": "CoreAdoptableOut",
+        "description": "허브 관리로 넘길 수 있는 이 설치의 타입 — 허브가 같은 이름으로 공개했다."
+      },
       "CoreCatalogOut": {
         "properties": {
           "system": {
@@ -30687,6 +30807,23 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "adoptable": {
+            "items": {
+              "$ref": "#/components/schemas/CoreAdoptableOut"
+            },
+            "type": "array",
+            "title": "Adoptable"
+          },
+          "taken": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CoreTakenOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -30857,6 +30994,16 @@
               }
             ],
             "title": "Job Id"
+          },
+          "taken": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CoreTakenOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -30919,6 +31066,13 @@
             "type": "boolean",
             "title": "Apply",
             "default": false
+          },
+          "adopt": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Adopt"
           }
         },
         "type": "object",
@@ -30999,6 +31153,11 @@
           "action": {
             "type": "string",
             "title": "Action"
+          },
+          "adoptable": {
+            "type": "boolean",
+            "title": "Adoptable",
+            "default": false
           },
           "reason": {
             "type": "string",
@@ -31120,6 +31279,51 @@
         ],
         "title": "CoreSuggestProperty",
         "description": "상대의 칸 하나 — 우리 것과 어떻게 이어졌나."
+      },
+      "CoreTakeOverRequest": {
+        "properties": {
+          "types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Types"
+          }
+        },
+        "type": "object",
+        "required": [
+          "types"
+        ],
+        "title": "CoreTakeOverRequest"
+      },
+      "CoreTakenOut": {
+        "properties": {
+          "types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Types"
+          },
+          "relation_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Relation Types"
+          },
+          "interfaces": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Interfaces"
+          }
+        },
+        "type": "object",
+        "title": "CoreTakenOut",
+        "description": "이 구독이 허브 관리로 넘겨받은 이 설치의 정의 — 「되돌리기」 가 관리 이름을 비운다."
       },
       "CoreTypeOut": {
         "properties": {

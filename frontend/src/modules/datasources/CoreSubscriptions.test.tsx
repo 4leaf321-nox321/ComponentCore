@@ -16,6 +16,8 @@ const datasourceApi = vi.hoisted(() => ({
   coreHeldApply: vi.fn(),
   coreSubscriptionUpdate: vi.fn(),
   coreSubscriptionRemove: vi.fn(),
+  coreTakeOver: vi.fn(),
+  coreRelease: vi.fn(),
 }))
 vi.mock('@/modules/datasources/api', () => ({ datasourceApi }))
 
@@ -193,5 +195,89 @@ describe('코어 구독 목록', () => {
     await userEvent.click(await screen.findByRole('button', { name: /동기화/ }))
     expect(await screen.findByText('확인 끝 — 소스 생성 1')).toBeInTheDocument()
     expect(datasourceApi.coreSubscriptionSync).toHaveBeenCalledWith('sub-1')
+  })
+})
+
+// 허브 관리로 넘기기(CompCore, 2026-11-22) — 이 설치가 만든 같은 이름의 타입을 골라서만 넘긴다.
+describe('허브 관리로 넘기기', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('생성 창 — 넘길 수 있는 타입을 고르면 계획이 낡고, 다시 본 계획대로 넘겨 생성한다', async () => {
+    const { CoreSubscribeDialog } = await import('@/modules/datasources/CoreSubscriptions')
+    const local: CoreSubscriptionPlan = {
+      ...plan(false),
+      types: [
+        {
+          type_slug: 'part',
+          type_label: '부품',
+          action: 'skip',
+          reason: '이 설치가 만든 같은 이름의 타입이 있어 받지 않습니다',
+          source_slug: 'sp_part',
+          count: 112,
+          adoptable: true,
+        },
+      ],
+    }
+    const taking: CoreSubscriptionPlan = {
+      ...local,
+      types: [{ ...local.types[0], action: 'take', reason: '허브 관리로 넘기고 받습니다' }],
+      taken: { types: ['part'], relation_types: ['part_uses'], interfaces: [] },
+    }
+    datasourceApi.coreSubscribe
+      .mockResolvedValueOnce(local)
+      .mockResolvedValueOnce(taking)
+      .mockResolvedValueOnce({ ...taking, applied: true, job_id: 'job-1' })
+    render(<CoreSubscribeDialog onClose={vi.fn()} onCreated={vi.fn()} />)
+    await userEvent.type(screen.getByLabelText('허브의 API 주소'), 'https://hub.example/api')
+    await userEvent.type(screen.getByLabelText('액세스 토큰(core:read)'), 'secret')
+    await userEvent.click(screen.getByRole('button', { name: '미리 보기' }))
+
+    await userEvent.click(await screen.findByRole('checkbox', { name: '허브 관리로 넘기기' }))
+    expect(screen.getByRole('button', { name: '생성' })).toBeDisabled() // 계획이 낡았다
+    await userEvent.click(screen.getByRole('button', { name: '미리 보기' }))
+    expect(datasourceApi.coreSubscribe).toHaveBeenLastCalledWith(
+      expect.objectContaining({ adopt: ['part'], apply: false }),
+    )
+    expect(await screen.findByText(/허브 관리로 넘길 것 — 타입 part · 관계 종류 part_uses/)).toBeInTheDocument()
+    expect(screen.getByText('허브 관리로 넘기고 수신')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '생성' }))
+    await waitFor(() =>
+      expect(datasourceApi.coreSubscribe).toHaveBeenLastCalledWith(
+        expect.objectContaining({ adopt: ['part'], apply: true }),
+      ),
+    )
+  })
+
+  it('목록 — 고른 타입을 넘기고, 넘긴 것은 되돌린다', async () => {
+    const { CoreSubscriptions } = await import('@/modules/datasources/CoreSubscriptions')
+    datasourceApi.coreSubscriptions.mockResolvedValue([
+      subscription({
+        held: null,
+        last_status: 'ok',
+        adoptable: [
+          { type_slug: 'part', type_label: '부품', source_slug: 'sp_part' },
+          { type_slug: 'sku', type_label: '모델', source_slug: '' },
+        ],
+        taken: { types: ['country'], relation_types: [], interfaces: [] },
+      }),
+    ])
+    datasourceApi.coreTakeOver.mockResolvedValue({ id: 'job-4', status: 'done', result: { adopted: ['sp_part'] } })
+    datasourceApi.coreRelease.mockResolvedValue({ id: 'job-5', status: 'done', result: {} })
+    render(<CoreSubscriptions version={0} onChanged={vi.fn()} />)
+
+    const take = await screen.findByRole('button', { name: '허브 관리로 넘기기' })
+    expect(take).toBeDisabled()
+    await userEvent.click(screen.getByRole('checkbox', { name: /부품/ }))
+    await userEvent.click(take)
+    expect(await screen.findByText(/정의와 객체를 고칠 수 없고/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '넘기기' }))
+    await waitFor(() => expect(datasourceApi.coreTakeOver).toHaveBeenCalledWith('sub-1', ['part']))
+    expect(await screen.findByText('확인 끝 — 기존 소스 사용 1')).toBeInTheDocument()
+
+    expect(screen.getByText(/허브 관리로 넘긴 것 — 타입 country/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '되돌리기' }))
+    const confirm = await screen.findAllByRole('button', { name: '되돌리기' })
+    await userEvent.click(confirm[confirm.length - 1])
+    await waitFor(() => expect(datasourceApi.coreRelease).toHaveBeenCalledWith('sub-1'))
   })
 })

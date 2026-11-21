@@ -224,6 +224,10 @@ class CoreSubscriptionRequest(BaseModel):
     """확인 · 동기화 간격(분). 0 이면 손으로만(「동기화」)."""
     apply: bool = False
     """거짓이면 **무엇을 할지만** 보인다(허브의 카탈로그 · 정의를 읽어 맞춰 본다)."""
+    adopt: list[str] = Field(default_factory=list)
+    """**허브 관리로 넘길** 이 설치의 같은 이름 타입(CompCore, 2026-11-22) — 미리 보기가
+    `adoptable` 로 보인 것 중에서. 넘기면 그 타입의 정의 · 객체를 이 설치에서 못 고치고 허브를
+    따라간다. 같은 허브를 가리키는 기존 소스는 구독이 맡는다."""
 
 
 class CoreSubscriptionPatchRequest(BaseModel):
@@ -261,6 +265,28 @@ class CoreSubscriptionSourceOut(BaseModel):
     last_success_at: datetime | None
 
 
+class CoreAdoptableOut(BaseModel):
+    """허브 관리로 넘길 수 있는 이 설치의 타입 — 허브가 같은 이름으로 공개했다."""
+
+    type_slug: str
+    type_label: str
+    source_slug: str = ""
+    """같은 허브를 가리키는 기존 소스 — 넘기면 구독이 맡는다."""
+
+
+class CoreTakenOut(BaseModel):
+    """이 구독이 허브 관리로 넘겨받은 이 설치의 정의 — 「되돌리기」 가 관리 이름을 비운다."""
+
+    types: list[str] = Field(default_factory=list)
+    relation_types: list[str] = Field(default_factory=list)
+    interfaces: list[str] = Field(default_factory=list)
+
+
+class CoreTakeOverRequest(BaseModel):
+    types: list[str] = Field(min_length=1)
+    """허브 관리로 넘길 타입 slug — 구독의 `adoptable` 중에서."""
+
+
 class CoreSubscriptionOut(BaseModel):
     id: uuid.UUID
     base_url: str
@@ -282,6 +308,10 @@ class CoreSubscriptionOut(BaseModel):
     칸."""
     sources: list[CoreSubscriptionSourceOut]
     created_at: datetime
+    adoptable: list[CoreAdoptableOut] = Field(default_factory=list)
+    """이 설치가 만든 같은 이름의 타입이라 받지 않는 것 — 허브 관리로 넘기면 받는다."""
+    taken: CoreTakenOut | None = None
+    """이 구독이 허브 관리로 넘겨받은 이 설치의 정의 — 비면 없음."""
 
 
 class CoreSubscriptionTypeOut(BaseModel):
@@ -291,7 +321,11 @@ class CoreSubscriptionTypeOut(BaseModel):
     type_label: str
     action: str
     """`define`(정의를 세우고 소스를 만든다) · `create`(정의가 있어 소스를 만든다) ·
-    `adopt`(이미 있는 형제 코어 소스를 구독이 맡는다) · `skip`(받지 않는다 — `reason`)."""
+    `adopt`(이미 있는 형제 코어 소스를 구독이 맡는다) · `take`(이 설치의 같은 이름 타입을 허브
+    관리로 넘기고 받는다 — `adopt` 로 고른 것) · `skip`(받지 않는다 — `reason`)."""
+    adoptable: bool = False
+    """이 설치가 만든(관리 이름 없는) 같은 이름의 타입이라 받지 않지만, **허브 관리로 넘기면**
+    받는다(요청의 `adopt`)."""
     reason: str = ""
     source_slug: str = ""
     count: int = 0
@@ -322,6 +356,8 @@ class CoreSubscriptionPlanOut(BaseModel):
     notes: list[str]
     subscription: CoreSubscriptionOut | None = None
     job_id: uuid.UUID | None = None
+    taken: CoreTakenOut | None = None
+    """`adopt` 로 허브 관리로 넘길(넘긴) 정의 — 함께 넘어가는 관계 종류 · 인터페이스까지."""
     """생성했으면 첫 동기화 작업 — 정의를 세우고 행을 끝까지 받는다."""
 
 

@@ -822,3 +822,252 @@ def test_같은_허브의_손으로_만든_소스는_구독이_맡고_다른_주
         "칸 대응에 허브의 칸을 더한다"
     )
     assert sorted(_objects(part)) == ["P-1", "P-2"]
+
+
+# --- 허브 관리로 넘기기 · 되돌리기(CompCore, 2026-11-22) ---------------------------
+#
+# CompCore 는 구독이 생기기 전에 SP 의 정의를 **관리 이름 없이** 들이고 손으로 만든 소스로 받아
+# 왔다(2026-10-13). 그 타입들은 구독이 「이 설치가 만든 같은 이름」 으로 건너뛴다 — 시스템
+# 관리자가 고른 것만 허브 관리로 넘기면 구독이 맡는다.
+
+
+def _local_copy(client: TestClient, admin: Signed, hub: FakeHub, *slugs: str) -> None:
+    """허브의 정의를 **관리 이름 없이** 들인다(2026-10-13 의 CompCore 처럼) — 관계 종류까지."""
+    types = [downlevel_only(hub.types[slug]["def"])["types"][0] for slug in slugs]
+    kinds = [
+        subscriptions.downlevel({"relation_types": [copy.deepcopy(kind)]})[0][
+            "relation_types"
+        ][0]
+        for kind in hub.kinds
+        if set(kind["src_type_slugs"]) | set(kind["dst_type_slugs"]) <= set(slugs)
+    ]
+    made = client.post(
+        "/api/ontology/import",
+        json={"types": types, "relation_types": kinds},
+        params={"dry_run": "false"},
+        headers=admin.headers,
+    )
+    assert made.status_code == 200, made.text
+
+
+def _hand_made_source(client: TestClient, admin: Signed, hub: FakeHub, slug: str) -> str:
+    """같은 허브를 가리키는 손으로 만든 소스(출처 이름 없음)로 한 번 받아 둔다."""
+    columns = [{"source": "key", "target": "key"}, {"source": "label", "target": "label"}]
+    columns += [
+        {"source": p["key"], "target": f"properties.{p['key']}"}
+        for p in hub.types[slug]["def"]["properties"]
+    ]
+    made = client.post(
+        "/api/datasources",
+        json={
+            "slug": f"hand_{slug}"[:32],
+            "name": f"손으로 만든 {slug}",
+            "kind": "sp_core",
+            "base_url": hub.base,
+            "entity_set": slug,
+            "type_slug": slug,
+            "workspace_slug": admin.workspace,
+            "auth_kind": "bearer",
+            "auth_secret": "hub-token",
+            "page_size": 50,
+            "mapping": {"external_key": "key", "columns": columns},
+        },
+        headers=admin.headers,
+    )
+    assert made.status_code == 201, made.text
+    slug_made = str(made.json()["slug"])
+    started = client.post(
+        f"/api/datasources/{slug_made}/sync", params={"apply": "true"}, headers=admin.headers
+    )
+    assert started.status_code == 202, started.text
+    assert finish_job(client, admin, started.json())["status"] == "done"
+    return slug_made
+
+
+def _owner(slug: str, model: Any = ObjectType) -> str:
+    with SessionLocal() as db:
+        row = db.scalar(select(model).where(model.slug == slug))
+        assert row is not None, slug
+        return managed.owner_of(row)
+
+
+def test_이_설치가_만든_같은_이름의_타입은_골라서_허브_관리로_넘기면_구독이_맡는다(
+    client: TestClient, admin: Signed, hub: FakeHub
+) -> None:
+    from app.modules.ontology.models import RelationType
+
+    part, vendor, kind = _world(hub)
+    _local_copy(client, admin, hub, part, vendor)
+    hand_part = _hand_made_source(client, admin, hub, part)
+    hand_vendor = _hand_made_source(client, admin, hub, vendor)
+    assert sorted(_objects(part)) == ["P-1", "P-2"]
+    name = f"hub{hub.tag}"
+
+    # 그대로면 건너뛴다 — 넘길 수 있다고 알린다.
+    plain = _create(client, admin, hub, apply=False).json()
+    rows = {one["type_slug"]: one for one in plain["types"]}
+    assert rows[part]["action"] == "skip" and rows[part]["adoptable"] is True
+
+    # 고르면 미리 보기가 그대로 보인다 — 아무것도 남기지 않는다.
+    body = {
+        "base_url": hub.base,
+        "auth_kind": "bearer",
+        "auth_secret": "hub-token",
+        "source_name": name,
+        "interval_minutes": 60,
+        "adopt": [part, vendor],
+    }
+    preview = client.post(
+        "/api/datasources/core-subscriptions",
+        json={**body, "apply": False},
+        headers=admin.headers,
+    ).json()
+    rows = {one["type_slug"]: one for one in preview["types"]}
+    assert rows[part]["action"] == "take" and rows[part]["source_slug"] == hand_part
+    assert preview["taken"] == {
+        "types": sorted([part, vendor]),
+        "relation_types": [kind],
+        "interfaces": [],
+    }
+    assert _owner(part) == "" and _owner(kind, RelationType) == "", "미리 보기는 안 남긴다"
+
+    made = client.post(
+        "/api/datasources/core-subscriptions",
+        json={**body, "apply": True},
+        headers=admin.headers,
+    )
+    assert made.status_code == 200, made.text
+    done = finish_job(client, admin, {"id": made.json()["job_id"]})
+    assert done["status"] == "done", done
+    result = done["result"]
+    assert result["failed"] == 0, result["sources"]
+    assert sorted(result["adopted"]) == sorted([hand_part, hand_vendor])
+    assert result["created"] == [], "손으로 만든 소스를 다시 만들지 않는다"
+    assert (
+        _owner(part) == name and _owner(vendor) == name and _owner(kind, RelationType) == name
+    )
+    taken_source = _source_of(part)
+    assert taken_source.slug == hand_part and taken_source.source_name == name
+    # 받은 자료는 그대로 — 같은 것이 둘이 되지 않는다. 허브의 다음 값도 들어온다.
+    assert sorted(_objects(part)) == ["P-1", "P-2"]
+    hub.item(part, "P-1", "브래킷", LATER, material="SUS316", grade="A")
+    hub.as_of = LATER
+    sub_id = str(made.json()["subscription"]["id"])
+    assert _check(client, admin, sub_id)["failed"] == 0
+    assert _objects(part)["P-1"]["material"] == "SUS316"
+    row = _row(client, admin, sub_id)
+    assert row["adoptable"] == [] and row["taken"]["types"] == sorted([part, vendor])
+
+
+def test_있는_구독에서_넘기고_되돌린다(
+    client: TestClient, admin: Signed, hub: FakeHub
+) -> None:
+    part, _, _ = _world(hub)
+    _local_copy(client, admin, hub, part)
+    hand_part = _hand_made_source(client, admin, hub, part)
+    sub_id, _ = _subscribe(client, admin, hub)
+    row = _row(client, admin, sub_id)
+    assert [one["type_slug"] for one in row["adoptable"]] == [part]
+    assert row["adoptable"][0]["source_slug"] == hand_part
+    assert _owner(part) == ""
+
+    started = client.post(
+        f"/api/datasources/core-subscriptions/{sub_id}/take-over",
+        json={"types": [part]},
+        headers=admin.headers,
+    )
+    assert started.status_code == 202, started.text
+    done = finish_job(client, admin, started.json())
+    assert done["status"] == "done" and done["result"]["failed"] == 0, done
+    assert _owner(part) == f"hub{hub.tag}"
+    assert _source_of(part).subscription_id is not None
+    row = _row(client, admin, sub_id)
+    assert row["adoptable"] == [] and row["taken"]["types"] == [part]
+
+    back = client.post(
+        f"/api/datasources/core-subscriptions/{sub_id}/release", headers=admin.headers
+    )
+    assert back.status_code == 202, back.text
+    assert finish_job(client, admin, back.json())["status"] == "done"
+    assert _owner(part) == ""
+    source = _source_of(part)
+    assert source.subscription_id is None and source.source_name == "", "넘길 때의 이름으로"
+    assert sorted(_objects(part)) == ["P-1", "P-2"], "받은 자료는 남는다"
+    row = _row(client, admin, sub_id)
+    assert row["taken"] is None and [one["type_slug"] for one in row["adoptable"]] == [part]
+    # 되돌린 소스는 하던 대로 받는다(출처 이름 없음 · 관리 이름 없는 타입).
+    started = client.post(
+        f"/api/datasources/{source.slug}/sync", params={"apply": "true"}, headers=admin.headers
+    )
+    assert finish_job(client, admin, started.json())["status"] == "done"
+    assert _source_of(part).last_status == "ok"
+    nothing = client.post(
+        f"/api/datasources/core-subscriptions/{sub_id}/release", headers=admin.headers
+    )
+    assert nothing.status_code == 422, nothing.text
+
+
+def test_넘길_수_없는_것은_까닭과_함께_거절한다(
+    client: TestClient, admin: Signed, hub: FakeHub
+) -> None:
+    part, vendor, _ = _world(hub)
+    _local_copy(client, admin, hub, part)
+    # 공급사는 다른 관리 이름이 이미 맡았다(묶음 · 다른 구독).
+    other = bundle_import(
+        client,
+        admin,
+        {
+            "ontology": downlevel_only(hub.types[vendor]["def"]),
+            "source": "other",
+            "apply": True,
+        },
+    )
+    assert other["applied"] is True, other
+    body = {
+        "base_url": hub.base,
+        "auth_kind": "bearer",
+        "auth_secret": "hub-token",
+        "source_name": f"hub{hub.tag}",
+        "apply": False,
+    }
+    for adopt, said in (
+        ([vendor], "이미 other 가 관리합니다"),
+        ([f"sp{hub.tag}_ghost"], "이 설치에 없는 타입"),
+    ):
+        got = client.post(
+            "/api/datasources/core-subscriptions",
+            json={**body, "adopt": adopt},
+            headers=admin.headers,
+        )
+        assert got.status_code == 422 and said in got.text, got.text
+    # 다른 주소의 소스가 받는 타입 — 넘기면 그 소스가 못 받는다.
+    with SessionLocal() as db:
+        type_id = db.scalar(select(ObjectType.id).where(ObjectType.slug == part))
+        db.add(
+            DataSource(
+                slug=f"ip{hub.tag}",
+                name="IP 로 적은 부품 소스",
+                kind="sp_core",
+                base_url="http://10.0.0.9/api",
+                entity_set=part,
+                options={},
+                filter="",
+                select="",
+                auth={},
+                page_size=500,
+                type_id=type_id,
+                mapping={"external_key": "key", "columns": []},
+                source_name="",
+                deprecate_missing=False,
+                interval_minutes=0,
+                is_active=True,
+            )
+        )
+        db.commit()
+    got = client.post(
+        "/api/datasources/core-subscriptions",
+        json={**body, "adopt": [part]},
+        headers=admin.headers,
+    )
+    assert got.status_code == 422 and "다른 주소" in got.text, got.text
+    assert _owner(part) == ""
