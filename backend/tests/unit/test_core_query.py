@@ -123,8 +123,9 @@ def _long_plate(길이: float) -> Shape:
 
 def test_좌표만_쓰면_치수가_바뀔_때_딴_면을_집고_방향으로_거르면_안_헛집는다() -> None:
     """**「이 자리의 면」 이 DOE 에서 못 찾지 않나?** — 못 찾는 게 아니라 더 나쁘다: 가장
-    가까운 **딴 면**을 말없이 집는다. 판 길이를 80 → 130 으로 늘리면 +X 옆면을 가리키던
-    좌표에 구멍 원통면이 더 가깝다(실측 2026-09-24). 같은 종류 · 같은 방향 중 가장 가까운
+    가까운 **딴 면**을 말없이 집는다. 판 길이를 80 → 130 으로 늘리면 +X 옆면 위에 있던
+    좌표가 판 속으로 들어가, 윗면 · 아랫면이 더 가깝다(면 위 최근접점 거리 — 2026-11-22 까지는
+    중심까지 재어 구멍 원통면을 집었다, 실측 2026-09-24). 같은 종류 · 같은 방향 중 가장 가까운
     것은 그대로다."""
     picked = selector_candidates(_long_plate(80), {"what": "faces", "point": [40, 0, 5]})
     labels = {one["label"]: one for one in picked["candidates"]}
@@ -137,8 +138,12 @@ def test_좌표만_쓰면_치수가_바뀔_때_딴_면을_집고_방향으로_�
         집은것 = find_features(_long_plate(길이), 방향으로["select"])["items"][0]
         assert 집은것["normal"] == [1.0, 0.0, 0.0] and 집은것["center"][0] == 길이 / 2, 길이
 
+    맞게집은것 = find_features(_long_plate(80), 좌표만["select"])["items"][0]
+    assert 맞게집은것["normal"] == [1.0, 0.0, 0.0] and 맞게집은것["distance_from_near"] == 0
     헛집은것 = find_features(_long_plate(130), 좌표만["select"])["items"][0]
-    assert 헛집은것["kind"] == "cylinder", "좌표만 쓰면 구멍을 집는다 — 기본이면 안 되는 까닭"
+    assert 헛집은것["normal"] != [1.0, 0.0, 0.0], (
+        "좌표만 쓰면 딴 면(윗면)을 집는다 — 기본이면 안 되는 까닭"
+    )
 
 
 #: 판 위에 블록이 앉은 조립 — 같은 방향의 면이 바디마다 있다(SimEngBay 픽스처의 모양).
@@ -235,3 +240,79 @@ def test_near_없는_그룹은_목록_상한에_잘리지_않는다() -> None:
     rule = {"what": "faces", "kind": "cylinder"}
     assert len(select_features(shape, rule)["items"]) == len(holes)
     assert len(find_features(shape, rule)["items"]) == 60
+
+
+# --- near 는 면 · 엣지 위의 가장 가까운 점까지(2026-11-22, SimEngBay 의 부탁) ---------------
+
+
+def _plate_and_post() -> Shape:
+    """넓은 판(100x100) 위 한구석에 작은 기둥 — 판의 중심은 멀고 기둥의 면은 중심이
+    가깝다."""
+    from build123d import Box, Compound, Location
+
+    plate = Box(100, 100, 2)
+    post = Box(4, 4, 8).moved(Location((30, 30, 5)))
+    return Compound([plate, post])
+
+
+def test_near_는_면_위의_가장_가까운_점까지_잰다_중심이_먼_큰_면도() -> None:
+    """판 윗면 위의 점(45, 45, 1) — 판의 중심(0, 0, 1)까지 63.6, 기둥 옆면의 중심까지 20 이라
+    예전(중심까지)에는 기둥 옆면이 잡혔다. 이제 그 점이 놓인 판 윗면(거리 0)이다."""
+    got = find_features(_plate_and_post(), {"what": "faces", "near": [45, 45, 1], "limit": 2})
+    first, second = got["items"]
+    assert first["normal"] == [0.0, 0.0, 1.0] and first["center"][:2] == [0.0, 0.0]
+    assert first["distance_from_near"] == 0
+    assert second["distance_from_near"] > 0
+
+
+def test_near_는_엣지_위의_가장_가까운_점까지_잰다_긴_엣지도() -> None:
+    """긴 상자(100x10x10)의 윗 모서리 위의 점(45, 5, 5) — 그 모서리의 중점(0, 5, 5)까지
+    45, 끝의 짧은 모서리 중점까지 7.1 이라 예전에는 짧은 것이 잡혔다."""
+    from build123d import Box
+
+    got = find_features(Box(100, 10, 10), {"what": "edges", "near": [45, 5, 5]})
+    (edge,) = got["items"]
+    assert edge["length"] == 100 and edge["distance_from_near"] == 0
+
+
+def test_누른_면의_번호를_그_면_위의_점이면_받는다() -> None:
+    """화면은 누른 면의 번호와 **누른 점**을 보낸다. 예전에는 그 점이 면의 중심이어야
+    (0.01 안) 번호를 믿어, 중심을 누르지 않는 한 가장 가까운 중심의 면이 잡혔다."""
+    shape = _plate_and_post()
+    top = find_features(shape, {"what": "faces", "near": [45, 45, 1]})["items"][0]["index"]
+    # 판 윗면과 기둥 밑면이 만나는 자리(30, 30, 1) — 둘 다 거리 0, 번호가 가른다.
+    under = next(
+        one["index"]
+        for one in find_features(shape, {"what": "faces", "normal": [0, 0, -1]})["items"]
+        if one["center"][:2] == [30.0, 30.0]
+    )
+    for index in (top, under):
+        picked = selector_candidates(
+            shape, {"what": "faces", "point": [30, 30, 1], "index": index}
+        )["picked"]
+        assert picked["index"] == index and picked["distance_from_near"] == 0
+    # 그 면 위가 아닌 번호는 안 믿는다 — 도면이 그새 바뀌었을 수 있다.
+    away = selector_candidates(shape, {"what": "faces", "point": [45, 45, 1], "index": under})[
+        "picked"
+    ]
+    assert away["index"] == top
+
+
+@pytest.mark.parametrize("point", [[40, 0, 5], [70, 12, 3], [-20, -15, 11], [0, 0, 0]])
+def test_아래_한계로_줄여_재도_전부_잰_것과_같은_순서다(point: list[float]) -> None:
+    """둘레 상자 거리로 정확한 거리를 앞쪽 몇 개만 잰다 — 전부 잰 순서와 같아야 한다."""
+    from app.core.recipe.query import _dist, _gap
+
+    shape = _long_plate(130)
+    faces = list(shape.faces())
+    got = find_features(shape, {"what": "faces", "near": point, "limit": 4})["items"]
+    every = find_features(shape, {"what": "faces"})["items"]
+    brute = sorted(
+        every,
+        key=lambda r: (
+            round(_gap(faces[r["index"]], point), 3),
+            _dist(r["center"], point),
+            r["index"],
+        ),
+    )
+    assert [one["index"] for one in got] == [one["index"] for one in brute[:4]]

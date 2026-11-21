@@ -68,9 +68,12 @@ def test_변수마다_움직이는_양을_재고_설계점에서_같은_면을_�
     point = {"길이": 200.0, "두께": 30.0, "구멍x": 60.0}
     shape, tags = _build(point)
 
-    # 따라가지 않으면 — 옆면 자리에 구멍 원통면이 더 가깝다(말없이 딴 면).
+    # 따라가지 않으면 — 옆면 위에 있던 좌표가 판 속으로 들어가 다른 면이 더 가깝다(말없이 딴
+    # 면 — 면 위 최근접점 거리로는 아랫면, 2026-11-22 까지 중심 거리로는 구멍 원통면이었다).
     plain, _ = regions(shape, DEFINITIONS, tags)
-    assert "radius" in plain["옆면"][0], "좌표 그대로면 구멍을 집는다 — 이것을 막으려는 것"
+    assert plain["옆면"][0].get("normal") != [1.0, 0.0, 0.0], (
+        "좌표 그대로면 딴 면을 집는다 — 이것을 막으려는 것"
+    )
 
     moved = follow(DEFINITIONS, tracks, BASE, point)
     found, unresolved = regions(shape, moved, tags)

@@ -7,7 +7,9 @@
 
 from __future__ import annotations
 
+import heapq
 import math
+from collections.abc import Callable
 from typing import Any
 
 from build123d import Edge, Face, GeomType, Shape, Vector, Vertex
@@ -41,8 +43,8 @@ _LIMIT = 60
 _EVERYTHING = 100_000
 #: 바디 이름 대신 쓰는 말 — 모든 바디. `topology.bodies` 가 단품을 이 이름 하나로 부른다.
 _ALL_BODIES = "전체"
-#: 찍은 자리와 면 · 엣지의 대표 점이 「같은 자리」 인 거리(mm) — 화면은 4 자리, 여기는 3 자리로
-#: 반올림한다.
+#: 찍은 자리가 그 면 · 엣지 **위**인가의 거리(mm) — 면 · 엣지 위 최근접점까지(`_gap`). 화면은 4
+#: 자리, 여기는 3 자리로 반올림한다.
 _SAME_PLACE = 0.01
 
 
@@ -52,6 +54,82 @@ def _xyz(v: Any) -> list[float]:
 
 def _dist(a: list[float], b: list[float]) -> float:
     return math.dist(a, b)
+
+
+# --- `near` 의 거리 ---------------------------------------------------------------
+#
+# **면 · 엣지는 그 위의 가장 가까운 점까지 잰다**(2026-11-22, SimEngBay 의 부탁). 그 전에는
+# 면은 중심, 엣지는 중점까지였다 — 큰 면이 바로 옆에 있어도 그 중심이 멀면 순위에서 밀려, 3D
+# 에서 누른 면 대신 중심이 가까운 다른 면이 잡혔다. 거리가 같으면(두 면이 만나는 엣지 위의 점)
+# 예전처럼 대표 점(중심 · 중점)이 가까운 것이 먼저다.
+
+
+def _box_gap(entity: Shape, point: list[float]) -> float:
+    """그 면 · 엣지의 둘레 상자까지의 거리 — **최근접점 거리의 아래 한계.** 이것으로 줄을 세워
+    정확한 거리(`_gap`)는 앞쪽 몇 개만 잰다(면이 수천인 조립에서 전부 재지 않게)."""
+    box = entity.bounding_box()
+    total = 0.0
+    for at, low, high in (
+        (point[0], box.min.X, box.max.X),
+        (point[1], box.min.Y, box.max.Y),
+        (point[2], box.min.Z, box.max.Z),
+    ):
+        if at < low:
+            total += (low - at) ** 2
+        elif at > high:
+            total += (at - high) ** 2
+    return math.sqrt(total)
+
+
+def _gap(entity: Shape, point: list[float]) -> float:
+    """면 · 엣지 **위의 가장 가까운 점**까지의 거리(OCC `BRepExtrema_DistShapeShape`)."""
+    try:
+        return float(entity.distance_to(Vector(*point)))
+    except Exception:
+        return math.inf
+
+
+#: 반올림한 거리끼리 같을 수 있는 폭 — 아래 한계가 k 번째 거리보다 이만큼 넘어야 그 뒤를
+#: 안 잰다.
+_ROUNDING = 0.0005
+
+
+def _nearest(
+    rows: list[dict[str, Any]],
+    entity_of: Callable[[dict[str, Any]], Shape] | None,
+    key: str,
+    point: list[float],
+    limit: int,
+) -> list[dict[str, Any]]:
+    """가까운 순 `limit` 개 — 줄마다 `distance_from_near` 를 단다. `entity_of` 가 없으면(점)
+    대표 점까지. 거리가 같으면 대표 점이 가까운 것, 그다음 원래 차례.
+
+    면 · 엣지는 둘레 상자 거리(아래 한계)로 먼저 세우고 정확한 거리를 차례로 잰다 — 이미 잰
+    `limit` 번째 거리보다 아래 한계가 크면 그 뒤는 더 가까울 수 없어 멈춘다."""
+    if entity_of is None:
+        for one in rows:
+            one["distance_from_near"] = round(_dist(one[key], point), 3)
+        ordered = sorted(
+            enumerate(rows), key=lambda pair: (pair[1]["distance_from_near"], pair[0])
+        )
+        return [one for _, one in ordered[:limit]]
+    bounds = sorted((_box_gap(entity_of(one), point), at) for at, one in enumerate(rows))
+    measured: list[tuple[float, float, int]] = []
+    worst: list[float] = []  # 지금까지 가까운 `limit` 개의 거리 — 음수로(가장 먼 것이 맨 앞)
+    for lower, at in bounds:
+        if len(worst) >= limit and lower > -worst[0] + _ROUNDING:
+            break
+        exact = round(_gap(entity_of(rows[at]), point), 3)
+        measured.append((exact, _dist(rows[at][key], point), at))
+        heapq.heappush(worst, -exact)
+        if len(worst) > limit:
+            heapq.heappop(worst)
+    measured.sort()
+    out = []
+    for exact, _, at in measured[:limit]:
+        rows[at]["distance_from_near"] = exact
+        out.append(rows[at])
+    return out
 
 
 # --- 엣지 · 면 목록 -------------------------------------------------------------
@@ -258,12 +336,24 @@ def find_features(
     if query.get("body") is not None:
         rows, known_bodies = _in_body(shape, what, rows, str(query["body"]))
 
+    items = rows[:limit]
     if near:
         point = [float(v) for v in near]
-        for r in rows:
-            r["distance_from_near"] = round(_dist(r[key], point), 3)
-        rows.sort(key=lambda r: r["distance_from_near"])
-    out: dict[str, Any] = {"what": what, "total": len(rows), "items": rows[:limit]}
+        entities = (
+            None
+            if what == "vertices"
+            else list(shape.faces())
+            if what == "faces"
+            else list(shape.edges())
+        )
+        items = _nearest(
+            rows,
+            None if entities is None else (lambda r: entities[r["index"]]),
+            key,
+            point,
+            limit,
+        )
+    out: dict[str, Any] = {"what": what, "total": len(rows), "items": items}
     if known_bodies is not None:
         # 없는 바디 이름 — 0 개라고만 하면 오타인지 알 길이 없다. 있는 이름을 알려 준다.
         out["bodies"] = known_bodies
@@ -613,6 +703,30 @@ def _body_of(shape: Shape, index: int) -> str | None:
     return None
 
 
+def _picked(shape: Shape, what: str, index: int, point: list[float]) -> dict[str, Any] | None:
+    """번호로 고른 면 · 엣지 · 점 하나의 줄과 누른 자리까지의 거리 — 번호가 없으면 None."""
+    if what == "faces":
+        faces = shape.faces()
+        if not 0 <= index < len(faces):
+            return None
+        box = shape.bounding_box()
+        row = _face_row(index, faces[index], float(box.min.Z), float(box.max.Z))
+        row["distance_from_near"] = round(_gap(faces[index], point), 3)
+    elif what == "vertices":
+        vertices = shape.vertices()
+        if not 0 <= index < len(vertices):
+            return None
+        row = _vertex_row(index, vertices[index], shape)
+        row["distance_from_near"] = round(_dist(row["point"], point), 3)
+    else:
+        edges = shape.edges()
+        if not 0 <= index < len(edges):
+            return None
+        row = _edge_row(index, edges[index])
+        row["distance_from_near"] = round(_gap(edges[index], point), 3)
+    return row
+
+
 def selector_candidates(shape: Shape, pick: dict[str, Any]) -> dict[str, Any]:
     """3D 에서 **고른 것을 말로 되돌려 준다** — 좌표가 아니라 셀렉터로.
 
@@ -629,24 +743,20 @@ def selector_candidates(shape: Shape, pick: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(point, list) or len(point) != 3:
         raise ValueError("pick.point: [x, y, z]가 필요합니다.")
 
-    found = find_features(shape, {"what": what, "near": point, "limit": _EVERYTHING})["items"]
+    found = find_features(shape, {"what": what, "near": point, "limit": 1})["items"]
     if not found:
         return {"picked": None, "candidates": []}
     row = found[0]
-    # **번호가 있으면 그것을 믿는다** — 판 윗면과 그 위에 앉은 블록의 아랫면은 중심이 같아
+    # **번호가 있으면 그것을 믿는다** — 판 윗면과 그 위에 앉은 블록의 아랫면은 같은 자리라
     # (0, 0, 5) 가장 가까운 것이 둘이고, 어느 쪽이 먼저인지는 면 순서가 정한다. 화면은 누른
-    # 면의 번호를 안다. 자리가 맞을 때만 쓴다 — 도면이 그새 바뀌었으면 번호가 딴 것을 가리킨다.
+    # 면의 번호를 안다. 누른 점이 그 면 · 엣지 **위**일 때만 쓴다(최근접점 거리) — 도면이 그새
+    # 바뀌었으면 번호가 딴 것을 가리킨다. 예전에는 면의 중심까지 재어, 중심을 누르지 않는 한 이
+    # 확인이 늘 빗나가 가장 가까운 중심의 면이 잡혔다.
     index = pick.get("index")
-    if isinstance(index, int):
-        exact = next(
-            (
-                one
-                for one in found
-                if one["index"] == index and one["distance_from_near"] <= _SAME_PLACE
-            ),
-            None,
-        )
-        row = exact or row
+    if isinstance(index, int) and index != row["index"]:
+        exact = _picked(shape, what, index, [float(v) for v in point])
+        if exact is not None and exact["distance_from_near"] <= _SAME_PLACE:
+            row = exact
 
     if what == "faces":
         pairs = _face_candidates(row, point, _body_of(shape, row["index"]))
