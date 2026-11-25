@@ -246,13 +246,39 @@ CONDITION_SWEEP: dict[str, Any] = {
 }
 
 
+#: 저장소에 올려 SimEngBay 와 맞춘 픽스처.
+COMMITTED = Path(__file__).parents[3] / "fixtures" / "simengbay"
+
+
+def _same_places(folder: Path) -> None:
+    """**저장소의 픽스처와 같은 면을 집나** — 점 파일의 영역 지문 · 바디 · 못 푼 이름. 이
+    시험은 내용만 보고 저장소의 것과 견주지 않아, 선택 규칙의 거리를 바꾼 것이 「위판 윗면」
+    을 고리 면으로 바꾼 채 v0.31.0 으로 나갔다(2026-11-25 발견). 폴더 전체를 견주지는 않는다 —
+    스터디 id · 생성일 · STEP 머리글은 돌릴 때마다 다르다. 일부러 바꾸면 픽스처를 다시 뽑아
+    함께 올린다."""
+    kept = COMMITTED / folder.name.rsplit("-", 1)[0]
+    if not kept.is_dir() or os.environ.get("COMPCORE_FIXTURE_OUT"):
+        return
+    for now in sorted((folder / "points").glob("p*.json")):
+        was = kept / "points" / now.name
+        if not was.exists():
+            continue
+        a, b = json.loads(was.read_text("utf-8")), json.loads(now.read_text("utf-8"))
+        for key in ("regions", "bodies", "unresolved"):
+            assert a.get(key) == b.get(key), (
+                f"{kept.name}/{now.name} 의 {key} 가 픽스처와 다르다"
+            )
+
+
 def _export(client: TestClient, member: Signed, root: Path, study: dict[str, Any]) -> Path:
     made = client.post("/api/doe", json=study, headers=member.headers)
     assert made.status_code == 201, made.text
     done = client.post(f"/api/doe/{made.json()['id']}/export", headers=member.headers)
     assert done.status_code in (200, 201, 202), done.text
     prefix = study["name"].replace(" ", "_")
-    return next(one for one in root.iterdir() if one.name.startswith(prefix))
+    folder = next(one for one in root.iterdir() if one.name.startswith(prefix))
+    _same_places(folder)
+    return folder
 
 
 def _points(folder: Path) -> list[dict[str, Any]]:

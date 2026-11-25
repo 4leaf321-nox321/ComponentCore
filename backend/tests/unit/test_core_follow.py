@@ -142,3 +142,28 @@ def test_규칙의_식을_풀고_식으로_적은_위치는_따라가지_않는�
     assert got[1]["select"]["any"][1]["near"] == [120.0, 0, 0]
     assert definitions[0]["select"]["radius"] == "=지름 / 2"  # 원본은 그대로
     assert written_near(definitions) == {(1, 1)}
+
+
+def test_적힌_자리를_옮긴다_중심이_같은_두_면을_섞지_않는다() -> None:
+    """볼트 자리로 나뉜 윗면 — 큰 윗면과 고리의 중심이 같다. 전에는 `near` 를 면의 중심으로
+    바꿔 놓아 설계점에서 둘이 구별되지 않았다(v0.31.0 이 하중을 고리 면에 걸었다 —
+    2026-11-25 발견)."""
+    from build123d import Box, Compound, Cylinder, Location
+
+    def build(over: dict[str, float]) -> tuple[Shape, None]:
+        high = over.get("두께", 10.0)
+        at = Location((0, 0, high / 2))
+        outer = (Box(60, 40, high) - Cylinder(7, high)).moved(at)
+        seat = (Cylinder(7, high) - Cylinder(4.5, high)).moved(at)
+        return Compound([outer, seat]), None
+
+    rule = {"what": "faces", "normal": [0, 0, 1], "near": [25, 0, 10]}
+    definitions = [{"name": "윗면", "select": rule}]
+    tracks = measure(definitions, {"두께": 10.0}, ["두께"], build)
+    moved = follow(definitions, tracks, {"두께": 10.0}, {"두께": 16.0})
+    assert moved[0]["select"]["near"] == [25.0, 0.0, 16.0], "적힌 자리가 두께만큼 오른다"
+    shape, _ = build({"두께": 16.0})
+    found, unresolved = regions(shape, moved, None)
+    assert unresolved == []
+    assert found["윗면"][0]["area"] > 2000, "고리(약 90 mm²)가 아니라 큰 윗면"
+    assert drift(moved, tracks, shape, None, tolerance_for(shape)) == {}

@@ -310,9 +310,30 @@ def test_아래_한계로_줄여_재도_전부_잰_것과_같은_순서다(point
     brute = sorted(
         every,
         key=lambda r: (
-            round(_gap(faces[r["index"]], point), 3),
+            min(round(_gap(faces[r["index"]], point), 3), round(_dist(r["center"], point), 3)),
+            round(_gap(faces[r["index"]], point), 3) > 0.01,
             _dist(r["center"], point),
             r["index"],
         ),
     )
     assert [one["index"] for one in got] == [one["index"] for one in brute[:4]]
+
+
+def _plate_with_seat() -> Shape:
+    """가운데 구멍(반지름 4.5)과 그 둘레 고리 자리(반지름 7)로 윗면이 나뉜 판 — 큰 윗면도
+    고리도 중심이 (0, 0, 5), 둘 다 **구멍 속**이다(볼트 예압 픽스처의 위판)."""
+    from build123d import Box, Compound, Cylinder, Location
+
+    outer = Box(60, 40, 10) - Cylinder(7, 10)
+    seat = Cylinder(7, 10) - Cylinder(4.5, 10)
+    return Compound([outer, seat, Cylinder(4, 10).moved(Location((0, 0, 0)))])
+
+
+def test_중심이_구멍_속인_면도_중심과_번호로_집는다() -> None:
+    """접촉 자동 찾기는 면의 **중심**과 번호를 보낸다 — v0.31.0 은 최근접점만 재어 번호를 안
+    믿고 옆의 면을 집었다(2026-11-25 발견)."""
+    shape = _plate_with_seat()
+    every = find_features(shape, {"what": "faces"})["items"]
+    for row in every:
+        pick = {"what": "faces", "point": row["center"], "index": row["index"]}
+        assert selector_candidates(shape, pick)["picked"]["index"] == row["index"], row

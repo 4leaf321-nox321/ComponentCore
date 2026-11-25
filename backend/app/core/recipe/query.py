@@ -102,7 +102,13 @@ def _nearest(
     limit: int,
 ) -> list[dict[str, Any]]:
     """가까운 순 `limit` 개 — 줄마다 `distance_from_near` 를 단다. `entity_of` 가 없으면(점)
-    대표 점까지. 거리가 같으면 대표 점이 가까운 것, 그다음 원래 차례.
+    대표 점까지.
+
+    **거리는 면 · 엣지 위의 최근접점과 대표 점(중심 · 중점) 중 가까운 쪽이다.** 최근접점만
+    재면 중심이 구멍 속에 있는 면(볼트 구멍 난 판 · 고리 · 원통)을 그 면의 `center` 로 가리킬
+    때 옆의 딴 면이 더 가깝다 — v0.31.0 이 그랬다(픽스처의 면 256개 중 28개, 볼트 예압의
+    「위판 윗면」 하중이 고리 면에 걸렸다, 2026-11-25). 답의 `center` 를 `near` 에 쓰는 것은
+    문서가 권한 쓰임이다.
 
     면 · 엣지는 둘레 상자 거리(아래 한계)로 먼저 세우고 정확한 거리를 차례로 잰다 — 이미 잰
     `limit` 번째 거리보다 아래 한계가 크면 그 뒤는 더 가까울 수 없어 멈춘다."""
@@ -113,20 +119,25 @@ def _nearest(
             enumerate(rows), key=lambda pair: (pair[1]["distance_from_near"], pair[0])
         )
         return [one for _, one in ordered[:limit]]
-    bounds = sorted((_box_gap(entity_of(one), point), at) for at, one in enumerate(rows))
-    measured: list[tuple[float, float, int]] = []
+    reps = [_dist(one[key], point) for one in rows]
+    bounds = sorted(
+        (min(_box_gap(entity_of(one), point), reps[at]), at) for at, one in enumerate(rows)
+    )
+    measured: list[tuple[float, bool, float, int]] = []
     worst: list[float] = []  # 지금까지 가까운 `limit` 개의 거리 — 음수로(가장 먼 것이 맨 앞)
     for lower, at in bounds:
         if len(worst) >= limit and lower > -worst[0] + _ROUNDING:
             break
-        exact = round(_gap(entity_of(rows[at]), point), 3)
-        measured.append((exact, _dist(rows[at][key], point), at))
+        surface = round(_gap(entity_of(rows[at]), point), 3)
+        exact = min(surface, round(reps[at], 3))
+        # 같은 거리면 그 점을 **품은 면**(거짓이 먼저), 그다음 대표 점, 원래 차례.
+        measured.append((exact, surface > _SAME_PLACE, reps[at], at))
         heapq.heappush(worst, -exact)
         if len(worst) > limit:
             heapq.heappop(worst)
     measured.sort()
     out = []
-    for exact, _, at in measured[:limit]:
+    for exact, _, _, at in measured[:limit]:
         rows[at]["distance_from_near"] = exact
         out.append(rows[at])
     return out
@@ -711,7 +722,8 @@ def _picked(shape: Shape, what: str, index: int, point: list[float]) -> dict[str
             return None
         box = shape.bounding_box()
         row = _face_row(index, faces[index], float(box.min.Z), float(box.max.Z))
-        row["distance_from_near"] = round(_gap(faces[index], point), 3)
+        near = min(_gap(faces[index], point), _dist(row["center"], point))
+        row["distance_from_near"] = round(near, 3)
     elif what == "vertices":
         vertices = shape.vertices()
         if not 0 <= index < len(vertices):
@@ -749,9 +761,9 @@ def selector_candidates(shape: Shape, pick: dict[str, Any]) -> dict[str, Any]:
     row = found[0]
     # **번호가 있으면 그것을 믿는다** — 판 윗면과 그 위에 앉은 블록의 아랫면은 같은 자리라
     # (0, 0, 5) 가장 가까운 것이 둘이고, 어느 쪽이 먼저인지는 면 순서가 정한다. 화면은 누른
-    # 면의 번호를 안다. 누른 점이 그 면 · 엣지 **위**일 때만 쓴다(최근접점 거리) — 도면이 그새
-    # 바뀌었으면 번호가 딴 것을 가리킨다. 예전에는 면의 중심까지 재어, 중심을 누르지 않는 한 이
-    # 확인이 늘 빗나가 가장 가까운 중심의 면이 잡혔다.
+    # 면의 번호를 안다. 점이 그 면 · 엣지 **위**이거나 그 **대표 점**일 때만 쓴다 — 도면이 그새
+    # 바뀌었으면 번호가 딴 것을 가리킨다. 조건 화면은 누른 점을, 접촉 자동 찾기
+    # (`contact_check`)는 면의 중심을 보낸다 — 둘 다 받아야 한다.
     index = pick.get("index")
     if isinstance(index, int) and index != row["index"]:
         exact = _picked(shape, what, index, [float(v) for v in point])

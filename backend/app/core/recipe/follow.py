@@ -59,9 +59,14 @@ def _anchor(
 
 @dataclass
 class Track:
-    """좌표 규칙 하나 — 기준 형상에서 가리킨 자리와, 변수마다 1 바꿀 때 움직이는 양."""
+    """좌표 규칙 하나 — 기준 형상에서 집은 것의 대표 점(`base`)과 규칙에 적힌 자리(`near`),
+    변수마다 1 바꿀 때 움직이는 양.
+
+    **옮기는 것은 적힌 자리다**(2026-11-25). 전에는 대표 점으로 바꿔 놓았다 — 중심이 구멍 속에
+    있는 면이면 그 자리는 면 위가 아니라, 같은 중심의 고리 면과 구별되지 않는다."""
 
     base: list[float]
+    near: list[float] = field(default_factory=list)
     rate: dict[str, list[float]] = field(default_factory=dict)
 
 
@@ -123,7 +128,7 @@ def measure(
     for i, j, rule in wanted:
         at = _anchor(shape, rule, tags)
         if at is not None:
-            tracks[(i, j)] = Track(base=at)
+            tracks[(i, j)] = Track(base=at, near=[float(one) for one in rule["near"]])
     for name in factors:
         if name not in base_values:
             continue
@@ -146,7 +151,7 @@ def measure(
         delta, other, other_tags = nudged
         for (i, j), track in tracks.items():
             rule = _rules(definitions[i]["select"])[j]
-            moved = _anchor(other, {**rule, "near": track.base, "limit": 1}, other_tags)
+            moved = _anchor(other, {**rule, "limit": 1}, other_tags)
             if moved is not None:
                 track.rate[name] = [
                     (a - b) / delta for a, b in zip(moved, track.base, strict=True)
@@ -173,7 +178,7 @@ def follow(
                 continue
             shift = [s + r * change for s, r in zip(shift, rate, strict=True)]
         _rules(out[i]["select"])[j]["near"] = [
-            round(b + s, 6) for b, s in zip(track.base, shift, strict=True)
+            round(b + s, 6) for b, s in zip(track.near, shift, strict=True)
         ]
     return out
 
@@ -197,7 +202,14 @@ def drift(
         at = _anchor(shape, rule, tags)
         if at is None or not isinstance(rule.get("near"), list):
             continue
-        gap = math.dist(at, [float(one) for one in rule["near"]])
+        # 대표 점이 있을 자리 — 기준의 대표 점을 적힌 자리와 같은 만큼 옮긴 곳.
+        wanted = [
+            b + (float(now) - was)
+            for b, now, was in zip(
+                tracks[(i, j)].base, rule["near"], tracks[(i, j)].near, strict=True
+            )
+        ]
+        gap = math.dist(at, wanted)
         if gap > tolerance:
             name = str(definition.get("name", ""))
             out[name] = round(max(gap, out.get(name, 0.0)), 3)
