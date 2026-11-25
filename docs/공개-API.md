@@ -134,7 +134,8 @@ curl -X POST -H "Authorization: Bearer <PAT>" "http://<호스트>/api/doe/<id>/r
 브래킷_압력_훑기-98e481ec/
   README.txt       사람이 열어 볼 한 장
   manifest.csv     설계점마다 바꾼 변수 값 · 파일 이름 · 상태
-  study.json       레시피 스냅샷 · 인자 · 시드 · **작성자와 돌린 쪽** · 복제했으면 원본(`cloned_from`)
+  study.json       레시피 스냅샷 · 인자 · 시드 · **작성자와 돌린 쪽** · 복제했으면 원본(`cloned_from`) ·
+                   이 폴더를 쓴 CompCore(`compcore_version`, 점 파일에도 같은 값 — v0.31.1 부터)
   conditions.json  조건 한 벌 — 식이 있는 그대로(사람이 읽는 정본)
   points/p0001.json   이 점의 모든 것 — 변수 값 · 영역과 바디의 좌표 지문 ·
                       그 값으로 **풀린** 조건 · 이 점이 쓰는 `step_file`

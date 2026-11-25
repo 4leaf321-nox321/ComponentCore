@@ -373,6 +373,22 @@ sudo ./deploy.sh status                 # 다음 차례가 언제인지
   형상 수(`DOE_GALLERY_MAX`, 기본 24)와 목록의 페이지당 행 수(`LIST_PAGE_SIZE`, 기본 20).
   형상 쪽은 브라우저가 그리는 양이라 크게 잡으면 사용자 쪽이 느려진다.
 
+### 저장된 접촉 점검 — v0.31.1 로 올린 뒤 한 번
+
+v0.26.0 ~ v0.31.0 의 「미정의 접촉을 본딩으로 생성」 은 구멍이 난 면 · 딴 바디와 자리가 같은
+면(판 구멍 ↔ 볼트 몸통)에서 **딴 면을 가리키는 본딩**을 저장할 수 있었다. 저장된 규칙은 다시
+내보내도 그대로이므로, 올린 뒤 한 번 훑는다(읽기만 한다 · 조건 수에 따라 몇 분).
+
+```bash
+sudo -u <운영계정> apptainer exec --bind <env>:/opt/app/backend/.env:ro \
+  --bind <filestore>:/data/filestore <설치폴더>/app.sif \
+  sh -c 'cd /opt/app/backend && /opt/app/venv/bin/python scripts/check_contacts.py'
+```
+
+나온 줄(작업 · 부품 · 지그 · DOE 이름과 접촉 이름)은 그 주인에게 알려 해석 조건 화면에서 두 선택
+그룹을 다시 고르게 한다. 그 DOE 로 이미 해석했다면 결과를 쓰지 않는다. 없으면
+「면 그룹이 잘못 걸린 접촉이 없습니다」 로 끝난다.
+
 ---
 
 ## 5d. 규격 부품 옮기기 — 개발 PC 에서 그린 것을 운영으로

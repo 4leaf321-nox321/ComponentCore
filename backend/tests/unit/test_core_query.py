@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import pytest
@@ -326,7 +327,12 @@ def _plate_with_seat() -> Shape:
 
     outer = Box(60, 40, 10) - Cylinder(7, 10)
     seat = Cylinder(7, 10) - Cylinder(4.5, 10)
-    return Compound([outer, seat, Cylinder(4, 10).moved(Location((0, 0, 0)))])
+    bolt = Cylinder(4, 10).moved(Location((0, 0, 0)))
+    # 바디 이름을 단다 — 판의 구멍과 고리의 바깥 원통은 같은 자리 · 같은 중심이라, 이름 없이는
+    # 어느 규칙으로도 둘을 가를 수 없다(그때는 「반지름 7 원통면」 둘에 맞는다고 말한다).
+    for one, label in ((outer, "판"), (seat, "고리"), (bolt, "볼트")):
+        one.label = label
+    return Compound(children=[outer, seat, bolt])
 
 
 def test_중심이_구멍_속인_면도_중심과_번호로_집는다() -> None:
@@ -337,3 +343,45 @@ def test_중심이_구멍_속인_면도_중심과_번호로_집는다() -> None:
     for row in every:
         pick = {"what": "faces", "point": row["center"], "index": row["index"]}
         assert selector_candidates(shape, pick)["picked"]["index"] == row["index"], row
+
+
+def _missed_by_default(shape: Shape) -> list[int]:
+    """면마다 중심 + 번호로 찍었을 때(접촉 자동 찾기가 보내는 꼴) 기본 후보가 그 면 하나를 안
+    집는 면 번호."""
+    from app.core.contact_check import _default
+
+    missed = []
+    for row in find_features(shape, {"what": "faces"})["items"]:
+        pick = {"what": "faces", "point": row["center"], "index": row["index"]}
+        candidates = selector_candidates(shape, pick)["candidates"]
+        rule = candidates[_default(candidates)]["select"]
+        if [one["index"] for one in select_features(shape, rule)["items"]] != [row["index"]]:
+            missed.append(row["index"])
+    return missed
+
+
+def test_좌표_후보는_고른_면을_집는다_중심이_구멍_속이거나_딴_면_위여도() -> None:
+    """중심으로 가리키면 딴 면이 집히는 면 — 그 면 **안의** 점으로 바꿔 적는다. 못 집는 좌표
+    후보는 내지 않는다(누른 것을 안 집는 규칙은 고를 거리가 아니다, 2026-11-26)."""
+    shape = _plate_with_seat()
+    assert _missed_by_default(shape) == []
+    for row in find_features(shape, {"what": "faces"})["items"]:
+        pick = {"what": "faces", "point": row["center"], "index": row["index"]}
+        for one in selector_candidates(shape, pick)["candidates"]:
+            if "near" in one["select"]:
+                got = select_features(shape, one["select"])["items"]
+                assert [hit["index"] for hit in got] == [row["index"]], (row, one)
+    # 바디로 거르지 않는 좌표 후보는 윗면(반지름 7 밖) **위의** 점을 적는다 — 구멍 속 중심
+    # (0, 0, 5) 로는 고리 윗면이 집힌다. 바디로 거른 것은 중심으로도 그 면이다.
+    top = next(
+        row
+        for row in find_features(shape, {"what": "faces", "normal": [0, 0, 1]})["items"]
+        if row["area"] > 2000
+    )
+    pick = {"what": "faces", "point": top["center"], "index": top["index"]}
+    near = [
+        one["select"]["near"]
+        for one in selector_candidates(shape, pick)["candidates"]
+        if "near" in one["select"] and "body" not in one["select"]
+    ]
+    assert near and all(math.dist(at[:2], (0, 0)) > 7 for at in near)

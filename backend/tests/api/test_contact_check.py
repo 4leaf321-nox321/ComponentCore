@@ -8,10 +8,13 @@ CalculiX 로 끝까지 풀어 보니(SimEngBay v0.26.1) 받침-덮개 접촉을 
 from __future__ import annotations
 
 import csv
+import importlib.util
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tests.api.conftest import Signed
@@ -49,6 +52,8 @@ def test_조립에서_빠뜨린_접촉을_말하고_채우면_내보내기에서
     client: TestClient,
     member: Signed,
     export_root: Path,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     base = _work(client, member, "판", _box(60, 40, 3), "part")
     bracket = _work(client, member, "받침", _box(20, 20, 10), "part")
@@ -155,3 +160,72 @@ def test_조립에서_빠뜨린_접촉을_말하고_채우면_내보내기에서
         "판-받침",
         "본딩 받침-덮개",
     }
+
+    # 걸었는데 두 면이 안 맞닿은 본딩 — 그룹이 딴 면을 가리킨다(접촉 자동 찾기가 중심으로 지은
+    # 규칙이 그랬다, 2026-11-26). 화면도 내보내기도 말한다.
+    wrong = {
+        **filled,
+        "contacts": [
+            *filled["contacts"],
+            {
+                "name": "판바닥-받침",
+                "type": "bonded",
+                "source": "받침 아랫면",
+                "target": "판 바닥",
+            },
+        ],
+    }
+    notes = client.post(
+        "/api/cad/conditions/contacts",
+        json={"recipe": recipe, "conditions": wrong},
+        headers=member.headers,
+    ).json()["notes"]
+    assert [(one["where"], one["level"]) for one in notes if "맞닿아" in one["text"]] == [
+        ("접촉 ‘판바닥-받침’", "warn")
+    ]
+    folder = _export(
+        client,
+        member,
+        export_root,
+        {
+            "name": "조립_접촉어긋남",
+            "recipe": recipe,
+            "factors": [],
+            "work_id": assembly,
+            "conditions": wrong,
+        },
+    )
+    point = json.loads(next((folder / "points").glob("p*.json")).read_text(encoding="utf-8"))
+    assert point["quality"]["misplaced_contacts"] == [
+        {
+            "name": "판바닥-받침",
+            "type": "bonded",
+            "source": "받침 아랫면",
+            "target": "판 바닥",
+            "problem": "apart",
+        }
+    ]
+    assert [one for one in point["quality"]["warnings"] if "맞닿아" in one] == [
+        "접촉 ‘판바닥-받침’: 접촉면 ‘받침 아랫면’ 과 대상면 ‘판 바닥’ 이 "
+        "맞닿아 있지 않습니다. 선택 그룹이 다른 면을 가리키는지 확인하십시오."
+    ]
+
+    # 운영에서 한 번 훑는 점검(`scripts/check_contacts.py`)도 **저장된** 조건에서 같은 것을
+    # 찾는다.
+    saved = client.put(
+        f"/api/works/{assembly}/versions/1/conditions",
+        json={"conditions": wrong},
+        headers=member.headers,
+    )
+    assert saved.status_code == 200, saved.text
+    script = Path(__file__).resolve().parents[2] / "scripts" / "check_contacts.py"
+    spec = importlib.util.spec_from_file_location("check_contacts_under_test", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(sys, "argv", ["check_contacts.py"])
+    capsys.readouterr()
+    assert module.main() == 1
+    out = capsys.readouterr().out
+    assert f"작업 ‘ASSY’ v1 ({assembly}) · 접촉 ‘판바닥-받침’(bonded) 맞닿지 않음" in out
+    assert "접촉 ‘판-받침’" not in out

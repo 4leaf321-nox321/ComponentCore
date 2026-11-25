@@ -29,6 +29,7 @@ from sqlalchemy import exists, func, literal, or_, select
 from sqlalchemy.orm import Session, object_session
 from sqlalchemy.sql import ColumnElement
 
+from app import version as app_version
 from app.config import get_settings
 from app.core import conditions as condition_model
 from app.core import contact_check, frames, mesh_suggestion
@@ -2059,6 +2060,24 @@ def _region_bodies(made: ShapePoint) -> dict[str, list[str]]:
     return {name: sorted(bodies) for name, bodies in found.items()}
 
 
+def _contacts_misplaced(made: ShapePoint, pairs: list[list[str]]) -> list[list[str]]:
+    """접촉의 (접촉면, 대상면) 그룹 짝 중 이 형상에서 잘못 걸린 것 — `[접촉면, 대상면, 까닭]`.
+    부른 쪽이 점의 접촉 종류로 경고를 적는다(`contact_check.misplaced_warnings`). 못 재면 빈
+    것."""
+    if not made.moved or not pairs:
+        return []
+    try:
+        found = contact_check.misplaced(
+            made.evaluation.shape,
+            [{"source": source, "target": target} for source, target in pairs],
+            made.moved,
+            made.evaluation.tags,
+        )
+    except Exception:
+        return []
+    return [[str(one["source"]), str(one["target"]), str(one["problem"])] for one in found]
+
+
 def _shape_point(
     recipe: dict[str, Any],
     values: dict[str, Any],
@@ -2227,6 +2246,15 @@ def _point_warnings(geometry: dict[str, Any] | None) -> list[str]:
     return found
 
 
+def _contact_pairs(conditions: dict[str, Any] | None) -> list[list[str]]:
+    pairs = {
+        (str(one.get("source") or ""), str(one.get("target") or ""))
+        for one in (conditions or {}).get("contacts") or []
+        if isinstance(one, dict)
+    }
+    return [list(one) for one in sorted(pairs)]
+
+
 def _with_values(recipe: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
     """도면에 이 점의 형상 값을 덮는다."""
     return {**recipe, "params": {**(recipe.get("params") or {}), **values}}
@@ -2319,6 +2347,8 @@ def _build_shape(task: dict[str, Any]) -> dict[str, Any]:
             "quality": _inspect(made.evaluation.shape, task["limits"], task["reference"]),
             # 선택 그룹 → 바디 — 부른 쪽이 점의 접촉과 맞닿은 쌍을 견준다(`contact_check`).
             "region_bodies": _region_bodies(made),
+            # 잘못 걸린 접촉 — 본딩 면이 딴 면을 가리키면 받는 쪽이 못 묶는다(2026-11-26).
+            "contacts_misplaced": _contacts_misplaced(made, task.get("contact_pairs") or []),
             "measures": geometric,
             "midsurface": mid,
             "ms": int((time.perf_counter() - started) * 1000),
@@ -2523,6 +2553,8 @@ def run_job(
                         "mid_only": condition_model.shell_parts(study.conditions) or None,
                         # 시트 바디(셸 모델)의 두께 — 형상에 잴 두께가 없다.
                         "thicknesses": condition_model.shell_thicknesses(study.conditions),
+                        # 접촉의 면 그룹 짝 — 점마다 종류는 달라도(조건 훑기) 짝은 같다.
+                        "contact_pairs": _contact_pairs(study.conditions),
                         "step_path": str(folder / relative),
                     },
                 )
@@ -2606,6 +2638,32 @@ def run_job(
                             found.setdefault("warnings", []).extend(
                                 contact_check.missing_warnings(lacking)
                             )
+                            # 잘못 걸린 접촉 — 저장된 본딩 규칙이 딴 면을 가리킨다(접촉 자동
+                            # 찾기가 그랬다, 2026-11-26 고침).
+                            wrong = {
+                                (one[0], one[1]): one[2]
+                                for one in result.get("contacts_misplaced") or []
+                            }
+                            problems = []
+                            for one in declared:
+                                sides = (str(one.get("source")), str(one.get("target")))
+                                if sides in wrong:
+                                    problems.append({**one, "problem": wrong[sides]})
+                            found["warnings"].extend(
+                                contact_check.misplaced_warnings(problems)
+                            )
+                            # 같은 것을 기계가 읽는 꼴로 — 받는 쪽이 그 점의 작업을 막을 수
+                            # 있게(경고 줄은 사람이 읽는 말이다). 알림 수준은 뺀다.
+                            listed = [
+                                {
+                                    key: one.get(key)
+                                    for key in ("name", "type", "source", "target", "problem")
+                                }
+                                for one in problems
+                                if contact_check.misplaced_level(one) == "warn"
+                            ]
+                            if listed:
+                                found["misplaced_contacts"] = listed
                         skip_wall, skip_size = condition_model.mesh_skips(this_point)
                         mid_bodies = (topo.get("midsurface") or {}).get("bodies") or []
                         suggested = mesh_suggestion.suggest(
@@ -2642,6 +2700,9 @@ def run_job(
                             # 2026-09-24). 해석 쪽이 형상을 찾을 곳은 이 칸뿐이다.
                             "step_file": point.step_file,
                         }
+                        # **어느 CompCore 가 썼나** — 고친 버그가 어느 폴더에 닿았는지를 파일만
+                        # 보고 가린다(v0.31.0 의 선택 그룹 회귀, SimEngBay 가 청함 2026-11-26).
+                        topo["compcore_version"] = app_version.current()
                         # **점 하나 = 파일 하나.** 영역과 조건은 늘 짝으로 읽히므로 나눠 두면
                         # 「하나는 있고 하나는 없는」 상태가 생길 자리만 는다.
                         if study.conditions:
@@ -2830,6 +2891,8 @@ def run_job(
             {
                 "id": str(study.id),
                 "name": study.name,
+                # 이 폴더를 쓴 CompCore — 점 파일마다에도 같은 값이 있다.
+                "compcore_version": app_version.current(),
                 "description": study.description,
                 "method": study.method,
                 "samples": study.samples,

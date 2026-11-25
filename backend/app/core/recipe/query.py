@@ -12,7 +12,7 @@ import math
 from collections.abc import Callable
 from typing import Any
 
-from build123d import Edge, Face, GeomType, Shape, Vector, Vertex
+from build123d import Compound, Edge, Face, GeomType, Shape, Vector, Vertex
 
 _AXIS_COS = 0.95
 #: 「같은 방향」 의 문턱 — 법선 · 축이 이만큼 나란하면 같다(약 2.6°). 반올림한 값끼리
@@ -580,6 +580,22 @@ def _face_candidates(
                 True,
             )
         )
+        # 그 바디에 같은 방향 면이 여럿일 때 — 바디로 먼저 걸러 **딴 바디의 같은 자리 면**
+        # (판 구멍 ↔ 볼트 몸통, 판 윗면 ↔ 블록 아랫면)으로 건너가지 않는다.
+        out.append(
+            (
+                f"‘{body}’의 {direction} 방향 평면 중 이 면",
+                {
+                    "what": "faces",
+                    "body": body,
+                    "kind": "plane",
+                    "normal": _rounded(row["normal"]),
+                    "near": point,
+                    "limit": 1,
+                },
+                True,
+            )
+        )
     elif body is not None and isinstance(row.get("axis"), dict):
         direction = _direction_label(row["axis"]["direction"], signed=False)
         kind = _KIND_LABEL.get(row["kind"], f"{row['kind']} 면")
@@ -591,6 +607,20 @@ def _face_candidates(
                     "body": body,
                     "kind": row["kind"],
                     "axis": _rounded(row["axis"]["direction"]),
+                },
+                True,
+            )
+        )
+        out.append(
+            (
+                f"‘{body}’의 {direction}축 {kind} 중 이 면",
+                {
+                    "what": "faces",
+                    "body": body,
+                    "kind": row["kind"],
+                    "axis": _rounded(row["axis"]["direction"]),
+                    "near": point,
+                    "limit": 1,
                 },
                 True,
             )
@@ -739,6 +769,35 @@ def _picked(shape: Shape, what: str, index: int, point: list[float]) -> dict[str
     return row
 
 
+def _hits(matched: dict[str, Any], index: int) -> bool:
+    return any(one["index"] == index for one in matched["items"])
+
+
+def _inside(face: Face, toward: list[float]) -> list[float] | None:
+    """그 면 **안의** 점 하나 — 경계에서 가장 먼 것(같으면 `toward` 에 가까운 것). 못 찾으면
+    None.
+
+    경계에서 먼 점을 쓰는 까닭: 치수를 바꿔 구멍이 커지거나 판이 줄어도 그 면 안에 남는다.
+    구멍 가장자리 바로 옆 점은 구멍이 조금만 커져도 구멍 속이 된다. 면의 매개변수 격자를 찍어
+    그 면 위인 것(`_gap` 0)만 견준다 — 고리처럼 좁은 면은 성긴 격자에 안 걸려 한 번 더 촘촘히.
+    """
+    boundary = Compound(face.edges())
+    for steps in (9, 25):
+        best: tuple[tuple[float, float], list[float]] | None = None
+        for i in range(steps):
+            for j in range(steps):
+                at = face.position_at((i + 0.5) / steps, (j + 0.5) / steps)
+                spot = [float(at.X), float(at.Y), float(at.Z)]
+                if _gap(face, spot) > 1e-6:
+                    continue
+                key = (round(_gap(boundary, spot), 3), -_dist(spot, toward))
+                if best is None or key > best[0]:
+                    best = (key, spot)
+        if best is not None and best[0][0] > 0:
+            return [round(one, 3) for one in best[1]]
+    return None
+
+
 def selector_candidates(shape: Shape, pick: dict[str, Any]) -> dict[str, Any]:
     """3D 에서 **고른 것을 말로 되돌려 준다** — 좌표가 아니라 셀렉터로.
 
@@ -778,8 +837,26 @@ def selector_candidates(shape: Shape, pick: dict[str, Any]) -> dict[str, Any]:
         pairs = _edge_candidates(row, point)
 
     candidates = []
+    #: 좌표 후보가 고른 면을 못 집을 때 대신 쓸 **그 면 안의 점** — 한 번만 찾는다.
+    inside: list[list[float] | None] = []
     for label, select, stable in pairs:
         matched = find_features(shape, select)
+        # **좌표 후보는 고른 것을 정말 집나 본다.** 중심이 구멍 속인 면(볼트 구멍 난 판 ·
+        # 고리)이나 중심이 딴 면 위인 면(블록이 앉은 판 윗면)을 그 중심으로 가리키면 딴 면이
+        # 집혔다 — 접촉 자동 찾기가 면의 중심을 보내므로 픽스처의 면 256 개 중 20 개의 본딩
+        # 면이 딴 면에 걸렸다(2026-11-26). 못 집으면 그 면 **안의** 점으로 바꾸고, 그래도 못
+        # 집으면 내지 않는다 — 누른 것을 안 집는 규칙은 고를 거리가 아니다.
+        if "near" in select and not _hits(matched, row["index"]):
+            if what != "faces":
+                continue
+            if not inside:
+                inside.append(_inside(shape.faces()[row["index"]], [float(v) for v in point]))
+            if inside[0] is None:
+                continue
+            select = {**select, "near": inside[0]}
+            matched = find_features(shape, select)
+            if not _hits(matched, row["index"]):
+                continue
         # **몇 개에 맞나.** 1 이면 이것 하나, 여럿이면 그 부류 전부다 — 둘 다 쓸모가 있어서
         # 고르게 한다(볼트 구멍은 넷을 한꺼번에 잡고 싶다).
         #

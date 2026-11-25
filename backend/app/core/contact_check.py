@@ -31,6 +31,8 @@ from app.core.recipe.query import (
 SLIDING = frozenset({"frictionless", "no_separation"})
 #: 고유치에서 붙은 것으로 풀리는 비선형 접촉.
 STUCK_IN_EIGEN = frozenset({"frictional", "rough"})
+#: 떨어지지 않는 접촉 — 두 면이 처음부터 맞닿아 있어야 한다(떨어져 있으면 묶지 못한다).
+STUCK = frozenset({"bonded", "no_separation"})
 #: 고유치를 푸는 해석 — 조화 응답 · 랜덤 진동도 모드를 겹쳐 푼다.
 EIGEN_ANALYSES = frozenset({"modal", "harmonic", "random"})
 #: 이보다 작은 맞닿은 넓이(mm²)는 모서리 · 꼭짓점만 닿은 것이다.
@@ -84,6 +86,14 @@ def report(
                 "접촉을 본딩으로 생성」으로 함께 정의하십시오.",
             }
         )
+    for one in misplaced(shape, contacts, selections, tags):
+        notes.append(
+            {
+                "where": f"접촉 ‘{one.get('name', '')}’",
+                "level": misplaced_level(one),
+                "text": misplaced_text(one),
+            }
+        )
     notes += eigen_notes(conditions, bodies_of)
     return {
         "touching": touching,
@@ -128,6 +138,100 @@ def region_bodies(
             continue
         out[name] = {owner[row["index"]] for row in rows if row["index"] in owner}
     return out
+
+
+def misplaced(
+    shape: Any,
+    contacts: list[dict[str, Any]],
+    named_selections: list[dict[str, Any]],
+    tags: dict[str, list[int]] | None = None,
+) -> list[dict[str, Any]]:
+    """면 그룹이 **잘못 걸린** 접촉 — 저장된 접촉 줄에 `problem` 을 붙여서.
+
+    - `same_face` — 접촉면 · 대상면 그룹이 같은 면을 집는다(한쪽이 딴 바디의 같은 자리 면을
+      가리킨다 — 판 구멍 ↔ 볼트 몸통). 면이 제 자신과 묶일 뿐 두 바디는 안 묶인다.
+    - `apart` — 두 면 묶음이 넓이로 맞닿지 않는다. 떨어지지 않는 접촉이면 받는 쪽이 못 묶는다.
+
+    접촉 자동 찾기가 면의 중심으로 규칙을 지어 본딩 면이 딴 면에 걸렸어도 아무도 말하지
+    않았다(볼트 예압 픽스처: v0.31.0 은 본딩 셋 다 `same_face`, 그 전에는 `same_face` · `apart`
+    하나씩, 2026-11-26 고침). 면 그룹끼리만 잰다(바디 그룹 · 엣지 · 못 푼 그룹은 뺀다 — 못 푼
+    것은 다른 알림이 말한다). 규칙의 식은 부른 쪽이 이미 풀어 둔다."""
+    faces = list(shape.faces())
+    rules = {
+        str(one.get("name")): one.get("select") or {}
+        for one in named_selections
+        if one.get("entity", "face") == "face"
+    }
+    found: dict[str, list[int]] = {}
+
+    def faces_of(name: str) -> list[int]:
+        if name not in found:
+            found[name] = []
+            if name in rules:
+                with contextlib.suppress(Exception):
+                    rows = select_features(shape, {"what": "faces", **rules[name]}, tags)
+                    found[name] = [row["index"] for row in rows["items"]]
+        return found[name]
+
+    out = []
+    for one in contacts:
+        mine = faces_of(str(one.get("source") or ""))
+        other = faces_of(str(one.get("target") or ""))
+        if not mine or not other:
+            continue
+        if set(mine) & set(other):
+            out.append({**one, "problem": "same_face"})
+        elif _shared([faces[at] for at in mine], [faces[at] for at in other]) <= _SHARED:
+            out.append({**one, "problem": "apart"})
+    return out
+
+
+def misplaced_level(contact: dict[str, Any]) -> str:
+    """같은 면은 늘 틀린 것, 떨어진 것은 떨어지지 않는 접촉일 때만 틀린 것이다(마찰 · 마찰
+    없음 · 거침은 하중을 받아 닿을 수 있다)."""
+    if contact.get("problem") == "same_face" or contact.get("type") in STUCK:
+        return "warn"
+    return "info"
+
+
+def misplaced_warnings(contacts: list[dict[str, Any]]) -> list[str]:
+    """잘못 걸린 접촉의 경고 줄(DOE 의 점 파일 · 표) — 알림(`info`)인 것은 뺀다."""
+    return [
+        f"접촉 ‘{one.get('name', '')}’: {misplaced_text(one)}"
+        for one in contacts
+        if misplaced_level(one) == "warn"
+    ]
+
+
+def misplaced_text(contact: dict[str, Any]) -> str:
+    sides = f"접촉면 ‘{contact.get('source', '')}’ 과 대상면 ‘{contact.get('target', '')}’ 이 "
+    if contact.get("problem") == "same_face":
+        return sides + (
+            "같은 면을 가리킵니다. 한쪽 선택 그룹이 다른 바디의 면을 가리키는지 확인하십시오."
+        )
+    if contact.get("type") in STUCK:
+        return sides + "맞닿아 있지 않습니다. 선택 그룹이 다른 면을 가리키는지 확인하십시오."
+    return (
+        sides
+        + "처음에 떨어져 있습니다. 하중을 받아 닿는 접촉이 아니면 선택 그룹을 확인하십시오."
+    )
+
+
+def _shared(first: list[Any], second: list[Any]) -> float:
+    """두 면 묶음이 겹친 넓이 — 둘레 상자가 만나는 짝만 잰다."""
+    total = 0.0
+    for face in first:
+        own = face.bounding_box()
+        for mate in second:
+            if not _boxes_meet(own, mate.bounding_box()):
+                continue
+            try:
+                total += float(getattr(face & mate, "area", 0.0) or 0.0)
+            except Exception:
+                continue
+            if total > _SHARED:
+                return total
+    return total
 
 
 def declared_pairs(

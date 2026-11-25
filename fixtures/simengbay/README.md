@@ -602,6 +602,16 @@ gmsh · ccx, 점 파일 · STEP 을 그대로 `topology.json` · `input.step` �
 
 ## 읽을 때 알아 둘 것
 
+- **2026-11-26 — 잘못 걸린 접촉(`quality.misplaced_contacts`)과 내보낸 판(`compcore_version`).**
+  v0.31.1 부터 점 파일 `quality` 에 면 그룹이 잘못 걸린 접촉이 실린다 — 줄마다 `{name, type, source,
+  target, problem}`, `problem` 은 `same_face`(두 그룹이 같은 면을 집는다 — 한쪽이 딴 바디의 같은 자리
+  면을 가리킨다) · `apart`(두 면 묶음이 넓이로 맞닿지 않는다). 본딩 · 분리 없음의 `apart` 와 모든
+  `same_face` 만 싣고, 같은 말이 `quality.warnings` 에도 한 줄씩 있다. 없으면 칸이 없다. 접촉 자동 찾기가
+  v0.26.0 ~ v0.31.0 에 지은 본딩이 이렇게 딴 면에 걸릴 수 있었다(볼트 예압 꼴로 재면 본딩 셋 중 둘,
+  v0.31.0 은 셋). `study.json` 과 점 파일 맨 위의 `compcore_version`(`"v0.31.1"` 꼴)은 그 폴더를 쓴
+  CompCore 다. 지금 폴더들은 v0.31.1 전에 뽑아 둘 다 없다 — 영역 · 바디는 v0.31.1 로 뽑아도 같아
+  (`test_fixture_export` 가 견준다) 다시 뽑지 않았다.
+
 - **2026-11-16 — 맞닿은 바디 쌍(`quality.touching`)과 빠뜨린 접촉 경고.** 점 파일 `quality` 에
   `touching[]` 이 는다 — 솔리드 쌍마다 `{a, b, area, at}`(거리 0 · 맞닿은 넓이 mm² > 0, 모서리 ·
   꼭짓점만 닿은 것은 빼고, 넓이를 못 재면 `area: null`). `at` 은 맞닿은 자리 위의 점이다. 경고가

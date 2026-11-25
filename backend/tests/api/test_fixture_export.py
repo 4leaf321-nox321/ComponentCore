@@ -26,6 +26,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app import version as app_version
 from app.config import get_settings
 from tests.api.conftest import Signed
 
@@ -397,6 +398,8 @@ def test_설계_하나_픽스처_인자가_없어도_같은_폴더다(
     (point,) = _points(folder)
     assert point["point"]["number"] == 1 and point["point"]["params"] == {}
     assert point["point"]["step_file"] == "points/p0001.step"
+    # 어느 CompCore 가 썼나 — 폴더 한 장과 점 파일이 같은 값을 든다.
+    assert spec["compcore_version"] == point["compcore_version"] == app_version.current()
     assert (folder / "points" / "p0001.step").exists()
     assert point["unresolved"] == []
     # 도면의 값 그대로 — 기둥 높이 100.
