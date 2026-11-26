@@ -1023,11 +1023,20 @@ test('해석 케이스가 있는 조건(v2)은 케이스 탭으로 연다 — �
   expect(screen.getByTitle(/^누름 — /)).toBeInTheDocument()
   expect(screen.queryByTitle(/^당김 — /)).toBeNull()
   expect(screen.getByText(/DOE로 내보낼 수 없습니다/)).toBeInTheDocument()
+  // 트리는 공유와 그 케이스로 나뉜다 — 하중 · 해석 설정은 케이스 갈래, 선택 그룹 · 접촉은 공유.
+  const branch = screen.getByLabelText('고른 해석 케이스')
+  expect(branch).toHaveTextContent('케이스 ‘예압’')
+  expect(within(branch).getByTitle(/^누름 — /)).toBeInTheDocument()
+  expect(within(branch).getByRole('button', { name: /해석 설정/ })).toBeInTheDocument()
+  expect(within(branch).queryByRole('button', { name: /^선택 그룹/ })).toBeNull()
+  expect(within(branch).queryByRole('button', { name: /^접촉/ })).toBeNull()
+  expect(screen.getByText('공유 — 모든 케이스')).toBeInTheDocument()
 
   fireEvent.click(within(tabs).getByRole('tab', { name: '↳ 외력' }))
   expect(screen.getByTitle(/^당김 — /)).toBeInTheDocument()
   expect(screen.queryByTitle(/^누름 — /)).toBeNull()
   expect(screen.getByText(/‘예압’의 끝 상태/)).toBeInTheDocument()
+  expect(screen.getByLabelText('고른 해석 케이스')).toHaveTextContent('케이스 ‘외력’')
   // 공유 칸 — 어느 탭에서 바꿔도 한 벌의 것이다.
   fireEvent.change(screen.getByLabelText('내보내기 단위계'), { target: { value: 'si' } })
 
@@ -1077,7 +1086,9 @@ test('이어지는 케이스는 해석 설정 · 구속 · 중력만 옮긴 사�
   expect(within(tabs).getByRole('tab', { name: '↳ 외력' })).toHaveAttribute('aria-selected', 'true')
 })
 
-test('케이스가 없는 조건(v1)에는 탭이 없다 — 지금과 같다', async () => {
+test('케이스가 없는 조건(v1)에는 탭이 없다 — 트리도 지금과 같다', async () => {
   await panel()
   expect(screen.queryByRole('tablist', { name: '해석 케이스 목록' })).toBeNull()
+  expect(screen.queryByLabelText('고른 해석 케이스')).toBeNull()
+  expect(screen.queryByText('공유 — 모든 케이스')).toBeNull()
 })

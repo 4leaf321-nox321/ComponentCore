@@ -1228,6 +1228,7 @@ export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }
               onOpenAnalysis={() =>
                 openWindow({ group: 'analysis', index: null, item: structuredClone(draft.analysis) as ConditionItem })
               }
+              caseName={cases.length > 0 ? (cases[Math.min(active, cases.length - 1)]?.name ?? '') : undefined}
               frames={[
                 ...cadFrames.map((one) => ({ name: one.name, source: 'cad' as const, index: -1 })),
                 ...conditionFrames.map((one, index) => ({ name: one.name, source: 'conditions' as const, index, on: one.on })),

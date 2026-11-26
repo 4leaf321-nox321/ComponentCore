@@ -18,6 +18,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { ALL_BODIES, appliedTo, hasCoordinateOnlyRule, materialsOn, settingOf } from '@/modules/conditions/api'
 import type { Body, BodySetting, ConditionItem, MaterialItem, NamedSelection } from '@/modules/conditions/api'
+import { CASE_FIELDS } from '@/modules/conditions/cases'
 import type { MaterialConverted } from '@/modules/materials/api'
 import { MaterialProperties, materialProblems } from '@/modules/materials/MaterialProperties'
 import { Button } from '@/shared/components/ui/button'
@@ -65,6 +66,9 @@ function Swatch({ color }: { color: number }) {
   return <span aria-hidden className="size-2.5 shrink-0 rounded-sm" style={{ background: css(color) }} />
 }
 
+/** 케이스마다 적는 칸 — 조건 묶음 중 구속 · 하중 · 초기조건(해석 설정은 따로 줄). 접촉 · 국부 메시는 공유다. */
+const CASE_GROUPS = new Set<string>(CASE_FIELDS)
+
 /** 접었다 펴는 가지 하나 — 머리와 그 아래 줄들. */
 function Branch({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
   const [open, setOpen] = useState(true)
@@ -110,6 +114,7 @@ export function ModelTree({
   onRemoveSelection,
   onOpenItem,
   onOpenAnalysis,
+  caseName,
   frames = [],
   onOpenFrame,
   hidden = [],
@@ -156,6 +161,11 @@ export function ModelTree({
   onRemoveSelection: (index: number) => void
   onOpenItem: (group: string, index: number) => void
   onOpenAnalysis: () => void
+  /**
+   * 고른 해석 케이스의 이름(v2) — 있으면 트리를 **공유**(파트 · 물성 · 선택 그룹 · 좌표계 · 접촉 · 국부 메시)와
+   * **그 케이스**(해석 설정 · 구속 · 하중 · 초기조건)로 나눈다. 케이스를 바꾸면 아래 갈래만 바뀐다. 없으면(v1) 지금 차례.
+   */
+  caseName?: string
   /** 좌표계 — 도면의 것(읽기만)과 조건의 것(누르면 창). */
   frames?: { name: string; source: 'cad' | 'conditions'; index: number; on?: string }[]
   onOpenFrame?: (index: number) => void
@@ -176,9 +186,52 @@ export function ModelTree({
   /** 물성마다 「그대로 풀면 틀리는 것」 — 파트 줄 · 물성 줄의 ⚠ 와 툴팁. */
   const problems = materials.map((_, index) => materialProblems(converted?.[index]))
 
+  /** 조건 묶음 하나 — 줄을 누르면 창이 뜬다(창을 띄운 채 3D 에서 적용 대상을 지정한다). */
+  const groupBranch = (group: { key: string; label: string; items: ConditionItem[] }) => (
+    <Branch key={group.key} title={group.label} count={group.items.length}>
+      <ul className="space-y-0.5">
+        {group.items.map((item, index) => {
+          const where = targetOf(item)
+          const open = editing?.group === group.key && editing.index === index
+          return (
+            <li key={index}>
+              <button
+                type="button"
+                className={`hover:bg-muted flex w-full items-center gap-2 rounded px-2 py-1 text-left ${open ? 'bg-muted' : ''}`}
+                onClick={() => onOpenItem(group.key, index)}
+                title={`${String(item.name ?? item.type ?? '')} — ${where || '대상 미지정'}`}
+              >
+                {/* 이름이 먼저 — 대상(「접촉면 → 대상면」)이 먼저 줄고, 전체는 툴팁. */}
+                <span className="max-w-[60%] shrink-0 truncate">{String(item.name ?? item.type ?? '')}</span>
+                <span
+                  className={`ml-auto min-w-0 shrink truncate text-xs ${where && !where.includes('?') ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'}`}
+                >
+                  {where || '대상 미지정'}
+                </span>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    </Branch>
+  )
+  const analysisRow = (
+    <button
+      type="button"
+      className={`hover:bg-muted flex w-full items-center gap-2 rounded px-1 py-1 text-left font-medium ${editing?.group === 'analysis' ? 'bg-muted' : ''}`}
+      onClick={onOpenAnalysis}
+    >
+      해석 설정
+      <span className="text-muted-foreground ml-auto truncate text-xs font-normal">{analysis}</span>
+    </button>
+  )
+  const inCase = caseName !== undefined
+  const caseGroups = groups.filter((group) => CASE_GROUPS.has(group.key))
+
   return (
     <div className="space-y-2">
       <p className="font-medium">모델 구성</p>
+      {inCase && <p className="text-muted-foreground px-1 text-xs font-medium">공유 — 모든 케이스</p>}
 
       <Branch title="파트" count={bodies?.length ?? 0}>
         {bodies === null && !bodiesError && <Skeleton className="h-16 w-full" />}
@@ -505,44 +558,21 @@ export function ModelTree({
         </ul>
       </Branch>
 
-      {groups.map((group) => (
-        <Branch key={group.key} title={group.label} count={group.items.length}>
-          <ul className="space-y-0.5">
-            {group.items.map((item, index) => {
-              const where = targetOf(item)
-              const open = editing?.group === group.key && editing.index === index
-              return (
-                <li key={index}>
-                  {/* 조건은 **창으로** 고친다 — 창을 띄운 채 3D 에서 적용 대상을 지정한다. */}
-                  <button
-                    type="button"
-                    className={`hover:bg-muted flex w-full items-center gap-2 rounded px-2 py-1 text-left ${open ? 'bg-muted' : ''}`}
-                    onClick={() => onOpenItem(group.key, index)}
-                    title={`${String(item.name ?? item.type ?? '')} — ${where || '대상 미지정'}`}
-                  >
-                    {/* 이름이 먼저 — 대상(「접촉면 → 대상면」)이 먼저 줄고, 전체는 툴팁. */}
-                    <span className="max-w-[60%] shrink-0 truncate">{String(item.name ?? item.type ?? '')}</span>
-                    <span
-                      className={`ml-auto min-w-0 shrink truncate text-xs ${where && !where.includes('?') ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'}`}
-                    >
-                      {where || '대상 미지정'}
-                    </span>
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-        </Branch>
-      ))}
-
-      <button
-        type="button"
-        className={`hover:bg-muted flex w-full items-center gap-2 rounded px-1 py-1 text-left font-medium ${editing?.group === 'analysis' ? 'bg-muted' : ''}`}
-        onClick={onOpenAnalysis}
-      >
-        해석 설정
-        <span className="text-muted-foreground ml-auto truncate text-xs font-normal">{analysis}</span>
-      </button>
+      {inCase ? (
+        <>
+          {groups.filter((group) => !CASE_GROUPS.has(group.key)).map(groupBranch)}
+          <div className="space-y-2 border-t pt-2" aria-label="고른 해석 케이스">
+            <p className="text-muted-foreground px-1 text-xs font-medium">케이스 ‘{caseName}’</p>
+            {analysisRow}
+            {caseGroups.map(groupBranch)}
+          </div>
+        </>
+      ) : (
+        <>
+          {groups.map(groupBranch)}
+          {analysisRow}
+        </>
+      )}
     </div>
   )
 }
