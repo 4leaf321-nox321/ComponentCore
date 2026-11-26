@@ -100,3 +100,30 @@ test('좌표만 쓰는 선택 그룹 · 식 알림 · 옮긴 메시 · 도면 �
   ])
   expect(items[1].open).toEqual({ kind: 'selection', index: 0 })
 })
+
+test('곡선 — 점의 문제는 곡선 창을, 없거나 맞지 않는 곡선을 가리키는 하중은 그 하중 창을 연다', () => {
+  const schema = {
+    ...SCHEMA,
+    curves: { label: '곡선', fields: {}, required: [], uses: { psd_acceleration: { field: 'psd_table', interpolation: 'loglog', unit: 'g^2/Hz' } } },
+    groups: { ...SCHEMA.groups, loads: { ...SCHEMA.groups.loads, types: ['psd_acceleration'], fields: { name: {}, type: {} } } },
+  } as unknown as ConditionsSchema
+  const items = readiness({
+    ...base({
+      curves: [
+        { name: '한 점', x: 'frequency', interpolation: 'loglog', unit: 'g^2/Hz', points: [[20, 0.04]] },
+        { name: '배율', x: 'frequency', interpolation: 'linear', unit: '', points: [[20, 1], [200, 1]] },
+      ],
+      loads: [
+        { name: '가', type: 'psd_acceleration', curve: '배율' },
+        { name: '나', type: 'psd_acceleration', curve: '지운 곡선' },
+        { name: '다', type: 'psd_acceleration', curve: '한 점' },
+      ],
+    }),
+    schema,
+  })
+  expect(items.map((one) => [one.where, one.text, one.open])).toEqual([
+    ['곡선 ‘한 점’', '점이 두 개 이상 필요합니다.', { kind: 'curve', index: 0 }],
+    ['하중 ‘가’', '곡선 ‘배율’ — 로그-로그 보간이어야 합니다(곡선: 선형).', { kind: 'item', group: 'loads', index: 0 }],
+    ['하중 ‘나’', '곡선 ‘지운 곡선’이(가) 없습니다.', { kind: 'item', group: 'loads', index: 1 }],
+  ])
+})

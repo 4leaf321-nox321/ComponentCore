@@ -5,11 +5,13 @@
  * 보인다 — 규격이 함께 적는 값과 맞춰 본다. IEC 60068-2-64 처럼 (m/s²)²/Hz 로 적힌 표는 「g²/Hz 로
  * 바꾸기」 로 나눈다 — 받는 쪽은 g²/Hz 만 받는다.
  *
- * 조건 창(하중의 주파수별 배율 · PSD 표)과 시험 규격의 사내 규격 편집(랜덤 진동의 PSD 표)이 함께 쓴다.
+ * 조건 창(하중의 주파수별 배율 · PSD 표)과 곡선 창, 시험 규격의 사내 규격 편집(랜덤 진동의 PSD 표)이 함께 쓴다.
+ * `plot` 을 주면 표 아래에 그 보간대로 그래프를 그린다(`CurvePlot` — PSD 는 로그-로그).
  */
 
 import { useState } from 'react'
 
+import { CurvePlot } from '@/modules/conditions/CurvePlot'
 import { cellOf, pasteRows, psdGrms, toG2 } from '@/modules/conditions/excitation'
 import type { Row } from '@/modules/conditions/excitation'
 import { NumberText } from '@/modules/conditions/NumberText'
@@ -29,6 +31,8 @@ export function FrequencyTable({
   columns = DEFAULT_COLUMNS,
   grms = false,
   description,
+  plot,
+  plotScale,
   value,
   onChange,
 }: {
@@ -37,6 +41,10 @@ export function FrequencyTable({
   /** 가속도 PSD 표 — 실효값(Grms)을 보인다. */
   grms?: boolean
   description?: string
+  /** 표 아래 그래프 — 점 사이를 읽는 법(`linear` · `loglog` · `step`). 없으면 그리지 않는다. */
+  plot?: string
+  /** 그래프의 값에 곱한다(곡선의 배율) — 표의 값은 그대로다. */
+  plotScale?: unknown
   value: unknown
   /** 빈 표는 `null`. */
   onChange: (next: Row[] | null) => void
@@ -44,7 +52,12 @@ export function FrequencyTable({
   const rows: Row[] = Array.isArray(value) ? (value as Row[]) : []
   const [pasted, setPasted] = useState('')
   const put = (next: Row[]) => onChange(next.length > 0 ? next : null)
-  const shown = grms ? psdGrms(rows) : null
+  // 곡선의 배율을 곱한 Grms — 배율이 식이면 설계점마다 달라 보이지 않는다.
+  const factor = plotScale === undefined ? 1 : typeof plotScale === 'number' ? plotScale : null
+  const shown =
+    grms && factor !== null
+      ? psdGrms(factor === 1 ? rows : rows.map(([f, p]): Row => [f, typeof p === 'number' ? p * factor : p]))
+      : null
   /** 여러 행(탭 · 줄바꿈)이 들어오면 표 전체를 바꾼다 — 한 칸 붙여넣기는 그 칸에 둔다. */
   const onPaste = (event: React.ClipboardEvent) => {
     const text = event.clipboardData.getData('text')
@@ -148,7 +161,19 @@ export function FrequencyTable({
           </span>
         )}
       </div>
+      {plot && rows.length > 0 && (
+        <CurvePlot
+          title={title}
+          points={rows}
+          scale={plotScale}
+          interpolation={plot}
+          xLabel={axisLabel(columns[0])}
+          yLabel={axisLabel(columns[1])}
+        />
+      )}
       {description && <p className="text-muted-foreground text-xs">{description}</p>}
     </div>
   )
 }
+
+const axisLabel = (column: FrequencyColumn | undefined) => (column ? `${column.title}${column.unit ? ` (${column.unit})` : ''}` : '')

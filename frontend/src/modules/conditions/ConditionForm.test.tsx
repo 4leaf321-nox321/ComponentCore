@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 
-import type { ConditionItem, GroupSchema } from '@/modules/conditions/api'
+import type { ConditionItem, CurveItem, GroupSchema } from '@/modules/conditions/api'
 import { ConditionForm } from '@/modules/conditions/ConditionForm'
 
 const axis = (title: string, onlyFor = ['displacement', 'remote_displacement']) => ({
@@ -472,6 +472,85 @@ test('곡선을 가리키는 하중은 표 대신 그 곡선을 쓴다고 말하
   expect(screen.getByLabelText('가속도 PSD 붙여넣기')).toBeInTheDocument()
 })
 
+/** 곡선을 가리킬 수 있는 하중 — 가속도 PSD(로그-로그 · g^2/Hz)와 조화의 주파수별 배율(선형 · 단위 없음). */
+const CURVE_USES = {
+  psd_acceleration: { field: 'psd_table', interpolation: 'loglog', unit: 'g^2/Hz' },
+  acceleration: { field: 'frequency_table', interpolation: 'linear', unit: '' },
+}
+const WITH_CURVE: GroupSchema = {
+  ...EXCITATION,
+  fields: { ...EXCITATION.fields, curve: { type: 'string', default: '', hidden: true, only_for: ['acceleration', 'psd_acceleration'] } },
+}
+const SWEEP: CurveItem = { name: '스윕', x: 'frequency', unit: '', interpolation: 'linear', points: [[10, 1], [100, 0.5]], scale: 2 }
+const RANDOM: CurveItem = { name: 'IEC 랜덤', x: 'frequency', unit: 'g^2/Hz', interpolation: 'loglog', points: [[20, 0.04], [2000, 0.04]] }
+
+test('표 아래에서 곡선을 고른다 — 맞지 않는 곡선은 까닭과 함께 막고, 고르면 표 대신 곡선을 가리킨다', () => {
+  let item: ConditionItem = { name: '흔듦', type: 'acceleration', magnitude: 9806.65, direction: [1, 0, 0], frequency_table: [[10, 1]] }
+  const view = () => (
+    <ConditionForm group={WITH_CURVE} item={item} names={[]} analysis="harmonic" curves={[SWEEP, RANDOM]} curveUses={CURVE_USES} onMakeCurve={() => {}} onChange={(next) => (item = next)} />
+  )
+  const { rerender } = render(view())
+  const pick = screen.getByLabelText('주파수별 배율 곡선')
+  expect(screen.getByRole('option', { name: '스윕' })).not.toBeDisabled()
+  expect(screen.getByRole('option', { name: /^IEC 랜덤 — 선형 보간이어야 합니다/ })).toBeDisabled()
+  // 한 점뿐인 표는 곡선이 될 수 없다(두 점 이상).
+  expect(screen.getByRole('button', { name: '표를 곡선으로 저장' })).toBeDisabled()
+  fireEvent.change(pick, { target: { value: '스윕' } })
+  expect(item).toMatchObject({ curve: '스윕', frequency_table: null })
+  rerender(view())
+  // 고른 곡선 — 무엇을 쓰는지와 그 그래프(배율을 곱한 값).
+  expect(screen.getByRole('status')).toHaveTextContent('주파수별 배율: 곡선 ‘스윕’의 점을 씁니다. 곡선은 트리의 ‘곡선’에서 고칩니다')
+  expect(screen.getByRole('img', { name: /곡선 ‘스윕’ 그래프 — 2점, .*값 1 ~ 2/ })).toBeInTheDocument()
+  // 떼면 점 × 배율이 표로 옮겨진다.
+  fireEvent.click(screen.getByRole('button', { name: '곡선 떼고 표로 입력' }))
+  expect(item).toMatchObject({
+    curve: '',
+    frequency_table: [
+      [10, 2],
+      [100, 1],
+    ],
+  })
+})
+
+test('표를 곡선으로 저장하면 한 벌의 곡선에 더하고 이 하중이 그것을 가리킨다', () => {
+  let item: ConditionItem = { name: 'X 랜덤', type: 'psd_acceleration', direction: [1, 0, 0], psd_table: [[20, 0.04], [2000, '=p']] }
+  const made: CurveItem[] = []
+  render(
+    <ConditionForm
+      group={WITH_CURVE}
+      item={item}
+      names={[]}
+      analysis="random"
+      curves={[RANDOM]}
+      curveUses={CURVE_USES}
+      onMakeCurve={(curve) => made.push(curve)}
+      onChange={(next) => (item = next)}
+    />,
+  )
+  // 맞는 곡선은 고를 수 있다.
+  expect(screen.getByRole('option', { name: 'IEC 랜덤' })).not.toBeDisabled()
+  fireEvent.click(screen.getByRole('button', { name: '표를 곡선으로 저장' }))
+  expect(made).toEqual([
+    { name: 'X 랜덤 곡선', x: 'frequency', interpolation: 'loglog', unit: 'g^2/Hz', points: [[20, 0.04], [2000, '=p']], scale: 1 },
+  ])
+  expect(item).toMatchObject({ curve: 'X 랜덤 곡선', psd_table: null })
+})
+
+test('없는 곡선을 가리키면 그렇다고 말한다', () => {
+  render(
+    <ConditionForm
+      group={WITH_CURVE}
+      item={{ name: 'X 랜덤', type: 'psd_acceleration', direction: [1, 0, 0], curve: '지운 곡선' }}
+      names={[]}
+      analysis="random"
+      curves={[RANDOM]}
+      curveUses={CURVE_USES}
+      onChange={() => {}}
+    />,
+  )
+  expect(screen.getByRole('status')).toHaveTextContent('이 이름의 곡선이 없습니다.')
+})
+
 test('가속도 PSD 는 선택 그룹 · 크기 없이 방향과 PSD 표를 받고, 표의 Grms 를 보인다', () => {
   let item: ConditionItem = { name: 'X 랜덤', type: 'psd_acceleration', direction: [1, 0, 0] }
   const view = () => <ConditionForm group={EXCITATION} item={item} names={[]} analysis="random" onChange={(next) => (item = next)} />
@@ -482,5 +561,5 @@ test('가속도 PSD 는 선택 그룹 · 크기 없이 방향과 PSD 표를 받�
   rerender(view())
   // √(0.04 × 1980) = 8.90
   expect(screen.getByText('Grms 8.90 g')).toBeInTheDocument()
-  expect(screen.getByText('PSD (g²/Hz)')).toBeInTheDocument()
+  expect(screen.getByRole('columnheader', { name: 'PSD (g²/Hz)' })).toBeInTheDocument()
 })

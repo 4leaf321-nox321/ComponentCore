@@ -135,6 +135,34 @@ export interface ConditionsSchema {
     fields: Record<string, FieldSchema>
     mesh_fields: Record<string, FieldSchema>
   }
+  /** 곡선(공유) — 칸과 **하중 종류마다 채우는 표**(`uses`). 옛 서버면 없다(곡선 갈래 · 단추도 없다). */
+  curves?: {
+    label: string
+    intro?: string
+    fields: Record<string, FieldSchema>
+    required: string[]
+    uses: Record<string, CurveUse>
+  }
+}
+
+/** 하중 종류 하나가 곡선을 읽는 법 — 그 곡선이 채우는 표 칸 · 보간 · 단위(서버 `curves.USES`). */
+export interface CurveUse {
+  field: string
+  interpolation: string
+  unit: string
+}
+
+/**
+ * 곡선 하나(`curves[]`, 공유) — 가로축(시간 · 단계 · 주파수)에 따라 바뀌는 값. 하중의 `curve` 가 이름으로 가리키고,
+ * 내보낼 때 서버가 점 × 배율을 하중 안의 표로 푼다. 점 · 배율에는 `"=식"` 도 된다.
+ */
+export interface CurveItem {
+  name: string
+  x: string
+  unit?: string
+  interpolation?: string
+  points: (number | string)[][]
+  scale?: number | string
 }
 
 /**
@@ -236,6 +264,8 @@ export interface Conditions {
    * 도면의 좌표계와 이름이 겹치면 안 된다. 조건의 「좌표계」(`cs`) 칸이 이름으로 가리킨다.
    */
   coordinate_systems?: FrameDraft[]
+  /** 곡선 — 공유 칸(케이스마다 같다). 하중의 `curve` 가 이름으로 가리킨다. */
+  curves?: CurveItem[]
 }
 
 /** 조건이 담기는 묶음들 — 선택 그룹과 해석 설정은 따로 다룬다. */

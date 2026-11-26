@@ -1,6 +1,6 @@
 /**
  * **준비 점검** — 조건 화면 곳곳에 흩어져 있던 ⚠ 를 한 자리에(해석 확장 설계 6장). 트리의 ⚠(물성 값 · 좌표 기준
- * 그룹 · 대상 없음), 식 알림, 옮긴 메시 힌트, 도면 문제를 같은 줄 모양으로 모은다. 줄마다 고칠 자리(`open`)가
+ * 그룹 · 대상 없음), 곡선(점 · 하중이 가리키는 곡선), 식 알림, 옮긴 메시 힌트, 도면 문제를 같은 줄 모양으로 모은다. 줄마다 고칠 자리(`open`)가
  * 있으면 화면이 그곳을 연다.
  *
  * **저장을 막는 것이 아니다** — 서버가 저장 · 내보내기 때 같은 것을 다시 본다. 여기는 그 전에, 고치는 중에 보인다.
@@ -9,15 +9,17 @@
 
 import { GROUP_KEYS, hasCoordinateOnlyRule, materialsOn, settingOf } from '@/modules/conditions/api'
 import type { Body, ConditionItem, Conditions, ConditionsSchema, ExpressionNote } from '@/modules/conditions/api'
+import { curveMismatch, curveProblems } from '@/modules/conditions/curves'
 import type { MaterialConverted } from '@/modules/materials/api'
 import { materialProblems } from '@/modules/materials/MaterialProperties'
 
-/** 줄을 누르면 열 자리 — 트리의 파트 · 물성 · 선택 그룹, 또는 조건 창. */
+/** 줄을 누르면 열 자리 — 트리의 파트 · 물성 · 선택 그룹, 또는 조건 · 곡선 창. */
 export type ReadinessOpen =
   | { kind: 'part'; name: string }
   | { kind: 'library'; index: number }
   | { kind: 'selection'; index: number }
   | { kind: 'item'; group: string; index: number }
+  | { kind: 'curve'; index: number }
 
 export interface ReadinessItem {
   level: 'warn' | 'info'
@@ -93,6 +95,25 @@ export function readiness({ draft, schema, bodies, converted, notes, geometry, m
       }
     })
   }
+
+  // 곡선 — 점의 문제(서버가 저장 때 막는 것), 그리고 하중이 가리키는 곡선이 없거나 그 표의 뜻과 맞지 않는 것.
+  const curves = draft.curves ?? []
+  curves.forEach((curve, index) => {
+    for (const text of curveProblems(curve)) out.push({ level: 'warn', where: `곡선 ‘${curve.name}’`, text, open: { kind: 'curve', index } })
+  })
+  const loadSpec = schema.groups.loads
+  ;(draft.loads ?? []).forEach((load, index) => {
+    const name = typeof load.curve === 'string' ? load.curve : ''
+    if (!name || !loadSpec) return
+    const type = String(load.type ?? '')
+    const where = `${loadSpec.label} ‘${nameOf(load, loadSpec.fields.type?.labels?.[type] ?? type)}’`
+    const open: ReadinessOpen = { kind: 'item', group: 'loads', index }
+    const curve = curves.find((one) => one.name === name)
+    const use = schema.curves?.uses[type]
+    const why = curve && use ? curveMismatch(curve, use) : null
+    if (!curve) out.push({ level: 'warn', where, text: `곡선 ‘${name}’이(가) 없습니다.`, open })
+    else if (why) out.push({ level: 'warn', where, text: `곡선 ‘${name}’ — ${why}`, open })
+  })
 
   // 좌표만 쓰는 선택 규칙 — DOE 가 치수를 바꾸면 딴 형상을 집는다.
   draft.named_selections.forEach((one, index) => {

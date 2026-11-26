@@ -18,6 +18,7 @@ import {
   ScanEye,
   Scissors,
   Settings2,
+  Spline,
   TableProperties,
   Thermometer,
 } from 'lucide-react'
@@ -57,6 +58,8 @@ export interface RibbonActions {
   onPickMaterials: () => void
   onOpenParts: () => void
   onAdd: (group: string) => void
+  /** 곡선을 더한다 — 없으면(옛 서버 — 사양표에 곡선이 없다) 단추도 없다. */
+  onAddCurve?: () => void
   onAddFrame: () => void
   onToggleMeasuring: () => void
   onToggleContacts: () => void
@@ -121,6 +124,14 @@ export function ConditionsRibbon({
             onClick={() => on.onAdd(group.key)}
           />
         ))}
+        {on.onAddCurve && (
+          <RibbonButton
+            icon={Spline}
+            label="곡선"
+            title="곡선 추가: 주파수에 따라 바뀌는 값(가속도 PSD · 주파수별 배율)을 이름 붙여 두고 여러 하중 · 케이스가 함께 가리킵니다."
+            onClick={on.onAddCurve}
+          />
+        )}
       </RibbonGroup>
       <RibbonGroup title="좌표계·측정">
         <RibbonButton

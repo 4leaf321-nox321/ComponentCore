@@ -30,7 +30,7 @@
  * 이 파일은 상태를 들고 잇는다. 그리는 것 · 셈하는 것은 옆 파일에 있다 — 케이스 탭(`CaseTabs` · `cases`), 리본
  * (`ConditionsRibbon`), 준비 점검(`ReadinessPanel` · `readiness`), 모델 트리(`ModelTree`), 3D 에 비출 것
  * (`useConditionMarks`), 3D 에서 담기(`useGroupPicking`), 좌표계(`useConditionFrames`), 3D 칸 위의 것
- * (`ViewportOverlays`), 조건 창(`ConditionWindows` · `ConditionForm`).
+ * (`ViewportOverlays`), 조건 창(`ConditionWindows` · `ConditionForm`), 곡선(`CurveForm` · `curves` · `CurvePlot`).
  */
 
 import { Scale } from 'lucide-react'
@@ -51,6 +51,9 @@ import { caseView, casesOf, putCaseView, saved, withCases } from '@/modules/cond
 import { ConditionForm } from '@/modules/conditions/ConditionForm'
 import { ConditionsRibbon } from '@/modules/conditions/ConditionsRibbon'
 import { ContactCheck } from '@/modules/conditions/ContactCheck'
+import { CurveForm } from '@/modules/conditions/CurveForm'
+import type { CurvePreset } from '@/modules/conditions/CurveForm'
+import { curveUsers, emptyCurve, renameCurve } from '@/modules/conditions/curves'
 import { FloatingWindow, SelectionMembers } from '@/modules/conditions/ConditionWindows'
 import { materialColor, ModelTree, UNASSIGNED_COLOR } from '@/modules/conditions/ModelTree'
 import type { TreeSelection } from '@/modules/conditions/ModelTree'
@@ -79,6 +82,7 @@ import type {
   ConditionItem,
   Conditions,
   ConditionsSchema,
+  CurveItem,
   GroupSchema,
   MaterialItem,
   NamedSelection,
@@ -148,6 +152,8 @@ export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }
   const [partsOpen, setPartsOpen] = useState(false)
   /** 좌표계 창 — 새로(`index` 가 null) 또는 고치는 것. 확인을 눌러야 한 벌에 들어간다. */
   const [frameEditing, setFrameEditing] = useState<{ index: number | null; item: FrameDraft } | null>(null)
+  /** 곡선 창 — 새로(`index` 가 null) 또는 고치는 것. 확인을 눌러야 한 벌에 들어간다. */
+  const [curveEditing, setCurveEditing] = useState<{ index: number | null; item: CurveItem } | null>(null)
   /** 좌표계를 화면에서 지정하는 중인 것 — 점 · 선 · 면을 누르거나 손잡이로 돌리기. */
   const [placing, setPlacing] = useState<Placing>(null)
   /**
@@ -451,6 +457,47 @@ export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }
     setError(null)
   }
 
+  /**
+   * 곡선 창의 확인 — 이름이 비었거나 겹치면 막는다. **곡선은 공유다**: 이름을 바꾸면 그것을 가리키던 하중을
+   * 모든 케이스에서 함께 바꾼다(열린 하중 창의 것도).
+   */
+  function confirmCurve() {
+    if (!curveEditing) return
+    const name = curveEditing.item.name.trim()
+    const list = whole.curves ?? []
+    if (!name || list.some((one, i) => i !== curveEditing.index && one.name === name)) {
+      setError(new Error(!name ? '곡선 이름을 입력하십시오.' : `‘${name}’ 곡선이 이미 존재합니다. 다른 이름을 입력하십시오.`))
+      return
+    }
+    const old = curveEditing.index === null ? null : (list[curveEditing.index]?.name ?? null)
+    const item = { ...curveEditing.item, name }
+    const at = curveEditing.index
+    setWhole((now) => {
+      const base = old ? renameCurve(now, old, name) : now
+      const curves = [...(base.curves ?? [])]
+      if (at === null) curves.push(item)
+      else curves[at] = item
+      return { ...base, curves }
+    })
+    if (old && old !== name && editing?.item.curve === old) setEditing({ ...editing, item: { ...editing.item, curve: name } })
+    setCurveEditing(null)
+    setError(null)
+  }
+
+  /** 곡선을 지운다 — 가리키는 하중이 있으면 못 한다(창의 단추가 막는다). */
+  function removeCurve(index: number) {
+    setWhole((now) => ({ ...now, curves: (now.curves ?? []).filter((_, i) => i !== index) }))
+    setCurveEditing(null)
+    setError(null)
+  }
+
+  function openCurve(index: number) {
+    const one = (draft.curves ?? [])[index]
+    if (!one) return
+    setError(null)
+    setCurveEditing({ index, item: structuredClone(one) })
+  }
+
   function removeSelection(index: number) {
     const gone = names[index]
     setDraft({
@@ -619,6 +666,7 @@ export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }
   /** 준비 점검의 줄을 눌렀다 — 트리에서 그 자리를 펼치거나 조건 창을 연다. */
   function openCheck(where: ReadinessOpen) {
     if (where.kind === 'item') return openItem(where.group, where.index)
+    if (where.kind === 'curve') return openCurve(where.index)
     setTree(where)
   }
 
@@ -644,6 +692,17 @@ export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }
       : editing
         ? spec.groups[editing.group]
         : undefined
+  /**
+   * 곡선의 쓰임 단추 — 하중 칸마다 그 표를 읽는 법(가속도 PSD — 로그-로그 · g^2/Hz, 주파수별 배율 — 선형 · 단위
+   * 없음). 이름표는 하중 사양표의 그 칸 이름이다.
+   */
+  const curvePresets: CurvePreset[] = Object.values(spec.curves?.uses ?? {})
+    .filter((use, i, all) => all.findIndex((one) => one.field === use.field) === i)
+    .map((use) => ({ label: spec.groups.loads?.fields[use.field]?.title ?? use.field, interpolation: use.interpolation, unit: use.unit }))
+  const curveList = spec.curves ? (draft.curves ?? []) : undefined
+  /** 고치는 곡선을 가리키는 하중 — 저장된 이름으로(바꾸는 중인 이름이 아니라). */
+  const curveUsing =
+    curveEditing && curveEditing.index !== null ? curveUsers(whole, (whole.curves ?? [])[curveEditing.index]?.name ?? '') : []
 
   return (
     <div className="space-y-3">
@@ -687,6 +746,12 @@ export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }
           onPickMaterials: () => setPicking(true),
           onOpenParts: () => setPartsOpen(true),
           onAdd: addItem,
+          onAddCurve: spec.curves
+            ? () => {
+                setError(null)
+                setCurveEditing({ index: null, item: emptyCurve(draft.curves ?? []) })
+              }
+            : undefined,
           onAddFrame: () =>
             setFrameEditing({ index: null, item: { name: nextFrameName(frameNames), origin: [0, 0, 0], rotate: [0, 0, 0] } }),
           onToggleMeasuring: () => {
@@ -818,6 +883,8 @@ export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }
                 ...conditionFrames.map((one, index) => ({ name: one.name, source: 'conditions' as const, index, on: one.on })),
               ]}
               onOpenFrame={(index) => setFrameEditing({ index, item: structuredClone(conditionFrames[index]) })}
+              curves={curveList}
+              onOpenCurve={openCurve}
             />
           </CardContent>
         </Card>
@@ -979,6 +1046,9 @@ export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }
               frames={frameNames}
               units={inputOf}
               analysis={editing.group === 'loads' ? String(draft.analysis?.type ?? 'modal') : undefined}
+              curves={editing.group === 'loads' ? curveList : undefined}
+              curveUses={spec.curves?.uses}
+              onMakeCurve={(curve) => setWhole((now) => ({ ...now, curves: [...(now.curves ?? []), curve] }))}
               onChange={(next) => setEditing({ ...editing, item: next })}
             />
           </>
@@ -1031,6 +1101,46 @@ export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }
           />
         )}
       </FloatingWindow>
+
+      {/* ── 곡선 — 공유. 하중의 표 칸이 이름으로 가리킨다. ── */}
+      {spec.curves && (
+        <FloatingWindow
+          open={!!curveEditing}
+          title={`곡선 ${curveEditing?.index === null ? '추가' : '수정'}`}
+          description="모든 케이스가 함께 쓰는 곡선입니다. 내보낼 때 점 × 배율을 그 곡선을 가리키는 하중의 표로 풀어 싣습니다."
+          onClose={() => setCurveEditing(null)}
+          footer={
+            <>
+              {curveEditing && curveEditing.index !== null && (
+                <Button
+                  variant="ghost"
+                  className="sm:mr-auto"
+                  disabled={curveUsing.length > 0}
+                  title={curveUsing.length > 0 ? `이 곡선을 쓰는 하중이 있습니다(${curveUsing.join(', ')}). 하중에서 곡선을 먼저 떼십시오.` : undefined}
+                  onClick={() => curveEditing.index !== null && removeCurve(curveEditing.index)}
+                >
+                  삭제
+                </Button>
+              )}
+              <Button variant="ghost" onClick={() => setCurveEditing(null)}>
+                취소
+              </Button>
+              <Button onClick={confirmCurve}>확인</Button>
+            </>
+          }
+        >
+          {curveEditing && (
+            <CurveForm
+              value={curveEditing.item}
+              onChange={(item) => setCurveEditing({ ...curveEditing, item })}
+              fields={spec.curves.fields}
+              intro={spec.curves.intro}
+              presets={curvePresets}
+              users={curveUsing}
+            />
+          )}
+        </FloatingWindow>
+      )}
 
       {/* ── 측정 — 도면 편집기와 같은 창. 띄운 채 3D 를 누른다. ── */}
       <MeasureDialog

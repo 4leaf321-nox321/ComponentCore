@@ -9,9 +9,12 @@
 import { useEffect, useState } from 'react'
 
 import { acceptsLabel } from '@/modules/conditions/api'
+import { CurvePlot } from '@/modules/conditions/CurvePlot'
+import { curveMismatch, nextCurveName, tableOfCurve } from '@/modules/conditions/curves'
 import { FrequencyTable } from '@/modules/conditions/FrequencyTable'
+import type { FrequencyColumn } from '@/modules/conditions/FrequencyTable'
 import { NumberText } from '@/modules/conditions/NumberText'
-import type { ConditionItem, FieldSchema, GroupSchema, NamedSelection } from '@/modules/conditions/api'
+import type { ConditionItem, CurveItem, CurveUse, FieldSchema, GroupSchema, NamedSelection } from '@/modules/conditions/api'
 import { Button } from '@/shared/components/ui/button'
 import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
@@ -335,25 +338,129 @@ const FOOTNOTE: Record<string, string> = {
   cylindrical: '방향은 선택한 원통면의 축을 기준으로 합니다. 좌표계는 선택하지 않습니다.',
 }
 
+const axisLabel = (column: FrequencyColumn | undefined, fallback: string) =>
+  column ? `${column.title}${column.unit ? ` (${column.unit})` : ''}` : fallback
+
 /**
- * 표 대신 **곡선**(`curves[]`, 이름)을 가리키는 하중 — 내보낼 때 서버가 곡선의 점을 이 표로 푼다.
- * 곡선 편집은 아직 이 화면에 없어(AI · API 가 쓴다) 표를 그리면 빈 표로 보이고, 거기 적으면
- * 서버가 「표와 곡선을 함께 적을 수 없다」 로 막는다 — 무엇을 쓰는지 말하고, 표로 적으려면 뗀다.
+ * 표 대신 **곡선**(`curves[]`, 이름)을 가리키는 하중 — 내보낼 때 서버가 곡선의 점(× 배율)을 이 표로 푼다. 표를
+ * 그리면 빈 표로 보이고 거기 적으면 서버가 「표와 곡선을 함께 적을 수 없다」 로 막으므로, 무엇을 쓰는지 말하고
+ * 곡선의 그래프를 보인다. 곡선은 공유라 트리의 「곡선」 에서 고친다. 표로 적으려면 뗀다 — 점 × 배율이 표로 옮겨진다.
  */
-function CurveNotice({ field, curve, onDetach }: { field: FieldSchema; curve: string; onDetach: () => void }) {
+function CurveNotice({
+  field,
+  name,
+  curve,
+  known,
+  mismatch,
+  onDetach,
+}: {
+  field: FieldSchema
+  name: string
+  /** 그 이름의 곡선 — 없으면 `undefined`. */
+  curve?: CurveItem
+  /** 곡선 목록을 받았나 — 옛 서버면 곡선을 고칠 자리가 없다. */
+  known: boolean
+  /** 이 하중이 이 곡선을 가리킬 수 없는 까닭(서버 규칙). */
+  mismatch: string | null
+  onDetach: () => void
+}) {
+  const columns = field.table?.columns
   return (
     <div role="status" className="bg-muted/40 space-y-1 rounded px-2 py-1.5 text-xs">
       <p>
-        {field.title ?? '표'}: 곡선 ‘{curve}’의 점을 씁니다. 곡선은 아직 이 화면에서 고칠 수 없습니다.
+        {field.title ?? '표'}: 곡선 ‘{name}’의 점을 씁니다.{' '}
+        {!known
+          ? '곡선은 아직 이 화면에서 고칠 수 없습니다.'
+          : curve
+            ? '곡선은 트리의 ‘곡선’에서 고칩니다 — 이 곡선을 가리키는 모든 하중에 함께 반영됩니다.'
+            : '이 이름의 곡선이 없습니다. 곡선을 만들거나 떼십시오.'}
       </p>
-      <Button type="button" variant="outline" size="sm" onClick={onDetach}>
+      {mismatch && <p className="text-amber-700 dark:text-amber-400">⚠ {mismatch}</p>}
+      {curve && (
+        <CurvePlot
+          title={`곡선 ‘${curve.name}’`}
+          points={curve.points}
+          scale={curve.scale ?? 1}
+          interpolation={curve.interpolation ?? 'linear'}
+          xLabel={axisLabel(columns?.[0], '가로축')}
+          yLabel={axisLabel(columns?.[1], '값')}
+        />
+      )}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        title="곡선의 점(× 배율)을 이 표로 옮기고 곡선을 뗍니다. 배율이 식이면 표는 비워 둡니다."
+        onClick={onDetach}
+      >
         곡선 떼고 표로 입력
       </Button>
     </div>
   )
 }
 
-/** 표 칸 — 가진 프로파일. 사양표의 열 이름 · Grms 여부로 그린다(`FrequencyTable`). */
+/**
+ * 표 아래의 **곡선 고르기** — 표 대신 공유 곡선을 가리킨다(맞지 않는 곡선은 까닭과 함께 막는다), 또는 지금 표를
+ * 곡선으로 저장해 다른 하중 · 케이스와 함께 쓴다.
+ */
+function CurvePick({
+  title,
+  curves,
+  use,
+  canMake,
+  onPick,
+  onMake,
+}: {
+  title: string
+  curves: CurveItem[]
+  use: CurveUse
+  /** 표에 점이 두 개 이상 있고 곡선을 더할 수 있나. */
+  canMake: boolean
+  onPick: (name: string) => void
+  onMake?: () => void
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <label className="flex items-center gap-1.5">
+        곡선
+        <select
+          aria-label={`${title} 곡선`}
+          className="bg-background max-w-64 rounded border px-1.5 py-0.5 text-xs"
+          title="곡선을 고르면 이 표 대신 곡선의 점을 씁니다(표는 비워집니다)."
+          value=""
+          disabled={curves.length === 0}
+          onChange={(event) => event.target.value && onPick(event.target.value)}
+        >
+          <option value="">{curves.length > 0 ? '표로 입력 — 곡선 고르기' : '곡선 없음'}</option>
+          {curves.map((one) => {
+            const why = curveMismatch(one, use)
+            return (
+              <option key={one.name} value={one.name} disabled={!!why}>
+                {one.name}
+                {why ? ` — ${why}` : ''}
+              </option>
+            )
+          })}
+        </select>
+      </label>
+      {onMake && (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="h-7 text-xs"
+          disabled={!canMake}
+          title="이 표를 공유 곡선으로 저장하고, 이 하중이 그 곡선을 가리키게 합니다. 다른 하중 · 케이스도 같은 곡선을 쓸 수 있습니다."
+          onClick={onMake}
+        >
+          표를 곡선으로 저장
+        </Button>
+      )}
+    </div>
+  )
+}
+
+/** 표 칸 — 가진 프로파일. 사양표의 열 이름 · Grms 여부로 그리고, 그 보간대로 그래프를 단다(`FrequencyTable`). */
 function TableField({ field, value, onChange }: { field: FieldSchema; value: unknown; onChange: (next: unknown) => void }) {
   return (
     <FrequencyTable
@@ -361,6 +468,8 @@ function TableField({ field, value, onChange }: { field: FieldSchema; value: unk
       columns={field.table?.columns}
       grms={Boolean(field.table?.grms)}
       description={field.description}
+      // 가속도 PSD 는 로그-로그, 주파수별 배율은 선형 — 서버가 표를 읽는 법과 같다.
+      plot={field.table?.grms ? 'loglog' : 'linear'}
       value={value}
       onChange={onChange}
     />
@@ -374,6 +483,9 @@ export function ConditionForm({
   frames = [],
   units = {},
   analysis,
+  curves,
+  curveUses,
+  onMakeCurve,
   onChange,
 }: {
   group: GroupSchema
@@ -386,6 +498,12 @@ export function ConditionForm({
   units?: Record<string, string>
   /** 지금 해석 종류 — 주면 `analysis_only` 칸(조화 응답의 주파수별 배율 · 위상)을 그때만 보인다. */
   analysis?: string
+  /** 공유 곡선(`curves[]`) — 주면 표 칸 아래에서 곡선을 고른다. 옛 서버면 없다. */
+  curves?: CurveItem[]
+  /** 하중 종류마다 곡선이 채우는 표 칸 · 보간 · 단위(`schema.curves.uses`). */
+  curveUses?: Record<string, CurveUse>
+  /** 표를 곡선으로 저장한다 — 한 벌의 곡선에 더한다(창을 취소해도 남는다 — 3D 에서 만든 선택 그룹처럼). */
+  onMakeCurve?: (curve: CurveItem) => void
   onChange: (next: ConditionItem) => void
 }) {
   const set = (key: string, value: unknown) => onChange({ ...item, [key]: value })
@@ -570,11 +688,45 @@ export function ConditionForm({
       {others.map(([key, field]) => {
         const options = choices(field)
         const value = item[key]
+        const use = curveUses?.[type]
         if (field.table && typeof item.curve === 'string' && item.curve !== '') {
-          return <CurveNotice key={key} field={field} curve={item.curve} onDetach={() => set('curve', '')} />
+          const curve = curves?.find((one) => one.name === item.curve)
+          return (
+            <CurveNotice
+              key={key}
+              field={field}
+              name={item.curve}
+              curve={curve}
+              known={curves !== undefined}
+              mismatch={curve && use ? curveMismatch(curve, use) : null}
+              onDetach={() => onChange({ ...item, curve: '', [key]: tableOfCurve(curve) })}
+            />
+          )
         }
         if (field.table) {
-          return <TableField key={key} field={field} value={value} onChange={(v) => set(key, v)} />
+          const rows = Array.isArray(value) ? value.length : 0
+          return (
+            <div key={key} className="space-y-1.5">
+              <TableField field={field} value={value} onChange={(v) => set(key, v)} />
+              {curves && use?.field === key && (
+                <CurvePick
+                  title={field.title ?? '표'}
+                  curves={curves}
+                  use={use}
+                  canMake={rows >= 2}
+                  onPick={(name) => onChange({ ...item, curve: name, [key]: null })}
+                  onMake={
+                    onMakeCurve &&
+                    (() => {
+                      const name = nextCurveName(curves, `${String(item.name ?? '') || (field.title ?? '하중')} 곡선`)
+                      onMakeCurve({ name, x: 'frequency', interpolation: use.interpolation, unit: use.unit, points: value as CurveItem['points'], scale: 1 })
+                      onChange({ ...item, curve: name, [key]: null })
+                    })
+                  }
+                />
+              )}
+            </div>
+          )
         }
         if (field.direction) {
           return (

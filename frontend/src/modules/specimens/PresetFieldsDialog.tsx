@@ -141,6 +141,8 @@ export function PresetFieldsDialog({ row, mode, onClose, onSaved }: { row: Prese
               title={one.label}
               columns={one.columns}
               grms={one.grms}
+              // 가속도 PSD 표는 로그-로그 그래프 — 규격의 dB/oct 기울기가 직선으로 보인다.
+              plot={one.grms ? 'loglog' : undefined}
               value={JSON.parse(values[slot(one)] || 'null')}
               onChange={(next) => set(one, JSON.stringify(next))}
             />

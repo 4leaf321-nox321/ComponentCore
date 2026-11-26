@@ -130,6 +130,9 @@ const SCHEMA = {
   entities: ['face', 'edge', 'vertex', 'body'],
 }
 
+/** 서버의 사양표 — 곡선 시험은 곡선이 있는 것으로 바꿔 끼운다(`CURVE_SCHEMA`). */
+let schemaNow: unknown = SCHEMA
+
 const CANDIDATES = {
   picked: { kind: 'plane' },
   candidates: [
@@ -273,7 +276,7 @@ vi.mock('@/shared/api/client', async () => {
           ? CLASSES
           : path.startsWith('/materials')
             ? MATERIALS
-            : SCHEMA,
+            : schemaNow,
       ),
       // 바디 목록과 셀렉터 후보는 **다른 길**이다 — 물성이 어디에 붙는지가 바디에서 나온다.
       post: vi.fn(async (path: string, body?: { pick?: { point?: number[] }; picks?: { point: number[] }[] }) => {
@@ -1104,4 +1107,131 @@ test('케이스가 없는 조건(v1)에는 탭이 없다 — 트리도 지금과
   expect(screen.queryByRole('tablist', { name: '해석 케이스 목록' })).toBeNull()
   expect(screen.queryByLabelText('고른 해석 케이스')).toBeNull()
   expect(screen.queryByText('공유 — 모든 케이스')).toBeNull()
+})
+
+/** 곡선이 있는 서버의 사양표 — 조화 응답의 압력이 주파수별 배율을 곡선으로 가리킬 수 있다. */
+const CURVE_SCHEMA = {
+  ...SCHEMA,
+  analysis: { properties: { type: { enum: ['modal', 'static', 'harmonic'] } } },
+  groups: {
+    ...SCHEMA.groups,
+    loads: {
+      ...SCHEMA.groups.loads,
+      fields: {
+        ...SCHEMA.groups.loads.fields,
+        frequency_table: {
+          title: '주파수별 배율',
+          only_for: ['pressure'],
+          analysis_only: ['harmonic'],
+          table: { columns: [{ title: '주파수', unit: 'Hz' }, { title: '배율' }] },
+        },
+        curve: { type: 'string', default: '', hidden: true, only_for: ['pressure'] },
+      },
+    },
+  },
+  curves: {
+    label: '곡선',
+    intro: '주파수 · 시간 · 단계에 따라 바뀌는 값을 이름 붙여 둡니다.',
+    fields: {
+      name: { title: '곡선 이름' },
+      x: { title: '가로축', labels: { time: '시간', step: '단계', frequency: '주파수' } },
+      unit: { title: '값의 단위' },
+      interpolation: { title: '보간', labels: { linear: '선형', loglog: '로그-로그', step: '계단' } },
+      points: { title: '점' },
+      scale: { title: '배율' },
+    },
+    required: ['name', 'x'],
+    uses: { pressure: { field: 'frequency_table', interpolation: 'linear', unit: '' } },
+  },
+}
+const SWEEP = { name: '스윕', x: 'frequency', unit: '', interpolation: 'linear', points: [[10, 1], [100, 0.5]], scale: 1 }
+
+describe('곡선', () => {
+  beforeEach(() => {
+    schemaNow = CURVE_SCHEMA
+  })
+  afterEach(() => {
+    schemaNow = SCHEMA
+  })
+
+  test('곡선은 공유 — 트리 · 창에서 고치고, 이름을 바꾸면 모든 케이스의 하중이 따라간다. 쓰는 곡선은 지우지 못한다', async () => {
+    const value = {
+      ...TWO_CASES,
+      curves: [SWEEP],
+      cases: [
+        { name: '가', analysis: { type: 'harmonic' }, loads: [{ name: '누름', type: 'pressure', on: '바닥', magnitude: 1, curve: '스윕' }] },
+        { name: '나', analysis: { type: 'harmonic' }, loads: [{ name: '당김', type: 'pressure', on: '바닥', magnitude: 2, curve: '스윕' }] },
+      ],
+    }
+    const onSave = vi.fn()
+    render(<ConditionsPanel recipe={RECIPE} value={value} onSave={onSave} />)
+    await waitFor(() => screen.getByText('면 찍기'))
+    // 공유 갈래의 「곡선」 — 케이스 갈래가 아니다.
+    const row = screen.getByRole('button', { name: '스윕 주파수 · 선형 · 2점' })
+    expect(within(screen.getByLabelText('고른 해석 케이스')).queryByText('스윕')).toBeNull()
+    fireEvent.click(row)
+    const dialog = await screen.findByRole('dialog', { name: '곡선 수정' })
+    expect(within(dialog).getByLabelText('이 곡선을 쓰는 하중')).toHaveTextContent('케이스 ‘가’ · 하중 ‘누름’케이스 ‘나’ · 하중 ‘당김’')
+    expect(within(dialog).getByRole('button', { name: '삭제' })).toBeDisabled()
+    expect(within(dialog).getByRole('img', { name: /^점 그래프 — 2점/ })).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: '주파수별 배율' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.change(within(dialog).getByLabelText('곡선 이름'), { target: { value: '스윕 2' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '확인' }))
+    expect(screen.queryByRole('dialog', { name: '곡선 수정' })).toBeNull()
+    const out = await save(onSave)
+    expect(out.curves).toEqual([{ ...SWEEP, name: '스윕 2' }])
+    expect(out.cases.map((one: { loads: { curve: string }[] }) => one.loads[0].curve)).toEqual(['스윕 2', '스윕 2'])
+  })
+
+  test('하중의 표를 곡선으로 저장하고, 리본에서 곡선을 더한다 — 점이 모자라면 준비 점검이 짚고 누르면 그 곡선을 연다', async () => {
+    const value = {
+      schema_version: 1,
+      units: { system: 'mm_n_tonne' },
+      named_selections: [{ name: '바닥', entity: 'face', select: { what: 'faces', role: 'bottom' } }],
+      analysis: { type: 'harmonic' },
+      loads: [{ name: '누름', type: 'pressure', on: '바닥', magnitude: 1, frequency_table: [[10, 1], [100, 0.5]] }],
+    }
+    const onSave = vi.fn()
+    render(<ConditionsPanel recipe={RECIPE} value={value} onSave={onSave} />)
+    await waitFor(() => screen.getByText('면 찍기'))
+    fireEvent.click(screen.getByTitle(/^누름 — /))
+    const load = await screen.findByRole('dialog', { name: '하중 수정' })
+    expect(within(load).getByRole('img', { name: /^주파수별 배율 그래프 — 2점/ })).toBeInTheDocument()
+    fireEvent.click(within(load).getByRole('button', { name: '표를 곡선으로 저장' }))
+    // 곡선은 곧바로 한 벌에 — 트리의 공유 갈래에 보인다. 하중은 그 곡선을 가리킨다.
+    expect(screen.getByRole('button', { name: '누름 곡선 주파수 · 선형 · 2점' })).toBeInTheDocument()
+    expect(within(load).getByRole('status')).toHaveTextContent('곡선 ‘누름 곡선’의 점을 씁니다')
+    fireEvent.click(within(load).getByRole('button', { name: '확인' }))
+
+    // 리본의 「곡선」 — 새 곡선은 점이 없다. 확인하면 준비 점검이 짚는다.
+    fireEvent.click(screen.getByRole('button', { name: '곡선' }))
+    const add = await screen.findByRole('dialog', { name: '곡선 추가' })
+    expect(within(add).getByLabelText('곡선 이름')).toHaveValue('곡선 2')
+    fireEvent.click(within(add).getByRole('button', { name: '확인' }))
+    const checks = screen.getByRole('list', { name: '준비 점검' })
+    fireEvent.click(within(checks).getByRole('button', { name: /곡선 ‘곡선 2’ · 점이 두 개 이상 필요합니다/ }))
+    const fix = await screen.findByRole('dialog', { name: '곡선 수정' })
+    fireEvent.change(within(fix).getByLabelText('점 붙여넣기'), { target: { value: '5\t0\n50\t1' } })
+    fireEvent.click(within(fix).getByRole('button', { name: '확인' }))
+    expect(screen.queryByRole('button', { name: /곡선 ‘곡선 2’/ })).toBeNull()
+
+    const out = await save(onSave)
+    expect(out.loads[0]).toMatchObject({ name: '누름', curve: '누름 곡선', frequency_table: null })
+    expect(out.curves).toEqual([
+      { name: '누름 곡선', x: 'frequency', interpolation: 'linear', unit: '', points: [[10, 1], [100, 0.5]], scale: 1 },
+      { name: '곡선 2', x: 'frequency', unit: '', interpolation: 'linear', points: [[5, 0], [50, 1]], scale: 1 },
+    ])
+  })
+
+  test('곡선 이름이 겹치면 확인을 막는다', async () => {
+    const onSave = vi.fn()
+    render(<ConditionsPanel recipe={RECIPE} value={{ curves: [SWEEP] }} onSave={onSave} />)
+    await waitFor(() => screen.getByText('면 찍기'))
+    fireEvent.click(screen.getByRole('button', { name: '곡선' }))
+    const add = await screen.findByRole('dialog', { name: '곡선 추가' })
+    fireEvent.change(within(add).getByLabelText('곡선 이름'), { target: { value: '스윕' } })
+    fireEvent.click(within(add).getByRole('button', { name: '확인' }))
+    expect(screen.getByText('‘스윕’ 곡선이 이미 존재합니다. 다른 이름을 입력하십시오.')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '곡선 추가' })).toBeInTheDocument()
+  })
 })

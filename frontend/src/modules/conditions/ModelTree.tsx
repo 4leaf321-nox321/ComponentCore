@@ -17,8 +17,9 @@ import { ChevronDownIcon, ChevronRightIcon, Eye, EyeOff } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { ALL_BODIES, appliedTo, hasCoordinateOnlyRule, materialsOn, settingOf } from '@/modules/conditions/api'
-import type { Body, BodySetting, ConditionItem, MaterialItem, NamedSelection } from '@/modules/conditions/api'
+import type { Body, BodySetting, ConditionItem, CurveItem, MaterialItem, NamedSelection } from '@/modules/conditions/api'
 import { CASE_FIELDS } from '@/modules/conditions/cases'
+import { curveProblems, curveSummary } from '@/modules/conditions/curves'
 import type { MaterialConverted } from '@/modules/materials/api'
 import { MaterialProperties, materialProblems } from '@/modules/materials/MaterialProperties'
 import { Button } from '@/shared/components/ui/button'
@@ -117,6 +118,8 @@ export function ModelTree({
   caseName,
   frames = [],
   onOpenFrame,
+  curves,
+  onOpenCurve,
   hidden = [],
   onToggleHidden,
   onShowAll,
@@ -162,13 +165,16 @@ export function ModelTree({
   onOpenItem: (group: string, index: number) => void
   onOpenAnalysis: () => void
   /**
-   * 고른 해석 케이스의 이름(v2) — 있으면 트리를 **공유**(파트 · 물성 · 선택 그룹 · 좌표계 · 접촉 · 국부 메시)와
+   * 고른 해석 케이스의 이름(v2) — 있으면 트리를 **공유**(파트 · 물성 · 선택 그룹 · 좌표계 · 곡선 · 접촉 · 국부 메시)와
    * **그 케이스**(해석 설정 · 구속 · 하중 · 초기조건)로 나눈다. 케이스를 바꾸면 아래 갈래만 바뀐다. 없으면(v1) 지금 차례.
    */
   caseName?: string
   /** 좌표계 — 도면의 것(읽기만)과 조건의 것(누르면 창). */
   frames?: { name: string; source: 'cad' | 'conditions'; index: number; on?: string }[]
   onOpenFrame?: (index: number) => void
+  /** 곡선(공유) — 누르면 곡선 창. 없으면(옛 서버) 가지도 없다. */
+  curves?: CurveItem[]
+  onOpenCurve?: (index: number) => void
   /** 3D 에서 숨긴 파트 — 큰 파트를 숨기면 그 안의 작은 파트 · 접촉면이 보인다. */
   hidden?: string[]
   onToggleHidden?: (name: string) => void
@@ -557,6 +563,36 @@ export function ModelTree({
           )}
         </ul>
       </Branch>
+
+      {curves && (
+        <Branch title="곡선" count={curves.length}>
+          {curves.length === 0 && (
+            <p className="text-muted-foreground px-1 text-xs">
+              리본의 ‘곡선’ 또는 하중 창의 ‘표를 곡선으로 저장’으로 생성합니다. 조화 응답의 주파수별 배율과 가속도 PSD가 표 대신 곡선을 가리킬 수 있습니다.
+            </p>
+          )}
+          <ul className="space-y-0.5">
+            {curves.map((one, index) => {
+              const warn = curveProblems(one).length > 0
+              return (
+                <li key={`${one.name}-${index}`}>
+                  <button
+                    type="button"
+                    className="hover:bg-muted flex w-full items-center gap-2 rounded px-2 py-1 text-left"
+                    onClick={() => onOpenCurve?.(index)}
+                  >
+                    <span className="truncate">{one.name}</span>
+                    <span className={`ml-auto shrink-0 text-xs ${warn ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'}`}>
+                      {warn ? '⚠ ' : ''}
+                      {curveSummary(one)}
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </Branch>
+      )}
 
       {inCase ? (
         <>
