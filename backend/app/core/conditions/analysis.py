@@ -16,32 +16,12 @@ from app.core.conditions.common import (
     _extra,
     _integer_or_expr,
 )
+from app.core.conditions.registry import ANALYSES, analyses_with
 
-ANALYSIS_LABELS: dict[str, str] = {
-    "modal": "모달(고유진동)",
-    "static": "정적 구조",
-    "harmonic": "조화 응답(주파수 응답)",
-    "random": "랜덤 진동(PSD)",
-    "explicit": "명시적 동해석(충돌·낙하)",
-    "thermal": "열",
-}
+#: 종류 → 화면의 이름 · 안내 — 등록부(`registry.ANALYSES`)의 차례 그대로.
+ANALYSIS_LABELS: dict[str, str] = {name: kind.label for name, kind in ANALYSES.items()}
 
-ANALYSIS_NOTES: dict[str, str] = {
-    "modal": "구조물의 고유진동수와 모드 형상을 구합니다. 하중은 사용하지 않고 "
-    "구속 조건과 물성(밀도)만 사용합니다.",
-    "static": "하중이 서서히 가해진 뒤 평형 상태의 변형과 응력을 계산합니다. "
-    "접촉이나 대변형이 있으면 비선형으로 계산합니다.",
-    "harmonic": "지정한 주파수로 가진하는 하중에 대한 응답(진폭, 응력)을 주파수별로 "
-    "계산합니다. 공진을 확인할 때 사용합니다. 하중마다 ‘주파수별 배율’로 사인 스윕 "
-    "프로파일을 입력할 수 있습니다.",
-    "random": "고정 지지가 가속도 PSD로 흔들릴 때의 응답(변위, 응력의 1σ 값)을 모드 중첩으로 "
-    "계산합니다. 진동 시험 규격(MIL-STD-810, IEC 60068-2-64)의 랜덤 프로파일을 옮길 때 "
-    "사용합니다. 하중 ‘가속도 PSD’가 필요하며, 그 밖의 하중은 사용하지 않습니다.",
-    "explicit": "매우 짧은 시간(수 ms) 동안의 충돌, 낙하, 파손을 시간에 따라 "
-    "계산합니다. 일반적으로 초기 속도가 필요합니다.",
-    "thermal": "열 전달에 따른 온도 분포를 계산합니다. 정상 상태 또는 시간에 따른 "
-    "과도 상태를 해석합니다.",
-}
+ANALYSIS_NOTES: dict[str, str] = {name: kind.note for name, kind in ANALYSES.items()}
 
 #: 종류 안에서 **다른 칸의 값에 따라** 보이는 칸 — `{종류: {칸: 값}}`. 열 해석의 시간 칸은
 #: 과도일 때만 뜻이 있다. 화면이 감추고, 내보낼 때도 뺀다.
@@ -70,9 +50,7 @@ class Analysis(Base):
         description="구할 고유진동 모드의 개수입니다(조화 응답 · 랜덤 진동에서는 겹쳐 쓸 모드 "
         "수). 일반적으로 6~20이며, 랜덤 진동은 PSD 최대 주파수의 1.5배까지의 모드를 "
         "포함하십시오.",
-        json_schema_extra=_extra(
-            {"only_for": ["modal", "harmonic", "random"], "integer": True}
-        ),
+        json_schema_extra=_extra({"only_for": analyses_with("modes"), "integer": True}),
     )
     frequency_range: list[Number] | None = Field(
         default=None,
@@ -82,7 +60,7 @@ class Analysis(Base):
             "조화 응답: 계산할 주파수 범위입니다(필수)."
         ),
         json_schema_extra=_extra(
-            {"only_for": ["modal", "harmonic", "random"], "unit": "Hz", "range": True}
+            {"only_for": analyses_with("frequency_range"), "unit": "Hz", "range": True}
         ),
     )
     prestressed: bool = Field(
@@ -90,7 +68,7 @@ class Analysis(Base):
         title="선응력 반영",
         description="선행 정적 해석의 응력(볼트 체결, 원심력)을 반영하여 계산합니다. "
         "초기조건의 ‘선응력’과 함께 사용합니다.",
-        json_schema_extra=_extra({"only_for": ["modal", "harmonic", "random"]}),
+        json_schema_extra=_extra({"only_for": analyses_with("prestressed")}),
     )
     # ── 조화 응답 ──────────────────────────────────────────────────────────
     solution_intervals: Integer = Field(
@@ -98,7 +76,9 @@ class Analysis(Base):
         title="주파수 점 수",
         description="주파수 범위를 나누는 계산점의 개수입니다. 공진 부근을 자세히 확인하려면 "
         "늘리십시오.",
-        json_schema_extra=_extra({"only_for": ["harmonic"], "integer": True}),
+        json_schema_extra=_extra(
+            {"only_for": analyses_with("solution_intervals"), "integer": True}
+        ),
     )
     method: Literal["mode_superposition", "full"] = Field(
         default="mode_superposition",
@@ -107,7 +87,7 @@ class Analysis(Base):
         "완전법: 느리지만 정확합니다.",
         json_schema_extra=_extra(
             {
-                "only_for": ["harmonic"],
+                "only_for": analyses_with("method"),
                 "labels": {"mode_superposition": "모드 중첩(빠름)", "full": "완전법(정확)"},
             }
         ),
@@ -118,7 +98,7 @@ class Analysis(Base):
         description="임계 감쇠에 대한 비율입니다. 강 구조물은 0.01~0.03입니다. 조화 응답에서 "
         "비워 두면 감쇠가 없어 공진에서 응답이 무한히 커집니다. 랜덤 진동에는 반드시 "
         "입력해야 합니다.",
-        json_schema_extra=_extra({"only_for": ["harmonic", "random"]}),
+        json_schema_extra=_extra({"only_for": analyses_with("damping_ratio")}),
     )
     # ── 정적 구조 ──────────────────────────────────────────────────────────
     large_deflection: bool = Field(
@@ -128,14 +108,14 @@ class Analysis(Base):
             "변형이 커서 형상이 크게 바뀌는 경우 사용합니다(비선형, 계산 시간 증가). "
             "얇은 판, 고무, 큰 처짐이 해당합니다."
         ),
-        json_schema_extra=_extra({"only_for": ["static"]}),
+        json_schema_extra=_extra({"only_for": analyses_with("large_deflection")}),
     )
     steps: Integer = Field(
         default=1,
         title="하중 단계 수",
         description="하중을 나누어 적용하는 단계 수입니다. 볼트를 먼저 체결한 뒤 하중을 "
         "적용하면 2입니다.",
-        json_schema_extra=_extra({"only_for": ["static"], "integer": True}),
+        json_schema_extra=_extra({"only_for": analyses_with("steps"), "integer": True}),
     )
     substeps: Integer | None = Field(
         default=None,
@@ -144,7 +124,7 @@ class Analysis(Base):
             "한 하중 단계를 나누어 계산하는 횟수입니다. 접촉이나 대변형이 수렴하지 않으면 "
             "늘리십시오. 비워 두면 자동으로 결정됩니다."
         ),
-        json_schema_extra=_extra({"only_for": ["static"], "integer": True}),
+        json_schema_extra=_extra({"only_for": analyses_with("substeps"), "integer": True}),
     )
     solver: Literal["program_controlled", "direct", "iterative"] = Field(
         default="program_controlled",
@@ -155,7 +135,7 @@ class Analysis(Base):
         ),
         json_schema_extra=_extra(
             {
-                "only_for": ["static", "modal", "harmonic", "random", "thermal"],
+                "only_for": analyses_with("solver"),
                 "labels": {
                     "program_controlled": "프로그램 제어",
                     "direct": "직접법",
@@ -172,7 +152,7 @@ class Analysis(Base):
         "과도: 시간에 따른 변화를 계산합니다(종료 시간 필요).",
         json_schema_extra=_extra(
             {
-                "only_for": ["thermal"],
+                "only_for": analyses_with("thermal_mode"),
                 "labels": {"steady": "정상 상태", "transient": "과도(시간 이력)"},
             }
         ),
@@ -181,7 +161,9 @@ class Analysis(Base):
         default=None,
         title="초기 시간 간격",
         description="과도 열 해석의 첫 시간 간격입니다. 비워 두면 자동으로 결정됩니다.",
-        json_schema_extra=_extra({"only_for": ["thermal"], "unit": "s", "when": _TRANSIENT}),
+        json_schema_extra=_extra(
+            {"only_for": analyses_with("time_step"), "unit": "s", "when": _TRANSIENT}
+        ),
     )
     # ── 명시적 · 열 과도 ─────────────────────────────────────────────────
     end_time: Number | None = Field(
@@ -191,7 +173,7 @@ class Analysis(Base):
         "열 과도: 관찰할 시간입니다.",
         json_schema_extra=_extra(
             {
-                "only_for": ["explicit", "thermal"],
+                "only_for": analyses_with("end_time"),
                 "unit": "s",
                 "when": _TRANSIENT,
             }
@@ -203,7 +185,7 @@ class Analysis(Base):
         description="종료 시간까지 결과를 저장하는 횟수입니다. 많을수록 파일 크기가 커집니다.",
         json_schema_extra=_extra(
             {
-                "only_for": ["explicit", "thermal"],
+                "only_for": analyses_with("output_count"),
                 "integer": True,
                 "when": _TRANSIENT,
             }
@@ -214,7 +196,7 @@ class Analysis(Base):
         title="질량 스케일링 시간 간격",
         description="이보다 작은 시간 간격이 필요한 작은 요소에 질량을 추가하여 계산 "
         "속도를 높입니다. 비워 두면 사용하지 않습니다(정확).",
-        json_schema_extra=_extra({"only_for": ["explicit"], "unit": "s"}),
+        json_schema_extra=_extra({"only_for": analyses_with("mass_scaling_dt"), "unit": "s"}),
     )
 
     @field_validator(

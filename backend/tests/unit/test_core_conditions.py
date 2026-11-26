@@ -746,6 +746,30 @@ def test_내보낼_때는_그_종류의_칸만_기본값을_채워_싣는다() -
     assert transient["end_time"] == 60 and transient["output_count"] == 20
 
 
+def test_해석_종류_등록부가_칸의_only_for_를_만든다() -> None:
+    """종류마다 쓰는 칸을 등록부 한 곳에 적는다(ADR 0013) — 칸마다 손으로 적던 `only_for` 는
+    여기서 만든다. 등록부 · 모델 · 종류 목록이 서로 어긋나면 여기서 잡는다."""
+    from typing import get_args
+
+    from app.core.conditions.analysis import Analysis, _filled_analysis
+    from app.core.conditions.registry import ANALYSES
+
+    kinds = list(get_args(Analysis.model_fields["type"].annotation))
+    assert kinds == list(ANALYSES)  # 종류 목록 · 화면 차례가 등록부와 같다
+    named = {field for kind in ANALYSES.values() for field in kind.fields}
+    assert named == set(Analysis.model_fields) - {"type"}  # 모든 칸이 어느 종류엔가 쓰인다
+    properties = spec()["analysis"]["properties"]
+    for name, kind in ANALYSES.items():
+        used = {field for field, one in properties.items() if name in one.get("only_for", [])}
+        assert used == set(kind.fields), name
+    # 내보낼 때도 그 종류의 칸만 — 등록부 그대로.
+    for name, kind in ANALYSES.items():
+        filled = _filled_analysis({"type": name})
+        # 열의 시간 칸은 과도일 때만(`when`) — 기본은 정상 상태다.
+        steady = {"time_step", "end_time", "output_count"} if name == "thermal" else set()
+        assert set(filled) == {"type", *kind.fields} - steady, name
+
+
 def test_해석_설정의_사양표는_종류마다_설명과_칸을_싣는다() -> None:
     analysis = spec()["analysis"]
     assert set(analysis["notes"]) == set(analysis["properties"]["type"]["enum"])
