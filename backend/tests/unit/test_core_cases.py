@@ -20,6 +20,12 @@ SHARED: dict[str, Any] = {
     "named_selections": [
         {"name": "바닥", "entity": "face", "select": {"what": "faces", "role": "bottom"}},
         {"name": "윗면", "entity": "face", "select": {"what": "faces", "role": "top"}},
+        {"name": "볼트 면", "entity": "face", "select": {"what": "faces", "kind": "cylinder"}},
+        {
+            "name": "둘째 볼트 면",
+            "entity": "face",
+            "select": {"what": "faces", "kind": "cylinder", "radius": 4},
+        },
     ],
     "materials": [
         {
@@ -54,6 +60,14 @@ OUTER: dict[str, Any] = {
     ],
 }
 TWO: dict[str, Any] = {**SHARED, "schema_version": 2, "cases": [PRELOAD, OUTER]}
+BOLT: dict[str, Any] = {
+    "name": "조임",
+    "type": "bolt_pretension",
+    "on": "볼트 면",
+    "preload": 1000,
+    "unit": "N",
+}
+GRAVITY: dict[str, Any] = {"name": "중력", "type": "standard_earth_gravity"}
 
 
 def _v1_of(case: dict[str, Any]) -> dict[str, Any]:
@@ -142,12 +156,57 @@ def test_케이스_안의_틀린_자리를_케이스까지_짚는다() -> None:
         (lambda raw: raw.update(schema_version=1), r"schema_version 2 에서만"),
         (lambda raw: raw.update(cases=[]), r"하나 이상"),
         (lambda raw: raw.update(loads=PRELOAD["loads"]), r"맨 위의 loads"),
+        (
+            lambda raw: raw["cases"].append({**OUTER, "name": "외력 B"}),
+            r"cases\[2\]: 앞 케이스 ‘예압’ 뒤에는 이미 ‘외력’이\(가\) 있습니다 — 케이스는 "
+            r"사슬로만",
+        ),
+        (
+            lambda raw: raw["cases"][1].update(constraints=[]),
+            r"cases\[1\]\.constraints: 앞 케이스 ‘예압’과\(와\) 구속이 다릅니다",
+        ),
+        (
+            lambda raw: [one["loads"].append(BOLT) for one in raw["cases"]],
+            r"cases\[1\]\.loads\[1\]: 볼트 예압 ‘조임’의 볼트\(‘볼트 면’\)는 "
+            r"앞 케이스 ‘예압’에서 이미 조였습니다",
+        ),
+        (
+            lambda raw: raw["cases"][0]["loads"].append(GRAVITY),
+            r"cases\[1\]\.loads: 앞 케이스 ‘예압’에 중력이 있습니다",
+        ),
     ],
 )
 def test_케이스끼리의_규칙(change: Any, message: str) -> None:
     raw = deepcopy(TWO)
     change(raw)
     with pytest.raises(ConditionError, match=message):
+        parse(raw)
+
+
+def test_사슬은_앞의_구속을_차례와_상관없이_그대로_받고_조인_볼트는_잠근다() -> None:
+    """뒤 케이스는 앞의 끝 상태에서 시작하고 하중은 이어지지 않는다 — 구속은 같게(적은
+    차례는 상관없다), 중력은 다시 적고, 앞에서 조인 볼트는 적지 않는다. 다른 볼트는 뒤에서
+    조여도 된다."""
+    raw = deepcopy(TWO)
+    first, second = raw["cases"]
+    side = {"name": "옆 고정", "type": "fixed_support", "on": "윗면"}
+    first["constraints"].append(side)
+    second["constraints"].insert(0, side)
+    first["loads"] += [BOLT, GRAVITY]
+    second["loads"].append(GRAVITY)
+    third = {
+        **deepcopy(second),
+        "name": "다시 누름",
+        "depends_on": "외력",
+        "loads": [GRAVITY, {**BOLT, "name": "둘째 볼트", "on": "둘째 볼트 면"}],
+    }
+    raw["cases"].append(third)
+    parse(raw)
+
+    third["loads"].append(BOLT)
+    with pytest.raises(
+        ConditionError, match=r"cases\[2\]\.loads\[2\]: .*앞 케이스 ‘예압’에서"
+    ):
         parse(raw)
 
 
