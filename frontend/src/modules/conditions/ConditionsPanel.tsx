@@ -72,6 +72,9 @@ import { materialsApi } from '@/modules/materials/api'
 import type { MaterialRow } from '@/modules/materials/api'
 import { MaterialPicker } from '@/modules/materials/MaterialPicker'
 import { PartSettingsDialog } from '@/modules/conditions/PartSettingsDialog'
+import { readiness } from '@/modules/conditions/readiness'
+import type { ReadinessOpen } from '@/modules/conditions/readiness'
+import { ReadinessPanel } from '@/modules/conditions/ReadinessPanel'
 import {
   acceptsLabel,
   asConditions,
@@ -936,6 +939,29 @@ export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }
     setTree(empty ? { kind: 'part', name: empty } : null)
   }
 
+  /** 준비 점검 — 흩어진 ⚠ 를 한 자리에. 사양표가 오기 전에는 비어 있다. */
+  const checks = useMemo(
+    () =>
+      schema.data
+        ? readiness({
+            draft,
+            schema: schema.data,
+            bodies: bodies.data?.items ?? null,
+            converted: converted.loading ? null : (converted.data?.items ?? null),
+            notes,
+            geometry: problems,
+            moved: loaded.moved,
+            kept: loaded.kept,
+          })
+        : [],
+    [draft, schema.data, bodies.data, converted.loading, converted.data, notes, problems, loaded],
+  )
+  /** 준비 점검의 줄을 눌렀다 — 트리에서 그 자리를 펼치거나 조건 창을 연다. */
+  function openCheck(where: ReadinessOpen) {
+    if (where.kind === 'item') return openItem(where.group, where.index)
+    setTree(where)
+  }
+
   if (schema.loading) return <Skeleton className="h-96 w-full" />
   if (schema.error) return <ErrorNotice error={schema.error} />
   const spec = schema.data!
@@ -1129,45 +1155,16 @@ export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }
         )}
       </div>
 
-      {/* 식 알림 — 지금 단위계에서 식이 무엇이 되는가. 경고가 먼저. */}
-      {notes.length > 0 && (
-        <ul className="space-y-0.5 rounded-md border px-3 py-1.5 text-xs" aria-label="식 알림">
-          {[...notes]
-            .sort((a, b) => (a.level === b.level ? 0 : a.level === 'warn' ? -1 : 1))
-            .map((one, index) => (
-              <li key={index} className={one.level === 'warn' ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'}>
-                <span className="font-medium">{one.where}</span> · {one.text}
-              </li>
-            ))}
-        </ul>
-      )}
+      {/*
+        **준비 점검** — 흩어져 있던 ⚠(물성 · 대상 없는 조건 · 좌표 기준 그룹 · 식 · 옮긴 메시 · 도면)를 한 자리에.
+        줄을 누르면 고칠 자리(트리 · 조건 창)를 연다.
+      */}
+      <ReadinessPanel items={checks} onOpen={openCheck} />
 
       {/* 접촉 점검 — 맞닿았는데 접촉이 없는 쌍, 본딩 채우기, 모달에서 접촉이 풀리는 법. */}
       <ContactCheck recipe={recipe} draft={draft} onApply={setDraft} />
 
       {error && <ErrorNotice error={error} />}
-      {(loaded.moved.length > 0 || loaded.kept.length > 0) && (
-        <div role="note" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
-          {loaded.moved.length > 0 && (
-            <p>
-              바디 선택 그룹({loaded.moved.map((one) => `‘${one}’`).join(', ')})에 지정된 국부 메시를 ‘파트별 설정’의 파트
-              메시로 옮겼습니다. ‘조건 저장’을 클릭하면 반영됩니다.
-            </p>
-          )}
-          {loaded.kept.length > 0 && (
-            <p>
-              바디 선택 그룹({loaded.kept.map((one) => `‘${one}’`).join(', ')})의 국부 메시에는 무시할 형상 크기 또는
-              경계층이 있어 옮기지 않았습니다. 파트 단위 값은 ‘파트별 설정’에서, 나머지는 ‘전체’ 또는 면·엣지 그룹의
-              국부 메시로 지정하십시오.
-            </p>
-          )}
-        </div>
-      )}
-      {problems.length > 0 && (
-        <p className="text-muted-foreground text-xs">
-          도면에 문제가 있어 3D가 표시되지 않습니다. ‘도면’ 탭에서 수정하십시오.
-        </p>
-      )}
 
       {/*
         **트리와 3D 가 남은 높이를 함께 쓴다.** 3D 를 굳혀 두면 큰 화면에서 아래가 비고, 면을

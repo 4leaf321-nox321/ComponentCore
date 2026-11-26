@@ -870,10 +870,23 @@ test('값은 늘 **mm · N · t 로 적고**, 내보내기 단위계를 바꿔�
 test('풀리지 않는 식은 **고치는 중에** 알림으로 보인다', async () => {
   const value = { constraints: [{ name: '밀기', type: 'displacement', on: '바닥', x: '=없는것' }] }
   render(<ConditionsPanel recipe={RECIPE} value={value} onSave={vi.fn()} />)
-  await waitFor(() => screen.getByRole('list', { name: '식 알림' }), { timeout: 2000 })
-  expect(screen.getByRole('list', { name: '식 알림' })).toHaveTextContent("모르는 이름 '없는것'")
+  await waitFor(() => expect(screen.getByRole('list', { name: '준비 점검' })).toHaveTextContent("모르는 이름 '없는것'"), { timeout: 2000 })
+  expect(screen.getByRole('list', { name: '준비 점검' })).toHaveTextContent('구속 「밀기」 X 변위량')
 })
 
+
+test('준비 점검은 흩어진 ⚠ 를 한 자리에 모으고, 줄을 누르면 고칠 자리를 연다', async () => {
+  const value = { loads: [{ name: '누름', type: 'pressure', on: '' }] }
+  render(<ConditionsPanel recipe={RECIPE} value={value} onSave={vi.fn()} />)
+  await waitFor(() => screen.getByText('면 찍기'))
+  const list = await screen.findByRole('list', { name: '준비 점검' })
+  // 물성이 없는 파트(바디 목록이 오면) · 대상이 없는 하중.
+  await waitFor(() => expect(list).toHaveTextContent('파트 ‘바닥판’ · 물성이 지정되지 않았습니다.'))
+  expect(list).toHaveTextContent('하중 ‘누름’ · 적용 대상(선택 그룹)이 지정되지 않았습니다.')
+  expect(screen.getByLabelText('준비 점검 패널')).toHaveTextContent(/⚠ 3/)
+  fireEvent.click(within(list).getByRole('button', { name: /하중 ‘누름’/ }))
+  expect(await screen.findByRole('dialog', { name: '하중 수정' })).toBeInTheDocument()
+})
 
 test('접촉 표시를 켜면 본딩 면은 붉게, 기타 접촉 면은 푸르게 3D 에 칠하고 범례에 센다', async () => {
   const face = (name: string, z: number) => ({ name, entity: 'face', select: { what: 'faces', normal: [0, 0, z] } })
