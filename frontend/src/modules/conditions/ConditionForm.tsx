@@ -3,7 +3,7 @@
  *
  * 종류가 열 몇이고 칸이 제각각이다(고정 지지에는 값이 없고, 압력에는 크기와 방향이, 볼트에는
  * 예압이). 화면에 `if` 를 늘어놓으면 종류를 더할 때마다 여기를 고쳐야 한다 — 칸 목록은 서버가
- * 들고 있고(`core/conditions.py`) 여기는 그것을 그린다. CAD 의 `NodeForm` 과 같은 방식이다.
+ * 들고 있고(`core/conditions/`) 여기는 그것을 그린다. CAD 의 `NodeForm` 과 같은 방식이다.
  */
 
 import { useEffect, useState } from 'react'

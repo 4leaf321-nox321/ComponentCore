@@ -81,7 +81,7 @@ class VersionOut(BaseModel):
     number: int
     recipe: dict[str, Any]
     conditions: dict[str, Any] = {}
-    """해석 조건 한 벌(`core/conditions.py`) — 비어 있으면 아직 안 붙인 것이다."""
+    """해석 조건 한 벌(`core/conditions/`) — 비어 있으면 아직 안 붙인 것이다."""
     source: str
     note: str
     created_by_id: uuid.UUID | None
@@ -161,7 +161,7 @@ class JigFromPartRequest(BaseModel):
 
 class ConditionsRequest(BaseModel):
     conditions: dict[str, Any]
-    """`core/conditions.py` 의 한 벌. 통째로 바꾼다 — 부분 수정은 레시피의 `patch` 처럼
+    """`core/conditions/` 의 한 벌. 통째로 바꾼다 — 부분 수정은 레시피의 `patch` 처럼
     필요해지면 그때 만든다."""
 
 
