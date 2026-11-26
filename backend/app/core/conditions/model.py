@@ -45,6 +45,7 @@ from app.core.conditions.loads import (
     _filled_load,
 )
 from app.core.conditions.materials import Material, _with_converted
+from app.core.conditions.registry import ANALYSES, GROUP_LABELS, REFUSED_WHY, accepting
 from app.core.recipe.params import ExpressionError, resolve_params
 from app.core.recipe.params import evaluate_expression as _expr
 
@@ -186,6 +187,47 @@ def _known_names(conditions: Conditions) -> set[str]:
     return {one.name for one in conditions.named_selections}
 
 
+#: 받는 항목을 보는 묶음 — 종류 이름표.
+_TYPE_LABELS: dict[str, dict[str, str]] = {
+    "constraints": CONSTRAINT_LABELS,
+    "loads": LOAD_LABELS,
+    "contacts": CONTACT_LABELS,
+    "initial": INITIAL_LABELS,
+}
+
+
+def _check_accepted(conditions: Conditions) -> None:
+    """해석 종류가 **받는 항목**인가, 꼭 있어야 하는 항목이 있나 — 등록부(`registry.ANALYSES`)
+    대로. 받지 않는 항목이 실리면 받는 쪽이 거절하거나 무엇으로 풀지 모른다(정적의 가속도
+    PSD) — 보내기 전에, 저장할 때 말한다."""
+    registered = ANALYSES[conditions.analysis.type]
+    for group, labels in _TYPE_LABELS.items():
+        accepted = registered.accepts.get(group, ())
+        for index, item in enumerate(getattr(conditions, group)):
+            if item.type in accepted:
+                continue
+            name = getattr(item, "name", "")
+            label = f"{labels[item.type]} ‘{name}’" if name else labels[item.type]
+            others = [ANALYSES[one].label for one in accepting(group, item.type)]
+            where = (
+                f"{', '.join(others)} 해석에서만 사용할 수 있습니다"
+                if 0 < len(others) <= 2
+                else f"{registered.label} 해석에서는 사용할 수 없습니다"
+            )
+            why = REFUSED_WHY.get(
+                (group, item.type), "해석 종류를 바꾸거나 이 항목을 삭제하십시오."
+            )
+            raise ConditionError(f"{group}[{index}]: {label}은(는) {where}. {why}")
+    for need in registered.needs:
+        if not any(one.type == need.type for one in getattr(conditions, need.group)):
+            what = _TYPE_LABELS[need.group][need.type]
+            raise ConditionError(
+                f"{need.group}: {registered.label} 해석에는 {GROUP_LABELS[need.group]} "
+                f"‘{what}’이(가) 하나 이상 있어야 합니다."
+                + (f" {need.why}" if need.why else "")
+            )
+
+
 def parse(
     raw: dict[str, Any] | None,
     bodies: list[str] | None = None,
@@ -300,16 +342,6 @@ def parse(
         raise ConditionError(
             f"환경 온도가 {len(environments)}개입니다. 모델 전체의 기준 온도라 하나만 둡니다."
         )
-    # 바디 온도(초기 온도)는 열 해석의 시작 상태다. 구조 해석에 걸면 열 하중이 되는데, 받는
-    # 쪽은 열팽창을 넣지 않아 아직 거절한다(SimEngBay, 2026-11-18) — 보내기 전에 말한다.
-    if conditions.analysis.type != "thermal":
-        for index, initial in enumerate(conditions.initial):
-            if initial.type == "temperature":
-                raise ConditionError(
-                    f"initial[{index}]: 초기 온도(바디)는 열 해석에서만 씁니다 — 구조 해석의 "
-                    "바디 온도(열 하중)는 해석 쪽이 아직 받지 않습니다. 온도에 따른 물성을 "
-                    "쓰려면 ‘환경 온도’를 지정하십시오."
-                )
     entity_of = {one.name: one.entity for one in conditions.named_selections}
     for index, load in enumerate(conditions.loads):
         _check_load(f"loads[{index}]", load)
@@ -320,6 +352,9 @@ def parse(
             )
         if load.type == "bolt_pretension" and load.on in entity_of:
             _check_section(f"loads[{index}]", load, entity_of[load.on] == "body")
+    # **해석 종류가 받는 것인가** — 정적의 가속도 PSD, 구조 해석의 바디 온도, 고정 지지 없는
+    # 랜덤 진동(등록부).
+    _check_accepted(conditions)
     _check_excitation(conditions)
 
     # **물성이 붙은 바디가 진짜 있나.** 「전체」 는 늘 된다(모든 바디).

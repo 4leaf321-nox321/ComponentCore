@@ -143,7 +143,7 @@ def test_랜덤_진동에_빠진_것을_저장할_때_말한다() -> None:
     with pytest.raises(ConditionError, match="가속도 PSD"):
         parse(no_psd)
     no_support = {**RANDOM, "constraints": []}
-    with pytest.raises(ConditionError, match="고정 지지가 하나 이상"):
+    with pytest.raises(ConditionError, match="고정 지지’이\\(가\\) 하나 이상"):
         parse(no_support)
     no_damping = {**RANDOM, "analysis": {"type": "random", "modes": 10}}
     with pytest.raises(ConditionError, match="감쇠비가 필요"):
@@ -162,7 +162,7 @@ def test_랜덤_진동에_빠진_것을_저장할_때_말한다() -> None:
 
 def test_가속도_PSD_는_랜덤_진동에서만_쓴다() -> None:
     elsewhere = {**RANDOM, "analysis": {"type": "modal", "modes": 6}}
-    with pytest.raises(ConditionError, match="랜덤 진동 해석에서만"):
+    with pytest.raises(ConditionError, match=r"loads\[0\]: .*랜덤 진동\(PSD\) 해석에서만"):
         parse(elsewhere)
 
 

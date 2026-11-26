@@ -19,6 +19,7 @@ from __future__ import annotations
 import contextlib
 from typing import Any
 
+from app.core.conditions import registry
 from app.core.recipe.query import (
     _EVERYTHING,
     body_parts,
@@ -33,8 +34,8 @@ SLIDING = frozenset({"frictionless", "no_separation"})
 STUCK_IN_EIGEN = frozenset({"frictional", "rough"})
 #: 떨어지지 않는 접촉 — 두 면이 처음부터 맞닿아 있어야 한다(떨어져 있으면 묶지 못한다).
 STUCK = frozenset({"bonded", "no_separation"})
-#: 고유치를 푸는 해석 — 조화 응답 · 랜덤 진동도 모드를 겹쳐 푼다.
-EIGEN_ANALYSES = frozenset({"modal", "harmonic", "random"})
+#: 고유치를 푸는 해석 — 조화 응답 · 랜덤 진동도 모드를 겹쳐 푼다(등록부의 `linearized`).
+EIGEN_ANALYSES = registry.linearized()
 #: 이보다 작은 맞닿은 넓이(mm²)는 모서리 · 꼭짓점만 닿은 것이다.
 _SHARED = 1e-6
 _NAME = 60

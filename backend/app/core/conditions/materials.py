@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import Field, field_validator
 
 from app.core import units as unit_systems
+from app.core.conditions import registry
 from app.core.conditions.common import ALL_BODIES, Base, ConditionError, applied_bodies
 
 # ── 물성 ──────────────────────────────────────────────────────────────────────
@@ -289,7 +290,7 @@ def material_warnings(resolved: dict[str, Any] | None) -> list[str]:
     파트에 붙지 않은 재료는 내보내도 쓰이지 않으므로 뺀다. 열 해석은 탄성계수가 필요 없다."""
     if not isinstance(resolved, dict):
         return []
-    structural = (resolved.get("analysis") or {}).get("type") != "thermal"
+    structural = registry.structural((resolved.get("analysis") or {}).get("type"))
     out: list[str] = []
     for one in resolved.get("materials") or []:
         if not isinstance(one, dict) or not one.get("apply_to"):

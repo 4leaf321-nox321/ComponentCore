@@ -19,6 +19,7 @@ from app.core.conditions.common import (
     Number,
     _extra,
 )
+from app.core.conditions.registry import ANALYSES, analyses_using
 
 if TYPE_CHECKING:
     from app.core.conditions.model import Conditions
@@ -423,7 +424,7 @@ class Load(Base):
         json_schema_extra=_extra(
             {
                 "only_for": HARMONIC_LOADS,
-                "analysis_only": ["harmonic"],
+                "analysis_only": analyses_using("loads", "frequency_table"),
                 "table": {"columns": [{"title": "주파수", "unit": "Hz"}, {"title": "배율"}]},
             }
         ),
@@ -435,7 +436,11 @@ class Load(Base):
         title="위상",
         description="조화 응답에서 이 하중의 위상각입니다. 비워 두면 0°입니다.",
         json_schema_extra=_extra(
-            {"only_for": HARMONIC_LOADS, "analysis_only": ["harmonic"], "unit": "°"}
+            {
+                "only_for": HARMONIC_LOADS,
+                "analysis_only": analyses_using("loads", "phase"),
+                "unit": "°",
+            }
         ),
     )
     psd_table: list[list[Number]] | None = Field(
@@ -621,32 +626,15 @@ def _span_of(table: list[list[Any]]) -> tuple[float, float] | None:
 
 
 def _check_excitation(conditions: Conditions) -> None:
-    """가진 — 해석 종류와 하중이 맞물리는가.
+    """가진 — 해석 종류와 하중의 값이 맞물리는가. 받는 항목 · 꼭 있어야 하는 항목(가속도 PSD 는
+    랜덤 진동에서만, 랜덤 진동에는 가속도 PSD · 고정 지지)은 등록부가 든다(`_check_accepted`).
 
-    - 랜덤 진동은 **가속도 PSD 하나 이상 · 고정 지지 하나 이상 · 감쇠비**가 있어야 한다. 기저
-      가진은 고정 지지를 흔드는 것이고, 감쇠가 없으면 공진에서 응답이 무한하다.
-    - 가속도 PSD 는 랜덤 진동에서만 — 다른 해석에 실리면 받는 쪽이 무엇으로 풀지 모른다.
+    - 랜덤 진동은 **감쇠비**가 있어야 한다 — 감쇠가 없으면 공진에서 응답이 무한하다.
     - 조화 응답의 주파수별 배율은 해석의 주파수 범위를 **다 덮어야** 한다 — 표 밖을 0 으로
       읽을지 끝값으로 읽을지 솔버마다 다르다.
     """
     analysis = conditions.analysis
-    psd = [one for one in conditions.loads if one.type == "psd_acceleration"]
-    if analysis.type != "random":
-        if psd:
-            raise ConditionError(
-                f"loads: 가속도 PSD ‘{psd[0].name}’은(는) 랜덤 진동 해석에서만 사용할 수 "
-                "있습니다. 해석 종류를 랜덤 진동으로 바꾸거나 이 하중을 삭제하십시오."
-            )
-    else:
-        if not psd:
-            raise ConditionError(
-                "loads: 랜덤 진동에는 하중 ‘가속도 PSD(기저 가진)’가 하나 이상 있어야 합니다."
-            )
-        if not any(one.type == "fixed_support" for one in conditions.constraints):
-            raise ConditionError(
-                "constraints: 랜덤 진동은 고정 지지를 가진합니다. 고정 지지가 하나 이상 "
-                "있어야 합니다."
-            )
+    if analysis.type == "random":
         damping = analysis.damping_ratio
         if damping is None or (not isinstance(damping, str) and damping <= 0):
             raise ConditionError(
@@ -738,8 +726,10 @@ def _filled_load(load: dict[str, Any], system: str, analysis: str = "") -> dict[
     쪽이 기본값을 짐작하지 않게. 볼트는 적힌 단위(입력 계의 N · mm)로 예압 · 조임량을
     가른다. 조화 응답이면 비운 위상을 0 으로, 가속도 PSD 는 표의 실효값(`grms`, g)을 싣는다."""
     out = dict(load)
+    registered = ANALYSES.get(analysis)
     if (
-        analysis == "harmonic"
+        registered is not None
+        and "phase" in registered.item_fields.get("loads", ())
         and out.get("type") in HARMONIC_LOADS
         and out.get("phase") is None
     ):

@@ -770,6 +770,85 @@ def test_해석_종류_등록부가_칸의_only_for_를_만든다() -> None:
         assert set(filled) == {"type", *kind.fields} - steady, name
 
 
+def test_해석_종류_등록부가_받는_항목과_물리를_든다() -> None:
+    """받는 항목 · 꼭 있어야 하는 항목 · 그 종류에서만 쓰는 하중 칸 · 물리 · 접촉 선형화를
+    등록부 한 곳에(ADR 0013). 모델의 종류 목록 · 사양표와 어긋나면 여기서 잡는다."""
+    from typing import get_args
+
+    from app.core import contact_check
+    from app.core.conditions import Constraint, Contact, Initial, Load
+    from app.core.conditions.registry import (
+        ANALYSES,
+        GROUP_LABELS,
+        ITEMS,
+        REFUSED_WHY,
+        accepting,
+        structural,
+    )
+
+    models = {
+        "constraints": Constraint,
+        "loads": Load,
+        "contacts": Contact,
+        "initial": Initial,
+    }
+    for group, model in models.items():
+        assert ITEMS[group] == get_args(model.model_fields["type"].annotation), group
+        # 어느 종류도 받지 않는 항목은 없다.
+        assert all(accepting(group, one) for one in ITEMS[group]), group
+    assert set(GROUP_LABELS) == set(models)
+    for name, kind in ANALYSES.items():
+        assert set(kind.accepts) == set(ITEMS), name
+        for need in kind.needs:
+            assert need.type in kind.accepts[need.group], name
+    assert all(one in ITEMS[group] for group, one in REFUSED_WHY)
+    # 지금 막는 것 그대로 — 가속도 PSD 는 랜덤 진동에서만, 바디 온도는 열 해석에서만.
+    assert accepting("loads", "psd_acceleration") == ["random"]
+    assert accepting("initial", "temperature") == ["thermal"]
+    assert [(one.group, one.type) for one in ANALYSES["random"].needs] == [
+        ("loads", "psd_acceleration"),
+        ("constraints", "fixed_support"),
+    ]
+    # 하중 칸의 `analysis_only` 는 등록부의 `item_fields` 에서.
+    fields = spec()["groups"]["loads"]["fields"]
+    for field, one in fields.items():
+        used = [
+            k for k, kind in ANALYSES.items() if field in kind.item_fields.get("loads", ())
+        ]
+        assert one.get("analysis_only", []) == used, field
+    assert fields["phase"]["analysis_only"] == ["harmonic"]
+    # 물리 · 접촉 선형화.
+    assert [k for k in ANALYSES if not structural(k)] == ["thermal"]
+    assert structural(None) and structural("모르는 종류")
+    assert frozenset({"modal", "harmonic", "random"}) == contact_check.EIGEN_ANALYSES
+
+
+def test_해석_종류가_받지_않는_항목은_저장할_때_막는다() -> None:
+    """등록부대로 — 받지 않는 항목은 몇 번째 무엇인지, 어느 해석에서 쓰는지 말한다."""
+    base: dict[str, Any] = {
+        "named_selections": [
+            {"name": "바닥", "entity": "face", "select": {"what": "faces", "role": "bottom"}},
+            {"name": "몸", "entity": "body", "select": {"what": "bodies"}},
+        ],
+        "constraints": [{"name": "고정", "type": "fixed_support", "on": "바닥"}],
+        "initial": [{"type": "temperature", "on": "몸", "value": 80}],
+    }
+    with pytest.raises(
+        ConditionError, match=r"^initial\[0\]: 초기 온도은\(는\) 열 해석에서만"
+    ):
+        parse({**base, "analysis": {"type": "static"}})
+    parse({**base, "analysis": {"type": "thermal"}})
+    psd = {"name": "Z", "type": "psd_acceleration", "direction": [0, 0, 1]}
+    psd["psd_table"] = [[20, 0.04], [2000, 0.04]]
+    shaken = {**base, "initial": [], "loads": [psd]}
+    with pytest.raises(ConditionError, match=r"해석 종류를 바꾸거나 이 항목을 삭제"):
+        parse({**shaken, "analysis": {"type": "static"}})
+    random = {"type": "random", "modes": 10, "damping_ratio": 0.02}
+    parse({**shaken, "analysis": random})
+    with pytest.raises(ConditionError, match=r"^constraints: 랜덤 진동\(PSD\) 해석에는 구속"):
+        parse({**shaken, "constraints": [], "analysis": random})
+
+
 def test_해석_설정의_사양표는_종류마다_설명과_칸을_싣는다() -> None:
     analysis = spec()["analysis"]
     assert set(analysis["notes"]) == set(analysis["properties"]["type"]["enum"])
