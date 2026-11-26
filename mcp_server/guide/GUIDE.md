@@ -514,6 +514,11 @@ DB 에(`save_test_preset`) 둔다 — 같은 모양이다. 프리셋은 시편 �
      `{"type": "psd_acceleration", "direction": [1, 0, 0], "psd_table": [[Hz, g²/Hz], …]}` — 모든 고정
      지지를 흔든다(선택 그룹 없음, 고정 지지가 하나 이상 있어야 한다). PSD 는 늘 g²/Hz, 로그-로그 보간.
      규격의 표를 그대로 옮기고 지어내지 않는다.
+   - **곡선**(`curves`): 같은 표를 여러 하중이 쓰거나 크기만 실험계획으로 바꾸려면 표 대신 곡선을 만들고
+     하중의 `curve` 에 그 이름을 준다 — `{"name": "IEC 랜덤", "x": "frequency", "unit": "g^2/Hz",
+     "interpolation": "loglog", "points": [[Hz, g²/Hz], …], "scale": "=레벨"}`. 배율 표면 `unit` 은 비우고
+     `interpolation: "linear"`. 표와 곡선을 함께 적지 않는다. 사양표의 `curves.uses` 가 하중 종류마다 어느
+     표 · 보간 · 단위인지 준다. 내보낼 때 표로 풀린다. 시간 · 단계 곡선은 아직 하중이 가리키지 않는다.
 5. 숫자 칸에는 레시피와 같은 식(`"=압력"`)을 쓸 수 있다 — 변수는 레시피 `params`(mm). 실험계획이
    그 변수를 훑으면 형상과 조건이 함께 움직인다.
 6. **물성**: `condition_material_search` 로 찾고 `condition_material_get` 으로 받아 그

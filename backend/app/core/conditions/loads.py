@@ -465,6 +465,17 @@ class Load(Base):
     """랜덤 진동 — `[[주파수(Hz), PSD(g²/Hz)], …]`, 로그-로그 보간(규격의 dB/oct 기울기가 곧
     로그-로그 직선이다). 내보낼 때 `grms`(표의 면적, g)를 함께 싣는다 — 받는 쪽이 적분을 맞춰
     본다."""
+    curve: str = Field(
+        "",
+        title="곡선",
+        description="주파수별 배율이나 가속도 PSD 를 표 대신 곡선(이름)으로 가리킵니다. "
+        "내보낼 때 곡선의 점을 표로 풀어 싣습니다.",
+        json_schema_extra=_extra(
+            {"only_for": [*HARMONIC_LOADS, "psd_acceleration"], "hidden": True}
+        ),
+    )
+    """곡선 이름(`curves[].name`) — 표 칸(`frequency_table` · `psd_table`)을 대신한다. 둘을
+    함께 적지 않는다(`curves.check_uses`). 내보낼 때 풀려 이 칸은 나가지 않는다."""
 
 
 INITIAL_LABELS: dict[str, str] = {
@@ -586,33 +597,59 @@ def _check_load(where: str, load: Load) -> None:
         raise ConditionError(f"{where}: {label}에 방향이 없습니다.")
 
 
+#: 표의 가로축 이름 — 오류 문구의 조사까지(「주파수와 값」 · 「시간과 값」).
+_AXIS_WORDS: dict[str, tuple[str, str]] = {
+    "주파수": ("주파수와", "주파수는"),
+    "시간": ("시간과", "시간은"),
+    "단계": ("단계와", "단계는"),
+}
+
+
+def _topic(word: str) -> str:
+    """주제 조사 — 끝 글자에 받침이 있으면 「은」, 없으면 「는」, 한글이 아니면 「은(는)」."""
+    last = word[-1:]
+    if "가" <= last <= "힣":
+        return "은" if (ord(last) - ord("가")) % 28 else "는"
+    return "은(는)"
+
+
 def _check_table(
-    label: str, table: list[list[Any]], *, low: float | None, positive: bool = False
+    label: str,
+    table: list[list[Any]],
+    *,
+    low: float | None,
+    positive: bool = False,
+    signed: bool = False,
+    axis: str = "주파수",
 ) -> None:
-    """주파수 표 — 두 열, 두 행 이상, 주파수가 커지는 순서. `low` 는 주파수가 넘어야 할 값
-    (PSD 는 로그라 0 을 못 쓴다), `positive` 면 값도 0 보다 커야 한다(로그-로그 보간). 배율은
-    0 이상(음수는 위상으로 준다). 식(`"=…"`)인 칸은 설계점마다 풀리므로 여기서는 넘어간다."""
+    """표 — 두 열, 두 행 이상, 가로축(`axis`, 기본 주파수)이 커지는 순서. `low` 는 가로축이
+    넘어야 할 값(PSD 는 로그라 0 을 못 쓴다), `positive` 면 값도 0 보다 커야 한다(로그-로그
+    보간). 배율은 0 이상(음수는 위상으로 준다) — `signed` 면 값의 부호를 보지 않는다(하중
+    이력). 식(`"=…"`)인 칸은 설계점마다 풀리므로 여기서는 넘어간다."""
+    pair, topic = _AXIS_WORDS[axis]
     if len(table) < 2:
-        raise ConditionError(f"{label}는 두 행 이상이어야 합니다.")
+        raise ConditionError(f"{label}{_topic(label)} 두 행 이상이어야 합니다.")
     before: float | None = None
     for row, one in enumerate(table, start=1):
         if len(one) != 2:
-            raise ConditionError(f"{label} {row}행은 주파수와 값 두 칸이어야 합니다.")
-        frequency, value = one
+            raise ConditionError(f"{label} {row}행은 {pair} 값 두 칸이어야 합니다.")
+        where, value = one
         if any(isinstance(cell, str) and not cell.startswith("=") for cell in one):
             raise ConditionError(
                 f"{label} {row}행: 빈칸이 있습니다. 수 또는 =식을 입력하십시오."
             )
-        if not isinstance(frequency, str):
-            if frequency < 0 or (low is not None and frequency <= low):
+        if not isinstance(where, str):
+            if where < 0 or (low is not None and where <= low):
                 floor = "0보다 커야" if low is not None else "0 이상이어야"
-                raise ConditionError(f"{label} {row}행: 주파수는 {floor} 합니다.")
-            if before is not None and frequency <= before:
+                raise ConditionError(f"{label} {row}행: {topic} {floor} 합니다.")
+            if before is not None and where <= before:
                 raise ConditionError(
-                    f"{label} {row}행: 주파수는 위 행보다 커야 합니다({before} → {frequency})."
+                    f"{label} {row}행: {topic} 위 행보다 커야 합니다({before} → {where})."
                 )
-            before = float(frequency)
-        if not isinstance(value, str) and (value <= 0 if positive else value < 0):
+            before = float(where)
+        if signed or isinstance(value, str):
+            continue
+        if value <= 0 if positive else value < 0:
             what = "0보다 커야" if positive else "0 이상이어야"
             raise ConditionError(f"{label} {row}행: 값은 {what} 합니다.")
 

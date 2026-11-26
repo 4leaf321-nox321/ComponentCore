@@ -12,6 +12,7 @@ import { acceptsLabel } from '@/modules/conditions/api'
 import { FrequencyTable } from '@/modules/conditions/FrequencyTable'
 import { NumberText } from '@/modules/conditions/NumberText'
 import type { ConditionItem, FieldSchema, GroupSchema, NamedSelection } from '@/modules/conditions/api'
+import { Button } from '@/shared/components/ui/button'
 import { Input } from '@/shared/components/ui/input'
 import { Label } from '@/shared/components/ui/label'
 import {
@@ -334,6 +335,24 @@ const FOOTNOTE: Record<string, string> = {
   cylindrical: '방향은 선택한 원통면의 축을 기준으로 합니다. 좌표계는 선택하지 않습니다.',
 }
 
+/**
+ * 표 대신 **곡선**(`curves[]`, 이름)을 가리키는 하중 — 내보낼 때 서버가 곡선의 점을 이 표로 푼다.
+ * 곡선 편집은 아직 이 화면에 없어(AI · API 가 쓴다) 표를 그리면 빈 표로 보이고, 거기 적으면
+ * 서버가 「표와 곡선을 함께 적을 수 없다」 로 막는다 — 무엇을 쓰는지 말하고, 표로 적으려면 뗀다.
+ */
+function CurveNotice({ field, curve, onDetach }: { field: FieldSchema; curve: string; onDetach: () => void }) {
+  return (
+    <div role="status" className="bg-muted/40 space-y-1 rounded px-2 py-1.5 text-xs">
+      <p>
+        {field.title ?? '표'}: 곡선 ‘{curve}’의 점을 씁니다. 곡선은 아직 이 화면에서 고칠 수 없습니다.
+      </p>
+      <Button type="button" variant="outline" size="sm" onClick={onDetach}>
+        곡선 떼고 표로 입력
+      </Button>
+    </div>
+  )
+}
+
 /** 표 칸 — 가진 프로파일. 사양표의 열 이름 · Grms 여부로 그린다(`FrequencyTable`). */
 function TableField({ field, value, onChange }: { field: FieldSchema; value: unknown; onChange: (next: unknown) => void }) {
   return (
@@ -551,6 +570,9 @@ export function ConditionForm({
       {others.map(([key, field]) => {
         const options = choices(field)
         const value = item[key]
+        if (field.table && typeof item.curve === 'string' && item.curve !== '') {
+          return <CurveNotice key={key} field={field} curve={item.curve} onDetach={() => set('curve', '')} />
+        }
         if (field.table) {
           return <TableField key={key} field={field} value={value} onChange={(v) => set(key, v)} />
         }

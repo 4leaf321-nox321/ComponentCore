@@ -11,6 +11,7 @@ from app.core.conditions.analysis import _ANALYSIS_INTRO, ANALYSIS_NOTES, Analys
 from app.core.conditions.bodies import BodyMesh, BodySetting, MeshHint
 from app.core.conditions.common import INPUT_SYSTEM, Units
 from app.core.conditions.contacts import CONTACT_NOTES, Contact
+from app.core.conditions.curves import USES, Curve
 from app.core.conditions.loads import (
     CONSTRAINT_NOTES,
     IMPLIED_HOLDS,
@@ -113,6 +114,22 @@ def spec() -> dict[str, Any]:
             "파트 메시보다 우선합니다.",
             "fields": BodySetting.model_json_schema().get("properties", {}),
             "mesh_fields": BodyMesh.model_json_schema().get("properties", {}),
+        },
+    }
+    # 곡선 — 하중의 표 칸이 이름(`curve`)으로 가리킨다. 묶음이 아니라 한 벌에 이름 붙은
+    # 목록이고, 하중 종류마다 어느 표를 채우고 그 표가 어떤 보간 · 단위인지(`uses`)를 함께
+    # 준다.
+    curve_schema = Curve.model_json_schema()
+    out["curves"] = {
+        "label": "곡선",
+        "intro": "주파수 · 시간 · 단계에 따라 바뀌는 값을 이름 붙여 둡니다. 조화 응답의 "
+        "주파수별 배율과 가속도 PSD 는 표 대신 곡선을 가리킬 수 있고, 내보낼 때 표로 풀어 "
+        "싣습니다. 시간 · 단계 곡선(하중 이력)은 비선형 정적에서 하중이 가리킵니다.",
+        "fields": curve_schema.get("properties", {}),
+        "required": curve_schema.get("required", []),
+        "uses": {
+            kind: {"field": use.field, "interpolation": use.interpolation, "unit": use.unit}
+            for kind, use in USES.items()
         },
     }
     for key, one in groups.items():

@@ -459,6 +459,19 @@ test('표는 엑셀에서 붙여 넣은 두 열로 채우고, 행을 고치고 �
   expect(item.frequency_table).toBeNull()
 })
 
+test('곡선을 가리키는 하중은 표 대신 그 곡선을 쓴다고 말하고, 떼면 표로 적는다', () => {
+  const group: GroupSchema = { ...EXCITATION, fields: { ...EXCITATION.fields, curve: { type: 'string', default: '', hidden: true, only_for: ['psd_acceleration'] } } }
+  let item: ConditionItem = { name: 'X 랜덤', type: 'psd_acceleration', direction: [1, 0, 0], curve: 'IEC 랜덤' }
+  const view = () => <ConditionForm group={group} item={item} names={[]} analysis="random" onChange={(next) => (item = next)} />
+  const { rerender } = render(view())
+  expect(screen.getByRole('status')).toHaveTextContent('가속도 PSD: 곡선 ‘IEC 랜덤’의 점을 씁니다')
+  expect(screen.queryByLabelText('가속도 PSD 붙여넣기')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '곡선 떼고 표로 입력' }))
+  expect(item.curve).toBe('')
+  rerender(view())
+  expect(screen.getByLabelText('가속도 PSD 붙여넣기')).toBeInTheDocument()
+})
+
 test('가속도 PSD 는 선택 그룹 · 크기 없이 방향과 PSD 표를 받고, 표의 Grms 를 보인다', () => {
   let item: ConditionItem = { name: 'X 랜덤', type: 'psd_acceleration', direction: [1, 0, 0] }
   const view = () => <ConditionForm group={EXCITATION} item={item} names={[]} analysis="random" onChange={(next) => (item = next)} />

@@ -36,6 +36,7 @@ from app.core.conditions.common import (
     Units,
 )
 from app.core.conditions.contacts import CONTACT_LABELS, Contact, _check_contact
+from app.core.conditions.curves import Curve, check_curves, check_uses, filled, with_tables
 from app.core.conditions.loads import (
     AXIS_CHOICES,
     CONSTRAINT_LABELS,
@@ -78,13 +79,16 @@ class Conditions(Base):
     coordinate_systems: list[Frame] = Field(default_factory=list)
     """해석 조건에서 정한 좌표계. 도면(레시피)의 좌표계와 **이름이 겹치면 안 된다** — 둘 다
     `cs` 가 이름으로 가리킨다."""
+    curves: list[Curve] = Field(default_factory=list)
+    """곡선 — 하중이 이름으로 가리킨다(`curves` 모듈). 내보낼 때 하중 안의 표로 풀려 이 칸은
+    나가지 않는다."""
     cases: list[Case] = Field(default_factory=list)
     """해석 케이스(v2) — 비면 v1(맨 위가 케이스 하나). v1 로 내보낼 때는 이 칸을 싣지
     않는다."""
 
 
-#: 빈 한 벌 — v1 모양(케이스 칸 없음).
-EMPTY: dict[str, Any] = Conditions().model_dump(exclude={"cases"})
+#: 빈 한 벌 — 내보내는 v1 모양(케이스 · 곡선 칸 없음).
+EMPTY: dict[str, Any] = Conditions().model_dump(exclude={"cases", "curves"})
 
 
 def views(conditions: Conditions) -> list[tuple[str, Conditions]]:
@@ -314,7 +318,11 @@ def _check(
     frames: list[str] | None,
     sheets: set[str] | None,
 ) -> None:
-    """v1 모양 한 벌(케이스 하나)의 점검 — `parse` 가 케이스마다 부른다."""
+    """v1 모양 한 벌(케이스 하나)의 점검 — `parse` 가 케이스마다 부른다. 곡선을 가리키는
+    하중은 그 표를 채운 사본으로 본다 — 표를 적은 것과 같은 점검을 지난다."""
+    check_curves(conditions.curves)
+    check_uses(conditions)
+    conditions = with_tables(conditions)
     names = _known_names(conditions)
     if len(names) != len(conditions.named_selections):
         raise ConditionError(
@@ -519,6 +527,7 @@ def _resolved(
         out = {key: walk(one) for key, one in conditions.items()}
     except ExpressionError as failure:
         raise ConditionError(f"조건의 식을 풀지 못했습니다: {failure}") from failure
+    out = filled(out)
     system = str((out.get("units") or {}).get("system") or unit_systems.DEFAULT_SYSTEM)
     target = unit_systems.system_of(system)
     source = unit_systems.system_of(INPUT_SYSTEM)

@@ -69,6 +69,7 @@ from app.core.conditions.contacts import (
     CONTACT_NOTES,
     Contact,
 )
+from app.core.conditions.curves import CURVE_AXES, CURVE_INTERPOLATIONS, Curve
 from app.core.conditions.loads import (
     AXIS_CHOICES,
     AXIS_LABELS,
@@ -140,6 +141,8 @@ __all__ = [
     "CONTACT_ACCEPTS",
     "CONTACT_LABELS",
     "CONTACT_NOTES",
+    "CURVE_AXES",
+    "CURVE_INTERPOLATIONS",
     "DENSITY_KEY",
     "DIRECTED_LOADS",
     "EMPTY",
@@ -171,6 +174,7 @@ __all__ = [
     "Conditions",
     "Constraint",
     "Contact",
+    "Curve",
     "Frame",
     "Hold",
     "Initial",
