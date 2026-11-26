@@ -5922,7 +5922,7 @@
           "cad"
         ],
         "summary": "Conditions Schema",
-        "description": "해석 조건의 **칸 사양표** — 화면이 폼을 그리고 AI 가 읽는 한 벌.\n\n종류를 더할 때 화면을 고치지 않게, 정본을 서버가 들고 준다(`core/conditions.py`).",
+        "description": "해석 조건의 **칸 사양표** — 화면이 폼을 그리고 AI 가 읽는 한 벌.\n\n종류를 더할 때 화면을 고치지 않게, 정본을 서버가 들고 준다(`core/conditions/`).",
         "operationId": "conditions_schema_api_cad_conditions_schema_get",
         "responses": {
           "200": {
