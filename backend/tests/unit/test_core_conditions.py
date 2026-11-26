@@ -775,6 +775,8 @@ def test_해석_종류_등록부가_받는_항목과_물리를_든다() -> None:
     등록부 한 곳에(ADR 0013). 모델의 종류 목록 · 사양표와 어긋나면 여기서 잡는다."""
     from typing import get_args
 
+    from pydantic import BaseModel
+
     from app.core import contact_check
     from app.core.conditions import Constraint, Contact, Initial, Load
     from app.core.conditions.registry import (
@@ -786,7 +788,7 @@ def test_해석_종류_등록부가_받는_항목과_물리를_든다() -> None:
         structural,
     )
 
-    models = {
+    models: dict[str, type[BaseModel]] = {
         "constraints": Constraint,
         "loads": Load,
         "contacts": Contact,
