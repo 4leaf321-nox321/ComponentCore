@@ -57,6 +57,8 @@ import type { Pick as MeasuredPick } from '@/modules/cad/measure'
 import { measureMarks } from '@/modules/cad/measureMarks'
 import { RibbonButton, RibbonGroup } from '@/modules/cad/Ribbon'
 import { useRecipeMesh } from '@/modules/cad/useRecipeMesh'
+import { CaseTabs } from '@/modules/conditions/CaseTabs'
+import { caseView, casesOf, putCaseView, saved, withCases } from '@/modules/conditions/cases'
 import { ConditionForm } from '@/modules/conditions/ConditionForm'
 import { ContactCheck } from '@/modules/conditions/ContactCheck'
 import { FloatingWindow, SelectionMembers } from '@/modules/conditions/ConditionWindows'
@@ -164,41 +166,26 @@ interface PanelProps {
   defaultSystem?: string
 }
 
-/** 저장된 조건의 해석 케이스 수(v2 의 `cases`) — v1 이면 0. */
-export function caseCount(value: unknown): number {
-  const cases = value && typeof value === 'object' ? (value as { cases?: unknown }).cases : undefined
-  return Array.isArray(cases) ? cases.length : 0
-}
-
 /**
- * 해석 조건 화면. **해석 케이스가 있는 조건(v2)은 아직 고치지 못한다** — 이 화면은 맨 위의 해석
- * 설정 · 하중 · 구속 · 초기조건(케이스 하나, v1)을 그린다. 케이스 탭은 구조 정리 ①의 화면 단계에서
- * 더한다. 그 전에 v2 를 이 화면으로 열면 케이스가 빈 것처럼 보이고, 맨 위에 하중을 더해 저장하면
- * 서버가 섞였다고 막는다 — 그래서 열지 않고 까닭을 말한다(API · MCP 로 고친다).
+ * 해석 조건 화면. **해석 케이스가 있는 조건(v2)은 케이스 탭으로 연다**(`CaseTabs`) — 트리 · 3D · 창은 고른
+ * 케이스 하나를 v1 모양(공유 칸 + 그 케이스 칸, `caseView`)으로 그리고 고친다. 고친 것은 공유 칸은 맨 위로, 케이스
+ * 칸은 그 케이스로 돌아가고(`putCaseView`), 저장할 때 맨 위의 케이스 칸은 뺀다(`saved` — 섞이면 서버가 막는다).
+ * 케이스가 없는 조건(v1)은 지금과 같다.
  */
-export function ConditionsPanel(props: PanelProps) {
-  const cases = caseCount(props.value)
-  if (cases > 0) {
-    return (
-      <div className="rounded-md border p-4 text-sm" role="status">
-        <p className="font-medium">이 조건에는 해석 케이스가 {cases}개 있습니다.</p>
-        <p className="text-muted-foreground mt-1 text-xs">
-          케이스가 있는 조건(schema_version 2)은 아직 이 화면에서 고칠 수 없습니다. API 또는 MCP로 고치십시오. 케이스가 둘 이상이면 해석 쪽이 받을 수
-          있게 되기 전까지 DOE로 내보낼 수 없습니다.
-        </p>
-      </div>
-    )
-  }
-  return <ConditionsEditor {...props} />
-}
-
-function ConditionsEditor({ recipe, value, onSave, saving, defaultSystem }: PanelProps) {
+export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }: PanelProps) {
   /**
    * 저장된 조건 — **바디 그룹에 건 옛 국부 메시는 파트별 설정으로 옮겨 읽는다**(`moveBodyMeshHints`).
    * 옮긴 것은 초안에만 있고 「조건 저장」 을 눌러야 남는다(그래서 저장 단추가 켜진다).
    */
   const loaded = useMemo(() => moveBodyMeshHints(asConditions(value, defaultSystem)), [value, defaultSystem])
-  const [draft, setDraft] = useState<Conditions>(() => loaded.conditions)
+  /** 고치는 중인 한 벌 전부 — 케이스가 있으면 케이스 모두. 화면은 그중 고른 케이스(`draft`)를 그린다. */
+  const [whole, setWhole] = useState<Conditions>(() => loaded.conditions)
+  const [active, setActive] = useState(0)
+  const cases = casesOf(whole)
+  /** 고른 케이스의 v1 모양 — 아래의 모든 것이 이것을 읽는다. 케이스가 없으면 한 벌 그대로. */
+  const draft = useMemo(() => caseView(whole, active), [whole, active])
+  /** 고친 v1 모양을 한 벌로 — 공유 칸은 맨 위로, 케이스 칸은 고른 케이스로. */
+  const setDraft = (next: Conditions) => setWhole((now) => putCaseView(now, active, next))
   /** 트리에서 펼친 것 — 파트 · 물성 · 선택 그룹. */
   const [tree, setTree] = useState<TreeSelection>(null)
   const [editing, setEditing] = useState<Editing>(null)
@@ -252,14 +239,17 @@ function ConditionsEditor({ recipe, value, onSave, saving, defaultSystem }: Pane
   const { mesh, problems } = useRecipeMesh(recipe)
 
   // 저장된 것이 바뀔 때만 다시 읽는다 — 작업의 기본 단위계를 바꿨다고 고치던 것을 지우지 않는다.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => setDraft(loaded.conditions), [value])
+  useEffect(() => {
+    setWhole(loaded.conditions)
+    setActive((now) => Math.min(now, Math.max(casesOf(loaded.conditions).length - 1, 0)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
 
   const names = draft.named_selections
   /** 저장한 것과 다른가 — 리본의 「조건 저장」 이 눈에 띄게 한다. */
   const dirty = useMemo(
-    () => JSON.stringify(draft) !== JSON.stringify(asConditions(value, defaultSystem)),
-    [draft, value, defaultSystem],
+    () => JSON.stringify(saved(whole)) !== JSON.stringify(saved(asConditions(value, defaultSystem))),
+    [whole, value, defaultSystem],
   )
 
   /**
@@ -971,6 +961,21 @@ function ConditionsEditor({ recipe, value, onSave, saving, defaultSystem }: Pane
 
   return (
     <div className="space-y-3">
+      {cases.length > 0 && (
+        <CaseTabs
+          cases={cases}
+          active={Math.min(active, cases.length - 1)}
+          locked={!!editing}
+          onSelect={(index) => {
+            setActive(index)
+            setTree(null)
+          }}
+          onChange={(next, index) => {
+            setWhole((now) => withCases(now, next))
+            setActive(index)
+          }}
+        />
+      )}
       {/*
         **리본** — 도면 편집기와 같은 단추. 더하는 일은 여기서 하고, 있는 것은 왼쪽 트리에서
         보고 고친다. 「조건 저장」 도 여기 있다 — 격자 아래에 두면 3D 가 그만큼 작아진다.
@@ -983,7 +988,7 @@ function ConditionsEditor({ recipe, value, onSave, saving, defaultSystem }: Pane
             title={editing ? '열려 있는 창을 먼저 확인하거나 취소하십시오.' : '도면은 변경되지 않으며, 새 버전이 생성되지 않습니다.'}
             active={dirty}
             disabled={saving || !!editing}
-            onClick={() => onSave(draft)}
+            onClick={() => onSave(saved(whole))}
           />
         </RibbonGroup>
         <RibbonGroup title="선택">

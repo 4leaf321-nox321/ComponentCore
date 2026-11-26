@@ -985,16 +985,99 @@ test('접촉을 고치는 창을 열면 그 접촉의 자리를 3D 에 — 접�
   expect(screen.getByLabelText('적용 대상 표시').textContent).toMatch(/접촉면\(Contact\).*대상면\(Target\)/)
 })
 
-test('해석 케이스가 있는 조건(v2)은 열지 않고 까닭을 말한다 — 맨 위에 더해 저장하면 서버가 막는다', () => {
-  const value = {
-    schema_version: 2,
-    named_selections: [],
-    cases: [
-      { name: '예압', analysis: { type: 'static' } },
-      { name: '외력', depends_on: '예압', analysis: { type: 'static' } },
-    ],
-  }
-  render(<ConditionsPanel recipe={RECIPE} value={value} onSave={vi.fn()} />)
-  expect(screen.getByRole('status')).toHaveTextContent('해석 케이스가 2개')
-  expect(screen.queryByRole('button', { name: /조건 저장/ })).not.toBeInTheDocument()
+/** 케이스 둘 — 「예압」 뒤에 「외력」. 공유 칸(선택 그룹 · 단위계)은 한 벌이다. */
+const FIXED = { name: '바닥 고정', type: 'fixed_support', on: '바닥' }
+const TWO_CASES = {
+  schema_version: 2,
+  units: { system: 'mm_n_tonne' },
+  named_selections: [{ name: '바닥', entity: 'face', select: { what: 'faces', role: 'bottom' } }],
+  contacts: [],
+  cases: [
+    {
+      name: '예압',
+      target: { solver: 'calculix' },
+      analysis: { type: 'static' },
+      constraints: [FIXED],
+      loads: [{ name: '누름', type: 'pressure', on: '바닥', magnitude: 1 }],
+    },
+    {
+      name: '외력',
+      depends_on: '예압',
+      target: { solver: 'calculix' },
+      analysis: { type: 'static' },
+      constraints: [FIXED],
+      loads: [
+        { name: '무게', type: 'standard_earth_gravity' },
+        { name: '당김', type: 'pressure', on: '바닥', magnitude: 2 },
+      ],
+    },
+  ],
+}
+
+test('해석 케이스가 있는 조건(v2)은 케이스 탭으로 연다 — 탭마다 그 케이스를 그리고, 공유 칸은 한 벌이다', async () => {
+  const onSave = vi.fn()
+  render(<ConditionsPanel recipe={RECIPE} value={TWO_CASES} onSave={onSave} />)
+  await waitFor(() => screen.getByText('면 찍기'))
+  const tabs = screen.getByRole('tablist', { name: '해석 케이스 목록' })
+  expect(within(tabs).getByRole('tab', { name: '예압' })).toHaveAttribute('aria-selected', 'true')
+  expect(screen.getByTitle(/^누름 — /)).toBeInTheDocument()
+  expect(screen.queryByTitle(/^당김 — /)).toBeNull()
+  expect(screen.getByText(/DOE로 내보낼 수 없습니다/)).toBeInTheDocument()
+
+  fireEvent.click(within(tabs).getByRole('tab', { name: '↳ 외력' }))
+  expect(screen.getByTitle(/^당김 — /)).toBeInTheDocument()
+  expect(screen.queryByTitle(/^누름 — /)).toBeNull()
+  expect(screen.getByText(/‘예압’의 끝 상태/)).toBeInTheDocument()
+  // 공유 칸 — 어느 탭에서 바꿔도 한 벌의 것이다.
+  fireEvent.change(screen.getByLabelText('내보내기 단위계'), { target: { value: 'si' } })
+
+  // 이름을 바꾸면 그 케이스를 앞 케이스로 가리키던 것도 따라 바뀐다.
+  fireEvent.click(within(tabs).getByRole('tab', { name: '예압' }))
+  fireEvent.change(screen.getByLabelText('케이스 이름'), { target: { value: '조임' } })
+  const out = await save(onSave)
+  expect(out.schema_version).toBe(2)
+  expect(out.units).toEqual({ system: 'si' })
+  expect(out.cases.map((one: { name: string; depends_on?: string }) => [one.name, one.depends_on ?? ''])).toEqual([
+    ['조임', ''],
+    ['외력', '조임'],
+  ])
+  expect(out.cases[1].loads.map((one: { name: string }) => one.name)).toEqual(['무게', '당김'])
+  // 맨 위의 케이스 칸은 없다 — 섞이면 서버가 막는다(어느 쪽이 그 케이스인지 모른다).
+  for (const key of ['analysis', 'constraints', 'loads', 'initial']) expect(out).not.toHaveProperty(key)
+})
+
+test('이어지는 케이스는 해석 설정 · 구속 · 중력만 옮긴 사본이고, 뒤가 있는 케이스에는 더하지 않는다', async () => {
+  const onSave = vi.fn()
+  render(<ConditionsPanel recipe={RECIPE} value={TWO_CASES} onSave={onSave} />)
+  await waitFor(() => screen.getByText('면 찍기'))
+  const tabs = screen.getByRole('tablist', { name: '해석 케이스 목록' })
+  // 「예압」 뒤에는 이미 「외력」 — 사슬만이라 더할 수 없고, 지울 수도 없다.
+  expect(screen.getByRole('button', { name: '이어지는 케이스 추가' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: '케이스 삭제' })).toBeDisabled()
+
+  fireEvent.click(within(tabs).getByRole('tab', { name: '↳ 외력' }))
+  fireEvent.click(screen.getByRole('button', { name: '이어지는 케이스 추가' }))
+  expect(within(tabs).getByRole('tab', { name: '↳ 케이스 3' })).toHaveAttribute('aria-selected', 'true')
+  expect(screen.getByTitle(/^무게 — /)).toBeInTheDocument()
+  expect(screen.queryByTitle(/^당김 — /)).toBeNull()
+  const out = await save(onSave)
+  expect(out.cases[2]).toMatchObject({
+    name: '케이스 3',
+    depends_on: '외력',
+    target: { solver: 'calculix' },
+    analysis: { type: 'static' },
+    constraints: [FIXED],
+    loads: [{ name: '무게', type: 'standard_earth_gravity' }],
+    initial: [],
+  })
+
+  // 막 더한 끝 케이스는 지울 수 있다 — 앞 케이스를 고른다.
+  fireEvent.click(screen.getByRole('button', { name: '케이스 삭제' }))
+  expect(within(tabs).queryByRole('tab', { name: '↳ 케이스 3' })).toBeNull()
+  expect(within(tabs).getByRole('tab', { name: '↳ 외력' })).toHaveAttribute('aria-selected', 'true')
+})
+
+test('케이스가 없는 조건(v1)에는 탭이 없다 — 지금과 같다', async () => {
+  await panel()
+  expect(screen.queryByRole('tablist', { name: '해석 케이스 목록' })).toBeNull()
 })
