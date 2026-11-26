@@ -29,7 +29,8 @@
     방향을 바꾸지도 못한다(SimEngBay 실측, 2026-11-26). 솔버와 상관없이 막는다 — 대상 솔버가
     비면 저장할 때 솔버를 모른다. 가속도 · 회전 속도는 단계마다 끌 수 있어 막지 않는다.
 - 내보내기는 `model.resolve` — 케이스가 하나면 v1 그대로(받는 쪽이 바뀌는 것이 없다), 여럿이면
-  받는 쪽이 v2 를 받기 전에는 까닭을 말하고 막는다.
+  받는 쪽이 v2 를 받기 전에는 까닭을 말하고 막는다. 예외는 **「정적 → 모달」 사슬** — v1 의
+  선응력 모달 하나로 접는다(`fold_prestressed`, SimEngBay 와 정함 2026-11-27).
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ from pydantic import Field
 from app.core.conditions.analysis import Analysis
 from app.core.conditions.common import Base, ConditionError
 from app.core.conditions.loads import Constraint, Initial, Load
+from app.core.conditions.registry import ANALYSES
 
 #: 케이스마다 적는 칸 — 나머지는 공유다.
 CASE_FIELDS = ("analysis", "constraints", "loads", "initial")
@@ -49,9 +51,12 @@ CASE_FIELDS = ("analysis", "constraints", "loads", "initial")
 #: 케이스가 여럿인 조건을 내보내려 할 때 — 받는 쪽이 v2 를 받으면 연다(설계 9장).
 MULTI_CASE_BLOCKED = (
     "해석 케이스가 {count}개인 조건은 아직 내보낼 수 없습니다 — 해석 쪽(SimEngBay)이 케이스가 "
-    "여럿인 조건(schema_version 2)을 받기 전입니다. 케이스를 하나만 남기거나 케이스마다 "
-    "따로 내보내십시오."
+    "여럿인 조건(schema_version 2)을 받기 전입니다(「정적 → 모달」 사슬만 선응력 모달 하나로 "
+    "접어 내보냅니다). 케이스를 하나만 남기거나 케이스마다 따로 내보내십시오."
 )
+
+_GRAVITY = "standard_earth_gravity"
+_BOLT = "bolt_pretension"
 
 
 class Target(Base):
@@ -202,6 +207,109 @@ def _gravity(case: Case) -> list[str]:
             direction = [round(float(one) / length, 9) + 0.0 for one in direction]
         out.append(json.dumps([load.cs, direction]))
     return sorted(out)
+
+
+def fold_prestressed(cases: list[Case]) -> dict[str, Any] | str:
+    """「정적 → 모달」 사슬을 **v1 선응력 모달** 한 벌의 케이스 칸으로 — 못 접으면 그
+    까닭(사슬이 아예 모달로 끝나지 않으면 `""`).
+
+    받는 쪽이 v2 를 받기 전에도 이 사슬은 내보낼 수 있다 — v1 의 선응력 모달
+    (`prestressed` + 초기조건 `prestress`, `from_step` 비움)이 같은 뜻이다: 같은 하중의
+    정적을 풀고 그 끝의 응력 · 접촉 상태에서 모달을 푼다. 볼트가 있으면 그 정적을 ① 조임 →
+    ② 조인 길이로 잠그고 나머지 하중, 두 단계로 푼다(SimEngBay, 2026-11-27). 그래서
+    접히는 것은 둘뿐이다.
+
+    - **정적 → 모달** — 하중 · 구속 · 초기조건은 정적의 것.
+    - **예압 → 외력 → 모달** — 「예압」 의 하중이 볼트 예압(+ 사슬의 중력)뿐이면 하중 =
+      예압 + 외력(중력은 한 번). v1 이 두 단계로 나눠 푸는 그대로다.
+
+    v1 이 못 적는 것은 접지 않는다: 앞 정적의 해석 설정(v1 선응력은 읽지 않는다 —
+    종류뿐이어야 한다), 모달에 걸린 하중(중력 말고) · 초기조건, 「예압」 에 볼트 말고 다른
+    하중(v1 은 그것을 둘째 단계에만 건다), 「외력」 에서 새로 조이는 볼트(v1 은 볼트를 모두
+    첫 단계에 조인다). 조화 · 랜덤의 선응력은 받는 쪽이 v2 를 받는 판에서 케이스 사슬로
+    읽는다(조화는 두 솔버 모두, 랜덤은 Ansys 가 v1 선응력을 받지 않는다)."""
+    *statics, last = cases
+    kind = last.analysis.type
+    if kind in ("harmonic", "random") and last.depends_on:
+        return (
+            f"‘{last.name}’({ANALYSES[kind].label})의 선응력은 해석 쪽이 케이스를 받는 "
+            "판부터 읽습니다 — 지금은 모달만 접습니다."
+        )
+    if kind != "modal" or not last.depends_on:
+        return ""
+    if cases[0].depends_on or any(
+        one.depends_on != before.name for one, before in zip(cases[1:], cases, strict=False)
+    ):
+        return "케이스가 차례로 이어진 한 사슬이 아닙니다(앞 케이스를 바로 앞 케이스로)."
+    if len(statics) > 2:
+        return (
+            f"모달 앞의 정적이 {len(statics)}개입니다 — v1 선응력 모달로는 정적 둘(볼트 "
+            "예압 → 외력)까지만 접힙니다."
+        )
+    for one in statics:
+        if one.analysis.type != "static":
+            return (
+                f"앞 케이스 ‘{one.name}’이(가) 정적 구조가 아닙니다 — 선응력은 정적의 "
+                "끝 상태입니다."
+            )
+        changed = [
+            str(Analysis.model_fields[key].title)
+            for key in ANALYSES["static"].fields
+            if getattr(one.analysis, key) != Analysis.model_fields[key].default
+        ]
+        if changed:
+            return (
+                f"앞 정적 ‘{one.name}’의 해석 설정({', '.join(changed)})은 v1 선응력 "
+                "모달이 읽지 않습니다 — 기본값으로 두십시오(볼트가 있으면 두 단계로 "
+                "저절로 풉니다)."
+            )
+        if any(item.type == "prestress" for item in one.initial):
+            return (
+                f"앞 정적 ‘{one.name}’에 초기조건 ‘선응력’이 있습니다 — 사슬에서는 앞 "
+                "케이스가 선응력입니다. 지우십시오."
+            )
+    first = statics[0]
+    for one in [*statics[1:], last]:
+        if one.initial:
+            return (
+                f"‘{one.name}’에 초기조건이 있습니다 — 접으면 첫 케이스 ‘{first.name}’의 "
+                "초기조건만 씁니다. 그 케이스로 옮기십시오."
+            )
+    extra = [load.name for load in last.loads if load.type != _GRAVITY]
+    if extra:
+        return (
+            f"모달 ‘{last.name}’에 하중({', '.join(extra)})이 있습니다 — v1 선응력 "
+            "모달의 하중은 앞 정적의 것뿐입니다. 중력 말고는 앞 케이스에 적으십시오."
+        )
+    loads = list(first.loads)
+    if len(statics) == 2:
+        outer = statics[1]
+        if not any(load.type == _BOLT for load in first.loads):
+            return (
+                f"‘{first.name}’에 볼트 예압이 없습니다 — 정적 둘은 「볼트 예압 → "
+                "외력」 만 접힙니다."
+            )
+        other = [load.name for load in first.loads if load.type not in (_BOLT, _GRAVITY)]
+        if other:
+            return (
+                f"‘{first.name}’에 볼트 예압 말고 다른 하중({', '.join(other)})이 "
+                "있습니다 — v1 은 볼트 예압 말고는 둘째 단계에 겁니다. 그 하중을 "
+                f"‘{outer.name}’(으)로 옮기십시오."
+            )
+        bolts = [load.name for load in outer.loads if load.type == _BOLT]
+        if bolts:
+            return (
+                f"‘{outer.name}’에서 볼트({', '.join(bolts)})를 조입니다 — v1 은 볼트를 "
+                f"모두 첫 단계에 조이므로 접을 수 없습니다. ‘{first.name}’에 적으십시오."
+            )
+        # 중력은 사슬 안에서 같다(`_check_follows`) — 한 번만.
+        loads += [load for load in outer.loads if load.type != _GRAVITY]
+    return {
+        "analysis": last.analysis.model_copy(update={"prestressed": True}),
+        "constraints": list(first.constraints),
+        "loads": loads,
+        "initial": [*first.initial, Initial.model_validate({"type": "prestress"})],
+    }
 
 
 def in_case(index: int, message: str) -> str:

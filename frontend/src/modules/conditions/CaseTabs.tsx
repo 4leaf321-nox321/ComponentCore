@@ -7,7 +7,7 @@
  * 「이어지는 케이스 추가」 는 해석 설정 · 구속 · 중력을 옮긴 사본이고, 이미 뒤가 있는 케이스에는 더하지 않는다.
  *
  * 케이스가 없는 조건(v1)에는 탭이 없다 — 지금과 같다. 케이스가 둘 이상이면 해석 쪽이 v2 를 받을 때까지 DOE 로
- * 내보낼 수 없어서, 케이스를 처음 만드는 일은 아직 API · MCP 로 한다.
+ * 내보낼 수 없어서(「정적 → 모달」 사슬만 서버가 v1 선응력 모달로 접는다), 케이스를 처음 만드는 일은 아직 API · MCP 로 한다.
  */
 
 import { Layers } from 'lucide-react'
@@ -161,7 +161,8 @@ export function CaseTabs({ cases, active, locked, onSelect, onChange }: Props) {
       )}
       {cases.length > 1 && (
         <p className="text-amber-700 dark:text-amber-400">
-          케이스가 둘 이상인 조건은 해석 쪽(SimEngBay)이 받을 수 있게 되기 전까지 DOE로 내보낼 수 없습니다.
+          케이스가 둘 이상인 조건은 해석 쪽(SimEngBay)이 받을 수 있게 되기 전까지 DOE로 내보낼 수 없습니다. 예외는 「정적 → 모달」
+          사슬입니다 — 선응력 모달 하나로 접어 내보냅니다(앞 정적의 해석 설정은 기본값, 모달에는 중력 말고 하중 · 초기조건 없이).
         </p>
       )}
     </div>

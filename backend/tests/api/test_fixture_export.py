@@ -1117,6 +1117,47 @@ def test_볼트_예압_두_케이스_픽스처는_스위치를_켤_때만_v2_로
     _keep(folder)
 
 
+#: ⑧-5 같은 체결의 **예압 → 외력 → 모달** 사슬(v2) — 받는 쪽이 v2 를 받기 전이라 v1
+#: 선응력 모달 하나로 접어 내보낸다(SimEngBay 와 정함, 2026-11-27). 「예압」 의 하중이 볼트
+#: 예압뿐이라 하중 = 예압 + 외력 — v1 이 두 단계(조임 → 잠그고 끌어올림)로 푸는 그대로다.
+BOLT_CHAIN_MODAL: dict[str, Any] = {
+    **BOLT_TWO_CASES,
+    "name": "조건_볼트예압_사슬모달",
+    "conditions": {
+        **BOLT_TWO_CASES["conditions"],
+        "cases": [
+            *BOLT_TWO_CASES["conditions"]["cases"],
+            {
+                "name": "모달",
+                "depends_on": "외력",
+                "target": {"solver": "calculix"},
+                "analysis": {"type": "modal", "modes": 6},
+                "constraints": _BOLT["constraints"],
+            },
+        ],
+    },
+}
+
+
+def test_예압_외력_모달_사슬은_v1_선응력_모달_픽스처와_같은_조건으로_나간다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    """점 파일의 조건 · 영역 · 바디가 v1 「조건_볼트예압_선응력모달」 점 1(예압 1000 N)과
+    같다 — 받는 쪽이 바뀌는 것이 없다. 정적 둘만인 사슬은 여전히 막는다(위 시험). 조건은
+    지금 v1 을 내보낸 것과 견준다 — 커밋된 픽스처(2026-11-16)는 그 뒤에 생긴
+    칸(`frequency_table` …)이 없다."""
+    folder = _export(client, member, export_root, BOLT_CHAIN_MODAL)
+    (point,) = _points(folder)
+    v1 = _points(_export(client, member, export_root, BOLT_PRESTRESSED))[0]
+    assert v1["point"]["params"]["예압 방식"] == "N"
+    assert point["conditions"]["schema_version"] == 1
+    assert "cases" not in point["conditions"]
+    assert point["conditions"] == v1["conditions"]
+    assert point["regions"] == v1["regions"]
+    assert point["bodies"] == v1["bodies"]
+    assert point["unresolved"] == []
+
+
 def test_조건_픽스처를_실제_내보내기로_만든다(
     client: TestClient, member: Signed, export_root: Path
 ) -> None:

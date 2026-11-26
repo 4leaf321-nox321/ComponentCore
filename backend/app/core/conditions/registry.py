@@ -68,6 +68,10 @@ REFUSED_WHY: dict[tuple[str, str], str] = {
     # 열팽창을 넣지 않아 아직 거절한다(SimEngBay, 2026-11-18).
     ("initial", "temperature"): "구조 해석의 바디 온도(열 하중)는 해석 쪽이 아직 받지 "
     "않습니다. 온도에 따른 물성을 쓰려면 ‘환경 온도’를 지정하십시오.",
+    # 조화 응답의 선응력은 두 솔버 모두 받지 않는다 — 받는 쪽이 말없이 무시하던 것(SimEngBay,
+    # 2026-11-27). 모달 · 랜덤 진동은 받는다.
+    ("initial", "prestress"): "조화 응답의 선응력은 해석 쪽이 받지 않습니다(CalculiX · Ansys "
+    "모두). 선응력은 모달 · 랜덤 진동에서 사용하십시오.",
 }
 
 
@@ -143,17 +147,18 @@ ANALYSES: dict[str, AnalysisKind] = {
         note="지정한 주파수로 가진하는 하중에 대한 응답(진폭, 응력)을 주파수별로 "
         "계산합니다. 공진을 확인할 때 사용합니다. 하중마다 ‘주파수별 배율’로 사인 스윕 "
         "프로파일을 입력할 수 있습니다.",
+        # 선응력(`prestressed` · 초기조건 `prestress`)은 두 솔버 모두 받지 않는다(SimEngBay,
+        # 2026-11-27) — 칸을 내지 않는다. 케이스 사슬(정적 → 조화)로 받는 판에서 연다.
         fields=(
             "modes",
             "frequency_range",
-            "prestressed",
             "solution_intervals",
             "method",
             "damping_ratio",
             "solver",
         ),
         physics="structural",
-        accepts=_NOT_PSD,
+        accepts=_all_except(loads=("psd_acceleration",), initial=("temperature", "prestress")),
         item_fields=MappingProxyType({"loads": ("frequency_table", "phase")}),
         linearized=True,
     ),
