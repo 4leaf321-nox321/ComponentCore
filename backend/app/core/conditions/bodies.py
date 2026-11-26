@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import Field, field_validator
 
+from app.core.conditions.cases import raw_views
 from app.core.conditions.common import (
     ALL_BODIES,
     Base,
@@ -345,10 +346,11 @@ def pretension_misses(
     단면은 예압 하중의 좌표계다(원점을 지나고 Z 에 수직인 평면). 치수를 바꾼 설계점에서
     볼트가 옮겨 가면 평면이 볼트 밖에 남을 수 있다 — 받는 쪽(SimEngBay)은 그 점을 막으므로
     내보낼 때 알린다. 바디의 경계상자로 본다(상자를 안 지나면 바디도 안 지난다). `frames` ·
-    `regions` 는 도면의 mm 다."""
+    `regions` 는 도면의 mm 다. 해석 케이스가 여럿이면 케이스마다 본다(같은 말은 한 번)."""
     by_name = {str(one.get("name")): one for one in frames}
     out: list[str] = []
-    for load in (raw or {}).get("loads") or []:
+    loads = [load for _, view in raw_views(raw) for load in view.get("loads") or []]
+    for load in loads:
         if not isinstance(load, dict) or load.get("type") != "bolt_pretension":
             continue
         frame = by_name.get(str(load.get("cs")))
@@ -369,10 +371,12 @@ def pretension_misses(
                 )
             }
             if len(sides) == 1:
-                out.append(
+                line = (
                     f"볼트 예압 ‘{load.get('name')}’의 단면(좌표계 ‘{load.get('cs')}’)이 "
                     f"바디 ‘{row.get('name')}’을(를) 지나지 않습니다"
                 )
+                if line not in out:
+                    out.append(line)
     return out
 
 

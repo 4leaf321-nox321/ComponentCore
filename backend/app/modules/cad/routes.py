@@ -236,7 +236,8 @@ def conditions_frames(
     evaluation = services.build(payload.recipe)
     raw = payload.conditions or {}
     try:
-        resolved = condition_model.resolve(raw, payload.recipe.get("params") or {})
+        # 좌표계는 공유 칸이다 — 케이스가 여럿이어도 푼다(내보내기를 막는 것과 상관없다).
+        resolved = condition_model.resolve(raw, payload.recipe.get("params") or {}, cases=True)
     except condition_model.ConditionError as failure:
         raise AppError(code("CAD", 14), str(failure)) from failure
     wanted = {

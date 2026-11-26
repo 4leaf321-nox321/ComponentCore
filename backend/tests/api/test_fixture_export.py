@@ -1031,6 +1031,92 @@ def test_볼트_예압_픽스처_힘과_조임량_정적과_선응력_모달(
         _copy_fixture(folder)
 
 
+#: ⑧-4 같은 체결을 **해석 케이스 둘**로(v2 — ADR 0013, 구조 정리 ①의 끝).
+#: 「조건_볼트예압_정적」 의 2 단계 정적(1 단계 체결 → 2 단계 길이 고정 + 끌어올림)을 케이스로
+#: 나눴다 — 「예압」 은 볼트 예압만, 「외력」 은 「예압」 뒤(`depends_on`)에 끌어올림만. 볼트는
+#: 「예압」 에서 체결된 길이 그대로다(받는 쪽이 고정한다 — v1 의 2 단계와 같은 뜻). 형상 · 선택
+#: 그룹 · 재료 · 접촉 · 메시는 공유. 점 하나(예압 1000 N) — 고르기 인자는 아직 케이스가 여럿인
+#: 조건에 못 건다.
+_BOLT: dict[str, Any] = BOLT_PRETENSION["conditions"]
+BOLT_TWO_CASES: dict[str, Any] = {
+    "name": "조건_볼트예압_두케이스",
+    "recipe": BOLT_PRETENSION["recipe"],
+    "factors": [],
+    "conditions": {
+        **{k: v for k, v in _BOLT.items() if k not in ("constraints", "loads", "analysis")},
+        "schema_version": 2,
+        "cases": [
+            {
+                "name": "예압",
+                "target": {"solver": "calculix"},
+                "analysis": {"type": "static"},
+                "constraints": _BOLT["constraints"],
+                "loads": [_BOLT["loads"][0]],
+            },
+            {
+                "name": "외력",
+                "depends_on": "예압",
+                "target": {"solver": "calculix"},
+                "analysis": {"type": "static"},
+                "constraints": _BOLT["constraints"],
+                "loads": [_BOLT["loads"][1]],
+            },
+        ],
+    },
+}
+
+
+def test_볼트_예압_두_케이스_픽스처는_스위치를_켤_때만_v2_로_나간다(
+    client: TestClient, member: Signed, export_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """받는 쪽이 v2 를 받기 전이라 기본은 막는다(`doe_conditions_v2`). 켜면 공유 칸은 한 벌,
+    케이스마다 v1 과 같은 길로 푼 칸 — 영역 · 바디는 v1 「조건_볼트예압_정적」 의 같은 점(예압
+    1000 N)과 같아야 한다."""
+    blocked = client.post("/api/doe", json=BOLT_TWO_CASES, headers=member.headers)
+    assert blocked.status_code == 400, blocked.text
+    assert "해석 케이스가 2개인 조건은 아직 내보낼 수 없습니다" in blocked.text
+
+    monkeypatch.setattr(get_settings(), "doe_conditions_v2", True)
+    folder = _export(client, member, export_root, BOLT_TWO_CASES)
+    (point,) = _points(folder)
+    conditions = point["conditions"]
+    assert conditions["schema_version"] == 2
+    assert not {"analysis", "constraints", "loads", "initial"} & set(conditions)
+    preload, outer = conditions["cases"]
+    assert (preload["name"], preload["depends_on"], preload["target"]) == (
+        "예압",
+        "",
+        {"solver": "calculix"},
+    )
+    assert (outer["name"], outer["depends_on"]) == ("외력", "예압")
+    (bolt,) = preload["loads"]
+    assert (bolt["type"], bolt["preload"], bolt["unit"]) == ("bolt_pretension", 1000, "N")
+    (pull,) = outer["loads"]
+    assert (pull["type"], pull["magnitude"], pull["unit"]) == ("force", 600, "N")
+    assert pull["direction"] == [0, 0, 1]
+    for case in (preload, outer):
+        assert [one["name"] for one in case["constraints"]] == ["바닥 고정"]
+        assert case["analysis"]["type"] == "static" and case["initial"] == []
+    assert {one["name"] for one in conditions["contacts"]} == {
+        "머리-위판",
+        "판-판",
+        "나사 물림",
+    }
+    assert point["unresolved"] == []
+    assert point["compcore_version"] == app_version.current()
+    # v1 과 같은 형상 · 영역 — 받는 쪽이 v1 의 2 단계 결과와 견줄 수 있다.
+    v1 = json.loads(
+        (COMMITTED / "조건_볼트예압_정적" / "points" / "p0001.json").read_text("utf-8")
+    )
+    assert v1["point"]["params"]["예압 방식"] == "N"
+    assert point["regions"] == v1["regions"]
+    assert point["bodies"] == v1["bodies"]
+    # 같은 조건을 v1 로 내보내던 칸(공유)은 그대로.
+    for key in ("units", "named_selections", "contacts", "mesh_hints", "materials"):
+        assert conditions[key] == v1["conditions"][key], key
+    _keep(folder)
+
+
 def test_조건_픽스처를_실제_내보내기로_만든다(
     client: TestClient, member: Signed, export_root: Path
 ) -> None:

@@ -335,7 +335,7 @@ def _check_condition_factors(
     frame_names = frames.recipe_frame_names(recipe)
     if conditions:
         try:
-            condition_model.resolve(conditions, params)
+            condition_model.resolve(conditions, params, cases=get_settings().doe_conditions_v2)
         except condition_model.ConditionError as failure:
             raise AppError(code("DOE", 15), f"해석 조건: {failure}") from failure
     for one in engine.non_shape_factors(factors, "choice"):
@@ -399,7 +399,9 @@ def _check_condition_factors(
                 ]
         for label, variant in variants:
             try:
-                resolved = condition_model.resolve(variant, params, keys)
+                resolved = condition_model.resolve(
+                    variant, params, keys, cases=get_settings().doe_conditions_v2
+                )
                 if not any(
                     set(m.get("apply_to") or [])
                     & (set(targets) | {condition_model.ALL_BODIES})
@@ -2739,6 +2741,7 @@ def run_job(
                                         **_shape_params(study, point.params),
                                     },
                                     names,
+                                    cases=get_settings().doe_conditions_v2,
                                 ),
                             )
                             # 시트 파트는 늘 쉘 — 설정 줄이 없어도 받는 쪽이 솔리드로 읽지
