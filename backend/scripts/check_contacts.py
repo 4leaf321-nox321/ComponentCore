@@ -1,6 +1,7 @@
 """저장된 접촉 중 **면 그룹이 잘못 걸린 것**을 찾는다 — 읽기만 한다.
 
     .venv/bin/python scripts/check_contacts.py          작업 · 부품 · 지그 · DOE 의 조건 전부
+    .venv/bin/python scripts/check_contacts.py --doe    DOE 스터디만(다시 낼 스터디 고르기)
     .venv/bin/python scripts/check_contacts.py --all    하중으로 닿을 수 있는 접촉(마찰 …)의
                                                        「처음에 떨어져 있음」 도
 
@@ -15,9 +16,17 @@ v0.26.0 ~ v0.30.1 은 본딩 셋 중 둘, v0.31.0 은 셋 다(v0.31.1 에서 고
 - 맞닿지 않음 — 두 면 묶음이 겹친 넓이가 0 이다. 본딩 · 분리 없음이면 받는 쪽이 못 묶는다.
 
 찾은 것은 해석 조건 화면에서 그 접촉의 두 선택 그룹을 다시 고르면 된다. v0.31.1 부터는 조건
-화면의 접촉 점검과 DOE 점 파일의 경고(`quality.warnings`)도 같은 것을 말한다. 재는 법은 조건
-화면과 같다(`contact_check.misplaced`) — 저장된 레시피로 형상을 다시 만들므로 조건이 많으면 몇
-분 걸린다. 바디 그룹 · 못 푼 그룹은 건너뛴다.
+화면의 접촉 점검과 DOE 점 파일의 경고(`quality.warnings` · `quality.misplaced_contacts`)도 같은
+것을 말한다.
+
+**DOE 스터디는 조건의 스냅샷이다** — 「재생성」 은 그 스냅샷으로 다시 만들므로 같은 규칙이
+나간다. 작업의 조건을 고친 뒤 그 스터디의 「설정 변경 후 새 DOE 생성」 으로 새 스터디를
+만든다(새 스터디 id). DOE 줄의 「만듦 · 보냄」 은 그 스터디를 만든 날 · 공유 폴더로 보낸 날이다
+— 다시 낼 대상을 고를 때 쓴다(`--doe`). 판정은 스터디의 기본 형상(도면의 기본 치수)으로 한다 —
+설계점마다 형상이 다르면 v0.31.1 이 낸 점 파일의 판정이 점마다 말한다.
+
+재는 법은 조건 화면과 같다(`contact_check.misplaced`) — 저장된 레시피로 형상을 다시 만들므로
+조건이 많으면 몇 분 걸린다. 바디 그룹 · 못 푼 그룹은 건너뛴다.
 """
 
 from __future__ import annotations
@@ -47,13 +56,15 @@ from app.modules.works.models import Work, WorkVersion
 Saved = tuple[str, dict[str, Any], dict[str, Any]]
 
 
-def _saved(db: Any) -> Iterator[Saved]:
+def _saved(db: Any, only_doe: bool = False) -> Iterator[Saved]:
     """(어디 · 레시피 · 조건) — 접촉이 있는 것만."""
     rows: list[tuple[str, Any]] = [
         ("작업", select(Work.name, Work.id, WorkVersion)),
         ("부품", select(Part.name, Part.id, PartVersion)),
         ("지그", select(Jig.name, Jig.id, JigVersion)),
     ]
+    if only_doe:
+        rows = []
     joins = {
         "작업": (WorkVersion, Work.id == WorkVersion.work_id),
         "부품": (PartVersion, Part.id == PartVersion.part_id),
@@ -65,9 +76,12 @@ def _saved(db: Any) -> Iterator[Saved]:
             if version.recipe and (version.conditions or {}).get("contacts"):
                 where = f"{kind} ‘{name}’ v{version.number} ({owner})"
                 yield where, version.recipe, version.conditions
-    for study in db.scalars(select(DoeStudy)):
+    for study in db.scalars(select(DoeStudy).order_by(DoeStudy.created_at)):
         if study.recipe and (study.conditions or {}).get("contacts"):
-            yield f"DOE ‘{study.name}’ ({study.id})", study.recipe, study.conditions
+            when = f"만듦 {study.created_at:%Y-%m-%d}"
+            if study.exported_at is not None:
+                when += f" · 보냄 {study.exported_at:%Y-%m-%d}"
+            yield f"DOE ‘{study.name}’ ({study.id}, {when})", study.recipe, study.conditions
 
 
 def main() -> int:
@@ -77,13 +91,16 @@ def main() -> int:
         action="store_true",
         help="마찰 · 마찰 없음 · 거침 접촉도(처음에 떨어져도 될 수 있다)",
     )
+    parser.add_argument(
+        "--doe", action="store_true", help="DOE 스터디만(다시 낼 스터디 고르기)"
+    )
     args = parser.parse_args()
 
     db = SessionLocal()
     checked = contacts = failed = 0
     found: list[str] = []
     try:
-        for where, recipe, conditions in _saved(db):
+        for where, recipe, conditions in _saved(db, args.doe):
             checked += 1
             try:
                 made = build(recipe)

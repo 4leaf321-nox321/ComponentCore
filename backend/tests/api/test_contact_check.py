@@ -210,6 +210,20 @@ def test_조립에서_빠뜨린_접촉을_말하고_채우면_내보내기에서
         "맞닿아 있지 않습니다. 선택 그룹이 다른 면을 가리키는지 확인하십시오."
     ]
 
+    # 만들기 전의 「끝 점 미리 만들어 보기」 도 같은 판정을 점마다 말한다 — 만든 뒤에야 점의
+    # 경고로 보이던 것(2026-11-26).
+    probed = client.post(
+        "/api/doe/probe",
+        json={"recipe": recipe, "factors": [], "conditions": wrong},
+        headers=member.headers,
+    )
+    assert probed.status_code == 200, probed.text
+    (centre,) = [one for one in probed.json()["points"] if one["status"] == "ok"]
+    assert [one for one in centre["warnings"] if "맞닿아" in one] == [
+        "접촉 ‘판바닥-받침’: 접촉면 ‘받침 아랫면’ 과 대상면 ‘판 바닥’ 이 "
+        "맞닿아 있지 않습니다. 선택 그룹이 다른 면을 가리키는지 확인하십시오."
+    ]
+
     # 운영에서 한 번 훑는 점검(`scripts/check_contacts.py`)도 **저장된** 조건에서 같은 것을
     # 찾는다.
     saved = client.put(
@@ -229,3 +243,10 @@ def test_조립에서_빠뜨린_접촉을_말하고_채우면_내보내기에서
     out = capsys.readouterr().out
     assert f"작업 ‘ASSY’ v1 ({assembly}) · 접촉 ‘판바닥-받침’(bonded) 맞닿지 않음" in out
     assert "접촉 ‘판-받침’" not in out
+    # DOE 는 스냅샷이다 — 틀린 조건으로 만든 스터디가 만든 날과 함께 나온다. `--doe` 는 그것만.
+    assert "DOE ‘조립_접촉어긋남’ (" in out and ", 만듦 20" in out
+    monkeypatch.setattr(sys, "argv", ["check_contacts.py", "--doe"])
+    assert module.main() == 1
+    only = capsys.readouterr().out
+    assert "DOE ‘조립_접촉어긋남’ (" in only
+    assert "작업 ‘ASSY’" not in only and "DOE ‘조립_접촉채움’" not in only

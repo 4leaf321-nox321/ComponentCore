@@ -36,8 +36,9 @@ export function ContactCheck({ recipe, draft, onApply }: { recipe: Recipe; draft
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key])
 
-  // 맞닿은 쌍이 없으면(단품 · 떨어진 부품) 말할 것이 없다.
-  if (!report || !report.touching?.length) return null
+  // 맞닿은 쌍이 없으면(단품 · 떨어진 부품) 말할 것이 없다 — 다만 경고(잘못 걸린 접촉: 두 그룹이
+  // 같은 면이거나 맞닿지 않음)는 맞닿은 쌍이 없어도 보인다. 고칠 자리가 이 화면이다.
+  if (!report || (!report.touching?.length && !report.notes?.some((one) => one.level === 'warn'))) return null
   const proposal = { named_selections: report.proposal?.named_selections ?? [], contacts: report.proposal?.contacts ?? [] }
   const fill = proposal.contacts.length
   const notes = [...(report.notes ?? [])].sort((a, b) => (a.level === b.level ? 0 : a.level === 'warn' ? -1 : 1))

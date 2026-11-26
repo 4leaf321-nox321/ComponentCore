@@ -55,3 +55,16 @@ test('인접 바디가 없으면(단품) 아무것도 그리지 않는다', asyn
   await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled(), { timeout: 3000 })
   expect(container.innerHTML).toBe('')
 })
+
+test('인접 바디가 없어도 잘못 걸린 접촉의 경고는 보인다', async () => {
+  serve({
+    ...REPORT,
+    touching: [],
+    missing: [],
+    proposal: { named_selections: [], contacts: [] },
+    notes: [{ where: '접촉 ‘판-받침’', level: 'warn', text: '접촉면 ‘받침 아랫면’과 대상면 ‘판 윗면’이 같은 면을 가리킵니다' }],
+  })
+  render(<ContactCheck recipe={{ nodes: [] }} draft={draft} onApply={vi.fn()} />)
+  expect(await screen.findByText(/같은 면을 가리킵니다/, {}, { timeout: 3000 })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /미정의 접촉을 본딩으로 생성/ })).not.toBeInTheDocument()
+})

@@ -642,6 +642,12 @@ def probe(db: Session, owner: User, raw: dict[str, Any]) -> dict[str, Any]:
     definitions, base_values, tracks = _tracking(recipe, conditions, factors_raw)
     limits, reference = _checking(recipe, raw.get("checks"))
     measure_list = _measures(raw.get("measures"), recipe, conditions, factors_raw)
+    # 잘못 걸린 접촉 — 만든 뒤에야 점의 경고로 보이던 것을 만들기 전에(SimEngBay 가 그 점을
+    # 막는다, 2026-11-26).
+    pairs = _contact_pairs(conditions)
+    declared = [
+        one for one in (conditions or {}).get("contacts") or [] if isinstance(one, dict)
+    ]
     setup_ms = int((time.perf_counter() - started) * 1000)
     out: list[dict[str, Any]] = []
     for label, row in engine.probe_points(factors):
@@ -682,6 +688,7 @@ def probe(db: Session, owner: User, raw: dict[str, Any]) -> dict[str, Any]:
             )
             continue
         summary = made.evaluation.summary()
+        wrong = _misplaced_problems(declared, _contacts_misplaced(made, pairs))
         out.append(
             {
                 **entry,
@@ -693,7 +700,10 @@ def probe(db: Session, owner: User, raw: dict[str, Any]) -> dict[str, Any]:
                 "interference": made.interference,
                 "solids": summary["solid_count"],
                 "faces": summary["face_count"],
-                "warnings": summary["warnings"],
+                "warnings": [
+                    *summary["warnings"],
+                    *contact_check.misplaced_warnings(wrong),
+                ],
                 "quality": _inspect(made.evaluation.shape, limits, reference),
                 "measures": _measure_point(
                     measure_list, made, None, _with_values(recipe, values)
@@ -2078,6 +2088,20 @@ def _contacts_misplaced(made: ShapePoint, pairs: list[list[str]]) -> list[list[s
     return [[str(one["source"]), str(one["target"]), str(one["problem"])] for one in found]
 
 
+def _misplaced_problems(
+    declared: list[dict[str, Any]], found: list[list[str]]
+) -> list[dict[str, Any]]:
+    """잘못 걸린 그룹 짝(`_contacts_misplaced`)을 조건의 접촉에 붙인다 — 접촉마다
+    `{**접촉, "problem"}`. 경고의 말 · 수준은 접촉 종류가 정한다(`contact_check`)."""
+    wrong = {(one[0], one[1]): one[2] for one in found}
+    out = []
+    for one in declared:
+        sides = (str(one.get("source")), str(one.get("target")))
+        if sides in wrong:
+            out.append({**one, "problem": wrong[sides]})
+    return out
+
+
 def _shape_point(
     recipe: dict[str, Any],
     values: dict[str, Any],
@@ -2640,15 +2664,9 @@ def run_job(
                             )
                             # 잘못 걸린 접촉 — 저장된 본딩 규칙이 딴 면을 가리킨다(접촉 자동
                             # 찾기가 그랬다, 2026-11-26 고침).
-                            wrong = {
-                                (one[0], one[1]): one[2]
-                                for one in result.get("contacts_misplaced") or []
-                            }
-                            problems = []
-                            for one in declared:
-                                sides = (str(one.get("source")), str(one.get("target")))
-                                if sides in wrong:
-                                    problems.append({**one, "problem": wrong[sides]})
+                            problems = _misplaced_problems(
+                                declared, result.get("contacts_misplaced") or []
+                            )
                             found["warnings"].extend(
                                 contact_check.misplaced_warnings(problems)
                             )
