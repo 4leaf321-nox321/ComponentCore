@@ -24,8 +24,10 @@
     앞 케이스부터 다시 푼다).
   - 사슬 안의 **구속은 같다**.
   - 조인 볼트에 **예압을 다시 적지 않는다**.
-  - 앞 케이스에 **중력**이 있으면 뒤에도 적는다 — 하중이 이어지지 않고, Mechanical 은
-    중력을 단계마다 끄지 못한다.
+  - **중력은 사슬 안에서 같다** — 있고 없음, 방향(좌표계 포함). 하중이 이어지지 않으므로
+    케이스마다 같은 중력을 적는다. Mechanical 은 한 해석에 중력 하나를 모든 단계에 걸고 끄지도
+    방향을 바꾸지도 못한다(SimEngBay 실측, 2026-11-26). 솔버와 상관없이 막는다 — 대상 솔버가
+    비면 저장할 때 솔버를 모른다. 가속도 · 회전 속도는 단계마다 끌 수 있어 막지 않는다.
 - 내보내기는 `model.resolve` — 케이스가 하나면 v1 그대로(받는 쪽이 바뀌는 것이 없다), 여럿이면
   받는 쪽이 v2 를 받기 전에는 까닭을 말하고 막는다.
 """
@@ -171,15 +173,35 @@ def _check_follows(
                 f"앞 케이스 ‘{tightened[_bolt(load)]}’에서 이미 조였습니다 — 뒤 케이스에서는 "
                 "조인 길이로 잠기므로 예압을 다시 적지 않습니다."
             )
-    gravity = "standard_earth_gravity"
-    if any(one.type == gravity for one in before.loads) and not any(
-        one.type == gravity for one in case.loads
-    ):
-        raise ConditionError(
-            f"cases[{index}].loads: 앞 케이스 ‘{before.name}’에 중력이 있습니다 — 이 "
-            "케이스에도 중력을 적으십시오. 하중은 앞 케이스에서 이어지지 않고, 중력은 도중에 "
-            "끌 수 없습니다."
+    mine, theirs = _gravity(case), _gravity(before)
+    if mine != theirs:
+        what = (
+            f"앞 케이스 ‘{before.name}’에는 중력이 있고 이 케이스에는 없습니다"
+            if not mine
+            else f"이 케이스에만 중력이 있습니다(앞 케이스 ‘{before.name}’에는 없음)"
+            if not theirs
+            else f"중력의 방향 또는 좌표계가 앞 케이스 ‘{before.name}’과(와) 다릅니다"
         )
+        raise ConditionError(
+            f"cases[{index}].loads: {what} — 한 사슬 안에서는 중력의 유무와 방향(좌표계 "
+            "포함)이 케이스마다 같아야 합니다. 하중은 앞 케이스에서 이어지지 않으므로 같은 "
+            "중력을 케이스마다 적으십시오(Ansys Mechanical 은 중력 하나를 모든 단계에 겁니다)."
+        )
+
+
+def _gravity(case: Case) -> list[str]:
+    """케이스의 중력을 비교할 꼴 — (좌표계, 방향). 비운 방향은 -Z(내보낼 때 채우는 값), 수로
+    적은 방향은 길이를 뺀다(길이는 상관없다). 식이 든 방향은 적힌 그대로 견준다."""
+    out = []
+    for load in case.loads:
+        if load.type != "standard_earth_gravity":
+            continue
+        direction: Any = [0, 0, -1] if load.direction is None else load.direction
+        if isinstance(direction, list) and not any(isinstance(one, str) for one in direction):
+            length = sum(float(one) ** 2 for one in direction) ** 0.5 or 1.0
+            direction = [round(float(one) / length, 9) + 0.0 for one in direction]
+        out.append(json.dumps([load.cs, direction]))
+    return sorted(out)
 
 
 def in_case(index: int, message: str) -> str:

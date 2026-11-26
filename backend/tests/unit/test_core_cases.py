@@ -172,7 +172,25 @@ def test_케이스_안의_틀린_자리를_케이스까지_짚는다() -> None:
         ),
         (
             lambda raw: raw["cases"][0]["loads"].append(GRAVITY),
-            r"cases\[1\]\.loads: 앞 케이스 ‘예압’에 중력이 있습니다",
+            r"cases\[1\]\.loads: 앞 케이스 ‘예압’에는 중력이 있고 이 케이스에는 없습니다",
+        ),
+        (
+            lambda raw: raw["cases"][1]["loads"].append(GRAVITY),
+            r"cases\[1\]\.loads: 이 케이스에만 중력이 있습니다\(앞 케이스 ‘예압’에는 없음\)",
+        ),
+        (
+            lambda raw: [
+                raw["cases"][0]["loads"].append(GRAVITY),
+                raw["cases"][1]["loads"].append({**GRAVITY, "direction": [0, -1, 0]}),
+            ],
+            r"cases\[1\]\.loads: 중력의 방향 또는 좌표계가 앞 케이스 ‘예압’과\(와\) 다릅니다",
+        ),
+        (
+            lambda raw: [
+                raw["cases"][0]["loads"].append(GRAVITY),
+                raw["cases"][1]["loads"].append({**GRAVITY, "cs": "기운 좌표계"}),
+            ],
+            r"중력의 방향 또는 좌표계가",
         ),
     ],
 )
@@ -185,27 +203,37 @@ def test_케이스끼리의_규칙(change: Any, message: str) -> None:
 
 def test_사슬은_앞의_구속을_차례와_상관없이_그대로_받고_조인_볼트는_잠근다() -> None:
     """뒤 케이스는 앞의 끝 상태에서 시작하고 하중은 이어지지 않는다 — 구속은 같게(적은
-    차례는 상관없다), 중력은 다시 적고, 앞에서 조인 볼트는 적지 않는다. 다른 볼트는 뒤에서
-    조여도 된다."""
+    차례는 상관없다), 중력은 같은 것을 다시 적고, 앞에서 조인 볼트는 적지 않는다. 다른 볼트는
+    뒤에서 조여도 된다. 가속도는 케이스마다 달라도 된다(Mechanical 도 단계마다 끈다)."""
     raw = deepcopy(TWO)
     first, second = raw["cases"]
     side = {"name": "옆 고정", "type": "fixed_support", "on": "윗면"}
     first["constraints"].append(side)
     second["constraints"].insert(0, side)
     first["loads"] += [BOLT, GRAVITY]
-    second["loads"].append(GRAVITY)
+    # 같은 중력 — 방향을 비운 것(-Z)과 길이만 다른 -Z 는 같다.
+    second["loads"].append({**GRAVITY, "direction": [0, 0, -2]})
     third = {
         **deepcopy(second),
         "name": "다시 누름",
         "depends_on": "외력",
-        "loads": [GRAVITY, {**BOLT, "name": "둘째 볼트", "on": "둘째 볼트 면"}],
+        "loads": [
+            GRAVITY,
+            {**BOLT, "name": "둘째 볼트", "on": "둘째 볼트 면"},
+            {
+                "name": "흔듦",
+                "type": "acceleration",
+                "magnitude": 9806.65,
+                "direction": [1, 0, 0],
+            },
+        ],
     }
     raw["cases"].append(third)
     parse(raw)
 
     third["loads"].append(BOLT)
     with pytest.raises(
-        ConditionError, match=r"cases\[2\]\.loads\[2\]: .*앞 케이스 ‘예압’에서"
+        ConditionError, match=r"cases\[2\]\.loads\[3\]: .*앞 케이스 ‘예압’에서"
     ):
         parse(raw)
 
