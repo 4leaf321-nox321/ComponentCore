@@ -984,3 +984,17 @@ test('접촉을 고치는 창을 열면 그 접촉의 자리를 3D 에 — 접�
   await waitFor(() => expect((lastMarks?.faces as { color?: number }[] | undefined)?.map((one) => one.color)).toEqual([0xdc2626, 0x2563eb]))
   expect(screen.getByLabelText('적용 대상 표시').textContent).toMatch(/접촉면\(Contact\).*대상면\(Target\)/)
 })
+
+test('해석 케이스가 있는 조건(v2)은 열지 않고 까닭을 말한다 — 맨 위에 더해 저장하면 서버가 막는다', () => {
+  const value = {
+    schema_version: 2,
+    named_selections: [],
+    cases: [
+      { name: '예압', analysis: { type: 'static' } },
+      { name: '외력', depends_on: '예압', analysis: { type: 'static' } },
+    ],
+  }
+  render(<ConditionsPanel recipe={RECIPE} value={value} onSave={vi.fn()} />)
+  expect(screen.getByRole('status')).toHaveTextContent('해석 케이스가 2개')
+  expect(screen.queryByRole('button', { name: /조건 저장/ })).not.toBeInTheDocument()
+})

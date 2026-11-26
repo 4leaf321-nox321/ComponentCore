@@ -42,6 +42,13 @@ from app.core.conditions.bodies import (
     shell_parts,
     shell_thicknesses,
 )
+from app.core.conditions.cases import (
+    CASE_FIELDS,
+    MULTI_CASE_BLOCKED,
+    Case,
+    Target,
+    raw_views,
+)
 from app.core.conditions.common import (
     ALL_BODIES,
     ENTITY_WHAT,
@@ -112,6 +119,7 @@ from app.core.conditions.model import (
     expression_notes,
     parse,
     resolve,
+    views,
     with_choice,
 )
 from app.core.conditions.spec import (
@@ -125,6 +133,7 @@ __all__ = [
     "AXIS_CHOICES",
     "AXIS_LABELS",
     "BODY_LOADS",
+    "CASE_FIELDS",
     "CONSTRAINT_ACCEPTS",
     "CONSTRAINT_LABELS",
     "CONSTRAINT_NOTES",
@@ -147,6 +156,7 @@ __all__ = [
     "LOAD_LABELS",
     "LOAD_NOTES",
     "MESH_ACCEPTS",
+    "MULTI_CASE_BLOCKED",
     "POISSON_KEY",
     "PSD_UNIT",
     "RIGID_CONSTRAINTS",
@@ -156,6 +166,7 @@ __all__ = [
     "Base",
     "BodyMesh",
     "BodySetting",
+    "Case",
     "ConditionError",
     "Conditions",
     "Constraint",
@@ -170,6 +181,7 @@ __all__ = [
     "MeshHint",
     "NamedSelection",
     "Number",
+    "Target",
     "Units",
     "applied_bodies",
     "body_density",
@@ -187,6 +199,7 @@ __all__ = [
     "parse",
     "pretension_misses",
     "psd_grms",
+    "raw_views",
     "resolve",
     "selection_query",
     "sheets_as_shell",
@@ -194,6 +207,7 @@ __all__ = [
     "shell_thicknesses",
     "spec",
     "unmaterialed",
+    "views",
     "with_choice",
     "with_material",
     "with_scale",

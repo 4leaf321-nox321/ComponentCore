@@ -17,6 +17,14 @@ from app.core.conditions.analysis import (
     _integerized,
 )
 from app.core.conditions.bodies import BodySetting, MeshHint, _check_body_settings
+from app.core.conditions.cases import (
+    CASE_FIELDS,
+    MULTI_CASE_BLOCKED,
+    Case,
+    check_cases,
+    in_case,
+    raw_views,
+)
 from app.core.conditions.common import (
     ALL_BODIES,
     GLOBAL_FRAMES,
@@ -51,9 +59,12 @@ from app.core.recipe.params import evaluate_expression as _expr
 
 
 class Conditions(Base):
-    """한 벌. 작업 버전에 붙고, 실험계획이 스냅샷을 뜬다."""
+    """한 벌. 작업 버전에 붙고, 실험계획이 스냅샷을 뜬다.
 
-    schema_version: Literal[1] = 1
+    v1(`schema_version: 1`)은 해석 하나 — 맨 위의 해석 설정 · 구속 · 하중 · 초기조건이 그
+    케이스다. v2 는 그것을 `cases` 에 여럿 적고 맨 위는 비운다(`cases` 모듈)."""
+
+    schema_version: Literal[1, 2] = 1
     units: Units = Field(default_factory=Units)
     named_selections: list[NamedSelection] = Field(default_factory=list)
     materials: list[Material] = Field(default_factory=list)
@@ -67,9 +78,40 @@ class Conditions(Base):
     coordinate_systems: list[Frame] = Field(default_factory=list)
     """해석 조건에서 정한 좌표계. 도면(레시피)의 좌표계와 **이름이 겹치면 안 된다** — 둘 다
     `cs` 가 이름으로 가리킨다."""
+    cases: list[Case] = Field(default_factory=list)
+    """해석 케이스(v2) — 비면 v1(맨 위가 케이스 하나). v1 로 내보낼 때는 이 칸을 싣지
+    않는다."""
 
 
-EMPTY: dict[str, Any] = Conditions().model_dump()
+#: 빈 한 벌 — v1 모양(케이스 칸 없음).
+EMPTY: dict[str, Any] = Conditions().model_dump(exclude={"cases"})
+
+
+def views(conditions: Conditions) -> list[tuple[str, Conditions]]:
+    """케이스마다 **v1 모양의 한 벌** — `(케이스 이름, 한 벌)`. 공유 칸은 같이 쓰고 케이스 칸만
+    그 케이스의 것이다. v1 이면 그 자체 하나(이름 `""`). 점검 · 풀기는 모두 이것으로 한다 —
+    케이스 안의 규칙이 v1 과 하나도 다르지 않다."""
+    if not conditions.cases:
+        return [("", conditions)]
+    return [
+        (
+            case.name,
+            conditions.model_copy(
+                update={
+                    "schema_version": 1,
+                    "cases": [],
+                    **{key: getattr(case, key) for key in CASE_FIELDS},
+                }
+            ),
+        )
+        for case in conditions.cases
+    ]
+
+
+def _top_fields(conditions: Conditions) -> list[str]:
+    """맨 위의 케이스 칸 중 기본값이 아닌 것 — v2 에서 섞였나."""
+    empty = Conditions()
+    return [key for key in CASE_FIELDS if getattr(conditions, key) != getattr(empty, key)]
 
 
 # ── 검증 ──────────────────────────────────────────────────────────────────────
@@ -255,7 +297,24 @@ def parse(
         first = failure.errors()[0]
         where = ".".join(str(one) for one in first["loc"])
         raise ConditionError(f"{where}: {first['msg']}") from failure
+    check_cases(conditions.cases, _top_fields(conditions), conditions.schema_version)
+    for index, (_, view) in enumerate(views(conditions)):
+        try:
+            _check(view, bodies, frames, sheets)
+        except ConditionError as failure:
+            if not conditions.cases:
+                raise
+            raise ConditionError(in_case(index, str(failure))) from failure
+    return conditions
 
+
+def _check(
+    conditions: Conditions,
+    bodies: list[str] | None,
+    frames: list[str] | None,
+    sheets: set[str] | None,
+) -> None:
+    """v1 모양 한 벌(케이스 하나)의 점검 — `parse` 가 케이스마다 부른다."""
     names = _known_names(conditions)
     if len(names) != len(conditions.named_selections):
         raise ConditionError(
@@ -384,13 +443,14 @@ def parse(
             f"‘{other}’에 물성이 2개 지정됩니다."
         )
     _check_body_settings(conditions, known, sheets)
-    return conditions
 
 
 def resolve(
     raw: dict[str, Any] | None,
     params: dict[str, Any],
     keys: dict[str, str] | None = None,
+    *,
+    cases: bool = False,
 ) -> dict[str, Any]:
     """`"=식"` 을 그 설계점의 값으로 바꾼 **새 사본**. 레시피와 같은 문법이다.
 
@@ -405,9 +465,44 @@ def resolve(
     닫힌 선언으로 펼친다. 물성은 그 계로 옮긴 값(`converted`)을 **원본 옆에** 놓는다 — MatNexus
     가 밀도만 `tonne/mm3` 로 주고 나머지는 SI 로 주므로, 이것이 없으면 받는 쪽이 밀도는 맞고
     탄성계수는 10⁶ 배 틀린 채로 푼다.
+
+    **해석 케이스**(`schema_version: 2`): 하나면 **v1 그대로** 낸다 — 받는 쪽이 바뀌는 것이
+    없다. 여럿이면 받는 쪽이 v2 를 받기 전이라 까닭을 말하고 막는다. `cases=True`(v2 픽스처를
+    만드는 시험)일 때만 v2 로 낸다 — 공유 칸은 한 벌, 케이스마다 v1 과 같은 길로 푼 칸.
     """
-    conditions = parse(raw).model_dump()
+    parsed = parse(raw)
+    seen = views(parsed)
+    if len(seen) > 1 and not cases:
+        raise ConditionError(MULTI_CASE_BLOCKED.format(count=len(seen)))
     values = resolve_params({"params": params})
+    solved = []
+    for index, (_, view) in enumerate(seen):
+        try:
+            solved.append(_resolved(view.model_dump(exclude={"cases"}), values, keys))
+        except ConditionError as failure:
+            if not parsed.cases:
+                raise
+            raise ConditionError(in_case(index, str(failure))) from failure
+    if len(solved) == 1:
+        return solved[0]
+    out = {key: one for key, one in solved[0].items() if key not in CASE_FIELDS}
+    out["schema_version"] = 2
+    out["cases"] = [
+        {
+            "name": case.name,
+            "depends_on": case.depends_on,
+            "target": case.target.model_dump(),
+            **{key: one[key] for key in CASE_FIELDS},
+        }
+        for case, one in zip(parsed.cases, solved, strict=True)
+    ]
+    return out
+
+
+def _resolved(
+    conditions: dict[str, Any], values: dict[str, Any], keys: dict[str, str] | None
+) -> dict[str, Any]:
+    """v1 모양 한 벌(케이스 하나)을 푼다 — 식 · 계 옮기기 · 채우기(`resolve`)."""
 
     def walk(value: Any) -> Any:
         if isinstance(value, str) and value.startswith("="):
@@ -462,7 +557,23 @@ def _times(value: Any, factor: float) -> Any:
 _ITEM_KEY = {"initial": "type", "mesh_hints": "on"}
 
 
+def _case_scope(out: dict[str, Any], group: str) -> dict[str, Any]:
+    """고르기 인자가 바꿀 자리 — 케이스 칸(`CASE_FIELDS`)이면 그 케이스. 케이스가 여럿이면 어느
+    케이스인지 고를 칸이 아직 없다(여럿이면 내보내기도 막힌다)."""
+    cases = out.get("cases")
+    if group not in CASE_FIELDS or not isinstance(cases, list) or not cases:
+        return out
+    if len(cases) > 1:
+        raise ConditionError(
+            f"해석 케이스가 {len(cases)}개입니다 — 고르기 인자는 아직 케이스가 하나인 "
+            "조건에만 걸 수 있습니다."
+        )
+    scope: dict[str, Any] = cases[0]
+    return scope
+
+
 def _target_item(out: dict[str, Any], group: str, item: Any) -> dict[str, Any]:
+    out = _case_scope(out, group)
     if group == "analysis":
         analysis = out.get("analysis")
         if not isinstance(analysis, dict):
@@ -586,12 +697,28 @@ def expression_notes(raw: dict[str, Any], params: dict[str, Any]) -> list[dict[s
         return []
     notes: list[dict[str, str]] = []
     system = unit_systems.system_of(INPUT_SYSTEM)
-    for item, key, _, label in _value_fields(raw, system):
-        texts = item.get(key)
-        for text in texts if isinstance(texts, list) else [texts]:
-            if isinstance(text, str) and text.startswith("="):
-                try:
-                    _expr(text, values)
-                except ExpressionError as failure:
-                    notes.append({"where": label, "level": "warn", "text": str(failure)})
+    for prefix, part in _note_parts(raw):
+        for item, key, _, label in _value_fields(part, system):
+            texts = item.get(key)
+            for text in texts if isinstance(texts, list) else [texts]:
+                if isinstance(text, str) and text.startswith("="):
+                    try:
+                        _expr(text, values)
+                    except ExpressionError as failure:
+                        notes.append(
+                            {"where": prefix + label, "level": "warn", "text": str(failure)}
+                        )
     return notes
+
+
+def _note_parts(raw: dict[str, Any] | None) -> list[tuple[str, dict[str, Any]]]:
+    """식 알림을 볼 묶음 — v1 은 한 벌 그대로, v2 는 공유 한 번 · 케이스마다 그 케이스 칸
+    (「케이스 ‘예압’ · 하중 ‘누름’ 크기」 — 같은 이름의 하중이 케이스마다 있을 수 있다)."""
+    raw = raw or {}
+    if not raw.get("cases"):
+        return [("", raw)]
+    shared = {key: one for key, one in raw.items() if key not in ("cases", *CASE_FIELDS)}
+    return [("", shared)] + [
+        (f"케이스 ‘{name}’ · ", {key: view.get(key) for key in CASE_FIELDS})
+        for name, view in raw_views(raw)
+    ]

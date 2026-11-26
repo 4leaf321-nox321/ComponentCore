@@ -1,0 +1,179 @@
+"""해석 케이스 — 공유 모델 위에 해석을 여럿(ADR 0013, 구조 정리 ①).
+
+옛 모양(v1)은 케이스 하나다. 케이스가 하나인 v2 는 **v1 그대로** 내보내고(받는 쪽이 바뀌는 것이
+없다), 여럿이면 받는 쪽이 v2 를 받기 전에는 내보내기가 까닭을 말하고 막는다. 케이스 안의 규칙은
+케이스마다 v1 의 점검 그대로이고, 틀린 자리는 `cases[1].loads[0]` 처럼 케이스까지 짚는다.
+"""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from typing import Any
+
+import pytest
+
+from app.core import conditions
+from app.core.conditions import ConditionError, parse, resolve
+
+SHARED: dict[str, Any] = {
+    "units": {"system": "si"},
+    "named_selections": [
+        {"name": "바닥", "entity": "face", "select": {"what": "faces", "role": "bottom"}},
+        {"name": "윗면", "entity": "face", "select": {"what": "faces", "role": "top"}},
+    ],
+    "materials": [
+        {
+            "ref": {"source": "matnexus", "code": "S", "name": "강"},
+            "apply_to": ["전체"],
+            "payload": {"values": {"탄성계수": {"value": 200, "unit": "GPa"}}},
+        }
+    ],
+    "contacts": [],
+}
+PRELOAD: dict[str, Any] = {
+    "name": "예압",
+    "target": {"solver": "calculix"},
+    "analysis": {"type": "static", "large_deflection": False},
+    "constraints": [{"name": "바닥 고정", "type": "fixed_support", "on": "바닥"}],
+    "loads": [{"name": "누름", "type": "pressure", "on": "윗면", "magnitude": "=압력"}],
+}
+OUTER: dict[str, Any] = {
+    "name": "외력",
+    "depends_on": "예압",
+    "target": {"solver": "calculix"},
+    "analysis": {"type": "static"},
+    "constraints": [{"name": "바닥 고정", "type": "fixed_support", "on": "바닥"}],
+    "loads": [
+        {
+            "name": "옆 힘",
+            "type": "force",
+            "on": "윗면",
+            "magnitude": 500,
+            "direction": [1, 0, 0],
+        }
+    ],
+}
+TWO: dict[str, Any] = {**SHARED, "schema_version": 2, "cases": [PRELOAD, OUTER]}
+
+
+def _v1_of(case: dict[str, Any]) -> dict[str, Any]:
+    keys = ("analysis", "constraints", "loads", "initial")
+    return {**SHARED, **{key: case[key] for key in keys if key in case}}
+
+
+def test_케이스가_하나면_v1_그대로_내보낸다() -> None:
+    one = {**SHARED, "schema_version": 2, "cases": [PRELOAD]}
+    assert resolve(one, {"압력": 2}) == resolve(_v1_of(PRELOAD), {"압력": 2})
+    assert resolve(one, {"압력": 2})["schema_version"] == 1
+    assert "cases" not in resolve(one, {"압력": 2})
+    # 옛 모양에도 `cases` 칸이 새지 않는다 — 받는 쪽이 보던 그대로.
+    assert "cases" not in resolve(_v1_of(PRELOAD), {"압력": 2})
+    assert "cases" not in conditions.EMPTY
+
+
+def test_케이스가_여럿이면_저장은_되고_내보내기는_까닭을_말하고_막는다() -> None:
+    parse(TWO)
+    with pytest.raises(
+        ConditionError, match=r"해석 케이스가 2개인 조건은 아직 내보낼 수 없습니다"
+    ):
+        resolve(TWO, {"압력": 2})
+
+
+def test_v2_로_풀면_공유는_한_벌_케이스마다_풀린_칸() -> None:
+    got = resolve(TWO, {"압력": 2}, cases=True)
+    assert got["schema_version"] == 2
+    assert not {"analysis", "constraints", "loads", "initial"} & set(got)
+    first, second = got["cases"]
+    assert (first["name"], first["depends_on"], first["target"]) == (
+        "예압",
+        "",
+        {"solver": "calculix"},
+    )
+    assert second["depends_on"] == "예압"
+    # 케이스마다 v1 과 같은 풀기 — 식 · 단위(SI 는 MPa → Pa) · 비운 방향 채우기.
+    alone = resolve(_v1_of(PRELOAD), {"압력": 2})
+    assert first["loads"] == alone["loads"]
+    assert first["loads"][0]["magnitude"] == pytest.approx(2e6)
+    assert first["analysis"] == alone["analysis"]
+    assert got["materials"] == alone["materials"]
+    assert got["units"] == alone["units"]
+
+
+def test_케이스_안의_틀린_자리를_케이스까지_짚는다() -> None:
+    bad = deepcopy(TWO)
+    bad["cases"][1]["loads"][0]["on"] = "없는 면"
+    with pytest.raises(ConditionError, match=r"^cases\[1\]\.loads\[0\]: 선택 그룹 ‘없는 면’"):
+        parse(bad)
+    psd = deepcopy(TWO)
+    psd["cases"][0]["loads"].append(
+        {
+            "name": "흔듦",
+            "type": "psd_acceleration",
+            "direction": [0, 0, 1],
+            "psd_table": [[20, 0.04], [2000, 0.04]],
+        }
+    )
+    with pytest.raises(ConditionError, match=r"^cases\[0\]\.loads\[1\]: .*랜덤 진동"):
+        parse(psd)
+    # 모양이 틀린 것은 Pydantic 의 자리 그대로.
+    shape = deepcopy(TWO)
+    shape["cases"][1]["analysis"]["type"] = "모르는 해석"
+    with pytest.raises(ConditionError, match=r"^cases\.1\.analysis\.type"):
+        parse(shape)
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (
+            lambda raw: raw["cases"][1].update(name="예압"),
+            r"cases\[1\]: 케이스 이름 ‘예압’이\(가\) 중복",
+        ),
+        (
+            lambda raw: raw["cases"][1].update(depends_on="없음"),
+            r"앞 케이스 ‘없음’이\(가\) 없습니다",
+        ),
+        (
+            lambda raw: raw["cases"][0].update(depends_on="외력"),
+            r"이 케이스보다 뒤에 있습니다",
+        ),
+        (lambda raw: raw["cases"][1].update(depends_on="외력"), r"자기 자신"),
+        (lambda raw: raw["cases"][1].update(target={"solver": "ansys"}), r"한 솔버가 풉니다"),
+        (lambda raw: raw.update(schema_version=1), r"schema_version 2 에서만"),
+        (lambda raw: raw.update(cases=[]), r"하나 이상"),
+        (lambda raw: raw.update(loads=PRELOAD["loads"]), r"맨 위의 loads"),
+    ],
+)
+def test_케이스끼리의_규칙(change: Any, message: str) -> None:
+    raw = deepcopy(TWO)
+    change(raw)
+    with pytest.raises(ConditionError, match=message):
+        parse(raw)
+
+
+def test_케이스_보기는_공유와_그_케이스의_v1_모양이다() -> None:
+    views = conditions.raw_views(TWO)
+    assert [name for name, _ in views] == ["예압", "외력"]
+    assert views[1][1]["loads"] == OUTER["loads"]
+    assert views[1][1]["named_selections"] == SHARED["named_selections"]
+    assert "cases" not in views[1][1]
+    assert conditions.raw_views(_v1_of(PRELOAD)) == [("", _v1_of(PRELOAD))]
+
+
+def test_식_알림은_케이스마다_어느_케이스인지_말한다() -> None:
+    notes = conditions.expression_notes(TWO, {})
+    assert [note["where"] for note in notes] == ["케이스 ‘예압’ · 하중 ‘누름’ 크기"]
+    # v1 은 그대로.
+    assert [note["where"] for note in conditions.expression_notes(_v1_of(PRELOAD), {})] == [
+        "하중 ‘누름’ 크기"
+    ]
+
+
+def test_케이스가_하나인_v2_도_고르기_인자가_그_케이스에_든다() -> None:
+    one = {**SHARED, "schema_version": 2, "cases": [deepcopy(PRELOAD)]}
+    target = {"group": "analysis", "field": "large_deflection"}
+    made = conditions.with_choice(one, target, True)
+    assert made["cases"][0]["analysis"]["large_deflection"] is True
+    assert "analysis" not in made
+    with pytest.raises(ConditionError, match=r"해석 케이스가 2개입니다"):
+        conditions.with_choice(TWO, target, True)

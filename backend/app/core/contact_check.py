@@ -20,6 +20,7 @@ import contextlib
 from typing import Any
 
 from app.core.conditions import registry
+from app.core.conditions.cases import raw_views
 from app.core.recipe.query import (
     _EVERYTHING,
     body_parts,
@@ -95,7 +96,11 @@ def report(
                 "text": misplaced_text(one),
             }
         )
-    notes += eigen_notes(conditions, bodies_of)
+    # 해석 케이스마다(v2) — 모달 케이스가 둘이면 같은 말을 한 번만.
+    for _, view in raw_views(conditions):
+        for one in eigen_notes(view, bodies_of):
+            if one not in notes:
+                notes.append(one)
     return {
         "touching": touching,
         "missing": lacking,

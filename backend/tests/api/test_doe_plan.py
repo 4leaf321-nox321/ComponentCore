@@ -510,3 +510,34 @@ def test_여러_프로세스로_나눠_만들어도_한_프로세스와_같다(
         results[1][0][0][2].startswith("shapes/")
         and results[1][0][0][2] == results[1][0][1][2]
     )
+
+
+def test_해석_케이스가_여럿인_조건은_만들기_전에_까닭을_말하고_막는다(
+    client: TestClient, member: Signed
+) -> None:
+    """받는 쪽이 v2(케이스 여럿)를 받기 전이다(ADR 0013) — 저장은 되지만 내보내기는 막는다."""
+    case = {
+        "analysis": {"type": "static"},
+        "constraints": [{"name": "바닥 고정", "type": "fixed_support", "on": "바닥"}],
+    }
+    conditions = {
+        "schema_version": 2,
+        "named_selections": [
+            {"name": "바닥", "entity": "face", "select": {"what": "faces", "role": "bottom"}}
+        ],
+        "cases": [{**case, "name": "예압"}, {**case, "name": "외력", "depends_on": "예압"}],
+    }
+    got = client.post(
+        "/api/doe",
+        json={
+            "name": "케이스 둘",
+            "recipe": JIG,
+            "factors": FACTORS,
+            "conditions": conditions,
+        },
+        headers=member.headers,
+    )
+    assert got.status_code == 400, got.text
+    assert (
+        "해석 케이스가 2개인 조건은 아직 내보낼 수 없습니다" in got.json()["error"]["message"]
+    )

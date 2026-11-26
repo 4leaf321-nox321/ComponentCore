@@ -155,20 +155,44 @@ function targetFields(group: GroupSchema | undefined): string[] {
   return 'on' in group.fields ? ['on'] : []
 }
 
-export function ConditionsPanel({
-  recipe,
-  value,
-  onSave,
-  saving,
-  defaultSystem,
-}: {
+interface PanelProps {
   recipe: Recipe
   value: unknown
   onSave: (next: Conditions) => void
   saving?: boolean
   /** 작업의 기본 단위계 — 아직 조건이 없으면 이 계로 시작한다. */
   defaultSystem?: string
-}) {
+}
+
+/** 저장된 조건의 해석 케이스 수(v2 의 `cases`) — v1 이면 0. */
+export function caseCount(value: unknown): number {
+  const cases = value && typeof value === 'object' ? (value as { cases?: unknown }).cases : undefined
+  return Array.isArray(cases) ? cases.length : 0
+}
+
+/**
+ * 해석 조건 화면. **해석 케이스가 있는 조건(v2)은 아직 고치지 못한다** — 이 화면은 맨 위의 해석
+ * 설정 · 하중 · 구속 · 초기조건(케이스 하나, v1)을 그린다. 케이스 탭은 구조 정리 ①의 화면 단계에서
+ * 더한다. 그 전에 v2 를 이 화면으로 열면 케이스가 빈 것처럼 보이고, 맨 위에 하중을 더해 저장하면
+ * 서버가 섞였다고 막는다 — 그래서 열지 않고 까닭을 말한다(API · MCP 로 고친다).
+ */
+export function ConditionsPanel(props: PanelProps) {
+  const cases = caseCount(props.value)
+  if (cases > 0) {
+    return (
+      <div className="rounded-md border p-4 text-sm" role="status">
+        <p className="font-medium">이 조건에는 해석 케이스가 {cases}개 있습니다.</p>
+        <p className="text-muted-foreground mt-1 text-xs">
+          케이스가 있는 조건(schema_version 2)은 아직 이 화면에서 고칠 수 없습니다. API 또는 MCP로 고치십시오. 케이스가 둘 이상이면 해석 쪽이 받을 수
+          있게 되기 전까지 DOE로 내보낼 수 없습니다.
+        </p>
+      </div>
+    )
+  }
+  return <ConditionsEditor {...props} />
+}
+
+function ConditionsEditor({ recipe, value, onSave, saving, defaultSystem }: PanelProps) {
   /**
    * 저장된 조건 — **바디 그룹에 건 옛 국부 메시는 파트별 설정으로 옮겨 읽는다**(`moveBodyMeshHints`).
    * 옮긴 것은 초안에만 있고 「조건 저장」 을 눌러야 남는다(그래서 저장 단추가 켜진다).
