@@ -137,6 +137,21 @@ def material_decks(
         return {"items": [], "note": str(failure)}
 
 
+@router.get("/{material_id}/plastic-cards")
+def material_plastic_cards(
+    material_id: str, _: User = Depends(current_user)
+) -> dict[str, Any]:
+    """이 재료의 **소성 곡선 카드**(MatNexus 물성 카드 — 인장 시험, 방향마다 하나). 확정 카드만
+    해석에 쓴다 — 쓸 수 없는 카드는 그 까닭(`why`)과 함께 보인다."""
+    return services.plastic_cards(material_id)
+
+
+@router.get("/plastic-cards/{card_id}")
+def plastic_card_table(card_id: str, _: User = Depends(current_user)) -> dict[str, Any]:
+    """카드의 소성 곡선을 입력 계(응력 MPa)로 — 조건의 재료에 넣을 `model` · `plastic`."""
+    return services.plastic_table(card_id)
+
+
 class ConvertRequest(BaseModel):
     payloads: list[dict[str, Any]] = Field(max_length=services.CONVERT_LIMIT)
     """조건의 `materials[].payload` 들 — 순서대로 환산한다."""

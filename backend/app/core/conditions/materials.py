@@ -46,6 +46,22 @@ MATERIAL_MODELS: dict[str, str] = {
 TABLE_ROWS = (2, 5000)
 
 
+class PlasticCard(Base):
+    """MatNexus 물성 카드에서 받은 소성 곡선의 출처 — 카드 · 방향(재료마다 사용자가 고른다) ·
+    상태(확정만) · 받은 때. 카드의 탄성계수도 남긴다 — 표의 첫 응력(항복)과 E 는 같은 카드에서
+    와야 항복점이 맞는다(SimEngBay). 값의 단위는 입력 계(응력 MPa)."""
+
+    id: str = Field(min_length=1, title="카드")
+    code: str = ""
+    label: str = ""
+    test_type: str = ""
+    orientation: str = Field(default="", title="방향")
+    status: str = ""
+    youngs_modulus: Number | None = Field(default=None, title="카드의 탄성계수")
+    stress_unit: str = ""
+    fetched_at: str = ""
+
+
 class Plastic(Base):
     """소성(② 비선형 정적) — von Mises · 등방 경화 · 속도 무관. 값은 **입력 계**(mm · N · t —
     응력 MPa)로 적고 내보낼 때 내보내기 계로 옮긴다. 탄성(탄성계수 · 푸아송비)은 물성
@@ -54,7 +70,8 @@ class Plastic(Base):
     - 이선형: 항복응력 σy 와 접선계수 Et(전체 변형률 기준 기울기). 받는 쪽이 솔버마다 옮긴다
       (Ansys TB,BISO, CalculiX 는 표 두 행 — 둘째 행은 받는 쪽이 정한다).
     - 다선형: `[[진소성변형률, 진응력], …]` — 첫 행의 변형률은 0(그 응력이 σy), 변형률은 늘고
-      응력은 줄지 않는다. 표의 마지막 점 뒤의 동작은 받는 쪽 판정을 따른다.
+      응력은 줄지 않는다. 표의 마지막 점 뒤는 그 응력 그대로(완전 소성 — SimEngBay 가 두 솔버로
+      쟀다, 2026-11-28).
     - 전체 변형률 곡선은 받지 않는다(첫 판) — 소성 변형률로 바꾸려면 솔버로 가는 E 와 같은
       값이 있어야 하는데, 물성 값을 해석하지 않는다(위 `Material`)."""
 
@@ -62,6 +79,8 @@ class Plastic(Base):
     tangent_modulus: Number | None = Field(default=None, title="접선계수")
     table: list[list[Number]] | None = Field(default=None, title="진응력 대 소성 변형률")
     source: Literal["manual", "matnexus"] = Field(default="manual", title="출처")
+    card: PlasticCard | None = Field(default=None, title="MatNexus 카드")
+    """`source` 가 `matnexus` 면 그 카드(확정 카드만). 손으로 고치면 손으로 적은 것이 된다."""
 
 
 class Material(Base):
@@ -140,6 +159,17 @@ def check_plastic(where: str, material: Material) -> None:
             ):
                 raise ConditionError(f"{label}의 {title}은(는) {floor} 합니다.")
         return
+    if plastic.source == "matnexus":
+        card = plastic.card
+        if card is None:
+            raise ConditionError(
+                f"{label}의 MatNexus 카드 출처가 없습니다. 카드를 다시 고르십시오."
+            )
+        if card.status != "published":
+            raise ConditionError(
+                f"{label}의 MatNexus 카드 ‘{card.label or card.id}’이(가) 확정 카드가 아닙니다"
+                f"({card.status or '상태 모름'}). 확정(published)된 카드만 사용합니다."
+            )
     if plastic.yield_stress is not None or plastic.tangent_modulus is not None:
         raise ConditionError(
             f"{label}은(는) 다선형이라 항복응력 · 접선계수 대신 표의 첫 행이 항복점입니다."
@@ -205,6 +235,11 @@ def plastic_out(material: dict[str, Any], system: str) -> dict[str, Any]:
             made[key] = times(made[key])
     if isinstance(made.get("table"), list):
         made["table"] = [[one[0], times(one[1])] for one in made["table"]]
+    if isinstance(made.get("card"), dict):
+        card = dict(made["card"])
+        card["youngs_modulus"] = times(card.get("youngs_modulus"))
+        card.pop("stress_unit", None)
+        made["card"] = card
     made["stress_unit"] = unit_systems.system_of(system).names["stress"]
     out["plastic"] = made
     return out

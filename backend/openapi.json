@@ -8874,6 +8874,96 @@
         }
       }
     },
+    "/api/materials/{material_id}/plastic-cards": {
+      "get": {
+        "tags": [
+          "materials"
+        ],
+        "summary": "Material Plastic Cards",
+        "description": "이 재료의 **소성 곡선 카드**(MatNexus 물성 카드 — 인장 시험, 방향마다 하나). 확정 카드만\n해석에 쓴다 — 쓸 수 없는 카드는 그 까닭(`why`)과 함께 보인다.",
+        "operationId": "material_plastic_cards_api_materials__material_id__plastic_cards_get",
+        "parameters": [
+          {
+            "name": "material_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Material Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Material Plastic Cards Api Materials  Material Id  Plastic Cards Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/materials/plastic-cards/{card_id}": {
+      "get": {
+        "tags": [
+          "materials"
+        ],
+        "summary": "Plastic Card Table",
+        "description": "카드의 소성 곡선을 입력 계(응력 MPa)로 — 조건의 재료에 넣을 `model` · `plastic`.",
+        "operationId": "plastic_card_table_api_materials_plastic_cards__card_id__get",
+        "parameters": [
+          {
+            "name": "card_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Card Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Plastic Card Table Api Materials Plastic Cards  Card Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/materials/converted": {
       "post": {
         "tags": [

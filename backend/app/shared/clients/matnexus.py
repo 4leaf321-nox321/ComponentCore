@@ -417,6 +417,25 @@ def published_cards(limit: int = 50) -> list[dict[str, Any]]:
     ]
 
 
+def plastic_cards(material_id: str) -> list[dict[str, Any]]:
+    """그 재료의 **소성 곡선이 든 카드**(인장 시험 — `blocks.table.rows` 가
+    `{plastic_strain, true_stress}`). 상태(초안 · 확정 · 내림)는 거르지 않는다 — 고르는 쪽이 왜
+    못 쓰는지 보여 준다. 방향(`orientation`)은 카드마다 하나다(`MD` · `TD` …)."""
+    got = _get("/api/fitting/cards", {"material_id": material_id, "limit": 200})
+    rows = got.get("items") if isinstance(got, dict) else got
+    return [
+        one
+        for one in (rows or [])
+        if isinstance(one, dict) and ((one.get("blocks") or {}).get("table") or {}).get("rows")
+    ]
+
+
+def card(card_id: str) -> dict[str, Any]:
+    """카드 하나 — 상태 · 방향 · 블록을 그쪽이 지금 가진 그대로."""
+    got = _get(f"/api/fitting/cards/{card_id}")
+    return got if isinstance(got, dict) else {}
+
+
 def card_export(card_id: str, system: str) -> dict[str, Any]:
     """카드를 **중립 JSON** 으로, 그 단위계로. 그쪽이 환산해 준 정답지다.
 

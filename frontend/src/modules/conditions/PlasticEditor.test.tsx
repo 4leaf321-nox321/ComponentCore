@@ -43,3 +43,47 @@ test('이선형은 항복응력 · 접선계수를, 다선형은 진응력 대 �
   fireEvent.change(select, { target: { value: 'linear_elastic' } })
   expect(seen).toHaveBeenLastCalledWith({ ...STEEL, model: 'linear_elastic', plastic: null })
 })
+
+test('MatNexus 카드에서 방향을 골라 곡선을 받는다 — 확정 카드만 고르고, 표를 고치면 직접 입력한 곡선이 된다', async () => {
+  const { materialsApi } = await import('@/modules/materials/api')
+  vi.spyOn(materialsApi, 'plasticCards').mockResolvedValue({
+    note: '',
+    items: [
+      { id: 'c1', code: 'C-1', label: '인장 MD', test_type: 'tensile', orientation: 'MD', status: 'published', point_count: 3, published_at: null, usable: true, why: '' },
+      { id: 'c2', code: 'C-2', label: '인장 TD', test_type: 'tensile', orientation: 'TD', status: 'draft', point_count: 3, published_at: null, usable: false, why: '초안입니다. MatNexus에서 확정(published)된 카드만 해석에 사용합니다.' },
+    ],
+  })
+  vi.spyOn(materialsApi, 'plasticTable').mockResolvedValue({
+    model: 'multilinear_isotropic',
+    plastic: {
+      table: [[0, 250], [0.05, 300]],
+      source: 'matnexus',
+      card: { id: 'c1', label: '인장 MD', orientation: 'MD', status: 'published', fetched_at: '2026-11-28T00:00:00+00:00' },
+    },
+  })
+  const seen = vi.fn()
+  function Box() {
+    const [material, setMaterial] = useState<MaterialItem>({ ...STEEL, ref: { name: '강', material_id: 'm1' }, model: 'multilinear_isotropic', plastic: {} })
+    return (
+      <PlasticEditor
+        material={material}
+        enabled
+        onChange={(patch) => {
+          const next = { ...material, ...patch }
+          setMaterial(next)
+          seen(next)
+        }}
+      />
+    )
+  }
+  render(<Box />)
+  fireEvent.click(screen.getByRole('button', { name: 'MatNexus 카드에서 가져오기' }))
+  expect(await screen.findByText(/방향 TD · 인장 TD/)).toBeInTheDocument()
+  expect(screen.getByText(/초안입니다/)).toBeInTheDocument()
+  expect(screen.getAllByRole('button', { name: '이 곡선 사용' })).toHaveLength(1)
+  fireEvent.click(screen.getByRole('button', { name: '이 곡선 사용' }))
+  expect(await screen.findByRole('status')).toHaveTextContent('MatNexus 카드 ‘인장 MD’의 곡선입니다(방향 MD, 확정)')
+  expect(materialsApi.plasticTable).toHaveBeenCalledWith('c1')
+  const last = seen.mock.calls[seen.mock.calls.length - 1][0] as MaterialItem
+  expect((last.plastic as { source: string }).source).toBe('matnexus')
+})

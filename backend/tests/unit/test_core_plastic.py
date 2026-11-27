@@ -237,3 +237,36 @@ def test_능력표는_정적에서_재료_모델로_거른다() -> None:
         "where": "재료 ‘강’",
         "text": "모달(고유진동) 해석에서는 다선형 소성(등방 경화) 대신 탄성 값으로 풉니다.",
     } in got
+
+
+CARD: dict[str, Any] = {
+    "id": "c1",
+    "label": "인장 MD",
+    "test_type": "tensile",
+    "orientation": "MD",
+    "status": "published",
+    "youngs_modulus": 205000,
+    "stress_unit": "MPa",
+    "fetched_at": "2026-11-28T00:00:00+00:00",
+}
+
+
+def test_matnexus_카드에서_받은_곡선은_확정_카드여야_한다() -> None:
+    from_card = {
+        **MULTILINEAR,
+        "plastic": {**MULTILINEAR["plastic"], "source": "matnexus", "card": CARD},
+    }
+    parse(_case(from_card))
+    with pytest.raises(ConditionError, match=r"MatNexus 카드 출처가 없습니다"):
+        parse(_case({**from_card, "plastic": {**from_card["plastic"], "card": None}}))
+    draft = {
+        **from_card,
+        "plastic": {**from_card["plastic"], "card": {**CARD, "status": "draft"}},
+    }
+    with pytest.raises(ConditionError, match=r"확정 카드가 아닙니다\(draft\)"):
+        parse(_case(draft))
+    # 내보낼 때 카드의 탄성계수도 응력처럼 내보내기 계로 옮긴다.
+    out = resolve(_case(from_card, system="si"), {}, cases=True)
+    card = out["materials"][0]["plastic"]["card"]
+    assert (card["orientation"], card["youngs_modulus"]) == ("MD", 205e9)
+    assert "stress_unit" not in card

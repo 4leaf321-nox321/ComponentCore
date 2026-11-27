@@ -328,3 +328,87 @@ def status(db: Session) -> dict[str, Any]:
         "catalog_count": int(count),
         "catalog_fetched_at": newest.isoformat() if newest else None,
     }
+
+
+# ── 소성 곡선 — MatNexus 물성 카드(② 비선형 정적) ─────────────────────────────
+
+
+def _card_summary(one: dict[str, Any]) -> dict[str, Any]:
+    status = str(one.get("status") or "")
+    return {
+        "id": str(one.get("id") or ""),
+        "code": str(one.get("code") or ""),
+        "label": str(one.get("label") or ""),
+        "test_type": str(one.get("test_type_key") or ""),
+        "orientation": str(one.get("orientation") or ""),
+        "status": status,
+        "point_count": one.get("point_count"),
+        "published_at": one.get("published_at"),
+        # 확정 카드만 해석에 쓴다 — 초안도 내보내지만(덱으로 돌려 보라고) 확정 전이다.
+        "usable": status == "published",
+        "why": ""
+        if status == "published"
+        else _UNUSABLE.get(status, "확정되지 않은 카드입니다."),
+    }
+
+
+_UNUSABLE = {
+    "draft": "초안입니다. MatNexus에서 확정(published)된 카드만 해석에 사용합니다.",
+    "deprecated": "내려진 카드입니다. 사용하지 마십시오.",
+}
+
+
+def plastic_cards(material_id: str) -> dict[str, Any]:
+    """그 재료의 소성 곡선 카드 — 방향마다, 쓸 수 있나와 그 까닭. MatNexus 에 못 닿으면 빈
+    목록과 까닭."""
+    try:
+        rows = matnexus.plastic_cards(material_id)
+    except matnexus.MatNexusUnavailable as failure:
+        return {"items": [], "note": str(failure)}
+    return {"items": [_card_summary(one) for one in rows], "note": ""}
+
+
+def plastic_table(card_id: str) -> dict[str, Any]:
+    """카드의 소성 곡선을 **입력 계**(mm · N · t — 응력 MPa)로 — 조건의 `materials[i].plastic`
+    에 그대로 넣을 모양. MatNexus 가 그 계로 옮겨 준다(`?units=`). 확정 카드만 받는다. 카드의
+    탄성계수도 함께 남긴다 — 표의 첫 응력(항복)과 E 는 같은 카드에서 와야 항복점이 맞는다
+    (SimEngBay)."""
+    try:
+        meta = matnexus.card(card_id)
+        if str(meta.get("status") or "") != "published":
+            why = _UNUSABLE.get(str(meta.get("status") or ""), "확정되지 않은 카드입니다.")
+            raise AppError(code("MATERIALS", 9), f"이 카드는 쓸 수 없습니다. {why}")
+        exported = matnexus.card_export(card_id, conditions.INPUT_SYSTEM)
+    except matnexus.MatNexusUnavailable as failure:
+        raise AppError(code("MATERIALS", 10), str(failure), status=502) from failure
+    blocks = exported.get("blocks") or {}
+    rows = (blocks.get("table") or {}).get("rows") or []
+    table = [
+        [float(one["plastic_strain"]), float(one["true_stress"])]
+        for one in rows
+        if isinstance(one, dict) and "plastic_strain" in one and "true_stress" in one
+    ]
+    if not table:
+        raise AppError(
+            code("MATERIALS", 9), "이 카드에는 소성 곡선(진응력 대 진소성변형률)이 없습니다."
+        )
+    stress = str((exported.get("units") or {}).get("stress") or "")
+    elastic = (blocks.get("elastic") or {}).get("values") or {}
+    return {
+        "model": "multilinear_isotropic",
+        "plastic": {
+            "table": table,
+            "source": "matnexus",
+            "card": {
+                "id": str(meta.get("id") or card_id),
+                "code": str(meta.get("code") or ""),
+                "label": str(meta.get("label") or ""),
+                "test_type": str(meta.get("test_type_key") or ""),
+                "orientation": str(meta.get("orientation") or ""),
+                "status": "published",
+                "youngs_modulus": elastic.get("youngs_modulus"),
+                "stress_unit": stress,
+                "fetched_at": datetime.now(UTC).isoformat(timespec="seconds"),
+            },
+        },
+    }

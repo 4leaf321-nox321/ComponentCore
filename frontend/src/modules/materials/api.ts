@@ -89,7 +89,28 @@ export interface ConvertedMaterials {
   items: (MaterialConverted | null)[]
 }
 
+/** 재료의 소성 곡선 카드(MatNexus 물성 카드 — 인장 시험, 방향마다 하나). 확정 카드만 해석에 쓴다. */
+export interface PlasticCardRow {
+  id: string
+  code: string
+  label: string
+  test_type: string
+  orientation: string
+  status: string
+  point_count: number | null
+  published_at: string | null
+  usable: boolean
+  /** 쓸 수 없는 까닭(초안 · 내려짐). */
+  why: string
+}
+
 export const materialsApi = {
+  /** 이 재료의 소성 곡선 카드 — MatNexus 에 못 닿으면 빈 목록과 `note`. */
+  plasticCards: (materialId: string) =>
+    api.get<{ items: PlasticCardRow[]; note: string }>(`/materials/${encodeURIComponent(materialId)}/plastic-cards`),
+  /** 카드의 소성 곡선을 입력 계(응력 MPa)로 — 조건의 재료에 그대로 넣을 `model` · `plastic`. */
+  plasticTable: (cardId: string) =>
+    api.get<{ model: string; plastic: Record<string, unknown> }>(`/materials/plastic-cards/${encodeURIComponent(cardId)}`),
   /**
    * 조건에 **담아 둔** 재료(payload)를 내보낼 단위계로 — 내보낼 때와 같은 함수다. MatNexus 에 다시 묻지
    * 않는다(내보내는 것은 담아 둔 payload 이므로 그것을 보여야 한다).
