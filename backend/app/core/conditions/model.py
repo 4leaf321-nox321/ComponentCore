@@ -22,7 +22,7 @@ from app.core.conditions.cases import (
     MULTI_CASE_BLOCKED,
     Case,
     check_cases,
-    fold_prestressed,
+    fold_chain,
     in_case,
     raw_views,
 )
@@ -476,8 +476,8 @@ def resolve(
     탄성계수는 10⁶ 배 틀린 채로 푼다.
 
     **해석 케이스**(`schema_version: 2`): 하나면 **v1 그대로** 낸다 — 받는 쪽이 바뀌는 것이
-    없다. 여럿이면 받는 쪽이 v2 를 받기 전이라 까닭을 말하고 막는다 — 「정적 → 모달」
-    사슬만 v1 선응력 모달 하나로 접어 낸다(`_folded`). `cases=True`(DOE 의
+    없다. 여럿이면 받는 쪽이 v2 를 받기 전이라 까닭을 말하고 막는다 — 「정적 → 모달」 ·
+    「볼트 예압 → 외력」 사슬만 v1 한 벌로 접어 낸다(`_folded`). `cases=True`(DOE 의
     `doe_conditions_v2` · v2 픽스처를 만드는 시험)일 때만 v2 로 낸다 — 공유 칸은 한 벌,
     케이스마다 v1 과 같은 길로 푼 칸.
     """
@@ -511,20 +511,21 @@ def resolve(
 
 
 def _folded(conditions: Conditions) -> Conditions:
-    """케이스가 여럿인 한 벌을 **v1 한 벌**로 — 「정적 → 모달」 사슬만 선응력 모달로 접는다
-    (`cases.fold_prestressed`). 못 접으면 그 까닭을 붙여 막는다. 접은 한 벌도 v1 으로 다시
-    점검한다 — 하중을 합친 것이 v1 의 규칙을 어기면 받는 쪽보다 먼저 말한다."""
+    """케이스가 여럿인 한 벌을 **v1 한 벌**로 — 「정적 → 모달」(선응력 모달) · 「볼트 예압 →
+    외력」(볼트 정적) 사슬만 접는다(`cases.fold_chain`). 못 접으면 그 까닭을 붙여 막는다.
+    접은 한 벌도 v1 으로 다시 점검한다 — 하중을 합친 것이 v1 의 규칙을 어기면 받는 쪽보다
+    먼저 말한다."""
     blocked = MULTI_CASE_BLOCKED.format(count=len(conditions.cases))
-    got = fold_prestressed(conditions.cases)
+    got = fold_chain(conditions.cases)
     if isinstance(got, str):
-        why = f" 선응력 모달로 접지 못한 까닭: {got}" if got else ""
+        why = f" v1 한 벌로 접지 못한 까닭: {got}" if got else ""
         raise ConditionError(blocked + why)
     one = conditions.model_copy(update={"schema_version": 1, "cases": [], **got})
     try:
         return parse(one.model_dump())
     except ConditionError as failure:
         raise ConditionError(
-            f"{blocked} 선응력 모달로 접은 한 벌이 맞지 않습니다: {failure}"
+            f"{blocked} v1 한 벌로 접은 것이 맞지 않습니다: {failure}"
         ) from failure
 
 

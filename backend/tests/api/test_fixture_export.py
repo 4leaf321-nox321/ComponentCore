@@ -1066,16 +1066,12 @@ BOLT_TWO_CASES: dict[str, Any] = {
 }
 
 
-def test_볼트_예압_두_케이스_픽스처는_스위치를_켤_때만_v2_로_나간다(
+def test_볼트_예압_두_케이스_픽스처는_스위치를_켜면_v2_로_나간다(
     client: TestClient, member: Signed, export_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """받는 쪽이 v2 를 받기 전이라 기본은 막는다(`doe_conditions_v2`). 켜면 공유 칸은 한 벌,
-    케이스마다 v1 과 같은 길로 푼 칸 — 영역 · 바디는 v1 「조건_볼트예압_정적」 의 같은 점(예압
-    1000 N)과 같아야 한다."""
-    blocked = client.post("/api/doe", json=BOLT_TWO_CASES, headers=member.headers)
-    assert blocked.status_code == 400, blocked.text
-    assert "해석 케이스가 2개인 조건은 아직 내보낼 수 없습니다" in blocked.text
-
+    """받는 쪽이 v2 를 받기 전이라 기본은 v1 볼트 정적으로 접는다(아래 시험). 스위치
+    (`doe_conditions_v2`)를 켜면 공유 칸은 한 벌, 케이스마다 v1 과 같은 길로 푼 칸 — 영역 ·
+    바디는 v1 「조건_볼트예압_정적」 의 같은 점(예압 1000 N)과 같아야 한다."""
     monkeypatch.setattr(get_settings(), "doe_conditions_v2", True)
     folder = _export(client, member, export_root, BOLT_TWO_CASES)
     (point,) = _points(folder)
@@ -1143,15 +1139,33 @@ def test_예압_외력_모달_사슬은_v1_선응력_모달_픽스처와_같은_
     client: TestClient, member: Signed, export_root: Path
 ) -> None:
     """점 파일의 조건 · 영역 · 바디가 v1 「조건_볼트예압_선응력모달」 점 1(예압 1000 N)과
-    같다 — 받는 쪽이 바뀌는 것이 없다. 정적 둘만인 사슬은 여전히 막는다(위 시험). 조건은
-    지금 v1 을 내보낸 것과 견준다 — 커밋된 픽스처(2026-11-16)는 그 뒤에 생긴
-    칸(`frequency_table` …)이 없다."""
+    같다 — 받는 쪽이 바뀌는 것이 없다. 조건은 지금 v1 을 내보낸 것과 견준다 — 커밋된
+    픽스처(2026-11-16)는 그 뒤에 생긴 칸(`frequency_table` …)이 없다."""
     folder = _export(client, member, export_root, BOLT_CHAIN_MODAL)
     (point,) = _points(folder)
     v1 = _points(_export(client, member, export_root, BOLT_PRESTRESSED))[0]
     assert v1["point"]["params"]["예압 방식"] == "N"
     assert point["conditions"]["schema_version"] == 1
     assert "cases" not in point["conditions"]
+    assert point["conditions"] == v1["conditions"]
+    assert point["regions"] == v1["regions"]
+    assert point["bodies"] == v1["bodies"]
+    assert point["unresolved"] == []
+
+
+def test_예압_외력_두_케이스는_스위치가_꺼져_있으면_v1_볼트_정적_픽스처와_같게_나간다(
+    client: TestClient, member: Signed, export_root: Path
+) -> None:
+    """「조건_볼트예압_두케이스」 를 접은 점 파일이 v1 「조건_볼트예압_정적」 점 1 과 같다 —
+    v1 의 볼트 정적이 바로 그 사슬이다(① 볼트 예압 → ② 잠그고 끌어올림, SimEngBay
+    2026-11-27). 그쪽 실측: 「예압」 끝 볼트 1000 N, 「외력」 끝 볼트 1066.2 N, 바닥 -600 N."""
+    v1 = _points(_export(client, member, export_root, BOLT_PRETENSION))[0]
+    folded = {**BOLT_TWO_CASES, "name": "조건_볼트예압_사슬정적"}
+    (point,) = _points(_export(client, member, export_root, folded))
+    assert v1["point"]["params"]["예압 방식"] == "N"
+    assert point["conditions"]["schema_version"] == 1
+    assert "cases" not in point["conditions"]
+    assert point["conditions"]["analysis"]["steps"] == 2
     assert point["conditions"] == v1["conditions"]
     assert point["regions"] == v1["regions"]
     assert point["bodies"] == v1["bodies"]

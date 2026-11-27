@@ -327,6 +327,33 @@ def test_예압_외력_모달_셋은_하중을_합쳐_접는다_중력은_한_�
     assert resolve(three, {}) == resolve(_prestressed([BOLT, GRAVITY, SIDE]), {})
 
 
+def _bolt_static(loads: list[dict[str, Any]], **analysis: Any) -> dict[str, Any]:
+    """같은 것을 v1 으로 적은 볼트 정적 — 픽스처 「조건_볼트예압_정적」 의 꼴(두 단계)."""
+    return {
+        **SHARED,
+        "analysis": {"type": "static", "steps": 2, **analysis},
+        "constraints": FIXED,
+        "loads": loads,
+    }
+
+
+def test_볼트_예압_뒤의_외력은_v1_볼트_정적으로_접는다() -> None:
+    """v1 의 볼트 정적이 바로 이 사슬이다 — 두 솔버 모두 ① 볼트 예압 + 중력 → ② 조인 길이로
+    잠그고 나머지(SimEngBay, 2026-11-27). 하중 = 예압 + 외력(중력은 한 번), 구속 · 초기조건은
+    첫 케이스의 것, 해석은 두 단계. 대변형 · 초기 부단계는 두 케이스가 같으면 그대로 싣는다."""
+    preload = {"name": "예압", "analysis": {"type": "static"}, "loads": [BOLT]}
+    outer = {"name": "외력", "analysis": {"type": "static"}, "loads": [SIDE]}
+    assert resolve(_chain(preload, outer), {}) == resolve(_bolt_static([BOLT, SIDE]), {})
+    heavy = _chain({**preload, "loads": [BOLT, GRAVITY]}, {**outer, "loads": [SIDE, GRAVITY]})
+    assert resolve(heavy, {}) == resolve(_bolt_static([BOLT, GRAVITY, SIDE]), {})
+    large = {"type": "static", "large_deflection": True, "substeps": 5}
+    bent = _chain({**preload, "analysis": large}, {**outer, "analysis": large})
+    expected = _bolt_static([BOLT, SIDE], large_deflection=True, substeps=5)
+    assert resolve(bent, {}) == resolve(expected, {})
+    # 스위치를 켜면 접지 않고 v2 그대로.
+    assert resolve(_chain(preload, outer), {}, cases=True)["schema_version"] == 2
+
+
 _STATIC = {"name": "정적", "analysis": {"type": "static"}, "loads": [BOLT, SIDE]}
 _PRELOAD = {"name": "예압", "analysis": {"type": "static"}, "loads": [BOLT]}
 _OUTER = {"name": "외력", "analysis": {"type": "static"}, "loads": [SIDE]}
@@ -335,8 +362,28 @@ _OUTER = {"name": "외력", "analysis": {"type": "static"}, "loads": [SIDE]}
 @pytest.mark.parametrize(
     ("cases", "message"),
     [
-        # 정적끼리는 접지 않는다 — 까닭 없이 막는다(모달로 끝나지 않는다).
-        ((_PRELOAD, _OUTER), r"케이스가 여럿인 조건\(schema_version 2\)을 받기 전입니다"),
+        # 정적 둘 — 「볼트 예압 → 외력」 만 접는다.
+        ((_STATIC, _OUTER), r"‘정적’에 볼트 예압 말고 다른 하중\(옆 힘\)이 있습니다"),
+        (
+            (_PRELOAD, {**_OUTER, "analysis": {"type": "static", "steps": 2}}),
+            r"‘외력’의 해석 설정\(하중 단계 수\)은 해석 쪽이 읽지 않습니다",
+        ),
+        (
+            ({**_PRELOAD, "analysis": {"type": "static", "solver": "direct"}}, _OUTER),
+            r"‘예압’의 해석 설정\(솔버\)은",
+        ),
+        (
+            ({**_PRELOAD, "analysis": {"type": "static", "large_deflection": True}}, _OUTER),
+            r"두 케이스의 해석 설정\(대변형\)이 다릅니다",
+        ),
+        (
+            (
+                _PRELOAD,
+                {**_OUTER, "initial": [{"type": "environment_temperature", "value": 30}]},
+            ),
+            r"‘외력’에 초기조건이 있습니다",
+        ),
+        ((_PRELOAD, _OUTER, {**_OUTER, "name": "또"}), r"정적이 3개입니다 — v1 정적으로는 둘"),
         (
             (
                 _STATIC,
