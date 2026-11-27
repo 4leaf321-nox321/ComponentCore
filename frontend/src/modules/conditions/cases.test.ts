@@ -1,6 +1,6 @@
 import { emptyConditions } from '@/modules/conditions/api'
 import type { Conditions } from '@/modules/conditions/api'
-import { caseView, followingCase, putCaseView, renamed, saved } from '@/modules/conditions/cases'
+import { caseView, followingCase, putCaseView, renamed, saved, withoutPrestress } from '@/modules/conditions/cases'
 import type { CaseItem } from '@/modules/conditions/cases'
 
 const PRELOAD: CaseItem = {
@@ -60,4 +60,13 @@ test('케이스 이름을 바꾸면 그것을 앞 케이스로 가리키던 것�
     ['외력', '조임'],
     ['따로', ''],
   ])
+})
+
+test('케이스의 창에서는 v1 의 선응력 칸을 내지 않는다 — 해석 설정의 선응력 반영, 초기조건 선응력', () => {
+  const analysis = { label: '해석 설정', types: ['modal'], fields: { modes: {}, prestressed: {} }, required: [] }
+  expect(Object.keys(withoutPrestress('analysis', analysis).fields)).toEqual(['modes'])
+  const initial = { label: '초기조건', types: ['environment_temperature', 'prestress'], fields: {}, required: [] }
+  expect(withoutPrestress('initial', initial).types).toEqual(['environment_temperature'])
+  const loads = { label: '하중', types: ['force'], fields: {}, required: [] }
+  expect(withoutPrestress('loads', loads)).toBe(loads)
 })

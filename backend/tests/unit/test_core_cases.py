@@ -500,3 +500,49 @@ def test_조화_응답은_볼트_예압_회전_속도_중력을_받지_않는다
         ConditionError, match=r"loads\[0\]: .*중력을 .*가속도 하중을 사용하십시오"
     ):
         parse({**harmonic, "loads": [GRAVITY, SIDE]})
+
+
+def test_케이스에서는_선응력_칸을_쓰지_않고_앞_케이스는_정적만() -> None:
+    """선응력은 앞 케이스(`depends_on`)가 말한다 — v1 의 `prestressed` · 초기조건
+    `prestress` 를 함께 두면 뜻이 둘로 갈린다(SimEngBay 도 막는다, 2026-11-27). 모달 ·
+    조화 · 랜덤 뒤에는 이어받을 끝 상태가 없다."""
+    lit = {**MODAL, "analysis": {"type": "modal", "modes": 8, "prestressed": True}}
+    with pytest.raises(
+        ConditionError, match=r"^cases\[1\]\.analysis: 해석 케이스에서는 ‘선응력 반영’을"
+    ):
+        parse(_chain(_STATIC, lit))
+    with pytest.raises(
+        ConditionError,
+        match=r"^cases\[1\]\.initial\[0\]: 해석 케이스에서는 초기조건 ‘선응력’을",
+    ):
+        parse(_chain(_STATIC, {**MODAL, "initial": [{"type": "prestress"}]}))
+    # 앞 케이스가 없는 케이스 하나여도 — 케이스에서는 쓰지 않는다.
+    with pytest.raises(ConditionError, match=r"^cases\[0\]\.analysis: 해석 케이스에서는"):
+        parse({**SHARED, "schema_version": 2, "cases": [{**lit, "constraints": FIXED}]})
+    # 그 칸을 쓰지 않는 종류에 남은 값(화면이 감춘 칸)은 보지 않는다.
+    parse(_chain({**_STATIC, "analysis": {"type": "static", "prestressed": True}}, MODAL))
+    # v1 은 그대로 — 선응력 모달을 받는다.
+    parse(_prestressed([BOLT, SIDE]))
+
+    with pytest.raises(
+        ConditionError,
+        match=r"^cases\[1\]: 앞 케이스 ‘모달’이\(가\) 모달\(고유진동\) 해석입니다\. "
+        r"앞 케이스는 정적 구조만",
+    ):
+        parse(_chain(MODAL, _STATIC))
+
+
+def test_모드_해석_케이스의_중력은_적지_않아도_되고_적으면_앞_정적과_같다() -> None:
+    """중력은 정적 케이스끼리 같다(2026-11-27 좁힘) — 모달 · 랜덤은 앞 정적이 끝난 상태의
+    중력을 쓴다. 접으면 정적의 중력 한 번이다 — 모달에 적든 안 적든 같은 점 파일."""
+    static = {**_STATIC, "loads": [BOLT, SIDE, GRAVITY]}
+    bare = _chain(static, MODAL)
+    parse(bare)
+    same = _chain(static, {**MODAL, "loads": [GRAVITY]})
+    parse(same)
+    assert resolve(bare, {}) == resolve(same, {})
+    tilted = _chain(static, {**MODAL, "loads": [{**GRAVITY, "direction": [0, -1, 0]}]})
+    with pytest.raises(
+        ConditionError, match=r"^cases\[1\]\.loads: 중력이 앞 케이스 ‘정적’과\(와\) 다릅니다"
+    ):
+        parse(tilted)

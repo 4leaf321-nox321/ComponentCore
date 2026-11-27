@@ -47,7 +47,7 @@ import type { Pick as MeasuredPick } from '@/modules/cad/measure'
 import { measureMarks } from '@/modules/cad/measureMarks'
 import { useRecipeMesh } from '@/modules/cad/useRecipeMesh'
 import { CaseTabs } from '@/modules/conditions/CaseTabs'
-import { caseView, casesOf, putCaseView, saved, withCases } from '@/modules/conditions/cases'
+import { caseView, casesOf, putCaseView, saved, withCases, withoutPrestress } from '@/modules/conditions/cases'
 import { ConditionForm } from '@/modules/conditions/ConditionForm'
 import { ConditionsRibbon } from '@/modules/conditions/ConditionsRibbon'
 import { ContactCheck } from '@/modules/conditions/ContactCheck'
@@ -679,7 +679,7 @@ export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }
   const inputOf = spec.unit_systems?.find((one) => one.key === (spec.input_system ?? 'mm_n_tonne'))
   /** 창의 조건이 받는 선택 그룹 종류 — 3D 선택 단추를 그에 맞게 막는다. */
   const editingAccepts = editing && editing.group !== 'analysis' ? acceptsOf(editing.group, editing.item.type) : null
-  const editingSpec: GroupSchema | undefined =
+  const baseSpec: GroupSchema | undefined =
     editing?.group === 'analysis'
       ? {
           label: '해석 설정',
@@ -692,6 +692,8 @@ export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }
       : editing
         ? spec.groups[editing.group]
         : undefined
+  // 케이스의 선응력은 앞 케이스가 말한다 — v1 의 선응력 칸은 케이스에서 내지 않는다.
+  const editingSpec = baseSpec && editing && cases.length > 0 ? withoutPrestress(editing.group, baseSpec) : baseSpec
   /**
    * 곡선의 쓰임 단추 — 하중 칸마다 그 표를 읽는 법(가속도 PSD — 로그-로그 · g^2/Hz, 주파수별 배율 — 선형 · 단위
    * 없음). 이름표는 하중 사양표의 그 칸 이름이다.

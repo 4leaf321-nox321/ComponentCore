@@ -44,7 +44,7 @@ from pydantic import Field
 from app.core.conditions.analysis import Analysis
 from app.core.conditions.common import Base, ConditionError
 from app.core.conditions.loads import Constraint, Initial, Load
-from app.core.conditions.registry import ANALYSES
+from app.core.conditions.registry import ANALYSES, analyses_with
 
 #: 케이스마다 적는 칸 — 나머지는 공유다.
 CASE_FIELDS = ("analysis", "constraints", "loads", "initial")
@@ -100,13 +100,14 @@ def check_cases(cases: list[Case], top: list[str], version: int) -> None:
         raise ConditionError("cases: 해석 케이스는 schema_version 2 에서만 씁니다.")
     if top:
         raise ConditionError(
-            f"해석 케이스가 있으면 맨 위의 {', '.join(top)}을(를) 비우십시오 — 케이스마다 "
+            f"해석 케이스가 있으면 맨 위의 {', '.join(top)}을(를) 비우십시오. 케이스마다 "
             "적습니다."
         )
     seen: dict[str, int] = {}
     after: dict[str, str] = {}  # 앞 케이스 → 그 뒤 케이스
     tightened: dict[str, dict[tuple[str, str], str]] = {}  # 케이스 → 그때까지 조인 볼트
     for index, case in enumerate(cases):
+        _check_no_prestress(index, case)
         if case.name in seen:
             raise ConditionError(
                 f"cases[{index}]: 케이스 이름 ‘{case.name}’이(가) 중복됩니다"
@@ -122,7 +123,7 @@ def check_cases(cases: list[Case], top: list[str], version: int) -> None:
                 raise ConditionError(
                     f"cases[{index}]: 앞 케이스 ‘{case.depends_on}’이(가) "
                     + (
-                        "이 케이스보다 뒤에 있습니다 — 앞 케이스를 먼저 적으십시오."
+                        "이 케이스보다 뒤에 있습니다. 앞 케이스를 먼저 적으십시오."
                         if later
                         else "없습니다."
                     )
@@ -132,7 +133,7 @@ def check_cases(cases: list[Case], top: list[str], version: int) -> None:
                 raise ConditionError(
                     f"cases[{index}]: ‘{case.name}’의 대상 솔버"
                     f"(‘{case.target.solver or '지정 안 함'}’)가 앞 케이스 ‘{before.name}’"
-                    f"(‘{before.target.solver or '지정 안 함'}’)와 다릅니다 — 이어지는 "
+                    f"(‘{before.target.solver or '지정 안 함'}’)와 다릅니다. 이어지는 "
                     "케이스는 한 솔버가 풉니다."
                 )
             if case.depends_on in after:
@@ -153,6 +154,28 @@ def check_cases(cases: list[Case], top: list[str], version: int) -> None:
         seen[case.name] = index
 
 
+#: 케이스의 선응력은 앞 케이스가 말한다 — 화면에 그대로 뜬다.
+_PRESTRESS_BY_CHAIN = "앞 케이스(정적)를 지정하면 그 정적이 끝난 상태가 선응력이 됩니다."
+
+
+def _check_no_prestress(index: int, case: Case) -> None:
+    """케이스에서는 v1 의 선응력(해석 설정 `prestressed` · 초기조건 `prestress`)을 쓰지
+    않는다 — 선응력은 `depends_on` 이 말한다. 둘을 함께 두면 뜻이 둘로 갈린다(「앞 케이스의
+    끝 상태」 와 「같은 하중의 정적」). 받는 쪽도 같은 것을 막는다(SimEngBay, 2026-11-27).
+    그 칸을 쓰지 않는 해석 종류에 남은 값(감춘 칸)은 보지 않는다 — 내보내지 않는다."""
+    if case.analysis.prestressed and case.analysis.type in analyses_with("prestressed"):
+        raise ConditionError(
+            f"cases[{index}].analysis: 해석 케이스에서는 ‘선응력 반영’을 쓰지 않습니다. "
+            + _PRESTRESS_BY_CHAIN
+        )
+    for at, item in enumerate(case.initial):
+        if item.type == "prestress":
+            raise ConditionError(
+                f"cases[{index}].initial[{at}]: 해석 케이스에서는 초기조건 ‘선응력’을 쓰지 "
+                "않습니다. " + _PRESTRESS_BY_CHAIN
+            )
+
+
 def _bolt(load: Load) -> tuple[str, str]:
     """볼트 예압이 조이는 볼트 — 선택 그룹과 단면 좌표계(바디에 건 예압)."""
     return (load.on, load.cs)
@@ -166,10 +189,22 @@ def _constraints(case: Case) -> list[str]:
 def _check_follows(
     index: int, case: Case, before: Case, tightened: dict[tuple[str, str], str]
 ) -> None:
-    """뒤 케이스가 앞 케이스에 이어질 수 있나 — 받는 쪽(SimEngBay) 첫 판이 막는 것."""
+    """뒤 케이스가 앞 케이스에 이어질 수 있나 — 받는 쪽(SimEngBay) 첫 판이 막는 것.
+
+    - **앞 케이스는 정적만** — 모달 · 조화 · 랜덤에는 이어받을 끝 상태(변위 · 응력)가 없다(두
+      솔버 모두, SimEngBay 2026-11-27).
+    - **중력은 정적 케이스끼리 같다**(2026-11-27 좁힘) — 모드 해석 케이스(모달 · 랜덤)는 앞
+      정적의 끝 상태에 든 중력을 쓴다. 적지 않아도 되고, 적었다면 앞 정적과 같아야 한다. 조화의
+      중력은 등록부가 막는다."""
+    if before.analysis.type != "static":
+        raise ConditionError(
+            f"cases[{index}]: 앞 케이스 ‘{before.name}’이(가) "
+            f"{ANALYSES[before.analysis.type].label} 해석입니다. 앞 케이스는 정적 구조만 "
+            "지정할 수 있습니다(이어받을 변위와 응력이 없습니다)."
+        )
     if _constraints(case) != _constraints(before):
         raise ConditionError(
-            f"cases[{index}].constraints: 앞 케이스 ‘{before.name}’과(와) 구속이 다릅니다 — "
+            f"cases[{index}].constraints: 앞 케이스 ‘{before.name}’과(와) 구속이 다릅니다. "
             "한 사슬 안에서는 아직 구속을 바꿀 수 없습니다(해석 쪽 첫 판). 앞 케이스의 "
             "구속을 그대로 적으십시오."
         )
@@ -177,10 +212,18 @@ def _check_follows(
         if load.type == "bolt_pretension" and _bolt(load) in tightened:
             raise ConditionError(
                 f"cases[{index}].loads[{at}]: 볼트 예압 ‘{load.name}’의 볼트(‘{load.on}’)는 "
-                f"앞 케이스 ‘{tightened[_bolt(load)]}’에서 이미 조였습니다 — 뒤 케이스에서는 "
+                f"앞 케이스 ‘{tightened[_bolt(load)]}’에서 이미 조였습니다. 뒤 케이스에서는 "
                 "조인 길이로 잠기므로 예압을 다시 적지 않습니다."
             )
     mine, theirs = _gravity(case), _gravity(before)
+    if case.analysis.type != "static":
+        if mine and mine != theirs:
+            raise ConditionError(
+                f"cases[{index}].loads: 중력이 앞 케이스 ‘{before.name}’과(와) 다릅니다. "
+                f"{ANALYSES[case.analysis.type].label} 케이스는 앞 정적이 끝난 상태의 중력을 "
+                "쓰므로 중력을 적지 않거나 앞 케이스와 같게 적으십시오."
+            )
+        return
     if mine != theirs:
         what = (
             f"앞 케이스 ‘{before.name}’에는 중력이 있고 이 케이스에는 없습니다"
@@ -190,9 +233,9 @@ def _check_follows(
             else f"중력의 방향 또는 좌표계가 앞 케이스 ‘{before.name}’과(와) 다릅니다"
         )
         raise ConditionError(
-            f"cases[{index}].loads: {what} — 한 사슬 안에서는 중력의 유무와 방향(좌표계 "
-            "포함)이 케이스마다 같아야 합니다. 하중은 앞 케이스에서 이어지지 않으므로 같은 "
-            "중력을 케이스마다 적으십시오(Ansys Mechanical 은 중력 하나를 모든 단계에 겁니다)."
+            f"cases[{index}].loads: {what}. 이어지는 정적 케이스끼리는 중력의 유무와 "
+            "방향(좌표계 포함)이 같아야 합니다. 하중은 앞 케이스에서 이어지지 않으므로 같은 "
+            "중력을 케이스마다 적으십시오(Ansys Mechanical은 중력 하나를 모든 단계에 겁니다)."
         )
 
 

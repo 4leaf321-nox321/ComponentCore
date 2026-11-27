@@ -1220,6 +1220,16 @@ CHAIN_TWO_CHAINS = _bolt_cases(
         {"name": "외력", "depends_on": "예압", **_BOLT_STATIC, "loads": [_BOLT["loads"][1]]},
     ],
 )
+#: ⑤ 「조건_볼트예압_두케이스」 의 대상 솔버를 비운 판 — 두 솔버가 같은 폴더를 푼다(SimEngBay
+#: 의 부탁, 2026-11-27). calculix 로 적힌 옛 판은 「대상 솔버가 다르면 막는다」 의 시험으로
+#: 그대로 둔다.
+TWO_CASES_ANY_SOLVER = _bolt_cases(
+    "조건_볼트예압_두케이스_솔버없음",
+    [
+        {k: v for k, v in one.items() if k != "target"}
+        for one in BOLT_TWO_CASES["conditions"]["cases"]
+    ],
+)
 #: ④ 정적 → 정적, 볼트가 아닌 하중 — 기둥(SECC, 10 x 10 x 100, 바디 하나라 이름은 `전체`) 바닥
 #: 고정, 끝에 「힘 A」 100 N +X →
 #: 「힘 B」 50 N +Y. 하중은 이어지지 않으므로 「힘 B」 끝은 B 하나만 건 답이다: 끝 처짐
@@ -1279,8 +1289,9 @@ def test_v2_사슬_픽스처_넷_스위치를_켜고_뽑는다(
         "조건_볼트예압_사슬_정적모달": [("정적", ""), ("모달", "정적")],
         "조건_볼트예압_사슬_세케이스": [("예압", ""), ("외력", "예압"), ("모달", "외력")],
         "조건_볼트예압_사슬_둘": [("모달 단독", ""), ("예압", ""), ("외력", "예압")],
+        "조건_볼트예압_두케이스_솔버없음": [("예압", ""), ("외력", "예압")],
     }
-    for study in (CHAIN_STATIC_MODAL, CHAIN_THREE, CHAIN_TWO_CHAINS):
+    for study in (CHAIN_STATIC_MODAL, CHAIN_THREE, CHAIN_TWO_CHAINS, TWO_CASES_ANY_SOLVER):
         folder = _export(client, member, export_root, study)
         (point,) = _points(folder)
         conditions = point["conditions"]

@@ -113,3 +113,17 @@ export function followerOf(cases: CaseItem[], index: number): CaseItem | undefin
   const name = cases[index]?.name
   return name ? cases.find((one) => one.depends_on === name) : undefined
 }
+
+/**
+ * **케이스의 창에서는 v1 의 선응력 칸을 내지 않는다** — 해석 설정의 `prestressed` 와 초기조건 `prestress`. 케이스의
+ * 선응력은 앞 케이스(`depends_on`)가 말하고, 둘을 함께 두면 뜻이 갈려 서버가 저장할 때 막는다(SimEngBay 와 정함,
+ * 2026-11-27). 케이스가 없는 조건(v1)은 그대로다.
+ */
+export function withoutPrestress<T extends { types: string[]; fields: Record<string, unknown> }>(group: string, spec: T): T {
+  if (group === 'analysis') {
+    const { prestressed: _, ...fields } = spec.fields
+    return { ...spec, fields }
+  }
+  if (group === 'initial') return { ...spec, types: spec.types.filter((one) => one !== 'prestress') }
+  return spec
+}
