@@ -300,3 +300,59 @@ def test_솔버가_비면_알림이_없고_표가_없으면_확인하지_않았�
     assert "‘abaqus’이(가) 없어 받는 항목을 확인하지 않았습니다" in unknown["text"]
     (never,) = _notes(_random("ansys", PUSH), None)
     assert "능력표를 아직 받지 않아" in never["text"]
+
+
+# ── SimEngBay v0.37.0 — 판 2 를 받는 첫 판 ───────────────────────────────────────
+
+#: v0.37.0 태그(97698ea)의 코드에서 뽑은 응답(SimEngBay, 2026-11-27). v0.36.0 견본과 다른 것은
+#: `contract` [1, 2] · `receiver_version` · 해석마다 `follows` · note 문구다. 칸 · 종류는 같다.
+V037: list[dict[str, Any]] = json.loads(
+    (FIXTURE.parent / "capabilities_v037.json").read_text(encoding="utf-8")
+)
+
+
+def test_v037_견본은_받은_그대로다() -> None:
+    def fingerprint(tables: list[dict[str, Any]]) -> str:
+        dump = json.dumps(tables, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(dump.encode()).hexdigest()
+
+    assert (
+        fingerprint(V037) == "b68d2f8b203844dc28d78d74900a49efde66816fab15e435ec397be6999cf86f"
+    )
+    # 받는 **종류**가 바뀌었나는 판 칸을 빼고 잰다 — 솔버의 판(`version` — 운영의 ccx -v ·
+    # ANSYS_VERSION)과 받는 쪽의 판(`receiver_version` — 패치 판만 올라가도 바뀐다)은 받는 것이
+    # 같아도 달라진다(SimEngBay, 2026-11-28).
+    bare = [
+        {k: v for k, v in one.items() if k not in ("version", "receiver_version")}
+        for one in V037
+    ]
+    assert (
+        fingerprint(bare) == "ab26c097929f3e1a202e2e2621721b1e05390dc814b923419b3adb034f85c0fd"
+    )
+    tables = read(V037)
+    assert [(one.solver, one.receiver_version, one.contract) for one in tables] == [
+        ("calculix", "v0.37.0", [1, 2]),
+        ("ansys", "v0.37.0", [1, 2]),
+    ]
+    # `follows` 는 아직 읽지 않는다 — 버리고 읽어도 나머지가 v0.36.0 과 같은 꼴이다.
+    for new, old in zip(tables, TABLES, strict=True):
+        assert set(new.analyses) == set(old.analyses)
+        for kind in new.analyses:
+            mine, theirs = new.analyses[kind], old.analyses[kind]
+            for group in ("constraints", "loads", "contacts", "initial", "materials"):
+                names = [one.name for one in mine.listed(group) or []]
+                assert names == [one.name for one in theirs.listed(group) or []], (kind, group)
+            assert {k: [one.name for one in v] for k, v in mine.fields.items()} == {
+                k: [one.name for one in v] for k, v in theirs.fields.items()
+            }
+
+
+def test_v037_은_사슬은_받고_단계_칸과_소성은_아직_막는다() -> None:
+    tables = read(V037)
+    assert all(2 in one.contract for one in tables)
+    steps = deepcopy(_static("calculix", PUSH))
+    steps["cases"][0]["analysis"]["load_steps"] = [{"name": "하나"}, {"name": "둘"}]
+    with pytest.raises(ConditionError, match=r"‘하중 단계’ 칸을 아직 받지 않습니다"):
+        parse(steps, capabilities=tables)
+    # 단계 칸이 없는 정적은 그대로 저장된다.
+    parse(_static("calculix", PUSH), capabilities=tables)
