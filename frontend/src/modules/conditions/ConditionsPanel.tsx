@@ -47,7 +47,7 @@ import type { Pick as MeasuredPick } from '@/modules/cad/measure'
 import { measureMarks } from '@/modules/cad/measureMarks'
 import { useRecipeMesh } from '@/modules/cad/useRecipeMesh'
 import { CaseTabs } from '@/modules/conditions/CaseTabs'
-import { caseView, casesOf, putCaseView, saved, splitIntoCases, withCases, withoutPrestress, withStepFields } from '@/modules/conditions/cases'
+import { caseView, casesOf, followerOf, putCaseView, saved, splitIntoCases, withCases, withoutPrestress, withStepFields } from '@/modules/conditions/cases'
 import { LoadStepsEditor, stepsOf } from '@/modules/conditions/LoadStepsEditor'
 import { ConditionForm } from '@/modules/conditions/ConditionForm'
 import { ConditionsRibbon } from '@/modules/conditions/ConditionsRibbon'
@@ -1070,7 +1070,11 @@ export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }
               onChange={(next) => setEditing({ ...editing, item: next })}
             />
             {editing.group === 'analysis' && String(editing.item.type ?? '') === 'static' && cases.length > 0 && (
-              <LoadStepsEditor analysis={editing.item} onChange={(next) => setEditing({ ...editing, item: next })} />
+              <LoadStepsEditor
+                analysis={editing.item}
+                chained={!!cases[Math.min(active, cases.length - 1)]?.depends_on || !!followerOf(cases, Math.min(active, cases.length - 1))}
+                onChange={(next) => setEditing({ ...editing, item: next })}
+              />
             )}
             {editing.group === 'analysis' && String(editing.item.type ?? '') === 'static' && cases.length === 0 && (
               <div className="bg-muted/40 space-y-2 rounded px-2 py-2 text-xs">

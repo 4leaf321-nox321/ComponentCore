@@ -46,6 +46,7 @@ from app.core.conditions.analysis import Analysis
 from app.core.conditions.common import Base, ConditionError
 from app.core.conditions.loads import Constraint, Initial, Load
 from app.core.conditions.registry import ANALYSES, analyses_with
+from app.core.conditions.steps import used_in
 
 #: 케이스마다 적는 칸 — 나머지는 공유다.
 CASE_FIELDS = ("analysis", "constraints", "loads", "initial")
@@ -153,6 +154,26 @@ def check_cases(cases: list[Case], top: list[str], version: int) -> None:
             },
         }
         seen[case.name] = index
+    _check_staged_alone(cases, after)
+
+
+def _check_staged_alone(cases: list[Case], after: dict[str, str]) -> None:
+    """하중 단계 · 하중 이력(②)은 **다른 케이스와 잇지 않은** 정적 케이스에서만 — 받는 쪽 첫
+    판은 사슬 안의 어느 케이스든(앞 케이스 자신 포함) ② 칸을 쓰면 작업을 만들 때 막는다
+    (SimEngBay, 2026-11-28, SIMULATIONS-0046). 능력표의 `fields` 는 해석 종류마다라 이 범위가
+    드러나지 않아 저장에서 먼저 막는다. 결과를 바꾸는 칸만이고 수렴 · 출력은 막지 않는다."""
+    chained = set(after) | set(after.values())
+    for index, case in enumerate(cases):
+        if case.name not in chained:
+            continue
+        staged = used_in(case.analysis, case.loads, changing_only=True)
+        if staged:
+            at, what = staged[0]
+            raise ConditionError(
+                f"cases[{index}].{at}: {what}은(는) 다른 케이스와 잇지 않은 정적 케이스에서"
+                f"만 쓸 수 있습니다(해석 쪽 첫 판). 케이스 ‘{case.name}’을(를) 다른 케이스와 "
+                "잇지 않거나 단계를 나누지 마십시오."
+            )
 
 
 #: 케이스의 선응력은 앞 케이스가 말한다 — 화면에 그대로 뜬다.

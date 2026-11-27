@@ -85,15 +85,24 @@ export function nextCaseName(cases: CaseItem[]): string {
 /**
  * `index` 의 케이스 뒤에 **이어지는 케이스** — 받는 쪽의 사슬 규칙을 처음부터 지키는 사본(서버 `_check_follows`):
  * 해석 설정 · 구속은 그대로(사슬 안의 구속은 같다), 하중은 **중력만** 옮긴다(하중은 이어지지 않고 중력은 케이스마다
- * 같아야 한다 — 조인 볼트는 잠기므로 예압을 다시 적지 않는다). 초기조건은 비운다(앞 케이스의 끝 상태에서 시작한다).
+ * 같아야 한다 — 조인 볼트는 잠기므로 예압을 다시 적지 않는다). 초기조건은 비운다(앞 케이스의 끝 상태에서 시작한다). 하중
+ * 단계는 옮기지 않는다 — 다른 케이스와 이은 케이스에서는 쓰지 않는다(받는 쪽 첫 판, 서버 `cases._check_staged_alone`).
  */
+/** 해석 설정의 사본 — 하중 단계(`load_steps`)는 뺀다. */
+function withoutLoadSteps(analysis: Record<string, unknown>): Record<string, unknown> {
+  const out = structuredClone(analysis)
+  delete out.load_steps
+  return out
+}
+
 export function followingCase(cases: CaseItem[], index: number): CaseItem {
   const before = cases[index]
   return {
     name: nextCaseName(cases),
     depends_on: before.name,
     target: { ...before.target },
-    analysis: structuredClone(before.analysis ?? { type: 'modal' }),
+    // 하중 단계(②)는 옮기지 않는다 — 다른 케이스와 이은 케이스에서는 쓰지 않는다(받는 쪽 첫 판).
+    analysis: withoutLoadSteps(before.analysis ?? { type: 'modal' }),
     constraints: structuredClone(before.constraints ?? []),
     loads: structuredClone((before.loads ?? []).filter((one) => one.type === 'standard_earth_gravity')),
     initial: [],

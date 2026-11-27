@@ -265,7 +265,8 @@ def test_v1_으로_나가는_길에서는_까닭을_말하고_막는다() -> Non
         resolve(_case(PUSH, convergence={"max_iterations": 30}), {})
 
 
-def test_단계가_든_사슬은_접지_않는다() -> None:
+def test_단계가_든_사슬은_저장에서_막는다() -> None:
+    """단계를 쓴 케이스는 다른 케이스와 잇지 않는다 — 접기 전에 저장에서 막힌다."""
     raw = deepcopy(BOLT_IN_STEPS)
     raw["cases"].append(
         {
@@ -275,8 +276,8 @@ def test_단계가_든_사슬은_접지_않는다() -> None:
             "constraints": [FIXED],
         }
     )
-    with pytest.raises(ConditionError, match=r"^케이스 ‘정적’의 해석 설정 ‘하중 단계’"):
-        resolve(raw, {})
+    with pytest.raises(ConditionError, match=r"^cases\[0\]\.analysis: 해석 설정 ‘하중 단계’"):
+        parse(raw)
 
 
 def test_v2_에서는_케이스가_하나여도_v2_로_낸다() -> None:
@@ -406,3 +407,46 @@ def test_대상_솔버를_비운_케이스의_단계_칸은_모든_솔버가_받
     targeted = deepcopy(raw)
     targeted["cases"][0]["target"] = {"solver": "calculix"}
     check_untargeted(parse(targeted), read(RAW))
+
+
+def test_하중_단계는_다른_케이스와_잇지_않은_정적_케이스에서만_쓴다() -> None:
+    """받는 쪽 첫 판은 사슬 안의 어느 케이스든(앞 케이스 자신 포함) ② 칸을 쓰면 작업을 만들
+    때 막는다(SimEngBay, 2026-11-28) — 저장에서 먼저 막는다. 수렴 · 출력은 결과를 바꾸지 않으니
+    막지 않는다."""
+    raw = _case(PUSH)
+    follower = {
+        "name": "뒤",
+        "depends_on": "정적",
+        "analysis": {"type": "static", "load_steps": TWO_STEPS},
+        "constraints": [FIXED],
+        "loads": [PUSH],
+    }
+    raw["cases"].append(follower)
+    with pytest.raises(
+        ConditionError,
+        match=r"^cases\[1\]\.analysis: 해석 설정 ‘하중 단계’은\(는\) 다른 케이스와 잇지 않은 "
+        r"정적 케이스에서만",
+    ):
+        parse(raw)
+    timed = deepcopy(raw)
+    timed["cases"][1]["analysis"] = {"type": "static"}
+    timed["cases"][1]["loads"] = [{**PUSH, "time_table": [[0, 0], [1, 1]]}]
+    with pytest.raises(
+        ConditionError, match=r"^cases\[1\]\.loads\[0\]: 힘 ‘옆 힘’의 ‘시간별 배율’"
+    ):
+        parse(timed)
+    # 뒤 케이스를 거느린 앞 케이스도 막는다.
+    leader = deepcopy(raw)
+    leader["cases"][0]["analysis"] = {"type": "static", "load_steps": TWO_STEPS}
+    leader["cases"][1]["analysis"] = {"type": "static"}
+    with pytest.raises(
+        ConditionError, match=r"^cases\[0\]\.analysis: .*케이스 ‘정적’을\(를\)"
+    ):
+        parse(leader)
+    quiet = deepcopy(raw)
+    quiet["cases"][1]["analysis"] = {"type": "static", "convergence": {"max_iterations": 30}}
+    parse(quiet)
+    # 잇지 않은 케이스는 쓴다 — 같은 조건 안의 다른 사슬과도 상관없다.
+    alone = deepcopy(raw)
+    alone["cases"][1] = {**follower, "name": "따로", "depends_on": ""}
+    parse(alone)

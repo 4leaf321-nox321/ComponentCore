@@ -76,7 +76,16 @@ function SmallNumber({ label, value, onChange, placeholder }: { label: string; v
   return <NumberText aria-label={label} className="h-7 w-20 px-1.5 text-xs" value={value} placeholder={placeholder} onText={(text) => onChange(valueOf(text))} />
 }
 
-export function LoadStepsEditor({ analysis, onChange }: { analysis: ConditionItem; onChange: (next: ConditionItem) => void }) {
+export function LoadStepsEditor({
+  analysis,
+  chained = false,
+  onChange,
+}: {
+  analysis: ConditionItem
+  /** 다른 케이스와 이은 케이스인가 — 그러면 하중 단계를 쓰지 않는다(받는 쪽 첫 판). */
+  chained?: boolean
+  onChange: (next: ConditionItem) => void
+}) {
   const steps = stepsOf(analysis)
   const convergence = (analysis.convergence ?? {}) as Convergence
   const outputs = (analysis.outputs ?? null) as Outputs | null
@@ -126,12 +135,19 @@ export function LoadStepsEditor({ analysis, onChange }: { analysis: ConditionIte
             variant="outline"
             size="sm"
             className="h-7 text-xs"
+            disabled={chained}
             onClick={() => setSteps([...steps, { name: `단계 ${steps.length + 1}` }])}
           >
             <Plus className="mr-1 size-3.5" aria-hidden />
             단계 추가
           </Button>
         </div>
+        {chained && (
+          <p className="text-amber-700 dark:text-amber-400 text-xs">
+            다른 케이스와 이은 케이스에서는 하중 단계를 쓰지 않습니다(해석 쪽 첫 판). 단계를 나누려면 이 케이스를 다른 케이스와 잇지
+            마십시오.
+          </p>
+        )}
         <p className="text-muted-foreground text-xs">
           하중을 단계로 나누어 겁니다. 하중마다 거는 단계나 시간별 배율을 지정할 수 있습니다. 단계가 없으면 한 단계로 풉니다. 끝 시간은 하중 이력의
           눈금이며, 비워 두면 단계 번호(1, 2, …)입니다. 대변형은 위의 ‘대변형’ 칸이 정합니다.

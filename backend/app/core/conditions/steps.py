@@ -68,12 +68,22 @@ def timed(load: Load, analysis: str) -> bool:
 
 def in_use(view: Conditions) -> list[tuple[str, str]]:
     """쓰고 있는 ② 칸 — `(자리, 이름)`. 곡선을 가리키는 정적 하중은 시간별 배율을 쓴다."""
+    return used_in(view.analysis, view.loads)
+
+
+def used_in(
+    analysis: Analysis, loads: list[Load], *, changing_only: bool = False
+) -> list[tuple[str, str]]:
+    """케이스 하나(해석 설정 · 하중)에서 쓰는 ② 칸. `changing_only` 면 결과를 바꾸는 칸만
+    (`RESULT_CHANGING` — 수렴 · 출력은 빼고)."""
     out: list[tuple[str, str]] = []
     for key in STAGED_ANALYSIS:
-        if getattr(view.analysis, key) != _default(Analysis, key):
+        if changing_only and key not in RESULT_CHANGING["analysis"]:
+            continue
+        if getattr(analysis, key) != _default(Analysis, key):
             out.append(("analysis", f"해석 설정 ‘{_title(Analysis, key)}’"))
-    kind = view.analysis.type
-    for index, load in enumerate(view.loads):
+    kind = analysis.type
+    for index, load in enumerate(loads):
         for key in STAGED_LOADS:
             if getattr(load, key) != _default(Load, key):
                 out.append((f"loads[{index}]", f"{_label(load)}의 ‘{_title(Load, key)}’"))

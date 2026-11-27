@@ -93,3 +93,10 @@ test('뒤 케이스에서 처음 조이는 볼트 — 이 케이스와 그 앞�
   expect(looseBolts(cases, 2)).toEqual([])
   expect(looseBolts(cases, 3)).toEqual([])
 })
+
+test('이어지는 케이스는 하중 단계를 옮기지 않는다 — 다른 케이스와 이은 케이스에서는 쓰지 않는다', () => {
+  const cases: CaseItem[] = [{ name: '정적', analysis: { type: 'static', large_deflection: true, load_steps: [{ name: '하나' }, { name: '둘' }] } }]
+  expect(followingCase(cases, 0).analysis).toEqual({ type: 'static', large_deflection: true })
+  // 원본은 그대로다.
+  expect(cases[0].analysis?.load_steps).toHaveLength(2)
+})
