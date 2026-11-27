@@ -373,10 +373,6 @@ _OUTER = {"name": "외력", "analysis": {"type": "static"}, "loads": [SIDE]}
             r"‘예압’의 해석 설정\(솔버\)은",
         ),
         (
-            ({**_PRELOAD, "analysis": {"type": "static", "large_deflection": True}}, _OUTER),
-            r"두 케이스의 해석 설정\(대변형\)이 다릅니다",
-        ),
-        (
             (
                 _PRELOAD,
                 {**_OUTER, "initial": [{"type": "environment_temperature", "value": 30}]},
@@ -546,3 +542,34 @@ def test_모드_해석_케이스의_중력은_적지_않아도_되고_적으면_
         ConditionError, match=r"^cases\[1\]\.loads: 중력이 앞 케이스 ‘정적’과\(와\) 다릅니다"
     ):
         parse(tilted)
+
+
+@pytest.mark.parametrize(
+    ("analysis", "message"),
+    [
+        (
+            {"type": "static", "large_deflection": True},
+            r"해석 설정\(대변형\)이 앞 케이스 ‘예압’",
+        ),
+        (
+            {"type": "static", "substeps": 10},
+            r"해석 설정\(초기 부단계 수\)이 앞 케이스 ‘예압’",
+        ),
+    ],
+)
+def test_사슬_안_정적끼리는_대변형과_초기_부단계가_같다(
+    analysis: dict[str, Any], message: str
+) -> None:
+    """한 사슬은 해석 하나로 풀린다 — CalculiX 는 NLGEOM 을 켜면 뒤 단계도 켜진 채, Mechanical
+    은 대변형이 해석 전체 설정(SimEngBay, 2026-11-27)."""
+    raw = _chain(_PRELOAD, {**_OUTER, "analysis": analysis})
+    with pytest.raises(ConditionError, match=r"^cases\[1\]\.analysis: " + message):
+        parse(raw)
+    same = {**analysis}
+    parse(_chain({**_PRELOAD, "analysis": same}, {**_OUTER, "analysis": same}))
+
+
+def test_대변형_정적_뒤의_모달은_받는다() -> None:
+    """모달 · 랜덤에는 대변형 칸이 없다 — 두 솔버 모두 대변형 정적의 끝 상태에서 모달을
+    푼다."""
+    parse(_chain({**_STATIC, "analysis": {"type": "static", "large_deflection": True}}, MODAL))

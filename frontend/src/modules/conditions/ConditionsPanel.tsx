@@ -663,9 +663,11 @@ export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }
             geometry: problems,
             moved: loaded.moved,
             kept: loaded.kept,
+            cases,
+            active: Math.min(active, Math.max(cases.length - 1, 0)),
           })
         : [],
-    [draft, schema.data, bodies.data, converted.loading, converted.data, notes, problems, loaded],
+    [draft, schema.data, bodies.data, converted.loading, converted.data, notes, problems, loaded, cases, active],
   )
   /** 준비 점검의 줄을 눌렀다 — 트리에서 그 자리를 펼치거나 조건 창을 연다. */
   function openCheck(where: ReadinessOpen) {

@@ -23,6 +23,7 @@
   - **사슬만** — 한 케이스 뒤에는 하나. 갈래는 앞 케이스를 하나 더 적는다(받는 쪽도 갈래마다
     앞 케이스부터 다시 푼다).
   - 사슬 안의 **구속은 같다**.
+  - 사슬 안 정적 케이스끼리 **대변형 · 초기 부단계 수가 같다** — 한 사슬이 해석 하나로 풀린다.
   - 조인 볼트에 **예압을 다시 적지 않는다**.
   - **중력은 사슬 안에서 같다** — 있고 없음, 방향(좌표계 포함). 하중이 이어지지 않으므로
     케이스마다 같은 중력을 적는다. Mechanical 은 한 해석에 중력 하나를 모든 단계에 걸고 끄지도
@@ -186,6 +187,13 @@ def _constraints(case: Case) -> list[str]:
     return sorted(json.dumps(one.model_dump(), sort_keys=True) for one in case.constraints)
 
 
+#: 사슬 안 정적 케이스끼리 같아야 하는 해석 설정 — CalculiX 는 NLGEOM 을 한 번 켜면 뒤 단계도
+#: 켜진 채이고, Mechanical 은 대변형이 해석 전체 설정이다(SimEngBay, 2026-11-27). 하중
+#: 단계(②)의 부단계는 단계마다라 따로다. 모달 · 랜덤 케이스에는 이 칸이 없다 — 「대변형 정적 →
+#: 모달」 은 두 솔버 모두 받는다.
+_CHAIN_SAME = ("large_deflection", "substeps")
+
+
 def _check_follows(
     index: int, case: Case, before: Case, tightened: dict[tuple[str, str], str]
 ) -> None:
@@ -193,6 +201,7 @@ def _check_follows(
 
     - **앞 케이스는 정적만** — 모달 · 조화 · 랜덤에는 이어받을 끝 상태(변위 · 응력)가 없다(두
       솔버 모두, SimEngBay 2026-11-27).
+    - **대변형 · 초기 부단계는 정적 케이스끼리 같다**(`_CHAIN_SAME`).
     - **중력은 정적 케이스끼리 같다**(2026-11-27 좁힘) — 모드 해석 케이스(모달 · 랜덤)는 앞
       정적의 끝 상태에 든 중력을 쓴다. 적지 않아도 되고, 적었다면 앞 정적과 같아야 한다. 조화의
       중력은 등록부가 막는다."""
@@ -208,6 +217,18 @@ def _check_follows(
             "한 사슬 안에서는 아직 구속을 바꿀 수 없습니다(해석 쪽 첫 판). 앞 케이스의 "
             "구속을 그대로 적으십시오."
         )
+    if case.analysis.type == "static":
+        differ = [
+            str(Analysis.model_fields[key].title)
+            for key in _CHAIN_SAME
+            if getattr(case.analysis, key) != getattr(before.analysis, key)
+        ]
+        if differ:
+            raise ConditionError(
+                f"cases[{index}].analysis: 해석 설정({', '.join(differ)})이 앞 케이스 "
+                f"‘{before.name}’과(와) 다릅니다. 한 사슬은 해석 하나로 풀리므로 같게 "
+                "적으십시오."
+            )
     for at, load in enumerate(case.loads):
         if load.type == "bolt_pretension" and _bolt(load) in tightened:
             raise ConditionError(
@@ -338,8 +359,9 @@ def _fold_static(cases: list[Case]) -> dict[str, Any] | str:
     초기조건은 첫 케이스의 것, 해석은 정적 두 단계(`steps: 2` — 받는 쪽은 읽지 않지만 v1
     「조건_볼트예압_정적」 이 그렇게 적는다).
 
-    v1 은 대변형 · 초기 부단계를 두 단계에 같이 건다 — 두 케이스가 같아야 한다. 단계 수 ·
-    솔버는 받는 쪽이 읽지 않는다 — 기본값이어야 한다(SimEngBay, 2026-11-27)."""
+    v1 은 대변형 · 초기 부단계를 두 단계에 같이 건다 — 사슬 안에서 같다는 것은 저장할 때
+    본다(`_CHAIN_SAME`). 단계 수 · 솔버는 받는 쪽이 읽지 않는다 — 기본값이어야 한다(SimEngBay,
+    2026-11-27)."""
     if not cases[-1].depends_on:
         return ""
     if not _chained(cases):
@@ -354,16 +376,7 @@ def _fold_static(cases: list[Case]) -> dict[str, Any] | str:
                 f"‘{one.name}’의 해석 설정({', '.join(unread)})은 해석 쪽이 읽지 않습니다. "
                 "기본값으로 두십시오(볼트가 있으면 두 단계로 저절로 풉니다)."
             )
-    differ = [
-        str(Analysis.model_fields[key].title)
-        for key in ("large_deflection", "substeps")
-        if getattr(preload.analysis, key) != getattr(outer.analysis, key)
-    ]
-    if differ:
-        return (
-            f"두 케이스의 해석 설정({', '.join(differ)})이 다릅니다. 두 단계에 같은 "
-            "설정이 걸리므로 같게 적으십시오."
-        )
+    # 대변형 · 초기 부단계는 사슬 안에서 같다 — 저장할 때 본다(`_CHAIN_SAME`).
     loads = _preload_then_outer(preload, outer)
     if isinstance(loads, str):
         return loads

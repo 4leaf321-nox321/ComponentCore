@@ -140,3 +140,19 @@ test('능력표 알림은 그 항목의 창을 여는 자리를 함께 넘긴다
   expect(items.find((one) => one.where === '힘 ‘옆 힘’')?.open).toEqual(open)
   expect(items.find((one) => one.where === '대상 솔버')).not.toHaveProperty('open')
 })
+
+test('사슬의 뒤 케이스에서 처음 조이는 볼트는 앞 케이스에서 풀린 볼트라고 알린다', () => {
+  const cases = [
+    { name: '끌어올림', loads: [{ name: '들기', type: 'force', on: '윗면', magnitude: 600 }] },
+    { name: '예압', depends_on: '끌어올림', loads: [{ name: '조임', type: 'bolt_pretension', on: '자유 몸통', preload: 1000 }] },
+  ]
+  const first = readiness({ ...base({}), cases, active: 0 }).filter((one) => one.where === '볼트 ‘자유 몸통’')
+  expect(first).toEqual([
+    {
+      level: 'info',
+      where: '볼트 ‘자유 몸통’',
+      text: '뒤 케이스 ‘예압’에서 처음 조입니다. 이 케이스에서는 풀린 볼트로 풀려 힘을 전하지 않습니다. 이 케이스의 하중이 그 볼트에 기대면 구조가 풀리지 않습니다.',
+    },
+  ])
+  expect(readiness({ ...base({}), cases, active: 1 }).some((one) => one.where.startsWith('볼트 ‘'))).toBe(false)
+})

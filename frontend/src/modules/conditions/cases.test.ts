@@ -1,6 +1,6 @@
 import { emptyConditions } from '@/modules/conditions/api'
 import type { Conditions } from '@/modules/conditions/api'
-import { caseView, followingCase, putCaseView, renamed, saved, withoutPrestress } from '@/modules/conditions/cases'
+import { caseView, followingCase, looseBolts, putCaseView, renamed, saved, withoutPrestress } from '@/modules/conditions/cases'
 import type { CaseItem } from '@/modules/conditions/cases'
 
 const PRELOAD: CaseItem = {
@@ -69,4 +69,27 @@ test('케이스의 창에서는 v1 의 선응력 칸을 내지 않는다 — 해
   expect(withoutPrestress('initial', initial).types).toEqual(['environment_temperature'])
   const loads = { label: '하중', types: ['force'], fields: {}, required: [] }
   expect(withoutPrestress('loads', loads)).toBe(loads)
+})
+
+test('뒤 케이스에서 처음 조이는 볼트 — 이 케이스와 그 앞에서 조이지 않은 것만, 같은 볼트는 선택 그룹 · 좌표계로', () => {
+  const bolt = (on: string, cs = 'global') => ({ name: `조임 ${on}`, type: 'bolt_pretension', on, cs, preload: 1000 })
+  const lift = { name: '끌어올림', type: 'force', on: '윗면', magnitude: 600 }
+  const cases: CaseItem[] = [
+    { name: '자중', loads: [lift] },
+    { name: '예압', depends_on: '자중', loads: [bolt('볼트1')] },
+    { name: '외력', depends_on: '예압', loads: [bolt('볼트2'), bolt('볼트1', '단면')] },
+    { name: '따로', loads: [bolt('볼트3')] },
+  ]
+  expect(looseBolts(cases, 0)).toEqual([
+    { on: '볼트1', at: '예압' },
+    { on: '볼트2', at: '외력' },
+    { on: '볼트1', at: '외력' },
+  ])
+  // 「예압」 에서 조인 볼트1(전역)은 뒤에서도 잠긴 채다 — 좌표계가 다른 것은 다른 볼트.
+  expect(looseBolts(cases, 1)).toEqual([
+    { on: '볼트2', at: '외력' },
+    { on: '볼트1', at: '외력' },
+  ])
+  expect(looseBolts(cases, 2)).toEqual([])
+  expect(looseBolts(cases, 3)).toEqual([])
 })

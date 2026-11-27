@@ -114,6 +114,39 @@ export function followerOf(cases: CaseItem[], index: number): CaseItem | undefin
   return name ? cases.find((one) => one.depends_on === name) : undefined
 }
 
+/** 같은 볼트인가를 가르는 열쇠 — 선택 그룹과 단면 좌표계(서버 `cases._bolt`, SimEngBay 와 같다). */
+const boltKey = (load: ConditionItem) => JSON.stringify([String(load.on ?? ''), String(load.cs ?? 'global')])
+const boltsOf = (one: CaseItem | undefined) => (one?.loads ?? []).filter((load) => load.type === 'bolt_pretension')
+
+/**
+ * **뒤 케이스에서 처음 조이는 볼트** — 이 케이스와 그 앞 케이스에서는 아직 조이지 않았는데 사슬의 뒤 케이스가 조이는
+ * 볼트. 그 볼트는 이 케이스에서 풀린 볼트로 풀려 힘을 전하지 않는다(Ansys 는 그 단계 앞에서 Open, CalculiX 는 기준점이
+ * 자유 — SimEngBay 와 정함, 2026-11-27). 이 케이스의 하중이 그 볼트에 기대면 구조가 기구가 되어 풀리지 않는다. 막지 않고
+ * 알린다(`readiness`).
+ */
+export function looseBolts(cases: CaseItem[], index: number): { on: string; at: string }[] {
+  const byName = new Map(cases.map((one) => [one.name, one]))
+  const tightened = new Set<string>()
+  const walked = new Set<string>()
+  for (let one: CaseItem | undefined = cases[index]; one && !walked.has(one.name); one = one.depends_on ? byName.get(one.depends_on) : undefined) {
+    walked.add(one.name)
+    for (const load of boltsOf(one)) tightened.add(boltKey(load))
+  }
+  const out: { on: string; at: string }[] = []
+  const ahead = new Set<string>()
+  for (let at = index, next = followerOf(cases, at); next && !ahead.has(next.name); next = followerOf(cases, at)) {
+    ahead.add(next.name)
+    for (const load of boltsOf(next)) {
+      const key = boltKey(load)
+      if (tightened.has(key)) continue
+      tightened.add(key)
+      out.push({ on: String(load.on ?? ''), at: next.name })
+    }
+    at = cases.indexOf(next)
+  }
+  return out
+}
+
 /**
  * **케이스의 창에서는 v1 의 선응력 칸을 내지 않는다** — 해석 설정의 `prestressed` 와 초기조건 `prestress`. 케이스의
  * 선응력은 앞 케이스(`depends_on`)가 말하고, 둘을 함께 두면 뜻이 갈려 서버가 저장할 때 막는다(SimEngBay 와 정함,

@@ -9,6 +9,8 @@
 
 import { curveUseOf, GROUP_KEYS, hasCoordinateOnlyRule, materialsOn, settingOf } from '@/modules/conditions/api'
 import type { Body, ConditionItem, Conditions, ConditionsSchema, ExpressionNote } from '@/modules/conditions/api'
+import { looseBolts } from '@/modules/conditions/cases'
+import type { CaseItem } from '@/modules/conditions/cases'
 import { curveMismatch, curveProblems } from '@/modules/conditions/curves'
 import type { MaterialConverted } from '@/modules/materials/api'
 import { materialProblems } from '@/modules/materials/MaterialProperties'
@@ -41,11 +43,14 @@ export interface ReadinessInput {
   /** 바디 그룹에 걸었던 국부 메시를 파트별 설정으로 옮긴 것 · 못 옮긴 것(`moveBodyMeshHints`). */
   moved?: string[]
   kept?: string[]
+  /** 해석 케이스와 고친 케이스 — 사슬의 뒤 케이스에서 처음 조이는 볼트를 알린다(`looseBolts`). */
+  cases?: CaseItem[]
+  active?: number
 }
 
 const nameOf = (item: ConditionItem, fallback: string) => String(item.name ?? '') || fallback
 
-export function readiness({ draft, schema, bodies, converted, notes, geometry, moved = [], kept = [] }: ReadinessInput): ReadinessItem[] {
+export function readiness({ draft, schema, bodies, converted, notes, geometry, moved = [], kept = [], cases = [], active = 0 }: ReadinessInput): ReadinessItem[] {
   const out: ReadinessItem[] = []
   if (geometry.length > 0) {
     out.push({ level: 'warn', where: '도면', text: '도면에 문제가 있어 3D가 표시되지 않습니다. ‘도면’ 탭에서 수정하십시오.' })
@@ -127,6 +132,14 @@ export function readiness({ draft, schema, bodies, converted, notes, geometry, m
     }
   })
 
+  // 사슬의 뒤 케이스에서 처음 조이는 볼트 — 이 케이스에서는 풀린 볼트다.
+  for (const bolt of cases.length > 0 ? looseBolts(cases, active) : []) {
+    out.push({
+      level: 'info',
+      where: `볼트 ‘${bolt.on}’`,
+      text: `뒤 케이스 ‘${bolt.at}’에서 처음 조입니다. 이 케이스에서는 풀린 볼트로 풀려 힘을 전하지 않습니다. 이 케이스의 하중이 그 볼트에 기대면 구조가 풀리지 않습니다.`,
+    })
+  }
   for (const note of notes) out.push({ level: note.level, where: note.where, text: note.text, ...(note.open ? { open: note.open } : {}) })
 
   if (moved.length > 0) {
