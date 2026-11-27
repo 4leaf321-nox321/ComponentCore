@@ -77,6 +77,9 @@ REFUSED_WHY: dict[tuple[str, str], str] = {
     "(CalculiX · Ansys 모두) — 가진이 아닙니다. 체결 상태의 진동은 모달(선응력)로 보십시오.",
     ("loads", "rotational_velocity"): "조화 응답에서는 회전 속도를 해석 쪽이 받지 않습니다"
     "(CalculiX · Ansys 모두) — 가진이 아닙니다.",
+    ("loads", "standard_earth_gravity"): "조화 응답에서는 중력을 해석 쪽이 받지 않습니다"
+    "(CalculiX · Ansys 모두) — 정적 중력도 가진도 아닙니다. 1 g 로 흔들려면 가속도 하중으로 "
+    "적으십시오.",
 }
 
 
@@ -163,10 +166,16 @@ ANALYSES: dict[str, AnalysisKind] = {
             "solver",
         ),
         physics="structural",
-        # 볼트 예압 · 회전 속도는 조화의 가진이 아니다 — 두 솔버 모두 작업을 만들 때 막는다
-        # (SimEngBay, 2026-11-27). 저장에서 먼저 막는다.
+        # 볼트 예압 · 회전 속도 · 중력은 조화의 가진이 아니다 — 두 솔버 모두 작업을 만들 때
+        # 막는다(SimEngBay, 2026-11-27 — 중력은 그쪽 사용자가 정했다. CalculiX 가 1 g 가진으로
+        # 흔들던 것을 없앤다). 저장에서 먼저 막는다.
         accepts=_all_except(
-            loads=("psd_acceleration", "bolt_pretension", "rotational_velocity"),
+            loads=(
+                "psd_acceleration",
+                "bolt_pretension",
+                "rotational_velocity",
+                "standard_earth_gravity",
+            ),
             initial=("temperature", "prestress"),
         ),
         item_fields=MappingProxyType({"loads": ("frequency_table", "phase")}),
