@@ -46,6 +46,7 @@ const QUANTITIES: [string, string][] = [
   ['displacement', '변위'],
   ['stress', '응력'],
   ['strain', '변형률'],
+  ['equivalent_plastic_strain', '등가 소성 변형률'],
   ['reaction', '반력'],
   ['contact_pressure', '접촉 압력'],
   ['contact_status', '접촉 상태'],

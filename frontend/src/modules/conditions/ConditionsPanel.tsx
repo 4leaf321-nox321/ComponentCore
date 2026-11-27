@@ -873,6 +873,7 @@ export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }
               onShowAll={() => setHiddenParts([])}
               onSelect={setTree}
               onAssign={assign}
+              inCases={cases.length > 0}
               onMaterialChange={(index, patch) =>
                 setDraft({
                   ...draft,

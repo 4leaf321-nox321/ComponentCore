@@ -82,9 +82,34 @@ def in_use(view: Conditions) -> list[tuple[str, str]]:
     return out
 
 
+def plastic_in_use(view: Conditions) -> list[tuple[str, str]]:
+    """소성 재료 — 공유 칸이라 케이스마다가 아니라 한 벌에 하나다. 받는 쪽은 정적 케이스에서만
+    읽고 모드 해석 케이스는 탄성으로 푼다."""
+    return [
+        (f"materials[{index}]", f"재료 ‘{one.ref.name or one.ref.code or '이름 없음'}’의 소성")
+        for index, one in enumerate(view.materials)
+        if one.model != "linear_elastic"
+    ]
+
+
+def check_plastic_chain(conditions: Conditions) -> None:
+    """소성 재료가 있으면 정적 뒤에 모달 · 랜덤 진동을 잇지 않는다(첫 판) — 섭동 단계가 쓰는
+    재료 강성(접선이냐 탄성이냐)이 두 솔버에서 갈릴 수 있다(SimEngBay, 2026-11-27)."""
+    plastic = plastic_in_use(conditions)
+    if not plastic:
+        return
+    for index, case in enumerate(conditions.cases):
+        if case.depends_on and case.analysis.type in ("modal", "random"):
+            raise ConditionError(
+                f"cases[{index}]: {plastic[0][1]}이(가) 있는 조건에서는 정적 뒤에 모달, "
+                "랜덤 진동 케이스를 이을 수 없습니다(해석 쪽 첫 판). 선응력 없이 따로 두거나 "
+                "재료를 선형 탄성으로 두십시오."
+            )
+
+
 def check_v1(conditions: Conditions) -> None:
     """케이스가 없는 조건(v1)에는 ② 칸을 쓰지 않는다 — 해석 케이스에서만."""
-    used = in_use(conditions)
+    used = in_use(conditions) + plastic_in_use(conditions)
     if used:
         at, what = used[0]
         raise ConditionError(
@@ -95,7 +120,7 @@ def check_v1(conditions: Conditions) -> None:
 
 def blocked(name: str, view: Conditions) -> str:
     """v1 으로 내보낼 때 ② 칸이 있으면 막는 까닭 — 없으면 `""`."""
-    used = in_use(view)
+    used = in_use(view) + plastic_in_use(view)
     if not used:
         return ""
     what = ", ".join(one for _, one in used[:3]) + (" 등" if len(used) > 3 else "")

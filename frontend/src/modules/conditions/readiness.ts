@@ -137,7 +137,7 @@ export function readiness({ draft, schema, bodies, converted, notes, geometry, m
     out.push({
       level: 'info',
       where: '하중 단계',
-      text: '하중 단계, 시간별 배율, 적용 단계, 수렴 제어, 출력 요청은 해석 쪽(SimEngBay)이 받는 판부터 DOE로 내보낼 수 있습니다. 저장은 됩니다.',
+      text: '하중 단계, 시간별 배율, 적용 단계, 수렴 제어, 출력 요청, 소성은 해석 쪽(SimEngBay)이 받는 판부터 DOE로 내보낼 수 있습니다. 저장은 됩니다.',
     })
   }
   // 사슬의 뒤 케이스에서 처음 조이는 볼트 — 이 케이스에서는 풀린 볼트다.

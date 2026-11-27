@@ -86,12 +86,19 @@ class Convergence(Base):
 #: 출력 요청의 양 — 화면 기본은 앞 넷(받는 쪽의 지금 기본, SimEngBay 2026-11-27). 접촉 압력 ·
 #: 상태는 받는 쪽이 새로 짠다.
 OutputQuantity = Literal[
-    "displacement", "stress", "strain", "reaction", "contact_pressure", "contact_status"
+    "displacement",
+    "stress",
+    "strain",
+    "equivalent_plastic_strain",
+    "reaction",
+    "contact_pressure",
+    "contact_status",
 ]
 OUTPUT_QUANTITIES: dict[str, str] = {
     "displacement": "변위",
     "stress": "응력",
     "strain": "변형률",
+    "equivalent_plastic_strain": "등가 소성 변형률",
     "reaction": "반력",
     "contact_pressure": "접촉 압력",
     "contact_status": "접촉 상태",

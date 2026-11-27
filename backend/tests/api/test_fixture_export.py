@@ -1533,6 +1533,157 @@ def test_비선형_정적_픽스처_넷_스위치를_켜고_뽑는다(
     _keep(folder)
 
 
+#: ⑧-8 **② 소성 픽스처**(SimEngBay 와 정함, 2026-11-27) — 손으로 적은 이선형 · 다선형. 봉(SECC
+#: 10 x 10 x 100, z 0 ~ 100, E 205 GPa · 푸아송비 0.29)을 축 방향으로 당긴다. 지지는 축
+#: 방향만이다 — 서로 직교하는 세 면(바닥 z 0 · 옆 x -5 · 옆 y -5)의 마찰 없는 지지. 단축 인장의
+#: 변위장은 그 세 평면에서 법선 변위가 0 이라 옆 수축을 막지 않는다(바닥을 통째로 고정하면 3축
+#: 응력이 된다). 대변형 끔 — 반력 = σ·A0. 이선형 σy 250 MPa · Et 2000 MPa, 같은 다선형 표의
+#: 기울기 H = E·Et/(E - Et) = 2019.704 MPa.
+_BAR_SUPPORTS = [
+    {"name": "바닥 받침", "type": "frictionless", "on": "바닥"},
+    {"name": "옆 X 받침", "type": "frictionless", "on": "옆 X"},
+    {"name": "옆 Y 받침", "type": "frictionless", "on": "옆 Y"},
+]
+_BAR_SHARED: dict[str, Any] = {
+    "units": {"system": "mm_n_tonne"},
+    "named_selections": [
+        _face("바닥", {"normal": [0, 0, -1]}),
+        _face("끝", {"normal": [0, 0, 1]}),
+        _face("옆 X", {"normal": [-1, 0, 0]}),
+        _face("옆 Y", {"normal": [0, -1, 0]}),
+    ],
+    "mesh_hints": [{"on": "전체", "element_size": 2, "order": "quadratic"}],
+}
+_STEP_20 = {"initial": 20, "minimum": 10, "maximum": 200}
+_PULL_28K = {"name": "당김", "type": "force", "on": "끝", "magnitude": 28000,
+             "direction": [0, 0, 1]}  # fmt: skip
+_H = 2019.704
+
+
+def _bar(name: str, plastic: dict[str, Any], case: dict[str, Any]) -> dict[str, Any]:
+    material = {**_material("M-000138", ["전체"]), **plastic}
+    return _one_case(
+        name, COLUMN_TWO_CASES["recipe"], {**_BAR_SHARED, "materials": [material]}, case
+    )
+
+
+_BILINEAR = {
+    "model": "bilinear_isotropic",
+    "plastic": {"yield_stress": 250, "tangent_modulus": 2000},
+}
+_MULTILINEAR = {
+    "model": "multilinear_isotropic",
+    "plastic": {"table": [[0, 250], [0.05, round(250 + 0.05 * _H, 3)]]},
+}
+
+#: ① **봉의 항복(이선형)** — 끝에 28000 N(σ = 280 MPa). ε = σy/E + (σ - σy)/Et = 0.0012195 +
+#: 0.015 = 0.0162195 → 끝 δz = 1.62195 mm, 등가 소성 변형률 ε_p = ε - σ/E = 0.0148537, 바닥
+#: 반력 Fz -28000 N. 옆 수축 ε_lat = -(푸아송비)·σ/E - ε_p/2 = -0.007823 → x 5 면 ux -0.0782
+#: mm.
+BAR_BILINEAR = _bar(
+    "조건_봉_항복_이선형",
+    _BILINEAR,
+    {
+        "name": "당기기",
+        "analysis": {
+            "type": "static",
+            "load_steps": [{"name": "당기기", "substeps": _STEP_20}],
+        },
+        "constraints": _BAR_SUPPORTS,
+        "loads": [_PULL_28K],
+    },
+)
+#: ② **같은 봉 · 다선형 표** — [[0, 250], [0.05, 250 + 0.05·H = 350.985]]. ① 과 같은 답.
+BAR_MULTILINEAR = _bar(
+    "조건_봉_항복_다선형",
+    _MULTILINEAR,
+    {**BAR_BILINEAR["conditions"]["cases"][0]},
+)
+#: ③ **당겼다 풀기(이선형)** — 단계 둘(끝 1 · 2 s), 힘의 시간별 배율 [[0, 0], [1, 1], [2, 0]].
+#: ① 끝은 ① 과 같고, ② 끝은 탄성으로 풀려 잔류 δz = ε_p·L = 1.48537 mm, 반력 0, 등가 소성
+#: 변형률 0.0148537 그대로.
+BAR_UNLOAD = _bar(
+    "조건_봉_당겼다풀기",
+    _BILINEAR,
+    {
+        "name": "당겼다 풀기",
+        "analysis": {
+            "type": "static",
+            "load_steps": [
+                {"name": "당기기", "end_time": 1, "substeps": _STEP_20},
+                {"name": "풀기", "end_time": 2, "substeps": _STEP_20},
+            ],
+        },
+        "constraints": _BAR_SUPPORTS,
+        "loads": [{**_PULL_28K, "time_table": [[0, 0], [1, 1], [2, 0]]}],
+    },
+)
+#: ④ **표 끝 넘어 당기기(다선형, 강제 변위)** — 표 [[0, 250], [0.01, 270.197]] 의 마지막
+#: ε_p(0.01) 보다 1 % 더 가게 끝 면을 δz 2.13 mm(ε 0.0213) 당긴다. 힘으로 걸면 표 끝 뒤가 완전
+#: 소성인 솔버에서 평형점이 없어 발산한다(SimEngBay). 끝 뒤가 평평하면 σ = 270.197 MPa → 반력
+#: 27019.7 N(ε_p 0.019982), 기울기 H 가 이어지면 σ = 290.161 MPa → 29016.1 N(ε_p 0.019885).
+BAR_PAST_TABLE = _bar(
+    "조건_봉_표끝넘어",
+    {
+        "model": "multilinear_isotropic",
+        "plastic": {"table": [[0, 250], [0.01, round(250 + 0.01 * _H, 3)]]},
+    },
+    {
+        "name": "끌기",
+        "analysis": {"type": "static", "load_steps": [{"name": "끌기", "substeps": _STEP_20}]},
+        "constraints": [
+            *_BAR_SUPPORTS,
+            {"name": "끝 끌기", "type": "displacement", "on": "끝", "z": 2.13},
+        ],
+        "loads": [],
+    },
+)
+
+
+def test_소성_픽스처_넷_스위치를_켜고_뽑는다(
+    client: TestClient, member: Signed, export_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """소성 재료가 든 조건은 v2 로만 나간다(스위치가 꺼져 있으면 까닭을 말하고 막는다)."""
+    blocked = client.post(
+        "/api/doe", json={**BAR_BILINEAR, "name": "막힘"}, headers=member.headers
+    )
+    assert blocked.status_code == 400 and "의 소성은(는) 해석 쪽(SimEngBay)이" in blocked.text
+
+    monkeypatch.setattr(get_settings(), "doe_conditions_v2", True)
+    expected = {
+        "조건_봉_항복_이선형": {"yield_stress": 250, "tangent_modulus": 2000},
+        "조건_봉_항복_다선형": {"table": [[0, 250], [0.05, 350.985]]},
+        "조건_봉_당겼다풀기": {"yield_stress": 250, "tangent_modulus": 2000},
+        "조건_봉_표끝넘어": {"table": [[0, 250], [0.01, 270.197]]},
+    }
+    for study in (BAR_BILINEAR, BAR_MULTILINEAR, BAR_UNLOAD, BAR_PAST_TABLE):
+        folder = _export(client, member, export_root, study)
+        (point,) = _points(folder)
+        conditions = point["conditions"]
+        assert conditions["schema_version"] == 2
+        (material,) = conditions["materials"]
+        plastic = {
+            k: v for k, v in material["plastic"].items() if k not in ("source", "stress_unit")
+        }
+        assert plastic == expected[study["name"]], study["name"]
+        assert (material["plastic"]["source"], material["plastic"]["stress_unit"]) == (
+            "manual",
+            "MPa",
+        )
+        (case,) = conditions["cases"]
+        assert case["analysis"]["large_deflection"] is False
+        assert [one["type"] for one in case["constraints"]][:3] == ["frictionless"] * 3
+        regions = point["regions"]
+        assert [(one["area"], one["centroid"]) for one in regions["옆 X"]] == [
+            (pytest.approx(1000), [-5.0, 0.0, 50.0])
+        ]
+        assert [(one["area"], one["centroid"]) for one in regions["옆 Y"]] == [
+            (pytest.approx(1000), [0.0, -5.0, 50.0])
+        ]
+        assert point["unresolved"] == []
+        _keep(folder)
+
+
 def test_조건_픽스처를_실제_내보내기로_만든다(
     client: TestClient, member: Signed, export_root: Path
 ) -> None:

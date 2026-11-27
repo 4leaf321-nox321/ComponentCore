@@ -17,6 +17,7 @@ import { ChevronDownIcon, ChevronRightIcon, Eye, EyeOff } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { ALL_BODIES, appliedTo, hasCoordinateOnlyRule, materialsOn, settingOf } from '@/modules/conditions/api'
+import { PlasticEditor } from '@/modules/conditions/PlasticEditor'
 import type { Body, BodySetting, ConditionItem, CurveItem, MaterialItem, NamedSelection } from '@/modules/conditions/api'
 import { CASE_FIELDS } from '@/modules/conditions/cases'
 import { curveProblems, curveSummary } from '@/modules/conditions/curves'
@@ -108,6 +109,7 @@ export function ModelTree({
   onSelect,
   onAssign,
   onMaterialChange,
+  inCases = false,
   onRemoveMaterial,
   onPickMaterials,
   settings = [],
@@ -145,6 +147,8 @@ export function ModelTree({
   /** 파트에 물성을 지정한다 — `null` 이면 지정 해제. */
   onAssign: (body: string, index: number | null) => void
   onMaterialChange: (index: number, patch: Partial<MaterialItem>) => void
+  /** 해석 케이스가 있는가 — 소성(재료 모델)은 케이스에서만 고른다. */
+  inCases?: boolean
   onRemoveMaterial: (index: number) => void
   /** 물성 탐색기를 연다. */
   onPickMaterials: () => void
@@ -447,6 +451,7 @@ export function ModelTree({
                         </div>
                       </div>
                     )}
+                    <PlasticEditor material={material} enabled={inCases} onChange={(patch) => onMaterialChange(index, patch)} />
                     <Button size="sm" variant="ghost" onClick={() => onRemoveMaterial(index)}>
                       물성 제외
                     </Button>

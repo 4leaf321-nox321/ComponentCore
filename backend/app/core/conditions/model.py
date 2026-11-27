@@ -57,7 +57,7 @@ from app.core.conditions.loads import (
     _filled_initial,
     _filled_load,
 )
-from app.core.conditions.materials import Material, _with_converted
+from app.core.conditions.materials import Material, _with_converted, check_plastic, plastic_out
 from app.core.conditions.registry import ANALYSES, GROUP_LABELS, REFUSED_WHY, accepting
 from app.core.recipe.params import ExpressionError, resolve_params
 from app.core.recipe.params import evaluate_expression as _expr
@@ -313,8 +313,10 @@ def parse(
         raise ConditionError(f"{where}: {first['msg']}") from failure
     check_cases(conditions.cases, _top_fields(conditions), conditions.schema_version)
     if not conditions.cases:
-        # 하중 단계 · 하중 이력(②)은 해석 케이스에서만 — 받는 쪽이 v2 로만 받는다.
+        # 하중 단계 · 하중 이력 · 소성(②)은 해석 케이스에서만 — 받는 쪽이 v2 로만 받는다.
         steps.check_v1(conditions)
+    else:
+        steps.check_plastic_chain(conditions)
     for index, (name, view) in enumerate(views(conditions)):
         try:
             _check(view, bodies, frames, sheets)
@@ -448,6 +450,7 @@ def _check(
     known = set(bodies) if bodies is not None else None
     owner: dict[str, int] = {}
     for index, material in enumerate(conditions.materials):
+        check_plastic(f"materials[{index}]", material)
         for where in material.apply_to:
             if known is not None and where != ALL_BODIES and where not in known:
                 raise ConditionError(
@@ -598,7 +601,8 @@ def _resolved(
         for i, one in enumerate(out.get("mesh_hints", []))
     ]
     out["materials"] = [
-        _with_converted(one, target.key, keys or {}) for one in out.get("materials", [])
+        plastic_out(_with_converted(one, target.key, keys or {}), target.key)
+        for one in out.get("materials", [])
     ]
     return out
 

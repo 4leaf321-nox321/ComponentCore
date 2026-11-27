@@ -201,11 +201,13 @@ export function withStepFields<T extends { fields: Record<string, FieldSchema> }
 
 /**
  * 케이스에서 하중 단계(②)를 쓰는가 — 하중 단계 · 수렴 제어 · 출력 요청, 하중의 시간별 배율 · 적용 단계 · 볼트 동작, 정적
- * 하중이 가리키는 곡선(시간 곡선). 해석 쪽이 받기 전에는 DOE 생성이 막힌다(서버 `steps.blocked`).
+ * 하중이 가리키는 곡선(시간 곡선), 소성 재료. 해석 쪽이 받기 전에는 DOE 생성이 막힌다(서버 `steps.blocked`).
  */
 export function usesSteps(view: Conditions): boolean {
   const analysis = (view.analysis ?? {}) as Record<string, unknown>
   if (Array.isArray(analysis.load_steps) && analysis.load_steps.length > 0) return true
+  // 소성 재료(공유 칸) — 받는 쪽이 v2 로만 받는다.
+  if ((view.materials ?? []).some((one) => (one.model ?? 'linear_elastic') !== 'linear_elastic')) return true
   if (analysis.convergence != null || analysis.outputs != null) return true
   const statics = analysis.type === 'static'
   return (view.loads ?? []).some(

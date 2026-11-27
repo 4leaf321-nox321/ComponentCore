@@ -4,14 +4,22 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field, field_validator
 
 from app.core import units as unit_systems
 from app.core.conditions import registry
 from app.core.conditions.cases import raw_views
-from app.core.conditions.common import ALL_BODIES, Base, ConditionError, applied_bodies
+from app.core.conditions.common import (
+    ALL_BODIES,
+    INPUT_SYSTEM,
+    Base,
+    ConditionError,
+    Number,
+    _extra,
+    applied_bodies,
+)
 
 # ── 물성 ──────────────────────────────────────────────────────────────────────
 
@@ -25,6 +33,35 @@ class MaterialRef(Base):
     문헌 재료는 번호가 없는 것이 많아 이 칸이 유일한 손잡이일 때도 있다."""
     name: str = ""
     fetched_at: str = ""
+
+
+#: 재료 모델 — 받는 쪽 능력표의 `materials` 이름과 같은 낱말(SimEngBay 와 정함, 2026-11-27).
+#: 이동 경화가 들어오면 `*_kinematic` 이 붙는다.
+MATERIAL_MODELS: dict[str, str] = {
+    "linear_elastic": "선형 탄성",
+    "bilinear_isotropic": "이선형 소성(등방 경화)",
+    "multilinear_isotropic": "다선형 소성(등방 경화)",
+}
+#: 다선형 표의 점 수 — MatNexus 카드가 지키는 범위와 같다.
+TABLE_ROWS = (2, 5000)
+
+
+class Plastic(Base):
+    """소성(② 비선형 정적) — von Mises · 등방 경화 · 속도 무관. 값은 **입력 계**(mm · N · t —
+    응력 MPa)로 적고 내보낼 때 내보내기 계로 옮긴다. 탄성(탄성계수 · 푸아송비)은 물성
+    (`payload`) 그대로다.
+
+    - 이선형: 항복응력 σy 와 접선계수 Et(전체 변형률 기준 기울기). 받는 쪽이 솔버마다 옮긴다
+      (Ansys TB,BISO, CalculiX 는 표 두 행 — 둘째 행은 받는 쪽이 정한다).
+    - 다선형: `[[진소성변형률, 진응력], …]` — 첫 행의 변형률은 0(그 응력이 σy), 변형률은 늘고
+      응력은 줄지 않는다. 표의 마지막 점 뒤의 동작은 받는 쪽 판정을 따른다.
+    - 전체 변형률 곡선은 받지 않는다(첫 판) — 소성 변형률로 바꾸려면 솔버로 가는 E 와 같은
+      값이 있어야 하는데, 물성 값을 해석하지 않는다(위 `Material`)."""
+
+    yield_stress: Number | None = Field(default=None, title="항복응력")
+    tangent_modulus: Number | None = Field(default=None, title="접선계수")
+    table: list[list[Number]] | None = Field(default=None, title="진응력 대 소성 변형률")
+    source: Literal["manual", "matnexus"] = Field(default="manual", title="출처")
 
 
 class Material(Base):
@@ -52,6 +89,14 @@ class Material(Base):
 
     글월은 여기 안 담는다. **내보낼 때 그때 뽑는다** — 재료가 여럿이면 덱 안의 재료 번호
     (`mid`)가 서로 달라야 하는데, 그 번호는 한 벌이 다 모여야 정해진다."""
+    model: Literal["linear_elastic", "bilinear_isotropic", "multilinear_isotropic"] = Field(
+        default="linear_elastic",
+        title="재료 모델",
+        json_schema_extra=_extra({"labels": MATERIAL_MODELS}),
+    )
+    """재료 모델(② — 해석 케이스에서만, 받는 쪽이 받기 전에는 내보내기를 막는다). 선형 탄성이면
+    내보낼 때 싣지 않는다(지금까지와 바이트로 같다)."""
+    plastic: Plastic | None = Field(default=None, title="소성")
 
     @field_validator("apply_to", mode="before")
     @classmethod
@@ -62,6 +107,107 @@ class Material(Base):
         ):
             return applied_bodies(value)
         return value
+
+
+def check_plastic(where: str, material: Material) -> None:
+    """재료 모델과 소성 값이 맞는가 — 식(`"=…"`)인 칸은 설계점마다 풀리므로 넘어간다."""
+    name = material.ref.name or material.ref.code or "이름 없음"
+    label = f"{where}: 재료 ‘{name}’"
+    plastic = material.plastic
+    if material.model == "linear_elastic":
+        if plastic is not None:
+            raise ConditionError(
+                f"{label}은(는) 선형 탄성이라 소성 값을 쓰지 않습니다. 재료 모델을 고르거나 "
+                "소성 값을 삭제하십시오."
+            )
+        return
+    model = MATERIAL_MODELS[material.model]
+    if plastic is None:
+        raise ConditionError(f"{label}의 {model} 값이 없습니다.")
+    if material.model == "bilinear_isotropic":
+        if plastic.table is not None:
+            raise ConditionError(f"{label}은(는) 이선형이라 표를 쓰지 않습니다.")
+        for key, floor in (
+            ("yield_stress", "0보다 커야"),
+            ("tangent_modulus", "0 이상이어야"),
+        ):
+            value = getattr(plastic, key)
+            title = Plastic.model_fields[key].title
+            if value is None:
+                raise ConditionError(f"{label}의 {title}이(가) 없습니다.")
+            if not isinstance(value, str) and (
+                value <= 0 if key == "yield_stress" else value < 0
+            ):
+                raise ConditionError(f"{label}의 {title}은(는) {floor} 합니다.")
+        return
+    if plastic.yield_stress is not None or plastic.tangent_modulus is not None:
+        raise ConditionError(
+            f"{label}은(는) 다선형이라 항복응력 · 접선계수 대신 표의 첫 행이 항복점입니다."
+        )
+    table = plastic.table or []
+    low, high = TABLE_ROWS
+    if not low <= len(table) <= high:
+        raise ConditionError(
+            f"{label}의 진응력 대 소성 변형률 표는 {low} ~ {high}행이어야 합니다(지금 "
+            f"{len(table)}행)."
+        )
+    before: tuple[float, float] | None = None
+    for row, one in enumerate(table, start=1):
+        if len(one) != 2:
+            raise ConditionError(
+                f"{label}의 표 {row}행은 소성 변형률과 응력 두 칸이어야 합니다."
+            )
+        strain, stress = one
+        if isinstance(strain, str) or isinstance(stress, str):
+            before = None
+            continue
+        if row == 1 and strain != 0:
+            raise ConditionError(
+                f"{label}의 표 첫 행의 소성 변형률은 0이어야 합니다(그 응력이 항복응력입니다)."
+            )
+        if stress <= 0:
+            raise ConditionError(f"{label}의 표 {row}행: 응력은 0보다 커야 합니다.")
+        if before is not None:
+            if strain <= before[0]:
+                raise ConditionError(
+                    f"{label}의 표 {row}행: 소성 변형률은 위 행보다 커야 합니다."
+                )
+            if stress < before[1]:
+                raise ConditionError(
+                    f"{label}의 표 {row}행: 응력이 위 행보다 작습니다. 연화는 받지 않습니다."
+                )
+        before = (float(strain), float(stress))
+
+
+def plastic_out(material: dict[str, Any], system: str) -> dict[str, Any]:
+    """내보낼 재료의 소성 — 응력을 내보내기 계로 옮긴다. 선형 탄성이면 `model` · `plastic` 칸을
+    싣지 않는다(지금까지의 내보내기와 바이트로 같다)."""
+    out = dict(material)
+    if out.get("model", "linear_elastic") == "linear_elastic" and out.get("plastic") is None:
+        out.pop("model", None)
+        out.pop("plastic", None)
+        return out
+    plastic = out.get("plastic")
+    if not isinstance(plastic, dict):
+        return out
+    factor = unit_systems.system_of(INPUT_SYSTEM).factor(
+        unit_systems.STRESS
+    ) / unit_systems.system_of(system).factor(unit_systems.STRESS)
+
+    def times(value: Any) -> Any:
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            return float(f"{value * factor:.12g}")
+        return value
+
+    made = {k: v for k, v in plastic.items() if v is not None}
+    for key in ("yield_stress", "tangent_modulus"):
+        if key in made:
+            made[key] = times(made[key])
+    if isinstance(made.get("table"), list):
+        made["table"] = [[one[0], times(one[1])] for one in made["table"]]
+    made["stress_unit"] = unit_systems.system_of(system).names["stress"]
+    out["plastic"] = made
+    return out
 
 
 def unmaterialed(raw: dict[str, Any] | None, bodies: list[str]) -> list[str]:

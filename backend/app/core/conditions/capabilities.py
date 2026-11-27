@@ -18,8 +18,8 @@
 - 복사본에 없는 솔버는 막지 않는다(알림만).
 - 표는 1차 거르기다. note 까지 포함한 최종 판정은 받는 쪽이 작업을 만들 때 한다.
 - **모르는 키는 버리고 읽는다** — 받는 쪽이 칸을 더해도(v2 판의 `follows`) 깨지지 않는다.
-- 재료(`materials`)는 아직 거르지 않는다 — CompCore 의 재료는 모두 선형 탄성이다. 재료 모델은
-  ② 비선형 정적에서 더한다.
+- 재료(`materials`)는 정적에서 재료 모델로 거른다(② 소성 — 이선형 · 다선형). 모드 해석은 소성을
+  읽지 않고 탄성으로 푼다(알림).
 """
 
 from __future__ import annotations
@@ -41,6 +41,7 @@ from app.core.conditions.loads import (
     Initial,
     Load,
 )
+from app.core.conditions.materials import MATERIAL_MODELS
 from app.core.conditions.registry import ANALYSES
 from app.core.conditions.steps import RESULT_CHANGING
 
@@ -230,7 +231,48 @@ def findings(view: Conditions, table: Table) -> list[Finding]:
                     indexes[0],
                 )
             )
+    refused += _materials(view, caps, solver, registered.label)
     return refused + _unread_fields(view, caps, solver) + noted
+
+
+def _materials(
+    view: Conditions, caps: AnalysisTable, solver: str, label: str
+) -> list[Finding]:
+    """재료 모델 — 정적에서만 거른다(받는 쪽은 소성을 정적에서만 읽고, 모드 해석은 탄성으로
+    푼다 — SimEngBay 2026-11-27). 파트에 붙은 재료만 본다."""
+    out: list[Finding] = []
+    for index, one in enumerate(view.materials):
+        if not one.apply_to or one.model == "linear_elastic":
+            continue
+        name = one.ref.name or one.ref.code or "이름 없음"
+        model = MATERIAL_MODELS[one.model]
+        if view.analysis.type != "static":
+            out.append(
+                Finding(
+                    "info",
+                    f"materials[{index}]",
+                    f"재료 ‘{name}’",
+                    f"{label} 해석에서는 {model} 대신 탄성 값으로 풉니다.",
+                    "materials",
+                )
+            )
+            continue
+        listed = caps.materials
+        if listed is not None and one.model not in {item.name for item in listed}:
+            out.append(
+                Finding(
+                    "warn",
+                    f"materials[{index}]",
+                    f"재료 ‘{name}’",
+                    f"대상 솔버 ‘{solver}’의 {label} 해석에서 {model}을(를) 받지 "
+                    "않습니다(해석 쪽 능력표). 재료 모델이나 대상 솔버를 바꾸십시오.",
+                    "materials",
+                    error=f"materials[{index}]: 재료 ‘{name}’의 {model}을(를) 대상 솔버 "
+                    f"‘{solver}’의 {label} 해석에서 받지 않습니다(해석 쪽 능력표). 재료 "
+                    "모델이나 대상 솔버를 바꾸십시오.",
+                )
+            )
+    return out
 
 
 def _unread_fields(view: Conditions, caps: AnalysisTable, solver: str) -> list[Finding]:
