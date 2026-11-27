@@ -475,3 +475,24 @@ def test_조화_응답은_선응력을_받지_않는다() -> None:
     with pytest.raises(ConditionError, match=refused):
         parse({**harmonic, "initial": [{"type": "prestress"}]})
     assert analyses_with("prestressed") == ["modal", "random"]
+
+
+def test_조화_응답은_볼트_예압과_회전_속도를_받지_않는다() -> None:
+    """가진이 아니다 — 두 솔버 모두 작업을 만들 때 막는다(SimEngBay, 2026-11-27). 저장에서
+    먼저 막는다. 압력 · 힘 · 가속도는 그대로 받는다."""
+    harmonic = {
+        **SHARED,
+        "analysis": {"type": "harmonic", "frequency_range": [10, 100]},
+        "constraints": FIXED,
+    }
+    parse({**harmonic, "loads": [SIDE]})
+    with pytest.raises(ConditionError, match=r"loads\[0\]: .*조화 응답에서는 볼트 예압을"):
+        parse({**harmonic, "loads": [BOLT]})
+    spin = {
+        "name": "돌림",
+        "type": "rotational_velocity",
+        "magnitude": 100,
+        "direction": [0, 0, 1],
+    }
+    with pytest.raises(ConditionError, match=r"loads\[1\]: .*조화 응답에서는 회전 속도를"):
+        parse({**harmonic, "loads": [SIDE, spin]})
