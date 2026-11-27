@@ -8,7 +8,7 @@ import itertools
 import math
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from app.core import units as unit_systems
 from app.core.conditions.common import (
@@ -268,6 +268,10 @@ PSD_UNIT = "g^2/Hz"
 #: 조화 응답에서 주파수마다 크기를 달리할 수 있는 하중(`frequency_table` · `phase`) — 방향이
 #: 있고 크기가 하나인 것. 중력 · 회전 속도는 가진이 아니다.
 HARMONIC_LOADS = ["pressure", "force", "moment", "bearing", "acceleration"]
+#: 정적에서 시간에 따른 배율(`time_table`)을 걸 수 있는 하중 — 중력은 모든 단계에 같게 걸린다
+#: (Mechanical 은 단계마다 바꾸지 못한다), 볼트는 단계 동작(`bolt_steps`)으로 정한다. 회전
+#: 속도의 배율은 ω 에 곱한다(SimEngBay, 2026-11-27).
+TIME_LOADS = [*HARMONIC_LOADS, "rotational_velocity"]
 
 #: DOE 고르기 인자가 하중의 `direction` 칸에 줄 수 있는 **축 이름** → 좌표계(`cs`) 성분.
 #: X · Y · Z 를 한 축씩 따로 거는 진동 · 충격 시험(IEC)을 설계점마다 한 축으로 나눈다 — 한
@@ -465,17 +469,75 @@ class Load(Base):
     """랜덤 진동 — `[[주파수(Hz), PSD(g²/Hz)], …]`, 로그-로그 보간(규격의 dB/oct 기울기가 곧
     로그-로그 직선이다). 내보낼 때 `grms`(표의 면적, g)를 함께 싣는다 — 받는 쪽이 적분을 맞춰
     본다."""
+    time_table: list[list[Number]] | None = Field(
+        None,
+        title="시간별 배율",
+        description="정적 해석에서 시간(s)마다 ‘크기’에 곱할 배율입니다. 사이 시간은 선형 "
+        "보간합니다. 첫 행은 0 s, 마지막 행은 마지막 하중 단계의 끝 시간이어야 합니다.",
+        json_schema_extra=_extra(
+            {
+                "only_for": TIME_LOADS,
+                "analysis_only": analyses_using("loads", "time_table"),
+                "table": {"columns": [{"title": "시간", "unit": "s"}, {"title": "배율"}]},
+                "hidden": True,
+            }
+        ),
+    )
+    """정적 — `[[시간(s), 배율], …]`, 양 끝(0 과 마지막 단계의 끝 시간)을 꼭 적는다 — 표 밖을
+    두 솔버가 같게 읽는지 모른다(SimEngBay, 2026-11-27). `None` 이면 첫 단계에서 0 → 크기로
+    오르고 그 뒤 유지한다(두 솔버의 정적 기본)."""
+    active_steps: list[int] = Field(
+        default_factory=list,
+        title="적용 단계",
+        description="이 하중을 거는 하중 단계(1부터)입니다. 비워 두면 모든 단계입니다. 처음 "
+        "켜지는 단계 안에서 0부터 오르고, 꺼지는 단계 안에서 0으로 내립니다.",
+        json_schema_extra=_extra(
+            {
+                "only_for": TIME_LOADS,
+                "analysis_only": analyses_using("loads", "active_steps"),
+                "hidden": True,
+                "default": [],
+            }
+        ),
+    )
+    """정적 — 켜는 단계 번호, 오름차순. 받는 쪽은 총 시간의 배율표로 바꿔 두 솔버에 똑같이
+    건다. `time_table` · 곡선과 함께 쓰지 않는다(표에 0 을 적으면 같은 뜻이다)."""
+    bolt_steps: list[Literal["load", "lock"]] = Field(
+        default_factory=list,
+        title="단계별 볼트 동작",
+        description="하중 단계마다 볼트를 조이는지(조임) 그 길이로 잠그는지(잠금)입니다. 첫 "
+        "단계에서 조이고 나머지 단계에서 잠급니다. 비워 두면 그렇게 합니다.",
+        json_schema_extra=_extra(
+            {
+                "only_for": ["bolt_pretension"],
+                "analysis_only": analyses_using("loads", "bolt_steps"),
+                "labels": {"load": "조임", "lock": "잠금"},
+                "hidden": True,
+                "default": [],
+            }
+        ),
+    )
+    """정적 — 단계 수만큼, `load` 는 맨 앞에 한 번(받는 쪽 첫 판, SimEngBay 2026-11-27). 풀기
+    (`open`)는 쓰임새가 생기면 연다."""
     curve: str = Field(
         "",
         title="곡선",
-        description="주파수별 배율이나 가속도 PSD 를 표 대신 곡선(이름)으로 가리킵니다. "
-        "내보낼 때 곡선의 점을 표로 풀어 싣습니다.",
+        description="주파수별 배율, 가속도 PSD, 시간별 배율을 표 대신 곡선(이름)으로 "
+        "가리킵니다. 내보낼 때 곡선의 점을 표로 풀어 싣습니다.",
         json_schema_extra=_extra(
-            {"only_for": [*HARMONIC_LOADS, "psd_acceleration"], "hidden": True}
+            {"only_for": [*TIME_LOADS, "psd_acceleration"], "hidden": True}
         ),
     )
-    """곡선 이름(`curves[].name`) — 표 칸(`frequency_table` · `psd_table`)을 대신한다. 둘을
-    함께 적지 않는다(`curves.check_uses`). 내보낼 때 풀려 이 칸은 나가지 않는다."""
+    """곡선 이름(`curves[].name`) — 표 칸(`frequency_table` · `psd_table` · `time_table`)을
+    대신한다. 둘을 함께 적지 않는다(`curves.check_uses`). 내보낼 때 풀려 이 칸은 나가지
+    않는다."""
+
+    @field_validator("active_steps", "bolt_steps", mode="before")
+    @classmethod
+    def _empty(cls, value: Any) -> Any:
+        """비운 목록 칸(`None`)은 빈 목록 — 화면은 종류를 바꿀 때 감춘 칸을 사양표의 기본값
+        (없으면 `null`)으로 되돌린다."""
+        return [] if value is None else value
 
 
 INITIAL_LABELS: dict[str, str] = {

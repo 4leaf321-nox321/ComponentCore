@@ -1335,6 +1335,203 @@ def test_v2_사슬_픽스처_넷_스위치를_켜고_뽑는다(
     _keep(folder)
 
 
+#: ⑧-7 **② 비선형 정적 픽스처**(SimEngBay 와 정함, 2026-11-27) — 하중 단계 · 하중 이력 · 단계별
+#: 켜기와 끄기. 받는 쪽은 v2 판 다음 판에서 받는다. 단계를 쓴 케이스는 하나여도 v2 로 나간다 —
+#: 스위치(`doe_conditions_v2`)를 켜고 뽑는다. 대상 솔버는 비운다.
+_COLUMN = COLUMN_TWO_CASES["conditions"]
+_COLUMN_FIXED = {"name": "바닥 고정", "type": "fixed_support", "on": "바닥"}
+
+
+def _one_case(
+    name: str, recipe: dict[str, Any], shared: dict[str, Any], case: dict[str, Any]
+) -> dict[str, Any]:
+    return {
+        "name": name,
+        "recipe": recipe,
+        "factors": [],
+        "conditions": {**shared, "schema_version": 2, "cases": [case]},
+    }
+
+
+#: ① **끝 모멘트 엘라스티카** — 정사각 띠(SECC 2 x 2 x 100, 넓은 판 효과가 없게) 바닥 고정,
+#: 끝에 모멘트 M(+Y). 닫힌 꼴: θ = ML/EI. I = 2⁴/12 = 1.3333 mm⁴, EI = 205000 · 1.3333 =
+#: 273333 N·mm², θ = π/2 가 되게 M = (π/2) · EI / L = 4293.5 N·mm. 끝 자리: 축 방향
+#: (L/θ)·sin θ = 63.662 mm →
+#: uz = -36.338 mm, 옆 (L/θ)·(1 - cos θ) = 63.662 mm → ux = +63.662 mm(+Y 둘레 회전은 +Z 를 +X
+#: 로 돌린다), 끝 회전 90°. 반력은 바닥에 모멘트 -M 하나(힘 0). 대변형은 해석 칸이다.
+ELASTICA_MOMENT = _one_case(
+    "조건_띠_끝모멘트_대변형",
+    {
+        "nodes": [
+            {"id": "띠", "op": "box", "length": 2, "width": 2, "height": 100,
+             "align": ["center", "center", "min"]},
+        ],
+    },
+    {
+        "units": {"system": "mm_n_tonne"},
+        "named_selections": _COLUMN["named_selections"],
+        "materials": _COLUMN["materials"],
+        "mesh_hints": [{"on": "전체", "element_size": 1, "order": "quadratic"}],
+    },
+    {
+        "name": "굽힘",
+        "analysis": {
+            "type": "static",
+            "large_deflection": True,
+            "load_steps": [
+                {"name": "굽힘", "end_time": 1,
+                 "substeps": {"initial": 20, "minimum": 10, "maximum": 200}},
+            ],
+        },
+        "constraints": [_COLUMN_FIXED],
+        "loads": [{"name": "끝 모멘트", "type": "moment", "on": "끝", "magnitude": 4293.5,
+                   "direction": [0, 1, 0]}],
+    },
+)  # fmt: skip
+#: ② **사슬 ↔ 단계 맞대기** — 「조건_볼트예압_두케이스_솔버없음」(예압 → 외력 사슬)을 케이스
+#: 하나 · 단계 둘로 적은 것. 같은 답이어야 한다(SimEngBay 실측: ① 끝 볼트 1000 N, ② 끝 볼트
+#: 1066.2 N, 바닥 -600 N). v1 볼트 정적과 같은 뜻: 볼트 [조임, 잠금], 볼트가 아닌 하중은 ② 만.
+BOLT_IN_STEPS = _one_case(
+    "조건_볼트예압_단계둘",
+    BOLT_PRETENSION["recipe"],
+    {k: v for k, v in _BOLT.items() if k not in ("constraints", "loads", "analysis")},
+    {
+        "name": "예압과 외력",
+        "analysis": {"type": "static", "load_steps": [{"name": "예압"}, {"name": "외력"}]},
+        "constraints": _BOLT["constraints"],
+        "loads": [
+            {**_BOLT["loads"][0], "bolt_steps": ["load", "lock"]},
+            {**_BOLT["loads"][1], "active_steps": [2]},
+        ],
+    },
+)
+#: ③ **켜고 끄기** — 「조건_외팔보_두케이스」 의 기둥(SECC 10 x 10 x 100), 끝에 「A」 100 N
+#: +X 를 ① 에만 건다. ① 끝 δx = F·L³/(3EI) = 100 · 100³ / (3 · 205000 · 833.33) = 0.195 mm,
+#: 반력 Fx -100 N. ② 에서 꺼지며 그 단계 안에서 0 으로 내린다 — 선형이라 ② 끝 변위 · 반력 0.
+COLUMN_ON_OFF = _one_case(
+    "조건_외팔보_켜고끄기",
+    COLUMN_TWO_CASES["recipe"],
+    {k: v for k, v in _COLUMN.items() if k not in ("schema_version", "cases")},
+    {
+        "name": "걸고 끄기",
+        "analysis": {"type": "static", "load_steps": [{"name": "걸기"}, {"name": "끄기"}]},
+        "constraints": [_COLUMN_FIXED],
+        "loads": [{"name": "A", "type": "force", "on": "끝", "magnitude": 100,
+                   "direction": [1, 0, 0], "active_steps": [1]}],
+    },
+)  # fmt: skip
+#: ④ **회전 속도의 시간별 배율** — 봉(SECC 100 x 10 x 10, x = 0 ~ 100) 뿌리(x = 0) 고정, 전역 Z
+#: 축(원점 지남) 둘레 ω = 1000 rad/s 에 배율 [[0, 0], [1, 0.5]] — 배율은 ω 에 곱한다(끝에서 ω
+#: 500 rad/s, 원심 하중은 ω² 이라 1/4). 1차원 봉(ρ = 7.85e-9 t/mm³): 끝 변위 u = ρω²L³/(3E) =
+#: 7.85e-9 · 500² · 100³ / (3 · 205000) = 0.003191 mm(배율 1 이면 0.012764), 축 응력
+#: σ(x) = ρω²(L² - x²)/2 — 가운데(x = 50) 7.359 MPa, 뿌리 9.813 MPa(뿌리는 고정면의 푸아송
+#: 구속으로 조금 다르다), 뿌리 반력 Fx = -ρAω²L²/2 = -0.9813 N.
+BAR_SPIN = _one_case(
+    "조건_회전봉_시간표",
+    {
+        "nodes": [
+            {"id": "봉", "op": "box", "length": 100, "width": 10, "height": 10,
+             "align": ["min", "center", "center"]},
+        ],
+    },
+    {
+        "units": {"system": "mm_n_tonne"},
+        "named_selections": [_face("뿌리", {"normal": [-1, 0, 0]})],
+        "materials": _COLUMN["materials"],
+        "mesh_hints": [{"on": "전체", "element_size": 2, "order": "quadratic"}],
+    },
+    {
+        "name": "회전",
+        "analysis": {"type": "static"},
+        "constraints": [{"name": "뿌리 고정", "type": "fixed_support", "on": "뿌리"}],
+        "loads": [{"name": "회전", "type": "rotational_velocity", "magnitude": 1000,
+                   "direction": [0, 0, 1], "time_table": [[0, 0], [1, 0.5]]}],
+    },
+)  # fmt: skip
+
+
+def test_비선형_정적_픽스처_넷_스위치를_켜고_뽑는다(
+    client: TestClient, member: Signed, export_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """단계를 쓴 케이스는 하나여도 v2 로 나간다. 스위치가 꺼져 있으면 까닭을 말하고 막는다."""
+    blocked = client.post(
+        "/api/doe", json={**COLUMN_ON_OFF, "name": "막힘"}, headers=member.headers
+    )
+    assert blocked.status_code == 400
+    assert "케이스가 있는 조건(schema_version 2)으로만 받습니다" in blocked.text
+
+    monkeypatch.setattr(get_settings(), "doe_conditions_v2", True)
+    folder = _export(client, member, export_root, ELASTICA_MOMENT)
+    (point,) = _points(folder)
+    (case,) = point["conditions"]["cases"]
+    assert point["conditions"]["schema_version"] == 2
+    analysis = case["analysis"]
+    assert analysis["large_deflection"] is True
+    assert analysis["load_steps"] == [
+        {
+            "name": "굽힘",
+            "end_time": 1,
+            "substeps": {"initial": 20, "minimum": 10, "maximum": 200},
+        }
+    ]
+    (moment,) = case["loads"]
+    assert (moment["magnitude"], moment["direction"], moment["unit"]) == (
+        4293.5,
+        [0, 1, 0],
+        "N*mm",
+    )
+    assert [(one["area"], one["centroid"]) for one in point["regions"]["끝"]] == [
+        (pytest.approx(4), [0.0, 0.0, 100.0])
+    ]
+    _keep(folder)
+
+    folder = _export(client, member, export_root, BOLT_IN_STEPS)
+    (point,) = _points(folder)
+    chain = json.loads(
+        (COMMITTED / "조건_볼트예압_두케이스_솔버없음" / "points" / "p0001.json").read_text(
+            "utf-8"
+        )
+    )
+    (case,) = point["conditions"]["cases"]
+    assert [one["name"] for one in case["analysis"]["load_steps"]] == ["예압", "외력"]
+    bolt, outer = case["loads"]
+    assert bolt["bolt_steps"] == ["load", "lock"] and outer["active_steps"] == [2]
+    # 사슬과 같은 하중 · 구속 · 공유 칸 · 영역 · 바디 — 받는 쪽이 두 답을 맞댄다.
+    first, second = chain["conditions"]["cases"]
+    assert {k: v for k, v in bolt.items() if k != "bolt_steps"} == first["loads"][0]
+    assert {k: v for k, v in outer.items() if k != "active_steps"} == second["loads"][0]
+    assert case["constraints"] == first["constraints"]
+    for key in ("units", "named_selections", "contacts", "mesh_hints", "materials"):
+        assert point["conditions"][key] == chain["conditions"][key], key
+    assert point["regions"] == chain["regions"]
+    assert point["bodies"] == chain["bodies"]
+    _keep(folder)
+
+    folder = _export(client, member, export_root, COLUMN_ON_OFF)
+    (point,) = _points(folder)
+    (case,) = point["conditions"]["cases"]
+    assert [one["end_time"] for one in case["analysis"]["load_steps"]] == [1, 2]
+    (a,) = case["loads"]
+    assert (a["magnitude"], a["direction"], a["active_steps"]) == (100, [1, 0, 0], [1])
+    _keep(folder)
+
+    folder = _export(client, member, export_root, BAR_SPIN)
+    (point,) = _points(folder)
+    (case,) = point["conditions"]["cases"]
+    assert "load_steps" not in case["analysis"]
+    (spin,) = case["loads"]
+    assert (spin["magnitude"], spin["unit"], spin["time_table"]) == (
+        1000,
+        "rad/s",
+        [[0, 0], [1, 0.5]],
+    )
+    assert [(one["area"], one["centroid"]) for one in point["regions"]["뿌리"]] == [
+        (pytest.approx(100), [0.0, 0.0, 0.0])
+    ]
+    assert point["unresolved"] == []
+    _keep(folder)
+
+
 def test_조건_픽스처를_실제_내보내기로_만든다(
     client: TestClient, member: Signed, export_root: Path
 ) -> None:

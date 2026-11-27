@@ -292,7 +292,8 @@ def _unread(case: Case, keys: tuple[str, ...]) -> list[str]:
     return [
         str(Analysis.model_fields[key].title)
         for key in keys
-        if getattr(case.analysis, key) != Analysis.model_fields[key].default
+        if getattr(case.analysis, key)
+        != Analysis.model_fields[key].get_default(call_default_factory=True)
     ]
 
 

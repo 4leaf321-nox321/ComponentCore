@@ -143,14 +143,26 @@ export interface ConditionsSchema {
     fields: Record<string, FieldSchema>
     required: string[]
     uses: Record<string, CurveUse>
+    /** 정적 하중의 시간 · 단계 곡선(② — 하중 이력). `time_loads` 의 종류가 정적에서 이것으로 읽는다. 옛 서버면 없다. */
+    time_use?: CurveUse
+    time_loads?: string[]
   }
 }
 
-/** 하중 종류 하나가 곡선을 읽는 법 — 그 곡선이 채우는 표 칸 · 보간 · 단위(서버 `curves.USES`). */
+/** 하중 종류 하나가 곡선을 읽는 법 — 그 곡선이 채우는 표 칸 · 보간 · 단위 · 가로축(서버 `curves.USES` · `TIME_USE`). */
 export interface CurveUse {
   field: string
   interpolation: string
   unit: string
+  /** 받는 가로축 — 비면 주파수. */
+  axes?: string[]
+}
+
+/** 그 해석에서 그 하중이 곡선을 읽는 법 — 정적이면 시간별 배율, 아니면 주파수 표(서버 `curves.use_of`). */
+export function curveUseOf(schema: ConditionsSchema, type: string, analysis: string): CurveUse | undefined {
+  const curves = schema.curves
+  if (analysis === 'static' && curves?.time_use && (curves.time_loads ?? []).includes(type)) return curves.time_use
+  return curves?.uses[type]
 }
 
 /**

@@ -52,8 +52,12 @@ export function plotPoints(points: unknown, scale: unknown = 1): { points: [numb
  * 가리킬 수 있으면 `null`.
  */
 export function curveMismatch(curve: CurveItem, use: CurveUse): string | null {
-  if (curve.x !== 'frequency') {
-    return `주파수 곡선만 쓸 수 있습니다(${AXIS_LABELS[curve.x] ?? curve.x} 곡선 — 시간 · 단계 곡선은 비선형 정적에서 받습니다).`
+  const axes = use.axes ?? ['frequency']
+  if (!axes.includes(curve.x)) {
+    const axis = `${AXIS_LABELS[curve.x] ?? curve.x} 곡선`
+    return axes.includes('frequency')
+      ? `주파수 곡선만 쓸 수 있습니다(${axis}). 시간 곡선과 단계 곡선은 정적 해석의 하중에 씁니다.`
+      : `시간 곡선이나 단계 곡선만 쓸 수 있습니다(${axis}).`
   }
   const interpolation = curve.interpolation ?? 'linear'
   if (interpolation !== use.interpolation) {

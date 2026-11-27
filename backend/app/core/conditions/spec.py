@@ -11,13 +11,14 @@ from app.core.conditions.analysis import _ANALYSIS_INTRO, ANALYSIS_NOTES, Analys
 from app.core.conditions.bodies import BodyMesh, BodySetting, MeshHint
 from app.core.conditions.common import INPUT_SYSTEM, Units
 from app.core.conditions.contacts import CONTACT_NOTES, Contact
-from app.core.conditions.curves import USES, Curve
+from app.core.conditions.curves import TIME_USE, USES, Curve
 from app.core.conditions.loads import (
     CONSTRAINT_NOTES,
     IMPLIED_HOLDS,
     INITIAL_NOTES,
     LOAD_DIMENSIONS,
     LOAD_NOTES,
+    TIME_LOADS,
     Constraint,
     Initial,
     Load,
@@ -122,15 +123,24 @@ def spec() -> dict[str, Any]:
     curve_schema = Curve.model_json_schema()
     out["curves"] = {
         "label": "곡선",
-        "intro": "주파수 · 시간 · 단계에 따라 바뀌는 값을 이름 붙여 둡니다. 조화 응답의 "
-        "주파수별 배율과 가속도 PSD 는 표 대신 곡선을 가리킬 수 있고, 내보낼 때 표로 풀어 "
-        "싣습니다. 시간 · 단계 곡선(하중 이력)은 비선형 정적에서 하중이 가리킵니다.",
+        "intro": "주파수, 시간, 단계에 따라 바뀌는 값을 이름 붙여 둡니다. 조화 응답의 "
+        "주파수별 배율과 가속도 PSD는 표 대신 곡선을 가리킬 수 있고, 내보낼 때 표로 풀어 "
+        "싣습니다. 시간 곡선과 단계 곡선(하중 이력)은 정적 해석의 하중이 가리킵니다.",
         "fields": curve_schema.get("properties", {}),
         "required": curve_schema.get("required", []),
         "uses": {
             kind: {"field": use.field, "interpolation": use.interpolation, "unit": use.unit}
             for kind, use in USES.items()
         },
+        # 정적 하중의 시간 · 단계 곡선(②) — 그 하중 종류(`time_loads`)는 정적에서 이 표를
+        # 채운다.
+        "time_use": {
+            "field": TIME_USE.field,
+            "interpolation": TIME_USE.interpolation,
+            "unit": TIME_USE.unit,
+            "axes": ["time", "step"],
+        },
+        "time_loads": list(TIME_LOADS),
     }
     for key, one in groups.items():
         model = one["model"]

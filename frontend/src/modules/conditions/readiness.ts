@@ -7,7 +7,7 @@
  * 접촉 검사(`ContactCheck`)는 채우기 단추가 있어 따로 선다.
  */
 
-import { GROUP_KEYS, hasCoordinateOnlyRule, materialsOn, settingOf } from '@/modules/conditions/api'
+import { curveUseOf, GROUP_KEYS, hasCoordinateOnlyRule, materialsOn, settingOf } from '@/modules/conditions/api'
 import type { Body, ConditionItem, Conditions, ConditionsSchema, ExpressionNote } from '@/modules/conditions/api'
 import { curveMismatch, curveProblems } from '@/modules/conditions/curves'
 import type { MaterialConverted } from '@/modules/materials/api'
@@ -109,7 +109,7 @@ export function readiness({ draft, schema, bodies, converted, notes, geometry, m
     const where = `${loadSpec.label} ‘${nameOf(load, loadSpec.fields.type?.labels?.[type] ?? type)}’`
     const open: ReadinessOpen = { kind: 'item', group: 'loads', index }
     const curve = curves.find((one) => one.name === name)
-    const use = schema.curves?.uses[type]
+    const use = curveUseOf(schema, type, String(draft.analysis?.type ?? ''))
     const why = curve && use ? curveMismatch(curve, use) : null
     if (!curve) out.push({ level: 'warn', where, text: `곡선 ‘${name}’이(가) 없습니다.`, open })
     else if (why) out.push({ level: 'warn', where, text: `곡선 ‘${name}’ — ${why}`, open })

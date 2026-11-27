@@ -145,9 +145,20 @@ ANALYSES: dict[str, AnalysisKind] = {
         label="정적 구조",
         note="하중이 서서히 가해진 뒤 평형 상태의 변형과 응력을 계산합니다. "
         "접촉이나 대변형이 있으면 비선형으로 계산합니다.",
-        fields=("large_deflection", "steps", "substeps", "solver"),
+        # 하중 단계 · 수렴 · 출력(② 비선형 정적, SimEngBay 와 정함 2026-11-27) — 해석
+        # 케이스에서만 쓰고, 받는 쪽이 받기 전에는 내보내기를 막는다(`steps`).
+        fields=(
+            "large_deflection",
+            "steps",
+            "substeps",
+            "load_steps",
+            "convergence",
+            "outputs",
+            "solver",
+        ),
         physics="structural",
         accepts=_NOT_PSD,
+        item_fields=MappingProxyType({"loads": ("time_table", "active_steps", "bolt_steps")}),
     ),
     "harmonic": AnalysisKind(
         label="조화 응답(주파수 응답)",

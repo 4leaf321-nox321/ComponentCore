@@ -32,6 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from app.core.conditions.analysis import Analysis
 from app.core.conditions.common import ConditionError
 from app.core.conditions.contacts import CONTACT_LABELS, Contact
+from app.core.conditions.curves import with_tables
 from app.core.conditions.loads import (
     CONSTRAINT_LABELS,
     INITIAL_LABELS,
@@ -41,6 +42,7 @@ from app.core.conditions.loads import (
     Load,
 )
 from app.core.conditions.registry import ANALYSES
+from app.core.conditions.steps import RESULT_CHANGING
 
 if TYPE_CHECKING:
     from app.core.conditions.model import Conditions
@@ -131,6 +133,10 @@ _GROUPS: tuple[tuple[str, dict[str, str], type[BaseModel]], ...] = (
 _COMPCORE_ONLY: dict[str, frozenset[str]] = {"loads": frozenset({"curve"})}
 
 _UNREAD = "적은 값은 해석에 반영되지 않습니다."
+_CHANGES = (
+    "받지 않으면 해석 결과가 달라지므로 저장할 수 없습니다. 대상 솔버를 바꾸거나 이 칸을 "
+    "비우십시오."
+)
 
 
 @dataclass(frozen=True)
@@ -145,6 +151,8 @@ class Finding:
     text: str
     group: str = ""
     index: int = -1
+    #: 저장을 막을 때의 말 — 비우면 「자리: 이름은(는) 글」(`check`).
+    error: str = ""
 
     def note(self) -> dict[str, Any]:
         """준비 점검의 줄(식 알림과 같은 꼴) — 항목이면 그 창을 여는 자리를 붙인다."""
@@ -166,6 +174,8 @@ def _where(labels: dict[str, str], item: Any) -> str:
 
 def findings(view: Conditions, table: Table) -> list[Finding]:
     """케이스 하나(v1 모양의 케이스 보기)를 솔버 한 장으로 거른다 — 막을 것이 먼저다."""
+    # 곡선이 채우는 표(시간별 배율 …)도 적은 표와 같게 본다 — 곡선 이름은 CompCore 쪽 칸이다.
+    view = with_tables(view)
     solver = table.solver
     kind = view.analysis.type
     registered = ANALYSES[kind]
@@ -224,7 +234,10 @@ def findings(view: Conditions, table: Table) -> list[Finding]:
 
 
 def _unread_fields(view: Conditions, caps: AnalysisTable, solver: str) -> list[Finding]:
-    """`fields.<묶음>` 에 없는 칸 중 **기본값이 아닌 값**이 적힌 것 — 받는 쪽이 읽지 않는다."""
+    """`fields.<묶음>` 에 없는 칸 중 **기본값이 아닌 값**이 적힌 것 — 받는 쪽이 읽지 않는다.
+    결과를 바꾸는 칸(하중 단계 · 시간별 배율 · 적용 단계 · 볼트 동작 —
+    `steps.RESULT_CHANGING`)은 막는다 — 받는 쪽은 모르는 칸을 말없이 버리고 한 단계로 푼다
+    (SimEngBay, 2026-11-27)."""
     out: list[Finding] = []
     read = caps.fields.get("analysis")
     if read is not None:
@@ -236,11 +249,23 @@ def _unread_fields(view: Conditions, caps: AnalysisTable, solver: str) -> list[F
                 call_default_factory=True
             ):
                 continue
+            title = _title(Analysis, name)
+            if name in RESULT_CHANGING["analysis"]:
+                text = (
+                    f"대상 솔버 ‘{solver}’은(는) ‘{title}’ 칸을 아직 받지 않습니다"
+                    "(해석 쪽 능력표). "
+                )
+                out.append(
+                    Finding(
+                        "warn", "analysis", f"해석 설정 ‘{title}’", text + _CHANGES, "analysis"
+                    )
+                )
+                continue
             out.append(
                 Finding(
                     "info",
                     "analysis",
-                    f"해석 설정 ‘{_title(Analysis, name)}’",
+                    f"해석 설정 ‘{title}’",
                     f"대상 솔버 ‘{solver}’은(는) 이 칸을 읽지 않습니다(해석 쪽 능력표). "
                     + _UNREAD,
                     group="analysis",
@@ -251,22 +276,41 @@ def _unread_fields(view: Conditions, caps: AnalysisTable, solver: str) -> list[F
         if read is None:
             continue
         names = {one.name for one in read} | _COMPCORE_ONLY.get(group, frozenset())
+        changing = RESULT_CHANGING.get(group, frozenset())
         for index, item in enumerate(getattr(view, group)):
             unread = [
-                _title(model, name)
+                name
                 for name, info in model.model_fields.items()
                 if name not in names
                 and not info.is_required()
                 and getattr(item, name) != info.get_default(call_default_factory=True)
             ]
-            if unread:
+            where = _where(labels, item)
+            stopped = [f"‘{_title(model, one)}’" for one in unread if one in changing]
+            if stopped:
+                text = (
+                    f"{', '.join(stopped)} 칸을 대상 솔버 ‘{solver}’이(가) 아직 받지 "
+                    f"않습니다(해석 쪽 능력표). {_CHANGES}"
+                )
+                out.append(
+                    Finding(
+                        "warn",
+                        f"{group}[{index}]",
+                        where,
+                        text,
+                        group,
+                        index,
+                        error=f"{group}[{index}]: {where}의 {text}",
+                    )
+                )
+            rest = [f"‘{_title(model, one)}’" for one in unread if one not in changing]
+            if rest:
                 out.append(
                     Finding(
                         "info",
                         f"{group}[{index}]",
-                        _where(labels, item),
-                        f"대상 솔버 ‘{solver}’은(는) "
-                        f"{', '.join(f'‘{one}’' for one in unread)} 칸을 읽지 않습니다"
+                        where,
+                        f"대상 솔버 ‘{solver}’은(는) {', '.join(rest)} 칸을 읽지 않습니다"
                         f"(해석 쪽 능력표). {_UNREAD}",
                         group,
                         index,
@@ -281,6 +325,8 @@ def check(view: Conditions, table: Table, case: str = "") -> None:
     for one in findings(view, table):
         if one.level != "warn":
             continue
+        if one.error:
+            raise ConditionError(one.error)
         scope = f"케이스 ‘{case}’에서 " if case and one.group == "contacts" else ""
         subject = "" if one.group == "analysis" else f"{one.where}은(는) "
         raise ConditionError(f"{one.at}: {scope}{subject}{one.text}")

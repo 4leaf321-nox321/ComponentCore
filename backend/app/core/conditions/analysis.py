@@ -35,6 +35,90 @@ _ANALYSIS_INTRO = (
 )
 
 
+class Substeps(Base):
+    """한 하중 단계의 부단계 수 — 처음 · 최소 · 최대. 셋 다 비우면 받는 쪽이 정한다(프로그램
+    제어). CalculiX 는 단계 길이 L 로 시간 증분(처음 L/처음 · 최소 L/최대 · 최대 L/최소)을,
+    Ansys 는 NSUBST(처음, 최대, 최소)를 건다(SimEngBay, 2026-11-27)."""
+
+    initial: Integer | None = Field(default=None, title="처음")
+    minimum: Integer | None = Field(default=None, title="최소")
+    maximum: Integer | None = Field(default=None, title="최대")
+
+    @field_validator("initial", "minimum", "maximum", mode="before")
+    @classmethod
+    def _integer(cls, value: Any) -> Any:
+        return _integer_or_expr(value)
+
+
+class LoadStep(Base):
+    """하중 단계 하나(② 비선형 정적). 대변형은 단계가 아니라 해석 설정(`large_deflection`)이
+    정한다 — 두 솔버 모두 단계마다 켜고 끄지 못한다(SimEngBay, 2026-11-27)."""
+
+    name: str = Field(default="", max_length=60, title="단계 이름")
+    end_time: Number | None = Field(
+        default=None,
+        title="끝 시간",
+        description="이 단계가 끝나는 시간(s)입니다. 정적 해석에서는 하중 이력의 눈금으로만 "
+        "씁니다. 뒤 단계일수록 커야 하며, 비워 두면 단계 번호(1, 2, …)입니다.",
+        json_schema_extra=_extra({"unit": "s"}),
+    )
+    substeps: Substeps = Field(default_factory=Substeps, title="부단계 수")
+
+
+class Convergence(Base):
+    """수렴 제어 — 비운 칸은 받는 쪽 기본값. 판정 식이 솔버마다 달라(CalculiX 는 가장 큰 잔차
+    / 평균 힘, Ansys 는 잔차 노름 / 기준값) 같은 값이라도 엄격함이 같지 않다."""
+
+    force_tolerance: Number | None = Field(default=None, title="힘 잔차 허용")
+    displacement_tolerance: Number | None = Field(default=None, title="변위 허용")
+    max_iterations: Integer | None = Field(default=None, title="평형 반복 상한")
+    line_search: Literal["program_controlled", "on", "off"] = Field(
+        default="program_controlled", title="선 탐색"
+    )
+    stabilization: Literal["off", "on"] = Field(default="off", title="안정화")
+
+    @field_validator("max_iterations", mode="before")
+    @classmethod
+    def _integer(cls, value: Any) -> Any:
+        return _integer_or_expr(value)
+
+
+#: 출력 요청의 양 — 화면 기본은 앞 넷(받는 쪽의 지금 기본, SimEngBay 2026-11-27). 접촉 압력 ·
+#: 상태는 받는 쪽이 새로 짠다.
+OutputQuantity = Literal[
+    "displacement", "stress", "strain", "reaction", "contact_pressure", "contact_status"
+]
+OUTPUT_QUANTITIES: dict[str, str] = {
+    "displacement": "변위",
+    "stress": "응력",
+    "strain": "변형률",
+    "reaction": "반력",
+    "contact_pressure": "접촉 압력",
+    "contact_status": "접촉 상태",
+}
+DEFAULT_OUTPUTS: list[OutputQuantity] = ["displacement", "stress", "strain", "reaction"]
+
+
+class OutputCount(Base):
+    """단계마다 고르게 n 번 저장한다."""
+
+    count: Integer = Field(title="저장 횟수")
+
+    @field_validator("count", mode="before")
+    @classmethod
+    def _integer(cls, value: Any) -> Any:
+        return _integer_or_expr(value)
+
+
+class Outputs(Base):
+    """출력 요청 — 무엇을, 언제. 반력은 구속마다 합, 접촉 값은 접촉마다."""
+
+    quantities: list[OutputQuantity] = Field(
+        default_factory=lambda: list(DEFAULT_OUTPUTS), title="저장할 값"
+    )
+    at: Literal["step_end", "all"] | OutputCount = Field(default="step_end", title="저장 시점")
+
+
 class Analysis(Base):
     """무엇을 풀 것인가 — **종류마다 칸이 다르다**(`only_for`). 내보낼 때는 그 종류의 칸만
     기본값을 채워 싣는다(`_filled_analysis`) — 받는 쪽이 「이 칸이 없으면 무엇인가」 를
@@ -125,6 +209,26 @@ class Analysis(Base):
             "늘리십시오. 비워 두면 자동으로 결정됩니다."
         ),
         json_schema_extra=_extra({"only_for": analyses_with("substeps"), "integer": True}),
+    )
+    # ── 비선형 정적(②) — 해석 케이스에서만, 받는 쪽이 받기 전에는 내보내기를 막는다 ──
+    load_steps: list[LoadStep] = Field(
+        default_factory=list,
+        title="하중 단계",
+        description="하중을 단계로 나누어 겁니다. 단계마다 끝 시간과 부단계 수를 지정하고, "
+        "하중마다 켜는 단계나 시간에 따른 배율을 지정합니다. 비워 두면 한 단계입니다.",
+        json_schema_extra=_extra(
+            {"only_for": analyses_with("load_steps"), "hidden": True, "default": []}
+        ),
+    )
+    convergence: Convergence | None = Field(
+        default=None,
+        title="수렴 제어",
+        json_schema_extra=_extra({"only_for": analyses_with("convergence"), "hidden": True}),
+    )
+    outputs: Outputs | None = Field(
+        default=None,
+        title="출력 요청",
+        json_schema_extra=_extra({"only_for": analyses_with("outputs"), "hidden": True}),
     )
     solver: Literal["program_controlled", "direct", "iterative"] = Field(
         default="program_controlled",
@@ -221,6 +325,12 @@ class Analysis(Base):
     @classmethod
     def _integer(cls, value: Any) -> Any:
         return _integer_or_expr(value)
+
+    @field_validator("load_steps", mode="before")
+    @classmethod
+    def _empty(cls, value: Any) -> Any:
+        """비운 하중 단계(`None`)는 빈 목록 — 화면은 감춘 칸을 사양표의 기본값으로 되돌린다."""
+        return [] if value is None else value
 
 
 def _check_analysis(analysis: Analysis) -> None:

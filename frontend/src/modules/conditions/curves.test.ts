@@ -1,5 +1,5 @@
-import { emptyConditions } from '@/modules/conditions/api'
-import type { Conditions, CurveItem } from '@/modules/conditions/api'
+import { curveUseOf, emptyConditions } from '@/modules/conditions/api'
+import type { Conditions, ConditionsSchema, CurveItem } from '@/modules/conditions/api'
 import {
   curveMismatch,
   curveProblems,
@@ -81,4 +81,26 @@ test('점의 문제를 미리 — 두 점 이상 · 가로축 순서 · 로그-�
   expect(curveProblems({ ...RANDOM, points: [[0, 0.04], [20, 0]] })).toEqual(['로그-로그 보간은 0보다 큰 점만 받습니다.'])
   expect(curveProblems({ ...RANDOM, points: [['=f1', 1], ['=f2', 2]], interpolation: 'linear' })).toEqual([])
   expect(curveSummary(RANDOM)).toBe('주파수 · 로그-로그 · 2점')
+})
+
+test('정적 하중은 시간 · 단계 곡선을 읽는다 — 해석 종류로 고른다', () => {
+  const schema = {
+    groups: {},
+    curves: {
+      label: '곡선',
+      fields: {},
+      required: [],
+      uses: { force: FACTOR },
+      time_use: { field: 'time_table', interpolation: 'linear', unit: '', axes: ['time', 'step'] },
+      time_loads: ['force'],
+    },
+  } as unknown as ConditionsSchema
+  const timeUse = curveUseOf(schema, 'force', 'static')
+  expect(timeUse?.field).toBe('time_table')
+  expect(curveUseOf(schema, 'force', 'harmonic')?.field).toBe('frequency_table')
+  const ramp: CurveItem = { name: '램프', x: 'time', interpolation: 'linear', unit: '', points: [[0, 0], [1, 1]] }
+  expect(curveMismatch(ramp, timeUse!)).toBeNull()
+  expect(curveMismatch({ ...ramp, x: 'step' }, timeUse!)).toBeNull()
+  expect(curveMismatch({ ...ramp, x: 'frequency' }, timeUse!)).toBe('시간 곡선이나 단계 곡선만 쓸 수 있습니다(주파수 곡선).')
+  expect(curveMismatch(ramp, FACTOR)).toBe('주파수 곡선만 쓸 수 있습니다(시간 곡선). 시간 곡선과 단계 곡선은 정적 해석의 하중에 씁니다.')
 })

@@ -10,6 +10,7 @@ from typing import Any, Literal
 from pydantic import Field, ValidationError
 
 from app.core import units as unit_systems
+from app.core.conditions import steps
 from app.core.conditions.analysis import (
     Analysis,
     _check_analysis,
@@ -311,6 +312,9 @@ def parse(
         where = ".".join(str(one) for one in first["loc"])
         raise ConditionError(f"{where}: {first['msg']}") from failure
     check_cases(conditions.cases, _top_fields(conditions), conditions.schema_version)
+    if not conditions.cases:
+        # 하중 단계 · 하중 이력(②)은 해석 케이스에서만 — 받는 쪽이 v2 로만 받는다.
+        steps.check_v1(conditions)
     for index, (name, view) in enumerate(views(conditions)):
         try:
             _check(view, bodies, frames, sheets)
@@ -436,6 +440,9 @@ def _check(
     # 랜덤 진동(등록부).
     _check_accepted(conditions)
     _check_excitation(conditions)
+    # **하중 단계(②)** — 정적에서만, 단계와 하중의 단계 칸이 서로 맞는가. 곡선이 채운 시간별
+    # 배율도 표를 적은 것과 같은 길로.
+    steps.check(conditions)
 
     # **물성이 붙은 바디가 진짜 있나.** 「전체」 는 늘 된다(모든 바디).
     known = set(bodies) if bodies is not None else None
@@ -494,9 +501,17 @@ def resolve(
     케이스마다 v1 과 같은 길로 푼 칸.
     """
     parsed = parse(raw)
-    if len(parsed.cases) > 1 and not cases:
-        parsed = _folded(parsed)
     seen = views(parsed)
+    # 하중 단계(②)는 v2 로만 나간다 — v1 받는 쪽은 모르는 칸을 버리고 한 단계로 푼다. v2 에서는
+    # 케이스가 하나여도 v2 로 낸다(SimEngBay 와 정함, 2026-11-27).
+    staged = [why for name, view in seen if (why := steps.blocked(name, view))]
+    v2 = cases and bool(parsed.cases) and (len(parsed.cases) > 1 or bool(staged))
+    if not v2:
+        if staged:
+            raise ConditionError(staged[0])
+        if len(parsed.cases) > 1:
+            parsed = _folded(parsed)
+            seen = views(parsed)
     values = resolve_params({"params": params})
     solved = []
     for index, (_, view) in enumerate(seen):
@@ -506,7 +521,7 @@ def resolve(
             if not parsed.cases:
                 raise
             raise ConditionError(in_case(index, str(failure))) from failure
-    if len(solved) == 1:
+    if not v2:
         return solved[0]
     out = {key: one for key, one in solved[0].items() if key not in CASE_FIELDS}
     out["schema_version"] = 2
@@ -571,8 +586,13 @@ def _resolved(
     out["units"] = unit_systems.declaration(target.key)
     kind = str((out.get("analysis") or {}).get("type") or "modal")
     out["loads"] = [_filled_load(one, target.key, kind) for one in out.get("loads", [])]
+    for one in out["loads"]:
+        steps.strip_defaults(one, steps.STAGED_LOADS, Load)
     out["initial"] = [_filled_initial(one, target.key) for one in out.get("initial", [])]
     out["analysis"] = _filled_analysis(_integerized(out.get("analysis") or {}, "analysis"))
+    # 하중 단계 · 수렴 · 출력(②)은 쓸 때만 싣는다 — 쓰지 않는 한 벌은 지금과 바이트로 같다.
+    steps.strip_defaults(out["analysis"], steps.STAGED_ANALYSIS, Analysis)
+    out["analysis"] = steps.filled_steps(out["analysis"])
     out["mesh_hints"] = [
         _integerized(one, f"mesh_hints[{i}]")
         for i, one in enumerate(out.get("mesh_hints", []))
