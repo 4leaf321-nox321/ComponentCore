@@ -55,6 +55,14 @@ def tables(db: Session) -> list[capabilities.Table] | None:
         return None
 
 
+def accepts_contract(db: Session, number: int) -> bool:
+    """이 설치의 받는 쪽이 그 판(`schema_version`)을 받나 — 복사본의 **모든** 솔버의 `contract`
+    에 있어야 한다(작업의 솔버를 받는 쪽이 고르므로). 복사본이 없으면 모른다 — 받지 않는 것으로
+    본다."""
+    got = tables(db)
+    return bool(got) and all(number in one.contract for one in got or [])
+
+
 def fetched_at(db: Session) -> datetime | None:
     row = _row(db)
     return row.updated_at if row is not None else None

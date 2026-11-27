@@ -285,3 +285,80 @@ def test_준비_점검은_고치는_케이스의_솔버로_알린다(
     # 모양이 아직 틀린 한 벌(고치는 중)이면 능력표 알림을 건너뛴다.
     view["loads"] = [{"name": "", "type": "모르는 하중"}]
     assert notes("ansys") == []
+
+
+@pytest.mark.parametrize(
+    ("switch", "contracts", "v2"),
+    [
+        ("auto", None, False),
+        ("auto", ([1], [1]), False),
+        ("auto", ([1, 2], [1]), False),
+        ("auto", ([1, 2], [1, 2]), True),
+        ("off", ([1, 2], [1, 2]), False),
+        ("on", None, True),
+        (True, None, True),
+    ],
+)
+def test_v2_로_내보낼지는_이_설치의_능력표가_판_2_를_받는지로_가른다(
+    client: TestClient,
+    admin: Signed,
+    db: Session,
+    seb: Callable[[Answer], list[httpx.Request]],
+    monkeypatch: pytest.MonkeyPatch,
+    switch: object,
+    contracts: tuple[list[int], list[int]] | None,
+    v2: bool,
+) -> None:
+    """SimEngBay 의 판이 나와도 운영에 올리는 것은 운영자 일이라 시차가 난다 — 판 번호가 아니라
+    그 설치가 실제로 받는 판(능력표의 contract)으로 가른다. 스위치는 강제로 끄고 켜는 데만."""
+    from app.modules.doe.services import conditions_v2
+
+    monkeypatch.setattr(get_settings(), "doe_conditions_v2", switch)
+    if contracts is not None:
+        tables = [dict(one) for one in TABLES]
+        for one, contract in zip(tables, contracts, strict=True):
+            one["contract"] = contract
+        seb(lambda _: httpx.Response(200, json=tables))
+        assert _refresh(client, admin).status_code == 200
+    db.expire_all()
+    assert conditions_v2(db) is v2
+
+
+def test_v2_로_낼_때_대상_솔버를_비운_케이스의_단계_칸은_모든_솔버가_받아야_한다(
+    client: TestClient,
+    admin: Signed,
+    member: Signed,
+    seb: Callable[[Answer], list[httpx.Request]],
+) -> None:
+    tables = [{**one, "contract": [1, 2]} for one in TABLES]
+    seb(lambda _: httpx.Response(200, json=tables))
+    assert _refresh(client, admin).status_code == 200
+    conditions = {
+        "schema_version": 2,
+        "named_selections": GROUPS,
+        "cases": [
+            {
+                "name": "단계",
+                "analysis": {
+                    "type": "static",
+                    "load_steps": [{"name": "하나"}, {"name": "둘"}],
+                },
+                "constraints": [{"name": "바닥 고정", "type": "fixed_support", "on": "바닥"}],
+                "loads": [{**PUSH, "active_steps": [2]}],
+            }
+        ],
+    }
+    doe = client.post(
+        "/api/doe",
+        json={
+            "name": "솔버 비운 단계",
+            "recipe": {**BOX, "params": {"두께": 10}},
+            "conditions": conditions,
+            "factors": [{"name": "두께", "mode": "list", "values": [10]}],
+        },
+        headers=member.headers,
+    )
+    assert doe.status_code == 400
+    message = doe.json()["error"]["message"]
+    assert "‘하중 단계’ 칸을 아직 받지 않습니다" in message
+    assert "케이스 ‘단계’은(는) 대상 솔버를 비웠으므로 해석 쪽의 모든 솔버가" in message

@@ -380,3 +380,29 @@ def test_화면이_비운_목록_칸은_빈_목록으로_읽는다() -> None:
 
     fields = spec()["groups"]["loads"]["fields"]
     assert (fields["active_steps"]["default"], fields["bolt_steps"]["default"]) == ([], [])
+
+
+def test_대상_솔버를_비운_케이스의_단계_칸은_모든_솔버가_받아야_내보낸다() -> None:
+    """받는 쪽이 솔버를 고르므로 결과를 바꾸는 칸은 복사본의 모든 솔버가 읽어야 한다 — 받는
+    쪽은 모르는 칸을 말없이 버린다. 대상 솔버를 지정한 케이스는 저장할 때 그 솔버의 표로
+    거른다."""
+    from app.core.conditions import check_untargeted
+
+    raw = _case(PUSH, load_steps=TWO_STEPS)
+    with pytest.raises(
+        ConditionError,
+        match=r"^cases\[0\]\.analysis: 대상 솔버 ‘calculix’은\(는\) ‘하중 단계’ 칸을 "
+        r"아직 받지 않습니다\(해석 쪽 능력표\)\. 케이스 ‘정적’은\(는\) 대상 솔버를 비웠으므로",
+    ):
+        check_untargeted(parse(raw), read(RAW))
+    calculix_only = deepcopy(RAW)
+    calculix_only[0]["analyses"]["static"]["fields"]["analysis"].append("load_steps")
+    with pytest.raises(ConditionError, match=r"대상 솔버 ‘ansys’"):
+        check_untargeted(parse(raw), read(calculix_only))
+    both = deepcopy(calculix_only)
+    both[1]["analyses"]["static"]["fields"]["analysis"].append("load_steps")
+    check_untargeted(parse(raw), read(both))
+    # 대상 솔버를 지정한 케이스는 여기서 보지 않는다.
+    targeted = deepcopy(raw)
+    targeted["cases"][0]["target"] = {"solver": "calculix"}
+    check_untargeted(parse(targeted), read(RAW))

@@ -43,6 +43,7 @@ from app.core.conditions.bodies import (
     shell_thicknesses,
 )
 from app.core.conditions.capabilities import Table as CapabilityTable
+from app.core.conditions.capabilities import check_untargeted
 from app.core.conditions.cases import (
     CASE_FIELDS,
     MULTI_CASE_BLOCKED,
@@ -192,6 +193,7 @@ __all__ = [
     "applied_bodies",
     "body_density",
     "body_regions",
+    "check_untargeted",
     "choice_value",
     "converted_material",
     "expression_notes",

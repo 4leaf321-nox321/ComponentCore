@@ -321,11 +321,25 @@ def _work_conditions(db: Session, work_id: uuid.UUID, owner: User) -> dict[str, 
     return dict(version.conditions or {}) if version is not None else {}
 
 
+def conditions_v2(db: Session) -> bool:
+    """조건을 v2(`schema_version: 2`)로 내보내나 — 스위치(`doe_conditions_v2`)가 `on` 이면 늘,
+    `off` 면 안, `auto`(기본)면 이 설치의 능력표 복사본이 판 2 를 받을 때(SimEngBay 와 정함,
+    2026-11-27 — 판 번호가 아니라 그 설치가 실제로 받는 판으로 가른다)."""
+    mode = get_settings().doe_conditions_v2
+    if mode in ("on", True):
+        return True
+    if mode in ("off", False):
+        return False
+    return capabilities_store.accepts_contract(db, 2)
+
+
 def _check_condition_factors(
     recipe: dict[str, Any],
     conditions: dict[str, Any],
     factors: list[dict[str, Any]],
     capabilities: list[condition_model.CapabilityTable] | None = None,
+    *,
+    v2: bool = False,
 ) -> None:
     """고르기 · 배율 인자와 조건의 식을 **만들기 전에** 본다.
 
@@ -338,7 +352,7 @@ def _check_condition_factors(
     frame_names = frames.recipe_frame_names(recipe)
     if conditions:
         try:
-            condition_model.resolve(conditions, params, cases=get_settings().doe_conditions_v2)
+            condition_model.resolve(conditions, params, cases=v2)
         except condition_model.ConditionError as failure:
             raise AppError(code("DOE", 15), f"해석 조건: {failure}") from failure
     for one in engine.non_shape_factors(factors, "choice"):
@@ -403,9 +417,7 @@ def _check_condition_factors(
                 ]
         for label, variant in variants:
             try:
-                resolved = condition_model.resolve(
-                    variant, params, keys, cases=get_settings().doe_conditions_v2
-                )
+                resolved = condition_model.resolve(variant, params, keys, cases=v2)
                 if not any(
                     set(m.get("apply_to") or [])
                     & (set(targets) | {condition_model.ALL_BODIES})
@@ -863,7 +875,15 @@ def create_study(
         raise AppError(code("DOE", 15), f"해석 조건: {failure}") from failure
     if swaps:
         _check_material_factors(recipe, conditions, factors)
-    _check_condition_factors(recipe, conditions or {}, factors, tables)
+    v2 = conditions_v2(db)
+    # v2 로 낼 때 대상 솔버를 비운 케이스의 하중 단계 · 소성은 복사본의 모든 솔버가 읽어야
+    # 한다 — 받는 쪽은 모르는 칸을 말없이 버린다.
+    if v2 and tables is not None and conditions:
+        try:
+            condition_model.check_untargeted(condition_model.parse(conditions), tables)
+        except condition_model.ConditionError as failure:
+            raise AppError(code("DOE", 15), f"해석 조건: {failure}") from failure
+    _check_condition_factors(recipe, conditions or {}, factors, tables, v2=v2)
     measures = _measures(measures, recipe, conditions, factors)
     rows = _points(
         db,
@@ -2753,7 +2773,7 @@ def run_job(
                                         **_shape_params(study, point.params),
                                     },
                                     names,
-                                    cases=get_settings().doe_conditions_v2,
+                                    cases=conditions_v2(db),
                                 ),
                             )
                             # 시트 파트는 늘 쉘 — 설정 줄이 없어도 받는 쪽이 솔리드로 읽지

@@ -134,6 +134,7 @@ _GROUPS: tuple[tuple[str, dict[str, str], type[BaseModel]], ...] = (
 _COMPCORE_ONLY: dict[str, frozenset[str]] = {"loads": frozenset({"curve"})}
 
 _UNREAD = "적은 값은 해석에 반영되지 않습니다."
+_MATERIAL_FIX = "재료 모델이나 대상 솔버를 바꾸십시오."
 _CHANGES = (
     "받지 않으면 해석 결과가 달라지므로 저장할 수 없습니다. 대상 솔버를 바꾸거나 이 칸을 "
     "비우십시오."
@@ -265,11 +266,11 @@ def _materials(
                     f"materials[{index}]",
                     f"재료 ‘{name}’",
                     f"대상 솔버 ‘{solver}’의 {label} 해석에서 {model}을(를) 받지 "
-                    "않습니다(해석 쪽 능력표). 재료 모델이나 대상 솔버를 바꾸십시오.",
+                    f"않습니다(해석 쪽 능력표). {_MATERIAL_FIX}",
                     "materials",
                     error=f"materials[{index}]: 재료 ‘{name}’의 {model}을(를) 대상 솔버 "
-                    f"‘{solver}’의 {label} 해석에서 받지 않습니다(해석 쪽 능력표). 재료 "
-                    "모델이나 대상 솔버를 바꾸십시오.",
+                    f"‘{solver}’의 {label} 해석에서 받지 않습니다(해석 쪽 능력표). "
+                    + _MATERIAL_FIX,
                 )
             )
     return out
@@ -372,6 +373,47 @@ def check(view: Conditions, table: Table, case: str = "") -> None:
         scope = f"케이스 ‘{case}’에서 " if case and one.group == "contacts" else ""
         subject = "" if one.group == "analysis" else f"{one.where}은(는) "
         raise ConditionError(f"{one.at}: {scope}{subject}{one.text}")
+
+
+def check_untargeted(conditions: Conditions, tables: list[Table]) -> None:
+    """**대상 솔버를 비운 케이스**를 v2 로 낼 때 — 받는 쪽이 솔버를 고르므로 결과를 바꾸는
+    칸(하중 단계 · 시간별 배율 · 적용 단계 · 볼트 동작)과 소성은 복사본의 **모든** 솔버가
+    읽어야 한다. 받는 쪽은 모르는 칸을 말없이 버린다(SimEngBay, 2026-11-27).
+
+    항목 종류는 보지 않는다 — 받지 않는 종류는 받는 쪽이 작업을 만들 때 까닭과 함께 거절한다.
+    DOE 를 만들 때 부른다(저장은 막지 않는다 — 받는 쪽보다 먼저 적어 둘 수 있게)."""
+    from app.core.conditions.cases import in_case
+    from app.core.conditions.model import views
+
+    for index, ((name, view), case) in enumerate(
+        zip(views(conditions), conditions.cases, strict=True)
+    ):
+        if case.target.solver:
+            continue
+        filled = with_tables(view)
+        for table in tables:
+            caps = table.analyses.get(filled.analysis.type)
+            if caps is None:
+                continue
+            label = ANALYSES[filled.analysis.type].label
+            stopped = [
+                one
+                for one in _unread_fields(filled, caps, table.solver)
+                + _materials(filled, caps, table.solver, label)
+                if one.level == "warn"
+            ]
+            if not stopped:
+                continue
+            one = stopped[0]
+            reason = one.error or f"{one.at}: {one.text}"
+            # 저장이 아니라 내보내기를 막는다 — 뒷문장(고칠 것)은 이 자리의 말로 바꾼다.
+            for tail in (_CHANGES, _MATERIAL_FIX):
+                reason = reason.replace(tail, "")
+            raise ConditionError(
+                in_case(index, reason.rstrip())
+                + f" 케이스 ‘{name}’은(는) 대상 솔버를 비웠으므로 해석 쪽의 모든 솔버가 "
+                "받아야 DOE로 내보낼 수 있습니다. 받는 솔버를 대상 솔버로 지정하십시오."
+            )
 
 
 def notes(view: Conditions, tables: list[Table] | None, solver: str) -> list[dict[str, Any]]:

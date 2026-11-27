@@ -9,8 +9,9 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.branding import DEFAULT_APP_NAME, DEFAULT_APP_SLUG, DEFAULT_APP_TAGLINE
@@ -118,13 +119,19 @@ class Settings(BaseSettings):
     한다(SimEngBay, 2026-10-23). 그 재료를 못 찾으면 기본 강재를 붙이고 노트에 그렇다고
     적는다."""
 
-    doe_conditions_v2: bool = False
-    """**해석 케이스가 여럿인 조건**(`schema_version: 2`)을 DOE 로 내보내나. 끄면(기본) 그런
-    조건으로는 DOE 를 만들지 않고 까닭을 말한다 — 케이스가 하나면 켜든 끄든 v1 그대로 나간다.
+    doe_conditions_v2: Literal["auto", "on", "off"] = "auto"
+    """**해석 케이스가 여럿인 조건 · 하중 단계 · 소성**(`schema_version: 2`)을 DOE 로 내보내나.
 
-    받는 쪽(SimEngBay)이 v2 를 받는 판이 운영에 나갔다고 알려 오면 켠다(ADR 0013, 해석 확장
-    설계 9장). 그 전에 켜면 받는 쪽이 모르는 판이라 작업을 만들 때 거절한다(SimEngBay v0.34.1
-    부터) — 폴더는 서지만 해석이 안 된다."""
+    - `auto`(기본) — **이 설치의 능력표 복사본**이 판 2 를 받을 때만(복사본의 모든 솔버의
+      `contract` 에 2) v2 로 낸다. 복사본이 없거나 2 가 없으면 v1 이다(「정적 → 모달」 ·
+      「볼트 예압 → 외력」 은 접어 내고, 그 밖은 까닭을 말하고 막는다). SimEngBay 의 판이
+      나와도 운영에 올리는 것은 운영자 일이라 시차가 난다 — 판 번호가 아니라 그 설치가 실제로
+      받는 판으로 가른다(SimEngBay 와 정함, 2026-11-27). 능력표를 갱신하면 바로 바뀐다.
+    - `off` — 늘 v1(받는 쪽에 문제가 있을 때 강제로 끈다).
+    - `on` — 늘 v2(시험 · 픽스처를 뽑을 때). 옛 값 `true` · `false` 는 `on` · `off` 로 읽는다.
+
+    케이스가 하나이고 ② 칸이 없으면 무엇이든 v1 그대로 나간다. 받는 쪽이 모르는 판을 보내면
+    작업을 만들 때 거절한다(SimEngBay v0.34.1 부터) — 폴더는 서지만 해석이 안 된다."""
 
     doe_max_samples: int = 500
     """LHS 표본 수 상한의 .env 기본값. 설계점 상한이 먼저 걸리므로 그보다 크게 둘 뜻은 없다."""
@@ -369,6 +376,18 @@ class Settings(BaseSettings):
         """정리된 접두어 — `""` 또는 `/<slug>`."""
         cleaned = self.public_path.strip().strip("/")
         return f"/{cleaned}" if cleaned else ""
+
+    @field_validator("doe_conditions_v2", mode="before")
+    @classmethod
+    def _v2_switch(cls, value: object) -> object:
+        """옛 값(켬 · 끔)도 읽는다 — `.env` 의 `DOE_CONDITIONS_V2=true` 는 `on`."""
+        if isinstance(value, bool):
+            return "on" if value else "off"
+        if isinstance(value, str) and value.strip().lower() in ("true", "1", "yes"):
+            return "on"
+        if isinstance(value, str) and value.strip().lower() in ("false", "0", "no"):
+            return "off"
+        return value
 
     @model_validator(mode="after")
     def _derive_from_slug(self) -> Settings:
