@@ -363,7 +363,7 @@ _OUTER = {"name": "외력", "analysis": {"type": "static"}, "loads": [SIDE]}
     ("cases", "message"),
     [
         # 정적 둘 — 「볼트 예압 → 외력」 만 접는다.
-        ((_STATIC, _OUTER), r"‘정적’에 볼트 예압 말고 다른 하중\(옆 힘\)이 있습니다"),
+        ((_STATIC, _OUTER), r"‘정적’에 볼트 예압 외의 하중\(옆 힘\)이 있습니다"),
         (
             (_PRELOAD, {**_OUTER, "analysis": {"type": "static", "steps": 2}}),
             r"‘외력’의 해석 설정\(하중 단계 수\)은 해석 쪽이 읽지 않습니다",
@@ -383,7 +383,7 @@ _OUTER = {"name": "외력", "analysis": {"type": "static"}, "loads": [SIDE]}
             ),
             r"‘외력’에 초기조건이 있습니다",
         ),
-        ((_PRELOAD, _OUTER, {**_OUTER, "name": "또"}), r"정적이 3개입니다 — v1 정적으로는 둘"),
+        ((_PRELOAD, _OUTER, {**_OUTER, "name": "또"}), r"정적이 3개입니다\. 정적은 둘"),
         (
             (
                 _STATIC,
@@ -404,7 +404,7 @@ _OUTER = {"name": "외력", "analysis": {"type": "static"}, "loads": [SIDE]}
         ),
         (
             ({**_STATIC, "analysis": {"type": "static", "steps": 2}}, MODAL),
-            r"앞 정적 ‘정적’의 해석 설정\(하중 단계 수\)은 v1 선응력 모달이 읽지 않습니다",
+            r"앞 정적 ‘정적’의 해석 설정\(하중 단계 수\)은 선응력 모달에서 읽지 않습니다",
         ),
         (
             ({**_STATIC, "analysis": {"type": "static", "large_deflection": True}}, MODAL),
@@ -416,11 +416,11 @@ _OUTER = {"name": "외력", "analysis": {"type": "static"}, "loads": [SIDE]}
                 _STATIC,
                 {**MODAL, "initial": [{"type": "environment_temperature", "value": 30}]},
             ),
-            r"‘모달’에 초기조건이 있습니다 — 접으면 첫 케이스 ‘정적’의 초기조건만",
+            r"‘모달’에 초기조건이 있습니다\. 접으면 첫 케이스 ‘정적’의 초기조건만",
         ),
         (
             ({**_PRELOAD, "loads": [BOLT, SIDE]}, {**_OUTER, "loads": []}, MODAL),
-            r"‘예압’에 볼트 예압 말고 다른 하중\(옆 힘\)이 있습니다",
+            r"‘예압’에 볼트 예압 외의 하중\(옆 힘\)이 있습니다",
         ),
         (
             ({**_PRELOAD, "loads": []}, _OUTER, MODAL),
@@ -496,5 +496,7 @@ def test_조화_응답은_볼트_예압_회전_속도_중력을_받지_않는다
     }
     with pytest.raises(ConditionError, match=r"loads\[1\]: .*조화 응답에서는 회전 속도를"):
         parse({**harmonic, "loads": [SIDE, spin]})
-    with pytest.raises(ConditionError, match=r"loads\[0\]: .*중력을 .*가속도 하중으로"):
+    with pytest.raises(
+        ConditionError, match=r"loads\[0\]: .*중력을 .*가속도 하중을 사용하십시오"
+    ):
         parse({**harmonic, "loads": [GRAVITY, SIDE]})

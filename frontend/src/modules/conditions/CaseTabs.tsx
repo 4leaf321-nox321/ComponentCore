@@ -164,7 +164,7 @@ export function CaseTabs({ cases, active, locked, onSelect, onChange }: Props) {
         <p className="text-amber-700 dark:text-amber-400">
           케이스가 둘 이상인 조건은 해석 쪽(SimEngBay)이 받을 수 있게 되기 전까지 DOE로 내보낼 수 없습니다. 예외는 「정적 → 모달」
           사슬(선응력 모달)과 「볼트 예압 → 외력」 정적 사슬(두 단계 정적)로, 한 해석으로 접어 내보냅니다. 첫 케이스에는 볼트 예압만,
-          뒤 케이스에는 초기조건 없이 적고, 단계 수 · 솔버는 기본값으로 두십시오.
+          뒤 케이스에는 초기조건 없이 적고, 단계 수와 솔버는 기본값으로 두십시오.
         </p>
       )}
     </div>

@@ -51,9 +51,9 @@ CASE_FIELDS = ("analysis", "constraints", "loads", "initial")
 
 #: 케이스가 여럿인 조건을 내보내려 할 때 — 받는 쪽이 v2 를 받으면 연다(설계 9장).
 MULTI_CASE_BLOCKED = (
-    "해석 케이스가 {count}개인 조건은 아직 내보낼 수 없습니다 — 해석 쪽(SimEngBay)이 케이스가 "
-    "여럿인 조건(schema_version 2)을 받기 전입니다(「정적 → 모달」 · 「볼트 예압 → 외력」 "
-    "사슬만 v1 한 벌로 접어 내보냅니다). 케이스를 하나만 남기거나 케이스마다 따로 "
+    "해석 케이스가 {count}개인 조건은 아직 내보낼 수 없습니다. 해석 쪽(SimEngBay)이 케이스가 "
+    "여럿인 조건(schema_version 2)을 받기 전입니다. 「정적 → 모달」, 「볼트 예압 → 외력」 "
+    "사슬만 한 해석으로 접어 내보냅니다. 케이스를 하나만 남기거나 케이스마다 따로 "
     "내보내십시오."
 )
 
@@ -230,6 +230,13 @@ def fold_chain(cases: list[Case]) -> dict[str, Any] | str:
     return ""
 
 
+#: 접을 수 없는 사슬 — 화면에 그대로 뜬다.
+_NOT_CHAINED = (
+    "케이스가 차례로 이어진 한 사슬이 아닙니다. 각 케이스의 앞 케이스는 바로 앞에 적힌 "
+    "케이스여야 합니다."
+)
+
+
 def _chained(cases: list[Case]) -> bool:
     """차례로 이어진 한 사슬인가 — 첫 케이스는 앞이 없고, 다음은 바로 앞 케이스 뒤."""
     return not cases[0].depends_on and all(
@@ -253,31 +260,31 @@ def _preload_then_outer(preload: Case, outer: Case) -> list[Load] | str:
     자리가 없다."""
     if not any(load.type == _BOLT for load in preload.loads):
         return (
-            f"‘{preload.name}’에 볼트 예압이 없습니다 — 정적 둘은 「볼트 예압 → 외력」 만 "
+            f"‘{preload.name}’에 볼트 예압이 없습니다. 정적 둘은 「볼트 예압 → 외력」만 "
             "접힙니다."
         )
     other = [load.name for load in preload.loads if load.type not in (_BOLT, _GRAVITY)]
     if other:
         return (
-            f"‘{preload.name}’에 볼트 예압 말고 다른 하중({', '.join(other)})이 있습니다 — "
-            "v1 은 볼트 예압 말고는 둘째 단계에 겁니다. 그 하중을 "
+            f"‘{preload.name}’에 볼트 예압 외의 하중({', '.join(other)})이 있습니다. 볼트 "
+            "예압 외의 하중은 둘째 단계에 걸리므로 "
             f"‘{outer.name}’(으)로 옮기십시오."
         )
     bolts = [load.name for load in outer.loads if load.type == _BOLT]
     if bolts:
         return (
-            f"‘{outer.name}’에서 볼트({', '.join(bolts)})를 조입니다 — v1 은 볼트를 모두 "
-            f"첫 단계에 조이므로 접을 수 없습니다. ‘{preload.name}’에 적으십시오."
+            f"‘{outer.name}’에서 볼트({', '.join(bolts)})를 조입니다. 볼트는 모두 첫 "
+            f"단계에 조이므로 접을 수 없습니다. ‘{preload.name}’에 적으십시오."
         )
     if outer.initial:
         return (
-            f"‘{outer.name}’에 초기조건이 있습니다 — 접으면 첫 케이스 ‘{preload.name}’의 "
-            "초기조건만 씁니다. 그 케이스로 옮기십시오."
+            f"‘{outer.name}’에 초기조건이 있습니다. 접으면 첫 케이스 ‘{preload.name}’의 "
+            "초기조건만 쓰므로 그 케이스로 옮기십시오."
         )
     if any(item.type == "prestress" for item in preload.initial):
         return (
-            f"‘{preload.name}’에 초기조건 ‘선응력’이 있습니다 — 정적에는 쓰지 않습니다. "
-            "지우십시오."
+            f"‘{preload.name}’에 초기조건 ‘선응력’이 있습니다. 정적에는 쓰지 않으므로 "
+            "삭제하십시오."
         )
     return [*preload.loads, *(load for load in outer.loads if load.type != _GRAVITY)]
 
@@ -292,17 +299,15 @@ def _fold_static(cases: list[Case]) -> dict[str, Any] | str:
     if not cases[-1].depends_on:
         return ""
     if not _chained(cases):
-        return "케이스가 차례로 이어진 한 사슬이 아닙니다(앞 케이스를 바로 앞 케이스로)."
+        return _NOT_CHAINED
     if len(cases) > 2:
-        return (
-            f"정적이 {len(cases)}개입니다 — v1 정적으로는 둘(볼트 예압 → 외력)까지만 접힙니다."
-        )
+        return f"정적이 {len(cases)}개입니다. 정적은 둘(볼트 예압 → 외력)까지만 접힙니다."
     preload, outer = cases
     for one in cases:
         unread = _unread(one, ("steps", "solver"))
         if unread:
             return (
-                f"‘{one.name}’의 해석 설정({', '.join(unread)})은 해석 쪽이 읽지 않습니다 — "
+                f"‘{one.name}’의 해석 설정({', '.join(unread)})은 해석 쪽이 읽지 않습니다. "
                 "기본값으로 두십시오(볼트가 있으면 두 단계로 저절로 풉니다)."
             )
     differ = [
@@ -312,8 +317,8 @@ def _fold_static(cases: list[Case]) -> dict[str, Any] | str:
     ]
     if differ:
         return (
-            f"두 케이스의 해석 설정({', '.join(differ)})이 다릅니다 — v1 은 한 설정을 두 "
-            "단계에 같이 겁니다."
+            f"두 케이스의 해석 설정({', '.join(differ)})이 다릅니다. 두 단계에 같은 "
+            "설정이 걸리므로 같게 적으십시오."
         )
     loads = _preload_then_outer(preload, outer)
     if isinstance(loads, str):
@@ -345,46 +350,46 @@ def _fold_prestressed(cases: list[Case]) -> dict[str, Any] | str:
     if kind in ("harmonic", "random") and last.depends_on:
         return (
             f"‘{last.name}’({ANALYSES[kind].label})의 선응력은 해석 쪽이 케이스를 받는 "
-            "판부터 읽습니다 — 지금은 모달만 접습니다."
+            "판부터 읽습니다. 지금은 모달만 접습니다."
         )
     if kind != "modal" or not last.depends_on:
         return ""
     if not _chained(cases):
-        return "케이스가 차례로 이어진 한 사슬이 아닙니다(앞 케이스를 바로 앞 케이스로)."
+        return _NOT_CHAINED
     if len(statics) > 2:
         return (
-            f"모달 앞의 정적이 {len(statics)}개입니다 — v1 선응력 모달로는 정적 둘(볼트 "
+            f"모달 앞의 정적이 {len(statics)}개입니다. 선응력 모달로는 정적 둘(볼트 "
             "예압 → 외력)까지만 접힙니다."
         )
     for one in statics:
         if one.analysis.type != "static":
             return (
-                f"앞 케이스 ‘{one.name}’이(가) 정적 구조가 아닙니다 — 선응력은 정적의 "
-                "끝 상태입니다."
+                f"앞 케이스 ‘{one.name}’이(가) 정적 구조가 아닙니다. 선응력은 정적이 "
+                "끝난 상태입니다."
             )
         changed = _unread(one, ANALYSES["static"].fields)
         if changed:
             return (
-                f"앞 정적 ‘{one.name}’의 해석 설정({', '.join(changed)})은 v1 선응력 "
-                "모달이 읽지 않습니다 — 기본값으로 두십시오(볼트가 있으면 두 단계로 "
+                f"앞 정적 ‘{one.name}’의 해석 설정({', '.join(changed)})은 선응력 "
+                "모달에서 읽지 않습니다. 기본값으로 두십시오(볼트가 있으면 두 단계로 "
                 "저절로 풉니다)."
             )
         if any(item.type == "prestress" for item in one.initial):
             return (
-                f"앞 정적 ‘{one.name}’에 초기조건 ‘선응력’이 있습니다 — 사슬에서는 앞 "
-                "케이스가 선응력입니다. 지우십시오."
+                f"앞 정적 ‘{one.name}’에 초기조건 ‘선응력’이 있습니다. 사슬에서는 앞 "
+                "케이스가 선응력이므로 삭제하십시오."
             )
     first = statics[0]
     if last.initial:
         return (
-            f"‘{last.name}’에 초기조건이 있습니다 — 접으면 첫 케이스 ‘{first.name}’의 "
-            "초기조건만 씁니다. 그 케이스로 옮기십시오."
+            f"‘{last.name}’에 초기조건이 있습니다. 접으면 첫 케이스 ‘{first.name}’의 "
+            "초기조건만 쓰므로 그 케이스로 옮기십시오."
         )
     extra = [load.name for load in last.loads if load.type != _GRAVITY]
     if extra:
         return (
-            f"모달 ‘{last.name}’에 하중({', '.join(extra)})이 있습니다 — v1 선응력 "
-            "모달의 하중은 앞 정적의 것뿐입니다. 중력 말고는 앞 케이스에 적으십시오."
+            f"모달 ‘{last.name}’에 하중({', '.join(extra)})이 있습니다. 선응력 모달의 "
+            "하중은 앞 정적의 것뿐이므로 중력 외의 하중은 앞 케이스에 적으십시오."
         )
     if len(statics) == 2:
         loads = _preload_then_outer(*statics)

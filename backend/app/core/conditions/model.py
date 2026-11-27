@@ -518,14 +518,14 @@ def _folded(conditions: Conditions) -> Conditions:
     blocked = MULTI_CASE_BLOCKED.format(count=len(conditions.cases))
     got = fold_chain(conditions.cases)
     if isinstance(got, str):
-        why = f" v1 한 벌로 접지 못한 까닭: {got}" if got else ""
+        why = f" 한 해석으로 접지 못한 까닭: {got}" if got else ""
         raise ConditionError(blocked + why)
     one = conditions.model_copy(update={"schema_version": 1, "cases": [], **got})
     try:
         return parse(one.model_dump())
     except ConditionError as failure:
         raise ConditionError(
-            f"{blocked} v1 한 벌로 접은 것이 맞지 않습니다: {failure}"
+            f"{blocked} 한 해석으로 접은 조건이 맞지 않습니다: {failure}"
         ) from failure
 
 

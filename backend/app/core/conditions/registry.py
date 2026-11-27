@@ -70,16 +70,15 @@ REFUSED_WHY: dict[tuple[str, str], str] = {
     "않습니다. 온도에 따른 물성을 쓰려면 ‘환경 온도’를 지정하십시오.",
     # 조화 응답의 선응력은 두 솔버 모두 받지 않는다 — 받는 쪽이 말없이 무시하던 것(SimEngBay,
     # 2026-11-27). 모달 · 랜덤 진동은 받는다.
-    ("initial", "prestress"): "조화 응답의 선응력은 해석 쪽이 받지 않습니다(CalculiX · Ansys "
-    "모두). 선응력은 모달 · 랜덤 진동에서 사용하십시오.",
+    ("initial", "prestress"): "조화 응답의 선응력은 해석 쪽이 받지 않습니다(CalculiX, Ansys "
+    "모두). 선응력은 모달, 랜덤 진동에서 사용하십시오.",
     # 조화 응답에서 — 가진이 아니라 두 솔버 모두 작업을 만들 때 막는다(SimEngBay, 2026-11-27).
     ("loads", "bolt_pretension"): "조화 응답에서는 볼트 예압을 해석 쪽이 받지 않습니다"
-    "(CalculiX · Ansys 모두) — 가진이 아닙니다. 체결 상태의 진동은 모달(선응력)로 보십시오.",
+    "(CalculiX, Ansys 모두). 체결 상태의 진동은 모달(선응력)로 확인하십시오.",
     ("loads", "rotational_velocity"): "조화 응답에서는 회전 속도를 해석 쪽이 받지 않습니다"
-    "(CalculiX · Ansys 모두) — 가진이 아닙니다.",
+    "(CalculiX, Ansys 모두).",
     ("loads", "standard_earth_gravity"): "조화 응답에서는 중력을 해석 쪽이 받지 않습니다"
-    "(CalculiX · Ansys 모두) — 정적 중력도 가진도 아닙니다. 1 g 로 흔들려면 가속도 하중으로 "
-    "적으십시오.",
+    "(CalculiX, Ansys 모두). 1 g로 가진하려면 가속도 하중을 사용하십시오.",
 }
 
 
