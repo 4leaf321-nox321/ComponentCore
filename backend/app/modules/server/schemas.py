@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -67,3 +68,17 @@ class SettingUpdateRequest(BaseModel):
     """`value` 가 None 이면 덮어쓴 것을 지워 .env 기본값으로."""
 
     value: int | None
+
+
+class CapabilitiesOut(BaseModel):
+    """받는 쪽 능력표의 복사본 — 관리 화면. 토큰은 싣지 않는다(설정이 됐는지만)."""
+
+    configured: bool
+    missing: str
+    """비어 있는 .env 칸 — 「SIMENGBAY_TOKEN(토큰)」 처럼 이름을 댄다."""
+    base_url: str
+    source: str
+    """복사본을 받은 바탕 주소 — 주소를 바꾼 뒤 갱신하지 않았으면 `base_url` 과 다르다."""
+    fetched_at: datetime | None
+    tables: list[Any] | None
+    """받은 그대로(솔버마다 한 장). 받은 적이 없으면 None — 그때는 거르지 않는다."""

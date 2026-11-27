@@ -1,0 +1,632 @@
+[
+  {
+    "receiver": "simengbay",
+    "solver": "calculix",
+    "version": null,
+    "receiver_version": "v0.36.0",
+    "contract": [
+      1
+    ],
+    "analyses": {
+      "modal": {
+        "constraints": [
+          "fixed_support",
+          "displacement",
+          "remote_displacement",
+          "frictionless",
+          "cylindrical",
+          {
+            "name": "compression_only",
+            "note": "모드 · 주파수 해석에서는 닿은 채로(같은 강성의 법선 스프링) 풉니다"
+          },
+          "elastic_support"
+        ],
+        "loads": [
+          {
+            "name": "pressure",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          },
+          {
+            "name": "force",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          },
+          {
+            "name": "moment",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          },
+          {
+            "name": "bearing",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          },
+          {
+            "name": "bolt_pretension",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          },
+          {
+            "name": "standard_earth_gravity",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          },
+          {
+            "name": "acceleration",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          },
+          {
+            "name": "rotational_velocity",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          }
+        ],
+        "contacts": [
+          "bonded",
+          {
+            "name": "no_separation",
+            "note": "모드 · 주파수 해석에서는 법선만 묶어 미끄러지게 풉니다"
+          },
+          {
+            "name": "frictional",
+            "note": "모드 · 주파수 해석에서는 붙은 것으로 풉니다"
+          },
+          {
+            "name": "frictionless",
+            "note": "모드 · 주파수 해석에서는 법선만 묶어 미끄러지게 풉니다"
+          },
+          {
+            "name": "rough",
+            "note": "모드 · 주파수 해석에서는 붙은 것으로 풉니다"
+          }
+        ],
+        "initial": [
+          {
+            "name": "environment_temperature",
+            "note": "물성 기준 온도로만 씁니다 — 열 변형은 풀지 않습니다"
+          },
+          {
+            "name": "prestress",
+            "note": "해석 설정의 선응력 반영과 함께 씁니다 — 다른 해석의 단계(from_step)는 아직"
+          }
+        ],
+        "fields": {
+          "analysis": [
+            "modes",
+            "frequency_range",
+            "prestressed"
+          ],
+          "loads": [
+            "name",
+            "type",
+            "on",
+            "cs",
+            "magnitude",
+            "unit",
+            "direction",
+            "preload"
+          ]
+        },
+        "materials": [
+          "linear_elastic"
+        ]
+      },
+      "static": {
+        "constraints": [
+          "fixed_support",
+          "displacement",
+          "remote_displacement",
+          "frictionless",
+          "cylindrical",
+          "compression_only",
+          "elastic_support"
+        ],
+        "loads": [
+          "pressure",
+          "force",
+          "moment",
+          "bearing",
+          {
+            "name": "bolt_pretension",
+            "note": "먼저 조이고, 그 길이를 잠근 채 나머지 하중을 겁니다(두 단계)"
+          },
+          "standard_earth_gravity",
+          "acceleration",
+          "rotational_velocity"
+        ],
+        "contacts": [
+          "bonded",
+          "no_separation",
+          "frictional",
+          "frictionless",
+          "rough"
+        ],
+        "initial": [
+          {
+            "name": "environment_temperature",
+            "note": "물성 기준 온도로만 씁니다 — 열 변형은 풀지 않습니다"
+          }
+        ],
+        "fields": {
+          "analysis": [
+            "large_deflection",
+            "substeps"
+          ],
+          "loads": [
+            "name",
+            "type",
+            "on",
+            "cs",
+            "magnitude",
+            "unit",
+            "direction",
+            "preload"
+          ]
+        },
+        "materials": [
+          "linear_elastic"
+        ]
+      },
+      "harmonic": {
+        "constraints": [
+          "fixed_support",
+          "displacement",
+          "remote_displacement",
+          "frictionless",
+          "cylindrical",
+          {
+            "name": "compression_only",
+            "note": "모드 · 주파수 해석에서는 닿은 채로(같은 강성의 법선 스프링) 풉니다"
+          },
+          "elastic_support"
+        ],
+        "loads": [
+          "pressure",
+          "force",
+          "moment",
+          "bearing",
+          "acceleration"
+        ],
+        "contacts": [
+          "bonded",
+          {
+            "name": "no_separation",
+            "note": "모드 · 주파수 해석에서는 법선만 묶어 미끄러지게 풉니다"
+          },
+          {
+            "name": "frictional",
+            "note": "모드 · 주파수 해석에서는 붙은 것으로 풉니다"
+          },
+          {
+            "name": "frictionless",
+            "note": "모드 · 주파수 해석에서는 법선만 묶어 미끄러지게 풉니다"
+          },
+          {
+            "name": "rough",
+            "note": "모드 · 주파수 해석에서는 붙은 것으로 풉니다"
+          }
+        ],
+        "initial": [
+          {
+            "name": "environment_temperature",
+            "note": "물성 기준 온도로만 씁니다 — 열 변형은 풀지 않습니다"
+          }
+        ],
+        "fields": {
+          "analysis": [
+            "modes",
+            "frequency_range",
+            "solution_intervals",
+            "damping_ratio"
+          ],
+          "loads": [
+            "name",
+            "type",
+            "on",
+            "cs",
+            "magnitude",
+            "unit",
+            "direction",
+            "frequency_table",
+            "phase"
+          ]
+        },
+        "materials": [
+          "linear_elastic"
+        ]
+      },
+      "random": {
+        "constraints": [
+          "fixed_support",
+          "displacement",
+          "remote_displacement",
+          "frictionless",
+          "cylindrical",
+          {
+            "name": "compression_only",
+            "note": "모드 · 주파수 해석에서는 닿은 채로(같은 강성의 법선 스프링) 풉니다"
+          },
+          "elastic_support"
+        ],
+        "loads": [
+          "psd_acceleration",
+          {
+            "name": "pressure",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          },
+          {
+            "name": "force",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          },
+          {
+            "name": "moment",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          },
+          {
+            "name": "bearing",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          },
+          {
+            "name": "bolt_pretension",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          },
+          {
+            "name": "standard_earth_gravity",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          },
+          {
+            "name": "acceleration",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          },
+          {
+            "name": "rotational_velocity",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          }
+        ],
+        "contacts": [
+          "bonded",
+          {
+            "name": "no_separation",
+            "note": "모드 · 주파수 해석에서는 법선만 묶어 미끄러지게 풉니다"
+          },
+          {
+            "name": "frictional",
+            "note": "모드 · 주파수 해석에서는 붙은 것으로 풉니다"
+          },
+          {
+            "name": "frictionless",
+            "note": "모드 · 주파수 해석에서는 법선만 묶어 미끄러지게 풉니다"
+          },
+          {
+            "name": "rough",
+            "note": "모드 · 주파수 해석에서는 붙은 것으로 풉니다"
+          }
+        ],
+        "initial": [
+          {
+            "name": "environment_temperature",
+            "note": "물성 기준 온도로만 씁니다 — 열 변형은 풀지 않습니다"
+          },
+          {
+            "name": "prestress",
+            "note": "해석 설정의 선응력 반영과 함께 씁니다 — 다른 해석의 단계(from_step)는 아직"
+          }
+        ],
+        "fields": {
+          "analysis": [
+            "modes",
+            "frequency_range",
+            "prestressed",
+            "damping_ratio"
+          ],
+          "loads": [
+            "name",
+            "type",
+            "on",
+            "cs",
+            "magnitude",
+            "unit",
+            "direction",
+            "preload",
+            "psd_table",
+            "grms"
+          ]
+        },
+        "materials": [
+          "linear_elastic"
+        ]
+      }
+    }
+  },
+  {
+    "receiver": "simengbay",
+    "solver": "ansys",
+    "version": "2025 R2",
+    "receiver_version": "v0.36.0",
+    "contract": [
+      1
+    ],
+    "analyses": {
+      "modal": {
+        "constraints": [
+          "fixed_support",
+          "displacement",
+          "remote_displacement",
+          "frictionless",
+          "cylindrical",
+          {
+            "name": "compression_only",
+            "note": "모드 · 주파수 해석에서는 닿은 채로(같은 강성의 법선 스프링) 풉니다"
+          },
+          "elastic_support"
+        ],
+        "loads": [
+          {
+            "name": "pressure",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          },
+          {
+            "name": "force",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          },
+          {
+            "name": "moment",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          },
+          {
+            "name": "bearing",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          },
+          {
+            "name": "bolt_pretension",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          },
+          {
+            "name": "standard_earth_gravity",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          },
+          {
+            "name": "acceleration",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          },
+          {
+            "name": "rotational_velocity",
+            "note": "선응력을 켤 때만 앞 정적에 겁니다 — 끄면 고유진동수를 바꾸지 않아 쓰지 않습니다"
+          }
+        ],
+        "contacts": [
+          "bonded",
+          {
+            "name": "no_separation",
+            "note": "모드 · 주파수 해석에서는 법선만 묶어 미끄러지게 풉니다"
+          },
+          {
+            "name": "frictional",
+            "note": "모드 · 주파수 해석에서는 붙은 것으로 풉니다"
+          },
+          {
+            "name": "frictionless",
+            "note": "모드 · 주파수 해석에서는 법선만 묶어 미끄러지게 풉니다"
+          },
+          {
+            "name": "rough",
+            "note": "모드 · 주파수 해석에서는 붙은 것으로 풉니다"
+          }
+        ],
+        "initial": [
+          {
+            "name": "environment_temperature",
+            "note": "물성 기준 온도로만 씁니다 — 열 변형은 풀지 않습니다"
+          },
+          {
+            "name": "prestress",
+            "note": "해석 설정의 선응력 반영과 함께 씁니다 — 다른 해석의 단계(from_step)는 아직"
+          }
+        ],
+        "fields": {
+          "analysis": [
+            "modes",
+            "frequency_range",
+            "prestressed"
+          ],
+          "loads": [
+            "name",
+            "type",
+            "on",
+            "cs",
+            "magnitude",
+            "unit",
+            "direction",
+            "preload"
+          ]
+        },
+        "materials": [
+          "linear_elastic"
+        ]
+      },
+      "static": {
+        "constraints": [
+          "fixed_support",
+          "displacement",
+          "remote_displacement",
+          "frictionless",
+          "cylindrical",
+          "compression_only",
+          "elastic_support"
+        ],
+        "loads": [
+          "pressure",
+          "force",
+          "moment",
+          "bearing",
+          {
+            "name": "bolt_pretension",
+            "note": "먼저 조이고, 그 길이를 잠근 채 나머지 하중을 겁니다(두 단계)"
+          },
+          "standard_earth_gravity",
+          "acceleration",
+          "rotational_velocity"
+        ],
+        "contacts": [
+          "bonded",
+          "no_separation",
+          "frictional",
+          "frictionless",
+          "rough"
+        ],
+        "initial": [
+          {
+            "name": "environment_temperature",
+            "note": "물성 기준 온도로만 씁니다 — 열 변형은 풀지 않습니다"
+          }
+        ],
+        "fields": {
+          "analysis": [
+            "large_deflection",
+            "substeps"
+          ],
+          "loads": [
+            "name",
+            "type",
+            "on",
+            "cs",
+            "magnitude",
+            "unit",
+            "direction",
+            "preload"
+          ]
+        },
+        "materials": [
+          "linear_elastic"
+        ]
+      },
+      "harmonic": {
+        "constraints": [
+          "fixed_support",
+          "displacement",
+          "remote_displacement",
+          "frictionless",
+          "cylindrical",
+          {
+            "name": "compression_only",
+            "note": "모드 · 주파수 해석에서는 닿은 채로(같은 강성의 법선 스프링) 풉니다"
+          },
+          "elastic_support"
+        ],
+        "loads": [
+          "pressure",
+          "force",
+          "moment",
+          "bearing",
+          "acceleration"
+        ],
+        "contacts": [
+          "bonded",
+          {
+            "name": "no_separation",
+            "note": "모드 · 주파수 해석에서는 법선만 묶어 미끄러지게 풉니다"
+          },
+          {
+            "name": "frictional",
+            "note": "모드 · 주파수 해석에서는 붙은 것으로 풉니다"
+          },
+          {
+            "name": "frictionless",
+            "note": "모드 · 주파수 해석에서는 법선만 묶어 미끄러지게 풉니다"
+          },
+          {
+            "name": "rough",
+            "note": "모드 · 주파수 해석에서는 붙은 것으로 풉니다"
+          }
+        ],
+        "initial": [
+          {
+            "name": "environment_temperature",
+            "note": "물성 기준 온도로만 씁니다 — 열 변형은 풀지 않습니다"
+          }
+        ],
+        "fields": {
+          "analysis": [
+            "modes",
+            "frequency_range",
+            "solution_intervals",
+            "damping_ratio"
+          ],
+          "loads": [
+            "name",
+            "type",
+            "on",
+            "cs",
+            "magnitude",
+            "unit",
+            "direction",
+            "frequency_table",
+            "phase"
+          ]
+        },
+        "materials": [
+          "linear_elastic"
+        ]
+      },
+      "random": {
+        "constraints": [
+          "fixed_support",
+          "displacement",
+          "remote_displacement",
+          "frictionless",
+          "cylindrical",
+          {
+            "name": "compression_only",
+            "note": "모드 · 주파수 해석에서는 닿은 채로(같은 강성의 법선 스프링) 풉니다"
+          },
+          "elastic_support"
+        ],
+        "loads": [
+          {
+            "name": "psd_acceleration",
+            "note": "가진 방향은 X · Y · Z 축만 받습니다"
+          }
+        ],
+        "contacts": [
+          "bonded",
+          {
+            "name": "no_separation",
+            "note": "모드 · 주파수 해석에서는 법선만 묶어 미끄러지게 풉니다"
+          },
+          {
+            "name": "frictional",
+            "note": "모드 · 주파수 해석에서는 붙은 것으로 풉니다"
+          },
+          {
+            "name": "frictionless",
+            "note": "모드 · 주파수 해석에서는 법선만 묶어 미끄러지게 풉니다"
+          },
+          {
+            "name": "rough",
+            "note": "모드 · 주파수 해석에서는 붙은 것으로 풉니다"
+          }
+        ],
+        "initial": [
+          {
+            "name": "environment_temperature",
+            "note": "물성 기준 온도로만 씁니다 — 열 변형은 풀지 않습니다"
+          }
+        ],
+        "fields": {
+          "analysis": [
+            "modes",
+            "frequency_range",
+            "damping_ratio"
+          ],
+          "loads": [
+            "name",
+            "type",
+            "on",
+            "cs",
+            "unit",
+            "direction",
+            "psd_table",
+            "grms"
+          ]
+        },
+        "materials": [
+          "linear_elastic"
+        ]
+      }
+    }
+  }
+]

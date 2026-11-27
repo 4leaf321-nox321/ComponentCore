@@ -174,12 +174,14 @@ export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }
    * 부르면 요청이 쏟아지므로 잠깐 멈췄을 때 한 번.
    */
   const [notes, setNotes] = useState<ExpressionNote[]>([])
-  const notesKey = JSON.stringify([...GROUP_KEYS.map((key) => draft[key]), draft.body_settings, recipe.params])
+  /** 고르는 케이스의 대상 솔버 — 주면 받는 쪽 능력표의 알림도 온다(받지 않는 항목 · 읽지 않는 칸 · 안내). */
+  const solver = cases.length > 0 ? (cases[Math.min(active, cases.length - 1)]?.target?.solver ?? '') : ''
+  const notesKey = JSON.stringify([...GROUP_KEYS.map((key) => draft[key]), draft.analysis, draft.body_settings, recipe.params, solver])
   useEffect(() => {
     let alive = true
     const timer = setTimeout(() => {
       conditionsApi
-        .notes(draft, recipe)
+        .notes(draft, recipe, solver)
         .then((got) => alive && setNotes(got.items ?? []))
         .catch(() => alive && setNotes([]))
     }, 400)
@@ -191,6 +193,8 @@ export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }
   }, [notesKey])
 
   const schema = useResource<ConditionsSchema>(() => conditionsApi.schema(), [])
+  /** 받는 쪽 능력표의 복사본 — 케이스 탭의 대상 솔버 목록. 못 읽으면 아는 둘을 보인다. */
+  const capabilities = useResource(() => conditionsApi.capabilities(), [])
   const { mesh, problems } = useRecipeMesh(recipe)
 
   // 저장된 것이 바뀔 때만 다시 읽는다 — 작업의 기본 단위계를 바꿨다고 고치던 것을 지우지 않는다.
@@ -713,6 +717,7 @@ export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }
           cases={cases}
           active={Math.min(active, cases.length - 1)}
           locked={!!editing}
+          capabilities={capabilities.data?.tables ?? null}
           onSelect={(index) => {
             setActive(index)
             setTree(null)

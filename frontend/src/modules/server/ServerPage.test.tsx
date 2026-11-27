@@ -103,3 +103,67 @@ test('판금 굽힘 점검 — 모양이 바뀌는 판금과 이제 생성되지
   expect(screen.getByText(/생성 실패: 판: 판을 굽히지 못했습니다/)).toBeInTheDocument()
   expect(screen.getByRole('status')).toHaveTextContent('모양이 바뀌는 판금 노드 2개(이 중 생성 실패 1개)')
 })
+
+test('해석 쪽 능력표 — 받은 솔버와 판을 보이고, 갱신이 실패하면 서버가 말한 고칠 것을 그대로 띄운다', async () => {
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+  const status = {
+    configured: true,
+    missing: '',
+    base_url: 'https://seb.example/simengbay',
+    source: '',
+    fetched_at: null,
+    tables: null,
+  }
+  let refreshes = 0
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input)
+    if (url.endsWith('/server/capabilities/refresh') && init?.method === 'POST') {
+      refreshes += 1
+      if (refreshes === 1) {
+        return json(
+          {
+            ...status,
+            source: status.base_url,
+            fetched_at: '2026-11-27T04:00:00Z',
+            tables: [
+              { solver: 'calculix', version: null, receiver_version: 'v0.36.0', analyses: { modal: {}, static: {} } },
+              { solver: 'ansys', version: '2025 R2', receiver_version: 'v0.36.0', analyses: { random: {} } },
+            ],
+          },
+        )
+      }
+      return json({ error: { code: 'CCR-SERVER-0003', message: 'SimEngBay 토큰에 읽기 범위(read)가 없습니다.' } }, 502)
+    }
+    if (url.endsWith('/server/capabilities')) return json(status)
+    if (url.endsWith('/server/workers')) return json({ alive: 1, queue: { queued: 0, running: 0, cancelling: 0, oldest_queued_seconds: null }, workers: [] })
+    if (url.endsWith('/server/settings')) return json([])
+    if (url.endsWith('/server/shape-index')) return json({ missing: 0 })
+    return json({ error: { code: 'X', message: '없음' } }, 500)
+  })
+  render(<ServerPage />)
+  expect(await screen.findByText('아직 받은 능력표가 없어 대상 솔버로 확인하지 않습니다.')).toBeInTheDocument()
+  expect(screen.getByText('받은 적 없음')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '갱신' }))
+  expect(await screen.findByText('2025 R2')).toBeInTheDocument()
+  expect(screen.getByText('알 수 없음')).toBeInTheDocument()
+  expect(screen.getByText('모달, 정적 구조')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '갱신' }))
+  expect(await screen.findByText(/읽기 범위\(read\)가 없습니다/)).toBeInTheDocument()
+  // 실패해도 받아 둔 표는 그대로 보인다.
+  expect(screen.getByText('2025 R2')).toBeInTheDocument()
+})
+
+test('해석 쪽 능력표 — .env 가 비면 무엇이 비었는지 말하고 갱신을 막는다', async () => {
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = String(input)
+    if (url.endsWith('/server/capabilities')) {
+      return json({ configured: false, missing: '.env에 SIMENGBAY_TOKEN(토큰) 값이 설정되지 않았습니다.', base_url: '', source: '', fetched_at: null, tables: null })
+    }
+    if (url.endsWith('/server/settings')) return json([])
+    return json({ error: { code: 'X', message: '없음' } }, 500)
+  })
+  render(<ServerPage />)
+  expect(await screen.findByText(/SIMENGBAY_TOKEN\(토큰\) 값이 설정되지 않았습니다/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '갱신' })).toBeDisabled()
+})

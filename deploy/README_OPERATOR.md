@@ -395,6 +395,22 @@ sudo -u <운영계정> apptainer exec --bind <env>:/opt/app/backend/.env:ro \
 - **DOE 는 조건의 스냅샷이다.** 「재생성」 은 같은 (틀린) 규칙으로 다시 만든다. 대상 작업의 해석
   조건을 고친 뒤 그 DOE 의 「설정 변경 후 새 DOE 생성」 으로 새로 만든다(새 스터디 id).
 
+### 해석 쪽 능력표 — SimEngBay 가 받는 것으로 거르기(v0.33.0 부터)
+
+해석 조건의 케이스에 **대상 솔버**(CalculiX · Ansys)를 정하면, 저장과 DOE 생성 때 그 솔버가 받지
+않는 해석 · 항목을 막는다. 표는 SimEngBay 가 낸다(`/api/simulations/capabilities`, v0.36.0 부터).
+CompCore 는 관리자가 받아 둔 **복사본**으로 거르므로 SimEngBay 가 꺼져 있어도 저장은 된다.
+
+1. SimEngBay 에서 CompCore 전용 계정으로 **범위 `read`** 의 PAT 를 만든다(만료 1년쯤).
+2. `.env` 에 `SIMENGBAY_BASE_URL`(접두어까지 — `https://<호스트>/simengbay`) · `SIMENGBAY_TOKEN` 을
+   넣고 `sudo ./deploy.sh restart`.
+3. 시스템 관리자로 「서버」 화면의 「해석 쪽 능력표」 에서 **갱신**. 솔버 · 판 · 받는 해석이 보이면 끝.
+   SimEngBay 를 올린 뒤에도 한 번 갱신한다(받는 것이 늘거나 줄었을 수 있다).
+
+갱신이 실패하면 화면이 고칠 것을 말한다 — 401 은 토큰이 틀림 · 만료 · 폐기이거나 토큰 주인 계정이
+막힌 것(토큰을 바꿔도 안 되면 SimEngBay 관리자에게 계정을), 403 은 읽기 범위가 없는 것(다시 발급),
+404 는 주소의 접두어가 빠졌거나 SimEngBay 가 옛 판인 것. 실패해도 있던 복사본은 그대로다.
+
 ---
 
 ## 5d. 규격 부품 옮기기 — 개발 PC 에서 그린 것을 운영으로
@@ -491,6 +507,7 @@ sudo systemctl disable --now <slug>-sync.timer <slug>-metrics.timer
 | 이중화: 로그인이 유지되지 않는다(새로고침마다 로그인) | `.env` 에 `REFRESH_COOKIE_SECURE=true` 가 있는데 http 로 들어왔다 — 지우거나 false 로(앱이 https 일 때 스스로 붙인다). 또는 `TRUST_PROXY` 가 꺼져 앱이 https 인 줄 모른다 |
 | 이중화: B 의 `install` 이 「DB 는 대기입니다」 로 멈춘다 | `/data/…/.env` 가 없다 — A 에서 `install` 을 먼저 |
 | 설치 · 갱신 끝에 `127.0.0.1:<포트> 이 응답하지 않습니다` | **v0.3.0 번들은 10초만 기다렸다** — 첫 기동은 워커마다 CAD 엔진을 불러와 그보다 길 수 있다. 1분 뒤 `curl http://127.0.0.1:<포트>/api/health` 가 `ok` 면 정상. 새 번들은 60초 기다린다. 계속 없으면 `journalctl -u <slug> -n 80` |
+| 해석 조건 저장이 「대상 솔버 ‘…’의 … 해석에서 받지 않습니다」 로 막힌다 | 그 케이스의 대상 솔버가 그 해석 · 항목을 받지 않는다(받아 둔 능력표 기준). 대상 솔버를 비우거나 바꾸게 한다. SimEngBay 를 올린 뒤라면 「서버 → 해석 쪽 능력표 → 갱신」 을 먼저 |
 | 물성 목록이 비어 있다 | `.env` 의 `MATNEXUS_BASE_URL` · `MATNEXUS_TOKEN` 이 비었거나 망이 막혔다. `sudo ./deploy.sh status` 의 「물성(MatNexus)」 이 누구로 붙었는지 · 보이는 재료 수를 말한다(새 번들부터) |
 | 이중화: B 의 `setup` 이 `invalid group 'postgres'` 로 멈춘다 | **v0.3.0 번들이다** — A 에서 받은 복제 비밀번호를 PostgreSQL 을 깔기 전에 제자리에 두려 했다. B 에서 `sudo apt-get install -y --no-install-recommends postgresql-16 postgresql-client-16 postgresql-contrib` 후 `setup` 을 다시(물음도 같게). 새 번들은 고쳐져 있다 |
 | 이중화: 대기의 복제가 `끊김` | 주의 pg_hba 에 대기 IP 가 없거나 `/etc/pg-ha.replpass` 가 다르다. 주에서 `db-primary` 다시 → 대기에서 `db-standby` |

@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
+import { CapabilitiesCard } from '@/modules/server/CapabilitiesCard'
 import { api, ApiError } from '@/shared/api/client'
 import { refreshDisplay } from '@/shared/api/display'
 import type { ServerSetting, ServerStatus } from '@/shared/api/types'
@@ -389,6 +390,7 @@ export default function ServerPage() {
       <WorkersCard />
       <ShapeIndexCard />
       <BendCheckCard />
+      <CapabilitiesCard />
       {rows.length > 0 && (
         <Card className="mb-4">
           <CardHeader>

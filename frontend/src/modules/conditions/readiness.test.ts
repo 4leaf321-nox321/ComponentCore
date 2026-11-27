@@ -127,3 +127,16 @@ test('곡선 — 점의 문제는 곡선 창을, 없거나 맞지 않는 곡선�
     ['하중 ‘나’', '곡선 ‘지운 곡선’이(가) 없습니다.', { kind: 'item', group: 'loads', index: 1 }],
   ])
 })
+
+test('능력표 알림은 그 항목의 창을 여는 자리를 함께 넘긴다', () => {
+  const open = { kind: 'item' as const, group: 'loads', index: 1 }
+  const items = readiness({
+    ...base({}),
+    notes: [
+      { where: '힘 ‘옆 힘’', level: 'warn', text: '대상 솔버 ‘ansys’의 랜덤 진동(PSD) 해석에서 받지 않습니다.', open },
+      { where: '대상 솔버', level: 'info', text: '해석 쪽 능력표에 ‘abaqus’이(가) 없어 받는 항목을 확인하지 않았습니다.' },
+    ],
+  })
+  expect(items.find((one) => one.where === '힘 ‘옆 힘’')?.open).toEqual(open)
+  expect(items.find((one) => one.where === '대상 솔버')).not.toHaveProperty('open')
+})

@@ -52,7 +52,7 @@ from app.modules.jobs.models import Job
 from app.modules.objects import source_links
 from app.modules.objects.models import ObjectInstance
 from app.modules.parts.models import Part
-from app.modules.server import settings_store
+from app.modules.server import capabilities_store, settings_store
 from app.modules.tagging import services as tagging
 from app.modules.tagging.services import TagUse
 from app.modules.works.models import Work
@@ -322,7 +322,10 @@ def _work_conditions(db: Session, work_id: uuid.UUID, owner: User) -> dict[str, 
 
 
 def _check_condition_factors(
-    recipe: dict[str, Any], conditions: dict[str, Any], factors: list[dict[str, Any]]
+    recipe: dict[str, Any],
+    conditions: dict[str, Any],
+    factors: list[dict[str, Any]],
+    capabilities: list[condition_model.CapabilityTable] | None = None,
 ) -> None:
     """고르기 · 배율 인자와 조건의 식을 **만들기 전에** 본다.
 
@@ -355,6 +358,7 @@ def _check_condition_factors(
                     bodies,
                     frame_names,
                     sheets,
+                    capabilities=capabilities,
                 )
             except condition_model.ConditionError as failure:
                 raise AppError(
@@ -842,16 +846,24 @@ def create_study(
     #
     # 바디 이름까지 본다: 물성을 없는 바디에 붙이면 해석이 그 바디를 **맨몸으로** 푼다.
     # 여기가 정작 해석으로 나가는 자리라 작업 저장보다 더 중요하다.
+    #
+    # 대상 솔버가 정해진 케이스는 받는 쪽 능력표로 거른다 — 저장한 뒤 복사본이 갱신됐을 수
+    # 있다.
     rows = _body_rows(recipe)
+    tables = capabilities_store.tables(db)
     try:
         condition_model.parse(
-            conditions, _names_of(rows), frames.recipe_frame_names(recipe), _sheets_of(rows)
+            conditions,
+            _names_of(rows),
+            frames.recipe_frame_names(recipe),
+            _sheets_of(rows),
+            capabilities=tables,
         )
     except condition_model.ConditionError as failure:
         raise AppError(code("DOE", 15), f"해석 조건: {failure}") from failure
     if swaps:
         _check_material_factors(recipe, conditions, factors)
-    _check_condition_factors(recipe, conditions or {}, factors)
+    _check_condition_factors(recipe, conditions or {}, factors, tables)
     measures = _measures(measures, recipe, conditions, factors)
     rows = _points(
         db,

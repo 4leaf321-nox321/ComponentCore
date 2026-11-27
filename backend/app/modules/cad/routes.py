@@ -187,17 +187,49 @@ def conditions_schema(_: User = Depends(current_user)) -> dict[str, Any]:
     return spec()
 
 
+@router.get("/conditions/capabilities")
+def conditions_capabilities(
+    _: User = Depends(current_user), db: Session = Depends(get_db)
+) -> dict[str, Any]:
+    """받는 쪽 능력표의 **복사본** — 케이스의 대상 솔버로 고를 수 있는 것(`tables` 의
+    `solver`). 받은 적이 없으면 `tables` 가 None 이다(그때는 거르지 않는다). 갱신은 관리
+    화면에서 한다."""
+    from app.modules.server import capabilities_store
+
+    return {
+        "tables": capabilities_store.raw(db),
+        "fetched_at": capabilities_store.fetched_at(db),
+    }
+
+
 @router.post("/conditions/notes")
 def conditions_notes(
-    payload: ConditionNotesRequest, _: User = Depends(current_user)
+    payload: ConditionNotesRequest,
+    _: User = Depends(current_user),
+    db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """조건의 식 중 **풀리지 않는 것** — 고치는 중에 알린다(저장 · 내보내기에서 막히기 전에).
-    고치는 중인 한 벌이라 검증하지 않는다 — 알림만 준다."""
-    from app.core import conditions as condition_model
+    고치는 중인 한 벌이라 검증하지 않는다 — 알림만 준다.
 
-    items = condition_model.expression_notes(
+    `solver` 를 주면 받는 쪽 능력표의 알림도 더한다(`capabilities.notes`) — 받지 않는 항목은
+    경고(저장할 때 막힌다), 읽지 않는 칸 · 안내는 알림. 모양이 아직 틀린 한 벌이면 건너뛴다."""
+    from pydantic import ValidationError
+
+    from app.core import conditions as condition_model
+    from app.core.conditions import capabilities
+    from app.modules.server import capabilities_store
+
+    items: list[dict[str, Any]] = condition_model.expression_notes(
         payload.conditions, payload.recipe.get("params") or {}
     )
+    if payload.solver:
+        try:
+            view = condition_model.Conditions.model_validate(payload.conditions)
+        except ValidationError:
+            return {"items": items}
+        # 케이스 보기만 — 케이스가 든 한 벌이면 어느 케이스의 것인지 모른다.
+        if not view.cases:
+            items += capabilities.notes(view, capabilities_store.tables(db), payload.solver)
     return {"items": items}
 
 

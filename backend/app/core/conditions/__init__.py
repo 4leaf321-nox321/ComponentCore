@@ -42,6 +42,7 @@ from app.core.conditions.bodies import (
     shell_parts,
     shell_thicknesses,
 )
+from app.core.conditions.capabilities import Table as CapabilityTable
 from app.core.conditions.cases import (
     CASE_FIELDS,
     MULTI_CASE_BLOCKED,
@@ -169,6 +170,7 @@ __all__ = [
     "Base",
     "BodyMesh",
     "BodySetting",
+    "CapabilityTable",
     "Case",
     "ConditionError",
     "Conditions",

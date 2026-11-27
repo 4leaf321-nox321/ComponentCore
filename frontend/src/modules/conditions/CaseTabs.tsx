@@ -13,33 +13,32 @@
 
 import { Layers } from 'lucide-react'
 
+import { solverOptions } from '@/modules/conditions/capabilities'
+import type { CapabilityTable } from '@/modules/conditions/capabilities'
 import { followerOf, followingCase, renamed } from '@/modules/conditions/cases'
 import type { CaseItem } from '@/modules/conditions/cases'
 import { Button } from '@/shared/components/ui/button'
 import { Input } from '@/shared/components/ui/input'
-
-/** 대상 솔버로 고를 이름 — 받는 쪽 능력표의 `solver`(SimEngBay, 2026-11-26). 비면 받는 쪽 작업의 솔버. */
-const SOLVERS = [
-  { key: '', label: '작업의 솔버를 따름' },
-  { key: 'calculix', label: 'CalculiX' },
-  { key: 'ansys', label: 'Ansys' },
-]
 
 interface Props {
   cases: CaseItem[]
   active: number
   /** 조건 창이 열려 있으면 케이스를 바꾸지 못한다 — 창의 조건이 어느 케이스의 것인지 흐려진다. */
   locked?: boolean
+  /** 받는 쪽 능력표의 복사본 — 대상 솔버로 고를 이름(`solver`). 받은 적이 없으면 null(아는 둘을 보인다). */
+  capabilities?: CapabilityTable[] | null
   onSelect: (index: number) => void
   /** 케이스 목록이 바뀌었다 — 함께 고를 케이스(새로 더한 것 · 지운 뒤 남은 것). */
   onChange: (cases: CaseItem[], active: number) => void
 }
 
-export function CaseTabs({ cases, active, locked, onSelect, onChange }: Props) {
+export function CaseTabs({ cases, active, locked, capabilities = null, onSelect, onChange }: Props) {
   const current = cases[active]
   if (!current) return null
   const follower = followerOf(cases, active)
   const solver = current.target?.solver ?? ''
+  /** 대상 솔버 — 비움(받는 쪽 작업의 솔버) + 능력표의 솔버. 받는 쪽이 이 솔버로 거른다(서버가 저장할 때). */
+  const solvers = solverOptions(capabilities, solver)
   /** 앞 케이스로 고를 수 있는 것 — 앞에 적힌 것 중 뒤가 비었거나 이 케이스인 것(사슬만). */
   const befores = cases.slice(0, active).filter((one, i) => {
     const after = followerOf(cases, i)
@@ -127,12 +126,11 @@ export function CaseTabs({ cases, active, locked, onSelect, onChange }: Props) {
             disabled={locked}
             onChange={(e) => patch({ target: { ...current.target, solver: e.target.value } })}
           >
-            {SOLVERS.map((one) => (
+            {solvers.map((one) => (
               <option key={one.key} value={one.key}>
                 {one.label}
               </option>
             ))}
-            {!SOLVERS.some((one) => one.key === solver) && <option value={solver}>{solver}</option>}
           </select>
         </label>
         <Button

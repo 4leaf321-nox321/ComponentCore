@@ -83,6 +83,9 @@ class FramesRequest(RecipeRequest):
 class ConditionNotesRequest(BaseModel):
     recipe: dict[str, Any]
     conditions: dict[str, Any]
+    solver: str = ""
+    """고치는 케이스의 대상 솔버 — 주면 받는 쪽 능력표의 알림(받지 않는 항목 · 읽지 않는 칸 ·
+    안내)도 준다. `conditions` 는 그 케이스의 보기(v1 모양)다."""
 
 
 class MeasureRequest(RecipeRequest):

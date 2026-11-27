@@ -23,8 +23,9 @@ from app.modules.jobs import services as jobs
 from app.modules.jobs.models import Artifact, Job
 from app.modules.parts.models import Part
 from app.modules.review import services as review_services
-from app.modules.server import bend_check, settings_store, shape_fill
+from app.modules.server import bend_check, capabilities_store, settings_store, shape_fill
 from app.modules.server.schemas import (
+    CapabilitiesOut,
     DiskOut,
     DisplayOut,
     MaintenanceItemOut,
@@ -194,3 +195,20 @@ def update_setting(
 ) -> list[SettingOut]:
     settings_store.set_int(db, key, payload.value, by=user.id)
     return [SettingOut(**one) for one in settings_store.listing(db)]
+
+
+@router.get("/capabilities", response_model=CapabilitiesOut)
+def capabilities(
+    _: User = Depends(require_system_admin), db: Session = Depends(get_db)
+) -> CapabilitiesOut:
+    """받는 쪽(SimEngBay) 능력표의 **복사본** — 저장 · 내보내기가 대상 솔버로 거르는 표."""
+    return CapabilitiesOut(**capabilities_store.status(db))
+
+
+@router.post("/capabilities/refresh", response_model=CapabilitiesOut)
+def refresh_capabilities(
+    user: User = Depends(require_system_admin), db: Session = Depends(get_db)
+) -> CapabilitiesOut:
+    """SimEngBay 에서 능력표를 다시 받아 복사본을 바꾼다. 못 받으면 있던 것을 두고 까닭을
+    말한다(401 은 토큰 · 계정, 403 은 범위)."""
+    return CapabilitiesOut(**capabilities_store.refresh(db, by=user.id))

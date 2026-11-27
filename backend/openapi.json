@@ -5940,13 +5940,37 @@
         }
       }
     },
+    "/api/cad/conditions/capabilities": {
+      "get": {
+        "tags": [
+          "cad"
+        ],
+        "summary": "Conditions Capabilities",
+        "description": "받는 쪽 능력표의 **복사본** — 케이스의 대상 솔버로 고를 수 있는 것(`tables` 의\n`solver`). 받은 적이 없으면 `tables` 가 None 이다(그때는 거르지 않는다). 갱신은 관리\n화면에서 한다.",
+        "operationId": "conditions_capabilities_api_cad_conditions_capabilities_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Conditions Capabilities Api Cad Conditions Capabilities Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/cad/conditions/notes": {
       "post": {
         "tags": [
           "cad"
         ],
         "summary": "Conditions Notes",
-        "description": "조건의 식 중 **풀리지 않는 것** — 고치는 중에 알린다(저장 · 내보내기에서 막히기 전에).\n고치는 중인 한 벌이라 검증하지 않는다 — 알림만 준다.",
+        "description": "조건의 식 중 **풀리지 않는 것** — 고치는 중에 알린다(저장 · 내보내기에서 막히기 전에).\n고치는 중인 한 벌이라 검증하지 않는다 — 알림만 준다.\n\n`solver` 를 주면 받는 쪽 능력표의 알림도 더한다(`capabilities.notes`) — 받지 않는 항목은\n경고(저장할 때 막힌다), 읽지 않는 칸 · 안내는 알림. 모양이 아직 틀린 한 벌이면 건너뛴다.",
         "operationId": "conditions_notes_api_cad_conditions_notes_post",
         "requestBody": {
           "content": {
@@ -9267,6 +9291,50 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/server/capabilities": {
+      "get": {
+        "tags": [
+          "server"
+        ],
+        "summary": "Capabilities",
+        "description": "받는 쪽(SimEngBay) 능력표의 **복사본** — 저장 · 내보내기가 대상 솔버로 거르는 표.",
+        "operationId": "capabilities_api_server_capabilities_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilitiesOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/server/capabilities/refresh": {
+      "post": {
+        "tags": [
+          "server"
+        ],
+        "summary": "Refresh Capabilities",
+        "description": "SimEngBay 에서 능력표를 다시 받아 복사본을 바꾼다. 못 받으면 있던 것을 두고 까닭을\n말한다(401 은 토큰 · 계정, 403 은 범위).",
+        "operationId": "refresh_capabilities_api_server_capabilities_refresh_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilitiesOut"
                 }
               }
             }
@@ -27934,6 +28002,61 @@
         "type": "object",
         "title": "BundleIn"
       },
+      "CapabilitiesOut": {
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "missing": {
+            "type": "string",
+            "title": "Missing"
+          },
+          "base_url": {
+            "type": "string",
+            "title": "Base Url"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "fetched_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetched At"
+          },
+          "tables": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tables"
+          }
+        },
+        "type": "object",
+        "required": [
+          "configured",
+          "missing",
+          "base_url",
+          "source",
+          "fetched_at",
+          "tables"
+        ],
+        "title": "CapabilitiesOut",
+        "description": "받는 쪽 능력표의 복사본 — 관리 화면. 토큰은 싣지 않는다(설정이 됐는지만)."
+      },
       "CaveatOut": {
         "properties": {
           "code": {
@@ -29456,6 +29579,11 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Conditions"
+          },
+          "solver": {
+            "type": "string",
+            "title": "Solver",
+            "default": ""
           }
         },
         "type": "object",

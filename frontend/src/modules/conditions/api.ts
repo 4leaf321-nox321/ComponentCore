@@ -9,6 +9,7 @@
 
 import type { Recipe } from '@/modules/cad/api'
 import type { FrameDraft } from '@/modules/cad/FrameForm'
+import type { CapabilityTable } from '@/modules/conditions/capabilities'
 import type { FrameRow } from '@/shared/viewer/PickViewer'
 import { api } from '@/shared/api/client'
 
@@ -425,11 +426,13 @@ export interface Body {
   bbox?: number[][]
 }
 
-/** 조건의 식 알림 — 풀리지 않는 식. */
+/** 조건의 알림 — 풀리지 않는 식, 대상 솔버의 능력표(받지 않는 항목 · 읽지 않는 칸 · 안내). */
 export interface ExpressionNote {
   where: string
   level: 'info' | 'warn'
   text: string
+  /** 그 항목의 창을 여는 자리 — 능력표 알림이 항목을 짚을 때. */
+  open?: { kind: 'item'; group: string; index: number }
 }
 
 /** 맞닿은 바디 쌍 — 넓이(mm², 못 쟀으면 null)와 자리. */
@@ -457,9 +460,15 @@ export const conditionsApi = {
    */
   bodies: (recipe: Recipe) => api.post<{ items: Body[] }>('/cad/recipe/bodies', { recipe }),
   schema: () => api.get<ConditionsSchema>('/cad/conditions/schema'),
-  /** 값 칸의 식 중 **풀리지 않는 것** — 저장 · 내보내기에서 막히기 전에 알린다. */
-  notes: (conditions: Conditions, recipe: Recipe) =>
-    api.post<{ items: ExpressionNote[] }>('/cad/conditions/notes', { conditions, recipe }),
+  /**
+   * 값 칸의 식 중 **풀리지 않는 것** — 저장 · 내보내기에서 막히기 전에 알린다. `solver`(고치는 케이스의 대상 솔버)를
+   * 주면 받는 쪽 능력표의 알림도 온다 — 받지 않는 항목(경고, 저장할 때 막힌다) · 읽지 않는 칸 · 안내.
+   */
+  notes: (conditions: Conditions, recipe: Recipe, solver = '') =>
+    api.post<{ items: ExpressionNote[] }>('/cad/conditions/notes', { conditions, recipe, solver }),
+  /** 받는 쪽 능력표의 복사본 — 대상 솔버 목록. 받은 적이 없으면 `tables` 가 null. */
+  capabilities: () =>
+    api.get<{ tables: CapabilityTable[] | null; fetched_at: string | null }>('/cad/conditions/capabilities'),
   /**
    * 조립의 **맞닿은 쌍과 접촉** — 접촉 없이 맞닿은 쌍(그대로 두면 해석에서 떨어져 부품이 뜬다),
    * 그 쌍을 본딩으로 채울 그룹 · 접촉, 모달에서 접촉이 풀리는 법. 도면을 만들어야 해서 무겁다.

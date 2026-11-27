@@ -22,6 +22,7 @@ from app.modules.jobs import services as jobs
 from app.modules.jobs.schemas import JobOut
 from app.modules.parts import services as parts
 from app.modules.parts.schemas import PartVersionOut
+from app.modules.server import capabilities_store
 from app.modules.works import services
 from app.modules.works.models import Work
 from app.modules.works.schemas import (
@@ -436,8 +437,16 @@ def set_conditions(
         if rows is None
         else {str(one["name"]) for one in rows if one.get("kind") == "sheet"}
     )
+    # **대상 솔버가 정해진 케이스는 받는 쪽 능력표로 거른다** — 받지 않는 해석 · 항목을 받는
+    # 쪽이 작업을 만들 때 거절하기 전에(복사본이 없으면 거르지 않는다).
     try:
-        conditions.parse(payload.conditions, known, recipe_frame_names(version.recipe), sheets)
+        conditions.parse(
+            payload.conditions,
+            known,
+            recipe_frame_names(version.recipe),
+            sheets,
+            capabilities=capabilities_store.tables(db),
+        )
     except conditions.ConditionError as failure:
         raise AppError(code("WORKS", 12), str(failure)) from failure
     version.conditions = payload.conditions

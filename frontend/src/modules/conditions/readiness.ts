@@ -127,7 +127,7 @@ export function readiness({ draft, schema, bodies, converted, notes, geometry, m
     }
   })
 
-  for (const note of notes) out.push({ level: note.level, where: note.where, text: note.text })
+  for (const note of notes) out.push({ level: note.level, where: note.where, text: note.text, ...(note.open ? { open: note.open } : {}) })
 
   if (moved.length > 0) {
     out.push({

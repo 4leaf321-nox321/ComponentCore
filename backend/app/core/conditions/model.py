@@ -17,6 +17,8 @@ from app.core.conditions.analysis import (
     _integerized,
 )
 from app.core.conditions.bodies import BodySetting, MeshHint, _check_body_settings
+from app.core.conditions.capabilities import Table, table_for
+from app.core.conditions.capabilities import check as check_capable
 from app.core.conditions.cases import (
     CASE_FIELDS,
     MULTI_CASE_BLOCKED,
@@ -280,6 +282,8 @@ def parse(
     bodies: list[str] | None = None,
     frames: list[str] | None = None,
     sheets: set[str] | None = None,
+    *,
+    capabilities: list[Table] | None = None,
 ) -> Conditions:
     """읽어서 검증한다. **틀린 자리를 짚어 말한다** — 「조건이 잘못됐습니다」 로는 못 고친다.
 
@@ -293,6 +297,10 @@ def parse(
 
     `sheets` 는 그 가운데 **시트 바디**(셸 모델 — `topology.bodies` 의 `kind="sheet"`)의 이름 —
     주면 파트 설정이 형상과 맞는지도 본다: 시트는 쉘로만, 솔리드는 두께를 형상에서 잰다.
+
+    `capabilities` 는 받는 쪽 능력표의 복사본 — 주면 **대상 솔버가 정해진 케이스**를 그 솔버의
+    표로 거른다(표에 없는 해석 · 항목 종류를 막는다, `capabilities.check`). 복사본에 없는
+    솔버 · v1 조건은 거르지 않는다.
     """
     if not raw:
         return Conditions()
@@ -303,9 +311,13 @@ def parse(
         where = ".".join(str(one) for one in first["loc"])
         raise ConditionError(f"{where}: {first['msg']}") from failure
     check_cases(conditions.cases, _top_fields(conditions), conditions.schema_version)
-    for index, (_, view) in enumerate(views(conditions)):
+    for index, (name, view) in enumerate(views(conditions)):
         try:
             _check(view, bodies, frames, sheets)
+            if capabilities is not None and conditions.cases:
+                table = table_for(capabilities, conditions.cases[index].target.solver)
+                if table is not None:
+                    check_capable(view, table, name)
         except ConditionError as failure:
             if not conditions.cases:
                 raise

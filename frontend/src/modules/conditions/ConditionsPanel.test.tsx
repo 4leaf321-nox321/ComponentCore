@@ -254,6 +254,15 @@ const NO_MODULUS = {
   missing_structural: ['탄성계수'],
 }
 
+/** 받는 쪽 능력표의 복사본 — 케이스 탭의 대상 솔버 목록(판이 있으면 함께). */
+const CAPABILITIES = {
+  tables: [
+    { solver: 'calculix', version: null, receiver_version: 'v0.36.0' },
+    { solver: 'ansys', version: '2025 R2', receiver_version: 'v0.36.0' },
+  ],
+  fetched_at: '2026-11-27T00:00:00Z',
+}
+
 /** 쪽(族) · 갈래 — 탐색기가 좁혀 들어갈 두 칸. 개수는 그쪽이 세어 준다. */
 const CLASSES = { fallback: false, items: [{ family: '강판', category: '냉연', count: 1 }] }
 
@@ -276,7 +285,9 @@ vi.mock('@/shared/api/client', async () => {
           ? CLASSES
           : path.startsWith('/materials')
             ? MATERIALS
-            : schemaNow,
+            : path.startsWith('/cad/conditions/capabilities')
+              ? CAPABILITIES
+              : schemaNow,
       ),
       // 바디 목록과 셀렉터 후보는 **다른 길**이다 — 물성이 어디에 붙는지가 바디에서 나온다.
       post: vi.fn(async (path: string, body?: { pick?: { point?: number[] }; picks?: { point: number[] }[] }) => {
@@ -290,9 +301,14 @@ vi.mock('@/shared/api/client', async () => {
         if (path.startsWith('/cad/conditions/frames')) return { items: [], missing: [] }
         // 식 알림 — 풀리지 않는 식만(서버가 헤아린다).
         if (path.startsWith('/cad/conditions/notes')) {
-          const { conditions } = body as unknown as { conditions: { constraints?: { x?: unknown }[] } }
+          const { conditions, solver } = body as unknown as { conditions: { constraints?: { x?: unknown }[] }; solver?: string }
           const broken = (conditions.constraints ?? []).some((one) => String(one.x ?? '').includes('없는것'))
-          return { items: broken ? [{ where: '구속 「밀기」 X 변위량', level: 'warn', text: "식 '=없는것': 모르는 이름 '없는것'" }] : [] }
+          // 대상 솔버의 능력표 — 서버가 거른다(받지 않는 항목은 경고, 그 하중의 창을 여는 자리와 함께).
+          const refused =
+            solver === 'ansys'
+              ? [{ where: '압력 ‘당김’', level: 'warn', text: '대상 솔버 ‘ansys’의 정적 구조 해석에서 받지 않습니다(해석 쪽 능력표).', open: { kind: 'item', group: 'loads', index: 1 } }]
+              : []
+          return { items: [...(broken ? [{ where: '구속 「밀기」 X 변위량', level: 'warn', text: "식 '=없는것': 모르는 이름 '없는것'" }] : []), ...refused] }
         }
         // 선택 그룹을 지금 형상에서 푼다 — 바닥 면 하나.
         if (path.startsWith('/cad/recipe/find')) return { what: 'faces', total: 1, items: [{ index: 0, center: [0, 0, 0] }] }
@@ -1100,6 +1116,22 @@ test('이어지는 케이스는 해석 설정 · 구속 · 중력만 옮긴 사�
   fireEvent.click(screen.getByRole('button', { name: '케이스 삭제' }))
   expect(within(tabs).queryByRole('tab', { name: '↳ 케이스 3' })).toBeNull()
   expect(within(tabs).getByRole('tab', { name: '↳ 외력' })).toHaveAttribute('aria-selected', 'true')
+})
+
+test('대상 솔버는 능력표의 솔버에서 고르고, 준비 점검이 그 솔버로 거른 알림을 보인다', async () => {
+  const { api } = await import('@/shared/api/client')
+  render(<ConditionsPanel recipe={RECIPE} value={TWO_CASES} onSave={vi.fn()} />)
+  await waitFor(() => screen.getByText('면 찍기'))
+  const tabs = screen.getByRole('tablist', { name: '해석 케이스 목록' })
+  fireEvent.click(within(tabs).getByRole('tab', { name: '↳ 외력' }))
+  const select = screen.getByLabelText('대상 솔버')
+  await waitFor(() => expect(within(select).getByRole('option', { name: 'Ansys 2025 R2' })).toBeInTheDocument())
+  expect(within(select).getAllByRole('option').map((one) => one.textContent)).toEqual(['작업의 솔버를 따름', 'CalculiX', 'Ansys 2025 R2'])
+  fireEvent.change(select, { target: { value: 'ansys' } })
+  // 고친 케이스의 대상 솔버를 실어 묻는다 — 받지 않는 하중이 경고로 뜬다.
+  expect(await screen.findByText(/대상 솔버 ‘ansys’의 정적 구조 해석에서 받지 않습니다/, {}, { timeout: 3000 })).toBeInTheDocument()
+  const asked = vi.mocked(api.post).mock.calls.filter(([path]) => String(path).startsWith('/cad/conditions/notes'))
+  expect(asked.at(-1)?.[1]).toMatchObject({ solver: 'ansys' })
 })
 
 test('케이스가 없는 조건(v1)에는 탭이 없다 — 트리도 지금과 같다', async () => {
