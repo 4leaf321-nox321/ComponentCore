@@ -1172,6 +1172,158 @@ def test_예압_외력_두_케이스는_스위치가_꺼져_있으면_v1_볼트_
     assert point["unresolved"] == []
 
 
+#: ⑧-6 **v2 사슬 픽스처**(SimEngBay 의 부탁, 2026-11-27 — 받는 쪽 v2 첫 판의 시험 기준).
+#: 모두 스위치(`doe_conditions_v2`)를 켜고 뽑는다. 대상 솔버는 비운다 — 두 솔버가 같은 폴더를
+#: 푼다.
+_BOLT_STATIC = {"analysis": {"type": "static"}, "constraints": _BOLT["constraints"]}
+_BOLT_MODAL = {"analysis": {"type": "modal", "modes": 6}, "constraints": _BOLT["constraints"]}
+
+
+def _bolt_cases(name: str, cases: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "name": name,
+        "recipe": BOLT_PRETENSION["recipe"],
+        "factors": [],
+        "conditions": {
+            **{
+                k: v for k, v in _BOLT.items() if k not in ("constraints", "loads", "analysis")
+            },
+            "schema_version": 2,
+            "cases": cases,
+        },
+    }
+
+
+#: ① 「정적 → 모달」 — v1 「조건_볼트예압_선응력모달」 점 1 과 같은 답.
+CHAIN_STATIC_MODAL = _bolt_cases(
+    "조건_볼트예압_사슬_정적모달",
+    [
+        {"name": "정적", **_BOLT_STATIC, "loads": _BOLT["loads"]},
+        {"name": "모달", "depends_on": "정적", **_BOLT_MODAL},
+    ],
+)
+#: ② 「예압 → 외력 → 모달」 — 같은 답.
+CHAIN_THREE = _bolt_cases(
+    "조건_볼트예압_사슬_세케이스",
+    [
+        {"name": "예압", **_BOLT_STATIC, "loads": [_BOLT["loads"][0]]},
+        {"name": "외력", "depends_on": "예압", **_BOLT_STATIC, "loads": [_BOLT["loads"][1]]},
+        {"name": "모달", "depends_on": "외력", **_BOLT_MODAL},
+    ],
+)
+#: ③ 무관한 사슬 둘 — 「모달 단독」(선응력 없음)과 「예압 → 외력」. 작업이 둘로 갈린다.
+CHAIN_TWO_CHAINS = _bolt_cases(
+    "조건_볼트예압_사슬_둘",
+    [
+        {"name": "모달 단독", **_BOLT_MODAL},
+        {"name": "예압", **_BOLT_STATIC, "loads": [_BOLT["loads"][0]]},
+        {"name": "외력", "depends_on": "예압", **_BOLT_STATIC, "loads": [_BOLT["loads"][1]]},
+    ],
+)
+#: ④ 정적 → 정적, 볼트가 아닌 하중 — 기둥(SECC, 10 x 10 x 100, 바디 하나라 이름은 `전체`) 바닥
+#: 고정, 끝에 「힘 A」 100 N +X →
+#: 「힘 B」 50 N +Y. 하중은 이어지지 않으므로 「힘 B」 끝은 B 하나만 건 답이다: 끝 처짐
+#: δy = F·L³/(3EI) = 50 · 100³ / (3 · 205000 · 833.33) = 0.0976 mm(전단 0.0008 을 더하면 약
+#: 0.098),
+#: X 처짐 0, 바닥 반력 Fy -50 N · Fx 0, 바닥 굽힘 응력 M·c/I = 50 · 100 · 5 / 833.33 = 30 MPa.
+#: 「힘 A」 끝은 δx = 0.195 mm, 반력 Fx -100 N.
+COLUMN_TWO_CASES: dict[str, Any] = {
+    "name": "조건_외팔보_두케이스",
+    "recipe": {
+        "nodes": [
+            {"id": "기둥", "op": "box", "length": 10, "width": 10, "height": 100,
+             "align": ["center", "center", "min"]},
+        ],
+    },
+    "factors": [],
+    "conditions": {
+        "schema_version": 2,
+        "units": {"system": "mm_n_tonne"},
+        "named_selections": [
+            _face("바닥", {"normal": [0, 0, -1]}),
+            _face("끝", {"normal": [0, 0, 1]}),
+        ],
+        "materials": [_material("M-000138", ["전체"])],
+        "mesh_hints": [{"on": "전체", "element_size": 2, "order": "quadratic"}],
+        "cases": [
+            {
+                "name": "힘 A",
+                "analysis": {"type": "static"},
+                "constraints": [{"name": "바닥 고정", "type": "fixed_support", "on": "바닥"}],
+                "loads": [{"name": "A", "type": "force", "on": "끝", "magnitude": 100,
+                           "direction": [1, 0, 0]}],
+            },
+            {
+                "name": "힘 B",
+                "depends_on": "힘 A",
+                "analysis": {"type": "static"},
+                "constraints": [{"name": "바닥 고정", "type": "fixed_support", "on": "바닥"}],
+                "loads": [{"name": "B", "type": "force", "on": "끝", "magnitude": 50,
+                           "direction": [0, 1, 0]}],
+            },
+        ],
+    },
+}  # fmt: skip
+
+
+def test_v2_사슬_픽스처_넷_스위치를_켜고_뽑는다(
+    client: TestClient, member: Signed, export_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """케이스마다 v1 과 같은 길로 푼 칸, 공유 칸은 한 벌. 볼트 모델 셋은 영역 · 바디가 v1
+    「조건_볼트예압_정적」 점 1 과 같다 — 받는 쪽이 v1 결과와 견준다."""
+    monkeypatch.setattr(get_settings(), "doe_conditions_v2", True)
+    v1 = json.loads(
+        (COMMITTED / "조건_볼트예압_정적" / "points" / "p0001.json").read_text("utf-8")
+    )
+    expected = {
+        "조건_볼트예압_사슬_정적모달": [("정적", ""), ("모달", "정적")],
+        "조건_볼트예압_사슬_세케이스": [("예압", ""), ("외력", "예압"), ("모달", "외력")],
+        "조건_볼트예압_사슬_둘": [("모달 단독", ""), ("예압", ""), ("외력", "예압")],
+    }
+    for study in (CHAIN_STATIC_MODAL, CHAIN_THREE, CHAIN_TWO_CHAINS):
+        folder = _export(client, member, export_root, study)
+        (point,) = _points(folder)
+        conditions = point["conditions"]
+        assert conditions["schema_version"] == 2
+        assert not {"analysis", "constraints", "loads", "initial"} & set(conditions)
+        cases = conditions["cases"]
+        assert [(one["name"], one["depends_on"]) for one in cases] == expected[study["name"]]
+        for case in cases:
+            assert case["target"] == {"solver": ""}
+            assert [one["name"] for one in case["constraints"]] == ["바닥 고정"]
+            assert case["initial"] == []
+            # 선응력은 앞 케이스가 말한다 — 모달의 prestressed 칸은 비운 그대로(false).
+            if case["analysis"]["type"] == "modal":
+                assert case["analysis"]["prestressed"] is False
+                assert case["loads"] == []
+        bolts = [
+            one for case in cases for one in case["loads"] if one["type"] == "bolt_pretension"
+        ]
+        assert [(one["preload"], one["unit"]) for one in bolts] == [(1000, "N")]
+        assert point["regions"] == v1["regions"]
+        assert point["bodies"] == v1["bodies"]
+        assert point["unresolved"] == []
+        _keep(folder)
+
+    folder = _export(client, member, export_root, COLUMN_TWO_CASES)
+    (point,) = _points(folder)
+    first, second = point["conditions"]["cases"]
+    assert (first["name"], second["name"], second["depends_on"]) == ("힘 A", "힘 B", "힘 A")
+    (a,) = first["loads"]
+    (b,) = second["loads"]
+    assert (a["magnitude"], a["direction"], a["unit"]) == (100, [1, 0, 0], "N")
+    assert (b["magnitude"], b["direction"], b["unit"]) == (50, [0, 1, 0], "N")
+    regions = point["regions"]
+    assert [(one["area"], one["centroid"]) for one in regions["바닥"]] == [
+        (pytest.approx(100), [0.0, 0.0, 0.0])
+    ]
+    assert [(one["area"], one["centroid"]) for one in regions["끝"]] == [
+        (pytest.approx(100), [0.0, 0.0, 100.0])
+    ]
+    assert point["unresolved"] == []
+    _keep(folder)
+
+
 def test_조건_픽스처를_실제_내보내기로_만든다(
     client: TestClient, member: Signed, export_root: Path
 ) -> None:
