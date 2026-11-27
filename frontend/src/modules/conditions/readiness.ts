@@ -9,7 +9,7 @@
 
 import { curveUseOf, GROUP_KEYS, hasCoordinateOnlyRule, materialsOn, settingOf } from '@/modules/conditions/api'
 import type { Body, ConditionItem, Conditions, ConditionsSchema, ExpressionNote } from '@/modules/conditions/api'
-import { looseBolts } from '@/modules/conditions/cases'
+import { looseBolts, usesSteps } from '@/modules/conditions/cases'
 import type { CaseItem } from '@/modules/conditions/cases'
 import { curveMismatch, curveProblems } from '@/modules/conditions/curves'
 import type { MaterialConverted } from '@/modules/materials/api'
@@ -132,6 +132,14 @@ export function readiness({ draft, schema, bodies, converted, notes, geometry, m
     }
   })
 
+  // 하중 단계(②) — 해석 쪽이 받기 전에는 DOE 생성이 막힌다(저장은 된다).
+  if (cases.length > 0 && usesSteps(draft)) {
+    out.push({
+      level: 'info',
+      where: '하중 단계',
+      text: '하중 단계, 시간별 배율, 적용 단계, 수렴 제어, 출력 요청은 해석 쪽(SimEngBay)이 받는 판부터 DOE로 내보낼 수 있습니다. 저장은 됩니다.',
+    })
+  }
   // 사슬의 뒤 케이스에서 처음 조이는 볼트 — 이 케이스에서는 풀린 볼트다.
   for (const bolt of cases.length > 0 ? looseBolts(cases, active) : []) {
     out.push({

@@ -47,7 +47,8 @@ import type { Pick as MeasuredPick } from '@/modules/cad/measure'
 import { measureMarks } from '@/modules/cad/measureMarks'
 import { useRecipeMesh } from '@/modules/cad/useRecipeMesh'
 import { CaseTabs } from '@/modules/conditions/CaseTabs'
-import { caseView, casesOf, putCaseView, saved, withCases, withoutPrestress } from '@/modules/conditions/cases'
+import { caseView, casesOf, putCaseView, saved, splitIntoCases, withCases, withoutPrestress, withStepFields } from '@/modules/conditions/cases'
+import { LoadStepsEditor, stepsOf } from '@/modules/conditions/LoadStepsEditor'
 import { ConditionForm } from '@/modules/conditions/ConditionForm'
 import { ConditionsRibbon } from '@/modules/conditions/ConditionsRibbon'
 import { ContactCheck } from '@/modules/conditions/ContactCheck'
@@ -699,7 +700,11 @@ export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }
         ? spec.groups[editing.group]
         : undefined
   // 케이스의 선응력은 앞 케이스가 말한다 — v1 의 선응력 칸은 케이스에서 내지 않는다.
-  const editingSpec = baseSpec && editing && cases.length > 0 ? withoutPrestress(editing.group, baseSpec) : baseSpec
+  // 하중 단계(②)는 케이스에서만 — 사양표 폼이 그릴 수 있는 ② 칸(시간별 배율 표)을 케이스에서 연다.
+  const editingSpec =
+    baseSpec && editing && cases.length > 0 ? withStepFields(editing.group, withoutPrestress(editing.group, baseSpec), editing.item) : baseSpec
+  /** 케이스의 정적 해석이면 그 하중 단계 — 하중 창이 거는 단계를 고른다. */
+  const caseSteps = cases.length > 0 && String(draft.analysis?.type ?? '') === 'static' ? stepsOf(draft.analysis) : undefined
   /**
    * 곡선의 쓰임 단추 — 하중 칸마다 그 표를 읽는 법(가속도 PSD — 로그-로그 · g^2/Hz, 주파수별 배율 — 선형 · 단위
    * 없음). 이름표는 하중 사양표의 그 칸 이름이다.
@@ -1057,9 +1062,35 @@ export function ConditionsPanel({ recipe, value, onSave, saving, defaultSystem }
               analysis={editing.group === 'loads' ? String(draft.analysis?.type ?? 'modal') : undefined}
               curves={editing.group === 'loads' ? curveList : undefined}
               curveUses={spec.curves?.uses}
+              timeUse={spec.curves?.time_use}
+              timeLoads={spec.curves?.time_loads}
+              steps={editing.group === 'loads' ? caseSteps : undefined}
               onMakeCurve={(curve) => setWhole((now) => ({ ...now, curves: [...(now.curves ?? []), curve] }))}
               onChange={(next) => setEditing({ ...editing, item: next })}
             />
+            {editing.group === 'analysis' && String(editing.item.type ?? '') === 'static' && cases.length > 0 && (
+              <LoadStepsEditor analysis={editing.item} onChange={(next) => setEditing({ ...editing, item: next })} />
+            )}
+            {editing.group === 'analysis' && String(editing.item.type ?? '') === 'static' && cases.length === 0 && (
+              <div className="bg-muted/40 space-y-2 rounded px-2 py-2 text-xs">
+                <p className="text-muted-foreground">
+                  하중 단계, 시간별 배율, 수렴 제어, 출력 요청은 해석 케이스에서 지정합니다. 지금 조건을 케이스 하나로 나누면 지정할 수 있습니다.
+                  나누어도 해석은 바뀌지 않습니다.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => {
+                    setWhole((now) => splitIntoCases({ ...now, analysis: editing.item as Conditions['analysis'] }))
+                    setActive(0)
+                  }}
+                >
+                  해석 케이스로 나누기
+                </Button>
+              </div>
+            )}
           </>
         )}
       </FloatingWindow>

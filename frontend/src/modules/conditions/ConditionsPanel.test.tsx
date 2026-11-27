@@ -1267,3 +1267,112 @@ describe('곡선', () => {
     expect(screen.getByRole('dialog', { name: '곡선 추가' })).toBeInTheDocument()
   })
 })
+
+/** 하중 단계(②) 칸이 있는 사양표 — 서버처럼 ② 칸은 감춰 두고, 화면이 케이스에서만 연다. */
+const STEP_SCHEMA = {
+  ...SCHEMA,
+  analysis: {
+    properties: {
+      type: { enum: ['modal', 'static'] },
+      modes: { type: 'integer' },
+      steps: { type: 'integer', title: '하중 단계 수', default: 1, only_for: ['static'] },
+      load_steps: { title: '하중 단계', hidden: true, default: [], only_for: ['static'] },
+    },
+  },
+  groups: {
+    ...SCHEMA.groups,
+    loads: {
+      ...SCHEMA.groups.loads,
+      fields: {
+        ...SCHEMA.groups.loads.fields,
+        time_table: {
+          title: '시간별 배율',
+          hidden: true,
+          only_for: ['pressure'],
+          analysis_only: ['static'],
+          table: { columns: [{ title: '시간', unit: 's' }, { title: '배율' }] },
+        },
+        active_steps: { title: '적용 단계', hidden: true, default: [], only_for: ['pressure'], analysis_only: ['static'] },
+      },
+    },
+  },
+  curves: {
+    label: '곡선',
+    fields: { name: { type: 'string' }, x: { enum: ['time', 'step', 'frequency'] } },
+    required: ['name', 'x'],
+    uses: {},
+    time_use: { field: 'time_table', interpolation: 'linear', unit: '', axes: ['time', 'step'] },
+    time_loads: ['pressure'],
+  },
+}
+
+describe('하중 단계', () => {
+  beforeEach(() => {
+    schemaNow = STEP_SCHEMA
+  })
+  afterEach(() => {
+    schemaNow = SCHEMA
+  })
+
+  test('케이스가 없는 정적 조건은 「해석 케이스로 나누기」 로 케이스 하나가 되고, 그 케이스에서 하중 단계를 적는다', async () => {
+    const onSave = vi.fn()
+    const value = {
+      units: { system: 'mm_n_tonne' },
+      named_selections: [{ name: '바닥', entity: 'face', select: { what: 'faces', role: 'bottom' } }],
+      analysis: { type: 'static' },
+      constraints: [FIXED],
+      loads: [{ name: '누름', type: 'pressure', on: '바닥', magnitude: 1 }],
+    }
+    render(<ConditionsPanel recipe={RECIPE} value={value} onSave={onSave} />)
+    await waitFor(() => screen.getByText('면 찍기'))
+    fireEvent.click(screen.getAllByRole('button', { name: '해석 설정' })[0])
+    const dialog = await screen.findByRole('dialog', { name: '해석 설정' })
+    expect(within(dialog).queryByRole('button', { name: '단계 추가' })).toBeNull()
+    fireEvent.click(within(dialog).getByRole('button', { name: '해석 케이스로 나누기' }))
+    const tabs = screen.getByRole('tablist', { name: '해석 케이스 목록' })
+    expect(within(tabs).getByRole('tab', { name: '케이스 1' })).toHaveAttribute('aria-selected', 'true')
+    // 케이스에서는 v1 의 ‘하중 단계 수’ 대신 하중 단계 표다.
+    expect(within(dialog).queryByLabelText('하중 단계 수')).toBeNull()
+    fireEvent.click(within(dialog).getByRole('button', { name: '단계 추가' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '단계 추가' }))
+    fireEvent.change(within(dialog).getByLabelText('단계 2 이름'), { target: { value: '외력' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '확인' }))
+    // 케이스에서 하중 단계를 쓰면 해석 쪽이 받기 전에는 DOE 로 내보낼 수 없다고 미리 말한다.
+    expect(screen.getByText(/해석 쪽\(SimEngBay\)이 받는 판부터 DOE로 내보낼 수 있습니다/)).toBeInTheDocument()
+
+    // 하중 창 — 단계가 둘이면 거는 단계를 고른다(모두 고르면 모든 단계).
+    fireEvent.click(screen.getByTitle(/^누름 — /))
+    const load = await screen.findByRole('dialog', { name: '하중 수정' })
+    const choice = within(load).getByRole('group', { name: '적용 단계' })
+    expect(within(choice).getByLabelText('1. 단계 1')).toBeChecked()
+    expect(within(choice).getByLabelText('2. 외력')).toBeChecked()
+    fireEvent.click(within(choice).getByLabelText('1. 단계 1'))
+    // 시간별 배율 표도 케이스의 정적에서 열린다.
+    expect(within(load).getByText('시간별 배율')).toBeInTheDocument()
+    fireEvent.click(within(load).getByRole('button', { name: '확인' }))
+
+    const out = await save(onSave)
+    expect(out.schema_version).toBe(2)
+    expect(out).not.toHaveProperty('analysis')
+    const [only] = out.cases
+    expect(only.name).toBe('케이스 1')
+    expect(only.analysis.load_steps).toEqual([{ name: '단계 1' }, { name: '외력' }])
+    expect(only.loads[0].active_steps).toEqual([2])
+  })
+
+  test('케이스가 없는 조건에서는 하중 단계 · 적용 단계 칸을 내지 않는다', async () => {
+    const value = {
+      units: { system: 'mm_n_tonne' },
+      named_selections: [{ name: '바닥', entity: 'face', select: { what: 'faces', role: 'bottom' } }],
+      analysis: { type: 'static' },
+      constraints: [FIXED],
+      loads: [{ name: '누름', type: 'pressure', on: '바닥', magnitude: 1 }],
+    }
+    render(<ConditionsPanel recipe={RECIPE} value={value} onSave={vi.fn()} />)
+    await waitFor(() => screen.getByText('면 찍기'))
+    fireEvent.click(screen.getByTitle(/^누름 — /))
+    const load = await screen.findByRole('dialog', { name: '하중 수정' })
+    expect(within(load).queryByRole('group', { name: '적용 단계' })).toBeNull()
+    expect(within(load).queryByText('시간별 배율')).toBeNull()
+  })
+})

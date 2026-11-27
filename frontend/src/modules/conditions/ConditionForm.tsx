@@ -13,6 +13,8 @@ import { CurvePlot } from '@/modules/conditions/CurvePlot'
 import { curveMismatch, nextCurveName, tableOfCurve } from '@/modules/conditions/curves'
 import { FrequencyTable } from '@/modules/conditions/FrequencyTable'
 import type { FrequencyColumn } from '@/modules/conditions/FrequencyTable'
+import { stepLabel } from '@/modules/conditions/LoadStepsEditor'
+import type { LoadStep } from '@/modules/conditions/LoadStepsEditor'
 import { NumberText } from '@/modules/conditions/NumberText'
 import type { ConditionItem, CurveItem, CurveUse, FieldSchema, GroupSchema, NamedSelection } from '@/modules/conditions/api'
 import { Button } from '@/shared/components/ui/button'
@@ -485,6 +487,9 @@ export function ConditionForm({
   analysis,
   curves,
   curveUses,
+  timeUse,
+  timeLoads = [],
+  steps,
   onMakeCurve,
   onChange,
 }: {
@@ -502,6 +507,14 @@ export function ConditionForm({
   curves?: CurveItem[]
   /** 하중 종류마다 곡선이 채우는 표 칸 · 보간 · 단위(`schema.curves.uses`). */
   curveUses?: Record<string, CurveUse>
+  /** 정적 하중의 시간 · 단계 곡선(`schema.curves.time_use`) — `timeLoads` 의 종류가 정적에서 이것으로 읽는다. */
+  timeUse?: CurveUse
+  timeLoads?: string[]
+  /**
+   * 케이스의 정적 해석이면 그 하중 단계(② — 비면 한 단계). 주면 하중마다 거는 단계를 고른다. 케이스가 없는 조건이나 정적이
+   * 아니면 비운다.
+   */
+  steps?: LoadStep[]
   /** 표를 곡선으로 저장한다 — 한 벌의 곡선에 더한다(창을 취소해도 남는다 — 3D 에서 만든 선택 그룹처럼). */
   onMakeCurve?: (curve: CurveItem) => void
   onChange: (next: ConditionItem) => void
@@ -688,7 +701,7 @@ export function ConditionForm({
       {others.map(([key, field]) => {
         const options = choices(field)
         const value = item[key]
-        const use = curveUses?.[type]
+        const use = analysis === 'static' && timeUse && timeLoads.includes(type) ? timeUse : curveUses?.[type]
         if (field.table && typeof item.curve === 'string' && item.curve !== '') {
           const curve = curves?.find((one) => one.name === item.curve)
           return (
@@ -719,7 +732,7 @@ export function ConditionForm({
                     onMakeCurve &&
                     (() => {
                       const name = nextCurveName(curves, `${String(item.name ?? '') || (field.title ?? '하중')} 곡선`)
-                      onMakeCurve({ name, x: 'frequency', interpolation: use.interpolation, unit: use.unit, points: value as CurveItem['points'], scale: 1 })
+                      onMakeCurve({ name, x: use.axes?.[0] ?? 'frequency', interpolation: use.interpolation, unit: use.unit, points: value as CurveItem['points'], scale: 1 })
                       onChange({ ...item, curve: name, [key]: null })
                     })
                   }
@@ -879,6 +892,65 @@ export function ConditionForm({
           </div>
         )
       })}
+      {steps !== undefined && 'active_steps' in group.fields && (
+        <StepChoice type={type} item={item} steps={steps} timeLoads={timeLoads} onChange={onChange} />
+      )}
+    </div>
+  )
+}
+
+/**
+ * **하중을 거는 단계**(② — 케이스의 정적 해석, 단계가 둘 이상일 때). 비우면 모든 단계에 건다(서버 `active_steps` — 처음
+ * 켜지는 단계 안에서 0 부터 오르고, 꺼지는 단계 안에서 0 으로 내린다). 시간별 배율과 함께 쓰지 않는다. 볼트는 첫 단계에서
+ * 조이고 다음 단계부터 잠그며, 중력은 모든 단계에 같게 걸린다 — 고르지 않고 그렇다고 말한다.
+ */
+function StepChoice({
+  type,
+  item,
+  steps,
+  timeLoads,
+  onChange,
+}: {
+  type: string
+  item: ConditionItem
+  steps: LoadStep[]
+  timeLoads: string[]
+  onChange: (next: ConditionItem) => void
+}) {
+  if (steps.length < 2) return null
+  if (type === 'bolt_pretension') {
+    return <p className="text-muted-foreground text-xs">볼트는 첫 단계에서 조이고, 다음 단계부터 조인 길이로 잠급니다.</p>
+  }
+  if (type === 'standard_earth_gravity') {
+    return <p className="text-muted-foreground text-xs">중력은 모든 하중 단계에 같게 걸립니다.</p>
+  }
+  if (!timeLoads.includes(type)) return null
+  const chosen = Array.isArray(item.active_steps) ? (item.active_steps as number[]) : []
+  const all = steps.map((_, index) => index + 1)
+  const on = (n: number) => chosen.length === 0 || chosen.includes(n)
+  const timed = (Array.isArray(item.time_table) && item.time_table.length > 0) || (typeof item.curve === 'string' && item.curve !== '')
+  const toggle = (n: number) => {
+    const current = chosen.length === 0 ? all : chosen
+    const next = current.includes(n) ? current.filter((one) => one !== n) : [...current, n].sort((a, b) => a - b)
+    if (next.length === 0) return
+    onChange({ ...item, active_steps: next.length === all.length ? [] : next })
+  }
+  return (
+    <div className="space-y-1">
+      <Label>적용 단계</Label>
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs" role="group" aria-label="적용 단계">
+        {steps.map((step, index) => (
+          <label key={index} className="flex items-center gap-1">
+            <input type="checkbox" checked={on(index + 1)} disabled={timed} onChange={() => toggle(index + 1)} />
+            {stepLabel(step, index)}
+          </label>
+        ))}
+      </div>
+      <p className="text-muted-foreground text-xs">
+        {timed
+          ? '시간별 배율을 쓰는 하중은 단계를 고르지 않습니다. 끄려는 시간의 배율을 0으로 적으십시오.'
+          : '처음 거는 단계 안에서 0부터 오르고, 끄는 단계 안에서 0으로 내립니다. 모두 고르면 모든 단계에 겁니다.'}
+      </p>
     </div>
   )
 }

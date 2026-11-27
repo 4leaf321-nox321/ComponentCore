@@ -10,7 +10,7 @@
  * 케이스인지 모른다).
  */
 
-import type { ConditionItem, Conditions } from '@/modules/conditions/api'
+import type { ConditionItem, Conditions, FieldSchema } from '@/modules/conditions/api'
 
 /** 케이스마다 적는 칸 — 나머지는 공유다. */
 export const CASE_FIELDS = ['analysis', 'constraints', 'loads', 'initial'] as const
@@ -159,4 +159,60 @@ export function withoutPrestress<T extends { types: string[]; fields: Record<str
   }
   if (group === 'initial') return { ...spec, types: spec.types.filter((one) => one !== 'prestress') }
   return spec
+}
+
+/**
+ * **해석 케이스로 나누기** — 케이스가 없는 조건(v1)을 케이스 하나로. 해석 설정 · 구속 · 하중 · 초기조건이 그 케이스로
+ * 간다(공유 칸은 그대로). 해석은 바뀌지 않는다 — 케이스 하나는 v1 그대로 내보낸다. 하중 단계(②)처럼 케이스에서만 쓰는
+ * 칸을 열 때 쓴다. 맨 위의 케이스 칸은 화면이 들고 있다가 저장할 때 뺀다(`saved`).
+ */
+export function splitIntoCases(whole: Conditions, name = '케이스 1'): Conditions {
+  if (casesOf(whole).length > 0) return whole
+  const one: CaseItem = {
+    name,
+    analysis: structuredClone(whole.analysis ?? { type: 'modal' }),
+    constraints: structuredClone(whole.constraints ?? []),
+    loads: structuredClone(whole.loads ?? []),
+    initial: structuredClone(whole.initial ?? []),
+  }
+  return { ...whole, schema_version: 2, cases: [one] } as Conditions
+}
+
+/**
+ * **케이스의 ② 칸** — 사양표 폼이 그릴 수 있는 것을 연다(서버 사양표는 감춰 둔다 — 케이스가 없는 조건에는 쓰지 않는다).
+ *
+ * - 하중: ‘시간별 배율’ 표(`time_table`, 정적에서만 — 칸의 `analysis_only`).
+ * - 해석 설정: v1 의 ‘하중 단계 수’ 는 하중 단계 표(`LoadStepsEditor`)가 대신한다 — 기본값(1)이면 감춘다. 하중 단계를
+ *   쓰면 ‘초기 부단계 수’ 도 단계마다 적으므로 비어 있으면 감춘다.
+ */
+export function withStepFields<T extends { fields: Record<string, FieldSchema> }>(group: string, spec: T, item: ConditionItem): T {
+  if (group === 'loads' && spec.fields.time_table) {
+    return { ...spec, fields: { ...spec.fields, time_table: { ...spec.fields.time_table, hidden: false } } }
+  }
+  if (group === 'analysis') {
+    const fields = { ...spec.fields }
+    if (item.steps == null || item.steps === 1) delete fields.steps
+    const steps = Array.isArray(item.load_steps) ? item.load_steps : []
+    if (steps.length > 0 && item.substeps == null) delete fields.substeps
+    return { ...spec, fields }
+  }
+  return spec
+}
+
+/**
+ * 케이스에서 하중 단계(②)를 쓰는가 — 하중 단계 · 수렴 제어 · 출력 요청, 하중의 시간별 배율 · 적용 단계 · 볼트 동작, 정적
+ * 하중이 가리키는 곡선(시간 곡선). 해석 쪽이 받기 전에는 DOE 생성이 막힌다(서버 `steps.blocked`).
+ */
+export function usesSteps(view: Conditions): boolean {
+  const analysis = (view.analysis ?? {}) as Record<string, unknown>
+  if (Array.isArray(analysis.load_steps) && analysis.load_steps.length > 0) return true
+  if (analysis.convergence != null || analysis.outputs != null) return true
+  const statics = analysis.type === 'static'
+  return (view.loads ?? []).some(
+    (load) =>
+      (Array.isArray(load.time_table) && load.time_table.length > 0) ||
+      (Array.isArray(load.active_steps) && load.active_steps.length > 0) ||
+      (Array.isArray(load.bolt_steps) && load.bolt_steps.length > 0) ||
+      (statics && typeof load.curve === 'string' && load.curve !== '' && load.type !== 'psd_acceleration'),
+  )
 }
