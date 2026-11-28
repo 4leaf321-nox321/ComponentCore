@@ -304,6 +304,22 @@ def test_솔버가_비면_알림이_없고_표가_없으면_확인하지_않았�
 
 # ── SimEngBay v0.37.0 — 판 2 를 받는 첫 판 ───────────────────────────────────────
 
+
+def _fingerprint(tables: list[dict[str, Any]]) -> str:
+    dump = json.dumps(tables, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(dump.encode()).hexdigest()
+
+
+def _bare(tables: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """받는 **종류**가 바뀌었나는 판 칸을 빼고 잰다 — 솔버의 판(`version` — 운영의 ccx -v ·
+    ANSYS_VERSION)과 받는 쪽의 판(`receiver_version` — 패치 판만 올라가도 바뀐다)은 받는 것이
+    같아도 달라진다(SimEngBay, 2026-11-28)."""
+    return [
+        {k: v for k, v in one.items() if k not in ("version", "receiver_version")}
+        for one in tables
+    ]
+
+
 #: v0.37.0 태그(97698ea)의 코드에서 뽑은 응답(SimEngBay, 2026-11-27). v0.36.0 견본과 다른 것은
 #: `contract` [1, 2] · `receiver_version` · 해석마다 `follows` · note 문구다. 칸 · 종류는 같다.
 V037: list[dict[str, Any]] = json.loads(
@@ -312,22 +328,13 @@ V037: list[dict[str, Any]] = json.loads(
 
 
 def test_v037_견본은_받은_그대로다() -> None:
-    def fingerprint(tables: list[dict[str, Any]]) -> str:
-        dump = json.dumps(tables, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(dump.encode()).hexdigest()
-
     assert (
-        fingerprint(V037) == "b68d2f8b203844dc28d78d74900a49efde66816fab15e435ec397be6999cf86f"
+        _fingerprint(V037)
+        == "b68d2f8b203844dc28d78d74900a49efde66816fab15e435ec397be6999cf86f"
     )
-    # 받는 **종류**가 바뀌었나는 판 칸을 빼고 잰다 — 솔버의 판(`version` — 운영의 ccx -v ·
-    # ANSYS_VERSION)과 받는 쪽의 판(`receiver_version` — 패치 판만 올라가도 바뀐다)은 받는 것이
-    # 같아도 달라진다(SimEngBay, 2026-11-28).
-    bare = [
-        {k: v for k, v in one.items() if k not in ("version", "receiver_version")}
-        for one in V037
-    ]
     assert (
-        fingerprint(bare) == "ab26c097929f3e1a202e2e2621721b1e05390dc814b923419b3adb034f85c0fd"
+        _fingerprint(_bare(V037))
+        == "ab26c097929f3e1a202e2e2621721b1e05390dc814b923419b3adb034f85c0fd"
     )
     tables = read(V037)
     assert [(one.solver, one.receiver_version, one.contract) for one in tables] == [
@@ -356,3 +363,97 @@ def test_v037_은_사슬은_받고_단계_칸과_소성은_아직_막는다() ->
         parse(steps, capabilities=tables)
     # 단계 칸이 없는 정적은 그대로 저장된다.
     parse(_static("calculix", PUSH), capabilities=tables)
+
+
+# ── SimEngBay v0.38.0 — ② 하중 단계 · 소성을 받는 판 ────────────────────────────────
+
+#: v0.38.0 태그(4c1532c)의 코드에서 뽑은 응답(SimEngBay, 2026-11-28). v0.37.0 견본과 다른 것은
+#: 정적의 단계 칸 넷(`load_steps` · `time_table` · `active_steps` · `bolt_steps`), 정적의 소성
+#: 재료 둘, note 둘(CalculiX 모멘트 · 두 솔버의 볼트 예압), `receiver_version` 이다.
+V038: list[dict[str, Any]] = json.loads(
+    (FIXTURE.parent / "capabilities_v038.json").read_text(encoding="utf-8")
+)
+STAGED_BOLT: dict[str, Any] = {**BOLT, "bolt_steps": ["load", "lock"]}
+STAGED_PUSH: dict[str, Any] = {**PUSH, "active_steps": [2]}
+TWO_STEPS: list[dict[str, Any]] = [{"name": "예압"}, {"name": "외력"}]
+
+
+def test_v038_견본은_받은_그대로다() -> None:
+    assert (
+        _fingerprint(V038)
+        == "a02101bcc1b8f61220649d84a9a60e329af1ed0ef40629902921ac87d762e92f"
+    )
+    # 패치 판(v0.38.1)으로 다시 올라가도 받는 종류가 같으면 이 지문은 그대로다. 후보
+    # (6a95e4b6…)와 다른 것은 볼트 예압 note 의 문구 하나다(‘하중 단계’ 를 감쌌다).
+    assert (
+        _fingerprint(_bare(V038))
+        == "1e7b5df974799970b6305b358e9227f42bb2162a3cbb0efcd5bd97058044a4d9"
+    )
+    tables = read(V038)
+    assert [
+        (one.solver, one.version, one.receiver_version, one.contract) for one in tables
+    ] == [
+        ("calculix", None, "v0.38.0", [1, 2]),
+        ("ansys", "2025 R2", "v0.38.0", [1, 2]),
+    ]
+    for table in tables:
+        static = table.analyses["static"]
+        assert "load_steps" in [one.name for one in static.fields["analysis"]]
+        assert {"time_table", "active_steps", "bolt_steps"} <= {
+            one.name for one in static.fields["loads"]
+        }
+        materials = [one.name for one in static.listed("materials") or []]
+        assert {"bilinear_isotropic", "multilinear_isotropic"} <= set(materials)
+        # 모드 해석 쪽은 그대로 탄성만 — 소성 재료는 알림을 달고 탄성 값으로 푼다.
+        assert "multilinear_isotropic" not in [
+            one.name for one in table.analyses["modal"].listed("materials") or []
+        ]
+
+
+def test_v038_은_단계_칸과_소성을_막지_않는다() -> None:
+    tables = read(V038)
+    for solver in ("calculix", "ansys"):
+        raw = _static(solver, STAGED_BOLT, STAGED_PUSH, load_steps=TWO_STEPS)
+        raw["materials"][0] |= {
+            "model": "multilinear_isotropic",
+            "plastic": {"table": [[0, 250], [0.01, 270], [0.05, 300]]},
+        }
+        parse(raw, capabilities=tables)
+        got = _notes(raw, tables)
+        assert [one for one in got if one["level"] == "warn"] == [], solver
+        # 볼트 예압의 안내는 바뀐 문구로 — 단계를 나눴을 때 어떻게 거는지 말한다.
+        (bolt,) = [one for one in got if one["where"] == "볼트 예압 ‘조임’"]
+        assert "‘하중 단계’를 나누면 첫 단계에서 조이고" in bolt["text"], solver
+    # 대상 솔버를 비운 케이스도 두 솔버가 다 읽으므로 내보낸다.
+    from app.core.conditions import check_untargeted
+
+    untargeted = _static("", STAGED_BOLT, STAGED_PUSH, load_steps=TWO_STEPS)
+    check_untargeted(parse(untargeted), tables)
+    # 다른 케이스와 잇지 않은 정적에서만 쓰는 것은 받는 쪽 판과 상관없이 그대로다.
+    chained = _static("calculix", PUSH)
+    chained["cases"].append(
+        {
+            "name": "뒤",
+            "depends_on": "정적",
+            "target": {"solver": "calculix"},
+            "analysis": {"type": "static", "load_steps": TWO_STEPS},
+            "constraints": [FIXED],
+            "loads": [STAGED_PUSH],
+        }
+    )
+    with pytest.raises(ConditionError, match=r"다른 케이스와 잇지 않은 정적 케이스에서만"):
+        parse(chained, capabilities=tables)
+
+
+def test_v038_의_calculix_모멘트는_큰_회전을_알린다() -> None:
+    moment = {
+        "name": "끝 모멘트",
+        "type": "moment",
+        "on": "윗면",
+        "magnitude": 10,
+        "direction": [0, 1, 0],
+    }
+    tables = read(V038)
+    got = _notes(_static("calculix", moment, large_deflection=True), tables)
+    assert any("약 40° 넘게 돌면" in one["text"] for one in got if one["level"] == "info")
+    assert not any("40°" in one["text"] for one in _notes(_static("ansys", moment), tables))
