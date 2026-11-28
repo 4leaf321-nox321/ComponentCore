@@ -365,9 +365,10 @@ def test_v037_은_사슬은_받고_단계_칸과_소성은_아직_막는다() ->
     parse(_static("calculix", PUSH), capabilities=tables)
 
 
-# ── SimEngBay v0.38.0 — ② 하중 단계 · 소성을 받는 판 ────────────────────────────────
+# ── SimEngBay v0.38.1 — ② 하중 단계 · 소성을 받는 판 ────────────────────────────────
 
-#: v0.38.0 태그(4c1532c)의 코드에서 뽑은 응답(SimEngBay, 2026-11-28). v0.37.0 견본과 다른 것은
+#: v0.38.1 태그(9cac4cd)의 코드에서 뽑은 응답(SimEngBay, 2026-11-28). v0.38.0(4c1532c)은 CI 가
+#: 깨져 릴리스되지 않았고, 그 응답과는 `receiver_version` 만 다르다. v0.37.0 견본과 다른 것은
 #: 정적의 단계 칸 넷(`load_steps` · `time_table` · `active_steps` · `bolt_steps`), 정적의 소성
 #: 재료 둘, note 둘(CalculiX 모멘트 · 두 솔버의 볼트 예압), `receiver_version` 이다.
 V038: list[dict[str, Any]] = json.loads(
@@ -381,9 +382,9 @@ TWO_STEPS: list[dict[str, Any]] = [{"name": "예압"}, {"name": "외력"}]
 def test_v038_견본은_받은_그대로다() -> None:
     assert (
         _fingerprint(V038)
-        == "a02101bcc1b8f61220649d84a9a60e329af1ed0ef40629902921ac87d762e92f"
+        == "d6dc289f6ec1a819586849641b5a54cfe87ebe61a8c6b461c29dc5cf419c1539"
     )
-    # 패치 판(v0.38.1)으로 다시 올라가도 받는 종류가 같으면 이 지문은 그대로다. 후보
+    # 받는 종류는 v0.38.0 과 같다 — 패치 판으로 다시 올라가도 이 지문은 그대로였다. 후보
     # (6a95e4b6…)와 다른 것은 볼트 예압 note 의 문구 하나다(‘하중 단계’ 를 감쌌다).
     assert (
         _fingerprint(_bare(V038))
@@ -393,8 +394,8 @@ def test_v038_견본은_받은_그대로다() -> None:
     assert [
         (one.solver, one.version, one.receiver_version, one.contract) for one in tables
     ] == [
-        ("calculix", None, "v0.38.0", [1, 2]),
-        ("ansys", "2025 R2", "v0.38.0", [1, 2]),
+        ("calculix", None, "v0.38.1", [1, 2]),
+        ("ansys", "2025 R2", "v0.38.1", [1, 2]),
     ]
     for table in tables:
         static = table.analyses["static"]

@@ -3,7 +3,7 @@
   "receiver": "simengbay",
   "solver": "calculix",
   "version": null,
-  "receiver_version": "v0.38.0",
+  "receiver_version": "v0.38.1",
   "contract": [
    1,
    2
@@ -356,7 +356,7 @@
   "receiver": "simengbay",
   "solver": "ansys",
   "version": "2025 R2",
-  "receiver_version": "v0.38.0",
+  "receiver_version": "v0.38.1",
   "contract": [
    1,
    2
