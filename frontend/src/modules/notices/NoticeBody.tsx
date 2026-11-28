@@ -16,10 +16,13 @@ export function NoticeBody({ text, className }: { text: string; className?: stri
   return (
     <div className={cn('text-sm leading-6 whitespace-pre-wrap', className)}>
       {text.split(TOKEN).map((part, at) => {
-        if (part.length > 4 && part.startsWith('**') && part.endsWith('**')) {
+        // 잡은 짝은 홀수 자리에만 온다. 사이 글이 마침 `**` 로 시작하고 끝나도(줄을 넘는 짝)
+        // 글자 그대로다 — 꼴로 가르면 정규식이 일부러 안 잡은 것을 다시 그린다(SimEngBay, 2026-11-28).
+        if (at % 2 === 0) return part
+        if (part.startsWith('**')) {
           return <strong key={at}>{part.slice(2, -2)}</strong>
         }
-        if (part.length > 2 && part.startsWith('`') && part.endsWith('`')) {
+        if (part.startsWith('`')) {
           return (
             <code key={at} className="bg-muted rounded px-1 font-mono text-[0.9em]">
               {part.slice(1, -1)}
